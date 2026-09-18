@@ -129,11 +129,82 @@ arg_is_target_typed(call, pos) :- java_expression("METHOD_REFERENCE", "ARGUMENT"
 
 hash_mismatch(call, callee) :- expr_call_candidate(call, callee),
     arg_type_hash(call, pos, at),
+    !external_type(at),
     param_type_hash(callee, pos, pt),
     at != pt,
     !param_is_object(pt),
     !arg_is_target_typed(call, pos),
     !type_ancestor(at, pt).
+// ── EXTERNAL types on either side (resolution/external-types.dl) ──────────────────────
+// An argument typed as an UNSTAGED type X against a parameter that resolved to a CLIENT type:
+// X is declared outside the project, so it cannot extend a project type — a mismatch. Against
+// a staged LIBRARY parameter it proves nothing (X may well extend it), so that pairing is
+// left alone; the clause above excludes external argument types for that reason.
+hash_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_type_hash(call, pos, at),
+    external_type(at),
+    param_type_hash(callee, pos, pt),
+    type_prov(pt, "client"),
+    !arg_is_target_typed(call, pos).
+// A CLIENT-typed argument whose whole hierarchy is visible (no external ancestor, so every
+// supertype it has is a project type or Object) against a parameter typed as an unstaged
+// type Y it does not list among its ancestors: it is not a Y. A client type with an external
+// ancestor may reach Y through that ancestor's own unstaged supertypes, so it is left alone.
+type_has_external_ancestor(t) :- type_ancestor(t, x), external_type(x).
+param_type_external(callee, pos, x) :- java_method_parameter(_, pos, callee, _, _, _, _, _, _, _, _, _, param),
+    method_param_type_external(param, x).
+external_is_object(x) :- external_type(x), x = "external:Object".
+external_is_object(x) :- external_type(x), x = "external:java.lang.Object".
+hash_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_type_hash(call, pos, at),
+    type_prov(at, "client"),
+    !type_has_external_ancestor(at),
+    param_type_external(callee, pos, x),
+    !external_is_object(x),
+    !type_ancestor(at, x),
+    !arg_is_target_typed(call, pos).
+// A String argument (literal or String-typed) against a parameter typed as an unstaged type
+// that is not one of String's supertypes: `getProvider(Class, ComponentModel)` cannot take
+// the String a call passes, and without this the overload stayed beside the right one
+// because neither regime could see the parameter. String's supertypes are fixed by the
+// platform, so the list is complete; String itself heads it, since with no JDK staged a
+// `String` parameter is an unstaged type too.
+string_supertype("external:String").
+string_supertype("external:java.lang.String").
+string_supertype("external:Object").
+string_supertype("external:java.lang.Object").
+string_supertype("external:CharSequence").
+string_supertype("external:java.lang.CharSequence").
+string_supertype("external:Comparable").
+string_supertype("external:java.lang.Comparable").
+string_supertype("external:Serializable").
+string_supertype("external:java.io.Serializable").
+string_supertype("external:Constable").
+string_supertype("external:java.lang.constant.Constable").
+string_supertype("external:ConstantDesc").
+string_supertype("external:java.lang.constant.ConstantDesc").
+value_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_value_type(call, pos, "String"),
+    param_type_external(callee, pos, x),
+    !string_supertype(x).
+// MOST-SPECIFIC among unstaged parameter types (JLS 15.12.2.5). Two same-arity overloads whose
+// parameters at a position are both unstaged — `update(ctx, ClientModel)` beside
+// `update(ctx, RealmModel)` — and an argument whose static type is exactly one of them: the
+// exact one is applicable, and any other overload applicable to the same argument would have
+// to take a SUPERTYPE of it there, which is strictly less specific, so the compiler chooses
+// the exact one. An overload naming a different unstaged type at that position is therefore
+// never the chosen one. Object is the one supertype every name has, so it is excluded, and
+// an argument whose type is not exactly known (a call into the library) prunes nothing.
+arg_exact_external_match(call, pos, x) :- expr_call_candidate(call, c1),
+    arg_type_hash(call, pos, x),
+    external_type(x),
+    param_type_external(c1, pos, x).
+hash_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_exact_external_match(call, pos, x),
+    param_type_external(callee, pos, y),
+    y != x,
+    !external_is_object(y),
+    !arg_is_target_typed(call, pos).
 
 // ── Tier 2 (value regime): primitives / wrappers / String / null by NAME ────────
 literal_value_type("INTEGER",    "int").

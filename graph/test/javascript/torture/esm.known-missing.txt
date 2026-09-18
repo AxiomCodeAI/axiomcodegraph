@@ -1,0 +1,3 @@
+# Executed edges the engine does not have, each a named gap. Format: <caller> <callee>
+# (function ids as file:line:col). A new missing edge fails run.sh; a listed one that
+# starts resolving fails too, so this list cannot rot. None yet for the ES module program.

@@ -1,0 +1,7 @@
+Parser.js:15:18 METHOD_CALL addDependency  EXACT  NormalModule.js:1:22
+plugin.js:11:59 METHOD_CALL addDependency  EXACT  NormalModule.js:1:22
+plugin.js:13:36 METHOD_CALL trim  LIB_AMBIENT_OK  
+plugin.js:5:33 METHOD_CALL addDependency  EXACT  NormalModule.js:1:22
+plugin.js:7:33 METHOD_CALL addDependency  EXACT  NormalModule.js:1:22
+plugin.js:9:32 METHOD_CALL addDependency  EXACT  NormalModule.js:1:22
+# defects: 0

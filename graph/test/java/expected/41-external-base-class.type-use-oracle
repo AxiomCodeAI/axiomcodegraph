@@ -1,0 +1,7 @@
+41-external-base-class
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 in the bytecode)
+  references 33   resolved 3 (9.1%)
+  tiers ambiguous_unknown=30  known_edge=3
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=2  FIELD_TYPE=2  METHOD_PARAM=12  METHOD_RETURN=8  OBJECT_CREATION_TYPE=5  SUPER_TYPE=1  THROWS_CLAUSE=3

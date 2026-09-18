@@ -1,0 +1,23 @@
+import_cause     streams.js:2:19  stream  builtin
+import_cause     streams.js:2:29  stream  builtin
+import_cause     streams.js:2:40  stream  builtin
+import_cause     streams.js:2:9  stream  builtin
+import_cause     streams.js:3:16  node:stream  builtin
+package_entry    case25  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:4:24  METHOD_CALL write  no_target
+unresolved       main.js:4:38  METHOD_CALL end  no_target
+unresolved       main.js:4:47  METHOD_CALL destroy  no_target
+unresolved       main.js:5:3  METHOD_CALL resume  no_target
+unresolved       main.js:6:24  METHOD_CALL end  no_target
+unresolved       main.js:6:3  METHOD_CALL write  no_target
+unresolved       main.js:7:25  METHOD_CALL write  no_target
+unresolved       main.js:7:39  METHOD_CALL resume  no_target
+unresolved       main.js:8:3  METHOD_CALL write  no_target
+unresolved       streams.js:5:120  FUNCTION_CALL cb  callee_untyped
+unresolved       streams.js:5:63  FUNCTION_CALL cb  callee_untyped
+unresolved       streams.js:5:92  FUNCTION_CALL cb  callee_untyped
+unresolved       streams.js:6:48  METHOD_CALL push  no_target
+unresolved       streams.js:7:67  FUNCTION_CALL cb  callee_untyped
+unresolved       streams.js:7:99  FUNCTION_CALL cb  callee_untyped
+unresolved       streams.js:8:55  FUNCTION_CALL cb  callee_untyped
+unresolved       streams.js:8:73  METHOD_CALL push  no_target

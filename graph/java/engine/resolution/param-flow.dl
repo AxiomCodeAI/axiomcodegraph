@@ -31,7 +31,7 @@
 // concrete type flowing into callee's parameter at position `pos` (from a candidate call's
 // ARGUMENT at that position).
 param_flow_type(param, t) :-
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, argE),
     expr_type(_, argE, t),
     java_method_parameter(_, pos, callee, _, _, _, _, _, _, _, _, _, param).

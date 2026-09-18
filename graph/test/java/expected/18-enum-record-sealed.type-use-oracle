@@ -1,0 +1,17 @@
+18-enum-record-sealed
+  precision 0.6667   (8 correct, 4 wrong)
+  recall    0.5714   (8 of 14 in the bytecode)
+  references 23   resolved 16 (69.6%)
+  tiers ambiguous_unknown=7  known_edge=16
+  not scored: 4 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=2  IMPLEMENTS_INTERFACE=2  LOCAL_VARIABLE=1  METHOD_PARAM=6  METHOD_RETURN=4  OBJECT_CREATION_TYPE=4  PERMITS=2  SWITCH_TYPE_PATTERN=2
+    WRONG   LangFeatures OBJECT_CREATION_TYPE LangFeatures
+    WRONG   LangFeatures OBJECT_CREATION_TYPE LangFeatures.Circle
+    WRONG   LangFeatures OBJECT_CREATION_TYPE LangFeatures.Point
+    WRONG   LangFeatures OBJECT_CREATION_TYPE LangFeatures.Square
+    MISSING LangFeatures LOCAL_VARIABLE LangFeatures.Circle
+    MISSING LangFeatures LOCAL_VARIABLE LangFeatures.Square
+    MISSING LangFeatures.Op CAST_EXPRESSION LangFeatures.Op
+    MISSING LangFeatures.Op FIELD_TYPE LangFeatures.Op
+    MISSING LangFeatures.Op METHOD_RETURN LangFeatures.Op
+    MISSING LangFeatures.Op SUPER_TYPE LangFeatures.Op

@@ -88,10 +88,10 @@ export const CORE_TABLES: readonly TableSpec[] = [
       { name: 'name', type: 'TEXT', indexed: true, description: 'Simple name.' },
       { name: 'qualified_name', type: 'TEXT', indexed: true, description: 'Parser-qualified name.' },
       { name: 'category', type: 'TEXT', description: 'The parser\'s typeCategory — see vocabulary.' },
-      { name: 'file_path', type: 'TEXT', indexed: true, description: 'Source file.' },
-      { name: 'start_line', type: 'INTEGER', description: '1-based first line.' },
-      { name: 'end_line', type: 'INTEGER', description: '1-based last line.' },
-      { name: 'provenance', type: 'TEXT', description: '`client` or `lib`.' },
+      { name: 'file_path', type: 'TEXT', nullable: true, indexed: true, description: 'Source file; NULL for an external type (no declaration was staged).' },
+      { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based first line; NULL for an external type.' },
+      { name: 'end_line', type: 'INTEGER', nullable: true, description: '1-based last line; NULL for an external type.' },
+      { name: 'provenance', type: 'TEXT', description: '`client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary).' },
     ],
   },
   {
@@ -101,7 +101,7 @@ export const CORE_TABLES: readonly TableSpec[] = [
       { name: 'id', type: 'TEXT', key: true, description: 'Site identifier — an expression hash in every language; in Python it may also be a decorator hash or, for METACLASS_CREATION, the class\'s type hash (see notes).' },
       { name: 'caller_id', type: 'TEXT', indexed: true, description: 'The method whose body contains the site (FK → methods.id) — or, for code that runs outside any method, the enclosing TYPE (Java: TYPE_REGISTRY_… = the type\'s static/instance initializer) or MODULE (TypeScript: TS_MODULE_… as a fallback marker). Never NULL. See notes.' },
       { name: 'kind', type: 'TEXT', description: 'What syntactic form the call takes — the same value as call_edges.kind for this site; see vocabulary (language-specific sets).' },
-      { name: 'callee_name', type: 'TEXT', nullable: true, description: 'The name written at the site (`render` in `w.render()`, the class name in `new Widget()`); NULL when the form has no written name (a constructor delegation, a record deconstruction).' },
+      { name: 'callee_name', type: 'TEXT', nullable: true, indexed: true, description: 'The name written at the site (`render` in `w.render()`, the class name in `new Widget()`); NULL when the form has no written name (a constructor delegation, a record deconstruction).' },
       { name: 'file_path', type: 'TEXT', nullable: true, indexed: true, description: 'Source file.' },
       { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based line.' },
       { name: 'start_column', type: 'INTEGER', nullable: true, description: 'Column, as the parser counts it.' },
@@ -168,6 +168,56 @@ export const CORE_TABLES: readonly TableSpec[] = [
     columns: [
       { name: 'caller_id', type: 'TEXT', key: true, indexed: true, description: 'Same domain as call_sites.caller_id: usually FK → methods.id.' },
       { name: 'call_site_id', type: 'TEXT', key: true, description: 'FK → call_sites.id.' },
+    ],
+  },
+  {
+    name: 'fields',
+    description: 'Every field-like storage location the graph refers to: all client fields and enum constants from the IR, plus every LIBRARY field some field_access edge reaches. A field is not a callable, so it has no row in `methods`; this is where `field_access.field_id` resolves to a name, an owner and a position.',
+    columns: [
+      { name: 'id', type: 'TEXT', key: true, description: 'The parser\'s unique hash for the field or enum constant (FIELD_REGISTRY_… / ENUM_CONSTANT_…). The value field_access.field_id refers to.' },
+      { name: 'name', type: 'TEXT', indexed: true, description: 'Simple name as written (`count`, `RED`).' },
+      { name: 'kind', type: 'TEXT', description: '`field` or `enum_constant` — see vocabulary. An enum constant is a static final field of its enum and is recorded here so `Colour.RED` resolves like any other read.' },
+      { name: 'owner_type_id', type: 'TEXT', nullable: true, indexed: true, description: 'FK → types.id of the declaring class/interface/enum/record.' },
+      { name: 'owner_qualified_name', type: 'TEXT', nullable: true, description: 'Qualified name of the owner, denormalised so a row prints without a join.' },
+      { name: 'type_name', type: 'TEXT', nullable: true, description: 'The declared type as the parser wrote it; NULL for an enum constant, whose type is its own enum.' },
+      { name: 'modifiers', type: 'TEXT', nullable: true, description: 'The parser\'s comma-separated modifier set (`STATIC,FINAL`); NULL where the IR records none.' },
+      { name: 'file_path', type: 'TEXT', nullable: true, indexed: true, description: 'Source file.' },
+      { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based first line of the declaration.' },
+      { name: 'end_line', type: 'INTEGER', nullable: true, description: '1-based last line.' },
+      { name: 'provenance', type: 'TEXT', description: '`client` — from the analysed project; `lib` — from a staged library IR.' },
+    ],
+  },
+  {
+    name: 'field_access',
+    description: 'THE DATA GRAPH. One row per (site, resolved field), and the answer to "who reads or writes this field" — the question call_edges cannot answer, because a field access is not a call. A site with N possible fields has N rows carrying the same tier; a site the engine could not resolve has exactly one row with a NULL field and tier `ambiguous_unknown`, so every field access written in the client appears at least once and the table alone shows where the resolution stopped. A field is NOT virtually dispatched: a `known_edge` row names the storage location, not a best estimate of one.',
+    columns: [
+      { name: 'site_id', type: 'TEXT', indexed: true, description: 'The expression where the access is written. Not a call_sites id: a field access is not a call site. The location columns on this row are the site\'s own.' },
+      { name: 'caller_id', type: 'TEXT', indexed: true, description: 'The method whose body contains the access (FK → methods.id) — or, for an access written in a field initializer or an initializer block, the enclosing TYPE, exactly as call_sites.caller_id does. Never NULL.' },
+      { name: 'field_id', type: 'TEXT', nullable: true, indexed: true, description: 'FK → fields.id of the resolved field or enum constant. NULL when the site is unresolved.' },
+      { name: 'field_provenance', type: 'TEXT', nullable: true, description: 'Where the field is declared — `client` or `lib`. NULL for an unresolved site.' },
+      { name: 'access', type: 'TEXT', indexed: true, description: 'Which way the data moves — see vocabulary. Present on an unresolved row too: the direction is decided by how the access is WRITTEN, which does not need the receiver to resolve.' },
+      { name: 'tier', type: 'TEXT', indexed: true, description: 'Confidence class of this edge — see vocabulary. Same four values and same promises as call_edges.tier.' },
+      { name: 'file_path', type: 'TEXT', nullable: true, indexed: true, description: 'Source file of the site.' },
+      { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based line of the site.' },
+      { name: 'start_column', type: 'INTEGER', nullable: true, description: 'Column, as the parser counts it.' },
+      { name: 'end_line', type: 'INTEGER', nullable: true, description: '1-based last line.' },
+      { name: 'end_column', type: 'INTEGER', nullable: true, description: 'End column.' },
+    ],
+  },
+  {
+    name: 'type_use',
+    description: 'THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the context it was written in. `call_edges` says who calls a method and `field_access` who touches a field; this says what breaks if the TYPE changes — every signature, field, local, `new`, cast, `instanceof`, throws clause and generic argument that mentions it. A name that resolved to nothing is one row with a NULL type and tier `ambiguous_unknown`, so an unstaged third party is a declared unknown rather than an absence.',
+    columns: [
+      { name: 'reference_id', type: 'TEXT', indexed: true, description: 'The type-reference node. Not an expression id: a type reference is its own IR entity.' },
+      { name: 'type_id', type: 'TEXT', nullable: true, indexed: true, description: 'FK → types.id of the type the name denotes. NULL when it resolved to nothing.' },
+      { name: 'context', type: 'TEXT', indexed: true, description: 'Where the reference is written — see vocabulary. This is the column that makes an impact answer specific: `seventeen METHOD_PARAM and four FIELD_TYPE`, not `twenty-one mentions`.' },
+      { name: 'depth', type: 'INTEGER', description: '0 for the type as written, 1 or more for a type argument of the one above it. A field of type `Map<String, Widget>` yields Map at depth 0 and String and Widget at depth 1; all three are uses of the type named.' },
+      { name: 'owner_kind', type: 'TEXT', description: 'What kind of declaration carries the reference — see vocabulary. It says what `owner_id` points at.' },
+      { name: 'owner_id', type: 'TEXT', description: 'The declaration that carries the reference. FK → methods.id when owner_kind is METHOD, → types.id for TYPE, → fields.id for FIELD; for METHOD_PARAM, LOCAL_VARIABLE, EXPRESSION and the annotation kinds it is the parser hash of an entity the bundle does not table, so join on owner_method_id / owner_type_id instead.' },
+      { name: 'owner_method_id', type: 'TEXT', nullable: true, indexed: true, description: 'FK → methods.id of the method whose declaration or body contains the reference; NULL where there is none (a field type, a supertype clause).' },
+      { name: 'owner_type_id', type: 'TEXT', nullable: true, indexed: true, description: 'FK → types.id of the type whose source contains the reference. Set for every reference written inside a type declaration.' },
+      { name: 'type_provenance', type: 'TEXT', nullable: true, description: 'Where the referenced type is declared — `client` or `lib`. NULL when unresolved.' },
+      { name: 'tier', type: 'TEXT', indexed: true, description: 'Confidence class — see vocabulary. Same four values and same promises as call_edges.tier.' },
     ],
   },
   {
@@ -275,6 +325,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'provenance', value: 'lib', languages: 'all', meaning: 'Declared in a staged library IR; listed because an edge reaches it.' },
   { table: 'types', column: 'provenance', value: 'client', languages: 'all', meaning: 'Declared in the analysed project.' },
   { table: 'types', column: 'provenance', value: 'lib', languages: 'all', meaning: 'Declared in a staged library IR.' },
+  { table: 'types', column: 'provenance', value: 'external', languages: J, meaning: 'Named by the client as an ancestor (`extends`/`implements`) but declared in no staged IR: id `external:<qualified name>`, category EXTERNAL_TYPE, no file, no members. Kept so the subtype edge survives; stage the library to replace it with the real declaration.' },
 
   // methods.kind — the parser's methodKind
   { table: 'methods', column: 'kind', value: 'INSTANCE_METHOD', languages: J, meaning: 'Non-static method.' },
@@ -286,7 +337,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'kind', value: 'ENUM_CONSTANT_METHOD', languages: J, meaning: 'Method body declared on an enum constant.' },
   { table: 'methods', column: 'kind', value: 'RECORD_ACCESSOR', languages: J, meaning: 'A record component accessor.' },
   { table: 'methods', column: 'kind', value: 'COMPACT_CONSTRUCTOR', languages: J, meaning: 'A record\'s compact canonical constructor.' },
-  { table: 'methods', column: 'kind', value: 'DEFAULT_CONSTRUCTOR', languages: J, meaning: 'The implicit no-arg constructor the parser synthesises for a class that declares none.' },
+  { table: 'methods', column: 'kind', value: 'DEFAULT_CONSTRUCTOR', languages: ['java', 'typescript'], meaning: 'The implicit no-arg constructor the parser synthesises for a class that declares none (TypeScript: and extends nothing; a subclass runs the nearest declared base constructor).' },
   { table: 'methods', column: 'kind', value: 'INSTANCE_INITIALIZER', languages: J, meaning: '`{ … }` instance initializer block.' },
   { table: 'methods', column: 'kind', value: 'ANNOTATION_ELEMENT', languages: J, meaning: 'An element of an annotation interface.' },
   { table: 'methods', column: 'kind', value: 'RECORD_EQUALS', languages: J, meaning: 'A record\'s implicit equals.' },
@@ -342,6 +393,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'kind', value: 'MODULE_INITIALIZER', languages: S, meaning: 'Synthetic method holding a module\'s top-level code. Every module has one; top-level call sites belong to it.' },
   // types.category — the parser's typeCategory
   { table: 'types', column: 'category', value: 'CLASS_TYPE', languages: 'all', meaning: 'A class.' },
+  { table: 'types', column: 'category', value: 'EXTERNAL_TYPE', languages: J, meaning: 'An unstaged ancestor named by the client — see provenance `external`. Class or interface is not known.' },
   { table: 'types', column: 'category', value: 'INTERFACE_TYPE', languages: ['java', 'typescript'], meaning: 'An interface.' },
   { table: 'types', column: 'category', value: 'ENUM_TYPE', languages: ['java', 'typescript'], meaning: 'An enum.' },
   { table: 'types', column: 'category', value: 'RECORD_TYPE', languages: J, meaning: 'A record.' },
@@ -376,16 +428,97 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'tier', value: 'ambient_terminal', languages: S, meaning: 'The callee or receiver VALUE is the platform (`console.log`, `path.join`, `arr.forEach`) — a correct end, not a blind spot; callee is NULL. Beside a project edge it is the platform ALTERNATIVE of a `multi_inferred` site.' },
   { table: 'call_edges', column: 'tier', value: 'implicit_constructor', languages: S, meaning: '`new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL.' },
   { table: 'call_edges', column: 'tier', value: 'dynamic_terminal', languages: S, meaning: '`obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL.' },
-  { table: 'call_edges', column: 'tier', value: 'fan_capped', languages: S, meaning: 'More targets than --dispatch-cap: the set was refused rather than emitted; callee is NULL.' },
+  { table: 'call_edges', column: 'tier', value: 'fan_capped', languages: ['javascript', 'java'], meaning: 'More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count.' },
   { table: 'call_edges', column: 'tier', value: 'callback_registered', languages: S, meaning: 'The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on(\'x\', h)`, `setTimeout(f)`), which may invoke it. Not the site\'s own callee; a reachability edge, labelled so it is never read as a resolved call.' },
   { table: 'call_edges', column: 'tier', value: 'event_dispatch', languages: S, meaning: '`x.emit(\'name\')` reaching a handler registered by `x.on(\'name\', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one.' },
   { table: 'call_edges', column: 'tier', value: 'intrinsic_terminal', languages: T, meaning: 'The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name.' },
+
+  // fields.kind / field_access.access / field_access.tier  (#663)
+  { table: 'fields', column: 'kind', value: 'field', languages: ['java', 'typescript'], meaning: 'An ordinary field declaration.' },
+  { table: 'fields', column: 'kind', value: 'enum_constant', languages: J, meaning: 'An enum constant. It is a static final field of its enum, and is listed here so `Colour.RED` resolves like any other read; the parser gives it its own table and its own hash prefix.' },
+  { table: 'fields', column: 'provenance', value: 'client', languages: ['java', 'typescript'], meaning: 'Declared in the analysed project.' },
+  { table: 'fields', column: 'provenance', value: 'lib', languages: ['java', 'typescript'], meaning: 'Declared in a staged library IR.' },
+  { table: 'field_access', column: 'access', value: 'read', languages: ['java', 'typescript'], meaning: 'The value is used and not replaced.' },
+  { table: 'field_access', column: 'access', value: 'write', languages: ['java', 'typescript'], meaning: 'The value is replaced without being read: a plain assignment `f = v`.' },
+  { table: 'field_access', column: 'access', value: 'readwrite', languages: ['java', 'typescript'], meaning: 'The value is read and replaced at the one site: a compound assignment `f += v`, or `f++` / `--f`. One row, not two — a consumer asking "who writes f" and one asking "who reads f" must both match it.' },
+  { table: 'field_access', column: 'tier', value: 'known_edge', languages: ['java', 'typescript'], meaning: 'Exactly one field resolved. Stronger than the call_edges tier of the same name: a field is not virtually dispatched, so this IS the storage location the access binds to.' },
+  { table: 'field_access', column: 'tier', value: 'multi_inferred', languages: ['java', 'typescript'], meaning: 'A sound SET: the receiver has more than one possible type, or two unrelated ancestors declare the name (which Java itself treats as ambiguous). Each member is one row.' },
+  { table: 'field_access', column: 'tier', value: 'boundary_lib', languages: ['java', 'typescript'], meaning: 'The field is declared in a staged library type. field_id is set and resolves in `fields` with provenance lib.' },
+  { table: 'field_access', column: 'tier', value: 'ambiguous_unknown', languages: ['java', 'typescript'], meaning: 'Declared blind spot: the receiver could not be typed, or the name is not a member of the type it was typed to. field_id is NULL. Never dropped, and never replaced by a match on simple name.' },
+  { table: 'field_access', column: 'field_provenance', value: 'client', languages: ['java', 'typescript'], meaning: 'The field is declared in the analysed project.' },
+  { table: 'field_access', column: 'field_provenance', value: 'lib', languages: ['java', 'typescript'], meaning: 'The field is declared in a staged library IR.' },
+
+  // type_use.*  (#663)
+  { table: 'type_use', column: 'tier', value: 'known_edge', languages: ['java', 'typescript'], meaning: 'Exactly one type. A type reference is not dispatched, so this IS the declaration the name denotes.' },
+  { table: 'type_use', column: 'tier', value: 'multi_inferred', languages: ['java', 'typescript'], meaning: 'A sound SET: two resolution paths both answer a simple name. Each member is one row.' },
+  { table: 'type_use', column: 'tier', value: 'boundary_lib', languages: ['java', 'typescript'], meaning: 'The type is declared in a staged library IR. type_id resolves in `types` with provenance lib.' },
+  { table: 'type_use', column: 'tier', value: 'ambiguous_unknown', languages: ['java', 'typescript'], meaning: 'Declared blind spot: the name resolved to nothing — an unstaged third party, or a type variable with no bound in view. type_id is NULL. Never dropped.' },
+  { table: 'type_use', column: 'type_provenance', value: 'client', languages: ['java', 'typescript'], meaning: 'The referenced type is declared in the analysed project.' },
+  { table: 'type_use', column: 'type_provenance', value: 'lib', languages: ['java', 'typescript'], meaning: 'The referenced type is declared in a staged library IR.' },
+  { table: 'type_use', column: 'owner_kind', value: 'TYPE', languages: ['java', 'typescript'], meaning: 'The reference is on the type declaration itself: an extends or implements clause, or a type parameter bound. owner_id is a types.id.' },
+  { table: 'type_use', column: 'owner_kind', value: 'METHOD', languages: ['java', 'typescript'], meaning: 'A return type, a throws clause, or a method type-parameter bound. owner_id is a methods.id.' },
+  { table: 'type_use', column: 'owner_kind', value: 'METHOD_PARAM', languages: ['java', 'typescript'], meaning: 'A formal parameter\'s declared type. owner_id is the parameter\'s parser hash; join on owner_method_id.' },
+  { table: 'type_use', column: 'owner_kind', value: 'FIELD', languages: ['java', 'typescript'], meaning: 'A field\'s declared type. owner_id is a fields.id.' },
+  { table: 'type_use', column: 'owner_kind', value: 'LOCAL_VARIABLE', languages: J, meaning: 'A local, a catch parameter or a resource\'s declared type. owner_id is the local\'s parser hash; join on owner_method_id.' },
+  { table: 'type_use', column: 'owner_kind', value: 'EXPRESSION', languages: ['java', 'typescript'], meaning: 'A type written inside an expression: `new T()`, a cast, an `instanceof`, a pattern, a method-reference qualifier. owner_id is the expression hash; join on owner_method_id.' },
+  { table: 'type_use', column: 'owner_kind', value: 'ANNOTATION', languages: J, meaning: 'The annotation type itself, on whatever it annotates.' },
+  { table: 'type_use', column: 'owner_kind', value: 'ANNOTATION_ARGUMENT', languages: J, meaning: 'A type named as an annotation argument, e.g. a `Class<?>` value.' },
+  { table: 'type_use', column: 'context', value: 'FIELD_TYPE', languages: ['java', 'typescript'], meaning: 'The declared type of a field.' },
+  { table: 'type_use', column: 'context', value: 'METHOD_PARAM', languages: ['java', 'typescript'], meaning: 'The declared type of a formal parameter.' },
+  { table: 'type_use', column: 'context', value: 'METHOD_RETURN', languages: ['java', 'typescript'], meaning: 'The declared return type.' },
+  { table: 'type_use', column: 'context', value: 'LOCAL_VARIABLE', languages: J, meaning: 'The declared type of a local, a catch parameter or a try-with-resources resource.' },
+  { table: 'type_use', column: 'context', value: 'OBJECT_CREATION_TYPE', languages: ['java', 'typescript'], meaning: 'The type of a `new T(...)`.' },
+  { table: 'type_use', column: 'context', value: 'ARRAY_CREATION_TYPE', languages: J, meaning: 'The element type of a `new T[n]`.' },
+  { table: 'type_use', column: 'context', value: 'CAST_EXPRESSION', languages: J, meaning: 'The type of a `(T) x`.' },
+  { table: 'type_use', column: 'context', value: 'INSTANCEOF_TYPE', languages: ['java', 'typescript'], meaning: 'The type tested by an `x instanceof T`.' },
+  { table: 'type_use', column: 'context', value: 'SUPER_TYPE', languages: ['java', 'typescript'], meaning: 'An `extends` clause.' },
+  { table: 'type_use', column: 'context', value: 'IMPLEMENTS_INTERFACE', languages: ['java', 'typescript'], meaning: 'An `implements` clause.' },
+  { table: 'type_use', column: 'context', value: 'THROWS_CLAUSE', languages: J, meaning: 'A declared thrown type.' },
+  { table: 'type_use', column: 'context', value: 'ANNOTATION_TYPE', languages: J, meaning: 'The annotation type applied to a declaration.' },
+  { table: 'type_use', column: 'context', value: 'ANNOTATION_PARAM', languages: J, meaning: 'A type named as an annotation argument.' },
+  { table: 'type_use', column: 'context', value: 'TYPE_PARAM_BOUND', languages: ['java', 'typescript'], meaning: 'The bound of a type parameter declared on a TYPE.' },
+  { table: 'type_use', column: 'context', value: 'METHOD_TYPE_PARAM_BOUND', languages: ['java', 'typescript'], meaning: 'The bound of a type parameter declared on a METHOD.' },
+  { table: 'type_use', column: 'context', value: 'METHOD_TYPE_ARGUMENT', languages: ['java', 'typescript'], meaning: 'An explicit type argument at a call site, `x.<T>m()`.' },
+  { table: 'type_use', column: 'context', value: 'METHOD_REFERENCE_QUALIFIER', languages: J, meaning: 'The qualifier of a method reference, `T::m`.' },
+  { table: 'type_use', column: 'context', value: 'PATTERN_BINDING_TYPE', languages: J, meaning: 'The type of a record-pattern component.' },
+  { table: 'type_use', column: 'context', value: 'SWITCH_TYPE_PATTERN', languages: J, meaning: 'The type of a switch type pattern, `case T t ->`.' },
+  { table: 'type_use', column: 'context', value: 'RECORD_PATTERN_TYPE', languages: J, meaning: 'The record type a deconstruction pattern matches.' },
+
+  // type_use — the owner kinds and contexts TypeScript has and Java does not  (#663)
+  { table: 'type_use', column: 'owner_kind', value: 'VARIABLE', languages: T, meaning: 'A `const` / `let` declaration\'s written type. A module-scope variable is a first-class declaration in TypeScript, so this covers what Java splits between FIELD and LOCAL_VARIABLE.' },
+  { table: 'type_use', column: 'owner_kind', value: 'HERITAGE', languages: T, meaning: 'An extends or implements clause, which the parser gives its own entity rather than hanging off the type.' },
+  { table: 'type_use', column: 'owner_kind', value: 'TYPE_PARAMETER', languages: T, meaning: 'A type parameter\'s bound or default.' },
+  { table: 'type_use', column: 'owner_kind', value: 'TYPE_REFERENCE', languages: T, meaning: 'Another type reference: the row is a type ARGUMENT or an element of the reference named in owner_id. depth says how deep.' },
+  { table: 'type_use', column: 'owner_kind', value: 'DECORATOR', languages: T, meaning: 'A decorator application.' },
+  { table: 'type_use', column: 'owner_kind', value: 'ENUM_MEMBER', languages: T, meaning: 'An enum member\'s written type.' },
+  { table: 'type_use', column: 'owner_kind', value: 'EXPORT', languages: T, meaning: 'An `export type` clause.' },
+  { table: 'type_use', column: 'owner_kind', value: 'MODULE', languages: T, meaning: 'A module-level position with no finer owner.' },
+  { table: 'type_use', column: 'context', value: 'VARIABLE_TYPE', languages: T, meaning: 'The written type of a `const` / `let` / `var`.' },
+  { table: 'type_use', column: 'context', value: 'TYPE_ELEMENT', languages: T, meaning: 'A member\'s type inside an interface or a type literal.' },
+  { table: 'type_use', column: 'context', value: 'HERITAGE_TWIN', languages: T, meaning: 'The second half of a heritage clause a declaration-merged type carries.' },
+  { table: 'type_use', column: 'context', value: 'AS_TARGET', languages: T, meaning: 'The target of an `x as T`.' },
+  { table: 'type_use', column: 'context', value: 'SATISFIES_TARGET', languages: T, meaning: 'The target of an `x satisfies T`.' },
+  { table: 'type_use', column: 'context', value: 'TYPE_ASSERTION', languages: T, meaning: 'The target of a `<T>x` assertion.' },
+  { table: 'type_use', column: 'context', value: 'TYPE_ARGUMENT', languages: T, meaning: 'A type argument of the reference in owner_id — `Widget` in `Map<string, Widget>`.' },
+  { table: 'type_use', column: 'context', value: 'TYPE_PARAM_DEFAULT', languages: T, meaning: 'A type parameter\'s default, the `= T` in `<K = string>`.' },
+  { table: 'type_use', column: 'context', value: 'TYPE_ALIAS_RHS', languages: T, meaning: 'The right-hand side of a `type X = …`.' },
+  { table: 'type_use', column: 'context', value: 'INDEX_SIGNATURE_KEY', languages: T, meaning: 'The key type of an index signature.' },
+  { table: 'type_use', column: 'context', value: 'INDEX_SIGNATURE_VALUE', languages: T, meaning: 'The value type of an index signature.' },
+  { table: 'type_use', column: 'context', value: 'MAPPED_CONSTRAINT', languages: T, meaning: 'The constraint of a mapped type.' },
+  { table: 'type_use', column: 'context', value: 'MAPPED_TEMPLATE', languages: T, meaning: 'The template of a mapped type.' },
+  { table: 'type_use', column: 'context', value: 'CONDITIONAL_*', languages: T, meaning: 'A prefix: the check, extends, true and false branches of a conditional type.' },
+  { table: 'type_use', column: 'context', value: 'TEMPLATE_SPAN', languages: T, meaning: 'A span of a template-literal type.' },
+  { table: 'type_use', column: 'context', value: 'IMPORT_TYPE_QUALIFIER', languages: T, meaning: 'The qualifier of an `import("m").T`.' },
+  { table: 'type_use', column: 'context', value: 'TYPE_PREDICATE_TARGET', languages: T, meaning: 'The target of an `x is T` predicate.' },
+  { table: 'type_use', column: 'context', value: 'ENUM_MEMBER_TYPE', languages: T, meaning: 'An enum member\'s written type.' },
+  { table: 'type_use', column: 'context', value: 'DECORATOR_TYPE', languages: T, meaning: 'The decorator itself.' },
+  { table: 'type_use', column: 'context', value: 'DECORATOR_ARGUMENT_TYPE', languages: T, meaning: 'A type named in a decorator argument.' },
 
   // call_edges.callee_provenance
   { table: 'call_edges', column: 'callee_provenance', value: 'client', languages: 'all', meaning: 'Target is a client method (callee_method_id set).' },
   { table: 'call_edges', column: 'callee_provenance', value: 'lib', languages: 'all', meaning: 'Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib).' },
   { table: 'call_edges', column: 'callee_provenance', value: 'builtin', languages: P, meaning: 'Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`).' },
-  { table: 'call_edges', column: 'callee_provenance', value: 'external', languages: P, meaning: 'Target is named by an import path outside every staged IR (callee_label = the written path).' },
+  { table: 'call_edges', column: 'callee_provenance', value: 'external', languages: ['python', 'java'], meaning: 'Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external.' },
 
   // call_edges.kind / call_sites.kind — Java (engine-authored)
   { table: 'call_edges', column: 'kind', value: 'method', languages: J, meaning: '`obj.m()`, `Class.m()`, `super.m()`, or an unqualified `m()`.' },
@@ -405,6 +538,8 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'DECORATOR_CALL', languages: T, meaning: 'A decorator application `@d` / `@d(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'OPTIONAL_CALL', languages: T, meaning: '`f?.(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'JSX_COMPONENT_CALL', languages: T, meaning: '`<Component …/>` (reserved by the parser; emitted by nothing yet).' },
+  { table: 'call_edges', column: 'kind', value: 'PROPERTY_READ', languages: T, meaning: 'Reading `obj.x` where `x` is a `get` accessor runs the getter (engine-authored). No written call; the site is the property-access expression. A compound assignment or `++` reads before it writes, so it carries this and PROPERTY_WRITE.' },
+  { table: 'call_edges', column: 'kind', value: 'PROPERTY_WRITE', languages: T, meaning: 'Assigning `obj.x = v` where `x` is a `set` accessor runs the setter (engine-authored). No written call; the site is the property-access expression on the left.' },
   // — JavaScript (the parser's JsCallKind)
   { table: 'call_edges', column: 'kind', value: 'FUNCTION_CALL', languages: S, meaning: '`f(…)` — a bare callee, resolved by the binder.' },
   { table: 'call_edges', column: 'kind', value: 'METHOD_CALL', languages: S, meaning: '`obj.m(…)`.' },
@@ -435,8 +570,8 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'UNKNOWN_CALLEE_CALL', languages: P, meaning: 'The parser could not classify the callee.' },
   { table: 'call_edges', column: 'kind', value: 'DECORATOR_APPLICATION', languages: P, meaning: 'Applying a parenthesised decorator\'s RESULT to the decorated definition. The site is the decorator hash.' },
   { table: 'call_edges', column: 'kind', value: 'DECORATOR_*', languages: P, meaning: 'Applying an unparenthesised decorator; the suffix is the parser\'s decorator kind: BARE, ATTRIBUTE, SUBSCRIPT, EXPRESSION (and CALL/ATTRIBUTE_CALL when the factory expression is not itself a call site). The site is the decorator hash.' },
-  { table: 'call_edges', column: 'kind', value: 'METACLASS_CREATION', languages: P, meaning: '`class X(metaclass=M)` invokes `M.__new__` / `M.__init__` at import time. No written call; the site is the class\'s type hash.' },
-  { table: 'call_edges', column: 'kind', value: 'PROPERTY_READ', languages: P, meaning: 'Reading `obj.attr` where `attr` is a `@property` runs the getter. No written call; the site is the attribute-access expression.' },
+  { table: 'call_edges', column: 'kind', value: 'METACLASS_CREATION', languages: P, meaning: 'A class statement invokes its metaclass\'s `__new__` / `__init__` at import time, whether the metaclass is written on the statement (`class X(metaclass=M)`) or inherited from a base, and the nearest base\'s `__init_subclass__`. No written call; the site is the class\'s type hash.' },
+  { table: 'call_edges', column: 'kind', value: 'PROPERTY_READ', languages: P, meaning: 'Reading `obj.attr` where `attr` is a `@property` runs the getter; reading `Cls.attr` where the METACLASS defines `attr` as a property runs that getter. No written call; the site is the attribute-access expression.' },
   { table: 'call_edges', column: 'kind', value: 'CONTEXT_MANAGER', languages: P, meaning: '`with expr:` runs `__enter__` / `__exit__` (or the async pair). No written call; the site is the context-manager expression.' },
   { table: 'call_edges', column: 'kind', value: 'ITERATION_PROTOCOL', languages: P, meaning: '`for x in expr:` (and comprehensions) runs `__iter__` / `__next__` (or the async pair). No written call; the site is the iterated expression.' },
 
@@ -469,25 +604,45 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'all', table: 'methods', note: 'Library rows are the subset an edge reaches. To see a library method nothing calls, query the library IR itself.' },
   { language: 'java', table: 'call_sites', note: 'caller_id is a TYPE_REGISTRY_ id (a types row, not a methods row) for a call written in a field initializer or a static/instance initializer block: the parser gives such code no enclosing method, and the rule set attributes it to the type — read it as "runs in this type\'s <clinit>/<init>".' },
   { language: 'typescript', table: 'call_sites', note: 'caller_id is normally the parser\'s caller method, or the module initializer for top-level code; when neither exists it is the TS_MODULE_ hash itself, kept as a greppable marker rather than a blank.' },
-  { language: 'java', table: 'call_sites', note: 'callee_name for `new X()` is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`), anon_new, and record_accessor.' },
+  { language: 'java', table: 'call_sites', note: 'callee_name for `new X()` and for `new X() { … }` (anon_new) is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`) and record_accessor, which write no name. A by-name lookup must therefore exclude kind IN (new, anon_new) to avoid counting a construction as a call to a same-named method.' },
   { language: 'java', table: 'call_sites', note: 'A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.' },
+  { language: 'python', table: 'call_sites', note: 'A DECORATOR_APPLICATION edge targets the callable the decorator factory RETURNS, not the name written at the `@` — `@deco(X)` applies the inner callable that `deco` returned. The written name is carried by the separate DECORATOR_CALL row, so a by-name lookup must exclude DECORATOR_APPLICATION or it will read the wrapper as a mismatch.' },
   { language: 'typescript', table: 'call_sites', note: 'end_line / end_column come from the expression row; the call-site row itself records only the start.' },
   { language: 'javascript', table: 'methods', note: 'signature is empty and owner_qualified_name is NULL: JavaScript declares neither. owner_type_id is set for class members, including members declared by assignment.' },
+  { language: 'javascript', table: 'methods', note: 'A library row\'s qualified_name and file_path are prefixed with the package: its path under the client when installed there (`node_modules/<pkg>/…`, nested versions included), else its package name (`<pkg>/…`; a second root with the same name gets `#2`). The parser records both relative to the package root, where two packages with an index.js are indistinguishable. Same for types.' },
   { language: 'javascript', table: 'call_sites', note: 'caller_id is the parser\'s enclosing method, or the module initializer for top-level code. end_line / end_column come from the expression row. `require()` is a module edge, not a call site.' },
   { language: 'javascript', table: 'call_edges', note: 'Targets are VALUES the receiver may hold, not declared types: a `multi_inferred` set is the union of what flowed into the receiver. An untyped receiver is `ambiguous_unknown`, never a name match.' },
   { language: 'typescript', table: 'overrides', note: 'EMPTY — this table is Java-shaped. The TypeScript dispatch envelope is in dispatch_candidates, with basis `nominal` or `structural`.' },
   { language: 'typescript', table: 'type_instantiated', note: 'Every row has how = `new`. Not restricted to client provenance: a type the library constructs is still a type that exists at run time, and dropping it would narrow the envelope unsoundly.' },
-  { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, CONTEXT_MANAGER and ITERATION_PROTOCOL rows are protocol edges with no written call: their site is the expression that triggers the protocol, and callee_name is NULL because nothing was written. Filter them out with kind NOT IN (…) when counting calls.' },
+  { language: 'typescript', table: 'call_sites', note: 'PROPERTY_READ and PROPERTY_WRITE rows are accessor invocations with no written call: the site is the property-access expression that runs the getter or setter, positioned from the expressions table, and callee_name is NULL because nothing was written; the accessor\'s name is on the callee\'s methods row. Filter them out with kind NOT IN (…) when counting calls.' },
+  { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, CONTEXT_MANAGER, ITERATION_PROTOCOL, METACLASS_CREATION and DYNAMIC_CALL rows are protocol or indirect edges with no written call: their site is the expression that triggers them, and callee_name is always NULL because nothing was written. SUBSCRIPT_CALL is NULL only when the subscript is not a written name (measured 206 of 337 rows on a Python subject). Filter them out with kind NOT IN (…) when counting calls.' },
   { language: 'python', table: 'call_sites', note: 'The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class\'s TYPE hash for METACLASS_CREATION, positioned at the class declaration.' },
   { language: 'python', table: 'call_edges', note: 'A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.' },
+  { language: 'java', table: 'call_edges', note: 'A `boundary_lib` edge with callee_provenance external names a method of an ancestor type no staged IR declares (callee_label `external:<type>.<name>`, no methods row). A site whose receiver is declared as such a type is multi_inferred even with one client override: the platform method itself, and the platform\'s own subclasses, are the other possible targets. Stage the library to replace the label with the real method.' },
   { language: 'python', table: 'call_edges', note: 'The reason a site is ambiguous_unknown is exported per site in ext_call_site_unresolved (site, caller, reason, detail).' },
   { language: 'python', table: 'entry_points', note: 'EMPTY. The Python rule set does not derive entry points; entry_reachable is therefore empty too.' },
   { language: 'python', table: 'overrides', note: 'EMPTY — this table is Java-shaped. The Python dispatch envelope is in dispatch_candidates with basis `mro`; the raw linearisation is in ext_mro_position.' },
   { language: 'python', table: 'type_instantiated', note: 'Every row has how = `new`: the rule set records that some client call constructs the class, not which form.' },
   { language: 'all', table: 'call_edges', note: 'THE TRUST LINE, and it is not the same set of tiers in every language. RESOLVED (callee_method_id is set): known_edge, multi_inferred, boundary_lib, and in TypeScript ALSO ambient_terminal and intrinsic_terminal. BLIND SPOT (callee is NULL): ambiguous_unknown, and in Java ALSO ambiguous_anon. A filter written as `tier IN (known_edge, multi_inferred)` therefore drops resolved edges in TypeScript and nowhere else — derive the set from this note or from unresolved_sites, never from a hardcoded list.' },
-  { language: 'java', table: 'call_edges', note: 'A multi_inferred fan is CHA-wide: it is every override the hierarchy admits, bounded only by the dispatch cap. type_instantiated is computed and exported but NOT read by any rule, so the fan is not narrowed to types the program constructs. Narrow it yourself by joining dispatch_candidates to type_instantiated — see the dispatch_envelope_of query.' },
+  { language: 'java', table: 'call_edges', note: 'A multi_inferred fan is CHA-wide: it is every override the hierarchy admits, bounded only by the dispatch cap. type_instantiated is computed and exported but NOT read by any rule, so the fan is not narrowed to types the program constructs. Narrow it yourself by joining dispatch_candidates to type_instantiated — see the dispatch_envelope_of query. A receiver is ALSO typed by what flows into it (a local\'s initializer, the arguments callers pass to a parameter, the receivers callers invoke a method on for its `this`), and each flow-in type resolves its member directly, outside the fan: that is why a `fan_capped` site still carries edges, and why they are the types the program was seen to hand over, not the whole hierarchy.' },
   { language: 'typescript', table: 'call_edges', note: 'A multi_inferred fan is CHA-wide, as in Java: type_instantiated is computed and exported but NOT read by any rule. The fan also has sources that are not virtual dispatch at all — an overload set or a union-typed receiver produces one too.' },
   { language: 'python', table: 'call_edges', note: 'A multi_inferred fan IS narrowed by the instantiation set: type_instantiated_reachable (the constructed classes and their bases) bounds dispatch in resolution/dispatch.dl. Python is the only front end where that narrowing is applied, so a fan here is tighter than the same shape would be in Java or TypeScript.' },
+  { language: 'all', table: 'type_use', note: 'JAVA AND TYPESCRIPT. Declared in every bundle and EMPTY for Python and JavaScript, so the schema does not churn as the remaining front ends land (#663).' },
+  { language: 'typescript', table: 'type_use', note: 'The context set is TypeScript\'s own and is wider than Java\'s: AS_TARGET, SATISFIES_TARGET, TYPE_ALIAS_RHS, the CONDITIONAL_* family, MAPPED_*, INDEX_SIGNATURE_* and TEMPLATE_SPAN have no Java counterpart. A use inside a conditional type IS a use of that type and is recorded as one.' },
+  { language: 'typescript', table: 'type_use', note: 'Only a reference whose KIND can name a declaration is a row: TYPE_REFERENCE and IMPORT_TYPE. ARRAY, UNION, TUPLE and PARENTHESIZED are structure whose CHILDREN are the named references; PRIMITIVE, LITERAL, TYPE_VARIABLE, MAPPED, CONDITIONAL, INDEXED_ACCESS and INTRINSIC name nothing declared.' },
+  { language: 'java', table: 'type_use', note: 'EVERY DEPTH is here, unlike the receiver-typing relations the engine uses internally, which filter to depth 0. A field of type `Map<String, Widget>` produces three rows. Filter on `depth = 0` when you want the type an expression has rather than every type its declaration mentions.' },
+  { language: 'java', table: 'type_use', note: 'A TYPE_VARIABLE reference (`T`, `E`) is not a row: it names the declaration\'s own parameter, not a type. Where the parameter has a written bound the USE resolves to that bound and IS a row, so `<T extends Node> void f(T t)` records a use of Node.' },
+  { language: 'java', table: 'type_use', note: 'The reference rows carry no line in the Java IR (every all-type-references row has an empty startLine), so this table has no position columns. Use owner_method_id, or owner_type_id plus the types row, to locate a use.' },
+  { language: 'all', table: 'field_access', note: 'JAVA AND TYPESCRIPT. The table is declared in every bundle and is EMPTY for Python and JavaScript, so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".' },
+  { language: 'all', table: 'fields', note: 'JAVA AND TYPESCRIPT, for the same reason as field_access: declared everywhere, populated by those two front ends.' },
+  { language: 'typescript', table: 'field_access', note: 'AN ACCESSOR IS NOT HERE. `get url()` read as `c.url` is a CALL, and call_edges already carries it with kind PROPERTY_READ or PROPERTY_WRITE (#703). The two tables are disjoint by construction: this one holds properties, call_edges holds accessors. Ask both when you want every read of a member.' },
+  { language: 'typescript', table: 'field_access', note: 'AN ELEMENT ACCESS IS NOT HERE either: `obj["x"]` with a literal key is a different node kind and is not yet a site. A known gap, not a silent one.' },
+  { language: 'typescript', table: 'field_access', note: 'A METHOD IS NOT A SITE. The callee of `obj.m()` is a PROPERTY_ACCESS node (37% of them, measured on immer), and `const f = obj.m` reads a method as a value; neither is a data edge, and admitting them would fill the ambiguous_unknown tier with sites the engine HAS resolved elsewhere. Both are excluded and counted in ext_field_site_excluded with reasons method_callee and method_value.' },
+  { language: 'typescript', table: 'fields', note: 'An enum member is absent: the parser gives it its own table with no declared type, and the property-access relation resolves through the field table. `Colour.Red` is therefore an unresolved field access, unlike Java where an enum constant is a fields row.' },
+  { language: 'java', table: 'field_access', note: 'A field access written in a SWITCH CASE LABEL is deliberately absent. An enum constant in a case label is recorded TYPE for some arms and FIELD for others (#760), and javac compiles the switch through a $SwitchMap array rather than through a read of the constant, so there is no field access in the bytecode either.' },
+  { language: 'java', table: 'field_access', note: 'A field read that PRECEDES a same-named local declared later in the same method is missing: the parser classifies such a name LOCAL_VARIABLE against the whole body rather than against the scope at the use site (#725), so the site never reaches the engine and is absent rather than ambiguous. Rare (1 in 5,647 local references measured) but it is an absence, not a declared unknown.' },
+  { language: 'java', table: 'field_access', note: 'ARRAY ELEMENTS are not tracked: `a[i] = v` where `a` is a field is recorded as a READ of `a` (the array reference is read; the element write is not a field write). This matches the bytecode, where the instruction is `getfield a` followed by `aastore`.' },
+  { language: 'java', table: 'fields', note: 'A library field is listed only when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches.' },
   { language: 'all', table: 'call_edges', note: 'The raw relation has a seventh column, ToExpr, that is always `-` (reserved). It is dropped here.' },
   { language: 'all', table: 'call_edges', note: 'An unresolved site (tier ambiguous_*) has NULL callee_method_id, callee_label and callee_provenance. The raw relation writes `-` in those slots.' },
 ];
@@ -498,6 +653,8 @@ export const GUIDE: readonly string[] = [
   'This is a call graph of one codebase, derived by a type-directed Datalog engine. Start with `SELECT value FROM run WHERE key=\'language\'` — every language-specific fact below is keyed on it.',
   'The graph is `call_edges`: one row per (call site, possible target). Rows join to `methods` (names, files, lines) on `caller_id` / `callee_method_id`, and to `call_sites` on `call_site_id` for where the call is written. Identifiers are opaque hashes — never parse them, always join.',
   'Trust is explicit. `tier` says what kind of claim a row is: `known_edge` (one resolved target), `multi_inferred` (a sound set — every row of the set is a real possibility), `boundary_lib` (leaves the client; not expanded further), `ambiguous_*` (a declared unknown: callee is NULL). Pick the tiers your question tolerates and filter on them; never treat an `ambiguous_*` row as an edge.',
+  'For a FIELD rather than a callable, the graph is `field_access`: one row per (site, resolved field), joined to `fields` on `field_id` and to `methods` on `caller_id`, with `access` saying read / write / readwrite. It carries the same four tiers and the same promise as `call_edges`, so "who writes Foo.bar" is answered with a confidence, not with a name match. Java only so far; the table is present and empty elsewhere.',
+  'For a TYPE, the graph is `type_use`: one row per place the type is named, with the `context` it was written in (FIELD_TYPE, METHOD_PARAM, METHOD_RETURN, OBJECT_CREATION_TYPE, CAST_EXPRESSION, SUPER_TYPE and the rest) and the `depth` that separates the type as written from its type arguments. That is what makes "what breaks if I change T" specific per construct rather than a count of mentions. Java only so far.',
   '`call_edges` is what the engine CONCLUDED; `dispatch_candidates` is what the hierarchy ADMITTED. Read the second when you need an upper bound rather than a best answer — a candidate whose owner is absent from `type_instantiated` is admitted by the hierarchy but never constructed in this run, which is how you narrow it yourself. `basis` separates a declared relationship from a shape match.',
   'Before answering "nothing calls X" or "X cannot reach Y", check `unresolved_sites` for the methods on the path: a caller listed there has a call the engine could not resolve, so the answer is a lower bound and should say so.',
   'Library targets (`callee_provenance = lib`) are named in `methods` with `provenance = lib` but their bodies were not analysed; a Python `builtin`/`external` target has no methods row and lives in `callee_label`.',
@@ -615,6 +772,41 @@ WHERE table_name = :table_name AND column_name = :column_name AND language = ${L
 ORDER BY value`,
   },
   {
+    name: 'field_impact',
+    question: 'Who reads or writes this field — and which of those answers are certain?',
+    params: ':owner_qualified_name, :field_name',
+    sql: `SELECT m.qualified_name AS accessor, fa.access, fa.tier, fa.file_path, fa.start_line
+FROM field_access fa
+JOIN fields f ON f.id = fa.field_id
+LEFT JOIN methods m ON m.id = fa.caller_id
+WHERE f.owner_qualified_name = :owner_qualified_name AND f.name = :field_name
+ORDER BY fa.tier, m.qualified_name, fa.start_line`,
+  },
+  {
+    name: 'field_blind_spots',
+    question: 'Which field accesses could the engine not resolve — the caveat to attach to any answer about a field?',
+    params: '',
+    sql: `SELECT m.qualified_name AS accessor, fa.access, fa.file_path, fa.start_line
+FROM field_access fa
+LEFT JOIN methods m ON m.id = fa.caller_id
+WHERE fa.tier = 'ambiguous_unknown'
+ORDER BY fa.file_path, fa.start_line`,
+  },
+  {
+    name: 'type_impact',
+    question: 'Where is this type used, and in what construct — the answer to "what breaks if I change it"?',
+    params: ':qualified_name',
+    sql: `SELECT u.context, u.depth, u.tier,
+       coalesce(m.qualified_name, ot.qualified_name) AS used_in,
+       coalesce(m.file_path, ot.file_path) AS file_path
+FROM type_use u
+JOIN types t ON t.id = u.type_id
+LEFT JOIN methods m ON m.id = u.owner_method_id
+LEFT JOIN types ot ON ot.id = u.owner_type_id
+WHERE t.qualified_name = :qualified_name
+ORDER BY u.context, used_in`,
+  },
+  {
     name: 'tier_summary',
     question: 'How much of this graph is certain, inferred, at a library boundary, or unknown?',
     params: '',
@@ -675,10 +867,10 @@ export function renderSchemaMarkdown(): string {
     out.push('');
     out.push(t.description);
     out.push('');
-    out.push('| # | column | type | null | meaning |');
-    out.push('|---|---|---|---|---|');
+    out.push('| # | column | type | key | null | idx | meaning |');
+    out.push('|---|---|---|---|---|---|---|');
     t.columns.forEach((c, i) => {
-      out.push(`| ${i} | \`${c.name}\`${c.key ? ' 🔑' : ''} | ${c.type} | ${c.nullable ? 'yes' : ''} | ${mdEscape(c.description)} |`);
+      out.push(`| ${i} | \`${c.name}\` | ${c.type} | ${c.key ? 'yes' : ''} | ${c.nullable ? 'yes' : ''} | ${c.indexed ? 'yes' : ''} | ${mdEscape(c.description)} |`);
     });
     out.push('');
     const vocab = VOCAB.filter((v) => v.table === t.name);

@@ -4,5 +4,7 @@ ambiguous_unknown	method	AnonymousClasses$anon:Comparator#compare(String,String)
 ambiguous_unknown	method	AnonymousClasses$anon:Runnable#run() -> -
 ambiguous_unknown	method	AnonymousClasses$anon:Thread#run() -> -
 ambiguous_unknown	new	AnonymousClasses#main(String[]) -> -
+boundary_lib	method	AnonymousClasses$anon:Comparator#compare(String,String) -> external:String.length
+boundary_lib	method	AnonymousClasses$anon:Thread#run() -> external:Thread.getName
 known_edge	method	AnonymousClasses#main(String[]) -> AnonymousClasses$anon:Runnable#run()
 known_edge	method	AnonymousClasses#main(String[]) -> AnonymousClasses$anon:Thread#run()

@@ -1,0 +1,7 @@
+05-lambda-and-method-refs
+  precision 1.0000   (5 correct, 0 wrong)
+  recall    1.0000   (5 of 5 in the bytecode)
+  sites 5   resolved 4 (80.0%)
+  tiers ambiguous_unknown=1  known_edge=4
+  access read=4  readwrite=1
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

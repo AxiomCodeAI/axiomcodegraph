@@ -1,0 +1,9 @@
+36-function-value-containers [fields]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 2 the compiler resolved)
+  sites 0   resolved 0 
+  tiers 
+  access 
+  not scored: 0 rows whose target is not a client declaration
+    MISSING r229#callClassMembers(number) READ Holder#viaField
+    MISSING r229#callObjectLiteral(number) READ r229#viaArrow

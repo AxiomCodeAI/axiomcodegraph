@@ -1,0 +1,6 @@
+# Compiler-decided sites the engine gets MISSED or WRONG, each a named gap. Format:
+# <file>:<line>:<col> (the rest of the line is the reason). A new defect fails run.sh; a
+# listed site that starts agreeing fails too, so this list cannot rot.
+
+# (PD-JS-5, the `{ mapper = twice } = {}` default, was listed here as the one WRONG site;
+# the reference links its default since #673 and the site is a SOUND_SUPERSET.)

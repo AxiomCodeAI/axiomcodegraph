@@ -2,6 +2,12 @@ ambiguous_unknown	method	ReflectionSites#main(String[]) -> -
 ambiguous_unknown	method	ReflectionSites#viaDynamicName(String) -> -
 ambiguous_unknown	method	ReflectionSites#viaMethodInvoke(String) -> -
 ambiguous_unknown	method	ReflectionSites#viaNewInstance(String) -> -
+boundary_lib	method	ReflectionSites#viaDynamicName(String) -> external:String.substring
+boundary_lib	method	ReflectionSites#viaDynamicName(String) -> external:java.lang.reflect.Method.invoke
+boundary_lib	method	ReflectionSites#viaMethodInvoke(String) -> external:Class.getDeclaredConstructor
+boundary_lib	method	ReflectionSites#viaMethodInvoke(String) -> external:Class.getMethod
+boundary_lib	method	ReflectionSites#viaMethodInvoke(String) -> external:java.lang.reflect.Method.invoke
+boundary_lib	method	ReflectionSites#viaNewInstance(String) -> external:java.lang.reflect.Constructor.newInstance
 known_edge	method	ReflectionSites#main(String[]) -> ReflectionSites#viaDynamicName(String)
 known_edge	method	ReflectionSites#main(String[]) -> ReflectionSites#viaMethodInvoke(String)
 known_edge	method	ReflectionSites#main(String[]) -> ReflectionSites#viaNewInstance(String)

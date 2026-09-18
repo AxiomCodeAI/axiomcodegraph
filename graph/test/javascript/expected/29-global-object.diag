@@ -1,0 +1,4 @@
+package_entry    global-object  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:11:24  METHOD_CALL cwd  no_target
+unresolved       main.js:9:24  METHOD_CALL setTimeout  no_target
+unresolved       setup.js:8:1  METHOD_CALL assign  no_target

@@ -60,6 +60,51 @@ import {
   TsTypeReferenceExtractor,
 } from '@/parsers/typescript/extractors/ts-type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
+
+/**
+ * How many of a signature's trailing parameters a caller may leave out.
+ *
+ * `p?` is not the only way a parameter becomes optional: `p = expr` is too, and
+ * so the count has to include initializers. Counting only `questionToken`
+ * OVERSTATES the required arity, and the engine's `arity_rejected` then drops the
+ * declaration that actually runs -- measured on immer, where
+ * `each(obj, iter, strict = true)` was reported as requiring three arguments and
+ * every two-argument call to it lost its real target.
+ *
+ * TRAILING, not "anywhere in the list", because a default in the middle does not
+ * make the call shorter: in `f(a, b = 1, c)` the caller must still pass three
+ * arguments to reach `c`. Counting from the end stops at the last parameter that
+ * a caller cannot omit.
+ *
+ * The rest parameter is excluded: `restParameterIndex` models it separately and
+ * the arity rules subtract for it already, so counting it here would subtract it
+ * twice.
+ */
+function omittableTrailingParameterCount(
+  parameters: readonly ts.ParameterDeclaration[],
+): number {
+  // Indexing is narrowed rather than asserted: `noUncheckedIndexedAccess` is on
+  // repository-wide, so `parameters[i]` is `ParameterDeclaration | undefined` however
+  // well the bounds are guarded by hand. Optional chaining and an explicit undefined
+  // branch state the same invariant in a form the compiler can check, and cost nothing
+  // at runtime: `i` never leaves range, so neither branch is reachable.
+  let i = parameters.length - 1;
+  if (parameters[i]?.dotDotDotToken !== undefined) {
+    i -= 1;
+  }
+  let n = 0;
+  for (; i >= 0; i -= 1) {
+    const p = parameters[i];
+    if (p === undefined) {
+      break;
+    }
+    if (p.questionToken === undefined && p.initializer === undefined) {
+      break;
+    }
+    n += 1;
+  }
+  return n;
+}
 import { TS_DEFAULT_EXPORT_NAME } from '@/constants/typescript-constants';
 
 /**
@@ -421,7 +466,7 @@ export class TsDeclarationExtractor {
       isGenerator: false,
       isAbstract: false,
       isStatic: false,
-      optionalParameterCount: member.parameters.filter((p) => p.questionToken !== undefined).length,
+      optionalParameterCount: omittableTrailingParameterCount(member.parameters),
       restParameterIndex: restIndex >= 0 ? restIndex : undefined,
       typeParameterCount: member.typeParameters?.length ?? 0,
       thisParameterTypeName: '',
@@ -535,7 +580,7 @@ export class TsDeclarationExtractor {
       isGenerator: false,
       isAbstract: false,
       isStatic: false,
-      optionalParameterCount: node.parameters.filter((p) => p.questionToken !== undefined).length,
+      optionalParameterCount: omittableTrailingParameterCount(node.parameters),
       restParameterIndex: restIndex >= 0 ? restIndex : undefined,
       typeParameterCount: node.typeParameters?.length ?? 0,
       thisParameterTypeName: '',
@@ -824,8 +869,90 @@ export class TsDeclarationExtractor {
     if (hasIndexSignature) {
       this.indexSignatureOwners.add(row.getHash());
     }
+    this.synthesizeDefaultConstructor(node, inner);
     this.popTypeParameters();
     return row.getHash();
+  }
+
+  /**
+   * The constructor a class has when it declares none and extends nothing.
+   *
+   * `new C()` on such a class resolves to a signature with NO declaration
+   * (`getResolvedSignature(...).declaration` is undefined), so nothing in the
+   * IR could be its target and every construction of a data-holder class was
+   * a call to nothing while every method call on the instance resolved. Java's
+   * front end synthesises `DEFAULT_CONSTRUCTOR` for this (JLS 8.8.9); this is
+   * the same row for TypeScript, at the class's own position, named
+   * `<constructor>` like a written one so the resolution linker and the engine
+   * find it by the same name.
+   *
+   * NOT for a class that extends another. Its implicit constructor forwards
+   * to the base constructor, and `getResolvedSignature` reports the nearest
+   * DECLARED base constructor as the target — a real declaration that a
+   * synthetic row on the subclass would shadow. When no class in the chain
+   * declares one, the root class's synthetic row is what the walk up the
+   * `extends` chain reaches, which is the same answer.
+   */
+  private synthesizeDefaultConstructor(
+    node: ts.ClassLikeDeclaration,
+    context: EmitContext
+  ): void {
+    if (node.members.some((m) => ts.isConstructorDeclaration(m))) {
+      return;
+    }
+    if (node.heritageClauses?.some((h) => h.token === ts.SyntaxKind.ExtendsKeyword)) {
+      return;
+    }
+    const startPos = this.sf.getLineAndCharacterOfPosition(node.getStart(this.sf));
+    const name = TS_ANONYMOUS_METHOD_NAMES.CONSTRUCTOR;
+    const dotted = [...context.namePath, name].filter((p) => p !== '').join('.');
+    const row = new TsMethodRegistry({
+      name,
+      signature: `${name}()`,
+      detailedSignature: `${name}()`,
+      qualifiedName: `${context.moduleQualifiedName}#${dotted}`,
+      filePath: this.options.filePath,
+      startLine: startPos.line + 1,
+      endLine: startPos.line + 1,
+      tsTypeLinkHash: context.typeHash,
+      ownerTypeName: context.ownerTypeName,
+      ownerQualifiedName: context.ownerQualifiedName,
+      methodAccess: TsMethodAccess.PUBLIC_ACCESS,
+      methodModifiers: new Set<TsMethodModifier>(),
+      returnTypeName: '',
+      isVarArgs: false,
+      hasReceiverParameter: false,
+      methodKind: TsMethodKind.DEFAULT_CONSTRUCTOR,
+      parameterCount: 0,
+      hasTypeParameters: false,
+      throwsExceptions: new Set<string>(),
+      enclosingMemberLinkHash: context.methodHash,
+      tsModuleLinkHash: context.moduleHash,
+      declarationGroupKey: memberGroupKeyOf(context.ownerGroupKey, name, false),
+      mergeScopeKey: '',
+      escapedName: name,
+      signatureRole: TsSignatureRole.SOLE,
+      overloadIndex: 0,
+      // An ambient class has no body anywhere; a source class's implicit
+      // constructor is emitted by the compiler, so it has one.
+      bodyPresence: context.isAmbient
+        ? TsBodyPresence.NO_BODY_AMBIENT
+        : TsBodyPresence.HAS_BODY,
+      isTypeOnly: false,
+      isAsync: false,
+      isGenerator: false,
+      isAbstract: false,
+      isStatic: false,
+      optionalParameterCount: 0,
+      restParameterIndex: undefined,
+      typeParameterCount: 0,
+      thisParameterTypeName: '',
+      isTypePredicateReturn: false,
+      startColumn: startPos.character + 1,
+      endColumn: startPos.character + 1,
+      serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+    });
+    this.methods.push(row);
   }
 
   private emitInterface(node: ts.InterfaceDeclaration, context: EmitContext): void {
@@ -1531,7 +1658,7 @@ export class TsDeclarationExtractor {
       isGenerator: (node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined,
       isAbstract: hasModifier(node, ts.SyntaxKind.AbstractKeyword),
       isStatic: hasModifier(node, ts.SyntaxKind.StaticKeyword),
-      optionalParameterCount: parameters.filter((p) => p.questionToken !== undefined).length,
+      optionalParameterCount: omittableTrailingParameterCount(parameters),
       restParameterIndex: restIndex >= 0 ? restIndex : undefined,
       typeParameterCount: typeParameters?.length ?? 0,
       thisParameterTypeName: thisParameter?.type

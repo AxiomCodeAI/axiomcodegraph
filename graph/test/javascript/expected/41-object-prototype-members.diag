@@ -1,0 +1,9 @@
+package_entry    41-object-prototype-members  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:14:41  METHOD_CALL hasOwnProperty  member_absent
+unresolved       main.js:18:33  METHOD_CALL hasOwnProperty  member_absent
+unresolved       main.js:18:66  METHOD_CALL toString  member_absent
+unresolved       main.js:6:22  METHOD_CALL hasOwnProperty  member_absent
+unresolved       main.js:6:51  METHOD_CALL hasOwnProperty  member_absent
+unresolved       main.js:7:38  METHOD_CALL valueOf  member_absent
+unresolved       main.js:8:29  METHOD_CALL hasOwnProperty  member_absent
+unresolved       main.js:9:27  METHOD_CALL hasOwnProperty  member_absent

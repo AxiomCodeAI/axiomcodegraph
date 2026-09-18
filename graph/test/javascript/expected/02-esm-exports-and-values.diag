@@ -1,0 +1,3 @@
+package_entry    probe2  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       shapes.js:28:1  METHOD_CALL assign  no_target
+unresolved       use.js:33:3  METHOD_CALL map  no_target

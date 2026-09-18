@@ -8,7 +8,8 @@ import { ProjectScanner } from '@/utils/project-scanner';
 import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyzer';
 import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
-import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
+import { CSharpProjectAnalyzer } from '@/workflows/csharp/csharp-project-analyzer';
+import { DEFAULT_EXCLUDES as PYTHON_DEFAULT_EXCLUDES, PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 import { ServicesProjectAnalyzer } from '@/workflows/services/services-project-analyzer';
 import { JavaScriptProjectAnalyzer } from '@/workflows/javascript/javascript-project-analyzer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
@@ -33,6 +34,14 @@ export interface ExtractOptions {
    * one language at a time points at one folder and sees nothing else.
    */
   layout?: 'flat' | 'per-language';
+  /**
+   * The tree is a DEPENDENCY being staged, not the project under analysis.
+   *
+   * Passed to the JavaScript analyzer, where it decides whether a root's own build
+   * output directory is walked as its source (#620) or skipped as the artefact beside
+   * the source (#796). `bin/axiomcode` sets it for every `--library` entry.
+   */
+  library?: boolean;
 }
 
 /**
@@ -47,30 +56,73 @@ export interface ExtractOptions {
  * A zero-byte relation (no rows, no header) contributes nothing but still ensures
  * the file exists in the merged set.
  */
+/**
+ * Copy `src` onto `dst`, STREAMING — never materialising the file as a string.
+ *
+ * `fsp.readFile(src, 'utf-8')` returns a JavaScript string, and V8 caps a string at
+ * 512 MiB (`buffer.constants.MAX_STRING_LENGTH`). On a large Python tree
+ * `all-python-expressions.csv` passes that on its own — 623 MB and 650 MB on two
+ * subject trees of roughly 3 000 and 4 400 files — and the read throws
+ * `RangeError: Invalid string length`, failing the WHOLE extraction: the project
+ * cannot be indexed at all (#809). Every other relation is far below the limit, so
+ * the failure arrives only once a tree is big enough to matter.
+ *
+ * Bytes are copied through untouched. The header of an appended file is dropped by
+ * skipping to the first `\n`, which may fall in any chunk, so the search continues
+ * across chunks until it is found. A trailing newline is added only when the source
+ * did not end with one, matching what the string version guaranteed.
+ */
+async function appendCsv(src: string, dst: string, opts: { append: boolean; skipHeader: boolean }): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const rs = fs.createReadStream(src);
+    const ws = fs.createWriteStream(dst, { flags: opts.append ? 'a' : 'w' });
+    let headerDropped = !opts.skipHeader;
+    let wroteAny = false;
+    let lastByte = -1;
+    rs.on('error', reject);
+    ws.on('error', reject);
+    rs.on('data', (c) => {
+      let chunk = c as Buffer;
+      if (!headerDropped) {
+        const nl = chunk.indexOf(0x0a);
+        if (nl < 0) return;                       // header spans this chunk; keep looking
+        headerDropped = true;
+        chunk = chunk.subarray(nl + 1);
+      }
+      if (chunk.length === 0) return;
+      wroteAny = true;
+      lastByte = chunk[chunk.length - 1] ?? lastByte;
+      if (!ws.write(chunk)) { rs.pause(); ws.once('drain', () => rs.resume()); }
+    });
+    rs.on('end', () => {
+      if (wroteAny && lastByte !== 0x0a) ws.write('\n');
+      ws.end();
+    });
+    ws.on('close', () => resolve(wroteAny));
+  });
+}
+
 async function mergeProjectOutputs(scratchDirs: string[], outputDir: string): Promise<void> {
-  const seen = new Map<string, boolean>(); // filename → header already written
+  const seen = new Map<string, boolean>(); // filename → rows already written
   for (const dir of scratchDirs) {
     let names: string[] = [];
     try { names = (await fsp.readdir(dir)).filter((n) => n.endsWith('.csv')); } catch { continue; }
     for (const name of names.sort()) {
       const src = path.join(dir, name);
       const dst = path.join(outputDir, name);
-      const text = await fsp.readFile(src, 'utf-8');
       if (!seen.has(name)) {
-        await fsp.writeFile(dst, text, 'utf-8');
-        seen.set(name, text.length > 0);
+        // first project to carry this relation: header and all, verbatim
+        const rows = await appendCsv(src, dst, { append: false, skipHeader: false });
+        seen.set(name, rows);
         continue;
       }
-      if (text.length === 0) continue;
-      const nl = text.indexOf('\n');
-      const header = nl < 0 ? text : text.slice(0, nl);
-      const body = nl < 0 ? '' : text.slice(nl + 1);
+      if ((await fsp.stat(src)).size === 0) continue;
       if (!seen.get(name)) {
         // the first project wrote a zero-byte file for this relation; this one has rows
-        await fsp.writeFile(dst, header + '\n' + body, 'utf-8');
-        seen.set(name, true);
-      } else if (body.length > 0) {
-        await fsp.appendFile(dst, body.endsWith('\n') ? body : body + '\n', 'utf-8');
+        const rows = await appendCsv(src, dst, { append: false, skipHeader: false });
+        seen.set(name, rows);
+      } else {
+        await appendCsv(src, dst, { append: true, skipHeader: true });
       }
     }
     await fsp.rm(dir, { recursive: true, force: true });
@@ -112,6 +164,7 @@ function reportLanguage(
     filesRejected?: number;
     extractionErrors?: number;
     counts?: Record<string, number>;
+    skippedByDirectory?: Readonly<Record<string, number>>;
   }>
 ): void {
   if (summaries.length === 0) {
@@ -128,6 +181,22 @@ function reportLanguage(
   // report rather than two formats.
   const field = (text: string): string => `${label} ${text}:`.padEnd(30);
   console.log(`\n📊 ${field('files analysed')}${analysed}`);
+  // What the walk PRUNED, by directory name (#790). Without this line a repository
+  // whose first-party packages sit under an excluded directory name reports a
+  // plausible small file count and nothing else, and the loss is invisible to
+  // every reader downstream.
+  const prunedByName = new Map<string, number>();
+  for (const summary of summaries) {
+    for (const [name, count] of Object.entries(summary.skippedByDirectory ?? {})) {
+      prunedByName.set(name, (prunedByName.get(name) ?? 0) + count);
+    }
+  }
+  const pruned = [...prunedByName.entries()].sort((a, b) => b[1] - a[1]);
+  const prunedTotal = pruned.reduce((sum, [, count]) => sum + count, 0);
+  if (prunedTotal > 0) {
+    const detail = pruned.slice(0, 4).map(([name, count]) => `${name} ${count}`).join(', ');
+    console.log(`📊 ${field('files under excluded dirs')}${prunedTotal}  (${detail})`);
+  }
   console.log(`📊 ${field('rows extracted')}${rows}`);
   const rejected = total((s) => s.filesRejected);
   const errored = total((s) => s.extractionErrors);
@@ -160,7 +229,8 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const scanner = new ProjectScanner();
 
   console.log('⏳ Scanning for projects...');
-  const allProjects = await scanner.scanForProjects(absolutePath);
+  // Discovery itself honours the flag: a test directory is never a root (#613).
+  const allProjects = await scanner.scanForProjects(absolutePath, 3, excludeTests);
   console.log(`✅ Scan complete! Found ${allProjects.length} total project(s)\n`);
 
   const projectsByLanguage = scanner.groupByLanguage(allProjects);
@@ -187,6 +257,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const pythonProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.PYTHON);
   const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
   const javascriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVASCRIPT);
+  const csharpProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.CSHARP);
 
   // Where each language writes. Flat: everything into outputDir. Per-language: a folder per
   // language, created only for a language that had a project, so an absent language leaves
@@ -204,6 +275,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const typescriptOut = dirFor('typescript', typescriptProjects.length > 0);
   const pythonOut = dirFor('python', pythonProjects.length > 0);
   const javascriptOut = dirFor('javascript', javascriptProjects.length > 0);
+  const csharpOut = dirFor('csharp', csharpProjects.length > 0);
   // The config analyzers walk every scan target and always write; without a Java project
   // their tables have no reader, so in per-language mode they go to a scratch folder that
   // is discarded rather than into a java/ folder that would announce a language absent here.
@@ -218,13 +290,14 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
   const javascriptAnalyzer = new JavaScriptProjectAnalyzer();
+  const csharpAnalyzer = new CSharpProjectAnalyzer();
 
   // Positions matter: java, properties, xml, yaml, gradle, services, typescript,
   // python, javascript. Counting them wrong bound typescriptSummaries to
   // gradle's void return, and the mistake surfaced only as a type error — so a
   // new analyzer is APPENDED rather than inserted, and the destructuring below
   // is checked against this list rather than against memory.
-  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries]
+  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries, csharpSummaries]
     = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
@@ -275,12 +348,14 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
         serviceVersionLink: opts.versionLink,
         // Python has no excludeTests flag; test discovery is by convention, so
         // the equivalent is skipping the directories those conventions use.
-        // The defaults are repeated because excludeDirs REPLACES them rather
-        // than adding to them — passing only the test names would have started
-        // analysing .venv and site-packages as project source.
+        // excludeDirs REPLACES the analyzer's own defaults rather than adding
+        // to them, so PYTHON_DEFAULT_EXCLUDES is spread in here rather than
+        // hand-copied — a hand-copy is exactly how this list and the
+        // analyzer's fell out of step and left `build/lib*` unexcluded on
+        // this branch while the analyzer's default list separately lacked it
+        // too (#564).
         excludeDirs: excludeTests
-          ? ['__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox',
-             'tests', 'test', '__tests__']
+          ? [...PYTHON_DEFAULT_EXCLUDES, 'tests', 'test', '__tests__']
           : undefined,
       })))),
     // JavaScript takes one root per call, as Python and TypeScript do, and
@@ -299,6 +374,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
         outputDir: javascriptOut ?? (perLanguage ? scratchFor(baseOut, 'javascript', 0) : baseOut),
         baseMservPath: absolutePath,
         serviceVersionLink: opts.versionLink,
+        libraryRoot: opts.library === true,
         // excludeDirs REPLACES the defaults rather than adding to them, so the
         // defaults are repeated — passing only the test names would have started
         // analysing node_modules as project source, which is the one thing the
@@ -310,12 +386,44 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
           : undefined,
       }),
     ])),
+    // C# is APPENDED, which is what the comment above the destructuring asks
+    // for: a new analyzer inserted in the middle rebinds every summary after
+    // it, and that mistake shows up only as a type error.
+    //
+    // ONE call for every C# root, not one per project: the analyzer holds one
+    // set of writers for its twenty-two relations, and a second call against
+    // the same output directory would overwrite rather than merge. There is no
+    // per-project scratch folder to merge afterwards for the same reason.
+    timed(csharpProjects.length === 0
+      ? Promise.resolve([])
+      : csharpAnalyzer.analyzeMany(csharpProjects.map((project) => project.path), {
+          outputDir: csharpOut ?? (perLanguage ? scratchFor(baseOut, 'csharp', 0) : baseOut),
+          baseMservPath: absolutePath,
+          serviceVersionLink: opts.versionLink,
+          excludeDirs: excludeTests
+            ? ['obj', 'bin', '.git', 'node_modules', 'packages', '.vs',
+               'test', 'tests', 'Tests', 'UnitTests', 'IntegrationTests']
+            : undefined,
+        }).then((summary) => [summary])),
   ]);
 
   // Every per-project scratch folder is merged into its language's folder now, in project
   // order, and removed. In flat mode the language folder IS outputDir.
   await mergeProjectOutputs(typescriptProjects.map((_, i) => path.join(typescriptOut ?? baseOut, `.typescript-project-${i}`)), typescriptOut ?? baseOut);
   await mergeProjectOutputs(pythonProjects.map((_, i) => path.join(pythonOut ?? baseOut, `.python-project-${i}`)), pythonOut ?? baseOut);
+  // The JavaScript analyzer walks the root whether or not discovery called it a project,
+  // and a package that ships only `dist/` (#620) is exactly the case where it did not:
+  // `dist` is a skip directory for discovery, so the package is no project, yet the
+  // analyzer read its entry files. Its tables were written to the scratch folder and then
+  // thrown away as a stray, so `--library` on such a package staged nothing and the CLI
+  // aborted the whole run (#709). The output folder is decided by what the analyzer
+  // EMITTED, not by what discovery found: a scratch run that analysed a file is promoted
+  // to javascript/ like any discovered project's output.
+  if (perLanguage && javascriptOut === undefined
+      && javascriptSummaries.value.some((s) => s.filesAnalysed > 0)) {
+    const promoted = dirFor('javascript', true)!;
+    await mergeProjectOutputs([path.join(baseOut, '.javascript-project-0')], promoted);
+  }
   if (perLanguage) {
     for (const stray of ['.config-project-0', '.java-project-0', '.javascript-project-0']) {
       fs.rmSync(path.join(baseOut, stray), { recursive: true, force: true });
@@ -329,6 +437,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   // summaries were already returned by the analyzers and simply discarded.
   reportLanguage('Python', pythonSummaries.seconds, pythonSummaries.value);
   reportLanguage('TypeScript', typescriptSummaries.seconds, typescriptSummaries.value);
+  reportLanguage('C#', csharpSummaries.seconds, csharpSummaries.value);
   reportLanguage('JavaScript', javascriptSummaries.seconds, javascriptSummaries.value);
 
   // Wall clock for the whole run. The per-language figures above will NOT sum to

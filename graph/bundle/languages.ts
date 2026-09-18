@@ -27,13 +27,35 @@ export interface MethodsIR {
   ownerTypeId: string; filePath: string; startLine: string; endLine: string;
   /** absent where the IR has no such column (JavaScript declares no signatures); the core column is then '' / NULL */
   signature?: string; ownerQualifiedName?: string;
+  /** the column naming the owning module, where a LIBRARY row's names are relative to its own package root and need the package prefixed (see ModulesIR.packageName) */
+  moduleId?: string;
 }
 export interface TypesIR {
   file: string; id: string; name: string; qualifiedName: string; category: string;
   filePath: string; startLine: string; endLine: string;
+  moduleId?: string;
 }
-/** A modules table, where the language has one: maps a module hash to a file path. */
-export interface ModulesIR { file: string; id: string; filePath: string }
+/**
+ * A modules table, where the language has one: maps a module hash to a file path. Where the
+ * parser names a library module's package (`packageName`) and its root on disk (`basePath`),
+ * the bundle prefixes every library row's qualified_name and file_path with the package, so
+ * a same-named file in two packages, or two staged versions of one package, stay apart.
+ */
+export interface ModulesIR { file: string; id: string; filePath: string; packageName?: string; basePath?: string }
+/**
+ * The field tables, where the language has them. Two files, because a Java enum constant is a
+ * field the parser gives its own table and its own hash prefix; both land in one `fields` core
+ * table with a `kind` column, since `Colour.RED` is resolved and read exactly as a static field
+ * is. A language with no such relation omits this and its `fields` / `field_access` tables stay
+ * empty rather than absent (see schema.ts NOTES).
+ */
+export interface FieldsIR {
+  file: string; id: string; name: string; ownerTypeId: string;
+  ownerQualifiedName?: string; typeName?: string; modifiers?: string;
+  filePath: string; startLine: string; endLine: string;
+  /** a second file holding enum constants, with the same column roles */
+  enumConstants?: { file: string; id: string; name: string; ownerTypeId: string; ownerQualifiedName?: string; filePath: string; startLine: string; endLine: string };
+}
 /** The expressions table — the universal fallback for a site's position. */
 export interface ExpressionsIR {
   file: string; id: string; kind: string; startLine: string; startColumn: string; endLine: string; endColumn: string;
@@ -69,10 +91,15 @@ export interface LanguageAdapter {
     entryPoints?: RawSource;
     entryReachable?: RawSource;
     typeInstantiated?: RawSource;
+    /** (site, caller, field, fieldProv, tier, access) — #663; absent means the table stays empty */
+    fieldAccess?: RawSource;
+    /** (ref, owner, ownerKind, enclType, enclMethod, type, prov, context, depth, tier) — #663 */
+    typeUse?: RawSource;
   };
   ir: {
     methods: MethodsIR;
     types: TypesIR;
+    fields?: FieldsIR;
     modules?: ModulesIR;
     expressions: ExpressionsIR;
     callSites?: CallSitesIR;
@@ -95,6 +122,10 @@ const JAVA: LanguageAdapter = {
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     entryReachable: { file: 'entry-reachable.csv', columns: [0] },
     typeInstantiated: { file: 'type-instantiated.csv', columns: [0, 1] },
+    // site, caller, field, fieldProvenance, tier, access — the relation is already in this order
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
+    // ref, type, context, depth, ownerKind, owner, enclMethod, enclType, typeProv, tier
+    typeUse: { file: 'type-use.csv', columns: [0, 5, 7, 8, 2, 1, 4, 3, 6, 9] },
   },
   ir: {
     methods: {
@@ -105,6 +136,16 @@ const JAVA: LanguageAdapter = {
     types: {
       file: 'all-types.csv', id: 'typeRegistryUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+    },
+    fields: {
+      file: 'all-fields.csv', id: 'fieldRegistryUniqueHash', name: 'name', ownerTypeId: 'typeRegistryLinkHash',
+      ownerQualifiedName: 'ownerQualifiedName', typeName: 'fieldTypeName', modifiers: 'fieldModifier',
+      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      enumConstants: {
+        file: 'all-enum-constants.csv', id: 'enumConstantUniqueHash', name: 'name',
+        ownerTypeId: 'typeRegistryLinkHash', ownerQualifiedName: 'ownerQualifiedName',
+        filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      },
     },
     // A Java expression row carries no file; its owning type does.
     expressions: {
@@ -128,6 +169,8 @@ const TYPESCRIPT: LanguageAdapter = {
     dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
     // (type, how) — `new` is the only form TypeScript emits
     typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [0, 1] },
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
+    typeUse: { file: 'type-use.csv', columns: [0, 5, 7, 8, 2, 1, 4, 3, 6, 9] },
   },
   ir: {
     methods: {
@@ -138,6 +181,14 @@ const TYPESCRIPT: LanguageAdapter = {
     types: {
       file: 'all-typescript-types.csv', id: 'tsTypeUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+    },
+    // TypeScript has no separate enum-constant table shaped like Java's: an enum member is
+    // reached through ts_enum_member, whose columns do not carry a declared type, and the
+    // property-access relation resolves through ts_field. Only the field table is mapped.
+    fields: {
+      file: 'all-typescript-fields.csv', id: 'tsFieldUniqueHash', name: 'name', ownerTypeId: 'tsTypeLinkHash',
+      ownerQualifiedName: 'ownerQualifiedName', typeName: 'fieldTypeName', modifiers: 'fieldModifier',
+      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
     },
     modules: { file: 'all-typescript-modules.csv', id: 'tsModuleUniqueHash', filePath: 'filePath' },
     expressions: {
@@ -158,6 +209,7 @@ const PYTHON: LanguageAdapter = {
   prefixes: { method: 'PY_METHOD_', type: 'PY_TYPE_', expression: 'PY_EXPRESSION_', module: 'PY_MODULE_', decorator: 'PY_DECORATOR_' },
   raw: {
     callEdges: CALL_EDGES,
+    entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     // Python's ancestor relation carries a leading provenance column: (prov, type, ancestor)
     typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [1, 2] },
     // (prov, type) — no "how"; every row is a constructor call
@@ -204,16 +256,19 @@ const JAVASCRIPT: LanguageAdapter = {
   },
   ir: {
     // No signature and no owner qualified name: JavaScript declares neither.
+    // A library method's qualifiedName and filePath are relative to ITS package root and
+    // carry no package: `index.run` in `index.js` for every package with an index.js. The
+    // bundle prefixes them with the owning module's package (ModulesIR.packageName).
     methods: {
       file: 'all-javascript-methods.csv', id: 'jsMethodUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       kind: 'methodKind', ownerTypeId: 'ownerTypeLinkHash',
-      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine', moduleId: 'ownerModuleLinkHash',
     },
     types: {
       file: 'all-javascript-types.csv', id: 'jsTypeUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
-      category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine', moduleId: 'ownerModuleLinkHash',
     },
-    modules: { file: 'all-javascript-modules.csv', id: 'jsModuleUniqueHash', filePath: 'filePath' },
+    modules: { file: 'all-javascript-modules.csv', id: 'jsModuleUniqueHash', filePath: 'filePath', packageName: 'packageName', basePath: 'baseMservPath' },
     expressions: {
       file: 'all-javascript-expressions.csv', id: 'jsExpressionUniqueHash', kind: 'expressionKind',
       startLine: 'startLine', startColumn: 'startColumn', endLine: 'endLine', endColumn: 'endColumn',

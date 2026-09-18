@@ -1,4 +1,4 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	components#App() @L44 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	components#LibApp() @L54 -> -
 ambiguous_unknown	METHOD_CALL	components#LibApp() @L54 -> -
+known_edge	CONSTRUCTOR_CALL	components#App() @L44 -> Widget#<new>()
 known_edge	METHOD_CALL	components#App() @L45 -> Widget#render()

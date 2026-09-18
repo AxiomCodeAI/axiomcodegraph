@@ -183,7 +183,8 @@
     "modifiers",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsMethodUniqueHash"
+    "jsMethodUniqueHash",
+    "computedNameExpressionLinkHash"
    ],
    "domains": {
     "methodKind": [
@@ -293,7 +294,8 @@
     "ownerModuleLinkHash",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsFieldUniqueHash"
+    "jsFieldUniqueHash",
+    "computedNameExpressionLinkHash"
    ],
    "domains": {
     "declarationForm": [
@@ -522,7 +524,8 @@
     "jsExpressionUniqueHash",
     "introducesDeclarationLinkHash",
     "resolvedParameterLinkHash",
-    "bindingPath"
+    "bindingPath",
+    "bindingDefaultLinkHash"
    ],
    "domains": {
     "edgeRole": [
@@ -725,7 +728,8 @@
     "startColumn",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsTypeReferenceUniqueHash"
+    "jsTypeReferenceUniqueHash",
+    "memberName"
    ],
    "domains": {
     "referenceKind": [
@@ -841,6 +845,37 @@
      "PARSE_ERROR",
      "UNKNOWN_JSDOC_SYNTAX",
      "WITH_STATEMENT_SCOPE"
+    ]
+   }
+  },
+  "js_package_entry": {
+   "columns": [
+    "packageName",
+    "subpath",
+    "condition",
+    "entrySource",
+    "targetPath",
+    "targetModuleLinkHash",
+    "targetOutcome",
+    "packageJsonPath",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsPackageEntryUniqueHash"
+   ],
+   "domains": {
+    "entrySource": [
+     "DEFAULT_INDEX",
+     "EXPORTS",
+     "MAIN",
+     "MODULE"
+    ],
+    "targetOutcome": [
+     "BLOCKED",
+     "MISSING_FILE",
+     "NOT_JAVASCRIPT",
+     "NOT_STAGED",
+     "PATTERN",
+     "RESOLVED"
     ]
    }
   }

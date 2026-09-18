@@ -18,14 +18,22 @@ import { isJavaScriptSourceFile } from '@/utils/javascript';
  * file, claims TypeScript repositories and their facts land under the wrong
  * language.
  *
- * Two rules prevent that:
+ * The rule that prevents that: **a manifest alone is not enough.** JavaScript
+ * source must actually be present in the directory itself. `package.json` is
+ * the manifest of *both* languages and of plenty of repositories that contain
+ * neither.
  *
- * 1. **A `tsconfig.json` disqualifies the directory outright.** It DEFINES a
- *    TypeScript program, which is a stronger claim than any JavaScript manifest
- *    can make, and `TypeScriptDetector` runs first for the same reason.
- * 2. **A `package.json` alone is not enough.** JavaScript source must actually
- *    be present. `package.json` is the manifest of *both* languages and of
- *    plenty of repositories that contain neither.
+ * A `tsconfig.json` used to disqualify the directory outright, on the ground
+ * that it DEFINES a TypeScript program. Since a directory can be several
+ * projects at once (#566), that exclusion cost real code: a JavaScript
+ * repository typechecked through a root `tsconfig.json` with `allowJs` (the
+ * standard JSDoc setup) lost every loose `.js` file of that directory, because
+ * the TypeScript analyzer emits nothing for `.js` program members and no
+ * descendant JavaScript project covers the directory's own files. Those files
+ * were exactly the package entry points, and they left no skip row (#595). The
+ * TypeScript claim still stands beside this one; the JavaScript claim only adds
+ * the `.js` files, which the TypeScript analyzer never emits, so nothing is
+ * extracted twice.
  *
  * ## `isProject` is SHALLOW and `hasSourceFiles` is deep
  *
@@ -45,17 +53,6 @@ export class JavaScriptDetector implements LanguageDetector {
   readonly language = ProjectLanguage.JAVASCRIPT;
   readonly MAX_DEPTH = 5;
 
-  /**
-   * A config that claims the directory for TypeScript.
-   *
-   * `jsconfig.json` is deliberately NOT here: it is the JavaScript spelling of
-   * the same file and is a positive signal, not a disqualifying one.
-   */
-  private static readonly TYPESCRIPT_MANIFESTS = [
-    'tsconfig.json',
-    'tsconfig.base.json',
-  ];
-
   /** Files that mark a JavaScript project, given that source is also present. */
   private static readonly MANIFESTS = [
     'package.json',
@@ -67,9 +64,6 @@ export class JavaScriptDetector implements LanguageDetector {
   async isProject(projectPath: string): Promise<boolean> {
     try {
       const files = await fs.readdir(projectPath);
-      if (JavaScriptDetector.TYPESCRIPT_MANIFESTS.some((m) => files.includes(m))) {
-        return false;
-      }
       if (!JavaScriptDetector.MANIFESTS.some((m) => files.includes(m))) {
         // No manifest at all: a loose directory of scripts is still a project,
         // and 15.4% of measured files have no `package.json` anywhere above
@@ -78,7 +72,18 @@ export class JavaScriptDetector implements LanguageDetector {
       }
       // A manifest AND source. `package.json` alone matches a TypeScript
       // package, a Python package with an npm wrapper, and an empty repository.
-      return this.hasJavaScriptSource(projectPath, 1);
+      if (await this.hasJavaScriptSource(projectPath, 1)) {
+        return true;
+      }
+      // A package that SHIPS FROM A BUILD DIRECTORY has no JavaScript directly in
+      // its package directory: `package.json`, `dist/`, `src/`, `examples/`. Without
+      // this, the scanner descends past it and registers `src/`, `examples/` and
+      // `tests/` as projects of their own, so the entry points under `dist/` are never
+      // staged and every import of the package reads as `not_staged` although it was
+      // passed with `--library` (#797). The manifest naming a file that exists under a
+      // build directory is the package saying where its code is, which is a stronger
+      // signal than a loose `.js` at the top level (#620).
+      return this.entriesPointIntoBuildDirectory(projectPath, files);
     } catch {
       return false;
     }
@@ -102,6 +107,79 @@ export class JavaScriptDetector implements LanguageDetector {
       return undefined;
     } catch {
       return undefined;
+    }
+  }
+
+  /**
+   * Does `package.json` name a JavaScript file that exists under a directory the walk
+   * would otherwise skip (`dist`, `build`, `lib`, `out`)? That is a package shipping from
+   * a build directory, and the package directory is its root (#797).
+   *
+   * Only entries that RESOLVE are accepted: a manifest may name a file that was never
+   * published, and answering yes for a directory with nothing to parse would swallow the
+   * sub-projects the scanner would otherwise find.
+   */
+  private async entriesPointIntoBuildDirectory(
+    projectPath: string, files: readonly string[],
+  ): Promise<boolean> {
+    if (!files.includes('package.json')) {
+      return false;
+    }
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(await fs.readFile(path.join(projectPath, 'package.json'), 'utf8'));
+    } catch {
+      return false;
+    }
+    for (const entry of JavaScriptDetector.entryPaths(manifest)) {
+      const rel = entry.replace(/^\.\//, '');
+      const segment = rel.split('/')[0];
+      if (segment === undefined || segment === '' || !JavaScriptDetector.SKIP.has(segment)) {
+        continue;
+      }
+      if (!isJavaScriptSourceFile(rel)) {
+        continue;
+      }
+      try {
+        const stat = await fs.stat(path.join(projectPath, rel));
+        if (stat.isFile()) {
+          return true;
+        }
+      } catch {
+        // named but not published: keep looking
+      }
+    }
+    return false;
+  }
+
+  /** `main`, `module`, `browser`, `bin` and every string leaf of `exports`. */
+  private static* entryPaths(manifest: unknown): Generator<string> {
+    if (typeof manifest !== 'object' || manifest === null) {
+      return;
+    }
+    const m = manifest as Record<string, unknown>;
+    for (const key of ['main', 'module', 'browser', 'unpkg', 'jsdelivr']) {
+      if (typeof m[key] === 'string') {
+        yield m[key] as string;
+      }
+    }
+    if (typeof m['bin'] === 'string') {
+      yield m['bin'] as string;
+    }
+    yield* JavaScriptDetector.stringLeaves(m['bin']);
+    yield* JavaScriptDetector.stringLeaves(m['exports']);
+  }
+
+  private static* stringLeaves(node: unknown): Generator<string> {
+    if (typeof node === 'string') {
+      yield node;
+      return;
+    }
+    if (typeof node !== 'object' || node === null) {
+      return;
+    }
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      yield* JavaScriptDetector.stringLeaves(value);
     }
   }
 

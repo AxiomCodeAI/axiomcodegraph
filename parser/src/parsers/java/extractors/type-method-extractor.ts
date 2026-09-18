@@ -12,6 +12,7 @@ import { MethodAccess, MethodKind, MethodModifier } from '@/enums/java/methods';
 import { EdgeRole, ExpressionKind, ExpressionOwnerKind, RootContext } from '@/enums/java/expressions';
 import { AnnotationExtractor } from '@/parsers/java/extractors/annotation-extractor';
 import { ExpressionReferenceExtractor, AnonymousClassInfo } from '@/parsers/java/extractors/expression-reference-extractor';
+import { collectLocalScopes } from '@/parsers/java/extractors/local-scopes';
 import { MethodParameterExtractor } from '@/parsers/java/extractors/method-parameter-extractor';
 import { MethodTypeParameterExtractor } from '@/parsers/java/extractors/method-type-parameter-extractor';
 import { TypeReferenceExtractor } from '@/parsers/java/extractors/type-reference-extractor';
@@ -708,6 +709,9 @@ export class TypeMethodExtractor {
     // A pattern binding is declared in one statement and used in another, so the extractor is
     // told the whole body's bindings once rather than per statement.
     this.expressionExtractor.setMethodPatternBindings(this.collectPatternBindings(bodyBlock));
+
+    // ... and where each of those names is in scope, which the flat set cannot say (#725).
+    this.expressionExtractor.setMethodLocalScopes(collectLocalScopes(bodyBlock));
     
     // IMPORTANT: Extract expression statements FIRST to get actual lambda hashes,
     // then use those hashes when processing return statements inside those lambdas.
@@ -1236,6 +1240,9 @@ export class TypeMethodExtractor {
     // A pattern binding is declared in one statement and used in another, so the extractor is
     // told the whole body's bindings once rather than per statement.
     this.expressionExtractor.setMethodPatternBindings(this.collectPatternBindings(bodyBlock));
+
+    // ... and where each of those names is in scope, which the flat set cannot say (#725).
+    this.expressionExtractor.setMethodLocalScopes(collectLocalScopes(bodyBlock));
     
     // Build position-to-hash map for block ownership lookups in initializer expression extraction
     const blockPositionToHash = this.buildBlockPositionMapFromAST(bodyBlock, typeRegistryHash, methodHash, filePath);

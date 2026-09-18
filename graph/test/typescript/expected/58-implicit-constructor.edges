@@ -1,0 +1,6 @@
+ambiguous_unknown	METHOD_CALL	Bag#add(string) @L3 -> -
+known_edge	CONSTRUCTOR_CALL	bag#make() @L21 -> Bag#<new>()
+known_edge	CONSTRUCTOR_CALL	bag#make2() @L27 -> Explicit#<new>()
+known_edge	CONSTRUCTOR_CALL	bag#make3() @L31 -> Explicit#<new>()
+known_edge	CONSTRUCTOR_CALL	bag#make4() @L35 -> Bag#<new>()
+known_edge	METHOD_CALL	bag#make() @L22 -> Bag#add(string)

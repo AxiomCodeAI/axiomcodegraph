@@ -1,0 +1,22 @@
+a.js:10:17 CONSTRUCTOR_CALL Set  LIB_AMBIENT_OK  
+a.js:10:26 CONSTRUCTOR_CALL Plugin  EXACT  a.js:5:16
+a.js:10:46 CONSTRUCTOR_CALL Plugin  EXACT  a.js:5:16
+a.js:11:16 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
+a.js:15:38 METHOD_CALL entries  LIB_AMBIENT_OK  
+a.js:16:36 METHOD_CALL entries  LIB_AMBIENT_OK  
+a.js:17:51 FUNCTION_CALL String  LIB_AMBIENT_OK  
+a.js:20:51 FUNCTION_CALL String  LIB_AMBIENT_OK  
+a.js:24:44 METHOD_CALL fn  SOUND_SUPERSET  a.js:3:1;a.js:4:1
+main.js:3:1 METHOD_CALL f1  EXACT  a.js:13:1
+main.js:3:17 METHOD_CALL f3  EXACT  a.js:15:1
+main.js:3:25 METHOD_CALL f4  EXACT  a.js:16:1
+main.js:3:33 METHOD_CALL f5  EXACT  a.js:17:1
+main.js:3:41 METHOD_CALL f6  EXACT  a.js:18:1
+main.js:3:49 METHOD_CALL f7  EXACT  a.js:19:1
+main.js:3:57 METHOD_CALL f8  EXACT  a.js:20:1
+main.js:3:65 METHOD_CALL f9  EXACT  a.js:21:1
+main.js:3:73 METHOD_CALL f10  EXACT  a.js:22:1
+main.js:3:82 METHOD_CALL f11  EXACT  a.js:23:1
+main.js:3:9 METHOD_CALL f2  EXACT  a.js:14:1
+main.js:3:91 METHOD_CALL f12  EXACT  a.js:24:1
+# defects: 0

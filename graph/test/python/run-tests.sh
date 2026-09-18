@@ -333,6 +333,22 @@ for dir in "$HERE"/cases/*/; do
     fail=$((fail+1)); failed+=("$name"); continue
   fi
 
+  # ── the ENTRY POINT golden ────────────────────────────────────────────────
+  # A third artifact, because an entry point is a declaration NOTHING CALLS: it
+  # contributes no edge, so .edges and .tiers are both blind to it. Losing the relation
+  # or gaining a wrong member moves neither file. See tools/entry_report.py.
+  if ! "$PY" "$HERE/tools/entry_report.py" "$w/ir" "$w/out/raw" > "$w/actual.entries" 2>"$w/entry.log"; then
+    echo "FAIL (entry report — see $w/entry.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+  eexp="$HERE/expected/$name.entries"
+  if [ "$BLESS" = "1" ]; then
+    cp "$w/actual.entries" "$eexp"
+  elif [ ! -f "$eexp" ]; then
+    echo "FAIL (no entry golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue
+  elif ! diff -q "$eexp" "$w/actual.entries" >/dev/null; then
+    echo "FAIL (entry points changed)"; diff -u "$eexp" "$w/actual.entries" | sed 's/^/    /' | head -20
+    fail=$((fail+1)); failed+=("$name"); continue
+  fi
+
 
   # ── DISPATCH-ENVELOPE golden ──────────────────────────────────────────────
   # The edge golden records what the engine CONCLUDED. dispatch_candidates records what
@@ -373,19 +389,19 @@ for dir in "$HERE"/cases/*/; do
 done
 
 # ── THE WHOLE-PROJECT FIXTURES ───────────────────────────────────────────────
-# test/python/projects holds two realistic projects, 29 files and ~1,040 lines, and its
-# README credits them with catching six engine defects the single-construct cases could
-# not. THE SUITE NEVER RAN THEM: the loop above iterates cases/*/ and requires a src/
-# subdirectory, which these do not have, so nothing checked them and their README table
-# was transcribed by hand.
+# test/python/projects holds two realistic projects, 29 files and ~1,040 lines, which
+# caught six engine defects the single-construct cases could not. THE SUITE NEVER RAN
+# THEM: the loop above iterates cases/*/ and requires a src/ subdirectory, which these do
+# not have, so nothing checked them and the tier counts recorded beside them were
+# transcribed by hand.
 #
-# It had drifted. Against the engine's own per-tier SITE counts: known_edge 123 -> 124,
+# They had drifted. Against the engine's own per-tier SITE counts: known_edge 123 -> 124,
 # boundary_lib 76 -> 70, ambiguous_unknown 5 -> 10; the site total (227) and
 # multi_inferred (23) still hold. The ambiguous_unknown row is the one that matters,
-# because the README's prose names five unknowns — four route decorators and
-# functools.wraps — and there are five MORE it never mentioned: bare @abstractmethod in
-# four shared modules. Confirmed NOT recent: identical at 4345f2f, before the six Python
-# changes that landed after it.
+# because five unknowns were accounted for — four route decorators and functools.wraps —
+# and there are five MORE nobody had counted: bare @abstractmethod in four shared modules.
+# Confirmed NOT recent: identical at 4345f2f, before the six Python changes that landed
+# after it.
 #
 # Pinned with the same artifact the cases use, for the same reason: an edge list cannot
 # see a tier count move.

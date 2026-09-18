@@ -1,0 +1,5 @@
+main.js:11:37 METHOD_CALL p.getLocation  ->  known_edge  named.js:1:16 getLocation
+main.js:13:39 METHOD_CALL o.other  ->  known_edge  named.js:2:15 other
+main.js:15:33 METHOD_CALL p.getLocation  ->  known_edge  named.js:1:16 getLocation
+main.js:20:35 METHOD_CALL p.getLocation  ->  known_edge  named.js:1:16 getLocation
+main.js:9:40 METHOD_CALL rt.basicFunction  ->  known_edge  tpl.js:1:25 basicFunction

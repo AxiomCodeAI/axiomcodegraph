@@ -1,0 +1,4 @@
+ambiguous_unknown	VARIABLE_TYPE	0	duck [VARIABLE] -> -
+known_edge	METHOD_PARAM	0	duck [METHOD_PARAM] -> Reader
+known_edge	OBJECT_CREATION_TYPE	0	duck [EXPRESSION] -> FileReader
+known_edge	OBJECT_CREATION_TYPE	0	duck [EXPRESSION] -> NetReader

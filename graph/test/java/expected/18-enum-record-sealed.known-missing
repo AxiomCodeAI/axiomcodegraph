@@ -3,4 +3,4 @@
 # fold that back to the enum (the IR has no separate type for it), leaving `Op#<init> -> Op#<init>`
 # — a real construction whose callee is a constructor the source cannot declare and the extractor
 # does not emit. It cannot rot: if one appears, this line reports NOW-FIXED and fails.
-Op#<init> -> Op#<init>
+LangFeatures.Op#<init> -> LangFeatures.Op#<init>

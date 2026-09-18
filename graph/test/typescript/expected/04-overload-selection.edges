@@ -1,4 +1,3 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	Registry#static of(unknown) @L19 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	overloads#useLibrary() @L37 -> -
 ambiguous_unknown	FUNCTION_CALL	overloads#format(unknown,number) @L8 -> -
 ambiguous_unknown	FUNCTION_CALL	overloads#useLibrary() @L38 -> -
@@ -6,6 +5,7 @@ ambiguous_unknown	FUNCTION_CALL	overloads#useLibrary() @L39 -> -
 ambiguous_unknown	FUNCTION_CALL	overloads#useLibrary() @L40 -> -
 ambiguous_unknown	METHOD_CALL	overloads#useLibrary() @L41 -> -
 ambiguous_unknown	METHOD_CALL	overloads#useLibrary() @L42 -> -
+known_edge	CONSTRUCTOR_CALL	Registry#static of(unknown) @L19 -> Registry#<new>()
 known_edge	FUNCTION_CALL	overloads#drive() @L28 -> overloads#format(string)
 known_edge	FUNCTION_CALL	overloads#drive() @L29 -> overloads#format(number,number)
 known_edge	FUNCTION_CALL	overloads#drive() @L30 -> overloads#format(boolean)

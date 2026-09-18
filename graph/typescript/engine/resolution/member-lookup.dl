@@ -139,9 +139,12 @@ index_signature_in_scope(scope, f) :- lookup_scope(scope),
 
 // ── constructor_in_scope(Scope, MethodHash) ─────────────────────────────────
 // `new C()`. A class with no declared constructor still constructs — the implicit
-// one — which the parser records as SYNTHESIZED_NO_DECLARATION on the call site
-// (2.3% of sites measured). That is an honest terminal and NOT a resolution failure,
-// so it is classified separately downstream rather than counted as a blind spot.
+// one. For a class that extends nothing the parser now synthesises that row
+// (DEFAULT_CONSTRUCTOR, the same member Java's front end provides), so the site
+// resolves to a declaration instead of being a call to nothing (#583). A class that
+// extends another gets no synthetic row: its implicit constructor runs the nearest
+// declared base constructor, which the inherited clause below reaches, and the root
+// class's synthetic row is what that walk lands on when no class declares one.
 constructor_in_scope(scope, m) :- lookup_scope(scope),
     scope_sibling(scope, sib),
     method_owner(prov, sib, m),
@@ -163,6 +166,7 @@ scope_declares_constructor(scope) :- scope_sibling(scope, sib),
     method_kind_is_constructor(k).
 
 method_kind_is_constructor("CONSTRUCTOR").
+method_kind_is_constructor("DEFAULT_CONSTRUCTOR").
 method_kind_is_constructor("CONSTRUCT_SIGNATURE").
 method_kind_is_constructor("TYPE_LITERAL_CONSTRUCT_SIGNATURE").
 method_kind_is_constructor("CONSTRUCTOR_TYPE_SIGNATURE").

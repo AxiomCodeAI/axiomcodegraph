@@ -7,6 +7,7 @@ import { JsFieldRegistry } from '@/analysis-types/javascript/JsFieldRegistry';
 import { JsMethodParameterRegistry } from
   '@/analysis-types/javascript/JsMethodParameterRegistry';
 import { JsMethodRegistry } from '@/analysis-types/javascript/JsMethodRegistry';
+import { JsMethodKind } from '@/enums/javascript/methods/JsMethodKind';
 import { JsModuleRegistry } from '@/analysis-types/javascript/JsModuleRegistry';
 import { JsScopeRegistry } from '@/analysis-types/javascript/JsScopeRegistry';
 import { JsTypeHeritageRegistry } from
@@ -50,6 +51,7 @@ import {
   ScopeBuildResult,
 } from '@/parsers/javascript/extractors/js-scope-builder';
 import { extractScopes } from '@/parsers/javascript/extractors/js-scope-extractor';
+import { jsDocTagsOfAllBlocks } from '@/utils/javascript/javascript-node-utils';
 
 /**
  * Extracts the whole fact spine for ONE JavaScript file.
@@ -257,8 +259,12 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     sourceFile,
     extractor: expressions,
     methodHashByNode: declarations.methodHashByNode,
+    fieldInitOwnerByNode: declarations.fieldInitOwnerByNode,
     moduleInitMethodHash: declarations.moduleInitMethodHash,
   }).run();
+  // c35: a reference to a pattern binding with a default links the default's root,
+  // which exists only now that every root is emitted (#673).
+  expressions.linkBindingDefaults();
 
   // c32 `introducesDeclarationLinkHash`: the callable an expression IS.
   //
@@ -340,8 +346,15 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     addTarget(type.name, JsExportTargetKind.TYPE, type.getHash(),
       type.startLine, type.startColumn);
   }
+  // DECLARATIONS ONLY (#793). A named function EXPRESSION binds its name inside its
+  // own body and nowhere else, so `export const compute = cond ? fast : function
+  // compute(x) {}` has no module-scope `compute` function: the export is the const.
+  // Registering the expression as a name candidate let the METHOD priority beat the
+  // VARIABLE that actually holds the value, and the import then committed known_edge
+  // to the operand that does not run while dropping the one that does.
   for (const method of declarations.methods) {
-    if (method.ownerTypeLinkHash === '') {
+    if (method.ownerTypeLinkHash === ''
+      && method.methodKind === JsMethodKind.FUNCTION_DECLARATION) {
       addTarget(method.name, JsExportTargetKind.METHOD, method.getHash(),
         method.startLine, method.startColumn);
     }
@@ -358,6 +371,7 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     serviceVersionLinkHash: options.serviceVersionLinkHash,
     serviceVersion: '',
     compilerOptions: options.compilerOptions,
+    moduleSystem: options.moduleSystem,
     hashOfScope: scopes.hashOfScope,
     expressionRowByNode: expressions.rowByNode,
     rootHashByNode: expressions.rootHashByNode,
@@ -692,11 +706,26 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     row.setResolvedFilePath(importRow.resolvedFilePath);
     linkedByImportType.add(row);
   }
+  // A JSDoc `@import` tag (#621): a `JSDocImportTag` on any documented node, not
+  // an import TYPE node, so the loop above never reaches it. Its rows carry a
+  // local name, and the by-name join below is what links `@param {Name}` to them.
+  // Before that join, for the same reason the import-type rows are.
+  const visitImportTags = (node: ts.Node): void => {
+    for (const tag of jsDocTagsOfAllBlocks(node)) {
+      if (ts.isJSDocImportTag(tag)) {
+        moduleEdges.emitJsDocImportTag(tag);
+      }
+    }
+    ts.forEachChild(node, visitImportTags);
+  };
+  visitImportTags(sourceFile);
   for (const reference of jsdoc.typeReferences) {
     if (linkedByImportType.has(reference)) {
       continue;
     }
-    const importRow = moduleEdges.importBinding(reference.typeName,
+    // `@param {ns.Thing}`: the import binds the ROOT of a qualified name, as it
+    // does for `extends ns.Base`; the member is the engine's to look up.
+    const importRow = moduleEdges.importBinding(reference.typeName.split('.')[0]!,
       offsetOfRow(sourceFile, reference.startLine, reference.startColumn));
     if (importRow === undefined) {
       continue;

@@ -1,0 +1,2 @@
+known_edge	METHOD_RETURN	0	S [METHOD] -> S
+known_edge	OBJECT_CREATION_TYPE	0	S [EXPRESSION] -> S

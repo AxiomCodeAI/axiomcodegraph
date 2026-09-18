@@ -51,11 +51,11 @@ reflective_kind_member("FUNCTION_CALL_BIND", "bind").
 callee_value(ce, k2, i2) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck), n != "",
     expr_child(_, ce, "RECEIVER", _, r), !expr_kind(_, "SUPER", _, r),
     expr_value(r, k, i), prop_value(k, i, n, k2, i2).
-// `obj[key](…)` — a COMPUTED_CALL whose key holds a string value is an ordinary member
-// call. The parser puts the object under RECEIVER and the key under COMPUTED_KEY on the
+// `obj[key](…)` — a COMPUTED_CALL whose key names a property (a string, or a symbol
+// with a creation site, #597) is an ordinary member call. The parser puts the object under RECEIVER and the key under COMPUTED_KEY on the
 // call itself (there is no ELEMENT_ACCESS node for the callee).
 callee_value(ce, k2, i2) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
-    expr_child(_, ce, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
+    expr_child(_, ce, "COMPUTED_KEY", _, key), key_name(key, n),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), prop_value(k, i, n, k2, i2).
 // `steps[0]()` / `rest[i]()` — a computed call on an array is one of its elements.
 callee_value(ce, k, i) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
@@ -65,6 +65,14 @@ callee_value(ce, k, i) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
 // `super.m()` — the superclass's member, from the enclosing method's class.
 callee_value(ce, "func", m) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck), n != "",
     expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
+    method_home_type(em, t), type_super(t, s), type_member(s, n, m).
+// `super.apply(dep, source)` / `super.call(x)` (#697): classified by name as a
+// reflective call with `super` as the CALLEE, and `super` has no value of its own,
+// so neither reflective reading above finds anything. It is `super.<name>()`: the
+// base's member of that name. A base without one yields nothing, which is right,
+// since the prototype `super` stands for has no Function.prototype.apply.
+callee_value(ce, "func", m) :- call_site(_, ck, _, _, _, em, ce, _, _), call_kind_is_reflective(ck), reflective_kind_member(ck, n),
+    expr_child(_, ce, "CALLEE", _, c), expr_kind(_, "SUPER", _, c),
     method_home_type(em, t), type_super(t, s), type_member(s, n, m).
 
 // A module VALUE is called or constructed through its default export:
@@ -84,6 +92,21 @@ new_callee_value(ce, k, i) :- call_site(_, "CONSTRUCTOR_CALL", _, _, _, _, ce, _
     expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
 new_callee_value(ce, k2, i2) :- call_site(_, "CONSTRUCTOR_CALL", n, "SYNTACTIC", _, _, ce, _, _), n != "",
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), prop_value(k, i, n, k2, i2).
+// `new reg['Ctor']()` — the callee is an element access whose key NAMES a property
+// (#715). The parser gives the NEW the same RECEIVER + COMPUTED_KEY children a
+// COMPUTED_CALL gets, so this is that rule's `new` half: the constructed value is the
+// receiver's member of that name. A key with no `str`/`sym` value names nothing and the
+// site stays dynamic, which is the declared behaviour for `new Registry[type]()`.
+new_callee_value(ce, k2, i2) :- call_site(_, "CONSTRUCTOR_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "COMPUTED_KEY", _, key), key_name(key, n),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), prop_value(k, i, n, k2, i2).
+// `new list[0]()` — a construction through an element of an array or collection.
+new_callee_value(ce, k, i) :- call_site(_, "CONSTRUCTOR_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "COMPUTED_KEY", _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "arr", a), elem_value(a, k, i).
+new_callee_value(ce, k, i) :- call_site(_, "CONSTRUCTOR_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "COMPUTED_KEY", _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "coll", c), elem_value(c, k, i).
 
 // ── new_constructs(NewExpr, TypeHash) — the instance a `new` yields ─────────
 new_constructs(ce, t) :- new_callee_value(ce, k, i), constructible_value(k, i, t).

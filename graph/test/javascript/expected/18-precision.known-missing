@@ -1,3 +1,4 @@
 # `{ ['computed' + 1]: helper }` — a key built by string concatenation. String values are
-# literals only; nothing concatenates them.
-lib/p.js:21:91 computed1
+# literals only; nothing concatenates them. The site is no longer listed: the compiler
+# names the member by TYPE (no property symbol exists for a computed key), so the oracle
+# now reports it undecided (type_ambiguous) rather than as a verdict.

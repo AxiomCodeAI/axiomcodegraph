@@ -1,9 +1,9 @@
 ambiguous_unknown	CONSTRUCTOR_CALL	client-to-lib#driveLibrary() @L9 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L17 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L18 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#pack(Box) @L11 -> -
 ambiguous_unknown	METHOD_CALL	client-to-lib#driveLibrary() @L10 -> -
 ambiguous_unknown	METHOD_CALL	client-to-lib#useLibrary(Handle) @L5 -> -
+known_edge	CONSTRUCTOR_CALL	consumer#drive() @L17 -> Impl#<new>()
+known_edge	CONSTRUCTOR_CALL	consumer#drive() @L18 -> Origin#<new>()
+known_edge	CONSTRUCTOR_CALL	consumer#pack(Box) @L11 -> Origin#<new>()
 known_edge	FUNCTION_CALL	client-to-lib#driveLibrary() @L10 -> client-to-lib#useLibrary(Handle)
 known_edge	FUNCTION_CALL	consumer#drive() @L19 -> consumer#pack(Box)
 known_edge	FUNCTION_CALL	consumer#drive() @L19 -> consumer#slide(Point)

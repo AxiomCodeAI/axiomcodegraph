@@ -6,6 +6,7 @@ export enum ProjectLanguage {
   GO = 'GO',
   RUST = 'RUST',
   C = 'C',
+  CSHARP = 'CSHARP',
   GROOVY = 'GROOVY',
   UNKNOWN = 'UNKNOWN',
 }

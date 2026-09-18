@@ -1,0 +1,5 @@
+computed.js:9:74 FUNCTION_CALL helper  EXACT  helpers.js:1:1
+dynamic.js:3:29 DYNAMIC_CODE_CALL eval  LIB_MISSED  
+jsdoc.js:7:31 METHOD_CALL render  EXACT  jsdoc.js:3:16
+partial.js:5:31 FUNCTION_CALL helper  EXACT  helpers.js:1:1
+# defects: 0

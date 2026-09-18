@@ -1,0 +1,6 @@
+main.js:11:30 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:15:32 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:17:35 METHOD_CALL basicFunction  EXACT  RuntimeTemplate.js:1:25
+main.js:19:33 METHOD_CALL run  EXACT  surface.js:3:15
+main.js:23:32 METHOD_CALL render  EXACT  esm.mjs:1:23
+# defects: 0

@@ -1,0 +1,8 @@
+package_entry    concat-flat  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:4:24  METHOD_CALL concat  no_target
+unresolved       main.js:5:24  METHOD_CALL concat  no_target
+unresolved       main.js:6:24  METHOD_CALL flat  no_target
+unresolved       main.js:7:24  METHOD_CALL at  no_target
+unresolved       main.js:7:24  METHOD_CALL concat  no_target
+unresolved       main.js:7:24  METHOD_CALL of  no_target
+unresolved       main.js:9:48  METHOD_CALL concat  no_target

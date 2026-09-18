@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 
 import * as ts from 'typescript';
@@ -69,6 +70,8 @@ export interface ModuleEdgeExtractionOptions {
   readonly moduleHash: string;
   readonly serviceVersionLinkHash: string;
   readonly compilerOptions: ts.CompilerOptions;
+  /** The file's own module system: an ES module resolves its `import`s under the `import` conditions, a CommonJS file its `require`s under `require`. */
+  readonly moduleSystem: string;
   readonly serviceVersion: string;
   readonly hashOfScope: (scope: JsScopeNode) => string;
   readonly expressionRowByNode: ReadonlyMap<string, JsExpressionRegistry>;
@@ -129,12 +132,35 @@ export interface ModuleEdgeResult {
    * `imports` list, so it is written with every other edge.
    */
   readonly emitJsDocImportType: (node: ts.ImportTypeNode) => JsImportRegistry | undefined;
+  readonly emitJsDocImportTag: (tag: ts.JSDocImportTag) => readonly JsImportRegistry[];
 }
 
 export function extractModuleEdges(
   options: ModuleEdgeExtractionOptions
 ): ModuleEdgeResult {
   return new JsModuleEdgeExtractor(options).run();
+}
+
+/**
+ * `fs.realpathSync` memoised per resolved path.
+ *
+ * One syscall per DISTINCT module the resolver names, not one per import: a repository
+ * that imports one package from a thousand files asks the filesystem once. A path that
+ * cannot be read keeps its spelling, so an unreadable file is still compared rather
+ * than dropped.
+ */
+const realPathCache = new Map<string, string>();
+function realPathOfResolved(absolutePath: string): string {
+  const cached = realPathCache.get(absolutePath);
+  if (cached !== undefined) {
+    return cached;
+  }
+  let real = absolutePath;
+  try {
+    real = fs.realpathSync(absolutePath);
+  } catch { /* keep the spelling given */ }
+  realPathCache.set(absolutePath, real);
+  return real;
 }
 
 class JsModuleEdgeExtractor {
@@ -209,6 +235,7 @@ class JsModuleEdgeExtractor {
       importsByLocalName: this.importsByLocalName,
       importByBindingNode: this.importByBindingNode,
       emitJsDocImportType: (node) => this.emitJsDocImportType(node),
+      emitJsDocImportTag: (tag) => this.emitJsDocImportTag(tag),
       importBinding: (name, at) => {
         const bound = this.importsByLocalName.get(name);
         if (bound === undefined || bound.length === 0) {
@@ -808,6 +835,87 @@ class JsModuleEdgeExtractor {
     });
   }
 
+  /**
+   * The `js_import` rows a JSDoc `@import` tag mints (#621).
+   *
+   * `/** @import Name from "./x" *\/`, `@import { A, B as C } from "./x"`,
+   * `@import * as NS from "./x"` — TypeScript 5.5's replacement for
+   * `@typedef {import("./x").Name} Name`, and the dominant spelling on a
+   * JSDoc-typed project that typechecks itself. The tag is a `JSDocImportTag`
+   * with an ordinary `importClause`, not an `ImportTypeNode`, so the import-type
+   * walk above never sees it, and a file using only this form minted no row at
+   * all: every `@param {Name}` through it resolved to nothing.
+   *
+   * One row PER BINDING, exactly as `emitImportDeclaration` does for the runtime
+   * statement, positioned at the bound name. The binding form is the REAL one
+   * (`DEFAULT` / `NAMED` / `NAMESPACE`) rather than `NO_LOCAL_BINDING`, because
+   * the tag's whole purpose is to bind names into the file's type scope, and the
+   * by-name join that links `@param {Name}` to its import reads `localName`.
+   * `COMMENT`-borne, `JSDOC_IMPORT_TYPE`, `isTypeOnly`, same resolver as every
+   * runtime specifier. No binder declaration is recorded: the name exists only
+   * in comments and must never satisfy a runtime reference.
+   */
+  emitJsDocImportTag(tag: ts.JSDocImportTag): readonly JsImportRegistry[] {
+    const out: JsImportRegistry[] = [];
+    const specifier = ts.isStringLiteralLike(tag.moduleSpecifier)
+      ? tag.moduleSpecifier.text
+      : tag.moduleSpecifier.getText(this.sourceFile);
+    const clause = tag.importClause;
+    if (clause === undefined) {
+      return out;
+    }
+    const push = (row: JsImportRegistry | undefined): void => {
+      if (row !== undefined) {
+        out.push(row);
+      }
+    };
+    if (clause.name !== undefined) {
+      push(this.emitImport({
+        node: clause.name,
+        specifier,
+        importForm: JsImportForm.JSDOC_IMPORT_TYPE,
+        bindingForm: JsImportBindingForm.DEFAULT,
+        importedName: 'default',
+        localName: clause.name.text,
+        edgeBearer: JsEdgeBearer.COMMENT,
+        sourceExpression: undefined,
+        isTypeOnly: true,
+      }));
+    }
+    const bindings = clause.namedBindings;
+    if (bindings === undefined) {
+      return out;
+    }
+    if (ts.isNamespaceImport(bindings)) {
+      push(this.emitImport({
+        node: bindings.name,
+        specifier,
+        importForm: JsImportForm.JSDOC_IMPORT_TYPE,
+        bindingForm: JsImportBindingForm.NAMESPACE,
+        importedName: '',
+        localName: bindings.name.text,
+        edgeBearer: JsEdgeBearer.COMMENT,
+        sourceExpression: undefined,
+        isTypeOnly: true,
+      }));
+      return out;
+    }
+    for (const element of bindings.elements) {
+      push(this.emitImport({
+        node: element,
+        specifier,
+        importForm: JsImportForm.JSDOC_IMPORT_TYPE,
+        bindingForm: JsImportBindingForm.NAMED,
+        importedName: (element.propertyName ?? element.name).text,
+        localName: element.name.text,
+        edgeBearer: JsEdgeBearer.COMMENT,
+        sourceExpression: undefined,
+        isTypeOnly: true,
+      }));
+    }
+    return out;
+  }
+
   // -------------------------------------------------------------------------
   // row construction
   // -------------------------------------------------------------------------
@@ -829,7 +937,7 @@ class JsModuleEdgeExtractor {
   }): JsImportRegistry | undefined {
     const at = this.positionOf(init.node);
     const specifierKind = init.specifierKind ?? JsSpecifierKind.STRING_LITERAL;
-    const resolution = this.resolve(init.specifier, specifierKind);
+    const resolution = this.resolve(init.specifier, specifierKind, init.importForm);
     const scope = this.scopeAt(init.node);
     const row = new JsImportRegistry({
       specifier: init.specifier,
@@ -1055,7 +1163,8 @@ class JsModuleEdgeExtractor {
    */
   private resolve(
     specifier: string,
-    kind: JsSpecifierKind
+    kind: JsSpecifierKind,
+    form: JsImportForm
   ): { filePath: string; outcome: JsImportResolutionOutcome } {
     if (kind !== JsSpecifierKind.STRING_LITERAL) {
       // Unresolvable BY CONSTRUCTION. 17 measured, and the row says so rather
@@ -1069,16 +1178,37 @@ class JsModuleEdgeExtractor {
       // the repository — which no amount of installing dependencies changes.
       return { filePath: '', outcome: JsImportResolutionOutcome.RESOLVED_BUILTIN };
     }
-    const resolved = ts.resolveModuleName(
+    // The runtime resolves a package specifier under the `exports` CONDITIONS of the
+    // importing site: `require()` (and `createRequire`) under `require`, an `import`
+    // declaration or `import()` under `import`, in either kind of file. Without the
+    // mode the resolver applies the `require` conditions everywhere, so an ES module
+    // importing a dual package was linked to the CommonJS build it never loads (#601).
+    // `import` resolution has no directory or extension-less fallback, as Node has
+    // none; a bundler-only ES module that spells `./lib` for `./lib/index.js` gets
+    // the CommonJS-mode answer as a fallback rather than nothing, since the file it
+    // means is not in doubt.
+    const requireLike = form === JsImportForm.REQUIRE_CALL || form === JsImportForm.CREATE_REQUIRE
+      || (form === JsImportForm.JSDOC_IMPORT_TYPE && this.options.moduleSystem !== 'ESM');
+    const mode = requireLike ? ts.ModuleKind.CommonJS : ts.ModuleKind.ESNext;
+    const resolveIn = (m: ts.ResolutionMode): string | undefined => ts.resolveModuleName(
       specifier,
       this.options.absoluteFilePath,
       this.options.compilerOptions,
-      ts.sys
+      ts.sys,
+      undefined,
+      undefined,
+      m
     ).resolvedModule?.resolvedFileName;
+    const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined);
     if (resolved === undefined) {
       return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
     }
-    const absolute = path.normalize(resolved);
+    // BOTH SIDES CANONICAL. `projectModuleHashes` is keyed by the files the analyzer
+    // walked from a root it has already resolved through its symlinks; the resolver
+    // answers with the real path for a package found under `node_modules` but does NOT
+    // realpath a relative specifier, so the two sides are compared as real paths and the
+    // spelling of the root cannot decide the outcome any more (#795).
+    const absolute = realPathOfResolved(path.normalize(resolved));
     if (this.options.projectModuleHashes.has(absolute)) {
       return {
         filePath: this.options.toProjectRelative(absolute),

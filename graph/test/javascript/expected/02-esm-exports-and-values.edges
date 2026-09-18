@@ -51,6 +51,8 @@ use.js:34:19 METHOD_CALL new Widget().inc  ->  known_edge  shapes.js:6:3 inc
 use.js:34:19 METHOD_CALL new Widget().inc().inc  ->  known_edge  shapes.js:6:3 inc
 use.js:35:3 METHOD_CALL chained.dec  ->  known_edge  shapes.js:7:3 dec
 use.js:36:3 FUNCTION_CALL useAll  ->  known_edge  use.js:3:1 useAll
+use.js:37:13 PROPERTY_READ w.value  ->  known_edge  shapes.js:9:3 value
+use.js:38:3 PROPERTY_READ w.value  ->  known_edge  shapes.js:9:3 value
 use.js:4:3 FUNCTION_CALL named  ->  known_edge  shapes.js:1:1 named
 use.js:5:3 FUNCTION_CALL arrowExp  ->  known_edge  shapes.js:2:25 <arrow>
 use.js:6:3 FUNCTION_CALL dflt  ->  known_edge  shapes.js:3:1 dflt

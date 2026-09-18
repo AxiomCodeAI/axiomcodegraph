@@ -1,0 +1,29 @@
+core.js:11:66 FUNCTION_CALL log  ->  known_edge  core.js:4:1 log
+core.js:12:68 FUNCTION_CALL log  ->  known_edge  core.js:4:1 log
+core.js:14:19 METHOD_CALL Object.create  ->  ambient_terminal  -
+core.js:15:45 FUNCTION_CALL log  ->  known_edge  core.js:4:1 log
+core.js:16:47 FUNCTION_CALL log  ->  known_edge  core.js:4:1 log
+core.js:6:41 FUNCTION_CALL log  ->  known_edge  core.js:4:1 log
+core.js:7:46 FUNCTION_CALL log  ->  known_edge  core.js:4:1 log
+core.js:8:50 FUNCTION_CALL log  ->  known_edge  core.js:4:1 log
+main.js:10:3 CONSTRUCTOR_CALL Item  ->  known_edge  core.js:10:1 Item
+main.js:10:3 METHOD_CALL new Item().helper  ->  known_edge  core.js:12:47 <function-expression>
+main.js:11:3 FUNCTION_CALL helper  ->  known_edge  core.js:12:47 <function-expression>
+main.js:12:3 METHOD_CALL Model.tag  ->  known_edge  core.js:15:24 tag
+main.js:13:3 METHOD_CALL Item.tag  ->  known_edge  core.js:15:24 tag
+main.js:14:3 METHOD_CALL Model.tag2  ->  ambiguous_unknown  -
+main.js:15:3 METHOD_CALL Item.tag2  ->  known_edge  core.js:16:26 tag2
+main.js:16:3 CONSTRUCTOR_CALL Model  ->  known_edge  core.js:13:22 <function-expression>
+main.js:16:3 METHOD_CALL new Model().run  ->  known_edge  core.js:11:45 run
+main.js:3:3 METHOD_CALL W.mixin  ->  known_edge  core.js:7:25 mixin
+main.js:4:3 CONSTRUCTOR_CALL W  ->  known_edge  core.js:5:18 <function-expression>
+main.js:4:3 METHOD_CALL new W().each  ->  known_edge  core.js:6:25 each
+main.js:5:3 CONSTRUCTOR_CALL W  ->  known_edge  core.js:5:18 <function-expression>
+main.js:5:3 METHOD_CALL new W().mixin  ->  known_edge  core.js:7:25 mixin
+main.js:6:3 METHOD_CALL W.both  ->  known_edge  core.js:8:29 both
+main.js:7:3 CONSTRUCTOR_CALL W  ->  known_edge  core.js:5:18 <function-expression>
+main.js:7:3 METHOD_CALL new W().both  ->  known_edge  core.js:8:29 both
+main.js:8:3 CONSTRUCTOR_CALL Item  ->  known_edge  core.js:10:1 Item
+main.js:8:3 METHOD_CALL new Item().run  ->  known_edge  core.js:11:45 run
+main.js:9:3 CONSTRUCTOR_CALL Item  ->  known_edge  core.js:10:1 Item
+main.js:9:3 METHOD_CALL new Item().alias  ->  known_edge  core.js:11:45 run

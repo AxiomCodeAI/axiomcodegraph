@@ -1,10 +1,11 @@
-ambiguous_unknown	method	FunctionValues#build() -> -
 ambiguous_unknown	method	FunctionValues#main(String[]) -> -
-ambiguous_unknown	method	FunctionValues#register() -> -
-ambiguous_unknown	method	FunctionValues#viaList(String) -> -
 ambiguous_unknown	method	FunctionValues#viaMap(String,String) -> -
-ambiguous_unknown	method	FunctionValues#viaParameter(Function,String) -> -
 ambiguous_unknown	new	FunctionValues#<type-initializer>() -> -
+boundary_lib	method	FunctionValues#build() -> external:java.util.List.add
+boundary_lib	method	FunctionValues#register() -> external:java.util.Map.put
+boundary_lib	method	FunctionValues#viaList(String) -> external:java.util.function.Function.apply
+boundary_lib	method	FunctionValues#viaMap(String,String) -> external:java.util.Map.get
+boundary_lib	method	FunctionValues#viaParameter(Function,String) -> external:java.util.function.Function.apply
 known_edge	method	FunctionValues#build() -> FunctionValues#impl(String)
 known_edge	method	FunctionValues#callsViaParameter(String) -> FunctionValues#impl(String)
 known_edge	method	FunctionValues#callsViaParameter(String) -> FunctionValues#viaParameter(Function,String)

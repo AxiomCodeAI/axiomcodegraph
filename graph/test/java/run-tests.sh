@@ -89,6 +89,9 @@ if ! bash "$ROOT/graph/test/tools/portable-stat-test.sh"; then
   echo "aborting: the library-facts cache key is not a function of the library IR"
   exit 1
 fi
+if ! bash "$ROOT/graph/test/tools/lib-cache-key-test.sh"; then
+  echo "FAIL: the library-facts cache key is not a function of the staged modules' content (#588)"; exit 1
+fi
 # ── The -I for soufflé's headers must be the one that actually compiles ──────
 # Also a preflight, and for the same reason: the old resolution returned a path that only built on
 # the machine it was written on, and every run here compiles the engine through it.
@@ -229,6 +232,12 @@ for dir in "$HERE"/cases/*/; do
   if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out/raw" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop)"; sed 's/^/    /' "$w/coverage.txt"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
+  # The same invariant for FIELD ACCESS (#663): a site the rules recognised must reach the output
+  # resolved or flagged, and every field-shaped expression the IR holds must be either a site or
+  # an exclusion the guard can name. See tools/field_coverage_guard.py.
+  if ! python3 "$HERE/tools/field_coverage_guard.py" "$w/ir" "$w/out/raw" >"$w/field-coverage.txt" 2>&1; then
+    echo "FAIL (field-access silent drop)"; sed 's/^/    /' "$w/field-coverage.txt"; fail=$((fail+1)); failed+=("$name"); continue; fi
+
   # QUOTED, via an array. This one expansion doubled as an "omit the argument entirely" flag, so it
   # was bare — and a checkout path containing a space then word-split it, handing the tool a
   # fragment that is not a directory. The library names were silently not loaded and both lib-src
@@ -289,6 +298,42 @@ for dir in "$HERE"/cases/*/; do
           fail=$((fail+1)); failed+=("$name"); continue
         fi
       fi
+      # ── FIELD ACCESS, scored against getfield/putfield (#663) ─────────────────────────
+      # The invoke instructions answer "who calls what"; the field instructions answer "who reads
+      # or writes what", and nothing scored the second until this relation existed. Same javac
+      # compile, same canonical names, so a row is comparable line for line. The whole report is
+      # a golden: a precision drop and a recall gain both show up as a diff.
+      if python3 "$HERE/tools/field_oracle.py" "$dir/src" "$w/oracle" --app-only ${orc_lib[@]+"${orc_lib[@]}"} > "$w/fields.gt" 2>"$w/fields-oracle.log"; then
+        python3 "$HERE/tools/normalize_field_access.py" "$w/ir" "$w/out/raw" --oracle-pairs > "$w/fields.pairs"
+        python3 "$HERE/tools/score_fields.py" "$w/ir" "$w/out/raw" "$w/fields.gt" --label "$name" \
+             --show-wrong --show-missing > "$w/fields.score" 2>&1
+        gexp="$HERE/expected/$name.field-oracle"
+        gf_rows=$(grep -c 'precision' "$w/fields.score" || true)
+        if [ "$BLESS" = "1" ]; then
+          if [ "$(grep -c 'sites 0' "$w/fields.score" || true)" = "0" ]; then cp "$w/fields.score" "$gexp"; else rm -f "$gexp"; fi
+        elif [ -f "$gexp" ]; then
+          if ! diff -q "$gexp" "$w/fields.score" >/dev/null; then
+            echo "FAIL (field-access score changed)"; diff -u "$gexp" "$w/fields.score" | sed 's/^/    /' | head -30
+            fail=$((fail+1)); failed+=("$name"); continue; fi
+        fi
+      fi
+      # ── TYPE USE, scored against the descriptors and signatures (#663) ────────────────
+      # A class file records which types its own declarations name: the header, the field and
+      # method descriptors, the generic Signature attributes beside them, the Exceptions
+      # attribute, the local-variable tables, and the new / checkcast / instanceof instructions.
+      # tools/type_use_oracle.py reads those; the whole report is a golden.
+      if python3 "$HERE/tools/type_use_oracle.py" "$dir/src" "$w/oracle" --app-only ${orc_lib[@]+"${orc_lib[@]}"} > "$w/typeuse.gt" 2>"$w/typeuse-oracle.log"; then
+        python3 "$HERE/tools/score_type_use.py" "$w/ir" "$w/out/raw" "$w/typeuse.gt" --label "$name" \
+             --show-wrong --show-missing > "$w/typeuse.score" 2>&1
+        texp2="$HERE/expected/$name.type-use-oracle"
+        if [ "$BLESS" = "1" ]; then
+          if [ -s "$w/typeuse.gt" ]; then cp "$w/typeuse.score" "$texp2"; else rm -f "$texp2"; fi
+        elif [ -f "$texp2" ]; then
+          if ! diff -q "$texp2" "$w/typeuse.score" >/dev/null; then
+            echo "FAIL (type-use score changed)"; diff -u "$texp2" "$w/typeuse.score" | sed 's/^/    /' | head -30
+            fail=$((fail+1)); failed+=("$name"); continue; fi
+        fi
+      fi
       orc_summary="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
       # The REASON, not just the label. bytecode_oracle.py writes `javac failed:` on line 1 and the
@@ -304,7 +349,7 @@ for dir in "$HERE"/cases/*/; do
   # points, so they need their own. A case with config rows and NO golden fails, and a
   # golden with no rows fails too — so neither gaining nor losing interpretation power
   # can land silently.
-  python3 "$HERE/tools/config_report.py" "$w/ir" "$w/out/raw" > "$w/actual.config" 2>"$w/config.log" || {
+  python3 "$HERE/tools/config_report.py" "$w/ir" "$w/out/raw" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.config" 2>"$w/config.log" || {
     echo "FAIL (config report — see $w/config.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
   cfg_rows=$(grep -c '^  ' "$w/actual.config" || true)
   cexp="$HERE/expected/$name.config"
@@ -319,6 +364,42 @@ for dir in "$HERE"/cases/*/; do
     cfg_summary="  [config: ${cfg_rows} rows]"
   else cfg_summary=""; fi
 
+
+  # ── FIELD-ACCESS golden (#663) ────────────────────────────────────────────
+  # The edge golden says nothing about who reads or writes a field. This records every
+  # field_access row WITH its tier and its direction, so a receiver that stops resolving, or a
+  # read that starts reading the wrong declaration, is a reviewable diff rather than a silent
+  # shift. A case with field rows and NO golden fails, and a golden with no rows fails too.
+  python3 "$HERE/tools/normalize_field_access.py" "$w/ir" "$w/out/raw" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.fields" 2>"$w/fields.log" || {
+    echo "FAIL (field-access report — see $w/fields.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
+  fld_rows=$(wc -l < "$w/actual.fields" | tr -d ' ')
+  fexp="$HERE/expected/$name.fields"
+  if [ "$BLESS" = "1" ]; then
+    if [ "${fld_rows:-0}" -gt 0 ]; then cp "$w/actual.fields" "$fexp"; else rm -f "$fexp"; fi
+  elif [ -f "$fexp" ] || [ "${fld_rows:-0}" -gt 0 ]; then
+    if [ ! -f "$fexp" ]; then
+      echo "FAIL (field-access rows but no golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+    if ! diff -q "$fexp" "$w/actual.fields" >/dev/null; then
+      echo "FAIL (field access changed)"; diff -u "$fexp" "$w/actual.fields" | sed 's/^/    /' | head -40
+      fail=$((fail+1)); failed+=("$name"); continue; fi
+  fi
+
+  # ── TYPE-USE golden (#663) ────────────────────────────────────────────────
+  # Every place a type is NAMED, with the context and the depth on each row, so a resolution
+  # that stops working (or a type argument that stops being a use) is a reviewable diff.
+  python3 "$HERE/tools/normalize_type_use.py" "$w/ir" "$w/out/raw" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.typeuse" 2>"$w/typeuse.log" || {
+    echo "FAIL (type-use report — see $w/typeuse.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
+  tu_rows=$(wc -l < "$w/actual.typeuse" | tr -d ' ')
+  texp="$HERE/expected/$name.type-use"
+  if [ "$BLESS" = "1" ]; then
+    if [ "${tu_rows:-0}" -gt 0 ]; then cp "$w/actual.typeuse" "$texp"; else rm -f "$texp"; fi
+  elif [ -f "$texp" ] || [ "${tu_rows:-0}" -gt 0 ]; then
+    if [ ! -f "$texp" ]; then
+      echo "FAIL (type-use rows but no golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+    if ! diff -q "$texp" "$w/actual.typeuse" >/dev/null; then
+      echo "FAIL (type use changed)"; diff -u "$texp" "$w/actual.typeuse" | sed 's/^/    /' | head -40
+      fail=$((fail+1)); failed+=("$name"); continue; fi
+  fi
 
   # ── DISPATCH-ENVELOPE golden ──────────────────────────────────────────────
   # The edge golden records what the engine CONCLUDED. dispatch_candidates records what

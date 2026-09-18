@@ -1,0 +1,14 @@
+main.js:10:1 FUNCTION_CALL k1  EXACT  main.js:4:1
+main.js:10:13 FUNCTION_CALL k3  EXACT  main.js:6:1
+main.js:10:19 FUNCTION_CALL k5  EXACT  main.js:7:1
+main.js:10:25 FUNCTION_CALL k4  EXACT  main.js:8:1
+main.js:10:31 FUNCTION_CALL k6  EXACT  main.js:9:1
+main.js:10:7 FUNCTION_CALL k2  EXACT  main.js:5:1
+main.js:4:24 METHOD_CALL concat  LIB_AMBIENT_OK  
+main.js:5:24 METHOD_CALL concat  LIB_AMBIENT_OK  
+main.js:6:24 METHOD_CALL flat  LIB_AMBIENT_OK  
+main.js:7:24 METHOD_CALL at  LIB_AMBIENT_OK  
+main.js:7:24 METHOD_CALL concat  LIB_AMBIENT_OK  
+main.js:7:24 METHOD_CALL of  LIB_AMBIENT_OK  
+main.js:9:48 METHOD_CALL concat  LIB_AMBIENT_OK  
+# defects: 0

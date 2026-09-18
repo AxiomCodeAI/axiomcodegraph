@@ -1,0 +1,5 @@
+ambiguous_unknown	METHOD_RETURN	0	r356 [METHOD] -> -
+known_edge	METHOD_PARAM	0	r356 [METHOD_PARAM] -> AlphaOp
+known_edge	METHOD_RETURN	0	AlphaOp [METHOD] -> AlphaOp
+known_edge	METHOD_RETURN	0	r356 [METHOD] -> AlphaOp
+known_edge	OBJECT_CREATION_TYPE	0	r356 [EXPRESSION] -> AlphaOp

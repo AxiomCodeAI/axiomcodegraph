@@ -1,0 +1,3 @@
+app.js:11:3 CONSTRUCTOR_CALL Mine  SYNTHESIZED_OK  
+app.js:16:1 FUNCTION_CALL main  EXACT  app.js:9:1
+# defects: 0

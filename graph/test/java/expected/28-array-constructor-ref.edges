@@ -1,8 +1,8 @@
-ambiguous_unknown	method	probe.ArrayCtorRef#asArray(List) -> -
-ambiguous_unknown	method	probe.ArrayCtorRef#asNestedArray(List) -> -
-ambiguous_unknown	method	probe.ArrayCtorRef#useCtorRef(String) -> -
-ambiguous_unknown	method	probe.ArrayCtorRef#useLabelRef(Item) -> -
+boundary_lib	method	probe.ArrayCtorRef#asArray(List) -> external:java.util.List.toArray
+boundary_lib	method	probe.ArrayCtorRef#asNestedArray(List) -> external:java.util.List.toArray
+boundary_lib	method	probe.ArrayCtorRef#useCtorRef(String) -> external:java.util.function.Function.apply
+boundary_lib	method	probe.ArrayCtorRef#useLabelRef(Item) -> external:java.util.function.Function.apply
 known_edge	method	probe.ArrayCtorRef#useCtorRef(String) -> probe.ArrayCtorRef#ctorRef()
 known_edge	method	probe.ArrayCtorRef#useLabelRef(Item) -> probe.ArrayCtorRef#labelRef()
-known_edge	ref	probe.ArrayCtorRef#ctorRef() -> probe.Item#<init>(String)
-known_edge	ref	probe.ArrayCtorRef#labelRef() -> probe.Item#label()
+known_edge	ref	probe.ArrayCtorRef#ctorRef() -> probe.ArrayCtorRef.Item#<init>(String)
+known_edge	ref	probe.ArrayCtorRef#labelRef() -> probe.ArrayCtorRef.Item#label()

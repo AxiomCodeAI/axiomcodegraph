@@ -6,7 +6,7 @@
 // and the synthetic <module> initializer. That uniformity is what lets a single
 // `func(M)` value carry through the whole flow layer.
 //
-// js_method / lib_js_method cols (36):
+// js_method / lib_js_method cols (37; c36 sits AFTER the primary key, appended):
 //   0 name  1 qualifiedName  2 fileName  3 filePath  4 baseMservPath  5 startLine
 //   6 endLine  7 startColumn  8 methodKind  9 declarationForm  10 hoisting
 //   11 isAsync  12 isGenerator  13 isStatic  14 parameterCount  15 hasRestParameter
@@ -16,6 +16,7 @@
 //   26 enclosingMethodLinkHash  27 sourceExpressionLinkHash  28 jsdocCommentLinkHash
 //   29 isExported  30 isEntryPoint  31 methodReferenceKind  32 modifiers
 //   33 isExternal  34 serviceVersionLinkHash  35 jsMethodUniqueHash
+//   36 computedNameExpressionLinkHash
 //
 // js_method_parameter / lib_js_method_parameter cols (22):
 //   0 name  1 position  2 ownerMethodLinkHash  3 declaredTypeName
@@ -33,41 +34,41 @@
 //   PROTOTYPE_OBJECT_LITERAL | OBJECT_ASSIGN_PROTOTYPE | OBJECT_DEFINE_PROPERTY
 // A member declared by assignment is CLASS_METHOD with a non-SYNTACTIC form and an
 // ownerTypeLinkHash, so member lookup needs no special case for the pre-ES6 style.
-method_decl("client", n, k, form, st, t, mod, h) :- js_method(n, _, _, _, _, _, _, _, k, form, _, _, _, st, _, _, _, _, _, _, _, _, t, mod, _, _, _, _, _, _, _, _, _, _, _, h).
-method_decl("lib", n, k, form, st, t, mod, h) :- lib_js_method(n, _, _, _, _, _, _, _, k, form, _, _, _, st, _, _, _, _, _, _, _, _, t, mod, _, _, _, _, _, _, _, _, _, _, _, h).
+method_decl("client", n, k, form, st, t, mod, h) :- js_method(n, _, _, _, _, _, _, _, k, form, _, _, _, st, _, _, _, _, _, _, _, _, t, mod, _, _, _, _, _, _, _, _, _, _, _, h, _).
+method_decl("lib", n, k, form, st, t, mod, h) :- lib_js_method(n, _, _, _, _, _, _, _, k, form, _, _, _, st, _, _, _, _, _, _, _, _, t, mod, _, _, _, _, _, _, _, _, _, _, _, h, _).
 
 // ── method_scopes(Prov, OwnerScope, BodyScope, EnclosingMethod, MethodHash) ──
 // OwnerScope is the scope the callable is DECLARED in — the class scope for a
 // member, the enclosing function's body scope for a nested function. BodyScope is
 // the scope its own body opens. EnclosingMethod is the containing callable, which
 // for an arrow is what `this` lexically refers to.
-method_scopes("client", os, bs, em, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, os, bs, em, _, _, _, _, _, _, _, _, h).
-method_scopes("lib", os, bs, em, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, os, bs, em, _, _, _, _, _, _, _, _, h).
+method_scopes("client", os, bs, em, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, os, bs, em, _, _, _, _, _, _, _, _, h, _).
+method_scopes("lib", os, bs, em, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, os, bs, em, _, _, _, _, _, _, _, _, h, _).
 
 // ── method_lines(Prov, FilePath, Line, Col, MethodHash) ─────────────────────
 // The identity the oracle compares on: `checker.getResolvedSignature(...).declaration`
 // starts at the SAME token — the `function` keyword, the arrow's first parameter
 // paren, the member name — so (file, line, col) is exact on both sides.
-method_lines("client", fp, l, c, h) :- js_method(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-method_lines("lib", fp, l, c, h) :- lib_js_method(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_lines("client", fp, l, c, h) :- js_method(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+method_lines("lib", fp, l, c, h) :- lib_js_method(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
 
 // ── method_source_expr(Prov, ExprHash, MethodHash) ──────────────────────────
 // For a member declared by assignment, the ASSIGNMENT / `Object.assign` call that
 // declared it. Populated on every non-SYNTACTIC form measured.
-method_source_expr("client", e, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, h), e != "".
-method_source_expr("lib", e, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, h), e != "".
+method_source_expr("client", e, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, h, _), e != "".
+method_source_expr("lib", e, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, h, _), e != "".
 
 // ── method_return_type(Prov, TypeName, TypeRefHash, MethodHash) ─────────────
 // JSDoc `@returns {T}` — the only declared return type the language has. Read
 // through the type-reference row, which carries the import hop.
-method_return_type("client", tn, tr, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
-method_return_type("lib", tn, tr, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+method_return_type("client", tn, tr, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), tn != "".
+method_return_type("lib", tn, tr, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), tn != "".
 
 // ── method_this_binding(Prov, Binding, MethodHash) ──────────────────────────
 // LEXICAL for an arrow (this is the enclosing callable's), DYNAMIC for a function,
 // NONE for the module initializer.
-method_this_binding("client", b, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-method_this_binding("lib", b, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_this_binding("client", b, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+method_this_binding("lib", b, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
 
 // ── param_decl(Prov, Name, Position, OwnerMethod, ParamHash) ────────────────
 // Position is 0-based and one row per formal parameter (a destructured parameter
@@ -96,8 +97,8 @@ method_kind_is_value("ARROW").
 // ── method_modifiers(Prov, Modifiers, MethodHash) ───────────────────────────
 // A comma-joined list: `default,export`, `async`, `static`. Read in ONE place — to
 // recover `export default function () {}`, whose export row names nothing (PD-JS-3).
-method_modifiers("client", mods, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".
-method_modifiers("lib", mods, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".
+method_modifiers("client", mods, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h, _), mods != "".
+method_modifiers("lib", mods, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h, _), mods != "".
 
 // ── param_default_text(Prov, DefaultText, OwnerMethod, ParamHash) ───────────
 // `f(a, cb = () => {})` — the parser records the default's TEXT on the parameter
@@ -110,5 +111,12 @@ param_binding_form("client", f, h) :- js_method_parameter(_, _, _, _, _, _, _, _
 param_binding_form("lib", f, h) :- lib_js_method_parameter(_, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, h).
 
 // ── method_generator_flag(Prov, IsGenerator, MethodHash) ────────────────────
-method_generator_flag("client", g, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-method_generator_flag("lib", g, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_generator_flag("client", g, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+method_generator_flag("lib", g, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+
+// ── method_computed_key(Prov, KeyExpr, MethodHash) — a member declared under a computed name ──
+// `[kRun]() {}`, `{ [k]: function () {} }`, `[k] = () => {}`: the member's name is whatever
+// the KEY evaluates to. The parser links the key expression (#598); the value the key
+// holds (a `str`, a `sym`) is what a computed call joins on.
+method_computed_key("client", e, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, e), e != "".
+method_computed_key("lib", e, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, e), e != "".

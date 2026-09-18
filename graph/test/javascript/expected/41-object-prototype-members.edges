@@ -1,0 +1,19 @@
+main.js:14:23 METHOD_CALL this.toString  ->  known_edge  main.js:13:3 toString
+main.js:14:41 METHOD_CALL this.hasOwnProperty  ->  ambient_terminal  -
+main.js:18:33 METHOD_CALL helper.hasOwnProperty  ->  ambient_terminal  -
+main.js:18:66 METHOD_CALL helper.toString  ->  ambient_terminal  -
+main.js:20:13 CONSTRUCTOR_CALL SchemaType  ->  known_edge  main.js:5:3 <constructor>
+main.js:20:31 METHOD_CALL s.has  ->  known_edge  main.js:6:3 has
+main.js:20:43 METHOD_CALL s.label  ->  known_edge  main.js:7:3 label
+main.js:20:54 METHOD_CALL SchemaType.own  ->  known_edge  main.js:8:3 own
+main.js:20:75 METHOD_CALL s.fromCtor  ->  known_edge  main.js:9:3 fromCtor
+main.js:21:3 CONSTRUCTOR_CALL Named  ->  known_edge  main.js:5:3 <constructor>
+main.js:21:3 METHOD_CALL new Named().describe  ->  known_edge  main.js:14:3 describe
+main.js:22:3 FUNCTION_CALL viaFunction  ->  known_edge  main.js:18:1 viaFunction
+main.js:6:22 METHOD_CALL this.hasOwnProperty  ->  ambient_terminal  -
+main.js:6:51 METHOD_CALL this.opts.hasOwnProperty  ->  ambient_terminal  -
+main.js:7:20 METHOD_CALL this.toString  ->  ambient_terminal  -
+main.js:7:20 METHOD_CALL this.toString  ->  multi_inferred  main.js:13:3 toString
+main.js:7:38 METHOD_CALL this.valueOf  ->  ambient_terminal  -
+main.js:8:29 METHOD_CALL SchemaType.hasOwnProperty  ->  ambient_terminal  -
+main.js:9:27 METHOD_CALL this.constructor.hasOwnProperty  ->  ambient_terminal  -

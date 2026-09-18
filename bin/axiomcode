@@ -42,10 +42,14 @@ case "$cmd" in
   parser)
     need_parser
     src="${1:-}"; ir="${2:-}"; [ -n "$src" ] && [ -n "$ir" ] || die "usage: axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]"
-    shift 2; version=""; exclude=false
+    shift 2; version=""; exclude=false; libmode=()
     while [ $# -gt 0 ]; do case "$1" in
       --version) version="$2"; shift 2;; --exclude-tests) exclude=true; shift;;
       --slug) version="$2"; shift 2;;   # the old name for the same thing
+      # This tree is a DEPENDENCY, not the project: a build output directory its
+      # package.json ships from is its source (#620) rather than a copy of the source
+      # beside it, which is what a project's committed dist/ is (#796).
+      --library) libmode=(--library); shift;;
       *) die "parser: unknown option $1";; esac; done
     [ -d "$src" ] || die "not a directory: $src"
     # The version stamps every IR row (serviceVersionLink): the commit of the source when it is a
@@ -55,9 +59,12 @@ case "$cmd" in
     echo "▶ parser: version=$version exclude-tests=$exclude"
     # --per-language: the parser writes <ir>/<lang>/ itself, one folder per language that had
     # a project (the config tables go with java/, whose rules are their only reader).
-    node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language
+    node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language ${libmode[@]+"${libmode[@]}"}
     found=(); for d in "$ir"/*/; do [ -d "$d" ] && found+=("$(basename "$d")"); done
-    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python or JavaScript source under $src" >&2; exit 1; }
+    # exit 3 is "the parser ran and found nothing", apart from 1 for a parser that failed:
+    # `all` reads it for a library entry, whose absence is a warning rather than a reason to
+    # abort every other library and language in the run (#709).
+    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python or JavaScript source under $src" >&2; exit 3; }
     echo "▶ IR: ${found[*]} → $ir/<lang>/"
     ;;
   engine)
@@ -100,17 +107,36 @@ case "$cmd" in
         [ -f "$d/$m" ] && return 0
         for sub in "$d"/*/; do [ -f "$sub$m" ] && return 0; done
       done; return 1; }
-    libroots=""
+    # Every entry is staged under its OWN intermediate directory. Two libraries with one
+    # directory name are routine (a nested second version of a package, `@scope/x` beside
+    # `x`, two monorepo packages both called `core`); named by basename alone the second
+    # parse overwrote the first with nothing printed, and the client's calls then landed on
+    # the surviving copy. A name that is already taken gets a short hash of the absolute
+    # path appended; an entry that names a path already staged is skipped, not staged twice.
+    libroots=""; seen_paths=","; seen_names=","
     IFS=',' read -ra libentries <<< "$libs"
     for L in ${libentries[@]+"${libentries[@]}"}; do
       [ -n "$L" ] || continue; [ -d "$L" ] || die "--library: not a directory: $L"
+      abs="$(cd "$L" && pwd)"
+      case "$seen_paths" in *",$abs,"*) echo "▶ library $L is already staged; skipping the duplicate entry"; continue;; esac
+      seen_paths="$seen_paths$abs,"
       if is_ir "$L"; then libroots="$libroots,$L"
       else
-        n="$(basename "$(cd "$L" && pwd)")"; lir="$int/lib/$n"
+        n="$(basename "$abs")"
+        case "$seen_names" in *",$n,"*)
+          n="$n-$(printf '%s' "$abs" | shasum | cut -c1-8)"
+          echo "▶ a library named $(basename "$abs") is already staged; $L is staged as $n";; esac
+        seen_names="$seen_names$n,"
+        lir="$int/lib/$n"
         echo "▶ parsing library $L → $lir"
-        "$0" parser "$L" "$lir" --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 \
-          || { echo "❌ parsing library $L failed — see $int/parse-lib-$n.log" >&2; exit 1; }
-        libroots="$libroots,$lir"
+        # A library with no source the parser can stage (an assets-only package, a
+        # native addon) is named and skipped; only a parser FAILURE aborts the run.
+        rc=0; "$0" parser "$L" "$lir" --library --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 || rc=$?
+        case "$rc" in
+          0) libroots="$libroots,$lir";;
+          3) echo "⚠️  library $L holds no Java, TypeScript, Python or JavaScript source; not staged (see $int/parse-lib-$n.log)" >&2;;
+          *) echo "❌ parsing library $L failed — see $int/parse-lib-$n.log" >&2; exit 1;;
+        esac
       fi
     done
     libroots="${libroots#,}"
@@ -138,7 +164,7 @@ case "$cmd" in
     run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
     case "$which" in
       java|typescript|python|javascript) run_suite "$which" "$@";;
-      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests; do
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests discovery-tests; do
                 [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
       all) for l in java typescript python javascript; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
       *) die "test: unknown suite $which (java | typescript | python | javascript | parser | all)";;

@@ -1,0 +1,7 @@
+package_entry    case22  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       a.js:10:17  CONSTRUCTOR_CALL Set  no_target
+unresolved       a.js:11:16  CONSTRUCTOR_CALL Map  no_target
+unresolved       a.js:15:38  METHOD_CALL entries  no_target
+unresolved       a.js:16:36  METHOD_CALL entries  no_target
+unresolved       a.js:17:51  FUNCTION_CALL String  no_target
+unresolved       a.js:20:51  FUNCTION_CALL String  no_target

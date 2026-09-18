@@ -1,0 +1,5 @@
+package_entry    38-keyed-copy-write  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:18:21  METHOD_CALL keys  no_target
+unresolved       main.js:30:33  METHOD_CALL forEach  no_target
+unresolved       main.js:32:29  METHOD_CALL alpha  member_absent
+unresolved       main.js:8:3  METHOD_CALL forEach  no_target

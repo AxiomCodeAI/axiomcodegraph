@@ -1,0 +1,7 @@
+10-super-invocations
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    1.0000   (6 of 6 in the bytecode)
+  references 30   resolved 8 (26.7%)
+  tiers ambiguous_unknown=22  known_edge=8
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=2  FIELD_TYPE=1  IMPLEMENTS_INTERFACE=1  LOCAL_VARIABLE=5  METHOD_PARAM=5  METHOD_RETURN=10  OBJECT_CREATION_TYPE=3  SUPER_TYPE=3

@@ -1,0 +1,6 @@
+package_entry    a-values  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       lib/values.js:23:37  METHOD_CALL assign  no_target
+unresolved       lib/values.js:24:31  METHOD_CALL freeze  no_target
+unresolved       lib/values.js:27:3  METHOD_CALL defineProperty  no_target
+unresolved       lib/values.js:28:3  METHOD_CALL defineProperties  no_target
+unresolved       lib/values.js:61:30  METHOD_CALL map  no_target

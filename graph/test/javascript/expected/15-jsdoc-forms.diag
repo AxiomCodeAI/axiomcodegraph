@@ -1,0 +1,8 @@
+package_entry    f-jsdoc  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       lib/doc.js:13:27  METHOD_CALL map  no_target
+unresolved       lib/doc.js:21:26  METHOD_CALL get  no_target
+unresolved       lib/doc.js:55:54  METHOD_CALL push  no_target
+unresolved       main.js:7:123  METHOD_CALL then  member_absent
+unresolved       main.js:7:37  CONSTRUCTOR_CALL Set  no_target
+unresolved       main.js:7:68  METHOD_CALL resolve  no_target
+unresolved       main.js:7:9  CONSTRUCTOR_CALL Map  no_target

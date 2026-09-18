@@ -1,6 +1,5 @@
-ambiguous_unknown	method	probe.Base#clone() -> -
-ambiguous_unknown	method	probe.ObjectMembers#unstagedReceiver(List) -> -
 ambiguous_unknown	method	probe.ObjectMembers#viaUnstagedReceiver(List) -> -
+ambiguous_unknown	method	probe.ObjectMembers.Base#clone() -> -
 boundary_lib	method	probe.ObjectMembers#<init>() -> java.lang.Class#getName()
 boundary_lib	method	probe.ObjectMembers#<init>() -> java.lang.Object#getClass()
 boundary_lib	method	probe.ObjectMembers#otherClass(Plain) -> java.lang.Class#getSimpleName()
@@ -10,7 +9,9 @@ boundary_lib	method	probe.ObjectMembers#plainHash(Plain) -> java.lang.Object#has
 boundary_lib	method	probe.ObjectMembers#plainNotify(Plain) -> java.lang.Object#notifyAll()
 boundary_lib	method	probe.ObjectMembers#selfClass() -> java.lang.Class#getName()
 boundary_lib	method	probe.ObjectMembers#selfClass() -> java.lang.Object#getClass()
-known_edge	method	probe.ObjectMembers#declaredHash(Declares) -> probe.Declares#hashCode()
-known_edge	method	probe.ObjectMembers#declaredToString(Declares) -> probe.Declares#toString()
-known_edge	method	probe.ObjectMembers#overloaded(Overloads,Plain) -> probe.Overloads#equals(Plain)
-known_edge	method	probe.Sub#clone() -> probe.Base#clone()
+boundary_lib	method	probe.ObjectMembers#unstagedReceiver(List) -> external:java.util.List.size
+boundary_lib	method	probe.ObjectMembers#viaUnstagedReceiver(List) -> external:java.util.List.get
+known_edge	method	probe.ObjectMembers#declaredHash(Declares) -> probe.ObjectMembers.Declares#hashCode()
+known_edge	method	probe.ObjectMembers#declaredToString(Declares) -> probe.ObjectMembers.Declares#toString()
+known_edge	method	probe.ObjectMembers#overloaded(Overloads,Plain) -> probe.ObjectMembers.Overloads#equals(Plain)
+known_edge	method	probe.ObjectMembers.Sub#clone() -> probe.ObjectMembers.Base#clone()

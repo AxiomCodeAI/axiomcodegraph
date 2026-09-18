@@ -1,0 +1,6 @@
+boundary_lib	method	app.Orders#viaConcrete(String) -> dep.WidgetStore#find(String)
+boundary_lib	method	app.Orders#viaFactoryBean(String) -> dep.WidgetCache#get(String)
+boundary_lib	method	app.Orders#viaFan(String) -> dep.Sink#write(String)
+boundary_lib	method	app.Orders#viaInterface(String) -> dep.PoliteGreeter#greet(String)
+boundary_lib	method	app.Orders#viaPlain() -> dep.Plain#run()
+known_edge	method	app.Orders#viaClientBean() -> app.LocalHelper#help()

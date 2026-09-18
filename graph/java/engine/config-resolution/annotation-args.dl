@@ -28,34 +28,44 @@
 // own base relation CONFIRMS it. Both are kept: Context alone is a parser string
 // (and a mis-stamped one would silently mis-attribute), the join alone would let a
 // hash collision across entity kinds through.
-ann_on_type(a, n, t) :- annotation_on("client", n, _, "TYPE_DECLARATION", t, a),
-    java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
-ann_on_field(a, n, f, owner) :- annotation_on("client", n, _, "FIELD_DECLARATION", f, a),
-    java_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, f).
-ann_on_method(a, n, m, owner) :- annotation_on("client", n, _, "METHOD_DECLARATION", m, a),
-    java_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
-ann_on_method(a, n, m, owner) :- annotation_on("client", n, _, "CONSTRUCTOR_DECLARATION", m, a),
-    java_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
-ann_on_param(a, n, p, m) :- annotation_on("client", n, _, "PARAMETER_DECLARATION", p, a),
-    java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p).
+// PROVENANCE. Both columns the projection emits are read, not just "client". A
+// dependency supplied with --library is staged annotation for annotation (#136), and
+// scoping this file to the application made the whole phase blind to it: an
+// auto-configuration library contributed no beans, so every injection point it
+// satisfies read `unsatisfied`. The owner join therefore goes through the
+// provenance-parameterised projections (type_decl / field_decl / method_owner /
+// param_decl) rather than the bare java_* base relations, which only ever hold the
+// application's own.
+//
+// Prov is threaded, never defaulted. A rule that wants one side says so: the DI
+// narrowing in di.dl still gates on a CLIENT-typed slot, because that gate is about
+// what the analysis can see, not about where the annotation was written.
+ann_on_type(prov, a, n, t) :- annotation_on(prov, n, _, "TYPE_DECLARATION", t, a),
+    type_decl(prov, _, _, _, _, _, t).
+ann_on_field(prov, a, n, f, owner) :- annotation_on(prov, n, _, "FIELD_DECLARATION", f, a),
+    field_decl(prov, _, _, owner, f).
+ann_on_method(prov, a, n, m, owner) :- annotation_on(prov, n, _, "METHOD_DECLARATION", m, a),
+    method_owner(prov, owner, m).
+ann_on_method(prov, a, n, m, owner) :- annotation_on(prov, n, _, "CONSTRUCTOR_DECLARATION", m, a),
+    method_owner(prov, owner, m).
+ann_on_param(prov, a, n, p, m) :- annotation_on(prov, n, _, "PARAMETER_DECLARATION", p, a),
+    param_decl(prov, _, _, _, m, p).
 // A record component is a field AND a constructor parameter; Spring binds it as
 // either, so both shapes must see it.
-ann_on_field(a, n, f, owner) :- annotation_on("client", n, _, "RECORD_COMPONENT", f, a),
-    java_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, f).
+ann_on_field(prov, a, n, f, owner) :- annotation_on(prov, n, _, "RECORD_COMPONENT", f, a),
+    field_decl(prov, _, _, owner, f).
 
 // ann_owner_type(Ann, TypeHash) — the type the annotation ultimately sits in,
 // whatever it is attached to. This is what gives an annotation a FILE.
-ann_owner_type(a, t) :- ann_on_type(a, _, t).
-ann_owner_type(a, t) :- ann_on_field(a, _, _, t).
-ann_owner_type(a, t) :- ann_on_method(a, _, _, t).
-ann_owner_type(a, t) :- ann_on_param(a, _, _, m),
-    java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+ann_owner_type(prov, a, t) :- ann_on_type(prov, a, _, t).
+ann_owner_type(prov, a, t) :- ann_on_field(prov, a, _, _, t).
+ann_owner_type(prov, a, t) :- ann_on_method(prov, a, _, _, t).
+ann_owner_type(prov, a, t) :- ann_on_param(prov, a, _, _, m), method_owner(prov, t, m).
 // Nested annotation: inherits its parent's attach point (@Table(indexes=@Index(...))).
-ann_owner_type(a, t) :- annotation_arg("client", parent, _, _, "NESTED_ANNOTATION", _, _, a, _),
-    ann_owner_type(parent, t).
+ann_owner_type(prov, a, t) :- annotation_arg(prov, parent, _, _, "NESTED_ANNOTATION", _, _, a, _),
+    ann_owner_type(prov, parent, t).
 
-ann_file(a, f) :- ann_owner_type(a, t),
-    java_type(_, _, _, _, _, _, _, f, _, _, _, _, _, t).
+ann_file(prov, a, f) :- ann_owner_type(prov, a, t), type_decl(prov, _, _, f, _, _, t).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. VALUES
@@ -63,12 +73,12 @@ ann_file(a, f) :- ann_owner_type(a, t),
 // ann_arg(Ann, ArgName, CleanValue, ValueType, ArrayIndex) — every argument, with
 // the source quotes removed. `@RequestMapping("/x")` names its single unnamed
 // argument "value", so ArgName is always usable as a key.
-ann_arg(a, an, v, vt, ai) :- annotation_arg("client", a, an, raw, vt, ai, _, _, _),
+ann_arg(prov, a, an, v, vt, ai) :- annotation_arg(prov, a, an, raw, vt, ai, _, _, _),
     cfg_clean(raw, v).
 
 // ann_arg_value(Ann, CleanValue) — shorthand for the single/unnamed argument, the
 // shape almost every framework annotation uses.
-ann_arg_value(a, v) :- ann_arg(a, "value", v, _, _).
+ann_arg_value(prov, a, v) :- ann_arg(prov, a, "value", v, _, _).
 
 // ARRAYS need no relation of their own. `@Foo({"a.b.C","d.e.F"})` is stored as N
 // rows sharing ArgName and differing by ArrayIndex, and ann_arg emits one row per
@@ -96,26 +106,26 @@ ann_arg_value(a, v) :- ann_arg(a, "value", v, _, _).
 //     value-interpretation.dl
 //   - a fully-qualified name, in a CLASS_REFERENCE or in a plain string argument
 //     (`@Component("com.x.Y")`-style config-by-string) -> cfg_name_demand
-cfg_ann_name_in_file(v, f) :- ann_arg(a, _, v, "CLASS_REFERENCE", _), ann_file(a, f).
-cfg_name_demand(v) :- ann_arg(_, _, v, "CLASS_REFERENCE", _).
-cfg_name_demand(v) :- ann_arg(_, _, v, "STRING_LITERAL", _), cfg_fqn_shaped(v).
+cfg_ann_name_in_file(v, f) :- ann_arg(prov, a, _, v, "CLASS_REFERENCE", _), ann_file(prov, a, f).
+cfg_name_demand(v) :- ann_arg(_, _, _, v, "CLASS_REFERENCE", _).
+cfg_name_demand(v) :- ann_arg(_, _, _, v, "STRING_LITERAL", _), cfg_fqn_shaped(v).
 
 // ── config_class_ref: the EXPORTED "this string names this type" fact ─────────
 // config_class_ref(Mechanism, Site, Name, TypeHash, Prov). One row per resolved
 // class reference, from any of the four mechanisms; the Mechanism column is what
 // makes per-mechanism precision/recall reportable instead of an aggregate.
-config_class_ref("annotation", a, v, t, prov) :- ann_arg(a, _, v, "CLASS_REFERENCE", _),
+config_class_ref("annotation", a, v, t, prov) :- ann_arg(_, a, _, v, "CLASS_REFERENCE", _),
     cfg_name_type(v, prov, t).
-config_class_ref("annotation", a, v, t, prov) :- ann_arg(a, _, v, "STRING_LITERAL", _),
+config_class_ref("annotation", a, v, t, prov) :- ann_arg(_, a, _, v, "STRING_LITERAL", _),
     cfg_fqn_shaped(v), cfg_name_type(v, prov, t).
 
 // ── DECLARED UNKNOWN: a class-shaped argument that resolves to nothing ────────
 config_unresolved("annotation", a, v, "unresolved_class") :-
-    ann_arg(a, _, v, "CLASS_REFERENCE", _), !cfg_name_resolved(v).
+    ann_arg(_, a, _, v, "CLASS_REFERENCE", _), !cfg_name_resolved(v).
 config_unresolved("annotation", a, v, "unresolved_class") :-
-    ann_arg(a, _, v, "STRING_LITERAL", _), cfg_fqn_shaped(v), !cfg_name_resolved(v).
+    ann_arg(_, a, _, v, "STRING_LITERAL", _), cfg_fqn_shaped(v), !cfg_name_resolved(v).
 // An UNKNOWN-typed argument is the parser's own fallback ("complex expression"):
 // a concatenation, a constant reference, a SpEL expression. It is a real blind
 // spot in exactly the way reflection is, and is recorded as one.
 config_unresolved("annotation", a, v, "uninterpretable_argument") :-
-    ann_arg(a, _, v, "UNKNOWN", _), v != "".
+    ann_arg(_, a, _, v, "UNKNOWN", _), v != "".

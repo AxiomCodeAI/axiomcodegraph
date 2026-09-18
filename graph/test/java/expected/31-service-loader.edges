@@ -1,2 +1,2 @@
-ambiguous_unknown	method	probe.UpperCodec#helper(String) -> -
-known_edge	method	probe.UpperCodec#encode(String) -> probe.UpperCodec#helper(String)
+boundary_lib	method	probe.Plugins.UpperCodec#helper(String) -> external:String.toUpperCase
+known_edge	method	probe.Plugins.UpperCodec#encode(String) -> probe.Plugins.UpperCodec#helper(String)

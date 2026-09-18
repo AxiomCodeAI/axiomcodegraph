@@ -1,0 +1,5 @@
+ambiguous_unknown	read	probe.Use#viaInheritedMemberType(Base) -> -
+ambiguous_unknown	read	probe.Use#viaOtherBuilder() -> -
+ambiguous_unknown	read	probe.Use#viaOuterQualifier() -> -
+known_edge	read	probe.Use#viaInheritedMemberType(Base) -> probe.Base.Kind#A
+known_edge	read	probe.Use#viaStaticImportedConstant() -> probe.Outer.Mode#FAST

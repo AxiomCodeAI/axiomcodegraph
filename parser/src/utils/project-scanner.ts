@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-import { EXCLUDED_DIRS } from '@/constants/consts';
+import { EXCLUDED_DIRS, isJavaTestDir } from '@/constants/consts';
 import { ProjectInfo, ProjectLanguage } from '@/types/ProjectInfo';
 import { ProjectDetector } from '@/utils/project-detector';
 
@@ -16,10 +16,17 @@ export class ProjectScanner {
    * Scans a directory for projects recursively
    * @param rootPath Root directory to scan
    * @param maxDepth Maximum depth to scan (default: 3)
+   * @param excludeTests Do not descend into a test directory (`test`, `tests`,
+   *   `__tests__`, `test-*`, `integration-tests`, `e2e`), so it never becomes a
+   *   project root of its own. Each analyzer excludes those names while walking
+   *   BELOW the root it is given; a `test/` that discovery registered as its own root
+   *   was walked from inside, where the exclusion could never see its name, and the
+   *   flag excluded nothing for JavaScript, TypeScript and Python (#613). Java was
+   *   unaffected only because its roots are build-descriptor shaped.
    */
-  async scanForProjects(rootPath: string, maxDepth: number = 3): Promise<ProjectInfo[]> {
+  async scanForProjects(rootPath: string, maxDepth: number = 3, excludeTests: boolean = false): Promise<ProjectInfo[]> {
     const projects: ProjectInfo[] = [];
-    await this.scanDirectory(rootPath, projects, 0, maxDepth, new Set());
+    await this.scanDirectory(rootPath, projects, 0, maxDepth, new Set(), excludeTests);
     return projects;
   }
 
@@ -44,7 +51,8 @@ export class ProjectScanner {
     projects: ProjectInfo[],
     currentDepth: number,
     maxDepth: number,
-    claimed: ReadonlySet<ProjectLanguage>
+    claimed: ReadonlySet<ProjectLanguage>,
+    excludeTests: boolean
   ): Promise<void> {
     if (currentDepth > maxDepth) {
       return;
@@ -71,9 +79,12 @@ export class ProjectScanner {
         if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.')) {
           continue;
         }
+        if (excludeTests && isJavaTestDir(entry.name)) {
+          continue;
+        }
 
         const subPath = path.join(dirPath, entry.name);
-        await this.scanDirectory(subPath, projects, currentDepth + 1, maxDepth, claimedBelow);
+        await this.scanDirectory(subPath, projects, currentDepth + 1, maxDepth, claimedBelow, excludeTests);
       }
     } catch (error) {
       console.error(`Error scanning directory ${dirPath}:`, error);

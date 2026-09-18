@@ -38,7 +38,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 
 import {
-  JAVASCRIPT_CSV_FILES, JS_SOURCE_EXTENSIONS,
+  JAVASCRIPT_CSV_FILES, JS_SKIP_DIRECTORIES, JS_SOURCE_EXTENSIONS,
 } from '@/constants/javascript-constants';
 import {
   isFlowDeclarationFileName, isJavaScriptSourceFile, jsExtensionOf, stripJsExtension,
@@ -806,6 +806,9 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'const paint = { paint: 1 };',                                         // 15 a property key is not a reference
     'const alsoOuter = outer;',                                            // 16 MODULE, links line 1
     'module.exports = { shadow, named, cbs, Late, useBefore, paint, alsoOuter, self: typeof self };', // 17 self is UNRESOLVED_FREE out here
+    'const rebound = function rebound() {',                                 // 18 the expression's own name ...
+    '  const rebound = 1; return rebound; };',                              // 19 ... is shadowed by a const in the body (#682)
+    'const shadowed = function shadowed(shadowed) { return shadowed; };',  // 20 ... and by a parameter of the same name
     '',
   ].join('\n')],
 
@@ -821,6 +824,31 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     "module.exports = require('./whole.js');",                             // 9  re-export; overwrites 7 and 8
     "const dyn = import('./dyn.mjs');",                                    // 10 dynamic import in expression position
     'module.exports.extra = lazy;',                                        // 11 a member after the overwrite
+    '',
+  ].join('\n')],
+
+  // #798: a field initializer is code that RUNS, and it needs the callable it runs inside.
+  // Owned by the module, `this` in it had no value and the call it makes was attributed to
+  // the module, putting constructor-time work on every importer's path.
+  ['torture/field-initializers.js', [
+    'export class Base {',                                                 // 1
+    "  static make(tag) { return 'made:' + tag; }",                        // 2
+    "  make2() { return 'inst'; }",                                        // 3
+    '}',                                                                   // 4
+    'export class Child extends Base {',                                   // 5
+    "  static fromField = this.make('static');",                           // 6  runs at class evaluation: this = Child
+    '  instField = this.make2();',                                         // 7  runs during construction: this = the instance
+    '  bound = this.make2.bind(this);',                                    // 8  a member READ in an initializer
+    '}',                                                                   // 9
+    'export class WithCtor extends Base {',                                // 10
+    '  field = this.make2();',                                             // 11 a class that DOES declare a constructor
+    '  constructor() { super(); this.n = 1; }',                            // 12
+    '}',                                                                   // 13
+    'export class WithBlock {',                                            // 14
+    "  static tag = String('t');",                                         // 15 a static field beside a static block
+    '  static { WithBlock.ready = true; }',                                // 16
+    '}',                                                                   // 17
+    'export function drive() { return new Child().instField; }',           // 18
     '',
   ].join('\n')],
 
@@ -853,6 +881,15 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'const Mixin = (Sup) => class extends Sup {};',                         // 22 Sup is a parameter: no import, expression linked
     'class Mixed extends Mixin(Base) {}',                                   // 23 computed, expression linked
     'class Wrapped extends (Base) {}',                                      // 24 parentheses: NOT computed, name Base
+    // #706: a member declared by one LINK of a chained assignment. The value is
+    // the innermost right-hand side, declared under every member-form target;
+    // a callable has one method row (the first member link) and a field row
+    // under every further member name.
+    'const Chained = function () {};',                                      // 25 a constructor function
+    'Chained.api = Chained.prototype = { each() { return 1; } };',          // 26 static field api, prototype literal method each
+    'Chained.mixin = Chained.api.mixin = function () { return 2; };',       // 27 static method mixin
+    'Chained.both = Chained.prototype.both = function () { return 3; };',   // 28 static method both, prototype field both
+    'Chained.prototype.run = Chained.prototype.alias = function () {};',    // 29 prototype method run, prototype field alias
     '',
   ].join('\n')],
 
@@ -995,6 +1032,75 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
   // footer is a minified bundle.
   ['cjs/long-literal.js', `const WHITELIST = /^(${'[a-z]'.repeat(1_500)})$/;\nmodule.exports = { WHITELIST };\n`],
   ['cjs/compiled.js', `var a=1;${'var b=2;'.repeat(900)}\n//# sourceMappingURL=compiled.js.map\n`],
+  // The `@import` JSDoc tag (#621): the three binding shapes, the older
+  // `@typedef {import(...)}` spelling beside them as the control, and a
+  // `@param` through each name. Every row is comment-borne and type-only.
+  ['cjs/jsdoc-import-tag.js', [
+    '/** @import Template from "./router" */',
+    '/** @import { Router, Route as Alias } from "./router" */',
+    '/** @import * as NS from "./router" */',
+    '/** @typedef {import("./router").Router} RouterAlias */',
+    '/** @param {Template} t */',
+    'function viaDefault(t) { return t.render(); }',
+    '/** @param {Router} r */',
+    'function viaNamed(r) { return r.handle(); }',
+    '/** @param {Alias} a */',
+    'function viaRenamed(a) { return a.run(); }',
+    '/** @param {RouterAlias} r */',
+    'function viaTypedef(r) { return r.handle(); }',
+    'module.exports = { viaDefault, viaNamed, viaRenamed, viaTypedef };',
+    '',
+  ].join('\n')],
+  // An object typedef with @property members and an inline object type (#651):
+  // the child rows carry the member NAME, a nested `a.b` name as written, and
+  // every non-member node carries none.
+  ['cjs/object-typedef.js', [
+    '/**',
+    ' * @typedef {Object} State',
+    ' * @property {Router} module',
+    ' * @property {string} source',
+    ' * @property {number} opts.depth',
+    ' */',
+    '/** @param {{ router: Router, tags: string[] }} opts */',
+    'function inline(opts) { return opts.router; }',
+    '/** @param {State} s */',
+    'function typed(s) { return s.module; }',
+    '/** @param {function(Router, string=): boolean} keep */',           // #691: param:0, param:1, return
+    'function closure(keep) { return keep; }',
+    '/** @param {(a, r: Router) => void} visit */',                     // an untyped first parameter has no row; r is still param:1
+    'function arrow(visit) { return visit; }',
+    '/** @param {function(Router)} onlyParam */',                        // one parameter, no return
+    'function bare(onlyParam) { return onlyParam; }',
+    "const Router = require('./router');",
+    'module.exports = { inline, typed, closure, arrow, bare };',
+    '',
+  ].join('\n')],
+  // A package declaring every entry shape (#616): `exports` as a subpath map with
+  // a plain target, a pattern, a null block, a non-JavaScript target, a missing
+  // target and a fallback list; `main` beside it; a scoped sibling with nested
+  // conditions, `module`, and a `main` that names a directory; and a nested
+  // package shipping from `dist/`, which the walk skips because this root is not
+  // that package (#620), so its entry is on disk and NOT_STAGED.
+  ['packages/pub/package.json', JSON.stringify({
+    name: 'pub', main: 'lib/index.js',
+    exports: {
+      '.': './lib/index.js', './sub': './lib/sub.js', './features/*': './lib/features/*.js',
+      './internal/*': null, './data': './data.json', './ghost': './lib/ghost.js',
+      './either': ['./lib/missing.js', './lib/sub.js'],
+    },
+  }) + '\n'],
+  ['packages/pub/lib/index.js', 'module.exports = { Base: class Base {}, createClient() {} };\n'],
+  ['packages/pub/lib/sub.js', 'exports.subHelper = function subHelper() { return 1; };\n'],
+  ['packages/pub/lib/features/a.js', 'exports.f = 1;\n'],
+  ['packages/pub/data.json', '{}\n'],
+  ['packages/scoped/package.json', JSON.stringify({
+    name: '@scope/pkg', main: 'cjs', module: 'cjs/index.mjs',
+    exports: { node: { import: './cjs/index.mjs', require: './cjs/index.js' }, default: './cjs/index.js' },
+  }) + '\n'],
+  ['packages/scoped/cjs/index.js', 'module.exports = {};\n'],
+  ['packages/scoped/cjs/index.mjs', 'export const x = 1;\n'],
+  ['packages/built/package.json', '{"name":"built","main":"dist/main.js"}\n'],
+  ['packages/built/dist/main.js', 'module.exports = function built() {};\n'],
 ];
 
 /**
@@ -1010,8 +1116,12 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
 // gate reported "21 rows for 20 JavaScript files", which reads like a
 // duplicated row and was a miscounted denominator. A check that hard-codes the
 // thing it is checking cannot catch the day it changes.
+// The one file under a nested package's `dist/` is walked past on purpose (#620:
+// only a walk ROOT's own build directory is walked), so it is not a source file
+// of this scaffold and the count says so through the same list the walker uses.
 const SCAFFOLD_SOURCE_COUNT =
-  SCAFFOLD.filter(([p]) => isJavaScriptSourceFile(p)).length + 1;
+  SCAFFOLD.filter(([p]) => isJavaScriptSourceFile(p)
+    && !p.split('/').some((segment) => (JS_SKIP_DIRECTORIES as readonly string[]).includes(segment))).length + 1;
 
 let scaffoldSummary: Awaited<ReturnType<JavaScriptProjectAnalyzer['analyze']>> | undefined;
 let corpusDir = '';
@@ -1505,9 +1615,12 @@ const FK_TARGET_BY_COLUMN: Readonly<Record<string, string>> = {
   boundVariableLinkHash: 'js_variable',
   patternRootVariableLinkHash: 'js_variable',
   resolvedBindingLinkHash: 'js_variable',
+  computedNameExpressionLinkHash: 'js_expression',
+  bindingDefaultLinkHash: 'js_expression',
   resolvedMethodLinkHash: 'js_method',
   resolvedTypeLinkHash: 'js_type',
   resolvedModuleLinkHash: 'js_module',
+  targetModuleLinkHash: 'js_module',
   callSiteLinkHash: 'js_call_site',
   // c32, appended after the primary key. It arrived as a LOUD failure from this
   // very map — "an FK column this gate cannot map" — which is the behaviour the
@@ -2784,11 +2897,16 @@ function moduleEdgeOneToOne(): number {
   // at least one js_type_reference.importLinkHash must point at it. A row
   // nothing points at was minted for no reference, which is the double-mint
   // this gate exists for, through the other end.
+  // That holds for an import TYPE row, minted per occurrence and binding
+  // nothing. An `@import` TAG row (#621) binds a name and is a declaration: it
+  // may go unused exactly as a runtime `import` may, so only the pairing with
+  // the expression side is asserted on it.
   const importsRelation = relations.find((r) => r.name === 'js_import');
   const references = relations.find((r) => r.name === 'js_type_reference');
   if (importsRelation !== undefined && references !== undefined) {
     const iPk = pkIndexOf(importsRelation.header, 'js_import');
     const iBearer = importsRelation.header.indexOf('edgeBearer');
+    const iBinding = importsRelation.header.indexOf('bindingForm');
     const iSource = importsRelation.header.indexOf('sourceExpressionLinkHash');
     const rImport = references.header.indexOf('importLinkHash');
     const pointedAt = new Set(references.rows.map((r) => r[rImport] ?? '').filter((v) => v !== ''));
@@ -2802,7 +2920,7 @@ function moduleEdgeOneToOne(): number {
         failures += fail(`js_import ${row[iPk]}: COMMENT-borne with a sourceExpressionLinkHash — `
           + 'a comment has no expression');
       }
-      if (!pointedAt.has(row[iPk] ?? '')) {
+      if (row[iBinding] === 'NO_LOCAL_BINDING' && !pointedAt.has(row[iPk] ?? '')) {
         failures += fail(`js_import ${row[iPk]}: COMMENT-borne and no js_type_reference.importLinkHash `
           + 'points at it — minted for no reference');
       }
@@ -2987,6 +3105,215 @@ async function severalRootsProduceOneSet(): Promise<number> {
     }
   }
   fs.rmSync(outputForRoots, { recursive: true, force: true });
+  return failures;
+}
+
+/**
+ * Package specifiers resolve under the importing SITE's `exports` conditions.
+ *
+ * A package that publishes only an `exports` map, with `require` and `import`
+ * conditions, is loaded by the runtime as `dist/main.cjs` from `require()` and as
+ * `dist/main.mjs` from `import`; a subpath export and a `main`-only package
+ * resolve either way. Resolved under `Node10` a `require()` of such a package was
+ * UNRESOLVED_MISSING, and resolved without the mode an ES `import` was linked to
+ * the CommonJS build the runtime never loads (#601). The fixture is written here
+ * with its own `node_modules`, which the analyzer does not walk but the resolver
+ * reads, and each row is checked against what `node` loads for the same file.
+ */
+async function packageSpecifiersResolveUnderTheSiteConditions(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-exports-');
+  const out = scratchDir('js-gate-exports-out-');
+  const write = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  write('package.json', '{ "name": "exports-fixture" }');
+  write('node_modules/pkg/package.json', JSON.stringify({ name: 'pkg', exports: { '.': { require: './dist/main.cjs', import: './dist/main.mjs' }, './sub': './lib/sub.js' } }));
+  write('node_modules/pkg/dist/main.cjs', 'exports.hello = function hello() { return 1; };\n');
+  write('node_modules/pkg/dist/main.mjs', 'export function hello() { return 2; }\n');
+  write('node_modules/pkg/lib/sub.js', 'exports.sub = function sub() { return 3; };\n');
+  write('node_modules/legacy/package.json', '{ "name": "legacy", "main": "./entry.js" }');
+  write('node_modules/legacy/entry.js', 'exports.old = 1;\n');
+  write('node_modules/bare/package.json', '{ "name": "bare" }');
+  write('node_modules/bare/index.js', 'exports.idx = 1;\n');
+  write('lib/index.js', 'exports.dir = 1;\n');
+  write('app.cjs', "const a = require('pkg'); const b = require('pkg/sub'); const c = require('legacy'); const d = require('bare'); const e = require('./lib');\n");
+  write('app.mjs', "import a from 'pkg'; import b from 'pkg/sub'; import c from 'legacy'; import d from 'bare'; const e = await import('pkg');\n");
+  write('esm/package.json', '{ "type": "module" }');
+  write('esm/app.js', "import a from 'pkg'; import b from './helper.js'; const c = await import('./helper.js');\n");
+  write('esm/helper.js', 'export const h = 1;\n');
+  await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
+  const relations = readRelations(out);
+  const imports = relations.find((r) => r.name === 'js_import');
+  const modules = relations.find((r) => r.name === 'js_module');
+  if (imports === undefined || modules === undefined || imports.header.length === 0) {
+    return fail('the exports fixture produced no js_import rows');
+  }
+  const fileOf = new Map(modules.rows.map((row) => [row[pkIndexOf(modules.header, 'js_module')] ?? '', row[modules.header.indexOf('filePath')] ?? '']));
+  const spec = imports.header.indexOf('specifier'), owner = imports.header.indexOf('ownerModuleLinkHash');
+  const resolved = imports.header.indexOf('resolvedFilePath'), outcome = imports.header.indexOf('resolutionOutcome');
+  // what `node` loads for each (file, specifier), as the resolver must answer it
+  const want: Array<[string, string, string]> = [
+    ['app.cjs', 'pkg', 'node_modules/pkg/dist/main.cjs'],
+    ['app.cjs', 'pkg/sub', 'node_modules/pkg/lib/sub.js'],
+    ['app.cjs', 'legacy', 'node_modules/legacy/entry.js'],
+    ['app.cjs', 'bare', 'node_modules/bare/index.js'],
+    ['app.cjs', './lib', 'lib/index.js'],
+    ['app.mjs', 'pkg', 'node_modules/pkg/dist/main.mjs'],
+    ['app.mjs', 'pkg/sub', 'node_modules/pkg/lib/sub.js'],
+    ['app.mjs', 'legacy', 'node_modules/legacy/entry.js'],
+    ['app.mjs', 'bare', 'node_modules/bare/index.js'],
+    ['esm/app.js', 'pkg', 'node_modules/pkg/dist/main.mjs'],
+    ['esm/app.js', './helper.js', 'esm/helper.js'],
+  ];
+  for (const [file, specifier, target] of want) {
+    const rows = imports.rows.filter((row) => fileOf.get(row[owner] ?? '') === file && row[spec] === specifier);
+    if (rows.length === 0) { failures += fail(`${file}: no js_import row for '${specifier}'`); continue; }
+    for (const row of rows) {
+      const got = (row[resolved] ?? '').replace(/\\/g, '/');
+      // a project file is recorded extension-less (it joins js_module.qualifiedName)
+      const stripped = target.replace(/\.(js|mjs|cjs)$/, '');
+      const ok = got === target || got.endsWith('/' + target) || (row[outcome] === 'RESOLVED_PROJECT' && got === stripped);
+      if (!ok) {
+        failures += fail(`${file} '${specifier}': resolvedFilePath is '${got || '(empty)'}' `
+          + `(${row[outcome]}); node loads ${target}`);
+      }
+    }
+  }
+  return failures;
+}
+
+/**
+ * A member declared under a computed name links its KEY, and a literal key names it.
+ *
+ * `[kRun]() {}` had an empty `name` and no link to `kRun`, so a symbol-keyed member
+ * could not be joined to its key at all; and `['lit']() {}` was equally nameless
+ * although the syntax fixes the name (#598). Asserted here on a class method, a
+ * getter, a class field, an object-literal method, a prototype-literal method and
+ * a prototype-literal function property: the literal keys fill `name`, the dynamic
+ * ones link an expression rooted COMPUTED_NAME whose binding is the key's `const`,
+ * and every link points at an expression inside the member's own span.
+ */
+async function computedMemberNamesLinkTheirKey(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-computed-');
+  const out = scratchDir('js-gate-computed-out-');
+  fs.writeFileSync(path.join(root, 'package.json'), '{ "name": "computed" }');
+  fs.writeFileSync(path.join(root, 'queue.js'), [
+    "const kRun = Symbol('run');",
+    "const kField = Symbol('field');",
+    'class Queue {',
+    '  [kRun]() { return 1; }',
+    '  [`tpl`]() { return 2; }',
+    "  ['lit']() { return 3; }",
+    '  [42]() { return 4; }',
+    "  get ['acc']() { return 5; }",
+    '  [kField] = 6;',
+    "  ['named'] = 7;",
+    '}',
+    'const o = { [kRun]() { return 8; }, [`olit`]() { return 9; } };',
+    'function P() {}',
+    "P.prototype = { [kRun]: function () { return 10; }, ['plit']() { return 11; } };",
+    'module.exports = { Queue, o, P };',
+    '',
+  ].join('\n'));
+  await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
+  const relations = readRelations(out);
+  const methods = relations.find((r) => r.name === 'js_method');
+  const fields = relations.find((r) => r.name === 'js_field');
+  const expressions = relations.find((r) => r.name === 'js_expression');
+  const variables = relations.find((r) => r.name === 'js_variable');
+  if (!methods || !fields || !expressions || !variables) return fail('computed fixture: a relation is missing');
+  const col = (rel: Relation, c: string): number => rel.header.indexOf(c);
+  const exprByHash = new Map(expressions.rows.map((r) => [r[pkIndexOf(expressions.header, 'js_expression')] ?? '', r]));
+  const varNameByHash = new Map(variables.rows.map((r) => [r[pkIndexOf(variables.header, 'js_variable')] ?? '', r[col(variables, 'name')] ?? '']));
+  const methodAt = (line: number) => methods.rows.find((r) => Number(r[col(methods, 'startLine')]) === line && r[col(methods, 'methodKind')] !== 'MODULE_INITIALIZER');
+  const fieldAt = (line: number) => fields.rows.find((r) => Number(r[col(fields, 'startLine')]) === line);
+  // line, relation, expected name, expected key binding ('' for a literal key)
+  const want: Array<[number, 'method' | 'field', string, string]> = [
+    [4, 'method', '', 'kRun'], [5, 'method', 'tpl', ''], [6, 'method', 'lit', ''], [7, 'method', '42', ''],
+    [8, 'method', 'acc', ''], [9, 'field', '', 'kField'], [10, 'field', 'named', ''],
+    [12, 'method', '', 'kRun'], [14, 'method', '', 'kRun'],
+  ];
+  for (const [line, kind, name, key] of want) {
+    const rel = kind === 'method' ? methods : fields;
+    const row = kind === 'method' ? methodAt(line) : fieldAt(line);
+    if (!row) { failures += fail(`line ${line}: no ${kind} row`); continue; }
+    const got = row[col(rel, 'name')] ?? '';
+    if (got !== name) failures += fail(`line ${line}: name is '${got}', want '${name}'`);
+    const link = row[col(rel, 'computedNameExpressionLinkHash')] ?? '';
+    if (link === '') { failures += fail(`line ${line}: no computedNameExpressionLinkHash`); continue; }
+    const e = exprByHash.get(link);
+    if (!e) { failures += fail(`line ${line}: the key link names no js_expression row`); continue; }
+    // a declaration-form member roots its key under COMPUTED_NAME; a property of a
+    // prototype literal (`P.prototype = { [k]: f }`) carries the key as the literal's
+    // COMPUTED_KEY child, inside the assignment's own tree
+    const rooted = e[col(expressions, 'rootContext')] === 'COMPUTED_NAME' || e[col(expressions, 'edgeRole')] === 'COMPUTED_KEY';
+    if (!rooted) failures += fail(`line ${line}: the key expression is rooted ${e[col(expressions, 'rootContext')]} with edge role ${e[col(expressions, 'edgeRole')]}, want COMPUTED_NAME or COMPUTED_KEY`);
+    if (Number(e[col(expressions, 'startLine')]) !== line) failures += fail(`line ${line}: the key expression sits on line ${e[col(expressions, 'startLine')]}`);
+    if (key !== '') {
+      const bound = varNameByHash.get(e[col(expressions, 'resolvedBindingLinkHash')] ?? '') ?? '';
+      if (bound !== key) failures += fail(`line ${line}: the key resolves to '${bound}', want the const ${key}`);
+    }
+  }
+  // literal-key members on a line that also has a written-name sibling must not gain a link
+  const plain = methods.rows.filter((r) => (r[col(methods, 'computedNameExpressionLinkHash')] ?? '') !== '' && ![4, 5, 6, 7, 8, 12, 14].includes(Number(r[col(methods, 'startLine')])));
+  if (plain.length > 0) failures += fail(`${plain.length} method row(s) carry a key link without a computed name: lines ${plain.map((r) => r[col(methods, 'startLine')]).join(', ')}`);
+  return failures;
+}
+
+/**
+ * A reference to a binding declared inside a destructuring pattern WITH a default
+ * links the default's root expression (c35, #673).
+ *
+ * `({ mapper = twice } = {})` rooted `twice` as a free PARAMETER_DEFAULT and the
+ * reference `mapper` carried only its parameter and path, so the engine saw what a
+ * caller passed and nothing of the default. Asserted on an object pattern parameter,
+ * a nested one, an array pattern parameter, a variable pattern, and a top-level
+ * parameter default and a plain binding as controls (no c35).
+ */
+async function patternBindingDefaultsAreLinked(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-defaults-');
+  const out = scratchDir('js-gate-defaults-out-');
+  fs.writeFileSync(path.join(root, 'package.json'), '{ "name": "defaults" }');
+  fs.writeFileSync(path.join(root, 'main.js'), [
+    'function inc(x) { return x + 1; }',
+    'function twice(x) { return x * 2; }',
+    'function withDefault(cb = () => 0, { mapper = twice } = {}) { return mapper(cb()); }',           // 3
+    'function nested({ opts: { run = inc } = {} } = {}) { return run(1); }',                            // 4
+    'function fromArray([first = twice, second] = []) { return first(second); }',                       // 5
+    'function fromVariable(o) { const { handler = inc, plain } = o; return handler(plain); }',          // 6
+    'withDefault(); nested(); fromArray(); fromVariable({});',
+    '',
+  ].join('\n'));
+  await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
+  const relations = readRelations(out);
+  const expressions = relations.find((r) => r.name === 'js_expression');
+  if (!expressions) return fail('defaults fixture: js_expression missing');
+  const col = (c: string): number => expressions.header.indexOf(c);
+  const byHash = new Map(expressions.rows.map((r) => [r[pkIndexOf(expressions.header, 'js_expression')] ?? '', r]));
+  const refs = (name: string, line: number) => expressions.rows.filter((r) => r[col('expressionKind')] === 'IDENTIFIER' && r[col('text')] === name
+    && Number(r[col('startLine')]) === line && r[col('rootContext')] !== 'PARAMETER_DEFAULT' && r[col('rootContext')] !== 'VARIABLE_INITIALIZER');
+  // name, line of the reference, text of the default it must link
+  const want: Array<[string, number, string]> = [['mapper', 3, 'twice'], ['run', 4, 'inc'], ['first', 5, 'twice'], ['handler', 6, 'inc']];
+  for (const [name, line, def] of want) {
+    const rows = refs(name, line).filter((r) => (r[col('referenceKind')] ?? '') !== '' || (r[col('resolvedParameterLinkHash')] ?? '') !== '' || (r[col('resolvedBindingLinkHash')] ?? '') !== '');
+    const ref = rows.find((r) => (r[col('bindingDefaultLinkHash')] ?? '') !== '') ?? rows[0];
+    if (!ref) { failures += fail(`${name} on line ${line}: no reference row`); continue; }
+    const link = ref[col('bindingDefaultLinkHash')] ?? '';
+    if (link === '') { failures += fail(`${name} on line ${line}: no bindingDefaultLinkHash`); continue; }
+    const d = byHash.get(link);
+    if (!d) { failures += fail(`${name}: the default link names no js_expression row`); continue; }
+    if ((d[col('text')] ?? '') !== def) failures += fail(`${name}: the default links '${d[col('text')]}', want '${def}'`);
+    if ((d[col('parentExpressionLinkHash')] ?? '') !== '') failures += fail(`${name}: the linked default is not a root expression`);
+  }
+  // controls: a top-level parameter default and a binding with no default link nothing
+  for (const [name, line] of [['cb', 3], ['second', 5], ['plain', 6]] as Array<[string, number]>) {
+    const bad = refs(name, line).filter((r) => (r[col('bindingDefaultLinkHash')] ?? '') !== '');
+    if (bad.length > 0) failures += fail(`${name} on line ${line}: carries a default link it should not`);
+  }
   return failures;
 }
 
@@ -5507,6 +5834,10 @@ function linkColumnsMeanWhatTheyClaim(): number {
     'js_type_reference.ownerLinkHash': 'declared types agree + separator/EXPRESSION check',
     'js_variable.declarationScopeLinkHash': 'the hoisting model holds',
     'js_variable.syntacticScopeLinkHash': 'the hoisting model holds',
+    'js_package_entry.targetModuleLinkHash': 'package entries name what a package exposes',
+    'js_method.computedNameExpressionLinkHash': 'computed member names link their key',
+    'js_field.computedNameExpressionLinkHash': 'computed member names link their key',
+    'js_expression.bindingDefaultLinkHash': 'a pattern binding with a default links it from every reference',
   };
   const INTEGRITY_ONLY: Record<string, string> = {
     'js_*.ownerModuleLinkHash': 'same-module links only asserts membership; no finer meaning exists',
@@ -5728,6 +6059,495 @@ function bindingPathsAreKeysNotNames(): number {
     }
   }
   console.log(`  ${expected.length} bound names, each read once, paths asserted by value; variable paths asserted`);
+  return failures;
+}
+
+/**
+ * The `@import` JSDoc tag mints one js_import row per bound name (#621).
+ *
+ * `emitJsDocImportType` accepts an `ImportTypeNode`, the `import("./x").Y` TYPE
+ * node; the `@import` tag is a `JSDocImportTag` with an import clause, and no
+ * walk reached it. A file on the new spelling minted no row, every `@param`
+ * through it resolved to nothing, and the engine declared the call unknown at a
+ * site where the type was written down. On the densest JSDoc project measured
+ * the tag outnumbers the typedef form 7:1.
+ *
+ * Asserted by value: the four rows (default, named, renamed, namespace) with the
+ * real binding form, `COMMENT` bearer, `JSDOC_IMPORT_TYPE`, `isTypeOnly`, a
+ * resolved specifier; the `@param` references linking each row by local name;
+ * the typedef control still on its own `NO_LOCAL_BINDING` row; and no binder
+ * declaration for a name that exists only in a comment.
+ */
+function jsdocImportTagsMintBindings(): number {
+  let failures = 0;
+  const relations = readRelations(outputDir);
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const mPk = pkIndexOf(modules.header, 'js_module');
+  const mPath = modules.header.indexOf('filePath');
+  const module = modules.rows.find((r) => (r[mPath] ?? '').endsWith('jsdoc-import-tag.js'))?.[mPk];
+  const imports = relations.find((r) => r.name === 'js_import')!;
+  const col = (r: { header: readonly string[] }, c: string): number => r.header.indexOf(c);
+  const iPk = pkIndexOf(imports.header, 'js_import');
+  const mine = imports.rows.filter((r) => r[col(imports, 'ownerModuleLinkHash')] === module);
+  const expected: ReadonlyArray<readonly [string, string, string, number]> = [
+    // bindingForm, importedName, localName, line
+    ['DEFAULT', 'default', 'Template', 1],
+    ['NAMED', 'Router', 'Router', 2],
+    ['NAMED', 'Route', 'Alias', 2],
+    ['NAMESPACE', '', 'NS', 3],
+    ['NO_LOCAL_BINDING', 'Router', '', 4],
+  ];
+  const rowByLocal = new Map<string, readonly string[]>();
+  for (const [form, imported, local, line] of expected) {
+    const row = mine.find((r) => r[col(imports, 'bindingForm')] === form
+      && r[col(imports, 'importedName')] === imported && r[col(imports, 'localName')] === local);
+    if (row === undefined) {
+      failures += fail(`no js_import row ${form} ${JSON.stringify(imported)} as ${JSON.stringify(local)} `
+        + `(line ${line}): the @import tag on that line minted nothing (#621)`);
+      continue;
+    }
+    rowByLocal.set(local, row);
+    const got = {
+      bearer: row[col(imports, 'edgeBearer')], form: row[col(imports, 'importForm')],
+      typeOnly: row[col(imports, 'isTypeOnly')], outcome: row[col(imports, 'resolutionOutcome')],
+      specifier: row[col(imports, 'specifier')], line: Number(row[col(imports, 'startLine')]),
+    };
+    if (got.bearer !== 'COMMENT' || got.form !== 'JSDOC_IMPORT_TYPE' || got.typeOnly !== 'true'
+      || got.outcome !== 'RESOLVED_PROJECT' || got.specifier !== './router' || got.line !== line) {
+      failures += fail(`js_import ${form} ${local || imported}: ${JSON.stringify(got)}; expected a COMMENT-borne `
+        + `JSDOC_IMPORT_TYPE row, type-only, resolving ./router in the project, on line ${line}`);
+    }
+  }
+  if (mine.length !== expected.length) {
+    failures += fail(`${mine.length} js_import rows in the file, expected ${expected.length}: `
+      + 'one per bound name of each @import tag plus the typedef control');
+  }
+  // The `@param` references link the tag's rows by local name; the typedef
+  // control links nothing (its alias resolves through the typedef, not an import).
+  const refs = relations.find((r) => r.name === 'js_type_reference')!;
+  const paramRefs = refs.rows.filter((r) => r[col(refs, 'ownerModuleLinkHash')] === module
+    && r[col(refs, 'contextKind')] === 'PARAM' && r[col(refs, 'referenceKind')] === 'NAMED');
+  for (const [name, wantLocal] of [
+    ['Template', 'Template'], ['Router', 'Router'], ['Alias', 'Alias'], ['RouterAlias', ''],
+  ] as const) {
+    const ref = paramRefs.find((r) => r[col(refs, 'typeName')] === name);
+    const link = ref?.[col(refs, 'importLinkHash')] ?? '';
+    const want = wantLocal === '' ? '' : (rowByLocal.get(wantLocal)?.[iPk] ?? '?');
+    if (ref === undefined || link !== want) {
+      failures += fail(`@param {${name}}: importLinkHash ${JSON.stringify(link)}, expected `
+        + (want === '' ? 'no link (a typedef alias)' : `the @import row binding ${wantLocal}`));
+    }
+  }
+  // A comment-only name is not a runtime binding: nothing in js_variable
+  // carries it, so a runtime reference to `Router` could never resolve to it.
+  const vars = relations.find((r) => r.name === 'js_variable')!;
+  const leaked = vars.rows.filter((r) => r[col(vars, 'ownerModuleLinkHash')] === module
+    && ['Template', 'Router', 'Alias', 'NS'].includes(r[col(vars, 'name')] ?? ''));
+  if (leaked.length > 0) {
+    failures += fail(`${leaked.length} js_variable row(s) for @import names: a type-only binding leaked into the runtime scope`);
+  }
+  console.log(`  ${expected.length} import rows asserted by value, 4 @param links, no runtime binding`);
+  return failures;
+}
+
+/**
+ * A package's IR says which module its `main` / `exports` entry is (#616).
+ *
+ * `js_module.packageName` says which package a module belongs to; nothing said
+ * which module the package HANDS OUT for `require('pkg')`, so library IR staged
+ * on its own could not answer what a specifier loads. Asserted by value over
+ * three scaffold packages: every `exports` shape, `main` with Node's directory
+ * fallback, `module`, nested conditions, the `index.js` default, and each
+ * outcome as a NAMED absence rather than a guess: a pattern, a `null` block, a
+ * `.json` target, a missing file, and a file on disk the walk did not stage.
+ */
+function packageEntriesNameWhatAPackageExposes(): number {
+  let failures = 0;
+  const relations = readRelations(outputDir);
+  const entries = relations.find((r) => r.name === 'js_package_entry');
+  if (entries === undefined) {
+    return fail('js_package_entry is not in the output');
+  }
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const mPk = pkIndexOf(modules.header, 'js_module');
+  const mPath = modules.header.indexOf('filePath');
+  const pathOfModule = new Map(modules.rows.map((r) => [r[mPk] ?? '', r[mPath] ?? '']));
+  const col = (c: string): number => entries.header.indexOf(c);
+  const expected: ReadonlyArray<readonly [string, string, string, string, string, string, string]> = [
+    // packageName, subpath, condition, entrySource, targetPath, outcome, resolved module file
+    ['pub', '.', '', 'EXPORTS', 'lib/index.js', 'RESOLVED', 'packages/pub/lib/index.js'],
+    ['pub', '.', '', 'MAIN', 'lib/index.js', 'RESOLVED', 'packages/pub/lib/index.js'],
+    ['pub', './sub', '', 'EXPORTS', 'lib/sub.js', 'RESOLVED', 'packages/pub/lib/sub.js'],
+    ['pub', './features/*', '', 'EXPORTS', 'lib/features/*.js', 'PATTERN', ''],
+    ['pub', './internal/*', '', 'EXPORTS', '', 'BLOCKED', ''],
+    ['pub', './data', '', 'EXPORTS', 'data.json', 'NOT_JAVASCRIPT', ''],
+    ['pub', './ghost', '', 'EXPORTS', 'lib/ghost.js', 'MISSING_FILE', ''],
+    ['pub', './either', '', 'EXPORTS', 'lib/missing.js', 'MISSING_FILE', ''],
+    ['pub', './either', '', 'EXPORTS', 'lib/sub.js', 'RESOLVED', 'packages/pub/lib/sub.js'],
+    ['@scope/pkg', '.', 'node.import', 'EXPORTS', 'cjs/index.mjs', 'RESOLVED', 'packages/scoped/cjs/index.mjs'],
+    ['@scope/pkg', '.', 'node.require', 'EXPORTS', 'cjs/index.js', 'RESOLVED', 'packages/scoped/cjs/index.js'],
+    ['@scope/pkg', '.', 'default', 'EXPORTS', 'cjs/index.js', 'RESOLVED', 'packages/scoped/cjs/index.js'],
+    ['@scope/pkg', '.', '', 'MAIN', 'cjs', 'RESOLVED', 'packages/scoped/cjs/index.js'],
+    ['@scope/pkg', '.', '', 'MODULE', 'cjs/index.mjs', 'RESOLVED', 'packages/scoped/cjs/index.mjs'],
+    ['built', '.', '', 'MAIN', 'dist/main.js', 'NOT_STAGED', ''],
+    ['scaffold-root', '.', '', 'DEFAULT_INDEX', 'index.js', 'MISSING_FILE', ''],
+  ];
+  for (const [pkg, subpath, condition, source, target, outcome, file] of expected) {
+    const row = entries.rows.find((r) => r[col('packageName')] === pkg && r[col('subpath')] === subpath
+      && r[col('condition')] === condition && r[col('entrySource')] === source && r[col('targetPath')] === target);
+    if (row === undefined) {
+      failures += fail(`no js_package_entry row ${pkg} ${subpath} [${condition}] ${source} -> ${JSON.stringify(target)}`);
+      continue;
+    }
+    const gotOutcome = row[col('targetOutcome')];
+    const gotFile = pathOfModule.get(row[col('targetModuleLinkHash')] ?? '') ?? '';
+    if (gotOutcome !== outcome || gotFile !== file) {
+      failures += fail(`js_package_entry ${pkg} ${subpath} [${condition}] ${source}: ${gotOutcome} -> ${JSON.stringify(gotFile)}; `
+        + `expected ${outcome} -> ${JSON.stringify(file)}`);
+    }
+    if ((row[col('targetModuleLinkHash')] ?? '') !== '' && gotOutcome !== 'RESOLVED') {
+      failures += fail(`js_package_entry ${pkg} ${subpath}: a module hash on a ${gotOutcome} row; only RESOLVED carries one`);
+    }
+  }
+  const named = entries.rows.filter((r) => ['pub', '@scope/pkg', 'built', 'scaffold-root'].includes(r[col('packageName')] ?? ''));
+  if (named.length !== expected.length) {
+    failures += fail(`${named.length} entry rows for the four packages, expected ${expected.length}: `
+      + 'one per (subpath, condition, source, target), no more');
+  }
+  console.log(`  ${expected.length} entries asserted by value across four packages, six outcomes`);
+  return failures;
+}
+
+/**
+ * A ROOT SPELLED THROUGH A SYMLINK IS THE SAME TREE (#795).
+ *
+ * Every npm, yarn and pnpm workspace links its packages into `node_modules`
+ * (`node_modules/@ws/util -> ../../packages/util`), and TypeScript's resolver answers
+ * with the package's REAL path. `projectModuleHashes` was keyed by the files walked from
+ * the root AS GIVEN, so with a root reached through a symlink — macOS `/tmp` and `/var`,
+ * a symlinked checkout, a container bind mount — one side of the comparison was canonical
+ * and the other was not: every cross-package import came out RESOLVED_EXTERNAL and the
+ * engine then declared the calls unknown ("dependency not staged", for code in the tree).
+ * On one workspace monorepo that was 720 MISSED of 5,219 decided sites against 1.
+ *
+ * Asserted on both spellings of ONE directory: the outcomes are RESOLVED_PROJECT either
+ * way, and the whole relation set is byte-identical, which is the property that the
+ * spelling of the root cannot change the IR. The relative import is the control that was
+ * never broken, and the check refuses to pass if the fixture's link is missing.
+ */
+async function aSymlinkedRootIsTheSameTree(): Promise<number> {
+  let failures = 0;
+  const outer = scratchDir('js-gate-symlink-root-');
+  const real = path.join(outer, 'real');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(real, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  write('ws/package.json', JSON.stringify({ name: 'ws', private: true, workspaces: ['packages/*'] }) + '\n');
+  write('ws/packages/util/package.json', JSON.stringify({ name: '@ws/util', type: 'module', main: 'index.js' }) + '\n');
+  write('ws/packages/util/index.js', 'export function helper(x) { return x + 1; }\n');
+  write('ws/packages/util/lib/deep.js', 'export function deepFn(x) { return x * 2; }\n');
+  write('ws/packages/app/package.json', JSON.stringify({ name: '@ws/app', type: 'module', main: 'src/main.js' }) + '\n');
+  write('ws/packages/app/src/local.js', 'export function local(x) { return x - 1; }\n');
+  write('ws/packages/app/src/main.js',
+    "import { helper } from '@ws/util';\n"
+    + "import { deepFn } from '@ws/util/lib/deep.js';\n"
+    + "import { local } from './local.js';\n"
+    + 'export function run(x) { return helper(x) + deepFn(x) + local(x); }\n');
+  // What npm, yarn and pnpm create for a workspace package.
+  const linkDir = path.join(real, 'ws', 'node_modules', '@ws');
+  fs.mkdirSync(linkDir, { recursive: true });
+  fs.symlinkSync(path.join('..', '..', 'packages', 'util'), path.join(linkDir, 'util'));
+  // A second spelling of one directory. `real/` is reached directly; `link/` goes through
+  // a symlink, which is what /tmp -> /private/tmp does to every path under it on macOS.
+  fs.symlinkSync(real, path.join(outer, 'link'));
+
+  if (!fs.existsSync(path.join(linkDir, 'util', 'index.js'))) {
+    return fail('the fixture\'s workspace link does not resolve, so the check would pass on any implementation');
+  }
+
+  const parseFrom = async (root: string): Promise<Relation[]> => {
+    const output = scratchDir('js-gate-symlink-root-out-');
+    await new JavaScriptProjectAnalyzer().analyze({
+      rootDir: root, outputDir: output, baseMservPath: root, serviceVersionLink: 'gate-v1',
+    });
+    return readRelations(output);
+  };
+  const canonical = await parseFrom(fs.realpathSync(path.join(real, 'ws')));
+  const symlinked = await parseFrom(path.join(outer, 'link', 'ws'));
+
+  const outcomesOf = (relations: Relation[]): string[] => {
+    const imports = relations.find((r) => r.name === 'js_import')!;
+    const specifier = imports.header.indexOf('specifier');
+    const outcome = imports.header.indexOf('resolutionOutcome');
+    const resolvedFile = imports.header.indexOf('resolvedFilePath');
+    return imports.rows
+      .map((r) => `${r[specifier]} ${r[outcome]} ${r[resolvedFile]}`)
+      .sort();
+  };
+  // The file each one names is asserted too: RESOLVED_PROJECT with a path outside the
+  // tree, or pointing through `node_modules/`, would be a different defect wearing the
+  // right outcome.
+  const want = [
+    './local.js RESOLVED_PROJECT packages/app/src/local',
+    '@ws/util RESOLVED_PROJECT packages/util/index',
+    '@ws/util/lib/deep.js RESOLVED_PROJECT packages/util/lib/deep',
+  ];
+  for (const [label, relations] of [['canonical', canonical], ['symlinked', symlinked]] as const) {
+    const got = outcomesOf(relations);
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      failures += fail(`${label} root: imports ${JSON.stringify(got)}, expected ${JSON.stringify(want)} — `
+        + 'a workspace package linked into node_modules is the project, not an external dependency');
+    }
+  }
+
+  // The whole IR, not only the column the defect was read from: the two spellings must
+  // produce one fact base. Before the fix these differed in every relation, because
+  // baseMservPath feeds the module hash.
+  const asText = (relations: Relation[]): string => relations
+    .map((r) => `${r.name}\n${r.header.join('\t')}\n${r.rows.map((row) => row.join('\t')).sort().join('\n')}`)
+    .sort()
+    .join('\n');
+  if (asText(canonical) !== asText(symlinked)) {
+    const a = canonical.map((r) => `${r.name}:${r.rows.length}`).sort().join(' ');
+    const b = symlinked.map((r) => `${r.name}:${r.rows.length}`).sort().join(' ');
+    failures += fail(`the two spellings of one root produced different IR\n    canonical  ${a}\n    symlinked  ${b}`);
+  }
+  console.log('  3 imports asserted under both spellings of one root; the full relation set is identical');
+  return failures;
+}
+
+/**
+ * A PROJECT'S COMMITTED BUILD OUTPUT IS NOT ITS SOURCE (#796).
+ *
+ * Committing `dist/` is ordinary for a library published to a CDN or consumed without a
+ * build step, and the walk introduced for a dist-only DEPENDENCY (#620) could not tell
+ * the two apart: it decided from the root's `package.json` alone, so a project with its
+ * own `src/` had every build of itself extracted beside the source, and labelled
+ * `PROJECT` — a readable Rollup or esbuild build has no `.min` name, no long line and no
+ * preamble, so none of the bundled heuristics fire.
+ *
+ * The copies then changed the answers FOR THE REAL SOURCE. `resolution/fan-cap.dl`
+ * counts call sites by callee NAME across the whole IR, so the same six calls repeated
+ * in three builds is 24 against a cap of 20: the source's own `ease` went hot and its
+ * parameter stopped being tracked, turning a `known_edge` in `src/` into
+ * `ambiguous_unknown`. On one corpus project 18 of 144 source functions went hot only
+ * because of the copies, and the IR was 8.5x the real size.
+ *
+ * Asserted both ways on ONE tree, because the distinction is the whole fix: as a
+ * project only the source is staged, as a dependency the build directory still is.
+ */
+async function aProjectsBuildOutputIsNotItsSource(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-committed-dist-');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(root, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  // `main` points into dist/, which is what makes the directory a walk candidate. The
+  // package also has its own src/ — it is a project that commits its build output.
+  write('package.json', JSON.stringify({ name: 'pkg', version: '1.0.0', main: 'dist/lib.cjs.js' }) + '\n');
+  write('index.js', "module.exports = require('./src/index.js');\n");
+  const body = 'function linear(t) { return t; }\n'
+    + 'function ease(fn) { return fn(0.5); }\n'
+    + 'function a1() { return ease(linear); }\n'
+    + 'function a2() { return ease(linear); }\n'
+    + 'module.exports = { linear, ease, a1, a2 };\n';
+  write('src/index.js', body);
+  // Readable builds: no `.min` name, no long line, no bundler preamble, so `provenanceOf`
+  // labels each of them PROJECT and nothing downstream can filter them out.
+  for (const build of ['lib.cjs.js', 'lib.esm.js', 'lib.umd.js']) {
+    write(path.join('dist', build), body);
+  }
+
+  const stagedBy = async (libraryRoot: boolean): Promise<string[]> => {
+    const output = scratchDir('js-gate-committed-dist-out-');
+    await new JavaScriptProjectAnalyzer().analyze({
+      rootDir: root, outputDir: output, baseMservPath: 'pkg', serviceVersionLink: 'gate-v1',
+      libraryRoot,
+    });
+    const relations = readRelations(output);
+    const modules = relations.find((r) => r.name === 'js_module')!;
+    return modules.rows.map((r) => r[modules.header.indexOf('filePath')] ?? '').sort();
+  };
+
+  const asProject = await stagedBy(false);
+  const wantProject = ['index.js', 'src/index.js'];
+  if (JSON.stringify(asProject) !== JSON.stringify(wantProject)) {
+    failures += fail(`as a project: modules ${JSON.stringify(asProject)}, expected ${JSON.stringify(wantProject)} — `
+      + "a project's committed build output is the artefact beside the source, not source");
+  }
+
+  // The control, and #620 itself: the same tree handed over as a dependency still stages
+  // what it ships. Without this the check would pass on a parser that never walks dist/.
+  const asLibrary = await stagedBy(true);
+  const wantLibrary = ['dist/lib.cjs.js', 'dist/lib.esm.js', 'dist/lib.umd.js', 'index.js', 'src/index.js'];
+  if (JSON.stringify(asLibrary) !== JSON.stringify(wantLibrary)) {
+    failures += fail(`as a dependency: modules ${JSON.stringify(asLibrary)}, expected ${JSON.stringify(wantLibrary)} — `
+      + 'a staged package ships from its build directory (#620) and that must still hold');
+  }
+  console.log(`  ${asProject.length} modules as a project, ${asLibrary.length} as a dependency, from one tree`);
+  return failures;
+}
+
+/**
+ * A walk root that is a package shipping from a build directory walks it (#620).
+ *
+ * `dist/` is skipped for a project because it is the artefact beside the
+ * source. For a PUBLISHED package handed to the parser on its own, it is the
+ * only code the package ships, and skipping it staged nothing: zero `js_module`
+ * rows, every call into the package unknown, nothing saying why. Asserted on a
+ * root whose `exports` name `dist/`: its files are modules, its entries resolve,
+ * the summary names the directory walked, and the skip still holds for a
+ * nested `dist/` and for `node_modules` under the same root.
+ */
+async function publishedPackageWalksItsBuildOutput(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-published-');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(root, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  write('package.json', JSON.stringify({
+    name: 'shipped', exports: { '.': { require: './dist/main.cjs', import: './dist/main.mjs' } },
+  }) + '\n');
+  write('dist/main.cjs', 'module.exports = { hello() { return 1; } };\n');
+  write('dist/main.mjs', 'export function hello() { return 1; }\n');
+  write('src/main.js', 'export function hello() { return 1; }\n');
+  // Not the root's own build directory: stays skipped.
+  write('src/other/dist/bundle.js', 'var a = 1;\n');
+  write('node_modules/dep/index.js', 'module.exports = 1;\n');
+  const output = scratchDir('js-gate-published-out-');
+  const summary = await new JavaScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir: output, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+    // A PUBLISHED PACKAGE handed to the parser on its own, which is what this check is
+    // about and what walking a build directory is for. The project case — where the same
+    // tree's dist/ is a copy of its own source — is the check below (#796).
+    libraryRoot: true,
+  });
+  const relations = readRelations(output);
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const files = modules.rows.map((r) => r[modules.header.indexOf('filePath')] ?? '').sort();
+  const want = ['dist/main.cjs', 'dist/main.mjs', 'src/main.js'];
+  if (JSON.stringify(files) !== JSON.stringify(want)) {
+    failures += fail(`modules ${JSON.stringify(files)}, expected ${JSON.stringify(want)}: the root's own dist/ is walked, `
+      + 'a nested dist/ and node_modules are not');
+  }
+  const entries = relations.find((r) => r.name === 'js_package_entry')!;
+  const outcomes = entries.rows.map((r) => r[entries.header.indexOf('targetOutcome')]);
+  if (entries.rows.length !== 2 || outcomes.some((o) => o !== 'RESOLVED')) {
+    failures += fail(`entries ${JSON.stringify(outcomes)}: both exports conditions must RESOLVE to a staged module`);
+  }
+  // The analyzer resolves its root through symlinks before walking (#795), and the
+  // summary names the path it actually walked, so the expectation is canonical too —
+  // on macOS the scratch root is under /var, which is a symlink to /private/var.
+  if (summary.buildOutputWalked.length !== 1
+      || summary.buildOutputWalked[0] !== path.join(fs.realpathSync(root), 'dist')) {
+    failures += fail(`buildOutputWalked ${JSON.stringify(summary.buildOutputWalked)}: the exception is visible in the summary`);
+  }
+  if ((summary.skippedByDirectory['dist'] ?? 0) !== 1 || (summary.skippedByDirectory['node_modules'] ?? 0) !== 1) {
+    failures += fail(`skippedByDirectory ${JSON.stringify(summary.skippedByDirectory)}: the nested dist/ file and `
+      + 'the node_modules file are still counted as skipped');
+  }
+  // #790: the count is not enough. A pruned directory must leave a ROW in the skip
+  // table, because that table is what every reader downstream consults, and without
+  // one a repository whose first-party packages sit under an excluded name analyses
+  // as a handful of files with nothing to say the rest was dropped.
+  {
+    const skippedCsv = path.join(output, JAVASCRIPT_CSV_FILES.SKIPPED_FILES);
+    const lines = fs.readFileSync(skippedCsv, 'utf8').trim().split('\n').slice(1)
+      .filter((l) => l.length > 0);
+    const excluded = lines.map((l) => l.split('\t'))
+      .filter((f) => f[3] === 'DIRECTORY_EXCLUDED');
+    const named = excluded.map((f) => f[0]).sort();
+    if (excluded.length !== 2) {
+      failures += fail(`DIRECTORY_EXCLUDED rows ${JSON.stringify(named)}: one per pruned directory, `
+        + 'so the loss is visible where readers look');
+    }
+    if (!excluded.every((f) => /\d+ JavaScript file\(s\) under an excluded directory named/.test(f[4] ?? ''))) {
+      failures += fail(`DIRECTORY_EXCLUDED detail ${JSON.stringify(excluded.map((f) => f[4]))}: `
+        + 'the detail carries the count and the directory name');
+    }
+  }
+  // The control: the same tree with no entry into dist/ stages nothing from it.
+  write('package.json', '{"name":"shipped","main":"src/main.js"}\n');
+  const control = scratchDir('js-gate-published-control-');
+  const controlSummary = await new JavaScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir: control, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+    libraryRoot: true,
+  });
+  if (controlSummary.counts['js_module'] !== 1 || controlSummary.buildOutputWalked.length !== 0) {
+    failures += fail(`control: ${controlSummary.counts['js_module']} modules, walked ${JSON.stringify(controlSummary.buildOutputWalked)}; `
+      + 'a package whose entry is not under dist/ keeps the skip');
+  }
+  console.log('  3 modules from a dist-shipping root, 2 resolved entries, nested dist/ and node_modules still skipped, control holds');
+  return failures;
+}
+
+/**
+ * An object type's children carry their member names (#651).
+ *
+ * `@typedef {Object} State` + `@property {Router} module` and an inline
+ * `{ router: Router }` both emit the member's type as a child of the OBJECT_TYPE
+ * row; without the name nothing downstream can say which member is a Router.
+ * Asserted by value: each member child's `memberName`, a nested `opts.depth` kept
+ * as written, and `""` on every node that is not an object member.
+ */
+function objectTypeMembersCarryTheirNames(): number {
+  let failures = 0;
+  const relations = readRelations(outputDir);
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const mPk = pkIndexOf(modules.header, 'js_module');
+  const mPath = modules.header.indexOf('filePath');
+  const module = modules.rows.find((r) => (r[mPath] ?? '').endsWith('object-typedef.js'))?.[mPk];
+  const refs = relations.find((r) => r.name === 'js_type_reference')!;
+  const col = (c: string): number => refs.header.indexOf(c);
+  if (col('memberName') < 0) {
+    return fail('js_type_reference has no memberName column');
+  }
+  const mine = refs.rows.filter((r) => r[col('ownerModuleLinkHash')] === module);
+  const byKey = new Map(mine.map((r) => [r[pkIndexOf(refs.header, 'js_type_reference')] ?? '', r]));
+  const expected: ReadonlyArray<readonly [string, string, string]> = [
+    // typeName, memberName, parent kind
+    ['Router', 'module', 'OBJECT_TYPE'], ['string', 'source', 'OBJECT_TYPE'], ['number', 'opts.depth', 'OBJECT_TYPE'],
+    ['Router', 'router', 'OBJECT_TYPE'], ['Array', 'tags', 'OBJECT_TYPE'],
+    // A function type's children say which parameter, and which is the return (#691).
+    ['Router', 'param:0', 'FUNCTION_TYPE'], ['', 'param:1', 'FUNCTION_TYPE'], ['boolean', 'return', 'FUNCTION_TYPE'],
+    ['Router', 'param:1', 'FUNCTION_TYPE'], ['void', 'return', 'FUNCTION_TYPE'],
+  ];
+  for (const [typeName, memberName, parentKind] of expected) {
+    const row = mine.find((r) => r[col('typeName')] === typeName && r[col('memberName')] === memberName);
+    const parent = row === undefined ? undefined : byKey.get(row[col('parentReferenceLinkHash')] ?? '');
+    if (row === undefined || parent?.[col('referenceKind')] !== parentKind) {
+      failures += fail(`no ${typeName} child named ${JSON.stringify(memberName)} under an ${parentKind} node`);
+    }
+  }
+  // `function(Router)` has one child, and it is param:0, not the return.
+  const bare = mine.filter((r) => r[col('memberName')] === 'param:0' && r[col('typeName')] === 'Router');
+  if (bare.length !== 2) {
+    failures += fail(`${bare.length} Router children labelled param:0, expected 2 (the closure's and the bare function type's)`);
+  }
+  const named = mine.filter((r) => (r[col('memberName')] ?? '') !== '');
+  if (named.length !== expected.length + 1) {
+    failures += fail(`${named.length} rows carry a memberName, expected ${expected.length + 1}: only an object type's members and a function type's parameters and return do`);
+  }
+  for (const r of named) {
+    const parent = byKey.get(r[col('parentReferenceLinkHash')] ?? '');
+    const kind = parent?.[col('referenceKind')];
+    const label = r[col('memberName')] ?? '';
+    const isFunctionLabel = label === 'return' || label.startsWith('param:');
+    if (kind !== (isFunctionLabel ? 'FUNCTION_TYPE' : 'OBJECT_TYPE')) {
+      failures += fail(`${r[col('typeName')]} carries memberName ${label} under a ${kind} parent`);
+    }
+  }
+  // The frozen order holds: the key is still c22 and the new column sits after it.
+  if (refs.header[22] !== 'jsTypeReferenceUniqueHash' || refs.header[23] !== 'memberName') {
+    failures += fail(`columns 22 and 23 are ${refs.header[22]}, ${refs.header[23]}: memberName must be appended after the key`);
+  }
+  console.log(`  ${expected.length} member names asserted by value, none elsewhere, column appended after the key`);
   return failures;
 }
 
@@ -6136,6 +6956,8 @@ function tortureScriptsHold(): number {
       [13, 'declaredAfter', 'MODULE@14'], // a hoisted function, referenced before its line
       [16, 'outer', 'MODULE@1'],
       [17, 'self', 'UNRESOLVED_FREE'], // the expression's name is not visible outside it
+      [19, 'rebound', 'LOCAL@19'],     // the const in the body shadows the expression's own name (#682)
+      [20, 'shadowed', 'LOCAL@param'], // so does a parameter of the same name
     ] as const) {
       expect(file, line, `\`${name}\``, resolution(line, name), want);
     }
@@ -6191,6 +7013,55 @@ function tortureScriptsHold(): number {
       'MODULE_EXPORTS_MEMBER:extra/reexport=false/overwritten=false');
   }
 
+  // ---- field initializers (#798) ----------------------------------------------
+  {
+    const file = 'torture/field-initializers.js';
+    const module = moduleOf(file);
+    const { r: m, rows: methods } = rowsOf('js_method', module);
+    const { r: e, rows: expressions } = rowsOf('js_expression', module);
+    const { r: c, rows: sites } = rowsOf('js_call_site', module);
+    const mPk = pkIndexOf(m.header, 'js_method');
+    const nameOf = new Map(methods.map((row) => [row[mPk] ?? '', row[col(m, 'name')] ?? '']));
+    const kindOf = new Map(methods.map((row) => [row[mPk] ?? '', row[col(m, 'methodKind')] ?? '']));
+    const ownerOfThisAt = (line: number): string => {
+      const row = expressions.find((x) => x[col(e, 'expressionKind')] === 'THIS'
+        && Number(x[col(e, 'startLine')]) === line);
+      return row === undefined ? 'NO ROW' : nameOf.get(row[col(e, 'ownerMethodLinkHash')] ?? '') ?? 'UNKNOWN';
+    };
+    const callerAt = (line: number): string => {
+      const row = sites.find((x) => Number(x[col(c, 'startLine')]) === line);
+      return row === undefined ? 'NO ROW' : nameOf.get(row[col(c, 'enclosingMethodLinkHash')] ?? '') ?? 'UNKNOWN';
+    };
+    // A STATIC field initializer runs at class evaluation, where `this` is the constructor.
+    expect(file, 6, 'this in a static field initializer', ownerOfThisAt(6), '<static-init>');
+    expect(file, 6, 'the call it makes', callerAt(6), '<static-init>');
+    // An INSTANCE field initializer runs during construction, where `this` is the instance.
+    expect(file, 7, 'this in an instance field initializer', ownerOfThisAt(7), '<instance-init>');
+    expect(file, 7, 'the call it makes', callerAt(7), '<instance-init>');
+    expect(file, 8, 'a member read in an instance field initializer', ownerOfThisAt(8), '<instance-init>');
+    // The synthetic owner carries the kind whose `this` the engine already knows: a static
+    // initializer is a STATIC_BLOCK (this = the constructor), an instance one is an ordinary
+    // non-static member (this = the instance). It is deliberately NOT a CONSTRUCTOR, or a
+    // class with no declared constructor would stop answering `implicit_constructor`.
+    const syntheticKind = (name: string): string => {
+      const hash = [...nameOf.entries()].find(([, n]) => n === name)?.[0];
+      return hash === undefined ? 'NO ROW' : kindOf.get(hash) ?? 'UNKNOWN';
+    };
+    expect(file, 6, 'the static initializer kind', syntheticKind('<static-init>'), 'STATIC_BLOCK');
+    expect(file, 7, 'the instance initializer kind', syntheticKind('<instance-init>'), 'CLASS_METHOD');
+    // A class that declares a constructor gets the same synthetic owner. The constructor is
+    // where the initializer runs, but a field written ABOVE the constructor would then sit
+    // outside its owner's span, and that containment invariant is what catches context
+    // leaking down the traversal. The synthetic row spans the class instead.
+    expect(file, 11, 'this in a field initializer of a class with a constructor',
+      ownerOfThisAt(11), '<instance-init>');
+    // A static field beside a `static { }` block gets the synthetic static owner, for the
+    // same containment reason: the block may be written after the field.
+    expect(file, 15, 'a static field beside a static block', callerAt(15), '<static-init>');
+    // The control: a call OUTSIDE any class body is still owned by the function it is in.
+    expect(file, 18, 'a call in an ordinary function', callerAt(18), 'drive');
+  }
+
   // ---- prototypes -------------------------------------------------------------
   {
     const file = 'torture/prototypes.js';
@@ -6231,6 +7102,23 @@ function tortureScriptsHold(): number {
     expect(file, 23, 'class Mixed extends Mixin(Base)', heritageDescribe('Mixed'), 'Mixin(Base)/computed=true/import=-/expr=linked');
     expect(file, 24, 'class Wrapped extends (Base)', heritageDescribe('Wrapped'), 'Base/computed=false/import=Base/expr=linked');
     expect(file, 13, 'static block kind', blocks.find((row) => Number(row[col(b, 'startLine')]) === 13)?.[col(b, 'blockKind')] ?? 'NO ROW', 'CLASS_STATIC_BLOCK');
+    // #706: chained assignments. One method row per callable, under the first
+    // member link; a field row under every further member name; the prototype
+    // literal's methods owned by the type.
+    const { r: fld, rows: fieldRows } = rowsOf('js_field', module);
+    const fieldsAt = (line: number): string => fieldRows.filter((row) => Number(row[col(fld, 'startLine')]) === line)
+      .map((row) => `${row[col(fld, 'name')]}:${row[col(fld, 'declarationForm')]}/owner=${typeNameOf.get(row[col(fld, 'ownerTypeLinkHash')] ?? '') ?? '-'}/static=${row[col(fld, 'isStatic')]}`)
+      .sort().join(',');
+    const methodsAt = (line: number): string => methods.filter((row) => Number(row[col(m, 'startLine')]) === line)
+      .map((row) => `${row[col(m, 'name')]}=${describeMethod(row)}`).sort().join(',');
+    expect(file, 26, 'chained prototype literal: the static field', fieldsAt(26), 'api:STATIC_ASSIGNMENT/owner=Chained/static=true');
+    expect(file, 26, 'chained prototype literal: the method', methodsAt(26), 'each=CLASS_METHOD/PROTOTYPE_OBJECT_LITERAL/owner=Chained/static=false');
+    expect(file, 27, 'chained static through the alias', methodsAt(27), 'mixin=CLASS_METHOD/STATIC_ASSIGNMENT/owner=Chained/static=true');
+    expect(file, 27, 'no field for the static method', fieldsAt(27), '');
+    expect(file, 28, 'static and prototype member: the method', methodsAt(28), 'both=CLASS_METHOD/STATIC_ASSIGNMENT/owner=Chained/static=true');
+    expect(file, 28, 'static and prototype member: the field', fieldsAt(28), 'both:PROTOTYPE_ASSIGNMENT/owner=Chained/static=false');
+    expect(file, 29, 'two prototype names: the method', methodsAt(29), 'run=CLASS_METHOD/PROTOTYPE_ASSIGNMENT/owner=Chained/static=false');
+    expect(file, 29, 'two prototype names: the field', fieldsAt(29), 'alias:PROTOTYPE_ASSIGNMENT/owner=Chained/static=false');
     const { r: x, rows: expressions } = rowsOf('js_expression', module);
     expect(file, 15, '`#secret in o`', expressions.find((row) => Number(row[col(x, 'startLine')]) === 15
       && row[col(x, 'referencedName')] === '#secret')?.[col(x, 'bindingResolution')] ?? 'NO ROW', 'CLASS_PRIVATE');
@@ -6298,6 +7186,9 @@ const CHECKS: Check[] = [
   { name: 'the hoisting model holds', proves: 'every VAR_* binding declares into a function scope, and at least one `var` differs between its two scope columns — one column would pass this', run: hoistingModelHolds },
   { name: 'module-edge 1:1', proves: 'every module-edge expression is pointed at by exactly one import or export, so the second pass cannot double-mint', run: moduleEdgeOneToOne },
   { name: 'call-site 1:1', proves: 'one call site per call-like expression, and require() has none because it is a module edge', run: callSiteOneToOne },
+  { name: 'package specifiers resolve under the site conditions', proves: "a require() of an exports-only package resolves to its `require` build and an ES import to its `import` build, a subpath export and a main-only package either way, so a dual package links to the build the runtime loads (#601)", run: packageSpecifiersResolveUnderTheSiteConditions },
+  { name: 'computed member names link their key', proves: "a member declared under a computed name links its key expression (rooted COMPUTED_NAME, bound to the key's const) and a literal key fills name, on class methods, a getter, class fields, object-literal and prototype-literal members (#598)", run: computedMemberNamesLinkTheirKey },
+  { name: 'pattern binding defaults are linked', proves: "a reference to a binding declared inside a destructuring pattern with a default links the default's root expression (c35), for object, nested and array parameter patterns and a variable pattern; a top-level parameter default and a binding without one link nothing (#673)", run: patternBindingDefaultsAreLinked },
   { name: 'several roots produce one set', proves: 'overlapping discovered roots merge into one flat fact base with no file extracted twice — the failure the real entry point found and a single-root harness cannot', run: severalRootsProduceOneSet },
   { name: 'every empty column is intended', devOnly: true, proves: 'a column that is never populated is a gap, a reservation or a corpus property — and the allowlist says which, so one that stops being filled fails by name', run: everyEmptyColumnIsIntended },
   { name: 'link columns mean what they claim', proves: 'every populated FK is asserted for meaning — name, kind, structure or position — or is named as integrity-only with the reason, so no link can be populated, resolvable and wrong without a check that would have said so', run: linkColumnsMeanWhatTheyClaim },
@@ -6318,6 +7209,12 @@ const CHECKS: Check[] = [
   { name: 'the torture scripts hold', proves: 'scoping (hoisting, TDZ, closures, named expressions, catch), CommonJS edges (conditional, non-literal, re-export overwrite), prototype declarations expressed as assignments and calls, and every call form — each trap asserted by line with the language\'s answer', run: tortureScriptsHold },
   { name: 'comments have one host', proves: 'a @type over an initialiser is owned once, and no function, class, named-expression or catch binding declared inside that initialiser inherits its type, initialiser or binding form — the double-mint the PK gate cannot see because each copy has its own owner', run: commentsHaveOneHost },
   { name: 'JSX tag names are references', proves: 'a component tag is a JSX_TAG_NAME child reading its binding and an intrinsic tag is none — by the language\'s rule, with `_Private`, `widgets.panel` and `Foo-Bar` each asserted where the folk rule fails', run: jsxTagNamesAreReferences },
+  { name: '@import tags mint bindings', proves: 'a JSDoc @import tag mints one type-only js_import row per bound name with its real binding form, and a @param through the name links it, so the new spelling of a typedef import is not a silent nothing (#621)', run: jsdocImportTagsMintBindings },
+  { name: 'package entries name what a package exposes', proves: 'js_package_entry carries every main/module/exports entry of every package in the parse, resolved to a module hash only when the target is a staged JavaScript file and a named absence otherwise (#616)', run: packageEntriesNameWhatAPackageExposes },
+  { name: 'a symlinked root is the same tree', proves: 'a workspace package linked into node_modules resolves as RESOLVED_PROJECT whether the analysis root is spelled through a symlink or not, and both spellings produce one identical fact base (#795)', run: aSymlinkedRootIsTheSameTree },
+  { name: "a project's build output is not its source", proves: 'a committed dist/ the package.json ships from is staged only when the tree is handed over as a dependency (#620), and skipped for the project, whose own source it copies and whose answers the copies change through the name-keyed fan cap (#796)', run: aProjectsBuildOutputIsNotItsSource },
+  { name: 'a published package walks its build output', proves: 'a walk root whose own package.json ships from dist/ stages the modules under it, while a nested dist/ and node_modules stay skipped and the exception is listed in the summary (#620)', run: publishedPackageWalksItsBuildOutput },
+  { name: 'object type members carry their names', proves: 'an OBJECT_TYPE child row names the member it types, nested names as written, nothing else does, and the column is appended after the frozen key (#651)', run: objectTypeMembersCarryTheirNames },
   { name: 'binding paths are keys, not names', proves: 'a destructured parameter\'s path is the key route (`wire` for `{ wire: local }`) on c33 alone, asserted by value on every pattern shape', run: bindingPathsAreKeysNotNames },
   { name: 'UNKNOWN_SYNTAX names only what the vocabulary cannot', proves: 'a callback is a FUNCTION_TYPE tree, a heritage operand is NAMED, parentheses are unwrapped and keywords are named — and no UNKNOWN_SYNTAX row anywhere carries text the vocabulary already covers', run: unknownSyntaxNamesOnlyWhatTheVocabularyCannot },
   { name: 'JSDoc tags reach exactly one row', proves: 'every @template parameter the compiler parsed becomes one row and no block is read twice — counted from node.jsDoc[].tags, because ts.getJSDocTags both loses blocks and inherits to children', run: jsdocTagsReachExactlyOneRow },

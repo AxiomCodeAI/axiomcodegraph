@@ -69,6 +69,8 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="$(cd "$SRC/.." && pwd)"   # the package root: package.json, node_modules, parser/, graph/
 # shellcheck source=portable-stat.sh
 . "$SRC/pipeline/portable-stat.sh"
+# shellcheck source=lib-cache-key.sh
+. "$SRC/pipeline/lib-cache-key.sh"
 # Rules are PER-LANGUAGE and live under graph/<lang>/; the executor itself is shared.
 LANG_ARG="${LANG_ARG:-java}"
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
@@ -118,7 +120,7 @@ write_program(){ # $1 = destination file
     # rather than a re-encode of GB-scale input.
     # LC_ALL=C sort: the order is part of the program text, so it must not depend on locale.
     input_relations | LC_ALL=C sort -u | while read -r r; do printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t", rfc4180=true)\n' "$r" "$r"; done
-    for d in projections containment resolution config-resolution expression-resolution call-edge-generation; do
+    for d in projections containment resolution config-resolution expression-resolution call-edge-generation framework-behavior; do
       # [ -f ] guard: a phase directory that is empty (or absent for a language that has
       # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
       # preprocessor then fails on a literal '*.dl' include.
@@ -206,8 +208,9 @@ done < <(read_map "$TPL/client-ir.map")
 # never on the client project. Redoing it per run cost 12s of the 19s a five-file test
 # project took, i.e. most of the wall time of the whole Java suite was re-copying the
 # same unchanged JDK facts 26 times.
-# Keyed on the roots plus each module's size+mtime, so a rebuilt or swapped library IR
-# misses the cache and re-stages. Built into a .tmp and renamed atomically, so a
+# Keyed on each module's name and its CSVs' size+mtime (lib-cache-key.sh), so a rebuilt or
+# swapped library IR misses the cache and re-stages, while the same modules reached by two
+# paths share one staged copy (#588). Built into a .tmp and renamed atomically, so a
 # concurrent or aborted run never leaves a half-written set (same discipline as the
 # compiled-binary cache below). Files are SYMLINKED into $FACTS: souffle opens them by
 # name, and linking keeps the per-run facts dir cheap instead of copying 456 MB again.
@@ -217,34 +220,7 @@ while IFS=$'\t' read -r rel csv; do
   LIB_SIG_RELS="$LIB_SIG_RELS$rel:$csv"$'\n'
 done < <(read_map "$TPL/lib.map")
 
-lib_cache_key(){
-  { printf '%s\n' "$LIB" "$LIB_SIG"
-    for root in "${LIB_ROOTS[@]}"; do
-      while IFS= read -r mod; do
-        # The module PATH is part of the key on its own. Metadata can come back empty for reasons
-        # that have nothing to do with the library's content, and when it does the key must still
-        # change if a module was added or removed — otherwise two different libraries hash alike.
-        printf '%s\n' "$mod"
-        # -L BECAUSE A MODULE IS ROUTINELY A SYMLINK. find does not descend a symlinked operand
-        # without it, and a library root assembled from links — which is how the torture harness
-        # stages the stub plus one entry per platform module — then contributed NO file metadata at
-        # all. The key collapsed to ($LIB, $LIB_SIG), so the stub-only library and the
-        # stub-plus-63-platform-module library at the same path hashed identically and one run was
-        # served the other's staged facts. Reproduced on macOS, so it is not the `stat` portability
-        # problem: `find dir_symlink -name '*.csv'` simply prints nothing.
-        # size+mtime of each module's CSVs — cheap, and changes whenever the IR does.
-        # file_ident, NOT `stat -f ... || stat -c ...`: see graph/pipeline/portable-stat.sh. On GNU
-        # coreutils `-f` is --file-system, so the BSD form printed a FILESYSTEM report — free-block
-        # and inode counters — for each file, and the fallback was unreachable here anyway because
-        # find exits 0 whether or not the command it exec'd failed. The key was therefore computed
-        # from free space: it did not move when the IR was rebuilt, and it did move when an
-        # unrelated file was written elsewhere on the disk.
-        find -L "$mod" -maxdepth 1 -name '*.csv' -exec stat "$_STAT_IDENT" {} + 2>/dev/null
-      done < <(lib_modules "$root")
-    done
-  } | sort | sha1_stdin
-}
-LIBKEY="$(lib_cache_key)"
+LIBKEY="$(lib_cache_key "$LIB_SIG" ${LIB_ROOTS[@]+"${LIB_ROOTS[@]}"})"
 # CHECK the key rather than trust it: a malformed key collapses distinct libraries onto one cache
 # entry, and nothing downstream can detect that — the solve succeeds and the counts look plausible.
 case "$LIBKEY" in

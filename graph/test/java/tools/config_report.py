@@ -3,8 +3,8 @@
 
 The call-graph goldens (normalize_edges.py) say nothing about config: bean_def,
 di_edge, config_binding, config_affects_method, config_entry_point, config_class_ref,
-config_key_ref and config_unresolved are separate relations, so they need their own
-golden or a change in them lands silently.
+config_key_ref, config_unresolved and the remote_* destination relations are separate
+relations, so they need their own golden or a change in them lands silently.
 
 Every hash is resolved to a name and every absolute path to a basename, so the output
 is reviewable and is not sensitive to hash churn or to where the repo is checked out.
@@ -66,12 +66,39 @@ def load(out, name):
 
 
 def main():
-    ir, out = sys.argv[1], sys.argv[2]
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    ir, out = args[0], args[1]
     L = Labels(ir)
+    # A case that ships a STUB LIBRARY passes its IR as a third argument, exactly as
+    # normalize_edges.py and normalize_field_access.py already accept one. Without it a
+    # library type has no name here and `lbl` falls through to printing the raw hash,
+    # and a TYPE_REGISTRY hash is NOT stable across checkouts: the golden for a case
+    # with a library-typed injection point then passes only in the working tree it was
+    # blessed in and fails in every other, which is what it did on case 50.
+    if len(args) > 3:
+        sys.exit(f"config_report: too many arguments: {args[3:]!r}\n"
+                 "  usage: config_report.py <ir> <out> [lib-ir]\n"
+                 "  a path containing a space, unquoted by the caller, arrives split")
+    if len(args) > 2 and not os.path.isdir(args[2]):
+        sys.exit(f"config_report: library root is not a directory: {args[2]!r}")
+    if len(args) > 2:
+        roots = [args[2]] if os.path.exists(os.path.join(args[2], 'all-types.csv')) else \
+                [os.path.join(args[2], d) for d in sorted(os.listdir(args[2]))
+                 if os.path.exists(os.path.join(args[2], d, 'all-types.csv'))]
+        for root in roots:
+            lib = Labels(root)
+            for attr in ('m', 'types', 'f', 'p', 'a'):
+                for h, label in getattr(lib, attr).items():
+                    getattr(L, attr).setdefault(h, label)
 
     # (relation file, section title, row -> golden line)
     SECTIONS = [
         ('config-bean-def.csv', 'bean_def',
+         lambda r: f"{r[2]:<16} {r[0]:<22} <- {L.lbl(r[1])}"),
+        # bean_origin is printed next to bean_def deliberately: the pair is the answer to
+        # "which of these beans came from a dependency", and splitting them across the
+        # report would make that need a mental join.
+        ('config-bean-origin.csv', 'bean_origin',
          lambda r: f"{r[2]:<16} {r[0]:<22} <- {L.lbl(r[1])}"),
         ('config-inject-point.csv', 'inject_point',
          lambda r: f"{r[0]:<16} {L.lbl(r[1])} : {L.lbl(r[2])}"),
@@ -87,8 +114,37 @@ def main():
          lambda r: f"{r[0]:<26} {r[2]:<16} {L.lbl(r[1])}"),
         ('config-entry-point.csv', 'config_entry_point',
          lambda r: f"{r[1]:<18} {L.lbl(r[0])}"),
+        # The DETAIL column goes through lbl as well. For an unsatisfied injection point it
+        # IS a type hash, and a raw TYPE_REGISTRY hash is not stable across checkouts, so a
+        # golden holding one passes only in the tree it was blessed in. That is what made
+        # case 50 fail on a clean checkout of the commit that added it.
+        ('config-bean-condition.csv', 'bean_condition',
+         lambda r: f"{r[5]:<10} {r[2]:<9} {r[0]:<22} {r[3]}"
+                   + (f" = \"{r[4]}\"" if r[4] not in ('-', '') else "")),
         ('config-unresolved.csv', 'config_unresolved  [DECLARED UNKNOWNS]',
-         lambda r: f"{r[3]:<26} {r[0]:<12} {L.lbl(r[1])}" + (f"  \"{r[2]}\"" if r[2] else "")),
+         lambda r: f"{r[3]:<26} {r[0]:<12} {L.lbl(r[1])}" + (f"  \"{L.lbl(r[2])}\"" if r[2] else "")),
+        # The cross-process edges, and both halves of what could not be joined. The two
+        # unjoined relations are in the golden for the same reason config_unresolved is:
+        # a destination that stops being linkable must show up as a diff, not as silence.
+        ('remote-edge.csv', 'remote_edge',
+         lambda r: f"{r[2]:<7} {r[4]:<12} {r[3]:<34} {L.lbl(r[0])} -> {L.lbl(r[1])}"),
+        ('remote-unserved.csv', 'remote_unserved  [SENT, NO CONSUMER HERE]',
+         lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
+        ('remote-unsent.csv', 'remote_unsent  [SERVED, NO PRODUCER HERE]',
+         lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
+        ('remote-undetermined.csv', 'remote_undetermined  [DECLARED UNKNOWNS]',
+         lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
+        # A query is a reference to a schema, so it belongs in the golden for the same
+        # reason a route does: a column that stops being linkable must show up as a diff.
+        ('persistence-query.csv', 'persistence_query',
+         lambda r: f"{r[1]:<12} {(r[2] if r[2] != '-' else ''):<26} {L.lbl(r[0])}\n"
+                   f"{'':<41}  \"{r[3]}\""),
+        ('persistence-entity.csv', 'persistence_entity',
+         lambda r: f"{L.lbl(r[1]):<30} {L.lbl(r[0])}"),
+        ('persistence-field.csv', 'persistence_field',
+         lambda r: f"{r[2]:<11}{L.lbl(r[1]):<38} {L.lbl(r[0])}"),
+        ('persistence-unresolved.csv', 'persistence_unresolved  [DECLARED UNKNOWNS]',
+         lambda r: f"{r[1]:<26} {L.lbl(r[0])}"),
     ]
 
     for fname, title, fmt in SECTIONS:

@@ -30,18 +30,55 @@ expr_value(ce, "arr", ce) :- array_method_call(ce, "map", _).
 expr_value(ce, "arr", a) :- array_method_call(ce, n, a), array_method_returns_same_elements(n).
 array_method_returns_same_elements("filter").
 array_method_returns_same_elements("slice").
-array_method_returns_same_elements("concat").
 array_method_returns_same_elements("reverse").
 array_method_returns_same_elements("sort").
-array_method_returns_same_elements("flat").
 array_method_returns_same_elements("splice").
+// `a.concat(b, x)` is a FRESH array (#606): the receiver's elements, each array
+// argument's elements, and each other argument itself. `a.flat()` (depth 1): the
+// elements of the receiver's array elements, plus its non-array elements. Neither
+// may be the receiver's own value: a call through the result would then commit
+// `known_edge` to a set the arguments were never added to.
+expr_value(ce, "arr", ce) :- array_method_call(ce, "concat", _).
+elem_value(ce, k, i) :- array_method_call(ce, "concat", a), elem_value(a, k, i).
+elem_value(ce, k, i) :- array_method_call(ce, "concat", _), call_arg(ce, _, arg), expr_value(arg, "arr", b), elem_value(b, k, i).
+// A non-array argument is itself an element. Only values that CANNOT be arrays
+// count: a function, a class, a string, a module, a prototype, a Map/Set, an
+// instance of a class with no Array ancestor. An `ambient` value, an instance of
+// a subclass of Array, and an object LITERAL are left out: the literal because
+// `this` inside a literal of methods mixed onto an array prototype is the
+// literal here and the array at runtime, and one element naming the literal's
+// own methods where its elements' were meant is a wrong edge.
+elem_value(ce, k, i) :- array_method_call(ce, "concat", _), call_arg(ce, _, arg), expr_value(arg, k, i), concat_arg_is_element(k, i).
+concat_arg_is_element(k, i) :- expr_value(_, k, i), concat_kind_never_array(k).
+// Syntactic (the written `extends Array`), because it is negated inside the value
+// fixpoint: a class two hops below Array is not caught, and stays a may-element.
+concat_arg_is_element("inst", t) :- expr_value(_, "inst", t), !type_extends_array_written(t).
+type_extends_array_written(t) :- heritage(_, t, _, _, _, _, _, h), heritage_text(_, "Array", h).
+concat_kind_never_array("func").
+concat_kind_never_array("ctor").
+concat_kind_never_array("str").
+concat_kind_never_array("module").
+concat_kind_never_array("proto").
+concat_kind_never_array("coll").
+expr_value(ce, "arr", ce) :- array_method_call(ce, "flat", _).
+elem_value(ce, k, i) :- array_method_call(ce, "flat", a), elem_value(a, "arr", b), elem_value(b, k, i).
+elem_value(ce, k, i) :- array_method_call(ce, "flat", a), elem_value(a, k, i), k != "arr".
 // `@type {T[]}` / `@type {Array<T>}`: the reference row IS the array's identity.
 var_value(v, "arr", r) :- var_type_name(_, _, r, v), type_ref_is_array(r).
 param_value(p, "arr", r) :- param_type_name(_, _, r, p), type_ref_is_array(r).
 return_value(m, "arr", r) :- method_return_type(_, _, r, m), type_ref_is_array(r).
 prop_value("inst", t, n, "arr", r) :- field_type_name(_, n, t, _, r, _), type_ref_is_array(r).
 type_ref_is_array(r) :- type_ref(_, _, "ARRAY", _, _, _, _, _, _, _, r).
-type_ref_is_array(r) :- type_ref(_, "Array", "GENERIC_APPLICATION", _, _, _, _, _, _, _, r).
+type_ref_is_array(r) :- type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), ambient_array_generic(n).
+// The generic platform types whose ONE argument is what iterating them yields (#659):
+// `@returns {Iterable<Module>}` is read the way `Module[]` is.
+ambient_array_generic("Array").
+ambient_array_generic("ReadonlyArray").
+ambient_array_generic("Iterable").
+ambient_array_generic("IterableIterator").
+ambient_array_generic("Generator").
+ambient_array_generic("AsyncIterable").
+ambient_array_generic("AsyncGenerator").
 // Through a wrapper (`?T[]`, `T[] | undefined`) the array is the child.
 type_ref_array_child(r, a) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
     type_ref(_, _, _, r, _, _, _, _, _, _, a), type_ref_is_array(a).
@@ -85,8 +122,25 @@ array_method_returns_element("at").
 // `some`, `every`, `flatMap`, `findIndex`); `reduce`'s second parameter is.
 param_value(p, k, i) :- array_method_call(ce, n, a), array_method_iterates(n), call_arg(ce, 0, f),
     expr_value(f, "func", m), param_decl(_, _, "0", m, p), elem_value(a, k, i).
-param_value(p, k, i) :- array_method_call(ce, "reduce", a), call_arg(ce, 0, f),
+param_value(p, k, i) :- array_method_call(ce, n, a), array_method_reduces(n), call_arg(ce, 0, f),
     expr_value(f, "func", m), param_decl(_, _, "1", m, p), elem_value(a, k, i).
+// `reduce`'s ACCUMULATOR (the callback's first parameter) holds the initial value
+// and whatever the callback returns, and the reduce call evaluates to the same two
+// (#699): `keys.reduce((vals, key) => vals.concat(x), [])` reads the literal's
+// `concat`, `hooks.reduce((s, h) => s.add(h), new Set())` the Set's `add`. Without
+// an initial value the accumulator starts as an element.
+param_value(p, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), param_decl(_, _, "0", m, p), call_arg(ce, 1, init), expr_value(init, k, i).
+param_value(p, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), param_decl(_, _, "0", m, p), return_value(m, k, i).
+param_value(p, k, i) :- array_method_call(ce, n, a), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), param_decl(_, _, "0", m, p), !call_arg(ce, 1, _), elem_value(a, k, i).
+expr_value(ce, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 1, init), expr_value(init, k, i).
+expr_value(ce, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), return_value(m, k, i).
+expr_value(ce, k, i) :- array_method_call(ce, n, a), array_method_reduces(n), !call_arg(ce, 1, _), elem_value(a, k, i).
+array_method_reduces("reduce").
+array_method_reduces("reduceRight").
 // `sort(cmp)` hands the comparator two elements.
 param_value(p, k, i) :- array_method_call(ce, "sort", a), call_arg(ce, 0, f),
     expr_value(f, "func", m), param_decl(_, _, "1", m, p), elem_value(a, k, i).
@@ -102,10 +156,25 @@ array_method_iterates("every").
 array_method_iterates("flatMap").
 // `for (const x of a)`: the loop binding has no initializer and no link to the
 // iterated expression; the parser roots that expression under ITERABLE on the
-// same line, in the same module, which is the join.
-var_value(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
-    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
-    iterable_element(e, k, i).
+// same line, in the same module, which is the join. A loop head that is a PATTERN
+// (`for (const [, fn] of pairs)`, `for (const { run } of plugins)`) binds each name
+// to its path walked from the element, exactly as a `const` pattern walks it from
+// its initializer (value-flow.dl's path_value); a plain binding holds the element.
+// A `for (const k in o)` head is rooted under ITERABLE too, and its binding is a
+// KEY, never an element (#685): a string, the platform's, whatever `o` holds. The
+// FOR_IN block row's condition link names the iterated expression, which is how
+// the two loop forms are told apart.
+// loop_head(Binding, Iterable) is the syntactic half, materialised once: the
+// element join below sits inside the value fixpoint, and joining the binding to
+// its head by line on every iteration was 35 s of a 120 s webpack solve.
+loop_head(v, e) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
+    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e).
+loop_binding_element(v, k, i) :- loop_head(v, e), !for_in_iterable(e), iterable_element(e, k, i).
+loop_binding_element(v, "ambient", "LITERAL") :- loop_head(v, e), for_in_iterable(e).
+for_in_iterable(e) :- block_condition(_, "FOR_IN", e, _).
+var_value(v, k, i) :- loop_binding_element(v, k, i), !var_binding_path(_, _, v).
+var_value(v, k2, i2) :- loop_binding_element(v, k, i), var_binding_path(_, path, v), path_value(k, i, path, k2, i2).
+path_source(k, i) :- loop_binding_element(_, k, i).
 var_regime_is_block("CONST_BLOCK_TDZ").
 var_regime_is_block("LET_BLOCK_TDZ").
 var_regime_is_block("VAR_FUNCTION_SCOPED_HOISTED").
@@ -148,10 +217,7 @@ expr_value(ce, k, i) :- coll_method_call(ce, "get", c), !get_key_is_literal(ce),
 expr_value(ce, "arr", c) :- coll_method_call(ce, "values", c).
 param_value(p, k, i) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
     param_decl(_, _, "0", m, p), elem_value(c, k, i).
-// `for (const v of set)` and `[...set]` read it as an array would.
-var_value(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
-    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
-    expr_value(e, "coll", c), elem_value(c, k, i).
+// `for (const v of set)` reads it as an array would (iterable_element, above); `[...set]`:
 elem_value(l, k, i) :- expr_kind(_, "ARRAY_LITERAL", _, l), expr_child(_, l, _, _, s), expr_kind(_, "SPREAD", _, s),
     expr_child(_, s, _, _, o), expr_value(o, "coll", c), elem_value(c, k, i).
 // A collection's own methods are the platform's.
@@ -170,18 +236,119 @@ elem_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL",
     expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Array"), call_arg(ce, _, a), expr_value(a, k, i).
 // iterable_element(Expr, K, I): what iterating an expression yields — an array's or a
 // collection's elements. Generators and promises add to it (generators.dl, promises.dl).
-iterable_element(x, k, i) :- expr_value(x, "arr", a), elem_value(a, k, i).
-iterable_element(x, k, i) :- expr_value(x, "coll", c), elem_value(c, k, i).
+//
+// COMPUTED ON DEMAND (#732). The rule forms the product of every expression holding an
+// array with every element of that array, and nothing bounds either side: on webpack
+// (24,770 sites, 3,486 types, a parameter holding 57 values on average and 1,044 at the
+// widest) that product was the single hottest clause in the solve, while projects of the
+// same size with narrow values — node at 22,631 sites, nodebb at 20,882 — solve in about
+// 20 s. But only EIGHT positions ever read this relation: a `for..of` head, a spread, a
+// `yield*`, `Array.from`, a `new Set(...)` seed, and `Promise.all` / `Promise.race`. Every
+// other array-valued expression in the program was being iterated for nobody. iterated_expr
+// names those positions and the definitions below are guarded by it, which is a demand
+// restriction, not a cap: every consumer gets exactly the rows it got before, and no answer
+// is refused. The demand is mutually recursive with the value layer (an `Array.from`
+// receiver is itself a value), which is sound here because the guard is positive.
+iterated_expr(e) :- loop_head(_, e), !for_in_iterable(e).
+iterated_expr(o) :- expr_kind(_, "ARRAY_LITERAL", _, l), expr_child(_, l, _, _, sp),
+    expr_kind(_, "SPREAD", _, sp), expr_child(_, sp, _, _, o).
+iterated_expr(x) :- array_from_site(_, x).
+iterated_expr(x) :- coll_seed(_, x).
+iterated_expr(e) :- expr_kind(_, "YIELD", _, y), yield_delegates(y), expr_child(_, y, _, _, e).
+iterated_expr(x) :- promise_static(ce, _), call_arg(ce, 0, x).
+iterable_element(x, k, i) :- iterated_expr(x), expr_value(x, "arr", a), elem_value(a, k, i).
+iterable_element(x, k, i) :- iterated_expr(x), expr_value(x, "coll", c), elem_value(c, k, i).
 // `new Map(entries)` / `new Set(iterable)`: seeded from the argument. A Map entry is a
 // `[k, v]` pair — the value is the pair's second element, a literal key feeds the keyed
-// table.
-elem_value(ce, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Set"), call_arg(ce, 0, x), iterable_element(x, k, i).
-elem_value(ce, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Map"), call_arg(ce, 0, x),
+// table. coll_ctor names which platform constructor built the collection and
+// coll_seed the expression that seeded it, so a subclass instance (below) is seeded
+// by the same rules.
+coll_ctor(ce, n) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n), ambient_collection(n).
+coll_seed(ce, x) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n), ambient_collection(n), call_arg(ce, 0, x).
+elem_value(c, k, i) :- coll_seed(c, x), coll_ctor(c, "Set"), iterable_element(x, k, i).
+elem_value(c, k, i) :- coll_seed(c, x), coll_ctor(c, "Map"),
     expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "1", v), expr_value(v, k, i).
-coll_keyed_value(ce, key, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Map"), call_arg(ce, 0, x),
+coll_keyed_value(c, key, k, i) :- coll_seed(c, x), coll_ctor(c, "Map"),
     expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "0", ke), expr_value(ke, "str", key),
     expr_child(_, pair, "ELEMENT", "1", v), expr_value(v, k, i).
+
+// ── a class extending Map / Set (#619) ──────────────────────────────────────
+// `class LazyMap extends Map { get(k) { const load = super.get(k); return load(); } }`
+// is the lazy plugin registry: entries handed to the platform constructor, the
+// overridden accessor reads them back through `super.get`. The instance IS a
+// collection: its identity is the `new` expression, exactly as `new Map()`'s is.
+// It is seeded from the `new` argument when the class declares no constructor
+// (the platform's runs on those arguments), else from the `super(...)` argument of
+// the constructor that runs. Inside the class `super` reads that collection, and so
+// does `this` for a member the class does not define itself; an instance held
+// outside the class reads it through the members the class does not override.
+// The instance keeps its "inst" value, so an overridden `get` still resolves to the
+// class's own method and never to the platform's stored value.
+inst_coll(c, t, n) :- expr_kind(_, "NEW", _, c), new_constructs(c, t), type_super_ambient(t, n), ambient_collection(n).
+coll_ctor(c, n) :- inst_coll(c, _, n).
+coll_seed(c, x) :- inst_coll(c, t, _), !type_ctor(_, _, t), call_arg(c, 0, x).
+coll_seed(c, x) :- inst_coll(c, t, _), type_ctor(_, m, t), call_site(_, "SUPER_CALL", _, _, _, m, sc, _, _), call_arg(sc, 0, x).
+// The class a `super` or `this` inside a method reads as: the constructed class or
+// any class between it and the platform.
+inst_coll_of(c, t) :- inst_coll(c, t, _).
+inst_coll_of(c, t) :- inst_coll(c, s, _), type_ancestor(s, t).
+coll_method_call(ce, n, c) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
+    method_home_type(em, t), inst_coll_of(c, t).
+coll_method_call(ce, n, c) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), !expr_kind(_, "SUPER", _, r),
+    expr_value(r, "inst", t), inst_coll_of(c, t), !type_own_member_name(t, n).
+iterable_element(x, k, i) :- iterated_expr(x), expr_value(x, "inst", t), inst_coll_of(c, t), elem_value(c, k, i).
 pair_of(a, pair) :- expr_kind(_, "ARRAY_LITERAL", _, a), expr_child(_, a, "ELEMENT", _, pair), expr_kind(_, "ARRAY_LITERAL", _, pair).
+// Iterating a Map yields `[key, value]` PAIRS. The pair is a pseudo array keyed by the
+// collection (as `Object.entries` keys one by the call) whose elements are the stored
+// values and the literal keys, so `for (const [name, fn] of map)` walks `1` to the
+// values and `0` to the keys. It is added BESIDE the stored values (which a plain
+// `for (const v of map)` still reads, the index-insensitive may-answer): the
+// collection's constructor is a value, so the plain reading cannot be negated away
+// inside the flow fixpoint.
+iterable_element(x, "arr", cat("PAIR:", c)) :- iterated_expr(x), expr_value(x, "coll", c), map_coll(c).
+map_coll(c) :- expr_value(c, "coll", c), new_callee_value(c, "ambient", n), ambient_map(n).
+// An instance of a class extending Map iterates the same way (#619).
+map_coll(c) :- inst_coll(c, _, n), ambient_map(n).
+iterable_element(x, "arr", cat("PAIR:", c)) :- iterated_expr(x), expr_value(x, "inst", t), inst_coll_of(c, t), map_coll(c).
+ambient_map("Map").
+ambient_map("WeakMap").
+elem_value(cat("PAIR:", c), k, i) :- map_coll(c), elem_value(c, k, i).
+elem_value(cat("PAIR:", c), "str", key) :- map_coll(c), coll_keyed_value(c, key, _, _).
+pair_index_value(cat("PAIR:", c), "1", k, i) :- map_coll(c), elem_value(c, k, i).
+pair_index_value(cat("PAIR:", c), "0", "str", key) :- map_coll(c), coll_keyed_value(c, key, _, _).
+
+// ── the KEYS of a collection (#659) ─────────────────────────────────────────
+// A Map's keys are values too: an object key written by `set(k, v)` or seeded by
+// `new Map([[k, v]])`, or the FIRST type argument of a declared `Map<K, V>`; a Set's
+// keys are its elements. Read back by `keys()` (a pseudo array `KEYS:` + c, as the
+// pair array is), `entries()` (the pair array), the `[key, value]` pair's index 0,
+// and `forEach`'s SECOND parameter. A declared `Map<K, V>` (a type reference, not a
+// `new`) is a map_coll too, so its pair iteration yields both halves.
+coll_key_value(c, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 0, ke), expr_value(ke, k, i), k != "str".
+coll_key_value(c, k, i) :- coll_seed(c, x), coll_ctor(c, "Map"),
+    expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "0", ke), expr_value(ke, k, i), k != "str".
+coll_key_value(c, k, i) :- set_coll(c), elem_value(c, k, i).
+set_coll(c) :- expr_value(c, "coll", c), new_callee_value(c, "ambient", n), ambient_set(n).
+set_coll(c) :- inst_coll(c, _, n), ambient_set(n).
+set_coll(r) :- type_ref_is_coll(r), type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), ambient_set(n).
+ambient_set("Set").
+ambient_set("WeakSet").
+map_coll(r) :- type_ref_is_coll(r), type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), ambient_map(n).
+expr_value(ce, "arr", cat("KEYS:", c)) :- coll_method_call(ce, "keys", c).
+elem_value(cat("KEYS:", c), k, i) :- coll_method_call(_, "keys", c), coll_key_value(c, k, i).
+elem_value(cat("KEYS:", c), "str", key) :- coll_method_call(_, "keys", c), coll_keyed_value(c, key, _, _).
+// `entries()` is an array whose ELEMENTS are the pairs, so `for (const [k, v] of
+// m.entries())` walks index 0 and 1 of each element.
+expr_value(ce, "arr", cat("ENTRIES:", c)) :- coll_method_call(ce, "entries", c), map_coll(c).
+elem_value(cat("ENTRIES:", c), "arr", cat("PAIR:", c)) :- coll_method_call(_, "entries", c), map_coll(c).
+elem_value(cat("PAIR:", c), k, i) :- map_coll(c), coll_key_value(c, k, i).
+pair_index_value(cat("PAIR:", c), "0", k, i) :- map_coll(c), coll_key_value(c, k, i).
+param_value(p, k, i) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
+    param_decl(_, _, "1", m, p), coll_key_value(c, k, i).
+param_value(p, "str", key) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
+    param_decl(_, _, "1", m, p), coll_keyed_value(c, key, _, _).
 // `arr.forEach(fn, thisArg)` and friends: the callback's `this` is the second argument.
 this_value(m, k, i) :- array_method_call(ce, n, _), array_method_iterates(n), call_arg(ce, 0, f), expr_value(f, "func", m),
     method_this_binding(_, "DYNAMIC", m), call_arg(ce, 1, ta), expr_value(ta, k, i), k != "str".

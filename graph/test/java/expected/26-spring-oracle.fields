@@ -1,0 +1,7 @@
+known_edge	read	testcases.springoracle.LoggingAuditSink#record(String) -> testcases.springoracle.LoggingAuditSink#repo
+known_edge	read	testcases.springoracle.OrderService#broadcast() -> testcases.springoracle.OrderService#anyNotifier
+known_edge	read	testcases.springoracle.OrderService#lookup(String) -> testcases.springoracle.OrderService#repo
+known_edge	read	testcases.springoracle.OrderService#ping() -> testcases.springoracle.OrderService#picked
+known_edge	read	testcases.springoracle.ReportService#report(String) -> testcases.springoracle.ReportService#repo
+known_edge	write	testcases.springoracle.LoggingAuditSink#<init>(OrderRepo) -> testcases.springoracle.LoggingAuditSink#repo
+known_edge	write	testcases.springoracle.ReportService#<init>(OrderRepo) -> testcases.springoracle.ReportService#repo

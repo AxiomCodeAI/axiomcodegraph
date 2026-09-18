@@ -33,19 +33,103 @@ import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, _, _, imp), rf != "", 
 // A dependency: the parser resolved the specifier to an ABSOLUTE file under
 // node_modules. A library staged from that very directory joins on root + file; one
 // staged from a copy elsewhere joins on the package name and the file within it.
-import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+// The exact join comes first, and the package-name join is a FALLBACK in fact, not only
+// in name: with two staged copies of one package (a top-level copy and a nested second
+// version another dependency pins), the name join matched both, and the client got a
+// boundary_lib edge into the copy that can never run from it (#599). Both sides of the
+// join are parser facts, so the negation is stratified.
+import_module_exact(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
     module_base_path("lib", bp, mod), module_file("lib", fp, mod), rf = cat(bp, cat("/", fp)).
-import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+import_module(imp, mod) :- import_module_exact(imp, mod).
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp), !import_module_exact(imp, _),
     module_package("lib", pkg, mod), module_file("lib", fp, mod),
     contains(cat("/node_modules/", cat(pkg, cat("/", fp))), rf).
 // A package that ships typings resolves to its `index.d.ts` — the compiler's answer,
 // and the right one for TYPES. The code that runs is the `.js` beside it, which is
 // what a library parsed from source holds; the declaration file is not in any IR.
-import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp), !import_module_exact(imp, _),
     strlen(rf) > 5, substr(rf, strlen(rf) - 5, 5) = ".d.ts",
     js = cat(substr(rf, 0, strlen(rf) - 5), ".js"),
     module_package("lib", pkg, mod), module_file("lib", fp, mod),
     contains(cat("/node_modules/", cat(pkg, cat("/", fp))), js).
+
+// A bare specifier the parser could NOT resolve (the client has no installed tree: a CI
+// checkout, a library IR set built elsewhere) reaches a staged package through the
+// package's own entry facts (#602; the facts are #616): `require('pkg')` and
+// `require('pkg/sub')` join the staged library's package_entry rows on the exact
+// specifier (package + subpath). The entry is chosen the way the runtime chooses it:
+// an `exports` entry governs when the package publishes one for that subpath, and
+// among those the condition the import form selects (`require` for require() and
+// createRequire, `import` or `module` for an import declaration or import()) before
+// an unconditional or `default` target; `main` (or the index.js fallback) only when
+// no `exports` entry names the subpath. A fallback behind the path-based rules above,
+// so an installed client keeps today's answer. Every side of every negation is a
+// parser fact, so the stratification holds.
+entry_specifier(pkg, ".", pkg) :- package_entry("lib", pkg, ".", _, _, _, _, _).
+entry_specifier(pkg, sp, cat(pkg, substr(sp, 1, strlen(sp) - 1))) :- package_entry("lib", pkg, sp, _, _, _, _, _), sp != ".", strlen(sp) > 2, substr(sp, 0, 2) = "./".
+bare_import(imp, spec, form, pkg, sp) :- import_decl(_, spec, form, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "", entry_specifier(pkg, sp, spec).
+entry_exports_selected(imp, mod) :- bare_import(imp, _, form, pkg, sp),
+    package_entry("lib", pkg, sp, cond, "EXPORTS", _, "RESOLVED", mod), mod != "", cond != "", import_form_condition(form, c), contains(c, cond).
+entry_exports_default(imp, mod) :- bare_import(imp, _, _, pkg, sp),
+    package_entry("lib", pkg, sp, cond, "EXPORTS", _, "RESOLVED", mod), mod != "", (cond = ""; contains("default", cond)).
+entry_has_exports(imp) :- bare_import(imp, _, _, pkg, sp), package_entry("lib", pkg, sp, _, "EXPORTS", _, _, _).
+entry_main(imp, mod) :- bare_import(imp, _, _, pkg, sp), package_entry("lib", pkg, sp, _, src, _, "RESOLVED", mod), mod != "", entry_source_is_main(src).
+entry_source_is_main("MAIN").
+entry_source_is_main("DEFAULT_INDEX").
+import_module(imp, mod) :- entry_exports_selected(imp, mod).
+import_module(imp, mod) :- entry_exports_default(imp, mod), !entry_exports_selected(imp, _).
+import_module(imp, mod) :- entry_main(imp, mod), !entry_has_exports(imp).
+// A subpath PATTERN export (`"./feat/*": "./lib/feat/*.js"`) stands for a family: the
+// parser records one PATTERN row (#616) and a deep import `pkg/feat/alpha` matched no
+// exact entry (#642). The pattern's prefix and suffix bracket the specifier's rest, the
+// captured part fills the target's `*`, and the file joins the staged module by package
+// and path; the runtime's rule that exports name exact files means no extension or
+// index fallback applies. An exact entry for the same subpath wins, a BLOCKED pattern
+// (`"./internal/*": null`) that also matches refuses the family, and the condition is
+// selected as for the exact entries.
+pattern_parts(pkg, sp, cond, substr(sp, 2, n - 2), substr(sp, n + 1, strlen(sp) - n - 1), tgt, m) :-
+    package_entry("lib", pkg, sp, cond, "EXPORTS", tgt, "PATTERN", _), strlen(sp) > 2, substr(sp, 0, 2) = "./",
+    n = range(2, strlen(sp)), substr(sp, n, 1) = "*", !contains("*", substr(sp, 0, n)),
+    m = range(0, strlen(tgt)), substr(tgt, m, 1) = "*", !contains("*", substr(tgt, 0, m)).
+pattern_blocked(pkg, substr(sp, 2, n - 2), substr(sp, n + 1, strlen(sp) - n - 1)) :-
+    package_entry("lib", pkg, sp, _, "EXPORTS", _, "BLOCKED", _), strlen(sp) > 2, substr(sp, 0, 2) = "./",
+    n = range(2, strlen(sp)), substr(sp, n, 1) = "*", !contains("*", substr(sp, 0, n)).
+// the specifier's rest after `<pkg>/`, and what the pattern captures from it
+bare_rest(imp, spec, form, pkg, substr(spec, strlen(pkg) + 1, strlen(spec) - strlen(pkg) - 1)) :-
+    import_decl(_, spec, form, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "",
+    package_entry("lib", pkg, _, _, _, _, _, _), strlen(spec) > strlen(pkg) + 1, substr(spec, 0, strlen(pkg) + 1) = cat(pkg, "/").
+pattern_capture(imp, pkg, cond, tgt, m, substr(rest, strlen(pre), strlen(rest) - strlen(pre) - strlen(suf))) :-
+    bare_rest(imp, _, _, pkg, rest), pattern_parts(pkg, _, cond, pre, suf, tgt, m),
+    strlen(rest) > strlen(pre) + strlen(suf),
+    substr(rest, 0, strlen(pre)) = pre, substr(rest, strlen(rest) - strlen(suf), strlen(suf)) = suf,
+    !package_entry("lib", pkg, cat("./", rest), _, "EXPORTS", _, _, _),
+    !pattern_blocks(imp, pkg).
+pattern_blocks(imp, pkg) :- bare_rest(imp, _, _, pkg, rest), pattern_blocked(pkg, pre, suf),
+    strlen(rest) >= strlen(pre) + strlen(suf),
+    substr(rest, 0, strlen(pre)) = pre, substr(rest, strlen(rest) - strlen(suf), strlen(suf)) = suf.
+pattern_target(imp, cond, mod) :- pattern_capture(imp, pkg, cond, tgt, m, cap),
+    file = cat(substr(tgt, 0, m), cat(cap, substr(tgt, m + 1, strlen(tgt) - m - 1))),
+    module_package("lib", pkg, mod), module_file("lib", file, mod).
+entry_pattern_selected(imp, mod) :- pattern_target(imp, cond, mod), cond != "", bare_rest(imp, _, form, _, _),
+    import_form_condition(form, c), contains(c, cond).
+entry_pattern_default(imp, mod) :- pattern_target(imp, cond, mod), (cond = ""; contains("default", cond)).
+import_module(imp, mod) :- entry_pattern_selected(imp, mod).
+import_module(imp, mod) :- entry_pattern_default(imp, mod), !entry_pattern_selected(imp, _).
+import_form_condition("REQUIRE_CALL", "require").
+import_form_condition("CREATE_REQUIRE", "require").
+import_form_condition("IMPORT_EQUALS", "require").
+import_form_condition("IMPORT_DECLARATION", "import").
+import_form_condition("IMPORT_DECLARATION", "module").
+import_form_condition("DYNAMIC_IMPORT", "import").
+import_form_condition("DYNAMIC_IMPORT", "module").
+import_form_condition("JSDOC_IMPORT_TYPE", "import").
+import_form_condition("JSDOC_IMPORT_TYPE", "require").
+// Countable: a staged package a client names by a bare specifier and does not reach
+// through any entry (the entry's file is absent from the library IR, a subpath the
+// package does not publish, or a condition the form does not select). The "staged
+// package, client not installed" outcome, kept apart from a package never staged.
+import_staged_package_unreached(imp, spec, pkg) :- import_decl(_, spec, _, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "",
+    package_entry("lib", pkg, _, _, _, _, _, _), (spec = pkg; contains(cat(pkg, "/"), spec)), !import_module(imp, _).
 
 // ── import_unresolved(ImportHash, Specifier, Outcome) — countable ───────────
 // A dependency that is not staged (RESOLVED_EXTERNAL with no matching module), a
@@ -99,6 +183,19 @@ module_export_value(mod, en, "module", src) :- export_decl(_, en, _, "EXPORT_ALL
     export_reexport(_, _, imp, x), import_module(imp, src).
 export_all_is_spread("").
 export_all_is_spread("*").
+// A dependency compiled from TypeScript to CommonJS re-exports its barrel through the
+// emit helpers (#717): `__exportStar(require("./api"), exports)`. The helper's body is a
+// for..in copy over keys the engine cannot name, so the barrel exposed NO name and every
+// call into the package was declared unknown although the import resolved and the package
+// was staged. Modelled by name and argument shape, the way Object.assign is: the helper is
+// emitted by one compiler with one spelling, and the shape (a module value in, this
+// module's own `exports` out) is what makes it a re-export rather than any other copy.
+ts_export_star_helper("__exportStar").
+ts_export_star_helper("__export").
+ts_export_star(mod, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "FUNCTION_CALL", n, _, _, _, ce, _, _),
+    ts_export_star_helper(n), call_arg(ce, 0, a0), expr_value(a0, "module", src),
+    call_arg(ce, 1, a1), expr_value(a1, "module", mod), mod != src.
+module_export_value(mod, n, k, i) :- ts_export_star(mod, src), module_export_value(src, n, k, i), n != "default".
 module_export_value(mod, en, k, i) :- export_decl(_, en, ln, form, _, _, _, _, mod, x), form != "EXPORT_ALL",
     export_reexport(_, _, imp, x), import_module(imp, src), ln != "",
     module_export_value(src, ln, k, i).
@@ -114,6 +211,11 @@ import_value(imp, k, i) :- import_decl(_, _, "REQUIRE_CALL", "NAMESPACE", _, _, 
     module_decl(_, _, _, _, "COMMONJS", mod), module_export_value(mod, "default", k, i), k != "module".
 import_value(imp, k, i) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
     module_export_value(mod, "default", k, i).
+// `import util from './util.cjs'` — an ES default import of a COMMONJS module is
+// `module.exports`: the module's own surface when the file exports through
+// `exports.x =`, beside any `module.exports = X` value the rule above found (#596).
+import_value(imp, "module", mod) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
+    module_decl(_, _, _, _, "COMMONJS", mod).
 import_value(imp, k, i) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
     import_module(imp, mod), module_export_value(mod, n, k, i).
 import_binding_is_named("NAMED").
@@ -127,9 +229,23 @@ import_value(imp, k, i) :- import_decl(_, _, _, "DESTRUCTURED", n, _, _, _, imp)
 // type-reference rules.
 import_value(imp, k, i) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _, imp), n != "",
     import_module(imp, mod), module_export_value(mod, n, k, i).
+// A bare `import('./x')` with no qualifier (#631): `@typedef {import("../Module")} Module`,
+// the JSDoc-typed CommonJS idiom for "the class that file exports". Of a CommonJS module
+// it is `module.exports`, exactly as `require('./x')` is at runtime and as an ES default
+// import of one is (#596): the default export's value. Of any module it is also the
+// module value, the namespace object, whose properties are the export surface.
+import_value(imp, k, i) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", "NO_LOCAL_BINDING", "", _, _, _, imp),
+    import_module(imp, mod), module_decl(_, _, _, _, "COMMONJS", mod),
+    module_export_value(mod, "default", k, i), k != "module".
+import_value(imp, "module", mod) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", "NO_LOCAL_BINDING", "", _, _, _, imp),
+    import_module(imp, mod).
 
 // ── import_binding_unresolved(ImportHash, Name) — countable ─────────────────
 // The module was reached and exports no such name (or the name's value is not
 // derivable). Distinct from import_unresolved: the dependency IS staged.
 import_binding_unresolved(imp, n) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "", !contains(".", n),
+    import_module(imp, _), !import_value(imp, _, _).
+// A DEFAULT binding that reached its module and holds nothing: an ES module with
+// no default export, imported as one.
+import_binding_unresolved(imp, "default") :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp),
     import_module(imp, _), !import_value(imp, _, _).

@@ -29,6 +29,42 @@
 
 // ── callback_registered(CallExpr, CallbackMethod) ───────────────────────────
 callback_registered(ce, m) :- invocation_site(ce, _), call_arg(ce, _, arg), expr_value(arg, "func", m).
+// A function handed over as a PROPERTY of an options object (`lib({ filter: f })`,
+// `opts.resolve = f; lib(opts)`, `https.request({ createConnection: f })`,
+// `new Transform({ transform })`) is a callback too (#643): the callee reads the property
+// and invokes it, and nothing else in the project points into the function. Followed
+// two levels (`{ hooks: { visit } }`), and only across the boundary: a callee that is
+// NOT a project function (a staged library, the platform, an unknown, a dynamic call),
+// because a project callee that reads the property has the ordinary edge from inside
+// its body. Only object values carry it (below); an array, a collection, a string, a
+// module, an instance and the platform are left out.
+callback_registered(ce, m) :- invocation_site(ce, _), !call_has_client_target(ce), !reflective_site(ce),
+    call_arg(ce, _, arg), expr_value(arg, k, i), options_value_kind(k), options_member_func(k, i, m).
+// `Object.assign(dst, src)`, `Object.entries(o)`, `Object.setPrototypeOf(a, b)`,
+// `Reflect.ownKeys(o)`, `JSON.stringify(o)`: reflection over an object reads its
+// properties and never invokes them; an options-object edge there would be invented.
+reflective_site(ce) :- call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n), reflective_ambient(n).
+reflective_ambient("Object").
+reflective_ambient("Reflect").
+reflective_ambient("JSON").
+reflective_ambient("Array").
+// Two levels, each side materialised WITHOUT the name wildcard (#671): joining
+// prop_value with itself through `_` in the name column left neither side a
+// prefix index for the other's lookup, and on lodash (26M prop_value tuples after
+// its mixin copies every function onto every object) that one join took 43 of a
+// 51-minute solve to produce 16.8K rows. The projections below are deduplicated
+// per (object, member value), and each join is a prefix lookup.
+options_member_func(k, i, m) :- options_member_func_own(k, i, m).
+options_member_func(k, i, m) :- options_object_member(k, i, k1, i1), options_member_func_own(k1, i1, m).
+options_member_func_own(k, i, m) :- prop_value(k, i, _, "func", m).
+options_object_member(k, i, k1, i1) :- prop_value(k, i, _, k1, i1), options_value_kind(k1).
+// Object values only: an INSTANCE passed to the platform is data (`arr.push(this)`,
+// `Promise.resolve(w)`, `items.map(fn, this)`), and registering every method it has
+// would invent an edge per method at every such site.
+options_value_kind("obj").
+call_has_client_target(ce) :- expr_resolves_to_method(ce, m), method_prov(m, "client").
+call_has_client_target(ce) :- new_constructs(ce, t), type_decl("client", _, _, _, _, t).
 
 // A listener runs with the EMITTER as `this` (`e.on('x', function () { this.other(); })`).
 this_value(m, k, i) :- event_handler(k, i, _, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _), k != "module".
@@ -81,3 +117,59 @@ call_chain_edge(ce, caller, "-", m, "client", "event_dispatch", kind) :- event_d
     method_prov(m, "client"), call_from(ce, caller), invocation_site(ce, kind).
 method_call_edge(caller, m) :- callback_registered(ce, m), method_prov(m, "client"), call_from(ce, caller).
 method_call_edge(caller, m) :- event_dispatch(ce, m), method_prov(m, "client"), call_from(ce, caller).
+
+// ── platform_hook_call(CallExpr, HookMethod) — the platform calls back into a subclass ──
+// A class extending a platform stream base (`Writable`, `Readable`, `Transform`,
+// `Duplex`) has hook methods the platform alone invokes: `write()` on the instance
+// runs `_write`, `end()` runs `_final`, `resume()` / `pipe()` / `read()` run `_read`,
+// `destroy()` runs `_destroy`. The trigger site is an `ambient_terminal` (its callee IS
+// the platform); what was missing is the edge the platform makes into the subclass's
+// own body, without which a protocol parser fed only through `write()` hangs off an
+// unreachable `_write`. Stated as facts, like the framework handler models: base,
+// trigger, hook. `Duplex` inherits both sides; `Transform` is a Duplex whose `_write`
+// is the platform's own and dispatches to `_transform` / `_flush`.
+platform_hook("Writable", "write", "_write").
+platform_hook("Writable", "write", "_writev").
+platform_hook("Writable", "end", "_final").
+platform_hook("Writable", "end", "_write").
+platform_hook("Writable", "cork", "_writev").
+platform_hook("Readable", "read", "_read").
+platform_hook("Readable", "resume", "_read").
+platform_hook("Readable", "pipe", "_read").
+platform_hook("Readable", "on", "_read").
+platform_hook("Transform", "write", "_transform").
+platform_hook("Transform", "end", "_transform").
+platform_hook("Transform", "end", "_flush").
+platform_hook("Transform", "read", "_transform").
+platform_hook("Transform", "resume", "_transform").
+platform_hook("Transform", "pipe", "_transform").
+platform_hook(b, "destroy", "_destroy") :- platform_hook(b, _, _).
+platform_hook(b, "end", "_destroy") :- platform_hook(b, _, _).
+platform_hook("Duplex", tr, h) :- platform_hook("Writable", tr, h).
+platform_hook("Duplex", tr, h) :- platform_hook("Readable", tr, h).
+platform_hook("PassThrough", tr, h) :- platform_hook("Transform", tr, h).
+platform_hook("Transform", tr, h) :- platform_hook("Duplex", tr, h), h != "_write", h != "_writev", h != "_read".
+// The ambient value of `require('stream')` is the MODULE name, so the base class is read
+// from the heritage row's written name (`Writable`, `stream.Writable` -> Writable) on a
+// class whose superclass resolved to that platform module; a subclass of such a class
+// inherits the base.
+stream_module("stream").
+stream_module("node:stream").
+stream_module("stream/web").
+platform_stream_base(t, base) :- heritage(_, t, _, base, _, _, _, _), platform_hook(base, _, _), type_super_ambient(t, mod), stream_module(mod).
+platform_stream_base(t, base) :- type_super(t, s), platform_stream_base(s, base).
+platform_hook_call(ce, m) :- call_site(_, ck, tr, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "inst", t), platform_stream_base(t, base),
+    platform_hook(base, tr, hook), type_member(t, hook, m).
+// `src.pipe(dest)`: the DESTINATION's write-side hooks run as `src` flows (`_write` /
+// `_transform` per chunk, `_final` / `_flush` when the source ends and the platform
+// calls `dest.end()`). What one piped stream's push does inside the next (`_transform`
+// -> the sink's `_write`) is platform-internal chaining and stays unmodelled.
+platform_hook_call(ce, m) :- call_site(_, ck, "pipe", "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    call_arg(ce, 0, d), expr_value(d, "inst", t), platform_stream_base(t, base),
+    pipe_destination_trigger(tr), platform_hook(base, tr, hook), type_member(t, hook, m).
+pipe_destination_trigger("write").
+pipe_destination_trigger("end").
+call_chain_edge(ce, caller, "-", m, "client", "callback_registered", kind) :- platform_hook_call(ce, m),
+    method_prov(m, "client"), call_from(ce, caller), invocation_site(ce, kind).
+method_call_edge(caller, m) :- platform_hook_call(ce, m), method_prov(m, "client"), call_from(ce, caller).

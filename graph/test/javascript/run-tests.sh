@@ -10,6 +10,9 @@
 #   3. solve CLIENT-ONLY (empty --library)          -> expected/<name>.edges
 #   4. solve WITH LIBRARY, if present               -> expected/<name>.lib.edges
 #   5. COVERAGE GUARD on both: no call site may vanish silently
+#   5b. DIAGNOSTICS GOLDEN on both: expected/<name>.diag (and .lib.diag) — the declared
+#       blind spots (parse gaps, partial modules, import causes, unresolved reasons)
+#       and the package entries, so a refusal cannot turn into a silent nothing
 #   6. with --oracle, score against the TypeScript compiler (allowJs/checkJs):
 #        expected/<name>.oracle — one line per compiler-decided site with its bucket.
 #      A MISSED or WRONG line fails the run whether or not the golden was rewritten:
@@ -67,13 +70,9 @@ oracle_check() {
   node "$HERE/ground-truth/tsc-oracle.mjs" "$src" "$w/oracle.tsv" >"$w/oracle.log" 2>&1 || { echo "FAIL (oracle — see $w/oracle.log)"; return 1; }
   python3 "$HERE/ground-truth/score.py" "$ir" "$out" "$w/oracle.tsv" --dump="$w/score-rows.tsv" >"$w/score.txt" 2>&1 || { echo "FAIL (score — see $w/score.txt)"; return 1; }
   python3 "$HERE/tools/oracle_diff.py" "$ir" "$out" "$w/oracle.tsv" "$w/score-rows.tsv" >"$w/actual.oracle"
-  # a defect is a MISSED/WRONG line not listed as known; a known one that stopped being a defect fails too
-  local defects; defects="$(grep -E '  (MISSED|WRONG|LIB_WRONG|ENGINE_DROPPED)  ' "$w/actual.oracle" | cut -d' ' -f1)"
-  local kn=""; [ -f "$known" ] && kn="$(grep -vE '^\s*(#|$)' "$known" | cut -d' ' -f1)"
-  local new_defects; new_defects="$(comm -23 <(printf '%s\n' $defects | sort -u) <(printf '%s\n' $kn | sort -u) | sed '/^$/d')"
-  local fixed; fixed="$(comm -13 <(printf '%s\n' $defects | sort -u) <(printf '%s\n' $kn | sort -u) | sed '/^$/d')"
-  if [ -n "$new_defects" ]; then echo "FAIL (oracle: the compiler decided these and the engine did not agree)"; printf '    %s\n' $new_defects; return 1; fi
-  if [ -n "$fixed" ]; then echo "FAIL (oracle: known-missing entries now resolve — remove them from $(basename "$known"))"; printf '    %s\n' $fixed; return 1; fi
+  # a defect is a MISSED/WRONG line not listed as known; a known one that stopped being a
+  # defect fails too (tools/oracle_gate.py, shared with torture/run.sh and realapp/run.sh)
+  python3 "$HERE/tools/oracle_gate.py" "$w/actual.oracle" "$known" || return 1
   check_golden "$w/actual.oracle" "$golden" "oracle golden"
 }
 
@@ -89,7 +88,9 @@ for dir in "$HERE"/cases/*/; do
     echo "FAIL (parse client — see $w/parse.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
   HAS_LIB=0
   if [ -d "$dir/lib" ] && [ -n "$(ls -A "$dir/lib" 2>/dev/null)" ]; then
-    if ! node "$PARSER" "$dir/lib" "$name-lib" false "$w/libir" >"$w/parse-lib.log" 2>&1; then
+    # --library: the case's lib/ is a DEPENDENCY, so a build directory it ships from is
+    # its source (#620); the case's src/ is the project, where dist/ stays skipped (#796).
+    if ! node "$PARSER" "$dir/lib" "$name-lib" false "$w/libir" --library >"$w/parse-lib.log" 2>&1; then
       echo "FAIL (parse library — see $w/parse-lib.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
     [ -s "$w/libir/all-javascript-modules.csv" ] && HAS_LIB=1
   fi
@@ -101,6 +102,10 @@ for dir in "$HERE"/cases/*/; do
     python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/plain/out/raw" > "$w/actual.edges" 2>"$w/norm.log" || { echo "FAIL (normalize)"; ok=0; }
   fi
   if [ $ok = 1 ]; then check_golden "$w/actual.edges" "$HERE/expected/$name.edges" "edges" || ok=0; fi
+  if [ $ok = 1 ]; then
+    python3 "$HERE/tools/normalize_diagnostics.py" "$w/ir" "$w/plain/out/raw" > "$w/actual.diag" 2>>"$w/norm.log" || { echo "FAIL (normalize diagnostics)"; ok=0; }
+  fi
+  if [ $ok = 1 ]; then check_golden "$w/actual.diag" "$HERE/expected/$name.diag" "diagnostics" || ok=0; fi
   if [ $ok = 1 ] && [ "$ORACLE" = "1" ]; then
     oracle_check "$w/ir" "$w/plain/out/raw" "$dir/src" "$w" "$HERE/expected/$name.oracle" "$HERE/expected/$name.known-missing" || ok=0
   fi
@@ -111,9 +116,27 @@ for dir in "$HERE"/cases/*/; do
       python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out/raw" "$w/libir" > "$w/actual.lib.edges" 2>>"$w/norm.log"
       check_golden "$w/actual.lib.edges" "$HERE/expected/$name.lib.edges" "lib edges" || ok=0
     fi
+    if [ $ok = 1 ]; then
+      python3 "$HERE/tools/normalize_diagnostics.py" "$w/ir" "$w/withlib/out/raw" "$w/libir" > "$w/actual.lib.diag" 2>>"$w/norm.log"
+      check_golden "$w/actual.lib.diag" "$HERE/expected/$name.lib.diag" "lib diagnostics" || ok=0
+    fi
   fi
   if [ $ok = 1 ]; then echo "ok"; pass=$((pass+1)); else fail=$((fail+1)); failed+=("$name"); fi
   [ "$KEEP" = "1" ] || rm -rf "$w"
 done
 echo; echo "passed: $pass  failed: $fail"
 [ $fail -eq 0 ] || { printf '  %s\n' "${failed[@]}"; exit 1; }
+# bin/axiomcode --library staging: every source-tree entry gets its own intermediate
+# directory whatever its basename, and a library row in graph.sqlite carries its package
+# (#600, #603). Skipped when a filter selects cases, as the other tool checks are.
+if [ ${#FILTERS[@]} -eq 0 ]; then
+  bash "$ROOT/graph/test/tools/library-staging-test.sh" || exit 1
+  # The ground-truth harness checks its own two path defects. Synthesised inputs (and one
+  # symlinked fixture) only, so they cost a second and cannot skip on a missing corpus:
+  #   oracle-symlink  one call site is one oracle row whatever the root is spelled like,
+  #                   and the scorer reports a repeated site key (#794)
+  #   library-path    the scorer tells an in-project .d.ts from the standard library on
+  #                   every platform (#614) — written then, never wired in
+  python3 "$HERE/tools/oracle-symlink-test.py" || exit 1
+  python3 "$HERE/tools/library-path-test.py" || exit 1
+fi

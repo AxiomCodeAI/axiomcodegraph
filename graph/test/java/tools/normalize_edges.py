@@ -6,8 +6,8 @@ sorted, deduplicated. Hashes are resolved to names so a golden file is human-rev
 NOT sensitive to hash churn.
 
 CONVENTIONS (deliberate, not defects):
-  * NESTED TYPES ARE FLATTENED. `package p; class A { class B {} }` yields owners `p.A` and `p.B`,
-    not `p.A.B`. This mirrors the IR and is accepted behaviour.
+  * NESTED TYPES ARE NAMED BY THEIR CHAIN. `package p; class A { class B {} }` yields owners `p.A`
+    and `p.A.B`, the IR's qualifiedName form (a local class is `p.A.Local`, without javac's index).
   * ANONYMOUS classes are keyed by their SUPERTYPE (`Outer$anon:Runnable`), because javac and the
     engine number anonymous classes differently — numbering would make goldens brittle.
   * TYPE VARIABLES are erased to their bound (default Object), so `add(E)` reads `add(Object)`.
@@ -32,8 +32,17 @@ def rows(path):
     hdr = r[0]
     return [dict(zip(hdr, x + [''] * (len(hdr) - len(x)))) for x in r[1:]]
 
+# A TYPE-USE ANNOTATION is written in the type position and the parser keeps it in the declared
+# type name: `@Nullable Response`. It is not part of the type, and leaving it in makes the
+# parameter list of every annotated method differ from the one the bytecode oracle prints, so a
+# caller that is annotated cannot be compared on either side. Stripped for the same reason type
+# arguments are.
+# It can sit mid-name, on the qualified form: `HttpConnection.@Nullable Response`.
+ANNOTATED = re.compile(r'@[\w$.]+(?:\([^)]*\))?\s*')
+
+
 def simple(t):
-    t = (t or '').strip(); arr = ''
+    t = ANNOTATED.sub('', (t or '')).strip(); arr = ''
     while t.endswith('[]'): arr += '[]'; t = t[:-2]
     if t.endswith('...'): arr += '[]'; t = t[:-3]
     out, d = [], 0
@@ -86,6 +95,17 @@ class Names:
         if h in ('-', ''): return '-'
         if h in self.m: return self.m[h]
         if h in self.types: return f"{self.types[h]}#<type-initializer>()"
+        # An EXTERNAL target is a label, not a hash: `external:<type>.<name>`, the method of an
+        # ancestor no staged IR declares (resolution/external-types.dl). Printed whole — it is
+        # already a readable name, and truncating it would hide which type the call left for.
+        if h.startswith('external:'): return h
+        # A GENERATED target is also a label, not a hash: `generated:<type>#<name>/<arity>`, a
+        # member an annotation processor declares that no IR carries
+        # (resolution/generated-members.dl). Printed whole, for the same reason external: is, and
+        # for a sharper one: truncated to 24 characters `generated:dep.Catalog#getName/0` and
+        # `generated:dep.Catalog#getSize/0` are the SAME string, so two different edges would
+        # collapse into one golden line and a regression in either could not be seen.
+        if h.startswith('generated:'): return h
         return f"<unresolved:{h[:24]}>"
 
 def main():

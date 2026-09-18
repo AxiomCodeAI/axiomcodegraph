@@ -22,6 +22,10 @@ import {
 } from '@/parsers/javascript/extractors/js-ir-completeness';
 import { moduleHashFor } from '@/parsers/javascript/extractors/js-module-extractor';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
+import {
+  buildOutputDirectoriesNamedBy,
+  extractPackageEntries,
+} from '@/parsers/javascript/package-entry-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
 import { JsRelationWriter } from '@/workflows/javascript/js-relation-writer';
 import { isJavaScriptSourceFile, stripJsExtension } from '@/utils/javascript';
@@ -35,6 +39,7 @@ import { JsImportRegistry } from '@/analysis-types/javascript/JsImportRegistry';
 import { JsMethodParameterRegistry } from '@/analysis-types/javascript/JsMethodParameterRegistry';
 import { JsMethodRegistry } from '@/analysis-types/javascript/JsMethodRegistry';
 import { JsModuleRegistry } from '@/analysis-types/javascript/JsModuleRegistry';
+import { JsPackageEntryRegistry } from '@/analysis-types/javascript/JsPackageEntryRegistry';
 import { JsParseGapRegistry } from '@/analysis-types/javascript/JsParseGapRegistry';
 import { JsScopeRegistry } from '@/analysis-types/javascript/JsScopeRegistry';
 import { JsTypeHeritageRegistry } from '@/analysis-types/javascript/JsTypeHeritageRegistry';
@@ -64,6 +69,7 @@ const HEADER_BY_FILE: Readonly<Record<string, string>> = {
   [JAVASCRIPT_CSV_FILES.BLOCKS]: JsBlockRegistry.prototype.getCsvHeader(),
   [JAVASCRIPT_CSV_FILES.COMMENTS]: JsCommentRegistry.prototype.getCsvHeader(),
   [JAVASCRIPT_CSV_FILES.PARSE_GAPS]: JsParseGapRegistry.prototype.getCsvHeader(),
+  [JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES]: JsPackageEntryRegistry.prototype.getCsvHeader(),
 };
 
 /**
@@ -117,6 +123,24 @@ export interface JavaScriptAnalysisOptions {
    * double the row count with nothing looking wrong.
    */
   readonly additionalRoots?: readonly string[];
+  /**
+   * This root is a DEPENDENCY handed to the parser, not the project under analysis.
+   *
+   * The only thing it changes is the build output directory a root's own
+   * `package.json` ships from (`main` / `module` / `exports` naming `dist/`,
+   * `build/` or `out/`). For a dependency that directory is the source of truth and
+   * is walked (#620); for a project it is the artefact beside the source, and walking
+   * it extracts every function of the project a second time — which silently changed
+   * the answers for the REAL source, because the name-keyed parameter fan cap counts
+   * call sites across the whole IR and the copies pushed the project's own functions
+   * over it (#796).
+   *
+   * It is stated by the caller rather than inferred: a published package very often
+   * ships `src/` beside `dist/` in its tarball, so "the root has source outside the
+   * build directory" would switch #620 back off for exactly those packages.
+   * `bin/axiomcode` knows which trees are `--library` entries and says so.
+   */
+  readonly libraryRoot?: boolean;
 }
 
 export interface JavaScriptAnalysisSummary {
@@ -143,6 +167,12 @@ export interface JavaScriptAnalysisSummary {
    * with no JavaScript in it.
    */
   readonly skippedByDirectory: Readonly<Record<string, number>>;
+  /**
+   * Build-output directories WALKED because a walk root's own `package.json`
+   * names them as an entry (#620): `<root>/dist` for a package that ships from
+   * `dist/`. Listed so the exception is as visible as the skip it lifts.
+   */
+  readonly buildOutputWalked: readonly string[];
   /** How each file's module system was decided, so a defaulted 91.4% is visible. */
   readonly moduleSystemSourceCounts: Record<string, number>;
   /** Files whose own syntax contradicts their governing `package.json`. */
@@ -211,22 +241,54 @@ export class JavaScriptProjectAnalyzer {
         )
       : options.serviceVersionLinkHash ?? '';
 
-    const rootDir = path.resolve(options.rootDir);
+    // CANONICAL, not as spelled — see `realPathOf`. Every workspace package is linked
+    // into `node_modules` by a symlink, and TypeScript's resolver answers with the
+    // package's real path, so a root spelled through a symlink put one side of the
+    // `projectModuleHashes` comparison in real paths and the other in the spelling
+    // given: every cross-package import in a monorepo came out RESOLVED_EXTERNAL (#795).
+    // `baseMservPath` is canonicalised with it, or `pathAnchorFor` would stop
+    // recognising an ancestor spelled the other way and re-anchor every emitted path.
+    const rootDir = realPathOf(path.resolve(options.rootDir));
     const excludes = new Set<string>(options.excludeDirs ?? JS_SKIP_DIRECTORIES);
     // Counted, not merely skipped. See `collectJavaScriptFiles`.
     const skippedByDirectory = new Map<string, number>();
-    const pathAnchor = pathAnchorFor(rootDir, options.baseMservPath);
+    const prunedDirectories: Array<{ directory: string; name: string; files: number }> = [];
+    const baseMservPath = options.baseMservPath === ''
+      ? '' : realPathOf(path.resolve(options.baseMservPath));
+    const pathAnchor = pathAnchorFor(rootDir, baseMservPath);
+    const packageJson = new PackageJsonResolver();
     // The union of every root's files, by absolute path. A monorepo root and its
     // packages both claim the same files, and extracting one twice would mint
     // identical primary keys and DOUBLE the row count rather than colliding.
     const discovered = new Map<string, string>();
-    for (const root of [rootDir, ...(options.additionalRoots ?? []).map((r) => path.resolve(r))]) {
-      for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory)) {
+    const buildOutputWalked: string[] = [];
+    // Every `package.json` the walk passes, so a package whose only code sits in
+    // a skipped directory still states its entries (#616): the row that says
+    // "this package stages nothing" must exist for exactly that package.
+    const packageJsonsSeen = new Set<string>();
+    const roots = [rootDir, ...(options.additionalRoots ?? []).map((r) => realPathOf(path.resolve(r)))];
+    for (const root of roots) {
+      // A root that is a PACKAGE shipping from a build directory (#620): its
+      // `main` / `exports` name `dist/`, `build/` or `out/`, and that directory is
+      // the only code the package ships. Walked, directly under this root only;
+      // every nested occurrence stays a skipped artefact.
+      const rootPackage = packageJson.packageAt(root);
+      // ONLY FOR A DEPENDENCY. See `libraryRoot`: for the project under analysis, a
+      // committed `dist/` is a copy of its own source and extracting it changes the
+      // answers for the source itself (#796).
+      const walkUnderRoot = new Set<string>(
+        rootPackage === undefined || options.libraryRoot !== true
+          ? []
+          : buildOutputDirectoriesNamedBy(rootPackage).filter((name) => excludes.has(name))
+      );
+      for (const name of walkUnderRoot) {
+        buildOutputWalked.push(path.join(root, name));
+      }
+      for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory, prunedDirectories, walkUnderRoot, packageJsonsSeen)) {
         discovered.set(path.normalize(file), file);
       }
     }
     const files = [...discovered.values()].sort();
-    const packageJson = new PackageJsonResolver();
 
     // Every module hash up front, from PATHS ALONE — §1 of the parser doc.
     //
@@ -244,7 +306,7 @@ export class JavaScriptProjectAnalyzer {
         path.normalize(file),
         moduleHashFor(
           toRelative(pathAnchor, file),
-          options.baseMservPath,
+          baseMservPath,
           governing.moduleSystem,
           serviceVersionLinkHash
         )
@@ -253,7 +315,47 @@ export class JavaScriptProjectAnalyzer {
     const toProjectRelative = (absolutePath: string): string =>
       stripExtension(toRelative(pathAnchor, absolutePath));
 
+    // Every package this parse touched: each walk root's own `package.json`, and
+    // the governing config of every file. What each exposes is a fact of the
+    // package, resolved against the module hashes minted above (#616). A root
+    // package with no walked file still gets its rows, so "this package stages
+    // nothing" is written down rather than inferred from an empty relation.
+    const packageEntries: JsPackageEntryRegistry[] = [];
+    const packageJsonPaths = new Set<string>(packageJsonsSeen);
+    for (const root of roots) {
+      const rootPackage = packageJson.packageAt(root);
+      if (rootPackage !== undefined) {
+        packageJsonPaths.add(rootPackage.path);
+      }
+    }
+    for (const governing of governingByFile.values()) {
+      if (governing.packageJsonPath !== '') {
+        packageJsonPaths.add(governing.packageJsonPath);
+      }
+    }
+    for (const packageJsonPath of [...packageJsonPaths].sort()) {
+      const facts = packageJson.packageAt(path.dirname(packageJsonPath));
+      if (facts === undefined) {
+        continue;
+      }
+      packageEntries.push(...extractPackageEntries({
+        facts,
+        packageJsonPath: toRelative(pathAnchor, packageJsonPath),
+        moduleHashOf: (absolutePath) => projectModuleHashes.get(absolutePath),
+        serviceVersionLinkHash,
+      }));
+    }
+
     this.skippedFiles = [];
+    // The pruned directories reach the skip table, one row each (#790), AFTER the
+    // reset above so the rows survive it. One row per directory, not per file: the
+    // files inside were counted but never enumerated, and inventing paths for them
+    // would be a worse answer than naming the directory and the count.
+    for (const pruned of prunedDirectories) {
+      this.recordSkip(pruned.directory, pathAnchor, options, serviceVersionLinkHash,
+        SkippedFileReason.DIRECTORY_EXCLUDED,
+        `${pruned.files} JavaScript file(s) under an excluded directory named ${pruned.name}`);
+    }
     await fsp.mkdir(options.outputDir, { recursive: true });
     const writers = new Map<string, JsRelationWriter>();
     // Unique per WRITER SET, not per millisecond: two analyzers started together
@@ -285,6 +387,7 @@ export class JavaScriptProjectAnalyzer {
     const moduleSystemSourceCounts: Record<string, number> = {};
 
     try {
+      await writerFor(JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES).append(packageEntries);
       for (const file of files) {
         let sourceText: string;
         try {
@@ -300,7 +403,7 @@ export class JavaScriptProjectAnalyzer {
           facts = extractJavaScriptFile({
             absoluteFilePath: file,
             filePath: toRelative(pathAnchor, file),
-            baseMservPath: options.baseMservPath,
+            baseMservPath: baseMservPath,
             moduleQualifiedName: toProjectRelative(file),
             sourceText,
             serviceVersionLinkHash,
@@ -398,11 +501,13 @@ export class JavaScriptProjectAnalyzer {
         js_comment: writerFor(JAVASCRIPT_CSV_FILES.COMMENTS).rowCount,
         js_type_reference: writerFor(JAVASCRIPT_CSV_FILES.TYPE_REFERENCES).rowCount,
         js_parse_gap: writerFor(JAVASCRIPT_CSV_FILES.PARSE_GAPS).rowCount,
+        js_package_entry: writerFor(JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES).rowCount,
       },
       bundledFilesExcluded,
       skippedByDirectory: Object.fromEntries(
         [...skippedByDirectory.entries()].sort((a, b) => b[1] - a[1])
       ),
+      buildOutputWalked,
       moduleSystemSourceCounts,
       contradictingFiles,
       irCompleteness: finishCompleteness(completeness),
@@ -445,18 +550,16 @@ export class JavaScriptProjectAnalyzer {
 }
 
 /**
- * Module-resolution options for `ts.resolveModuleName`, by module system.
+ * Module-resolution options for `ts.resolveModuleName`.
  *
- * Chosen per file rather than per run for the same reason everything else here
- * is: a `.cjs` and a `.mjs` in one directory resolve the same specifier
- * differently, and `resolvedFilePath` is one of the three columns that make a
- * call site complete.
- *
- * - **ESM** gets `NodeNext`, which models `exports` maps, `#`-prefixed `imports`
- *   maps and conditional exports — the parts of resolution that only exist for
- *   ES modules.
- * - **CommonJS** gets `Node10`, which is `require.resolve`'s algorithm:
- *   `index.js` fallbacks, directory `main` fields, and no `exports` gating.
+ * `NodeNext` for every file: it is the one resolver that models `exports` maps,
+ * `#`-prefixed `imports` maps and conditional exports, and Node's own `require`
+ * has honoured `exports` (under the `require` condition) since the map was
+ * introduced, so `Node10` for CommonJS files described a loader that no longer
+ * exists and left a `require()` of an exports-only package unresolved (#601).
+ * WHICH conditions apply is decided per import site, not per file: the module
+ * edge extractor passes the resolution mode (`require` for `require()` and
+ * `createRequire`, `import` for `import` declarations and `import()`).
  *
  * Where tsc's model and Node's real resolver disagree, the disagreement is
  * worth recording — and it is recorded in `../parser-oracle/javascript`, not
@@ -464,19 +567,11 @@ export class JavaScriptProjectAnalyzer {
  * work, which is exactly what `js_import.resolverAgreement` was deleted for.
  */
 function compilerOptionsFor(moduleSystem: string): ts.CompilerOptions {
-  if (moduleSystem === 'ESM') {
-    return {
-      allowJs: true,
-      target: ts.ScriptTarget.ESNext,
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    };
-  }
   return {
     allowJs: true,
     target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.CommonJS,
-    moduleResolution: ts.ModuleResolutionKind.Node10,
+    module: moduleSystem === 'ESM' ? ts.ModuleKind.NodeNext : ts.ModuleKind.CommonJS,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
   };
 }
 
@@ -487,6 +582,27 @@ function compilerOptionsFor(moduleSystem: string): ts.CompilerOptions {
  * that ancestor, so two runs over two subtrees of one service produce paths that
  * join. Otherwise `rootDir` is the anchor.
  */
+/**
+ * A path with every symlink resolved, or the path itself when it cannot be.
+ *
+ * Two spellings of one directory must not produce two IRs. A root reached through a
+ * symlink is ordinary — macOS `/tmp` and `/var`, a symlinked checkout or home, a
+ * container bind mount — and the module resolver always answers in real paths for a
+ * package found under `node_modules`, which is how every workspace package is linked.
+ * Resolving at the root makes both sides one spelling; relative emitted paths are
+ * unchanged, because they are relative to that root either way (#795, and #588 for
+ * the same class of defect in the library cache key).
+ */
+function realPathOf(absolutePath: string): string {
+  try {
+    return fs.realpathSync(absolutePath);
+  } catch {
+    // A path that does not exist, or that cannot be read, is left exactly as given:
+    // the caller's error is better than one invented here.
+    return absolutePath;
+  }
+}
+
 function pathAnchorFor(rootDir: string, baseMservPath: string): string {
   if (baseMservPath === '') {
     return rootDir;
@@ -546,7 +662,21 @@ function collectJavaScriptFiles(
    * a tree that is not being analysed, paid so that "this package contributed
    * nothing" and "this package was skipped" are different answers.
    */
-  skippedByDirectory: Map<string, number>
+  skippedByDirectory: Map<string, number>,
+  /**
+   * One entry per pruned directory, with its path, so the skip table can carry a
+   * row for it (#790). The name-keyed counts above answer "how much was pruned";
+   * this answers "where", which is what a reader needs to tell a first-party
+   * package under `packages/node_modules` from an installed dependency.
+   */
+  prunedDirectories: Array<{ directory: string; name: string; files: number }>,
+  /**
+   * Excluded names to walk anyway when they sit DIRECTLY under `rootDir` (#620):
+   * the build directory a package root's own `package.json` ships from.
+   */
+  walkUnderRoot: ReadonlySet<string> = new Set(),
+  /** Every `package.json` passed on the walk, collected for the entry rows (#616). */
+  packageJsonsSeen: Set<string> = new Set()
 ): string[] {
   const out: string[] = [];
   const countUnder = (directory: string): number => {
@@ -576,7 +706,7 @@ function collectJavaScriptFiles(
     for (const entry of entries) {
       const full = path.join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (!excludes.has(entry.name)) {
+        if (!excludes.has(entry.name) || (directory === rootDir && walkUnderRoot.has(entry.name))) {
           walk(full);
           continue;
         }
@@ -584,11 +714,15 @@ function collectJavaScriptFiles(
         if (cost > 0) {
           skippedByDirectory.set(entry.name,
             (skippedByDirectory.get(entry.name) ?? 0) + cost);
+          prunedDirectories.push({ directory: full, name: entry.name, files: cost });
         }
         continue;
       }
       if (!entry.isFile()) {
         continue;
+      }
+      if (entry.name === 'package.json') {
+        packageJsonsSeen.add(full);
       }
       if (isJavaScriptSourceFile(entry.name)) {
         out.push(full);

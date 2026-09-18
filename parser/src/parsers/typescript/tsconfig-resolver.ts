@@ -53,6 +53,12 @@ export interface GoverningTsConfig {
   readonly decoratorSystem: TsDecoratorSystem;
   /** The files this config claims, absolute and normalised. Empty when it could not be read. */
   readonly fileNames: ReadonlySet<string>;
+  /**
+   * The configs this one REFERENCES (`references: [{ path }]`), absolute. A
+   * solution-style root (`files: []` plus references) claims no file itself and
+   * delegates to these; a file they claim is governed by them (#660).
+   */
+  readonly references: readonly string[];
 }
 
 /**
@@ -127,6 +133,16 @@ export class TsConfigResolver {
           found = config;
           break;
         }
+        // A solution-style config (`files: [], references: [...]`) claims nothing
+        // itself; the program that claims the file is one it references, possibly
+        // under a name the walk never looks for (`tsconfig.build.json`). Without
+        // this a repository whose root delegates to references lost every file the
+        // references claim, silently (#660).
+        const viaReference = config ? this.referencedConfigClaiming(config, normalised, new Set()) : undefined;
+        if (viaReference) {
+          found = viaReference;
+          break;
+        }
       }
       const parent = path.dirname(dir);
       if (parent === dir) {
@@ -141,9 +157,41 @@ export class TsConfigResolver {
       moduleResolutionMode: TsModuleResolutionMode.NODE10,
       decoratorSystem: TsDecoratorSystem.STANDARD_TC39,
       fileNames: new Set<string>(),
+      references: [],
     };
     this.governing.set(normalised, result);
     return result;
+  }
+
+  /** The config `config` references (transitively) that claims `file`, if any. */
+  private referencedConfigClaiming(
+    config: GoverningTsConfig,
+    file: string,
+    visited: Set<string>
+  ): GoverningTsConfig | undefined {
+    for (const referenced of config.references) {
+      if (visited.has(referenced)) {
+        continue;
+      }
+      visited.add(referenced);
+      const parsed = this.parseConfig(referenced);
+      if (!parsed) {
+        continue;
+      }
+      if (parsed.fileNames.has(file)) {
+        return parsed;
+      }
+      const deeper = this.referencedConfigClaiming(parsed, file, visited);
+      if (deeper) {
+        return deeper;
+      }
+    }
+    return undefined;
+  }
+
+  /** A parsed config by absolute path, for a caller that already knows the path (a reference). */
+  configAt(configPath: string): GoverningTsConfig | undefined {
+    return this.parseConfig(configPath);
   }
 
   /** Every tsconfig under a root, sorted, for the analyzer's per-program grouping. */
@@ -206,6 +254,10 @@ export class TsConfigResolver {
             ? TsDecoratorSystem.LEGACY_EXPERIMENTAL
             : TsDecoratorSystem.STANDARD_TC39,
         fileNames: new Set(parsed.fileNames.map((f) => path.normalize(f))),
+        // `path` may name a directory (its tsconfig.json) or a config file by name;
+        // resolveProjectReferencePath is the compiler's own reading of it.
+        references: (parsed.projectReferences ?? [])
+          .map((ref) => path.resolve(ts.resolveProjectReferencePath(ref))),
       };
     }
     this.parsed.set(configPath, result);

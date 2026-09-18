@@ -1,0 +1,7 @@
+19-overload-gauntlet [types]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 10   resolved 0 (0.0%)
+  tiers ambiguous_unknown=10
+  contexts METHOD_PARAM=5  METHOD_TYPE_PARAM_BOUND=1  TYPE_ARGUMENT=2  TYPE_ELEMENT=2
+  not scored: 10 rows whose target is not a client declaration

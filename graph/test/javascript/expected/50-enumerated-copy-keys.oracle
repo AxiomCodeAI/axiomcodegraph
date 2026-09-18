@@ -1,0 +1,17 @@
+main.js:10:32 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:11:16 METHOD_CALL forEach  LIB_AMBIENT_OK  
+main.js:11:16 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:18:53 METHOD_CALL push  LIB_AMBIENT_OK  
+main.js:19:31 FUNCTION_CALL keys  EXACT  main.js:18:1
+main.js:19:31 METHOD_CALL forEach  LIB_AMBIENT_OK  
+main.js:20:12 FUNCTION_CALL extend  EXACT  main.js:19:1
+main.js:25:55 FUNCTION_CALL ownKeys  LIB_AMBIENT_OK  
+main.js:26:12 FUNCTION_CALL assign  EXACT  main.js:25:1
+main.js:28:16 METHOD_CALL forEach  LIB_AMBIENT_OK  
+main.js:28:16 METHOD_CALL getOwnPropertyNames  LIB_AMBIENT_OK  
+main.js:30:15 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:36:34 FUNCTION_CALL log  EXACT  main.js:6:1
+main.js:39:40 METHOD_CALL toUpperCase  LIB_AMBIENT_OK  
+main.js:7:32 FUNCTION_CALL log  EXACT  main.js:6:1
+main.js:7:58 FUNCTION_CALL log  EXACT  main.js:6:1
+# defects: 0

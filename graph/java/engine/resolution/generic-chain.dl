@@ -51,7 +51,7 @@ expr_arg_binding(recv, bt, param, arg) :- recv_decl_ref(recv, ref, _),
 // call : retType<retParam = arg>.
 expr_arg_binding(call, retType, retParam, arg) :- call_site(call, _, recv),
     expr_arg_binding(recv, _, ownerTv, arg),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_method_ret_param(callee, retType, retParam, ownerTv).
 
 // (through a bare type variable) `entries().get(0).value()` — `get` returns Box's element E, not a
@@ -59,7 +59,7 @@ expr_arg_binding(call, retType, retParam, arg) :- call_site(call, _, recv),
 // The receiver binds E to a type that CARRIES ITS OWN arguments (E = Pair<String,Widget>), so the
 // call's value is that type, and it keeps that type's bindings.
 expr_arg_binding(call, nested, np, arg) :- call_site(call, _, recv),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_method_ret_tvar(callee, owner, tv),
     expr_arg_binding(recv, owner, tv, nested),
     expr_arg_binding(recv, nested, np, arg).
@@ -80,7 +80,7 @@ expr_arg_binding(recv, bt, param, arg) :-
 // `e.getValue()` after an entrySet had nothing bound for V. Same shape, same per-expression key.
 expr_arg_binding(call, nested, nestedParam, arg) :- call_site(call, _, recv),
     expr_arg_binding(recv, _, ownerTv, arg),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_ret_nested_param(callee, nested, nestedParam, ownerTv).
 
 // (var local) `var it = xs.iterator(); it.next()` — the receiver is a LOCAL, so the two clauses
@@ -150,14 +150,14 @@ arg_ref_at(baseRef, baseType, param, argRef) :- type_ref_resolves(_, baseRef, ba
 // recvRef → element ref (Box<Dog>) → its arg (Dog).
 expr_arg_binding(call, elemBase, elemParam, elemArg) :- call_site(call, _, recv),
     recv_decl_ref(recv, recvRef, _),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_method_ret_tvar(callee, owner, tv),
     arg_ref_at(recvRef, owner, tv, elemRef),
     arg_ref_at(elemRef, elemBase, elemParam, argRef2),
     type_ref_resolves(_, argRef2, elemArg).
 expr_arg_binding(call, elemBase, elemParam, elemArg) :- call_site(call, _, recv),
     recv_decl_ref(recv, recvRef, _),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     java_method_ret_tvar(callee, owner, tv),
     arg_ref_at(recvRef, owner, tv, elemRef),
     arg_ref_at(elemRef, elemBase, elemParam, argRef2),
@@ -168,11 +168,11 @@ expr_arg_binding(call, elemBase, elemParam, elemArg) :- call_site(call, _, recv)
 // recv_decl_ref to expr_arg_binding, so CHAINED-call receivers (iterator() result) work.
 expr_type(prov, call, arg) :- call_site(call, _, recv),
     expr_arg_binding(recv, owner, tv, arg),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_method_ret_tvar(callee, owner, tv),
     type_prov(arg, prov).
 expr_type(prov, call, arg) :- call_site(call, _, recv),
     expr_arg_binding(recv, owner, tv, arg),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     java_method_ret_tvar(callee, owner, tv),
     type_prov(arg, prov).

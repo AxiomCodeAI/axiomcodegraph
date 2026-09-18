@@ -73,3 +73,19 @@ module_system_is_esm("ESM").
 // absolute `resolvedFilePath` the client's import row carries.
 module_base_path("client", bp, h) :- js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
 module_base_path("lib", bp, h) :- lib_js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
+
+// ── package_entry(Prov, Package, Subpath, Condition, Source, Target, Outcome, ModuleHash) ──
+// What a package EXPOSES under a specifier (#616): which module answers
+// `require('pkg')` (Subpath "."), `import 'pkg/sub'`, and under which `exports`
+// condition (`require`, `import`, `node.default`; "" when unconditional). Source is
+// the field it came from: MAIN | MODULE | EXPORTS | DEFAULT_INDEX. ModuleHash is set
+// only when Outcome is RESOLVED; MISSING_FILE, NOT_JAVASCRIPT, NOT_STAGED, PATTERN
+// and BLOCKED are named absences. This is the row that links a library staged on
+// its own to a client analysed without its node_modules (#602 reads it).
+//
+// js_package_entry / lib_js_package_entry cols (11):
+//   0 packageName  1 subpath  2 condition  3 entrySource  4 targetPath
+//   5 targetModuleLinkHash  6 targetOutcome  7 packageJsonPath  8 isExternal
+//   9 serviceVersionLinkHash  10 jsPackageEntryUniqueHash
+package_entry("client", pkg, sp, cond, src, tgt, out, mod) :- js_package_entry(pkg, sp, cond, src, tgt, mod, out, _, _, _, _).
+package_entry("lib", pkg, sp, cond, src, tgt, out, mod) :- lib_js_package_entry(pkg, sp, cond, src, tgt, mod, out, _, _, _, _).

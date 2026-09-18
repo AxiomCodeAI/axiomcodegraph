@@ -1,0 +1,16 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.Gateway [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.LocalPrimary [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.LocalSecondary [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.ProfiledOnly [ANNOTATION] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Gateway#viaAlways(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Gateway#viaFallback(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Gateway#viaPrimary(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Gateway#viaAlways(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Gateway#viaFallback(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Gateway#viaPrimary(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.LocalPrimary#handle() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.LocalSecondary#handle() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.ProfiledOnly#handle() [METHOD] -> -
+boundary_lib	FIELD_TYPE	0	probe.Gateway [FIELD] -> dep.AlwaysGate
+boundary_lib	FIELD_TYPE	0	probe.Gateway [FIELD] -> dep.FallbackGate
+boundary_lib	FIELD_TYPE	0	probe.Gateway [FIELD] -> dep.PrimaryGate

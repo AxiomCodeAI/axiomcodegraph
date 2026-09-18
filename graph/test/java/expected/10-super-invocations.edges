@@ -2,6 +2,8 @@ ambiguous_unknown	ctor_delegate	testcases.engine.ListExt#<init>() -> -
 ambiguous_unknown	method	testcases.engine.Base#init() -> -
 ambiguous_unknown	method	testcases.engine.ListExt#addTagged(String) -> -
 ambiguous_unknown	method	testcases.engine.SuperInvocations#main(String[]) -> -
+boundary_lib	method	testcases.engine.ListExt#addTagged(String) -> external:java.util.ArrayList.size
+boundary_lib	method	testcases.engine.SuperInvocations#main(String[]) -> external:java.util.function.Supplier.get
 known_edge	ctor_delegate	testcases.engine.Base#<init>() -> testcases.engine.Base#<init>(String)
 known_edge	ctor_delegate	testcases.engine.SuperInvocations#<init>() -> testcases.engine.SuperInvocations#<init>(String)
 known_edge	ctor_delegate	testcases.engine.SuperInvocations#<init>(String) -> testcases.engine.Base#<init>(String)

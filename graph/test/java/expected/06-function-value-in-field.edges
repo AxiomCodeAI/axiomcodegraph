@@ -1,10 +1,10 @@
-ambiguous_unknown	method	Asset#handle(String) -> -
-ambiguous_unknown	method	Asset#handleBlock(String) -> -
-ambiguous_unknown	method	Asset#handleInit(String) -> -
-ambiguous_unknown	method	Asset#handleLocal(String) -> -
-ambiguous_unknown	method	Asset#handleRef(String) -> -
-ambiguous_unknown	method	Asset#handleTwoWay(String) -> -
 ambiguous_unknown	method	Asset#main(String[]) -> -
+boundary_lib	method	Asset#handle(String) -> external:java.util.function.Function.apply
+boundary_lib	method	Asset#handleBlock(String) -> external:java.util.function.Function.apply
+boundary_lib	method	Asset#handleInit(String) -> external:java.util.function.Function.apply
+boundary_lib	method	Asset#handleLocal(String) -> external:java.util.function.Function.apply
+boundary_lib	method	Asset#handleRef(String) -> external:java.util.function.Function.apply
+boundary_lib	method	Asset#handleTwoWay(String) -> external:java.util.function.Function.apply
 known_edge	lambda_body	Asset#handle(String) -> Asset#read(String)
 known_edge	lambda_body	Asset#handleBlock(String) -> Asset#audit(String)
 known_edge	lambda_body	Asset#handleBlock(String) -> Asset#readBlock(String)

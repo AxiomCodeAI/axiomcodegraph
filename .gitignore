@@ -8,6 +8,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
+node_modules
 node_modules/
 # and the bare name: `node_modules/` matches a directory only, so a symlink named node_modules slips past it
 node_modules
@@ -56,6 +57,18 @@ dist/
 build/
 out/
 lib-cov/
+
+# ...EXCEPT the Python case that tests the parser's OWN build-output exclusion (#564).
+# `build/lib/pkg` inside it is a byte-identical setuptools artifact and must stay
+# checked in for the case to catch a regression; `build/__init__.py` beside it is the
+# CONTROL — a legitimate source package literally named `build` — which the blanket
+# `build/` rule above would otherwise drop silently, same as the vendor case above. A
+# negation MUST come after the rule it excepts — gitignore is last-match-wins, and a
+# negation placed before the blanket it is meant to except (as the vendor `build/`
+# lines above are) is dead: the blanket re-ignores everything the exception just
+# re-included.
+!graph/test/python/cases/15-build-artifact-exclusion/src/build/
+!graph/test/python/cases/15-build-artifact-exclusion/src/build/**
 *.tsbuildinfo
 .tsbuildinfo
 *.d.ts.map
@@ -228,6 +241,14 @@ $RECYCLE.BIN/
 # if any vendored package's declared `types` is missing from the index. A guard that
 # checks the property beats a pattern list that tries to anticipate it.
 
+# A work directory at the REPOSITORY ROOT, which the per-suite lines below do not
+# cover. Scratch written there is measurement scaffolding: run scripts, corpus
+# outputs and issue drafts, which routinely carry absolute paths to a machine and to
+# whatever corpus was measured. `git add -A` from the root stages all of it, and a
+# commit-message guard cannot catch it because the leak is in the FILE, not the
+# message. Ignored here so the safe habit is the default one.
+.work/
+
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
 graph/test/java/.work/
 
@@ -241,6 +262,10 @@ __pycache__/
 graph/test/typescript/.work/
 graph/test/typescript/.work-*/
 graph/test/javascript/.work/
+# the torture and realapp harnesses' own per-run work directories (217 generated files of
+# them were committed with the engine and rewritten by every run)
+graph/test/javascript/torture/.work/
+graph/test/javascript/realapp/.work/
 
 # the one-command pipeline keeps its IR and scratch here
 .intermediate/

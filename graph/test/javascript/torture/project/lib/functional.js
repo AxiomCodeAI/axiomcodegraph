@@ -17,6 +17,9 @@ const counter = (function () {
 function withDefault(cb = () => inc(0), { mapper = twice, tag } = {}) { return mapper(cb()) + (tag ? 1 : 0); }
 function variadic(first, ...rest) { return rest.reduce((acc, f) => f(acc), first(0)); }
 function applyAll(fns, v) { let out = v; for (const f of fns) out = f(out); return out; }
+// #606: a pipeline assembled by concat / flat runs the CONCATENATED functions, not only the receiver's.
+function pipeline(extra) { const steps = [inc].concat(extra, twice); return steps[steps.length - 1](steps[1](1)); }
+function nested(groups) { const flat = [[inc], groups].flat(); return flat[flat.length - 1](2); }
 function memo(fn) { const cache = new Map(); return (k) => { if (!cache.has(k)) cache.set(k, fn(k)); return cache.get(k); }; }
 const slowSquare = memo((x) => twice(x) * x);
-module.exports = { compose, curry, add, inc, twice, addOne, incTwice, fact, fib, counter, withDefault, variadic, applyAll, slowSquare };
+module.exports = { compose, curry, add, inc, twice, addOne, incTwice, fact, fib, counter, withDefault, variadic, applyAll, slowSquare, pipeline, nested };

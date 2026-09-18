@@ -1,0 +1,4 @@
+app.js:5:1 METHOD_CALL umd.format  ->  boundary_lib  lib:umd.js:9:3 format
+app.js:6:1 FUNCTION_CALL format  ->  boundary_lib  lib:umd.js:9:3 format
+app.js:7:1 CONSTRUCTOR_CALL umd.Formatter  ->  boundary_lib  lib:umd.js:10:3 Formatter
+app.js:7:1 METHOD_CALL new umd.Formatter().render  ->  boundary_lib  lib:umd.js:11:32 render

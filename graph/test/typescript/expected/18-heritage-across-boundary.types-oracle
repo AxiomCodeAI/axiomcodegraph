@@ -1,0 +1,7 @@
+18-heritage-across-boundary [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 10   resolved 5 (50.0%)
+  tiers ambiguous_unknown=5  known_edge=5
+  contexts IMPLEMENTS_INTERFACE=2  METHOD_PARAM=5  OBJECT_CREATION_TYPE=1  SUPER_TYPE=2
+  not scored: 5 rows whose target is not a client declaration

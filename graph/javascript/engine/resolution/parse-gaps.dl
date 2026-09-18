@@ -1,0 +1,69 @@
+// ============================================================================
+// Resolution · PARSE GAPS  (what the parser could not read, joined to what it
+// costs)
+//
+// The engine's contract is that a blind spot is DECLARED rather than silent:
+// ambiguous_unknown, dynamic_terminal, ambient_terminal each exist so a consumer
+// can tell a resolved answer from a refused one. A parse gap escaped that
+// contract because it happens BEFORE a site is minted: a construct lost to a gap
+// was never in the coverage denominator and cannot register as a drop. These
+// rules put the gap back beside the answers it affects (#617).
+// ============================================================================
+
+// ── module_partial(Prov, Module, Kind): a module the parser did not read in full ──
+// PARSE_ERROR: the file was parsed with errors and some constructs are absent, so
+// every answer about the module is over a subset of it. DYNAMIC_CODE: `eval` /
+// `new Function` run code no parser sees. WITH_STATEMENT_SCOPE: names in that
+// scope are not statically resolvable. A consumer asking "is this module's graph
+// complete" reads this before trusting an empty unresolved list for it.
+module_partial(p, mod, k) :- parse_gap(p, k, mod, _, _, _, _, _, _), gap_kind_makes_partial(k).
+gap_kind_makes_partial("PARSE_ERROR").
+gap_kind_makes_partial("DYNAMIC_CODE").
+gap_kind_makes_partial("WITH_STATEMENT_SCOPE").
+
+// ── import_unresolved_cause(ImportHash, Cause): WHY an import reached no module ──
+//   computed_specifier   `require(name)`: the specifier is an expression, so no
+//                        static answer exists. The parser's NON_LITERAL_SPECIFIER
+//                        gap names the import row.
+//   builtin              a platform module (`fs`, `node:path`): a terminal, not a gap
+//   not_staged           a literal specifier the parser resolved (or could not find
+//                        on disk) whose module is in no staged IR: the fix is staging
+//   staged_unreached     a bare specifier naming a package that IS staged, reached
+//                        through none of its entries (the entry's file is absent from
+//                        the library IR, a subpath the package does not publish, a
+//                        condition the import form does not select): the fix is in
+//                        the package's entries or the library IR, not in staging (#602)
+// Distinct rows for distinct owners: one has no static answer, one is a staging
+// decision. Before this they were one relation and read as one problem.
+import_unresolved_cause(imp, "computed_specifier") :- import_unresolved(imp, _, _),
+    parse_gap(_, "NON_LITERAL_SPECIFIER", _, _, _, _, "js_import", imp, _).
+import_unresolved_cause(imp, "computed_specifier") :- import_unresolved(imp, _, "UNRESOLVED_NON_LITERAL").
+import_unresolved_cause(imp, "builtin") :- import_unresolved(imp, _, "RESOLVED_BUILTIN").
+import_unresolved_cause(imp, "not_staged") :- import_unresolved(imp, _, out),
+    out != "RESOLVED_BUILTIN", out != "UNRESOLVED_NON_LITERAL",
+    !parse_gap(_, "NON_LITERAL_SPECIFIER", _, _, _, _, "js_import", imp, _),
+    !import_staged_package_unreached(imp, _, _).
+import_unresolved_cause(imp, "staged_unreached") :- import_staged_package_unreached(imp, _, _).
+
+// ── type_ref_unreadable(TypeRefHash): a declared type the parser could not read ──
+// UNKNOWN_JSDOC_SYNTAX names the node it could not decompose; the reference the
+// parameter or variable links is the ROOT of that tree, so the gap is walked up.
+type_ref_unreadable(r) :- parse_gap(_, "UNKNOWN_JSDOC_SYNTAX", _, _, _, _, "js_type_reference", r, _).
+type_ref_unreadable(p) :- type_ref_unreadable(c), type_ref(_, _, _, p, _, _, _, _, _, _, c), p != "".
+
+// A site whose receiver is a parameter or a variable WITH a written type the
+// parser could not read is not the same fact as one with no type at all: the
+// author wrote the type, and the owner of the miss is the parser. Reported beside
+// receiver_untyped, under its own reason, so the two populations are countable.
+unresolved_receiver(ce, cn, ck, "receiver_type_unreadable") :- call_site("client", ck, cn, "SYNTACTIC", _, _, ce, _, _),
+    !call_resolved(ce), expr_child(_, ce, "RECEIVER", _, r), expr_param(_, p, r),
+    param_type_name(_, _, tr, p), type_ref_unreadable(tr).
+unresolved_receiver(ce, cn, ck, "receiver_type_unreadable") :- call_site("client", ck, cn, "SYNTACTIC", _, _, ce, _, _),
+    !call_resolved(ce), expr_child(_, ce, "RECEIVER", _, r), expr_binding(_, v, r),
+    var_type_name(_, _, tr, v), type_ref_unreadable(tr).
+
+// ── site_in_partial_module(CallExpr, Kind): an unresolved site in a partial module ──
+// The site's answer may be wrong for a reason that has nothing to do with the
+// rules: the file it sits in was not read in full.
+site_in_partial_module(ce, k) :- call_site("client", _, _, _, _, _, ce, mod, _),
+    module_partial("client", mod, k), !call_resolved(ce).

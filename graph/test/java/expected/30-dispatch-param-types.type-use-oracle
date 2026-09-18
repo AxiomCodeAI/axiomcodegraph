@@ -1,0 +1,7 @@
+30-dispatch-param-types
+  precision 1.0000   (12 correct, 0 wrong)
+  recall    1.0000   (12 of 12 in the bytecode)
+  references 14   resolved 13 (92.9%)
+  tiers ambiguous_unknown=1  known_edge=13
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts LOCAL_VARIABLE=1  METHOD_PARAM=7  OBJECT_CREATION_TYPE=5  SUPER_TYPE=1

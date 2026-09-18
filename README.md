@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript: engine in progress"/>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript: engine in beta"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python: stable"/>
   &nbsp;&nbsp;&nbsp;
@@ -54,7 +54,7 @@ Two stages, two columns: the **parser** turns source into the relational IR; the
 
 | language | parser | engine | maturity | validated against |
 |---|---|---|---|---|
-| **JavaScript** | stable | in progress | **in progress**. The parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is under review | none yet |
+| **JavaScript** | stable | beta | **beta**. The parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is merged and being scored against the TypeScript compiler over `allowJs`/`checkJs` | the TypeScript compiler over JavaScript with JSDoc |
 | **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
 | **TypeScript** | stable | stable | **stable**. 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
 | **Java** | stable | stable | **stable**. First front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
@@ -136,6 +136,8 @@ One SQLite database per language, **same schema for every language**, with names
 |---|---|
 | `call_edges` | the graph: one row per (call site, possible target) with `tier`, provenance and call kind |
 | `methods` · `types` · `call_sites` | every callable, type and call site with qualified name, file and line |
+| `field_access` · `fields` | who reads or writes each field: one row per (access site, resolved field) with `access` (read / write / readwrite) and the same `tier`. Java and TypeScript; declared and empty elsewhere |
+| `type_use` | every place a type is NAMED, with the `context` it was written in (FIELD_TYPE, METHOD_PARAM, OBJECT_CREATION_TYPE, SUPER_TYPE …) and the `depth` that separates a type from its type arguments. Java and TypeScript |
 | `type_ancestors` · `overrides` | hierarchy and virtual-dispatch pairs |
 | `entry_points` · `entry_reachable` | what the runtime invokes, and what it reaches |
 | `unresolved_sites` | the declared blind spots, attributed to the method that contains them |

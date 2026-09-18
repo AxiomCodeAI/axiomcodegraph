@@ -50,7 +50,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * because a call and its callee share a start offset constantly.
  */
 export class JsExpressionRegistry implements EntityIdentifiable {
-  static readonly ARITY = 35;
+  static readonly ARITY = 36;
 
   readonly expressionKind: JsExpressionKind;
   readonly text: string;
@@ -121,6 +121,15 @@ export class JsExpressionRegistry implements EntityIdentifiable {
    * otherwise learn only by re-parsing the source.
    */
   private bindingPath = '';
+  /**
+   * c35, FK->js_expression: for a REFERENCE to a binding declared inside a
+   * destructuring pattern with a default (`({ mapper = twice } = {})`,
+   * `const { a = f } = o`), the root of that default's expression. The binding's
+   * value is what its path reaches PLUS this; without the link the default was
+   * rooted as a free PARAMETER_DEFAULT and the reference saw only what callers
+   * passed, which committed a known_edge to the wrong function (#673, PD-JS-5).
+   */
+  private bindingDefaultLinkHash = '';
 
   /** Parity slot, always `false` on parser output. */
   private readonly isExternal = false;
@@ -223,6 +232,14 @@ export class JsExpressionRegistry implements EntityIdentifiable {
     this.bindingPath = path;
   }
 
+  setBindingDefaultLinkHash(hash: string): void {
+    this.bindingDefaultLinkHash = hash;
+  }
+
+  getBindingDefaultLinkHash(): string {
+    return this.bindingDefaultLinkHash;
+  }
+
   getEntryCombined(): string {
     return `js_expression[hash=${this.jsExpressionUniqueHash}]`;
   }
@@ -265,6 +282,7 @@ export class JsExpressionRegistry implements EntityIdentifiable {
         this.introducesDeclarationLinkHash,
         this.resolvedParameterLinkHash,
         text(this.bindingPath),
+        this.bindingDefaultLinkHash,
       ],
       JsExpressionRegistry.ARITY,
       'js_expression'
@@ -309,6 +327,7 @@ export class JsExpressionRegistry implements EntityIdentifiable {
         'introducesDeclarationLinkHash',
         'resolvedParameterLinkHash',
         'bindingPath',
+        'bindingDefaultLinkHash',
       ],
       JsExpressionRegistry.ARITY,
       'js_expression'
