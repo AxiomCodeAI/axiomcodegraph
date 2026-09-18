@@ -16,7 +16,10 @@ Five rules, and every verb obeys all five:
   3. THE ANSWER IS BUDGETED here, not by the reader. Left unbounded, the caller truncates at an arbitrary
      point and may cut exactly the row that mattered.
   4. RANK BY RELEVANCE, NEVER BY SIZE. Ordering by how many methods a file holds puts the biggest file
-     first, which is a property of the file and not of the question.
+     first, which is a property of the file and not of the question. The same rule binds the CORRECTION a
+     refusal offers: ranking candidate directories by symbol count put a monorepo's umbrella directory
+     above every package inside it, and matching the task's words against a directory's own name promoted
+     the package the repository is named after on the strength of the issue's version field.
   5. STATE THE BOUND. Say what the answer cannot see — the relations this graph does not encode — so a
      partial list is not read as a complete one.
 """
@@ -25,6 +28,31 @@ import collections, re, sys
 SPLIT = re.compile(r'[^A-Za-z0-9]+')
 CAMEL = re.compile(r'[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+')
 TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|benchmark|benchmarks|bench|fixture|fixtures|mock|mocks|e2e)([/_.-]|$)', re.I)
+
+
+DELIM = re.compile(r'<\s*(issue|task|ticket|bug|problem|request)\s*>(.*?)<\s*/\s*\1\s*>', re.S | re.I)
+
+
+def task_text(prompt):
+    """The part of a prompt that describes the PROBLEM, not the part instructing the agent.
+
+    A prompt handed to an agent is a wrapper plus a payload: rules about committing, running tests and
+    staying in the directory, and then the issue. The wrapper is prose about software in general, so every
+    word in it is a plausible code word — `repository`, `source`, `directory`, `commit`, `dependencies`,
+    `change`, `tests` — and there is more of it than there is issue. Measured over 18 tasks on three
+    languages, 705 characters of such a preamble moved the right package out of rank 1 on a third of them.
+
+    A stoplist cannot separate them, because whether `commit` is noise depends on the repository. What can
+    is the wrapper's own markup: a harness that wraps a payload says where the payload starts. Believe the
+    marking when there is one, and otherwise use everything, which is the old behaviour.
+
+    Only an explicit wrapper tag counts. Treating a ``` fence as a payload marker scored five points better
+    on this sample and is wrong anyway: a fence inside an issue delimits an EXAMPLE, and keeping only the
+    fences throws away the sentences that say what the example is meant to show.
+    """
+    text = prompt or ''
+    blocks = [m.group(2) for m in DELIM.finditer(text)]
+    return '\n'.join(blocks) if blocks else text
 
 
 def subtokens(s):
@@ -47,19 +75,42 @@ def dirs_with_counts(g, depth=3):
     return out
 
 
+def drop_ancestors(ranked):
+    """Never offer a directory when one of its own descendants is also on the menu.
+
+    A parent holds the union of its children's symbols, so under any additive score it ranks at least as
+    high as its best child and lands at rank 1 — the umbrella directory of a monorepo was the first thing
+    offered on every task. Comparing scores cannot separate them, because the parent's score IS the
+    children's. So the test is structural, not numeric: `--in packages/compiler-core` is a strictly more
+    useful instruction than `--in packages`, and the refusal already tells the reader they may widen.
+    """
+    rows = list(ranked)
+    paths = {r[0] for r in rows}
+    out = [r for r in rows if not any(p.startswith(r[0] + '/') for p in paths)]
+    return out or rows
+
+
 def offer(header, ranked, terms=(), hint=None):
-    """Rule 2. Print a refusal that can be acted on, and return the exit code."""
+    """Rule 2. Print a refusal that can be acted on, and return the exit code.
+
+    `ranked` is (path, count) or (path, count, score, matched terms). The mark names WHICH of the task's
+    words were found under the path, because "matches what you asked" was being printed for a directory
+    whose only connection to the task was that the repository is named after it — the reader could not
+    tell an informative match from a tautological one.
+    """
     tset = set(terms)
     print(header + "\n")
     print("  re-run with one of these — best match first:\n")
-    for path, n in ranked[:8]:
-        mark = '   <- matches what you asked' if tset & set(subtokens(path)) else ''
+    for row in drop_ancestors(list(ranked))[:8]:
+        path, n = row[0], row[1]
+        hits = row[3] if len(row) > 3 else sorted(tset & set(subtokens(path)))
+        mark = ('   <- ' + ', '.join(hits[:3])) if hits else ''
         print(f"    --in {path:44.44} {n:6} symbol(s){mark}")
     print("\n  " + (hint or "a stack frame, the file you just read, or the package named in the issue is enough."))
     return 2
 
 
-def require_scope(g, scope, terms=()):
+def require_scope(g, scope, terms=(), rank=None):
     """Rule 1. Returns None when the scope is usable, or an exit code after printing the correction.
 
     Three ways a scope fails, and each gets its own answer rather than one generic error: absent, spelled
@@ -69,8 +120,13 @@ def require_scope(g, scope, terms=()):
     def by_terms(item):
         return -(len(set(terms) & set(subtokens(item[0]))) * 100000 + item[1])
     if not scope:
+        # `rank` is the content-derived ordering when the caller could compute one (it needs the scored
+        # symbols). Matching the task's words against the DIRECTORY NAME is circular in a monorepo: the
+        # package named after the repository matches every issue that states its version, and the packages
+        # holding the answer match nothing. Falling back to the name match is still better than nothing
+        # when no ranking was supplied.
         return offer("this needs to know WHERE to look: --in <path> is required.",
-                     sorted(dirs.items(), key=by_terms), terms)
+                     rank or sorted(dirs.items(), key=by_terms), terms)
     if not g.q("SELECT COUNT(*) n FROM symbols WHERE file LIKE ?", f'%{scope}%')[0]['n']:
         want = set(subtokens(scope))
         near = sorted(dirs.items(), key=lambda d: -(len(want & set(subtokens(d[0]))) * 100000 + d[1]))

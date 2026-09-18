@@ -66,8 +66,10 @@ if refused:
     print("graph: the words in this task land mostly here, before you search —")
     for r in roots:
         path, _, rest = r[len('--in '):].partition(' ')
-        note = '   <- names a word from the task' if 'matches what you asked' in rest else ''
-        print(f"  {path}{note}")
+        # the verb marks each row with the task's own words that were found under it; carry those through
+        # rather than restating that there was a match, which told the reader nothing about WHICH match
+        _, _, hits = rest.partition('<- ')
+        print(f"  {path}" + (f"   <- {hits.strip()}" if hits.strip() else ''))
     print('  `axiomcode context "<the task>" --in <one of these>` ranks the files and declarations inside it.')
 else:
     print("graph: where this task's own words land in the index —")
