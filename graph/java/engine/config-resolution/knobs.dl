@@ -122,3 +122,30 @@ cfg_di_narrowing_enabled().
 cfg_stub_base_suffix("ImplBase", "grpc_service").      // gRPC (protoc java)
 cfg_stub_base_suffix("Grpc", "grpc_service").          // gRPC outer holder
 cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators
+
+// ── (14) CONDITIONS: an annotation that decides whether a bean EXISTS ────────
+// A bean the container did not create has no methods that run, so a condition is
+// the difference between a live filter chain and a dead one. Three families, kept
+// apart because only the first is decidable from configuration alone.
+//
+// (a) PROPERTY conditions. The annotation names a config key and the value it
+//     expects; conditions.dl joins that against the resolved key space.
+//     cfg_property_condition_ann(Name, KeyArg, ExpectedArg)
+cfg_property_condition_ann("ConditionalOnProperty", "name", "havingValue").
+
+// (b) PROFILE conditions. The same question keyed on the active profile set,
+//     which is itself a config key (spring.profiles.active).
+cfg_profile_condition_ann("Profile").
+cfg_active_profile_key("spring.profiles.active").
+
+// (c) UNDECIDABLE conditions. These depend on the whole context and on the order
+//     the container evaluates it in, which this analysis does not model. They are
+//     listed so that a bean carrying one is reported as DECLARED UNDECIDED rather
+//     than silently assumed live: the blind spot is named, not hidden.
+//     cfg_opaque_condition_ann(Name, Reason)
+cfg_opaque_condition_ann("ConditionalOnBean",           "depends_on_context").
+cfg_opaque_condition_ann("ConditionalOnMissingBean",    "depends_on_context").
+cfg_opaque_condition_ann("ConditionalOnExpression",     "spel_expression").
+cfg_opaque_condition_ann("ConditionalOnClass",          "depends_on_classpath").
+cfg_opaque_condition_ann("ConditionalOnMissingClass",   "depends_on_classpath").
+cfg_opaque_condition_ann("Conditional",                 "custom_condition_class").

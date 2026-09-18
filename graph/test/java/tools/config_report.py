@@ -97,6 +97,9 @@ def main():
          lambda r: f"{r[0]:<26} {r[2]:<16} {L.lbl(r[1])}"),
         ('config-entry-point.csv', 'config_entry_point',
          lambda r: f"{r[1]:<18} {L.lbl(r[0])}"),
+        ('config-bean-condition.csv', 'bean_condition',
+         lambda r: f"{r[5]:<10} {r[2]:<9} {r[0]:<22} {r[3]}"
+                   + (f" = \"{r[4]}\"" if r[4] not in ('-', '') else "")),
         ('config-unresolved.csv', 'config_unresolved  [DECLARED UNKNOWNS]',
          lambda r: f"{r[3]:<26} {r[0]:<12} {L.lbl(r[1])}" + (f"  \"{r[2]}\"" if r[2] else "")),
     ]
