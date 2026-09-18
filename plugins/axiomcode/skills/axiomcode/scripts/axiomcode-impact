@@ -70,10 +70,14 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 _REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'gen_table',
               'base_name', 'field_type', 'reexport', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
+# `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
+# that names it, and the `export *` that re-exports the whole module it is declared in. Skipping it handed Soufflé
+# an empty relation and both rules silently yielded nothing, so a method, param or var target on a JS or TS bundle
+# lost those rows entirely. Invisible on a Java bundle, where the relation is empty either way.
 KIND_SKIPS = {                                     # relations a query of this kind can never reach
- 'method':    _REF_LAYER | _CONFIG,
- 'param':     _REF_LAYER | _CONFIG,
- 'var':       _REF_LAYER | _CONFIG,
+ 'method':    (_REF_LAYER - {'reexport'}) | _CONFIG,
+ 'param':     (_REF_LAYER - {'reexport'}) | _CONFIG,
+ 'var':       (_REF_LAYER - {'reexport'}) | _CONFIG,
  'decoration': _REF_LAYER | _CONFIG,
  'config':    _REF_LAYER,
  'newconst':  (_REF_LAYER - {'switch_over'}) | _CONFIG,
@@ -205,7 +209,11 @@ class Impact:
         raw = sel.strip()
         # a build coordinate (group:artifact[:version]) is not a declaration, and nothing in this graph is a build file.
         # Answering it by name matching gave a confident empty answer on a tree where 55 poms declare the artifact
-        if re.fullmatch(r'[A-Za-z_][\w.-]*\.[\w.-]+:[A-Za-z_][\w.-]*(:[\w.+-]+){0,3}', raw):
+        # …but `Owner.method:local` — the documented way to ask about a LOCAL — has that exact shape, and the
+        # guard swallowed every one of them whose owner is qualified, which is all of them in a language with
+        # packages. A coordinate's group names nothing in the graph; a local's owner names a method.
+        if (re.fullmatch(r'[A-Za-z_][\w.-]*\.[\w.-]+:[A-Za-z_][\w.-]*(:[\w.+-]+){0,3}', raw)
+                and not self.methods(raw.rsplit(':', 1)[0], soft=True)):
             die(f"'{raw}' is a build coordinate (group:artifact), not a declaration, and this graph indexes source only:\n"
                 f"  no pom, no build script, no dependency tree is in it, so what depends on that artifact is UNKNOWN here,\n"
                 f"  not empty. What this graph can answer: the declarations that name a type from the artifact, once you give\n"
@@ -1078,8 +1086,8 @@ def main(argv):
                           # display AND every other component of the key, and without the id the order is
                           # whatever the solver happened to emit — which is not the same between backends.
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0]))],
-                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0])))],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0])))],
+                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=lambda x: (g.disp(x), x))],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
@@ -1184,7 +1192,7 @@ def main(argv):
             print(f"    fan-in: {len(tfiles)} of {len(all_tfiles)} test file(s) reach this method — at that fan-in reaching says little about failing"
                   " (measured on this repo's own mutation truth: a hub answer is right about 3 test files in 10, a narrow one about 6 in 10, and a sound route within 3 hops about 9 in 10)")
     if want_tests:
-        for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'])):
+        for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'], x[0])):
             print(f"    [{test_cert[m]}] {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
             if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
     # --depends: the downstream direction (#761). `impact` walks callers only, so what the target itself calls is
