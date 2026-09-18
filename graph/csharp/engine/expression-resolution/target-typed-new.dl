@@ -89,6 +89,13 @@ expr_target_type(prov, e, gk) :-
     expr_root_context(prov, e, "RETURN_VALUE"),
     expr_ultimate_method(prov, e, m),
     method_return_type_group(prov, m, gk).
+// AN EXPRESSION-BODIED MEMBER IS A RETURN TOO. `public Holder Returned() => new();`
+// has rootContext EXPRESSION_BODY, not RETURN_VALUE, so keying only on the latter
+// misses the shorthand -- which is the form most such members are written in.
+expr_target_type(prov, e, gk) :-
+    expr_root_context(prov, e, "EXPRESSION_BODY"),
+    expr_ultimate_method(prov, e, m),
+    method_return_type_group(prov, m, gk).
 
 // ── (e) AN ASSIGNMENT ───────────────────────────────────────────────────────
 // `_field = new();` inside a constructor. The target's type is whatever the

@@ -134,14 +134,44 @@ indexer_write_target(prov, e, acc) :-
 // ── EVENTS ──────────────────────────────────────────────────────────────────
 // `e += handler` calls add_E and `e -= handler` calls remove_E. The parser gives
 // these their own expression kinds, which is what makes them findable at all.
+// `b.Changed += h` IS A COMPOUND_ASSIGNMENT whose target is a MEMBER_ACCESS, not a
+// dedicated EVENT_SUBSCRIBE node. Those kinds are declared in the schema and the
+// parser does not emit them for this shape -- measured on a case whose only event
+// subscription produced a COMPOUND_ASSIGNMENT with operator `+=`. Keying on the
+// reserved kinds found nothing, which is the failure mode a reserved-with-zero-rows
+// enum value is supposed to warn about.
+//
+// The operator decides add from remove, and the target is resolved through the
+// member access like any other member.
+event_access(prov, e, ev) :-
+    expr_kind(prov, e, "COMPOUND_ASSIGNMENT"), expr_operator(prov, e, "+="),
+    expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
+    event_ref(prov, t, ev).
+event_unaccess(prov, e, ev) :-
+    expr_kind(prov, e, "COMPOUND_ASSIGNMENT"), expr_operator(prov, e, "-="),
+    expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
+    event_ref(prov, t, ev).
+// The dedicated kinds are still read, so a parser that starts emitting them is
+// handled without a change here.
 event_access(prov, e, ev) :-
     expr_kind(prov, e, "EVENT_SUBSCRIBE"),
     expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
-    ref_denotes(prov, t, "EVENT", ev).
+    event_ref(prov, t, ev).
 event_unaccess(prov, e, ev) :-
     expr_kind(prov, e, "EVENT_UNSUBSCRIBE"),
     expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
-    ref_denotes(prov, t, "EVENT", ev).
+    event_ref(prov, t, ev).
+
+// An expression that denotes an event: bound by the parser, or a member access whose
+// member name resolves to one on the qualifier's type.
+event_ref(prov, e, ev) :- ref_denotes(prov, e, "EVENT", ev).
+event_ref(prov, acc, ev) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, gk),
+    member_lookup(prov, gk, n, "event", ev).
 event_add_target(prov, e, acc) :-
     event_access(prov, e, ev), event_adder(prov, ev, decl), dispatch_concrete_target(prov, decl, acc).
 event_remove_target(prov, e, acc) :-

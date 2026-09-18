@@ -124,6 +124,7 @@
 .decl event_adder(c0:symbol,c1:symbol,c2:symbol)
 .decl event_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl event_in_type(c0:symbol,c1:symbol,c2:symbol)
+.decl event_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl event_remove_target(c0:symbol,c1:symbol,c2:symbol)
 .decl event_remover(c0:symbol,c1:symbol,c2:symbol)
 .decl event_type_name(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
