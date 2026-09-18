@@ -557,6 +557,56 @@ call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION")
     mro_lookup_rebound_body("client", mcls, n, c, m),
     !metaclass_rebind_unordered(t, c, n).
 
+// ── SUBSCRIPT PROTOCOL — `obj[k]`, `obj[k] = v`, `C[T]` (#930) ──────────────
+// The fourth and fifth edges-without-a-site, on the same channel and for the same
+// reason as a property read: CPython compiles a subscript to BINARY_SUBSCR /
+// STORE_SUBSCR, not to a CALL, so there is no py_call_site and nothing to conserve.
+// `type(obj).__getitem__(obj, k)` runs all the same, and it is a real method->method
+// edge.
+//
+// MEASURED with the Python runtime oracle over two public projects' own test suites,
+// counting only sites that EXECUTED and for which the engine emitted no row at all:
+// __class_getitem__ 17, __getitem__ 5, __setitem__ 2.
+//
+// AN ANNOTATION IS NOT A SUBSCRIPT THAT RUNS, and this is the whole risk in the rule.
+// 532 of 752 subscripts on one of the two projects sit in ANNOTATION context, and under
+// `from __future__ import annotations` every one of them is a string the interpreter
+// never evaluates. Emitting there would fabricate more edges than the rule creates. The
+// gate is positive on both halves rather than trying to read the future import:
+//   * the instance form needs expr_type on the receiver, which an annotation's
+//     class-name operand does not have, and ANNOTATION is excluded explicitly anyway;
+//   * the class form is restricted to BASE_CLASS_LIST, which is evaluated whatever the
+//     future import says. All 17 measured sites are base class lists.
+// Every other context for __class_getitem__ is left out rather than guessed.
+subscript_slot("LOAD", "__getitem__").
+subscript_slot("STORE", "__setitem__").
+// The two root contexts whose subscripts are type syntax, not evaluated expressions.
+subscript_context_unevaluated("ANNOTATION").
+subscript_context_unevaluated("ANNOTATED_ASSIGNMENT").
+// The one context in which a subscript on a CLASS is always evaluated.
+class_subscript_context("BASE_CLASS_LIST").
+
+subscript_protocol_edge(sub, caller, m) :-
+    expr_node("client", "SUBSCRIPT", _, _, sub),
+    expr_name_context("client", nc, sub), subscript_slot(nc, d),
+    expr_root_context("client", rc, sub), !subscript_context_unevaluated(rc),
+    expr_parent("client", sub, "SUBSCRIPT_OBJECT", _, obj),
+    expr_type("client", obj, t),
+    mro_lookup("client", t, d, m),
+    expr_ultimate_method("client", sub, caller).
+
+// `C[T]` where C NAMES A CLASS runs `type(C).__class_getitem__`, which C itself
+// declares; the receiver is the class, not an instance, so it resolves through
+// expr_names_type rather than expr_type. A class that inherits __class_getitem__ from
+// a library `Generic` has no client definition and gets nothing, correctly.
+subscript_protocol_edge(sub, caller, m) :-
+    expr_node("client", "SUBSCRIPT", _, _, sub),
+    expr_root_context("client", rc, sub), class_subscript_context(rc),
+    expr_parent("client", sub, "SUBSCRIPT_OBJECT", _, obj),
+    expr_names_type("client", obj, t),
+    mro_lookup("client", t, "__class_getitem__", m),
+    expr_ultimate_method("client", sub, caller).
+
 // ── THE THREE PROTOCOL EDGES ARE TIERED BY TARGET COUNT, like every other edge ──
 //
 // A property read, a context-manager entry and an iteration all reach their target
@@ -598,6 +648,7 @@ call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION")
 protocol_edge(e, d, caller, m) :- property_read_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 protocol_edge(e, d, caller, m) :- with_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 protocol_edge(e, d, caller, m) :- iter_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
+protocol_edge(e, d, caller, m) :- subscript_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 
 // Aggregate in its own stratum, mirroring site_client_target_count above.
 protocol_edge_target_count(e, d, n) :-
@@ -670,6 +721,11 @@ call_chain_edge(src, caller, "-", m, "client", cls, "ITERATION_PROTOCOL") :-
     iter_protocol_edge(src, caller, m), method_decl(_, d, _, _, _, m),
     protocol_edge_class(src, d, cls).
 
+// SUBSCRIPT PROTOCOL — likewise. Own kind, so a consumer can filter it and it can never
+// be counted as a written call.
+call_chain_edge(sub, caller, "-", m, "client", cls, "SUBSCRIPT_PROTOCOL") :-
+    subscript_protocol_edge(sub, caller, m), method_decl(_, d, _, _, _, m),
+    protocol_edge_class(sub, d, cls).
 
 // A site whose caller could not be determined AT ALL would vanish from every rule
 // above. That must be impossible (the parser guarantees a non-empty owner), so it is
