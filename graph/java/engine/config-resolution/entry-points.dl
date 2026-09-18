@@ -64,18 +64,18 @@ config_entry_point(m, kind, t) :- xml_lifecycle_method(t, mname, kind),
     method_name_in_type(mname, t, m), method_owner("client", _, m).
 
 // (4) annotation-driven container callbacks that annotation_flow.dl does not cover.
-config_entry_point(m, "lifecycle", m) :- ann_on_method(_, n, m, _), cfg_lifecycle_ann(n).
-config_entry_point(m, "scheduled", m) :- ann_on_method(_, n, m, _), cfg_scheduled_ann(n).
-config_entry_point(m, "queue", m)     :- ann_on_method(_, n, m, _), cfg_listener_ann(n).
+config_entry_point(m, "lifecycle", m) :- ann_on_method(_, _, n, m, _), cfg_lifecycle_ann(n).
+config_entry_point(m, "scheduled", m) :- ann_on_method(_, _, n, m, _), cfg_scheduled_ann(n).
+config_entry_point(m, "queue", m)     :- ann_on_method(_, _, n, m, _), cfg_listener_ann(n).
 // A listener/scheduler annotation on the TYPE (@KafkaListener on a class, with
 // @KafkaHandler methods) registers the type, not one method.
-config_entry_point(m, "queue", t) :- ann_on_type(_, n, t), cfg_listener_ann(n),
+config_entry_point(m, "queue", t) :- ann_on_type(_, _, n, t), cfg_listener_ann(n),
     java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m).
 
 // (5) beans the container builds: a @Bean factory method is invoked by the
 // container, and a bean class's constructor is invoked by the container. Without
 // these, a @Configuration class's whole method set is unreachable.
-config_entry_point(m, "factory", m) :- cfg_factory(_, m, _).
+config_entry_point(m, "factory", m) :- cfg_factory(_, _, m, _).
 config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "stereotype", _),
     method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
 config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "xml", _),

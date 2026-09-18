@@ -63,14 +63,14 @@ cfg_kebab(n, k) :- cfg_kebab_step(n, i, k), i = strlen(n).
 // (a) @Value("${a.b}") on a FIELD. The annotation's own string is scanned by
 // cfg_placeholder, so `@Value("${a.b:30}")`, `@Value("prefix-${a.b}")` and a bare
 // `@Value("literal")` are all handled: only the first two produce a binding.
-cfg_value_site_field(f, owner, v) :- ann_on_field(a, n, f, owner), cfg_value_ann(n),
-    ann_arg_value(a, v).
+cfg_value_site_field(f, owner, v) :- ann_on_field(prov, a, n, f, owner), cfg_value_ann(n),
+    ann_arg_value(prov, a, v).
 config_binding(k, "value_annotation", "field", f, owner) :-
     cfg_value_site_field(f, owner, v), cfg_placeholder(v, k, _).
 
 // (b) @Value on a PARAMETER (constructor or setter injection of a config key).
-cfg_value_site_param(p, m, v) :- ann_on_param(a, n, p, m), cfg_value_ann(n),
-    ann_arg_value(a, v).
+cfg_value_site_param(p, m, v) :- ann_on_param(prov, a, n, p, m), cfg_value_ann(n),
+    ann_arg_value(prov, a, v).
 config_binding(k, "value_annotation", "param", p, m) :-
     cfg_value_site_param(p, m, v), cfg_placeholder(v, k, _).
 
@@ -78,8 +78,8 @@ config_binding(k, "value_annotation", "param", p, m) :-
 // binds to prefix + "." + fieldName, and a field whose own type is another client
 // type nests one more level. Bounded to depth 3 — deep enough for every real
 // binding tree, shallow enough that a self-referential type cannot diverge.
-cfg_props_prefix(t, pre) :- ann_on_type(a, n, t), cfg_props_ann(n), ann_arg_value(a, pre).
-cfg_props_prefix(t, pre) :- ann_on_type(a, n, t), cfg_props_ann(n), ann_arg(a, "prefix", pre, _, _).
+cfg_props_prefix(t, pre) :- ann_on_type(prov, a, n, t), cfg_props_ann(n), ann_arg_value(prov, a, pre).
+cfg_props_prefix(t, pre) :- ann_on_type(prov, a, n, t), cfg_props_ann(n), ann_arg(prov, a, "prefix", pre, _, _).
 cfg_props_scope(t, pre, 0) :- cfg_props_prefix(t, pre).
 cfg_props_scope(ft, sub, d1) :- cfg_props_scope(t, pre, d), d < 3, d1 = d + 1,
     java_field(fn, _, _, _, _, _, _, _, t, _, _, _, _, f),
@@ -108,16 +108,16 @@ config_binding(k, "xml_property", "setter", m, t) :- xml_prop_value_key(elem, p,
 // subscribes to, so changing that key changes what the method receives — yet the key
 // reported as `unbound_key` and the impact query answered nothing. @Value is excluded
 // here because clauses (a)/(b) already bind it with a more specific mechanism.
-cfg_ann_placeholder(a, k) :- ann_arg(a, _, v, _, _), cfg_placeholder(v, k, _).
-cfg_value_annotated(a) :- annotation_on("client", n, _, _, _, a), cfg_value_ann(n).
+cfg_ann_placeholder(a, k) :- ann_arg(_, a, _, v, _, _), cfg_placeholder(v, k, _).
+cfg_value_annotated(a) :- annotation_on(_, n, _, _, _, a), cfg_value_ann(n).
 config_binding(k, "annotation_argument", "method", m, owner) :-
-    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_method(a, _, m, owner).
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_method(_, a, _, m, owner).
 config_binding(k, "annotation_argument", "type", t, t) :-
-    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_type(a, _, t).
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_type(_, a, _, t).
 config_binding(k, "annotation_argument", "param", p, m) :-
-    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_param(a, _, p, m).
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_param(_, a, _, p, m).
 config_binding(k, "annotation_argument", "field", f, owner) :-
-    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_field(a, _, f, owner).
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_field(_, a, _, f, owner).
 
 // (e) a key whose VALUE names a class: changing the key swaps the implementation,
 // so every method of that class is in the blast radius.
