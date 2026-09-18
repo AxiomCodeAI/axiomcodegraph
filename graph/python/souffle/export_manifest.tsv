@@ -83,3 +83,4 @@ mro_lookup_decorated	resolution-mro-lookup-decorated.csv
 param_type	resolution-param-type.csv
 param_flow_outside_declaration	assumption-flow-outside-declaration.csv
 method_dispatch_candidate	dispatch-candidates.csv
+entry_point	entry-point.csv
