@@ -10,8 +10,6 @@
 # ── Dependencies ─────────────────────────────────────────────────────────────
 node_modules
 node_modules/
-# and the bare name: `node_modules/` matches a directory only, so a symlink named node_modules slips past it
-node_modules
 jspm_packages/
 web_modules/
 .pnp
