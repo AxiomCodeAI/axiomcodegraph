@@ -68,7 +68,11 @@ RS="$ROOT/graph/pipeline/run-souffle.sh"
 # a different guard for a different line, so it reported the pin present after the pin had
 # been deleted. That is the same shape of defect this whole test exists for: a check that
 # cannot fail is not a check.
+# The program is assembled inside write_program() where that exists, and inline under the
+# "generate combined program" marker where it does not. Accept either, so this keeps
+# measuring the guard across both shapes of the executor.
 wp="$(grep -n 'write_program()' "$RS" | head -1 | cut -d: -f1)"
+[ -n "$wp" ] || wp="$(grep -n 'generate combined program' "$RS" | head -1 | cut -d: -f1)"
 gl="$(awk -v s="${wp:-1}" 'NR>s && /for f in "\$ENG/ {print NR; exit}' "$RS")"
 if [ -z "$wp" ] || [ -z "$gl" ]; then
   bad "cannot locate write_program and its first rule glob in run-souffle.sh; this test no longer measures anything"
