@@ -26,18 +26,44 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # is not a corpus. Override with TS_CORPUS.
 ROOT="${TS_CORPUS:-$HOME/.cache/axiom-ts-corpus}"
 mkdir -p "$ROOT"
+# The loop below is the body of a PIPELINE, so it runs in a subshell and a shell
+# variable set inside it does not survive. Failures are recorded in a file instead.
+FAILED_LIST="$ROOT/.pin-failures"
+rm -f "$FAILED_LIST"
 
 grep -v '^#' "$HERE/corpus.tsv" | grep -v '^[[:space:]]*$' | while read -r name set path repo commit note; do
   if [ -n "$ONLY" ]; then case ",$ONLY," in *,"$name",*) ;; *) continue ;; esac; fi
   d="$ROOT/$name"
   if [ ! -d "$d/.git" ]; then
     echo "▶ $name: cloning $repo @ $commit"
+    # A SHORT SHA IS NOT A REF A SERVER WILL SERVE, and the full one is refused too:
+    #   git fetch --depth 1 origin 061c242    -> couldn't find remote ref 061c242
+    #   git fetch --depth 1 origin 061c2427…  -> upload-pack: not our ref
+    # (github.com does not enable uploadpack.allowReachableSHA1InWant). The old code
+    # fetched "$commit" directly and fell back to a shallow clone of the DEFAULT
+    # BRANCH, so a pin only ever held while upstream HEAD happened to still be it --
+    # and two of four members had already drifted without anyone noticing.
+    #
+    # So: fetch the branch shallow and DEEPEN until the pinned object is present.
     git init -q "$d"
-    ( cd "$d" && git remote add origin "$repo" \
-        && git fetch -q --depth 1 origin "$commit" 2>/dev/null \
-        && git checkout -q FETCH_HEAD ) \
-      || { echo "  ! $name: could not fetch $commit — falling back to default HEAD"
-           rm -rf "$d"; git clone -q --depth 1 "$repo" "$d"; }
+    ( cd "$d" && git remote add origin "$repo" && git fetch -q --depth 50 origin ) || true
+    depth=50
+    while [ "$depth" -le 6400 ]; do
+      if ( cd "$d" && git cat-file -e "${commit}^{commit}" 2>/dev/null ); then break; fi
+      depth=$((depth * 2))
+      ( cd "$d" && git fetch -q --depth "$depth" origin ) || break
+    done
+    if ( cd "$d" && git cat-file -e "${commit}^{commit}" 2>/dev/null ); then
+      ( cd "$d" && git checkout -q "$commit" )
+    else
+      # A member that cannot be placed at its pin is BLOCKED, not silently measured at
+      # whatever upstream happens to be today. corpus.tsv already has that vocabulary.
+      echo "  ! $name: PIN $commit NOT REACHABLE after deepening to $depth — leaving unusable"
+      echo "  ! $name: mark it blocked in corpus.tsv, or update the pin deliberately"
+      rm -rf "$d"
+      echo "$name" >> "$FAILED_LIST"
+      continue
+    fi
   fi
   have="$(cd "$d" && git rev-parse --short HEAD 2>/dev/null || echo none)"
   case "$have" in
@@ -59,4 +85,8 @@ grep -v '^#' "$HERE/corpus.tsv" | grep -v '^[[:space:]]*$' | while read -r name 
     echo "  $name: node_modules=$([ -d "$d/node_modules" ] && echo yes || echo NONE)"
   fi
 done
+if [ -s "$FAILED_LIST" ]; then
+  echo "CORPUS INCOMPLETE at $ROOT — could not place at their pins: $(tr '\n' ' ' < "$FAILED_LIST")" >&2
+  exit 1
+fi
 echo "CORPUS READY at $ROOT"
