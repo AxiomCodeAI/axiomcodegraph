@@ -15,18 +15,39 @@ fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 
 # a copy of the tree, at a different path, with souffle hidden from PATH
-mkdir -p "$W/copy" "$W/bin"
+mkdir -p "$W/copy"
 cp -R "$ROOT/graph" "$W/copy/graph"; cp "$ROOT/package.json" "$W/copy/package.json"
-for t in bash grep awk sed sort cut tr mktemp uname cat rm cp mv ls dirname basename shasum sha256sum stat; do
-  p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$W/bin/$t"
-done
-id_at(){ ( cd "$1" && PATH="$W/bin" bash "$RUN" --language "$2" --print-engine-id ); }
+
+# SOUFFLE IS HIDDEN BY REMOVING ITS DIRECTORY, not by rebuilding a minimal PATH from a
+# whitelist of symlinks. The whitelist cannot work on macOS: /usr/bin/shasum is a perl
+# script and the system perl dispatches on the script's CANONICAL path, so a symlink to
+# it, or even a copy of it, is refused with "perl version 5.30.3 can't run <path>".
+# The sandbox was then left with no digest tool at all -- and on a machine without
+# coreutils there is no sha256sum to fall back to -- so every check failed for a reason
+# that had nothing to do with the engine id. Dropping one directory hides souffle and
+# leaves every other tool where the system expects to find it.
+SOUFFLE_BIN="$(command -v souffle 2>/dev/null || true)"
+if [ -n "$SOUFFLE_BIN" ]; then
+  SOUFFLE_DIR="$(cd "$(dirname "$SOUFFLE_BIN")" && pwd)"
+  SANDBOX_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    rd="$(cd "$d" 2>/dev/null && pwd)" || continue
+    [ "$rd" = "$SOUFFLE_DIR" ] || printf '%s:' "$d"
+  done)"
+  SANDBOX_PATH="${SANDBOX_PATH%:}"
+else
+  SANDBOX_PATH="$PATH"
+fi
+command -v souffle >/dev/null 2>&1 && PATH="$SANDBOX_PATH" command -v souffle >/dev/null 2>&1 \
+  && { echo "  ✗ sandbox PATH still finds souffle"; fail=$((fail+1)); }
+
+id_at(){ ( cd "$1" && PATH="$SANDBOX_PATH" bash "$RUN" --language "$2" --print-engine-id ); }
 
 for lang in java typescript python javascript; do
   a="$(id_at "$ROOT" "$lang")"; b="$(id_at "$W/copy" "$lang")"
   case "$a" in [0-9a-f]*) ;; *) bad "$lang: id is not a hex digest: '$a'";; esac
   [ "$a" = "$b" ] || bad "$lang: id differs between two paths ($a vs $b)"
-  ( cd "$W/copy" && PATH="$W/bin" bash "$RUN" --language "$lang" --emit-program "$W/$lang.dl" )
+  ( cd "$W/copy" && PATH="$SANDBOX_PATH" bash "$RUN" --language "$lang" --emit-program "$W/$lang.dl" )
   grep -q '^#include "/' "$W/$lang.dl" && bad "$lang: emitted program embeds an absolute include path"
   grep -q "^#include \"$lang/souffle/decls_base.dl\"" "$W/$lang.dl" || bad "$lang: emitted program does not include $lang/souffle/decls_base.dl"
   grep -q '^\.input ' "$W/$lang.dl" || bad "$lang: emitted program declares no inputs"

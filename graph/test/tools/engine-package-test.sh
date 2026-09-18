@@ -21,13 +21,32 @@ mkdir -p "$W/tree/node_modules"; ln -s "$ROOT/node_modules/.bin" "$W/tree/node_m
 for d in "$ROOT"/node_modules/*/; do n="$(basename "$d")"; [ "$n" = "@axiomcode" ] && continue; ln -s "${d%/}" "$W/tree/node_modules/$n"; done
 RUN="$W/tree/graph/pipeline/run-souffle.sh"
 # a PATH with everything the driver and the bundler need, and no souffle
-for t in bash sh grep awk sed sort cut tr mktemp uname cat rm cp mv ls dirname basename shasum sha256sum stat date mkdir chmod head tail wc find ln printf tee env node git; do
+# SOUFFLE IS HIDDEN BY REMOVING ITS DIRECTORY from PATH, not by rebuilding a minimal
+# PATH from a whitelist of symlinks. The whitelist cannot work on macOS: /usr/bin/shasum
+# is a perl script and the system perl dispatches on the script's CANONICAL path, so a
+# symlink to it, or a copy of it, is refused with "perl version 5.30.3 can't run <path>".
+# The sandbox was then left with no digest tool, the library cache key came back empty,
+# and the run refused to proceed -- a failure with nothing to do with packaging.
+# Same reasoning as engine-id-test.sh; keep the two in step.
+SOUFFLE_BIN="$(command -v souffle 2>/dev/null || true)"
+if [ -n "$SOUFFLE_BIN" ]; then
+  SOUFFLE_DIR="$(cd "$(dirname "$SOUFFLE_BIN")" && pwd)"
+  SANDBOX_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    rd="$(cd "$d" 2>/dev/null && pwd)" || continue
+    [ "$rd" = "$SOUFFLE_DIR" ] || printf '%s:' "$d"
+  done)"
+  SANDBOX_PATH="${SANDBOX_PATH%:}"
+else
+  SANDBOX_PATH="$PATH"
+fi
+for t in ; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$W/bin/$t"
 done
 . "$ROOT/graph/pipeline/engine.conf"
 
 lang=java
-id="$(PATH="$W/bin" bash "$RUN" --language $lang --print-engine-id)"
+id="$(PATH="$SANDBOX_PATH" bash "$RUN" --language $lang --print-engine-id)"
 arch="$(uname -m | sed 's/aarch64/arm64/;s/amd64|x86_64/x64/;s/x86_64/x64/')"
 case "$(uname -s)" in Darwin) platform="darwin-$arch";; Linux) platform="linux-$arch";; *) platform="win32-x64";; esac
 pkg="$W/tree/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$platform"; mkdir -p "$pkg/$lang"
@@ -39,7 +58,7 @@ pkg="$W/tree/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$platform"; mkdir -p "$pk
 } > "$pkg/$lang/axiomcode-engine-$lang"; chmod +x "$pkg/$lang/axiomcode-engine-$lang"
 printf '%s\n' "$id" > "$pkg/$lang/ENGINE_ID"
 
-run(){ PATH="$W/bin" AXIOM_SOUFFLE_CACHE="$W/cache" bash "$RUN" --language $lang --client-ir "$W/ir" --library "" --intermediate "$W/int" --output "$W/out" > "$W/log" 2>&1; }
+run(){ PATH="$SANDBOX_PATH" AXIOM_SOUFFLE_CACHE="$W/cache" bash "$RUN" --language $lang --client-ir "$W/ir" --library "" --intermediate "$W/int" --output "$W/out" > "$W/log" 2>&1; }
 
 # 1. the packaged engine with a matching id is used, and the run reaches the bundle
 if run; then
