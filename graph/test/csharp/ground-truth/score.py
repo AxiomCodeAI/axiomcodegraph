@@ -260,6 +260,20 @@ def main():
         resolved[k].add(target)
         at_pos[pos].add(nm)
 
+    # A GENERATED RECORD PROPERTY READ is an accessor edge too. Its target is a
+    # LABEL (`generated:Type.get_Name`) because the compiler generated the accessor
+    # and the parser emits no method row for it, so it cannot be keyed like the
+    # others; the label already carries the name the oracle uses.
+    for row in read_raw(os.path.join(a.engine_raw, "generated-accessor-read.csv")):
+        if len(row) < 3 or row[0] != "client":
+            continue
+        pos = expr.get(row[1])
+        if not pos:
+            continue
+        nm = row[2].rsplit(".", 1)[-1]        # get_Name
+        resolved[pos + (nm,)].add(row[2].split("generated:", 1)[-1])
+        at_pos[pos].add(nm)
+
     # every site that reached the output, with its tier, and the external labels
     tier, external = {}, defaultdict(set)
     for row in read_raw(os.path.join(a.engine_raw, "call-class.csv")):
@@ -276,6 +290,18 @@ def main():
         if k:
             external[k].add(row[1])
             at_pos[k[:3]].add(k[3])
+
+    # A PROPERTY READ ON AN EXTERNAL RECEIVER is labelled, not resolved, and its
+    # label already carries the accessor name the oracle uses.
+    for row in read_raw(os.path.join(a.engine_raw, "external-property-read.csv")):
+        if len(row) < 3 or row[0] != "client":
+            continue
+        pos = expr.get(row[1])
+        if not pos:
+            continue
+        nm = row[2].rsplit(".", 1)[-1]
+        external[pos + (nm,)].add(row[2])
+        at_pos[pos].add(nm)
 
     dropped = len(read_raw(os.path.join(a.engine_raw, "call-site-dropped.csv")))
 

@@ -233,6 +233,22 @@ call_chain_edge(e, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
     !call_has_edge("client", e),
     !call_class("client", e, _).
 
+// A PROPERTY READ ON AN EXTERNAL RECEIVER. Named, not resolved, exactly as an
+// external method call is.
+call_chain_edge(acc, caller, "-", label, "external", "boundary_lib", "property_read") :-
+    external_property_read("client", acc, label),
+    call_from_expr("client", acc, caller).
+
+// ── A GENERATED RECORD PROPERTY READ ────────────────────────────────────────
+// `formatting.UsesInvariantDigits` on a positional record invokes a getter the
+// compiler generated. There is no cs_method row to point at, correctly, because no
+// accessor was written, so the edge carries a LABEL in the shape the oracle uses for
+// the member. The site stops being a blind spot and the row says there is no body to
+// walk into.
+call_chain_edge(acc, caller, "-", label, "generated", "boundary_generated", "property_read") :-
+    generated_accessor_read("client", acc, label),
+    call_from_expr("client", acc, caller).
+
 // ── RUNTIME-OBSERVED EDGES ──────────────────────────────────────────────────
 // An edge the TRACE saw and the static pass did not name. Real by construction: it
 // happened. Emitted with the tier `runtime_observed` and the kind `runtime`, so a
