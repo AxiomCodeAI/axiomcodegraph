@@ -367,6 +367,18 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
                      null, ownerQ || null, '', 0, 0, 'generated']);
     generated++;
   }
+  for (const id of wantFields) {
+    if (fields.has(id) || !id.startsWith('generated:')) continue;
+    const body = id.slice('generated:'.length);
+    const hash = body.indexOf('#');
+    const ownerQ = hash < 0 ? '' : body.slice(0, hash);
+    const name = hash < 0 ? body : body.slice(hash + 1);
+    // fields rows are [id, name, kind, ownerTypeId, ownerQualifiedName, typeName,
+    // modifiers, filePath, startLine, endLine, provenance]: a different shape from a
+    // methods row, so the columns are spelled out rather than copied from above.
+    fields.set(id, [id, name, 'field', null, ownerQ || null, null, null, null, 0, 0, 'generated']);
+    generated++;
+  }
   if (generated > 0) log(`  generated members named: ${generated}`);
 
   let external = 0;

@@ -15,14 +15,20 @@
 // truth: the accessor reads or writes a field and calls nothing further. Nothing
 // here invents a call edge out of a generated member.
 //
-// SCOPE of this first cut: ACCESSORS only. `@Builder` needs a synthesized nested
-// type as well as methods, and `@RequiredArgsConstructor` and friends need
-// constructors; neither is here. The logger field `@Slf4j` declares is also out,
-// and for a reason worth recording: declaring the field is not enough, because a
-// call receiver that resolves to nothing never becomes a field-access SITE in the
-// first place, so there is nothing for a declaration to attach to. That is a
-// change upstream of this file. The case pins both as still unresolved, so the
-// gaps stay visible rather than silent.
+// SCOPE: accessors, and the logger field a class-level annotation declares.
+// `@Builder` needs a synthesized nested type as well as methods, and
+// `@RequiredArgsConstructor` and friends need constructors; neither is here, and the
+// case pins both as still unresolved so the gaps stay visible rather than silent.
+//
+// THE LOGGER FIELD took two goes. Declaring it in `field_declared_in` did nothing,
+// because the site was never created to attach it to: field_access.dl:96 calls a
+// receiver with no visible field, no local and no static import a TYPE QUALIFIER
+// (FIX-13, for `URI.create(...)`) and excludes it. That test, `recv_name_is_field`
+// in expression-resolution/expr-type.dl, reads java_field / lib_field DIRECTLY
+// rather than field_declared_in, so it cannot see a member this file declares. The
+// clause at the end of section 4 is what closes that, and it is the same omission
+// as method_owner and method_paramc: a relation built only off the IR tables that a
+// generated member has to feed too. See #863.
 //
 // IDENTITY. A generated member has no hash in any IR, so it is given a derived id
 // `generated:<ownerQualifiedName>#<name>/<arity>`, following the `external:<qname>`
@@ -67,6 +73,12 @@ gen_type_setter_ann("Setter").   gen_type_setter_ann("Data").
 // collide, which is why the type and field lists above are separate relations
 // rather than one list consulted from both places.
 gen_type_getter_ann("Value").
+
+// (c) on a TYPE: declares a logger FIELD of the given name.
+gen_logger_ann("Slf4j", "log").        gen_logger_ann("XSlf4j", "log").
+gen_logger_ann("Log4j", "log").        gen_logger_ann("Log4j2", "log").
+gen_logger_ann("CommonsLog", "log").   gen_logger_ann("JBossLog", "log").
+gen_logger_ann("Flogger", "log").      gen_logger_ann("Log", "log").
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,3 +193,31 @@ method_owner(p, owner, id) :- gen_method_live(owner, name, pc, id),
 // getters need no clause: zero args against zero params is already a match.
 method_paramc(m, 1) :- gen_method_live(_, _, "1", m).
 
+// gen_field(OwnerType, Name, FieldId)
+gen_field(owner, fname, id) :-
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_logger_ann(ann, fname),
+    type_decl(p, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, cat("#", fname))).
+
+// A field the source declares hides the generated one: same law, same reason.
+gen_field_shadowed(owner, name) :- gen_field(owner, name, _),
+    field_decl(_, name, _, owner, _).
+gen_field_live(owner, name, id) :- gen_field(owner, name, id), !gen_field_shadowed(owner, name).
+
+field_declared_in(name, t, f) :- gen_field_live(t, name, f), field_lookup_type(t).
+
+// THE CLAUSE THAT MAKES THE SITE EXIST. Without it the two above are dead: the read
+// is excluded as a type qualifier before any lookup runs, so the field is declared
+// and nothing ever asks for it. Measured on 8 services: 190 of 199 `type_qualifier`
+// exclusions were reads of a generated logger field, a 95% error rate on that
+// exclusion. The remaining 9 are genuine qualifiers (`UUID.randomUUID()`) and must
+// stay excluded, which is why this names the generated field rather than relaxing
+// the heuristic.
+recv_name_is_field(e) :- ident_field_recv(e, name), expr_ultimate_type("client", e, encl),
+    gen_field_live(encl, name, _).
+recv_name_is_field(e) :- ident_field_recv(e, name), expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc), gen_field_live(anc, name, _).
+
+// The field's own provenance, so field_access.dl can tier the row it now emits.
+field_prov(p, id) :- gen_field_live(owner, fname, id),
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_logger_ann(ann, fname).
