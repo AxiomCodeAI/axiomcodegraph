@@ -1,0 +1,16 @@
+package_entry    46-reduce-accumulator  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:11:15  METHOD_CALL reduce  no_target
+unresolved       main.js:11:41  METHOD_CALL add  no_target
+unresolved       main.js:11:54  CONSTRUCTOR_CALL Set  no_target
+unresolved       main.js:12:10  METHOD_CALL has  no_target
+unresolved       main.js:15:15  METHOD_CALL reduce  no_target
+unresolved       main.js:19:10  METHOD_CALL map  no_target
+unresolved       main.js:19:10  METHOD_CALL reduce  no_target
+unresolved       main.js:19:40  METHOD_CALL push  no_target
+unresolved       main.js:22:10  METHOD_CALL reduce  no_target
+unresolved       main.js:25:10  METHOD_CALL keys  no_target
+unresolved       main.js:25:10  METHOD_CALL reduceRight  no_target
+unresolved       main.js:25:54  METHOD_CALL concat  no_target
+unresolved       main.js:8:10  METHOD_CALL keys  no_target
+unresolved       main.js:8:10  METHOD_CALL reduce  no_target
+unresolved       main.js:8:49  METHOD_CALL concat  no_target

@@ -1,0 +1,7 @@
+61-new-expression-type-argument [types]
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    1.0000   (7 of 7 the compiler resolved)
+  sites 28   resolved 26 (92.9%)
+  tiers ambiguous_unknown=2  known_edge=26
+  contexts METHOD_TYPE_ARGUMENT=12  OBJECT_CREATION_TYPE=12  TYPE_ARGUMENT=2  TYPE_PARAM_BOUND=1  VARIABLE_TYPE=1
+  not scored: 2 rows whose target is not a client declaration

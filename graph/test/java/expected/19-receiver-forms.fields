@@ -1,0 +1,4 @@
+ambiguous_unknown	read	ReceiverForms#join(String,String[]) -> -
+ambiguous_unknown	read	ReceiverForms#main(String[]) -> -
+known_edge	read	ReceiverForms.Box#get(int) -> ReceiverForms.Box#value
+known_edge	write	ReceiverForms.Box#put(Object) -> ReceiverForms.Box#value

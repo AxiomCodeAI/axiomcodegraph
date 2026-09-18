@@ -1,0 +1,179 @@
+// ============================================================================
+// Base input relations — C# parser IR. One relation pair per entity kind.
+//
+// GENERATED FROM CSHARP-FACT-SCHEMA.md BY gen_decls.py — DO NOT HAND-EDIT.
+// Re-run `python3 gen_decls.py --check` in CI; drift here is a silent schema break.
+//
+// NAMING: one prefix per core language; `lib_` is the EXTERNAL marker on top of it.
+// The distinction is PROVENANCE, not language: the project under analysis vs
+// everything else.
+//
+//     cs_<entity>       C# under analysis            <- the PARSER emits only these
+//     lib_cs_<entity>   external / third-party       <- the ENGINE stages these
+//
+// COLUMN ORDER IS THE CONTRACT. All columns are `symbol`. New columns append ONLY.
+// The last column is always the entity's own unique hash; serviceVersionLinkHash is
+// immediately before it, and `isExternal` before that. Column NAMES live only in the
+// schema document, so a rename is free after the freeze and a reorder is not.
+//
+// FIVE THINGS AN ENGINE AUTHOR MUST READ BEFORE JOINING ANYTHING:
+//
+//  1. `name -> single entity` IS FALSE. A `partial` type is ONE type declared in N
+//     files, and `partial` methods split a declaration from its implementation.
+//     cs_type/cs_method are keyed PER DECLARATION SITE; the merged entity is
+//     `declarationGroupKey`, which is deliberately NOT UNIQUE. Group on it. A rule
+//     that assumes one row per name is wrong by construction.
+//
+//  2. GENERICS ARE REIFIED, not erased. `List<int>` and `List<string>` are distinct
+//     runtime types, so arity and type arguments are part of identity in a way a
+//     Java-shaped rule does not expect. Nothing here encodes erasure.
+//
+//  3. `grammarRegime` in cs_module is COARSE and IN THE KEY. It names the parse
+//     mechanism, not a version: a patch bump must not rewrite every hash. A row
+//     whose regime differs describes a different program-reading.
+//
+//  4. SEVERAL KINDS ARE RESERVED WITH ZERO ROWS, by ruling rather than by omission:
+//     DYNAMIC_CALL, CONVERSION_CALL, OPERATOR_CALL, ELEMENT_ACCESS_CALL and
+//     INSTANCE_METHOD_GROUP among them. Each is a fact syntax cannot decide — an
+//     implicit user-defined conversion runs with no syntax at the call site at all —
+//     and the parser emitting nothing there is the reservation working. Do not read
+//     their absence as coverage.
+//
+//  5. cs_parse_gap IS PART OF THE ANSWER. Where the grammar could not read the
+//     source, a row says so, with a byte fraction. A consumer that joins the other
+//     relations and ignores this one is reading a fact base with holes it has been
+//     told about.
+// ============================================================================
+
+
+// cs_module: c0 name, c1 qualifiedName, c2 fileName, c3 filePath, c4 baseMservPath, c5 namespaceStyle, c6 namespaceCount, c7 targetFramework, c8 defineConstantsKey, c9 langVersion, c10 nullableContextDefault, c11 hasTopLevelStatements, c12 implicitUsingsEnabled, c13 projectPath, c14 assemblyName, c15 emissionRegime, c16 grammarRegime, c17 startLine, c18 endLine, c19 parseErrorCount, c20 parseErrorBytes, c21 isGeneratedOutput, c22 csModuleInitMethodLinkHash, c23 isExternal, c24 serviceVersionLinkHash, c25 csModuleUniqueHash
+.decl cs_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
+.decl lib_cs_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
+.input cs_module
+.input lib_cs_module
+
+// cs_type: c0 name, c1 qualifiedName, c2 arity, c3 typeCategory, c4 typeAccess, c5 typeModifiers, c6 typePlacement, c7 declarationScopeKey, c8 declarationGroupKey, c9 isPartial, c10 isStatic, c11 isAbstract, c12 isSealed, c13 isReadOnly, c14 isRefLikeStruct, c15 isFileLocal, c16 isRecord, c17 hasPrimaryConstructor, c18 primaryConstructorArity, c19 nullableContext, c20 csModuleLinkHash, c21 containingTypeLinkHash, c22 csNamespaceName, c23 startLine, c24 endLine, c25 startColumn, c26 attributeCount, c27 isExternal, c28 serviceVersionLinkHash, c29 csTypeUniqueHash
+.decl cs_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol)
+.decl lib_cs_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol)
+.input cs_type
+.input lib_cs_type
+
+// cs_type_heritage: c0 csTypeLinkHash, c1 position, c2 heritageText, c3 baseTypeName, c4 baseTypeArity, c5 heritageKind, c6 hasPrimaryConstructorArguments, c7 startLine, c8 startColumn, c9 csTypeReferenceLinkHash, c10 isExternal, c11 serviceVersionLinkHash, c12 csTypeHeritageUniqueHash
+.decl cs_type_heritage(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol)
+.decl lib_cs_type_heritage(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol)
+.input cs_type_heritage
+.input lib_cs_type_heritage
+
+// cs_type_parameter: c0 ownerLinkHash, c1 ownerKind, c2 position, c3 name, c4 varianceModifier, c5 constraintText, c6 hasStructConstraint, c7 hasClassConstraint, c8 hasNotNullConstraint, c9 hasConstructorConstraint, c10 hasAllowRefStructConstraint, c11 hasUnmanagedConstraint, c12 constraintTypeCount, c13 isExternal, c14 serviceVersionLinkHash, c15 csTypeParameterUniqueHash
+.decl cs_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+.decl lib_cs_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+.input cs_type_parameter
+.input lib_cs_type_parameter
+
+// cs_type_reference: c0 kind, c1 context, c2 ownerLinkHash, c3 referenceOwnerKind, c4 parentReferenceHash, c5 position, c6 depth, c7 typeName, c8 completeTypeName, c9 typeArgumentCount, c10 arrayRank, c11 isNullableAnnotated, c12 isPointer, c13 isTuple, c14 tupleElementCount, c15 typeParameterLinkHash, c16 startLine, c17 endLine, c18 startColumn, c19 isExternal, c20 serviceVersionLinkHash, c21 csTypeReferenceUniqueHash
+.decl cs_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+.decl lib_cs_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+.input cs_type_reference
+.input lib_cs_type_reference
+
+// cs_method: c0 name, c1 qualifiedName, c2 arity, c3 signature, c4 methodKind, c5 returnTypeName, c6 methodAccess, c7 methodModifiers, c8 isStatic, c9 isAbstract, c10 isVirtual, c11 isOverride, c12 isSealed, c13 isAsync, c14 isIterator, c15 isExtension, c16 isPartialDefinition, c17 isPartialImplementation, c18 explicitInterfaceName, c19 operatorToken, c20 conversionKind, c21 csModuleLinkHash, c22 csTypeLinkHash, c23 isAccessor, c24 ownerMemberLinkHash, c25 ownerMemberKind, c26 parameterCount, c27 startLine, c28 endLine, c29 startColumn, c30 bodyKind, c31 attributeCount, c32 isExternal, c33 serviceVersionLinkHash, c34 csMethodUniqueHash
+.decl cs_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+.decl lib_cs_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+.input cs_method
+.input lib_cs_method
+
+// cs_method_parameter: c0 csMethodLinkHash, c1 position, c2 name, c3 parameterMode, c4 typeName, c5 completeTypeName, c6 isNullableAnnotated, c7 hasDefaultValue, c8 defaultValueText, c9 isParams, c10 isThis, c11 scopedModifier, c12 attributeCount, c13 startLine, c14 startColumn, c15 isExternal, c16 serviceVersionLinkHash, c17 csMethodParameterUniqueHash
+.decl cs_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol)
+.decl lib_cs_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol)
+.input cs_method_parameter
+.input lib_cs_method_parameter
+
+// cs_property: c0 name, c1 isIndexer, c2 propertyTypeName, c3 completeTypeName, c4 isNullableAnnotated, c5 propertyAccess, c6 getAccessorAccess, c7 setAccessorAccess, c8 hasGetter, c9 hasSetter, c10 setterKind, c11 isRequired, c12 isStatic, c13 isAbstract, c14 isVirtual, c15 isOverride, c16 explicitInterfaceName, c17 initializerExpressionLinkHash, c18 csTypeLinkHash, c19 startLine, c20 endLine, c21 startColumn, c22 attributeCount, c23 isExtension, c24 isExternal, c25 serviceVersionLinkHash, c26 csPropertyUniqueHash
+.decl cs_property(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_cs_property(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.input cs_property
+.input lib_cs_property
+
+// cs_event: c0 name, c1 eventTypeName, c2 completeTypeName, c3 eventKind, c4 eventAccess, c5 isStatic, c6 isVirtual, c7 isOverride, c8 explicitInterfaceName, c9 csTypeLinkHash, c10 startLine, c11 endLine, c12 startColumn, c13 attributeCount, c14 isExternal, c15 serviceVersionLinkHash, c16 csEventUniqueHash
+.decl cs_event(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+.decl lib_cs_event(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+.input cs_event
+.input lib_cs_event
+
+// cs_field: c0 name, c1 fieldTypeName, c2 completeTypeName, c3 potentialQualifiedName, c4 isAmbiguous, c5 fieldAccess, c6 fieldModifiers, c7 isStatic, c8 isReadOnly, c9 isConst, c10 isVolatile, c11 isRequired, c12 isFixedSizeBuffer, c13 isNullableAnnotated, c14 memberKind, c15 csTypeLinkHash, c16 csModuleLinkHash, c17 typeReferenceLinkHash, c18 initializerExpressionLinkHash, c19 declarationIndex, c20 attributeCount, c21 startLine, c22 endLine, c23 startColumn, c24 isExternal, c25 serviceVersionLinkHash, c26 csFieldUniqueHash
+.decl cs_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_cs_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.input cs_field
+.input lib_cs_field
+
+// cs_enum_member: c0 name, c1 qualifiedName, c2 ordinal, c3 hasInitializer, c4 initializerText, c5 constantValue, c6 valueKind, c7 csTypeLinkHash, c8 csModuleLinkHash, c9 ownerTypeName, c10 csExpressionLinkHash, c11 attributeCount, c12 startLine, c13 endLine, c14 startColumn, c15 isExternal, c16 serviceVersionLinkHash, c17 csEnumMemberUniqueHash
+.decl cs_enum_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol)
+.decl lib_cs_enum_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol)
+.input cs_enum_member
+.input lib_cs_enum_member
+
+// cs_variable: c0 name, c1 variableTypeName, c2 completeTypeName, c3 potentialQualifiedName, c4 isAmbiguous, c5 isImplicitlyTyped, c6 isNullableAnnotated, c7 declarationKind, c8 scopeKind, c9 scopeDepth, c10 isConst, c11 refKind, c12 isScoped, c13 csTypeLinkHash, c14 csMethodLinkHash, c15 csModuleLinkHash, c16 csBlockLinkHash, c17 hasInitializer, c18 initializerExpressionLinkHash, c19 typeReferenceLinkHash, c20 deconstructionIndex, c21 declarationIndex, c22 startLine, c23 endLine, c24 startColumn, c25 isExternal, c26 serviceVersionLinkHash, c27 csVariableUniqueHash
+.decl cs_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol)
+.decl lib_cs_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol)
+.input cs_variable
+.input lib_cs_variable
+
+// cs_using: c0 usingKind, c1 namespaceOrTypeName, c2 aliasName, c3 aliasTargetText, c4 isGlobal, c5 isStatic, c6 isImplicit, c7 originFile, c8 csModuleLinkHash, c9 position, c10 startLine, c11 startColumn, c12 isExternal, c13 serviceVersionLinkHash, c14 csUsingUniqueHash
+.decl cs_using(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.decl lib_cs_using(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.input cs_using
+.input lib_cs_using
+
+// cs_attribute: c0 attributeName, c1 qualifiedName, c2 attributeTarget, c3 ownerHash, c4 ownerKind, c5 csTypeLinkHash, c6 csModuleLinkHash, c7 attributeListIndex, c8 position, c9 argumentCount, c10 hasNamedArguments, c11 typeReferenceLinkHash, c12 csExpressionLinkHash, c13 startLine, c14 endLine, c15 startColumn, c16 isExternal, c17 serviceVersionLinkHash, c18 csAttributeUniqueHash
+.decl cs_attribute(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol)
+.decl lib_cs_attribute(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol)
+.input cs_attribute
+.input lib_cs_attribute
+
+// cs_attribute_argument: c0 argumentName, c1 argumentValue, c2 valueKind, c3 position, c4 isNamedArgument, c5 parentAttributeHash, c6 referencedTypeReferenceLinkHash, c7 csExpressionLinkHash, c8 startLine, c9 endLine, c10 startColumn, c11 isExternal, c12 serviceVersionLinkHash, c13 csAttributeArgumentUniqueHash
+.decl cs_attribute_argument(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+.decl lib_cs_attribute_argument(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+.input cs_attribute_argument
+.input lib_cs_attribute_argument
+
+// cs_expression: c0 kind, c1 edgeRole, c2 rootContext, c3 expressionOwnerKind, c4 expressionOwnerHash, c5 parentExpressionHash, c6 position, c7 depth, c8 csTypeLinkHash, c9 csModuleLinkHash, c10 literalKind, c11 literalValue, c12 operatorString, c13 unaryFixity, c14 methodReferenceKind, c15 referencedEntityKind, c16 referencedEntityHash, c17 anonymousDeclarationHash, c18 potentialQualifiedName, c19 isAmbiguous, c20 argumentCount, c21 typeArgumentCount, c22 isSpread, c23 isNullConditional, c24 isNullForgiving, c25 castTypeReferenceLinkHash, c26 isCheckedContext, c27 returnStatementIndex, c28 startLine, c29 startColumn, c30 endLine, c31 endColumn, c32 isExternal, c33 serviceVersionLinkHash, c34 csExpressionUniqueHash
+.decl cs_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+.decl lib_cs_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+.input cs_expression
+.input lib_cs_expression
+
+// cs_call_site: c0 callKind, c1 calleeName, c2 receiverKind, c3 receiverExpressionLinkHash, c4 receiverTypeName, c5 csExpressionLinkHash, c6 csModuleLinkHash, c7 callerMethodLinkHash, c8 callerTypeLinkHash, c9 argumentCount, c10 namedArgumentCount, c11 typeArgumentCount, c12 refArgumentCount, c13 outArgumentCount, c14 isConditional, c15 isQueryDesugarCandidate, c16 startLine, c17 startColumn, c18 isExternal, c19 serviceVersionLinkHash, c20 csCallSiteUniqueHash
+.decl cs_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+.decl lib_cs_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+.input cs_call_site
+.input lib_cs_call_site
+
+// cs_query_clause: c0 csExpressionLinkHash, c1 parentQueryLinkHash, c2 position, c3 clauseKind, c4 identifierName, c5 sourceExpressionLinkHash, c6 bodyExpressionLinkHash, c7 intoIdentifier, c8 isDescending, c9 startLine, c10 startColumn, c11 isExternal, c12 serviceVersionLinkHash, c13 csQueryClauseUniqueHash
+.decl cs_query_clause(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+.decl lib_cs_query_clause(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+.input cs_query_clause
+.input lib_cs_query_clause
+
+// cs_block: c0 blockKind, c1 order, c2 nestingDepth, c3 csTypeLinkHash, c4 csMethodLinkHash, c5 csModuleLinkHash, c6 methodOwnerHash, c7 parentContainerHash, c8 tryStatementHash, c9 catchTypeNames, c10 resourceCount, c11 conditionExpressionLinkHash, c12 switchSectionIndex, c13 labelName, c14 isUnsafe, c15 isChecked, c16 startLine, c17 endLine, c18 startColumn, c19 endColumn, c20 isExternal, c21 serviceVersionLinkHash, c22 csBlockUniqueHash
+.decl cs_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+.decl lib_cs_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+.input cs_block
+.input lib_cs_block
+
+// cs_comment: c0 commentKind, c1 commentText, c2 ownerHash, c3 ownerKind, c4 commentIndex, c5 csModuleLinkHash, c6 xmlDocTags, c7 isDocumentation, c8 startLine, c9 endLine, c10 startColumn, c11 endColumn, c12 isExternal, c13 serviceVersionLinkHash, c14 csCommentUniqueHash
+.decl cs_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.decl lib_cs_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.input cs_comment
+.input lib_cs_comment
+
+// cs_parse_gap: c0 csModuleLinkHash, c1 gapKind, c2 nodeType, c3 parentNodeType, c4 startLine, c5 endLine, c6 startColumn, c7 byteLength, c8 coveragePercent, c9 isExternal, c10 serviceVersionLinkHash, c11 csParseGapUniqueHash
+.decl cs_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol)
+.decl lib_cs_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol)
+.input cs_parse_gap
+.input lib_cs_parse_gap
+
+// cs_preproc_region: c0 csModuleLinkHash, c1 regionKind, c2 conditionText, c3 conditionSymbols, c4 isActive, c5 regionShape, c6 branchIndex, c7 branchCount, c8 activationSource, c9 parentRegionLinkHash, c10 startLine, c11 endLine, c12 isExternal, c13 serviceVersionLinkHash, c14 csPreprocRegionUniqueHash
+.decl cs_preproc_region(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.decl lib_cs_preproc_region(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.input cs_preproc_region
+.input lib_cs_preproc_region

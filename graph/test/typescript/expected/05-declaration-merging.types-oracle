@@ -1,0 +1,7 @@
+05-declaration-merging [types]
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 the compiler resolved)
+  sites 3   resolved 2 (66.7%)
+  tiers ambiguous_unknown=1  multi_inferred=4
+  contexts IMPLEMENTS_INTERFACE=2  METHOD_PARAM=3
+  not scored: 1 rows whose target is not a client declaration

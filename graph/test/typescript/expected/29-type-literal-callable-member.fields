@@ -1,0 +1,1 @@
+known_edge	read	members#throughObjectHalf(Runner) -> { orig(n: number): string; meta: Meta; }#meta

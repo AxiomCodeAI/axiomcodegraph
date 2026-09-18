@@ -1,0 +1,7 @@
+55-fluent-chain-past-sixteen-links [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 7   resolved 7 (100.0%)
+  tiers known_edge=7
+  contexts METHOD_RETURN=4  OBJECT_CREATION_TYPE=3
+  not scored: 0 rows whose target is not a client declaration

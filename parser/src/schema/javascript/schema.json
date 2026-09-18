@@ -183,7 +183,8 @@
     "modifiers",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsMethodUniqueHash"
+    "jsMethodUniqueHash",
+    "computedNameExpressionLinkHash"
    ],
    "domains": {
     "methodKind": [
@@ -293,7 +294,8 @@
     "ownerModuleLinkHash",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsFieldUniqueHash"
+    "jsFieldUniqueHash",
+    "computedNameExpressionLinkHash"
    ],
    "domains": {
     "declarationForm": [
@@ -522,7 +524,8 @@
     "jsExpressionUniqueHash",
     "introducesDeclarationLinkHash",
     "resolvedParameterLinkHash",
-    "bindingPath"
+    "bindingPath",
+    "bindingDefaultLinkHash"
    ],
    "domains": {
     "edgeRole": [
@@ -725,7 +728,8 @@
     "startColumn",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsTypeReferenceUniqueHash"
+    "jsTypeReferenceUniqueHash",
+    "memberName"
    ],
    "domains": {
     "referenceKind": [

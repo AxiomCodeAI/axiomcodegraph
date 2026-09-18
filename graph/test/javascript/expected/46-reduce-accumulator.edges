@@ -1,0 +1,30 @@
+main.js:11:15 METHOD_CALL hooks.reduce  ->  ambient_terminal  -
+main.js:11:15 METHOD_CALL hooks.reduce  ->  callback_registered  main.js:11:28 <arrow>
+main.js:11:41 METHOD_CALL s.add  ->  ambient_terminal  -
+main.js:11:54 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+main.js:12:10 METHOD_CALL set.has  ->  ambient_terminal  -
+main.js:15:15 METHOD_CALL hooks.reduce  ->  ambient_terminal  -
+main.js:15:15 METHOD_CALL hooks.reduce  ->  callback_registered  main.js:15:28 <arrow>
+main.js:15:41 METHOD_CALL r.add  ->  known_edge  main.js:4:18 add
+main.js:15:54 CONSTRUCTOR_CALL Registry  ->  implicit_constructor  -
+main.js:16:10 METHOD_CALL reg.list  ->  ambient_terminal  -
+main.js:16:10 METHOD_CALL reg.list  ->  multi_inferred  main.js:4:60 list
+main.js:19:10 METHOD_CALL hooks.reduce  ->  ambient_terminal  -
+main.js:19:10 METHOD_CALL hooks.reduce  ->  callback_registered  main.js:19:23 <arrow>
+main.js:19:10 METHOD_CALL hooks.reduce((acc, hook) => { acc.push(hook); return acc; },  ->  ambient_terminal  -
+main.js:19:10 METHOD_CALL hooks.reduce((acc, hook) => { acc.push(hook); return acc; },  ->  callback_registered  main.js:19:79 <arrow>
+main.js:19:40 METHOD_CALL acc.push  ->  ambient_terminal  -
+main.js:19:84 METHOD_CALL h.run  ->  known_edge  main.js:3:14 run
+main.js:22:10 METHOD_CALL hooks.reduce  ->  ambient_terminal  -
+main.js:22:10 METHOD_CALL hooks.reduce  ->  callback_registered  main.js:22:23 <arrow>
+main.js:22:40 METHOD_CALL first.run  ->  known_edge  main.js:3:14 run
+main.js:25:10 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:25:10 METHOD_CALL Object.keys(obj).reduceRight  ->  ambient_terminal  -
+main.js:25:10 METHOD_CALL Object.keys(obj).reduceRight  ->  callback_registered  main.js:25:39 <arrow>
+main.js:25:54 METHOD_CALL vals.concat  ->  ambient_terminal  -
+main.js:5:16 CONSTRUCTOR_CALL Hook  ->  implicit_constructor  -
+main.js:5:28 CONSTRUCTOR_CALL Hook  ->  implicit_constructor  -
+main.js:8:10 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:8:10 METHOD_CALL Object.keys(obj).reduce  ->  ambient_terminal  -
+main.js:8:10 METHOD_CALL Object.keys(obj).reduce  ->  callback_registered  main.js:8:34 <arrow>
+main.js:8:49 METHOD_CALL vals.concat  ->  ambient_terminal  -

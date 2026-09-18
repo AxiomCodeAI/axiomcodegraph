@@ -1,0 +1,4 @@
+package_entry    58-well-known-symbol  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:15:14  FUNCTION_CALL Symbol  no_target
+unresolved       main.js:21:37  COMPUTED_CALL   dynamic
+unresolved       main.js:9:40  COMPUTED_CALL   dynamic

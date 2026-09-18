@@ -1,0 +1,9 @@
+main.js:10:12 FUNCTION_CALL_APPLY apply  EXACT  main.js:4:3
+main.js:12:20 FUNCTION_CALL_CALL call  EXACT  main.js:5:3
+main.js:18:3 CONSTRUCTOR_CALL Guarded  SYNTHESIZED_OK  
+main.js:18:3 FUNCTION_CALL_APPLY apply  EXACT  main.js:8:3
+main.js:19:3 CONSTRUCTOR_CALL Guarded  SYNTHESIZED_OK  
+main.js:19:3 FUNCTION_CALL_CALL call  EXACT  main.js:12:3
+main.js:20:3 FUNCTION_CALL_APPLY apply  EXACT  main.js:15:1
+main.js:21:3 FUNCTION_CALL_APPLY apply  EXACT  main.js:16:20
+# defects: 0

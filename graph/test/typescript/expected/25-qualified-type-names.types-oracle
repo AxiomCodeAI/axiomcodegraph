@@ -1,0 +1,7 @@
+25-qualified-type-names [types]
+  precision 1.0000   (8 correct, 0 wrong)
+  recall    1.0000   (8 of 8 the compiler resolved)
+  sites 15   resolved 12 (80.0%)
+  tiers ambiguous_unknown=3  known_edge=12
+  contexts IMPLEMENTS_INTERFACE=2  METHOD_PARAM=6  OBJECT_CREATION_TYPE=4  VARIABLE_TYPE=3
+  not scored: 3 rows whose target is not a client declaration

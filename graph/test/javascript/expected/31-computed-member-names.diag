@@ -1,0 +1,2 @@
+package_entry    computed-member-names  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:2:14  FUNCTION_CALL Symbol  no_target

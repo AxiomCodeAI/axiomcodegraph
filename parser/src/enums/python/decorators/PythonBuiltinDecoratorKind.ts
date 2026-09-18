@@ -22,6 +22,15 @@ export enum PythonBuiltinDecoratorKind {
   DATACLASS = 'DATACLASS',
   CONTEXTMANAGER = 'CONTEXTMANAGER',
   WRAPS = 'WRAPS',
+  /**
+   * `warnings.deprecated` (3.13) / `typing_extensions.deprecated`: a call-through
+   * wrapper that warns and then invokes the decorated function, so the decorated
+   * name still reaches the `def`. Replaces the target (the name is bound to the
+   * wrapper), like LRU_CACHE.
+   */
+  DEPRECATED = 'DEPRECATED',
+  /** `typing.no_type_check`: sets an attribute on the function and returns it. Metadata only. */
+  NO_TYPE_CHECK = 'NO_TYPE_CHECK',
   /** Not a decorator the language defines. */
   NONE = 'NONE',
 }

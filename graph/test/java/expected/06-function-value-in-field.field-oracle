@@ -1,0 +1,9 @@
+06-function-value-in-field
+  precision 0.7778   (7 correct, 2 wrong)
+  recall    1.0000   (7 of 7 in the bytecode)
+  sites 11   resolved 9 (81.8%)
+  tiers ambiguous_unknown=2  known_edge=9
+  access read=7  write=4
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   Asset#<init>() WRITE Asset#blockLambda
+    WRONG   Asset#<init>() WRITE Asset#loader

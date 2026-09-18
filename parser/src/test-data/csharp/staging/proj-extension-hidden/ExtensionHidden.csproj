@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Every fixture project answers this, so a compile-status gate reads a
+         VALUE and never an empty string. Absence of a match is not absence of
+         the thing; the one `false` is ../proj-langversion-13/. -->
+    <!-- FAILS BY DESIGN; the expected error inventory is in ../MANIFEST.md section 7 -->
+    <CsFixtureCompiles>false</CsFixtureCompiles>
+    <CsFixtureVerifiable>true</CsFixtureVerifiable>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants></DefineConstants>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Fixtures.ExtensionUhidden</AssemblyName>
+    <RootNamespace>Fixtures.ExtensionUhidden</RootNamespace>
+  </PropertyGroup>
+</Project>

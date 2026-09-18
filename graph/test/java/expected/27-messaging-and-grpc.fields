@@ -1,0 +1,3 @@
+known_edge	read	testcases.config.GreeterService#sayHello(String,Object) -> testcases.config.GreeterService#handler
+known_edge	read	testcases.config.OrderConsumer#onOrder(String) -> testcases.config.OrderConsumer#handler
+known_edge	read	testcases.config.OrderProducer#publish(String) -> testcases.config.OrderProducer#topic

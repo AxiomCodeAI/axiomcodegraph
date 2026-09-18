@@ -1,0 +1,4 @@
+main.js:3:34 FUNCTION_CALL cbrt  LIB_AMBIENT_OK  impl.js:8:34
+main.js:3:44 FUNCTION_CALL plain  EXACT  impl.js:11:1
+main.js:3:55 FUNCTION_CALL named  EXACT  impl.js:12:1
+# defects: 0

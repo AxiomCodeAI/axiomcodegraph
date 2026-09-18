@@ -1,0 +1,343 @@
+// ============================================================================
+// EXPRESSION RESOLUTION · TYPES
+//
+// expr_type(Prov, ExprHash, GroupKey) -- the type an expression has. This is what a
+// receiver's member lookup runs against, so every call edge on a qualified call
+// depends on it.
+//
+// THE SINGLE MOST IMPORTANT FACT: `var` IS THE NORMAL WAY TO DECLARE A LOCAL IN C#.
+// A `var` local has an EMPTY variableTypeName, so reading the declared type and
+// stopping gives no type for most locals in a modern codebase, and therefore no
+// receiver type, and therefore no edge. The type comes from the initializer, and
+// most initializers are `new T(...)` or a call whose return type is declared, so
+// this is recoverable -- but only if it is done.
+//
+// THE SECOND: A FOREACH VARIABLE'S TYPE IS ITS COLLECTION'S ELEMENT TYPE, not its
+// collection's type. `foreach (var s in shapes)` records `shapes` as the variable's
+// initializer, and treating that as a direct initializer types every foreach
+// variable as `IEnumerable<IShape>` -- which then resolves `s.Area()` against
+// IEnumerable and finds nothing. The element type has to be extracted from the
+// generic argument, which is what makes cs_type_reference's nested argument tree
+// load-bearing rather than convenient.
+//
+// A TYPE IS A SET, AND THAT IS DELIBERATE. An expression may have more than one
+// possible type: a field assigned two different concrete types, a parameter whose
+// callers pass two things. Every such answer is kept, and the call-edge layer reports
+// the site as multi_inferred rather than picking one. A single answer is only ever
+// claimed where the language guarantees one.
+// ============================================================================
+
+// ── ANCHOR 1: A PARAMETER'S DECLARED TYPE ───────────────────────────────────
+// Always explicit in C#, which makes parameters the most reliable type source in
+// the language and the anchor most receiver typing starts from.
+param_type(prov, p, gk) :-
+    param_type_ref(prov, p, tr), type_ref_resolves(prov, tr, gk).
+param_type(prov, p, gk) :-
+    param_type_name(prov, p, tn, _),
+    !param_type_ref(prov, p, _),
+    param_of(prov, p, m), method_module(prov, m, mod),
+    name_to_type(prov, mod, tn, gk).
+
+// A parameter's type reference, found through the reference's own owner link.
+param_type_ref(prov, p, tr) :- type_ref_owner(prov, tr, p, "METHOD_PARAMETER").
+
+// ── ANCHOR 2: A FIELD'S AND PROPERTY'S DECLARED TYPE ────────────────────────
+field_type(prov, f, gk) :- field_type_ref(prov, f, tr), type_ref_resolves(prov, tr, gk).
+field_type(prov, f, gk) :-
+    field_type_name(prov, f, tn, _), !field_type_ref(prov, f, _),
+    field_decl(prov, _, t, f), type_module(prov, t, mod),
+    name_to_type(prov, mod, tn, gk).
+
+property_type(prov, p, gk) :-
+    property_type_name(prov, p, tn, _),
+    property_decl(prov, _, t, p), type_module(prov, t, mod),
+    name_to_type(prov, mod, tn, gk).
+
+// ── ANCHOR 3: AN EXPLICITLY TYPED LOCAL ─────────────────────────────────────
+var_type(prov, v, gk) :- var_type_ref(prov, v, tr), type_ref_resolves(prov, tr, gk).
+var_type(prov, v, gk) :-
+    var_type_name(prov, v, tn, _), !var_type_ref(prov, v, _),
+    var_method(prov, v, m), method_module(prov, m, mod),
+    name_to_type(prov, mod, tn, gk).
+
+// ── `var`: THE TYPE OF THE INITIALIZER ──────────────────────────────────────
+var_type(prov, v, gk) :-
+    var_is_implicit(prov, v),
+    var_value_initializer(prov, v, e),
+    expr_type(prov, e, gk).
+
+// ── `foreach`: THE ELEMENT TYPE OF THE ITERATED EXPRESSION ──────────────────
+var_type(prov, v, gk) :-
+    var_iterated_initializer(prov, v, e),
+    expr_element_type(prov, e, gk).
+
+// A foreach variable with an EXPLICIT type keeps it: `foreach (IShape s in shapes)`.
+// Handled by the explicit clauses above, and this comment records that the two do
+// not conflict -- an explicit annotation and the element type should agree, and where
+// they do not the annotation is a downcast the author asserted.
+
+// ── ELEMENT TYPES ───────────────────────────────────────────────────────────
+// expr_element_type(Prov, ExprHash, GroupKey) -- what iterating this expression
+// yields. Three sources, in order of how much they can be trusted.
+
+// (a) An ARRAY. `IShape[]` yields IShape, and the element type is the same named
+// type with the rank stripped, so it needs no generic reasoning at all.
+expr_element_type(prov, e, gk) :-
+    expr_type_via_ref(prov, e, tr),
+    type_ref_array_rank(prov, tr, _),
+    type_ref_name(prov, tr, n),
+    type_ref_module(prov, tr, mod),
+    name_to_type(prov, mod, n, gk).
+
+// (b) A GENERIC COLLECTION. `IEnumerable<IShape>` yields IShape: the single type
+// ARGUMENT of a one-argument generic. This is where the nested argument tree pays
+// for itself -- the alternative is parsing `Dictionary<string, List<IShape>>` out of
+// a text column inside Datalog.
+expr_element_type(prov, e, gk) :-
+    expr_type_via_ref(prov, e, tr),
+    type_ref_argc(prov, tr, "1"),
+    type_ref_arg(prov, tr, "0", argRef),
+    type_ref_resolves(prov, argRef, gk).
+
+// A DICTIONARY yields KeyValuePair, not the value type, so a two-argument generic is
+// deliberately NOT given an element type here. Guessing the value type would resolve
+// `foreach (var kv in dict) kv.Handle()` against the value's members, and `kv` does
+// not have them. Left unresolved, which is the honest answer, and visible as such.
+
+// (c) THE ITERATION PROTOCOL. A type with its own GetEnumerator has an element type
+// given by that method's Current property. Reached through the declared return type,
+// so a custom collection iterates correctly.
+expr_element_type(prov, e, gk) :-
+    expr_type(prov, e, recvGk),
+    member_method(prov, recvGk, "GetEnumerator", getEnum),
+    method_return_type_group(prov, getEnum, enumGk),
+    member_lookup(prov, enumGk, "Current", "property", cur),
+    property_type(prov, cur, gk).
+
+// ── INDEXING IS A RECEIVER: `words[0].Humanize()` ───────────────────────────
+// An ELEMENT_ACCESS is one of the commonest receiver shapes there is, and without a
+// type for it every call chained onto an indexed value starts from nothing.
+//
+// MEASURED, and the reason this is not a nicety: on a string-extension library
+// `words[0].Humanize()` picked the wrong overload -- `EnumHumanizeExtensions`
+// (`this Enum`) rather than `StringHumanizeExtensions` (`this string`). Not because
+// the engine preferred it, but because `words[0]` had NO type and NO type name, so
+// the by-name extension match in extensions.dl had nothing to discriminate on and
+// the generic match took whatever was in scope. An untyped receiver does not merely
+// lose the site; it hands it to the first candidate that fits by arity.
+//
+// The element type is already computed for `foreach`, and it is the same question:
+// what does one position of this thing hold. So this reuses expr_element_type rather
+// than re-deriving it, which means arrays and one-argument generics (`List<string>`,
+// `IReadOnlyList<T>`) are covered by the clauses that already exist, and a Dictionary
+// stays deliberately untyped for the reason recorded there.
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "ELEMENT_ACCESS"),
+    expr_child(prov, e, "RECEIVER", _, q),
+    expr_element_type(prov, q, gk).
+
+// A USER-DEFINED INDEXER is a different question and needs its own clause: `this[int]`
+// on a non-generic type has a declared return type that has nothing to do with what
+// the type iterates. properties.dl already resolves the access to the indexer; this
+// takes its type.
+expr_type(prov, e, gk) :-
+    indexer_access(prov, e, p), property_type(prov, p, gk).
+
+// ── ...AND ITS NAME, WHICH IS WHAT ACTUALLY FIXES THE OVERLOAD ──────────────
+// A client-only run has no group for `string`, so the clauses above give `words[0]`
+// nothing at all when the element type is external -- which is the case in the
+// measurement above. The by-name path is the one that has to carry it.
+//
+// An array reference's typeName is ALREADY the element's name: `string[]` is stored
+// as typeName `string` with arrayRank 1, so indexing it is the name with the rank
+// ignored. Nothing needs to be parsed out of the text.
+call_recv_type_name(prov, e, n) :-
+    call_receiver_expr(prov, e, r),
+    expr_kind(prov, r, "ELEMENT_ACCESS"),
+    expr_child(prov, r, "RECEIVER", _, q),
+    expr_type_via_ref(prov, q, tr),
+    type_ref_array_rank(prov, tr, _),
+    type_ref_name(prov, tr, n), n != "".
+
+// The generic-collection case reads the single type ARGUMENT's name off the nested
+// argument tree, for the same reason and with the same one-argument restriction.
+call_recv_type_name(prov, e, n) :-
+    call_receiver_expr(prov, e, r),
+    expr_kind(prov, r, "ELEMENT_ACCESS"),
+    expr_child(prov, r, "RECEIVER", _, q),
+    expr_type_via_ref(prov, q, tr),
+    type_ref_argc(prov, tr, "1"),
+    type_ref_arg(prov, tr, "0", argRef),
+    type_ref_name(prov, argRef, n), n != "".
+
+// expr_type_via_ref -- the TYPE REFERENCE behind an expression's type, where there is
+// one. Needed because array rank and generic arguments live on the reference and not
+// on the resolved type: `IShape[]` and `IShape` resolve to the same group.
+expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "PARAMETER", p), param_type_ref(prov, p, tr).
+expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_ref(prov, v, tr).
+expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "FIELD", f), field_type_ref(prov, f, tr).
+// A `var` local's reference is the reference of its initializer.
+expr_type_via_ref(prov, e, tr) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_is_implicit(prov, v),
+    var_value_initializer(prov, v, init), expr_type_via_ref(prov, init, tr).
+// An invocation's reference is its callee's declared return-type reference.
+expr_type_via_ref(prov, e, tr) :-
+    expr_target_any(prov, e, m), method_return_type_ref(prov, m, tr).
+// AN OBJECT CREATION'S OWN REFERENCE. `new List<IShape>()` has a CONSTRUCTED
+// reference with IShape as its argument at position 0, and that reference is the
+// only place the element type is available in structured form. Without this clause a
+// `var` local initialised from a construction has a resolved TYPE but no reference,
+// so iterating it yields no element type -- `foreach (var s in new List<IShape>())`
+// then leaves `s` untyped while the same loop over an `IEnumerable<IShape>`
+// parameter works, which is the asymmetry that found this.
+expr_type_via_ref(prov, e, tr) :- expr_new_type_ref(prov, e, tr).
+// ...and through a `var` local that holds one.
+expr_type_via_ref(prov, e, tr) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_is_implicit(prov, v),
+    var_value_initializer(prov, v, init), expr_new_type_ref(prov, init, tr).
+
+// CONTEXT IS METHOD_RETURN, not RETURN_TYPE. The value is CsTypeRefContext's, and
+// guessing it cost every method its declared return type: no return type means no
+// type for any `var` local initialised from a call, which means no receiver, which
+// means no edge. The symptom was a foreach over a locally-constructed collection
+// resolving to nothing while the same loop over a parameter resolved fine.
+method_return_type_ref(prov, m, tr) :- type_ref_owner(prov, tr, m, "METHOD"), type_ref_context(prov, tr, "METHOD_RETURN").
+
+// ── EXPRESSION TYPES, BY EXPRESSION KIND ────────────────────────────────────
+
+// A name reference: the type of whatever it denotes.
+expr_type(prov, e, gk) :- ref_denotes(prov, e, "PARAMETER", p), param_type(prov, p, gk).
+expr_type(prov, e, gk) :- ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type(prov, v, gk).
+expr_type(prov, e, gk) :- ref_denotes(prov, e, "FIELD", f), field_type(prov, f, gk).
+expr_type(prov, e, gk) :- ref_denotes(prov, e, "PROPERTY", p), property_type(prov, p, gk).
+expr_type(prov, e, gk) :- ref_denotes(prov, e, "LAMBDA_PARAMETER", p), param_type(prov, p, gk).
+
+// `this` and `base`.
+expr_type(prov, e, gk) :- ref_denotes_this(prov, e, gk).
+expr_type(prov, e, gk) :- ref_denotes_base(prov, e, gk).
+
+// OBJECT CREATION: the type constructed. Also the one case where the type is EXACT
+// rather than declared, which dispatch reads to avoid a fan.
+expr_type(prov, e, gk) :- expr_new_type(prov, e, gk).
+expr_new_type(prov, e, gk) :-
+    expr_kind(prov, e, "OBJECT_CREATION"),
+    expr_new_type_ref(prov, e, tr),
+    type_ref_resolves(prov, tr, gk).
+// THE ROOT REFERENCE ONLY. `new List<IShape>()` produces TWO references owned by the
+// same expression with the same context: `List<IShape>` and its argument `IShape`.
+// Taking both makes the creation's type ambiguous between the collection and its
+// element, and `new List<IShape>()` then also resolves as `new IShape()`. The root
+// is the one with no parent.
+expr_new_type_ref(prov, e, tr) :-
+    type_ref_owner(prov, tr, e, "EXPRESSION"),
+    type_ref_context(prov, tr, "OBJECT_CREATION"),
+    !type_ref_parent(prov, tr, _, _, _).
+// Where no reference is attached, the call site's callee name IS the type name.
+expr_new_type(prov, e, gk) :-
+    expr_kind(prov, e, "OBJECT_CREATION"),
+    !expr_new_type_ref(prov, e, _),
+    call_callee_name(prov, e, n), expr_ultimate_module(prov, e, mod),
+    call_type_argc(prov, e, ar),
+    type_name_resolves(prov, mod, n, ar, gk).
+
+// AN INVOCATION has its callee's return type.
+expr_type(prov, e, gk) :-
+    expr_target_any(prov, e, m), method_return_type_group(prov, e2gk, gk), e2gk = m.
+
+method_return_type_group(prov, m, gk) :-
+    method_return_type_ref(prov, m, tr), type_ref_resolves(prov, tr, gk).
+method_return_type_group(prov, m, gk) :-
+    method_return_type_name(prov, m, rt), !method_return_type_ref(prov, m, _),
+    method_module(prov, m, mod), name_to_type(prov, mod, rt, gk).
+
+// A CAST or `as` gives its target type, and NARROWS the receiver. `((IFoo)x).Bar()`
+// is exact where `x.Bar()` would fan, so this is a precision gain and not only a
+// typing rule.
+expr_type(prov, e, gk) :- expr_cast_ref(prov, e, tr), type_ref_resolves(prov, tr, gk).
+
+// A PARENTHESIZED expression, a null-forgiving `!`, and an `await` pass the type
+// through from their operand. Each is a separate edge role, so they are enumerated;
+// one left out silently loses every receiver behind that syntax.
+expr_type(prov, e, gk) :- expr_kind(prov, e, "PARENTHESIZED"), expr_child(prov, e, "PARENTHESIZED_OPERAND", _, inner), expr_type(prov, inner, gk).
+
+// `await t` yields what the task carries: the single type argument of Task<T>. A
+// non-generic Task yields nothing, which is correct (there is no value).
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "AWAIT"),
+    expr_child(prov, e, "AWAIT_OPERAND", _, inner),
+    expr_type_via_ref(prov, inner, tr),
+    type_ref_argc(prov, tr, "1"),
+    type_ref_arg(prov, tr, "0", argRef),
+    type_ref_resolves(prov, argRef, gk).
+
+// A MEMBER ACCESS used as a value: `a.B.C()` -- the receiver `a.B` has the type of
+// the member B on a's type.
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "property", p), property_type(prov, p, gk).
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "field", f), field_type(prov, f, gk).
+
+// A CONDITIONAL yields either branch's type. Both are kept: the expression genuinely
+// has two possible runtime types, and a call on it can reach either.
+expr_type(prov, e, gk) :- expr_kind(prov, e, "CONDITIONAL"), expr_child(prov, e, "WHEN_TRUE", _, b), expr_type(prov, b, gk).
+expr_type(prov, e, gk) :- expr_kind(prov, e, "CONDITIONAL"), expr_child(prov, e, "WHEN_FALSE", _, b), expr_type(prov, b, gk).
+
+// A PATTERN BINDING: `if (x is Circle c)` types c as Circle. The pattern's type is
+// the narrowing the author asserted, so it is exact for the branch.
+expr_type(prov, e, gk) :-
+    ref_denotes(prov, e, "PATTERN_BINDING", pb), pattern_binding_type(prov, pb, gk).
+pattern_binding_type(prov, pb, gk) :-
+    type_ref_owner(prov, tr, pb, "EXPRESSION"), type_ref_resolves(prov, tr, gk).
+
+// ── THE RECEIVER'S TYPE, WHICH IS WHAT THE CALL RULES WANT ──────────────────
+// call_recv_type(Prov, SiteExpr, GroupKey). Four shapes, and each has a different
+// source.
+
+// (a) A written receiver expression: type it as an expression.
+call_recv_type(prov, e, gk) :- call_receiver_expr(prov, e, r), expr_type(prov, r, gk).
+
+// (b) NO receiver: the implicit `this`, so the enclosing type. Also covers an
+// unqualified static call on the enclosing type.
+call_recv_type(prov, e, gk) :- call_is_unqualified(prov, e), expr_ultimate_type_group(prov, e, gk).
+
+// (c) `this.M()` written out.
+call_recv_type(prov, e, gk) :- call_is_this(prov, e), expr_ultimate_type_group(prov, e, gk).
+
+// (d) `base.M()` -- the enclosing type's base. The call is non-virtual, which
+// dispatch_is_exact already records.
+call_recv_type(prov, e, bgk) :-
+    call_is_base(prov, e), expr_ultimate_type_group(prov, e, gk), type_extends(prov, gk, bgk).
+
+// (e) A STATIC receiver that names a TYPE: `Console.WriteLine()`. The receiver is a
+// type, not a value, so its "type" is the type itself.
+call_recv_type(prov, e, gk) :- call_receiver_expr(prov, e, r), ref_names_type(prov, r, gk).
+
+// call_recv_exact_type -- the receiver's runtime type is KNOWN, not merely declared.
+// `new Circle().Area()`. Read by dispatch to skip the fan entirely.
+call_recv_exact_type(prov, e, gk) :-
+    call_receiver_expr(prov, e, r), expr_new_type(prov, r, gk).
+
+// ── A RECEIVER THAT COULD NOT BE TYPED ──────────────────────────────────────
+// The single largest cause of unresolved call sites in any engine, so it is recorded
+// with the receiver's written text, which is what makes the failures groupable and
+// therefore fixable.
+call_recv_untyped(prov, e) :-
+    call_needs_member_lookup(prov, e),
+    !call_recv_type(prov, e, _).
+call_recv_untyped_named(prov, e, txt) :- call_recv_untyped(prov, e), call_receiver_text(prov, e, txt).
+
+// ── HOW MANY TYPES A RECEIVER HAS ───────────────────────────────────────────
+// One is the ordinary case. More than one is a real fact about the program (a field
+// holding two concrete types, a conditional) and the site is multi_inferred rather
+// than wrong.
+call_recv_type_count(prov, e, c) :-
+    call_recv_type(prov, e, _),
+    c = count : { call_recv_type(prov, e, _) }.

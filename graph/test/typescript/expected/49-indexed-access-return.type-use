@@ -1,0 +1,6 @@
+known_edge	FIELD_TYPE	0	Zoo [FIELD] -> Cat
+known_edge	FIELD_TYPE	0	Zoo [FIELD] -> Dog
+known_edge	METHOD_RETURN	0	main [METHOD] -> Dog
+known_edge	TYPE_ELEMENT	1	- [TYPE_PARAMETER] -> Zoo
+known_edge	TYPE_ELEMENT	1	main [METHOD] -> Zoo
+known_edge	VARIABLE_TYPE	0	main [VARIABLE] -> Zoo

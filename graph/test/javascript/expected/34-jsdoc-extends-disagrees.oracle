@@ -1,0 +1,9 @@
+button.js:3:25 SUPER_CALL super  EXACT  component.js:2:3
+main.js:17:25 SUPER_CALL super  EXACT  button.js:3:3
+main.js:18:23 METHOD_CALL createEl  EXACT  button.js:4:3
+main.js:20:103 METHOD_CALL dispose  EXACT  main.js:10:3
+main.js:20:117 METHOD_CALL createEl  EXACT  main.js:18:3
+main.js:20:35 CONSTRUCTOR_CALL SeekToLive  EXACT  main.js:8:3
+main.js:20:64 CONSTRUCTOR_CALL Agreeing  EXACT  main.js:17:3
+main.js:20:88 METHOD_CALL createEl  EXACT  main.js:9:3
+# defects: 0

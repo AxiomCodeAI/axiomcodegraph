@@ -6,8 +6,8 @@ sorted, deduplicated. Hashes are resolved to names so a golden file is human-rev
 NOT sensitive to hash churn.
 
 CONVENTIONS (deliberate, not defects):
-  * NESTED TYPES ARE FLATTENED. `package p; class A { class B {} }` yields owners `p.A` and `p.B`,
-    not `p.A.B`. This mirrors the IR and is accepted behaviour.
+  * NESTED TYPES ARE NAMED BY THEIR CHAIN. `package p; class A { class B {} }` yields owners `p.A`
+    and `p.A.B`, the IR's qualifiedName form (a local class is `p.A.Local`, without javac's index).
   * ANONYMOUS classes are keyed by their SUPERTYPE (`Outer$anon:Runnable`), because javac and the
     engine number anonymous classes differently — numbering would make goldens brittle.
   * TYPE VARIABLES are erased to their bound (default Object), so `add(E)` reads `add(Object)`.
@@ -32,8 +32,17 @@ def rows(path):
     hdr = r[0]
     return [dict(zip(hdr, x + [''] * (len(hdr) - len(x)))) for x in r[1:]]
 
+# A TYPE-USE ANNOTATION is written in the type position and the parser keeps it in the declared
+# type name: `@Nullable Response`. It is not part of the type, and leaving it in makes the
+# parameter list of every annotated method differ from the one the bytecode oracle prints, so a
+# caller that is annotated cannot be compared on either side. Stripped for the same reason type
+# arguments are.
+# It can sit mid-name, on the qualified form: `HttpConnection.@Nullable Response`.
+ANNOTATED = re.compile(r'@[\w$.]+(?:\([^)]*\))?\s*')
+
+
 def simple(t):
-    t = (t or '').strip(); arr = ''
+    t = ANNOTATED.sub('', (t or '')).strip(); arr = ''
     while t.endswith('[]'): arr += '[]'; t = t[:-2]
     if t.endswith('...'): arr += '[]'; t = t[:-3]
     out, d = [], 0
@@ -78,7 +87,12 @@ class Names:
                 if p.get('isVarArgs') == 'true' and not suf: suf = '[]'
                 ps.append(b + suf)
             cls = r.get('ownerQualifiedName') or r.get('ownerTypeName')
-            nm = '<init>' if r.get('methodKind') in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR') else r.get('name')
+            # COMPACT_CONSTRUCTOR is the canonical constructor of a record written without a
+            # parameter list. javac compiles it to <init> like any other, so the bytecode
+            # oracle names it that way, and leaving it off this list made the engine's edge
+            # read as MISSING against ground truth while being perfectly correct (#911).
+            nm = '<init>' if r.get('methodKind') in (
+                'CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR', 'COMPACT_CONSTRUCTOR') else r.get('name')
             self.m[h] = f"{self.anon.get(cls, cls)}#{nm}({','.join(ps)})"
         self.types = {t['typeRegistryUniqueHash']: t['qualifiedName'] for t in rows(f'{ir}/all-types.csv')}
 
@@ -90,6 +104,13 @@ class Names:
         # ancestor no staged IR declares (resolution/external-types.dl). Printed whole — it is
         # already a readable name, and truncating it would hide which type the call left for.
         if h.startswith('external:'): return h
+        # A GENERATED target is also a label, not a hash: `generated:<type>#<name>/<arity>`, a
+        # member an annotation processor declares that no IR carries
+        # (resolution/generated-members.dl). Printed whole, for the same reason external: is, and
+        # for a sharper one: truncated to 24 characters `generated:dep.Catalog#getName/0` and
+        # `generated:dep.Catalog#getSize/0` are the SAME string, so two different edges would
+        # collapse into one golden line and a regression in either could not be seen.
+        if h.startswith('generated:'): return h
         return f"<unresolved:{h[:24]}>"
 
 def main():

@@ -1,0 +1,10 @@
+10-super-invocations
+  precision 0.5714   (4 correct, 3 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  sites 11   resolved 7 (63.6%)
+  tiers ambiguous_unknown=4  known_edge=7
+  access read=8  write=3
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   testcases.engine.Base#<init>(String) WRITE testcases.engine.Base#id
+    WRONG   testcases.engine.SuperInvocations#<init>(String) WRITE testcases.engine.SuperInvocations#level
+    WRONG   testcases.engine.SuperInvocations#<init>(String,int) WRITE testcases.engine.SuperInvocations#level

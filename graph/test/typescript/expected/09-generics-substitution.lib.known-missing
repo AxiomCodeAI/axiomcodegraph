@@ -2,6 +2,7 @@
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
 Box#map((t: T) =) -> Box#<arrow@15>(T)
-generic#fromReceiver() -> Item#ping()
 generic#inferredFromArgument() -> Item#ping()
-generic#useLibrary() -> Item#ping()
+# generic#fromReceiver and generic#useLibrary both RESOLVE since #587: the type argument
+# is written on the `new` (`new Box<Item>(...)`, `new Cell<Item>(...)`) and now binds T,
+# across the library boundary as well as inside the client.

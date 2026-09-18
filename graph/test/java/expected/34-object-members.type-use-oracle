@@ -1,0 +1,8 @@
+34-object-members
+  precision 1.0000   (9 correct, 0 wrong)
+  recall    0.9000   (9 of 10 in the bytecode)
+  references 32   resolved 24 (75.0%)
+  tiers ambiguous_unknown=8  boundary_lib=10  known_edge=14
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=4  CAST_EXPRESSION=2  FIELD_TYPE=1  IMPLEMENTS_INTERFACE=2  METHOD_PARAM=14  METHOD_RETURN=6  SUPER_TYPE=1  THROWS_CLAUSE=2
+    MISSING probe.ObjectMembers.Sub METHOD_RETURN probe.ObjectMembers.Base

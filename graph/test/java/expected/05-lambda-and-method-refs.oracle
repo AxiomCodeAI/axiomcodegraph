@@ -1,3 +1,3 @@
 oracle=15 engine=13 agree=13 missing=2 (known 2, NEW 0) extra=0
-  known-missing  Lam#viaForEach -> Item#validate(String)
-  known-missing  Lam#viaParamList -> Item#validate(String)
+  known-missing  Lam#viaForEach -> Lam.Item#validate(String)
+  known-missing  Lam#viaParamList -> Lam.Item#validate(String)

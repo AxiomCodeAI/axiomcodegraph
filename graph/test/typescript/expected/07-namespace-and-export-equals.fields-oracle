@@ -1,0 +1,7 @@
+07-namespace-and-export-equals [fields]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 4   resolved 0 (0.0%)
+  tiers ambiguous_unknown=4
+  access read=4
+  not scored: 4 rows whose target is not a client declaration

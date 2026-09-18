@@ -1,0 +1,2 @@
+known_edge	method	probe.TypeUse#catches() -> probe.TypeUse#thrown()
+known_edge	new	probe.TypeUse#created() -> probe.Marker#<init>()

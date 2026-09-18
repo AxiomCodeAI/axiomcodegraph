@@ -1,0 +1,7 @@
+09-generics-substitution [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 9   resolved 8 (88.9%)
+  tiers ambiguous_unknown=1  known_edge=8
+  contexts METHOD_RETURN=1  METHOD_TYPE_ARGUMENT=2  OBJECT_CREATION_TYPE=6
+  not scored: 1 rows whose target is not a client declaration

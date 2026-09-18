@@ -1,0 +1,7 @@
+main.js:14:16 FUNCTION_CALL mixin  EXACT  main.js:7:1
+main.js:18:21 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:21:16 FUNCTION_CALL copyInline  EXACT  main.js:17:1
+main.js:26:1 FUNCTION_CALL mixin  EXACT  main.js:7:1
+main.js:27:29 METHOD_CALL alpha  EXACT  main.js:3:1
+main.js:31:16 FUNCTION_CALL fill  EXACT  main.js:30:1
+# defects: 0

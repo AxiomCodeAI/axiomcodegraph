@@ -1,0 +1,217 @@
+// ============================================================================
+// PROJECTIONS · EXPRESSIONS
+//
+// The expression tree is where a call site's receiver, arguments and callee name
+// live, so nearly every resolution rule starts here.
+//
+// TWO COLUMNS DO MOST OF THE WORK, and they are easy to confuse:
+//
+//   edgeRole (c1)     WHAT THIS EXPRESSION IS TO ITS PARENT. RECEIVER, ARGUMENT,
+//                     METHOD_NAME, QUALIFIER, ASSIGNMENT_TARGET. This is the
+//                     structural edge label and it is how the receiver of a call is
+//                     found: the child of the INVOCATION whose role is RECEIVER.
+//   rootContext (c2)  WHERE THE WHOLE TREE IS ROOTED -- EXPRESSION_BODY,
+//                     VARIABLE_INITIALIZER, LOOP_HEADER, RETURN_VALUE. A property
+//                     of the statement, not of this node.
+//
+// A rule that filters on rootContext when it meant edgeRole silently matches every
+// node in the statement instead of one child, and the error shows up as a receiver
+// type that is right some of the time.
+//
+// referencedEntityKind (c15) / referencedEntityHash (c16) ARE A GIFT, AND PARTIAL.
+// The parser already binds a NAME_REFERENCE to the parameter, local, field,
+// property or event it names where it can do so from syntax alone. It does NOT bind
+// foreach variables, pattern bindings or query range variables, and it leaves the
+// receiver of `s.Area()` UNKNOWN even when `s` is a foreach variable declared three
+// lines up. Those are resolution/local-binding.dl's job, and the split is exactly
+// where the parser stops being able to answer without scope reasoning.
+//
+// cs_expression cols: 0 kind 1 edgeRole 2 rootContext 3 expressionOwnerKind
+//   4 expressionOwnerHash 5 parentExpressionHash 6 position 7 depth
+//   8 csTypeLinkHash 9 csModuleLinkHash 10 literalKind 11 literalValue
+//   12 operatorString 13 unaryFixity 14 methodReferenceKind 15 referencedEntityKind
+//   16 referencedEntityHash 17 anonymousDeclarationHash 18 potentialQualifiedName
+//   19 isAmbiguous 20 argumentCount 21 typeArgumentCount 22 isSpread
+//   23 isNullConditional 24 isNullForgiving 25 castTypeReferenceLinkHash
+//   26 isCheckedContext 27 returnStatementIndex 28 startLine 29 startColumn
+//   30 endLine 31 endColumn 32 isExternal 33 serviceVersionLinkHash
+//   34 csExpressionUniqueHash
+// ============================================================================
+
+// ── expr_node(Prov, Kind, EdgeRole, RootContext, ExprHash) ──────────────────
+expr_node("client", k, role, rc, e) :-
+    cs_expression(k, role, rc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+expr_node("lib", k, role, rc, e) :-
+    lib_cs_expression(k, role, rc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+expr_kind(prov, e, k) :- expr_node(prov, k, _, _, e).
+expr_role(prov, e, role) :- expr_node(prov, _, role, _, e).
+expr_root_context(prov, e, rc) :- expr_node(prov, _, _, rc, e).
+
+// ── expr_owner(Prov, OwnerHash, OwnerKind, ExprHash) ────────────────────────
+// The declaration the expression is written inside: a method, a field initializer, a
+// property, an attribute. Unlike the Java IR, C# stamps the owning METHOD directly
+// rather than the innermost block, so caller attribution is one join and not a walk.
+expr_owner("client", owner, ok, e) :-
+    cs_expression(_, _, _, ok, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+expr_owner("lib", owner, ok, e) :-
+    lib_cs_expression(_, _, _, ok, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+// ── expr_parent(Prov, ExprHash, ParentHash, Position, Depth) ────────────────
+expr_parent("client", e, p, pos, d) :-
+    cs_expression(_, _, _, _, _, p, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    p != "".
+expr_parent("lib", e, p, pos, d) :-
+    lib_cs_expression(_, _, _, _, _, p, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    p != "".
+
+// expr_child(Prov, ParentHash, Role, Position, ChildHash) -- the same edge read
+// downward, which is the direction every call rule wants: given an INVOCATION, find
+// the child whose role is RECEIVER or ARGUMENT.
+expr_child(prov, p, role, pos, e) :- expr_parent(prov, e, p, pos, _), expr_role(prov, e, role).
+
+// ── expr_type_owner(Prov, ExprHash, TypeHash) ───────────────────────────────
+// The enclosing TYPE declaration site. Empty in top-level statements, so the join
+// requires a non-empty value and containment handles the absent case.
+expr_type_owner("client", e, t) :-
+    cs_expression(_, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    t != "".
+expr_type_owner("lib", e, t) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    t != "".
+
+// ── expr_module(Prov, ExprHash, ModuleHash) ─────────────────────────────────
+// Always present. This is the file an expression is written in and the scope key the
+// library body stage uses.
+expr_module("client", e, m) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+expr_module("lib", e, m) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+// ── expr_ref_entity(Prov, ExprHash, EntityKind, EntityHash) ─────────────────
+// The parser's own binding for a name. UNKNOWN with an empty hash means "not decided
+// here", which is a request for resolution rather than a claim that it resolves to
+// nothing.
+expr_ref_entity("client", e, ek, eh) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ek, eh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    ek != "UNKNOWN", eh != "".
+expr_ref_entity("lib", e, ek, eh) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ek, eh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    ek != "UNKNOWN", eh != "".
+
+// expr_ref_unknown(Prov, ExprHash) -- a name the parser did not bind. The engine owes
+// this one an answer, and if it cannot produce one the site must say so rather than
+// disappear.
+expr_ref_unknown("client", e) :-
+    cs_expression("NAME_REFERENCE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, "UNKNOWN", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+expr_ref_unknown("lib", e) :-
+    lib_cs_expression("NAME_REFERENCE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, "UNKNOWN", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+// ── expr_written_name(Prov, ExprHash, Name) ─────────────────────────────────
+// potentialQualifiedName -- the text as written, so `Math.PI` on a MEMBER_ACCESS and
+// `Math` on its QUALIFIER child. The parser makes no claim about what it resolves to.
+expr_written_name("client", e, n) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    n != "".
+expr_written_name("lib", e, n) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    n != "".
+
+// ── expr_literal(Prov, ExprHash, LiteralKind, LiteralValue) ─────────────────
+expr_literal("client", e, lk, lv) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, lk, lv, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    lk != "NONE".
+expr_literal("lib", e, lk, lv) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, lk, lv, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    lk != "NONE".
+
+// ── expr_operator(Prov, ExprHash, OperatorString) ───────────────────────────
+// The written operator. Joined against method_operator to find a user-defined
+// overload, which is a static call the syntax does not look like.
+expr_operator("client", e, op) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    op != "".
+expr_operator("lib", e, op) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    op != "".
+
+// ── expr_arity(Prov, ExprHash, ArgumentCount, TypeArgumentCount) ────────────
+expr_arity("client", e, ac, tac) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ac, tac, _, _, _, _, _, _, _, _, _, _, _, _, e).
+expr_arity("lib", e, ac, tac) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ac, tac, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+// ── expr_method_ref(Prov, ExprHash, MethodReferenceKind) ────────────────────
+// A method GROUP used as a value: `Register(Handler)` passes the method itself, and
+// a delegate is later invoked through it. That is an edge from the eventual invoke
+// to Handler, and the group expression is where the target is named.
+expr_method_ref("client", e, mrk) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, mrk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    mrk != "NONE", mrk != "".
+expr_method_ref("lib", e, mrk) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, mrk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    mrk != "NONE", mrk != "".
+
+// ── expr_anon_decl(Prov, ExprHash, DeclarationHash) ─────────────────────────
+// A lambda or anonymous method expression links to the cs_method row that IS its
+// body. Without this join a delegate target is an expression with no method, and
+// every callback edge is lost.
+expr_anon_decl("client", e, d) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    d != "".
+expr_anon_decl("lib", e, d) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    d != "".
+
+// ── expr_cast_ref(Prov, ExprHash, TypeReferenceHash) ────────────────────────
+// The target type of a cast or `as`. A cast NARROWS a receiver's type, which is how
+// `((IFoo)x).Bar()` resolves exactly where `x.Bar()` would fan out.
+expr_cast_ref("client", e, tr) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr, _, _, _, _, _, _, _, _, e),
+    tr != "".
+expr_cast_ref("lib", e, tr) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr, _, _, _, _, _, _, _, _, e),
+    tr != "".
+
+// ── expr_null_conditional(Prov, ExprHash) ───────────────────────────────────
+// `a?.M()`. The TARGET is identical to `a.M()`; what differs is whether the call
+// happens at all. Kept as a flag so reachability can say "conditionally" without the
+// dispatch rules needing a second code path.
+expr_null_conditional("client", e) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, e).
+expr_null_conditional("lib", e) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, e).
+
+// ── expr_is_ambiguous(Prov, ExprHash) ───────────────────────────────────────
+// The parser's own declaration that a name it wrote down has more than one reading.
+// Carried through so an engine answer on an ambiguous name is never presented as
+// certain.
+expr_is_ambiguous("client", e) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+expr_is_ambiguous("lib", e) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+// ── expr_span(Prov, ExprHash, StartLine, StartColumn, EndLine, EndColumn) ───
+// The position every oracle join keys on. A runtime trace and a compiler oracle both
+// identify a call site by file and position, so this is the column set that decides
+// whether the engine's answer can be compared with anything at all.
+expr_span("client", e, sl, sc, el, ec) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, el, ec, _, _, e).
+expr_span("lib", e, sl, sc, el, ec) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, el, ec, _, _, e).
+
+// ── STRUCTURAL SHORTHANDS THE CALL RULES USE ────────────────────────────────
+// The receiver of a call: the child of the invocation whose edge role is RECEIVER.
+expr_receiver_child(prov, inv, recv) :- expr_child(prov, inv, "RECEIVER", _, recv).
+// The callee name node: the child whose role is METHOD_NAME.
+expr_method_name_child(prov, inv, nameExpr) :- expr_child(prov, inv, "METHOD_NAME", _, nameExpr).
+// Positional arguments, in order.
+expr_argument(prov, inv, pos, arg) :- expr_child(prov, inv, "ARGUMENT", pos, arg).
+// The qualifier of a dotted name: `Math` in `Math.PI`.
+expr_qualifier_child(prov, acc, q) :- expr_child(prov, acc, "QUALIFIER", _, q).
+expr_member_name_child(prov, acc, n) :- expr_child(prov, acc, "MEMBER_NAME", _, n).
+
+// A `this` or `base` receiver, recognised from the expression kind rather than from
+// the call site's receiverKind, so the two can be cross-checked.
+expr_is_this(prov, e) :- expr_kind(prov, e, "THIS_REFERENCE").
+expr_is_base(prov, e) :- expr_kind(prov, e, "BASE_REFERENCE").

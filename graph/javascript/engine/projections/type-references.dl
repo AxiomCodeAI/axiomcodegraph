@@ -13,7 +13,7 @@
 //   10 ownerLinkHash  11 resolvedTypeLinkHash  12 resolvedFilePath  13 importLinkHash
 //   14 isTypeOnly  15 isBuiltinType  16 commentLinkHash  17 ownerModuleLinkHash
 //   18 startLine  19 startColumn  20 isExternal  21 serviceVersionLinkHash
-//   22 jsTypeReferenceUniqueHash
+//   22 jsTypeReferenceUniqueHash  23 memberName (appended after the key, #651)
 // ============================================================================
 
 // ── type_ref(Prov, TypeName, RefKind, Parent, Context, OwnerKind, Owner, ResolvedFile, ImportHash, OwnerModule, RefHash) ──
@@ -21,11 +21,23 @@
 // ARRAY, UNION, NULLABLE etc. are structure around it — `?Widget` is NULLABLE with a
 // NAMED child, `Array<Widget>` is GENERIC_APPLICATION over NAMED `Array` with a NAMED
 // `Widget` argument. Descent through the structure is in resolution/reference-types.dl.
-type_ref("client", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- js_type_reference(tn, k, p, _, _, _, _, ctx, _, ok, o, _, rf, imp, _, _, _, mod, _, _, _, _, h).
-type_ref("lib", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- lib_js_type_reference(tn, k, p, _, _, _, _, ctx, _, ok, o, _, rf, imp, _, _, _, mod, _, _, _, _, h).
-type_ref_builtin("client", h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
-type_ref_builtin("lib", h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+type_ref("client", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- js_type_reference(tn, k, p, _, _, _, _, ctx, _, ok, o, _, rf, imp, _, _, _, mod, _, _, _, _, h, _).
+type_ref("lib", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- lib_js_type_reference(tn, k, p, _, _, _, _, ctx, _, ok, o, _, rf, imp, _, _, _, mod, _, _, _, _, h, _).
+type_ref_builtin("client", h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h, _).
+type_ref_builtin("lib", h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h, _).
 
 // ── type_ref_child_index(Parent, Child, ChildIndex) ─────────────────────────
-type_ref_child_index(p, h, idx) :- js_type_reference(_, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
-type_ref_child_index(p, h, idx) :- lib_js_type_reference(_, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+type_ref_child_index(p, h, idx) :- js_type_reference(_, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), p != "".
+type_ref_child_index(p, h, idx) :- lib_js_type_reference(_, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), p != "".
+
+// ── type_ref_member(Prov, MemberName, RefHash) ──────────────────────────────
+// The member a node is the type OF, when its parent is an OBJECT_TYPE (#651):
+// `module` for `@property {NormalModule} module`, `name` for `{ name: string }`.
+// Column 23, appended after the key; "" on every other node.
+type_ref_member("client", n, h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, n), n != "".
+type_ref_member("lib", n, h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, n), n != "".
+
+// ── type_ref_lines(Prov, Line, Col, RefHash) ────────────────────────────────
+// The position of a node: the only order a typedef's `@template` tags have (#691).
+type_ref_lines("client", l, c, h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, h, _).
+type_ref_lines("lib", l, c, h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, h, _).

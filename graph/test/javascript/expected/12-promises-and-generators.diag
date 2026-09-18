@@ -6,7 +6,7 @@ unresolved       lib/async.js:13:3  METHOD_CALL from  no_target
 unresolved       lib/async.js:13:3  METHOD_CALL map  no_target
 unresolved       lib/async.js:18:26  METHOD_CALL resolve  no_target
 unresolved       lib/async.js:19:29  CONSTRUCTOR_CALL Promise  no_target
-unresolved       lib/async.js:19:54  FUNCTION_CALL resolve  callee_untyped
+unresolved       lib/async.js:19:54  FUNCTION_CALL resolve  no_target
 unresolved       lib/async.js:24:3  METHOD_CALL then  member_absent
 unresolved       lib/async.js:25:3  METHOD_CALL then  no_target
 unresolved       lib/async.js:26:3  METHOD_CALL then  no_target
@@ -51,7 +51,7 @@ unresolved       lib/async.js:48:33  FUNCTION_CALL clearInterval  no_target
 unresolved       lib/async.js:48:51  FUNCTION_CALL setImmediate  no_target
 unresolved       lib/async.js:48:69  FUNCTION_CALL queueMicrotask  no_target
 unresolved       lib/async.js:48:89  METHOD_CALL nextTick  no_target
-unresolved       lib/async.js:49:24  FUNCTION_CALL res  callee_untyped
+unresolved       lib/async.js:49:24  FUNCTION_CALL res  no_target
 unresolved       lib/async.js:49:3  CONSTRUCTOR_CALL Promise  no_target
 unresolved       lib/async.js:49:3  METHOD_CALL then  no_target
 unresolved       lib/async.js:54:5  SUPER_CALL   callee_untyped

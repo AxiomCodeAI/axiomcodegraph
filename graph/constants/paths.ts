@@ -35,4 +35,7 @@ export const IR_MARKER_BY_LANGUAGE: Record<string, string> = {
   java: 'all-types.csv',
   python: 'all-python-modules.csv',
   typescript: 'all-typescript-modules.csv',
+  // C# for the same reason as Python: a file of top-level statements declares no
+  // type, so a types-based marker skips whole library shards.
+  csharp: 'all-csharp-modules.csv',
 };

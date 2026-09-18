@@ -1,0 +1,2 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	consumer [EXPRESSION] -> -
+known_edge	OBJECT_CREATION_TYPE	0	consumer [EXPRESSION] -> Node

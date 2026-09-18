@@ -1,0 +1,8 @@
+ambiguous_unknown	METHOD_TYPE_PARAM_BOUND	0	- [TYPE_PARAMETER] -> -
+ambiguous_unknown	SUPER_TYPE	0	Row [HERITAGE] -> -
+known_edge	METHOD_PARAM	0	consumer [METHOD_PARAM] -> Row
+known_edge	METHOD_PARAM	1	consumer [METHOD] -> Row
+known_edge	METHOD_TYPE_PARAM_BOUND	0	- [TYPE_PARAMETER] -> Container
+known_edge	METHOD_TYPE_PARAM_BOUND	0	- [TYPE_PARAMETER] -> Named
+known_edge	TYPE_ELEMENT	2	consumer [VARIABLE] -> Row
+known_edge	TYPE_ELEMENT	3	consumer [METHOD] -> Row

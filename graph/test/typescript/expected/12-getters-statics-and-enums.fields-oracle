@@ -1,0 +1,8 @@
+12-getters-statics-and-enums [fields]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    0.7500   (3 of 4 the compiler resolved)
+  sites 6   resolved 3 (50.0%)
+  tiers ambiguous_unknown=3  known_edge=3
+  access read=5  write=1
+  not scored: 3 rows whose target is not a client declaration
+    MISSING members#drive() READ Level#High

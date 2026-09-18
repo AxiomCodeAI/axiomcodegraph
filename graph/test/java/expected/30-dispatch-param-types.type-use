@@ -1,0 +1,13 @@
+ambiguous_unknown	METHOD_PARAM	0	probe.DispatchParams#main(String[]) [METHOD_PARAM] -> -
+known_edge	LOCAL_VARIABLE	0	probe.DispatchParams#main(String[]) [LOCAL_VARIABLE] -> probe.DispatchParams
+known_edge	METHOD_PARAM	0	probe.DispatchParams#direct(Base,Alpha) [METHOD_PARAM] -> probe.DispatchParams.Alpha
+known_edge	METHOD_PARAM	0	probe.DispatchParams#direct(Base,Alpha) [METHOD_PARAM] -> probe.DispatchParams.Base
+known_edge	METHOD_PARAM	0	probe.DispatchParams#onImpl(Impl,Beta) [METHOD_PARAM] -> probe.DispatchParams.Beta
+known_edge	METHOD_PARAM	0	probe.DispatchParams#onImpl(Impl,Beta) [METHOD_PARAM] -> probe.DispatchParams.Impl
+known_edge	METHOD_PARAM	0	probe.DispatchParams.Base#put(Alpha) [METHOD_PARAM] -> probe.DispatchParams.Alpha
+known_edge	METHOD_PARAM	0	probe.DispatchParams.Impl#put(Beta) [METHOD_PARAM] -> probe.DispatchParams.Beta
+known_edge	OBJECT_CREATION_TYPE	0	probe.DispatchParams#main(String[]) [EXPRESSION] -> probe.DispatchParams
+known_edge	OBJECT_CREATION_TYPE	0	probe.DispatchParams#main(String[]) [EXPRESSION] -> probe.DispatchParams.Alpha
+known_edge	OBJECT_CREATION_TYPE	0	probe.DispatchParams#main(String[]) [EXPRESSION] -> probe.DispatchParams.Beta
+known_edge	OBJECT_CREATION_TYPE	0	probe.DispatchParams#main(String[]) [EXPRESSION] -> probe.DispatchParams.Impl
+known_edge	SUPER_TYPE	0	probe.DispatchParams.Impl [TYPE] -> probe.DispatchParams.Base

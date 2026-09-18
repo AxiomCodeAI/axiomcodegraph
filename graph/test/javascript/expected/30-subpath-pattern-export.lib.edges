@@ -1,0 +1,10 @@
+app.js:10:1 FUNCTION_CALL main  ->  known_edge  app.js:9:1 main
+app.js:9:19 FUNCTION_CALL createApp  ->  boundary_lib  lib:src/index.js:3:1 createApp
+app.js:9:19 METHOD_CALL createApp().start  ->  boundary_lib  lib:src/index.js:2:13 start
+app.js:9:40 FUNCTION_CALL alpha  ->  boundary_lib  lib:lib/feat/alpha.js:2:17 alpha
+app.js:9:49 FUNCTION_CALL beta  ->  boundary_lib  lib:lib/feat/beta-exact.js:2:16 betaExact
+app.js:9:57 FUNCTION_CALL gamma  ->  boundary_lib  lib:lib/feat/gamma.js:2:17 gammaCjs
+app.js:9:66 METHOD_CALL internal.secret  ->  ambiguous_unknown  -
+app.js:9:85 METHOD_CALL nested.x  ->  ambiguous_unknown  -
+app.mjs:3:1 FUNCTION_CALL gamma  ->  boundary_lib  lib:lib/feat/gamma.mjs:1:1 gamma
+app.mjs:3:10 FUNCTION_CALL alpha  ->  boundary_lib  lib:lib/feat/alpha.js:2:17 alpha

@@ -1,0 +1,12 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	exec [EXPRESSION] -> -
+known_edge	METHOD_PARAM	1	Sink [TYPE] -> Payload
+known_edge	METHOD_PARAM	1	exec [METHOD_PARAM] -> Sink
+known_edge	METHOD_RETURN	0	MakerConstructor [METHOD] -> Made
+known_edge	METHOD_RETURN	0	exec [METHOD] -> Made
+known_edge	METHOD_TYPE_ARGUMENT	0	exec [EXPRESSION] -> Payload
+known_edge	OBJECT_CREATION_TYPE	0	exec [EXPRESSION] -> Payload
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	TYPE_ARGUMENT	1	exec [METHOD] -> Payload
+known_edge	TYPE_ELEMENT	1	exec [METHOD_PARAM] -> Payload
+known_edge	VARIABLE_TYPE	0	globals [VARIABLE] -> MakerConstructor

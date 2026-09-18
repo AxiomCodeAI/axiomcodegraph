@@ -1,0 +1,7 @@
+13-receiver-forms [fields]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 6   resolved 4 (66.7%)
+  tiers ambiguous_unknown=2  known_edge=4
+  access read=6
+  not scored: 2 rows whose target is not a client declaration

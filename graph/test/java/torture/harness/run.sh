@@ -27,7 +27,8 @@ command -v javac >/dev/null || { echo "SKIP: no javac"; exit 77; }
 rm -rf .work && mkdir -p .work/{lib-classes,client-classes,oracle-classes,emptylib}
 javac -g -d .work/lib-classes $(find lib -name '*.java') 2>.work/javac.log || { echo "FAIL (javac lib)"; cat .work/javac.log; exit 1; }
 javac -g -d .work/client-classes -cp .work/lib-classes $(find client -name '*.java') 2>>.work/javac.log || { echo "FAIL (javac client)"; cat .work/javac.log; exit 1; }
-javac -d .work/oracle-classes "$TOOLS/ClassFileOracle.java" 2>>.work/javac.log || { echo "SKIP: ClassFileOracle needs a JDK with java.lang.classfile"; exit 77; }
+. "$TOOLS/oracle-build.sh"
+ORACLE_FLAGS="$(oracle_build .work/oracle-classes .work/javac.log)" || { echo "SKIP: ClassFileOracle does not compile on this JDK"; exit 77; }
 
 # ── IR: the two halves are parsed SEPARATELY, which is what makes dep.* a library ──────────────
 node "$PARSER" lib    torture-lib    false .work/lib-ir    >.work/parse-lib.log 2>&1 || { echo "FAIL (parse lib)"; exit 1; }
@@ -40,19 +41,44 @@ node "$PARSER" client torture-client false .work/client-ir >.work/parse-client.l
 # is the same fault the corpus harness had (#163), and it manufactures exactly the same fake
 # backlog, so the platform IR is staged here too and its absence is stated rather than absorbed.
 LIBROOT=".work/libroot"; mkdir -p "$LIBROOT"; ln -sfn "$(cd .work/lib-ir && pwd)" "$LIBROOT/torture-stub"
-JDK_IR="${AXIOM_JDK_IR:-/Users/swapnilpaliwal/Documents/AxiomCode/jdk}"
+# NO DEFAULT. This used to fall back to an absolute path in one developer's home
+# directory, so everyone else silently took the no-platform-IR branch below (#913).
+JDK_IR="${AXIOM_JDK_IR:-}"
 jdk_mods=0
-if [ -d "$JDK_IR" ]; then
+if [ -n "$JDK_IR" ] && [ -d "$JDK_IR" ]; then
   for d in "$JDK_IR"/*/; do
     [ -f "$d/all-types.csv" ] || continue
     ln -sfn "${d%/}" "$LIBROOT/$(basename "${d%/}")"; jdk_mods=$((jdk_mods+1))
   done
 fi
 if [ "$jdk_mods" = 0 ]; then
-  echo "!! no platform IR at $JDK_IR — java.util.List, Map and the functional interfaces are NOT"
-  echo "   staged, so every receiver typed through one of them is unresolvable by construction and"
-  echo "   this score measures the staging, not the rules. Set AXIOM_JDK_IR."
+  # SKIP, do not diff. The comment above says this score measures the staging rather
+  # than the rules, and a meaningless number compared against a golden is worse than no
+  # number: it arrives as 15 ambiguous_unknown rows that read exactly like an engine
+  # regression. Same exit 77 the oracle-compile check uses.
+  echo "SKIP: no platform IR. java.util.List, Map and the functional interfaces would not be"
+  echo "      staged, so every receiver typed through one of them is unresolvable by"
+  echo "      construction and the score would measure the staging, not the rules."
+  echo "      Set AXIOM_JDK_IR to a tree built by graph/test/java/tools/build-jdk-ir.sh."
+  exit 77
 fi
+
+# ── THE GOLDEN IS PINNED TO A PLATFORM IR, so say which one ──────────────────────────
+# The golden embeds JDK type names, so a different platform IR legitimately produces a
+# different one. Until this stamp, that arrived as an engine diff. The committed golden
+# carried java.util.Entry#getValue(), a qualified name that exists in no JDK, because it
+# was blessed against an IR that dropped the outer class from a nested type and nobody
+# else could run the harness to notice.
+#
+# The identity is the module set plus the parser revision that extracted it, which is
+# what build-jdk-ir.sh already stamps into the tree.
+platform_id(){
+  { for d in "$JDK_IR"/*/; do [ -f "$d/all-types.csv" ] && basename "${d%/}"; done | sort
+    cat "$JDK_IR/.parser-revision" 2>/dev/null | head -1
+  } | shasum | cut -d' ' -f1
+}
+PLATFORM_ID="$(platform_id)"
+PLATFORM_STAMP="expected/.platform-ir"
 
 bash "$ENG/graph/pipeline/run-souffle.sh" --debug --client-ir .work/client-ir --library "$LIBROOT" \
      --intermediate .work/int --output .work/out >.work/solve.log 2>&1 || { echo "FAIL (solve)"; tail -5 .work/solve.log; exit 1; }
@@ -62,7 +88,7 @@ python3 "$TOOLS/coverage_guard.py" .work/client-ir .work/out/raw >.work/coverage
   echo "FAIL (silent drop)"; sed 's/^/    /' .work/coverage.txt; exit 1; }
 
 # ── ground truth, and the score ────────────────────────────────────────────────────────────────
-java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
+java $ORACLE_FLAGS -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
      > .work/oracle.edges 2>/dev/null
 python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out/raw --client-pairs > .work/engine.pairs 2>/dev/null
 python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out/raw "$LIBROOT" > .work/actual.edges 2>/dev/null
@@ -75,9 +101,9 @@ python3 harness/score.py .work/client-ir .work/out/raw .work/engine.pairs .work/
 # directory named `fixtures` scored zero. Both are invisible at corpus scale — a wrong denominator
 # among tens of thousands reads exactly like a right one. Here the answer is known, so the report
 # is a golden.
-java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
+java $ORACLE_FLAGS -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
      > .work/scale-lb.txt 2>/dev/null
-java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only --envelope \
+java $ORACLE_FLAGS -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only --envelope \
      > .work/scale-ub.txt 2>/dev/null
 python3 "$TOOLS/score_scale.py" .work/client-ir .work/out/raw .work/scale-lb.txt .work/scale-ub.txt \
      > .work/actual.scale 2>&1
@@ -113,6 +139,27 @@ if [ "$jdk_mods" -gt 0 ]; then
     echo "     Suspect the LIBRARY-FACTS CACHE first — a false hit serves another library's facts:"
     echo "       rm -rf \"\${AXIOM_SOUFFLE_CACHE:-$ENG/.souffle-cache}\"/libfacts-*"
     exit 1
+  fi
+fi
+
+# The stamp check comes BEFORE the diffs, because a platform-IR mismatch explains every
+# one of them and reporting it as an engine change wastes the reader's time.
+if [ "$BLESS" = 1 ]; then
+  printf '%s\n' "$PLATFORM_ID" > "$PLATFORM_STAMP"
+else
+  want="$(cat "$PLATFORM_STAMP" 2>/dev/null || true)"
+  if [ -z "$want" ]; then
+    echo "SKIP: the golden carries no platform-IR stamp, so it cannot be compared against"
+    echo "      this one. Re-bless it on a machine whose platform IR you intend to pin."
+    exit 77
+  fi
+  if [ "$want" != "$PLATFORM_ID" ]; then
+    echo "SKIP: the golden was blessed against a DIFFERENT platform IR."
+    echo "      golden $want"
+    echo "      here   $PLATFORM_ID ($jdk_mods modules from \$AXIOM_JDK_IR)"
+    echo "      The golden embeds JDK type names, so every row that mentions one would"
+    echo "      differ for that reason alone. This is not an engine change."
+    exit 77
   fi
 fi
 

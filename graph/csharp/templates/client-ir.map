@@ -1,0 +1,27 @@
+# Soufflé input-relation -> client IR CSV basename (the file staged as that relation's facts).
+# One relation per line: <relation><TAB><csv-basename>  (no extension handling here).
+# All 22 relations of the frozen C# fact schema (parser/src/schema/csharp/CSHARP-FACT-SCHEMA.md).
+# A relation whose CSV is absent from a given IR directory is simply not staged (run-souffle.sh
+# writes it empty), so a project with no attributes, no LINQ and no #if still solves.
+cs_attribute	all-csharp-attributes
+cs_attribute_argument	all-csharp-attribute-arguments
+cs_block	all-csharp-blocks
+cs_call_site	all-csharp-call-sites
+cs_comment	all-csharp-comments
+cs_enum_member	all-csharp-enum-members
+cs_event	all-csharp-events
+cs_expression	all-csharp-expressions
+cs_field	all-csharp-fields
+cs_method	all-csharp-methods
+cs_method_parameter	all-csharp-method-parameters
+cs_module	all-csharp-modules
+cs_parse_gap	all-csharp-parse-gaps
+cs_preproc_region	all-csharp-preproc-regions
+cs_property	all-csharp-properties
+cs_query_clause	all-csharp-query-clauses
+cs_type	all-csharp-types
+cs_type_heritage	all-csharp-type-heritages
+cs_type_parameter	all-csharp-type-parameters
+cs_type_reference	all-csharp-type-references
+cs_using	all-csharp-usings
+cs_variable	all-csharp-variables

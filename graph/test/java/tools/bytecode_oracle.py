@@ -8,7 +8,7 @@ contaminated by another tool's resolution choices — and anyone can audit it wi
 
 Emitted form (same conventions as normalize_edges.py, so the two are directly comparable):
     Caller#name(params) -> Callee#name(params)
-  * nested types flattened to `pkg.SimpleName` (accepted convention, matches the IR)
+  * nested types named by their dotted chain, `pkg.Outer.Inner` (the IR's qualifiedName form)
   * anonymous classes keyed by SUPERTYPE (`Outer$anon:Runnable`), never by javac's numbering
   * a callee is re-pointed to the class that DECLARES the method (walking extends/implements),
     because bytecode names the receiver's static type
@@ -259,6 +259,15 @@ def main():
             if p in seen: continue
             seen.add(p); out.append(p); out.extend(ancestors(p, seen))
         return out
+    def chain(c):
+        # The binary name's `$`-separated tail is the nesting chain; javac prefixes a LOCAL class
+        # (declared inside a method body) with an index: `class Local {}` inside a method compiles
+        # to Outer$1Local. The index is a compiler artefact — the source name is `Local` — so strip
+        # it, or every local class reads as a different type on the two sides.
+        pkg = c[:c.rindex('.')] if '.' in c else ''
+        parts = [re.sub(r'^\d+(?=[A-Za-z_$])', '', p) for p in c.split('.')[-1].split('$')]
+        dotted = '.'.join(parts)
+        return f"{pkg}.{dotted}" if pkg else dotted
     anon = {}
     for c in sorted(app):
         if c.split('$')[-1].isdigit():
@@ -270,21 +279,12 @@ def main():
             # no separate source type. Map it back to the enum so the two sides agree; keying it as
             # `$anon:Op` would report every enum-constant method as a caller mismatch.
             if sp in is_enum:
-                anon[c] = (f"{pkg}." if pkg else '') + sp.split('.')[-1].split('$')[-1]
+                anon[c] = chain(sp)
             else:
-                anon[c] = f"{(pkg + '.') if pkg else ''}{c.split('$')[0].split('.')[-1]}$anon:{sp.split('.')[-1].split('$')[-1]}"
+                anon[c] = f"{chain(c.rsplit('$', 1)[0])}$anon:{sp.split('.')[-1].split('$')[-1]}"
     def cname(c):
         if c in anon: return anon[c]
-        if c in app:
-            pkg = c[:c.rindex('.')] if '.' in c else ''
-            simple = c.split('.')[-1].split('$')[-1]
-            # javac prefixes a LOCAL class (declared inside a method body) with an index:
-            # `class Local {}` inside a method compiles to Outer$1Local. The index is a compiler
-            # artefact — the source name is `Local` — so strip it, or every local class reads as a
-            # different type on the two sides.
-            m2 = re.match(r'^\d+([A-Za-z_$].*)$', simple)
-            if m2: simple = m2.group(1)
-            return f"{pkg}.{simple}" if pkg else simple
+        if c in app: return chain(c)
         return c
     SYN = re.compile(r'^(access\$\d+|\$values|values|valueOf|\$deserializeLambda\$)$')
     BOX = re.compile(r'^java\.lang\.(Integer|Long|Short|Byte|Character|Boolean|Double|Float)$')

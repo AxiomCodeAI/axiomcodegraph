@@ -1,0 +1,7 @@
+40-explicit-type-argument [types]
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 the compiler resolved)
+  sites 7   resolved 7 (100.0%)
+  tiers known_edge=7
+  contexts METHOD_TYPE_ARGUMENT=4  OBJECT_CREATION_TYPE=2  VARIABLE_TYPE=1
+  not scored: 0 rows whose target is not a client declaration

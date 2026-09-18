@@ -1,0 +1,7 @@
+47-for-of-tuple-destructuring [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 2   resolved 2 (100.0%)
+  tiers known_edge=2
+  contexts TYPE_ELEMENT=2
+  not scored: 0 rows whose target is not a client declaration

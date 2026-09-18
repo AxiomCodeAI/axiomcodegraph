@@ -1,0 +1,3 @@
+main.js:7:26 CONSTRUCTOR_CALL Client  ->  implicit_constructor  -
+main.js:7:26 METHOD_CALL new Client().send  ->  ambient_terminal  -
+main.js:7:26 METHOD_CALL new Client().send  ->  boundary_lib  lib:dist/api.js:4:16 send

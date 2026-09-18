@@ -10,6 +10,9 @@ bash graph/pipeline/run-souffle.sh --language python \
 
 Regression suite: `test/python/run-tests.sh` (12 cases, CPython-built ground truth).
 Fast local guard before a compile: `python3 test/python/tools/check_arity.py`.
+Runtime oracle: `test/python/runtime-oracle/` runs a real project's own test suite under
+`sys.setprofile` and joins what RAN against what the engine said, per call site. The
+bytecode oracle answers what the compiler wrote down; that one answers what ran.
 
 ## Layers, in dependency order
 
