@@ -1,0 +1,5 @@
+app:
+  gate:
+    enabled: true
+  local:
+    mode: fast
