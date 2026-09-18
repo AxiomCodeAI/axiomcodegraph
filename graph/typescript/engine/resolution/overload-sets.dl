@@ -70,6 +70,33 @@ call_runs_method(ce, impl) :- expr_resolves_to_method(ce, m),
     method_group_of(m, g),
     group_implementation(g, impl).
 
+// ── …AND THE FIELD WHOSE ANNOTATION DECLARED THE SIGNATURE ──────────────────
+// `produce: IProduce = (base, recipe) => { ... }`. The selection is the call signature
+// the ANNOTATION carries, and that is right: callee-resolution.dl:212 gates
+// field_arrow_callable on the field being unannotated precisely because the compiler
+// resolves such a call to the annotation, and adding the arrow beside it there was
+// measured to turn exact sites into supersets.
+//
+// But NOTHING then re-points it. An overload signature has an IMPLEMENTATION row in its
+// group; a field's call signature has no group at all, so `call_runs_method` was silent
+// and a consumer asking what runs at the site got a declaration with no body while the
+// body sat in the same declaration. This is the same question the clause above answers,
+// asked of the other way a bodiless target can be selected.
+//
+// SELECTION IS UNTOUCHED. This feeds the call-edge layer only, never expr_call_candidate,
+// so the tier and the targets in call_edges are exactly what they were.
+call_runs_method(ce, impl) :- expr_resolves_to_method(ce, m),
+    method_body_presence(m, bp),
+    body_presence_is_signature(bp),
+    call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    field_in_scope(rt, cn, _, f),
+    field_type_ref(_, _, f),
+    field_initializer(prov, ie, f),
+    expr_anon_decl(prov, impl, ie).
+
 // ── call_target_is_ambient(CallExprHash) ────────────────────────────────────
 // The chain ends here and that is the right answer. Classified rather than left as a
 // gap, because a report that counts `fs.readFile` as an unresolved call site is
