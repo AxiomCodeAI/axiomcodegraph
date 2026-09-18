@@ -1,0 +1,30 @@
+# The JavaScript runtime-oracle subjects — the DEFINITION, not a description of one.
+#
+# A subject qualifies only if it brings its OWN test suite. The suite is the driver:
+# a workload written for this measurement, by someone who had already seen the
+# engine's output, would be measuring the author rather than the program.
+#
+# ── FIELDS ───────────────────────────────────────────────────────────────────
+#   name  set  commit  test  note
+# `test` is the command run inside the instrumented mirror. `note` is last and may
+# contain spaces.
+#
+# ── SET ──────────────────────────────────────────────────────────────────────
+# dev      designed against. A rule may be derived from what these projects show.
+# holdout  DESIGN-BLIND. Measured, never used to derive a rule. When it surfaces a
+#          defect class, the shape is reproduced under cases/ and the rule designed
+#          from that, never from the held-out site itself.
+#
+# ── THE INTEGRITY CHECK IS PART OF THE MEASUREMENT ──────────────────────────
+# The instrumented suite must produce the SAME pass/fail counts as the untouched
+# one. A rewrite that changes what the program does is measuring a different
+# program, and the failure mode is silent: the trace still looks complete. The
+# baseline counts are recorded here so a drift is visible rather than inferred.
+#
+# ── WHERE THE CLONES LIVE ────────────────────────────────────────────────────
+# $JS_RUNTIME, defaulting to ~/.cache/axiom-js-runtime. Deliberately NOT /tmp: the
+# TypeScript corpus was kept there and the system reaper removed every source file
+# from all nine projects mid-session.
+#
+# ── name    set      commit   test              note
+axios       dev      56a5f1a  npx vitest run    1075 tests, 1 failed, instrumented and not. 13,975 sites, 3,230 executed, 896 of them production. ESM, "type": "module", and the suite drives node and fetch adapters both

@@ -43,9 +43,14 @@ rm -rf "$MIRROR" "$TABLES" "$TRACE"
 mkdir -p "$MIRROR" "$TABLES" "$TRACE"
 
 echo "▶ $NAME: mirroring"
-# -a keeps mtimes so the test runner's own caches stay valid; node_modules and
-# .git are excluded and node_modules is symlinked back in.
-rsync -a --exclude node_modules --exclude .git --exclude coverage --exclude dist \
+# -a keeps mtimes so the test runner's own caches stay valid. ONLY node_modules and
+# .git are left out, and node_modules is symlinked back in: the mirror has to be the
+# program, and what to REWRITE is the instrumenter's decision, not the copy's. Leaving
+# `dist` out of the copy costs two koa tests, which load `dist/koa.mjs` and fail with
+# ERR_MODULE_NOT_FOUND -- a missing build product reads exactly like a tracer defect,
+# and the integrity check cannot tell the two apart. The instrumenter skips `dist` by
+# name, so the built artefact is present and untouched.
+rsync -a --exclude node_modules --exclude .git \
       "$PROJECT"/ "$MIRROR"/
 [ -d "$PROJECT/node_modules" ] && ln -s "$PROJECT/node_modules" "$MIRROR/node_modules"
 
