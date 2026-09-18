@@ -1,0 +1,2 @@
+ambiguous_unknown	read	TypeQualifiedStatics#main(String[]) -> -
+ambiguous_unknown	read	TypeQualifiedStatics#viaNestedType(String) -> -

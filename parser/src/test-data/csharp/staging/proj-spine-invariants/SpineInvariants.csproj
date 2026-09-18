@@ -1,0 +1,32 @@
+<!-- DISCRIMINATORS FOR SPINE INVARIANTS.
+     A spine invariant is one assertion over cs_expression / cs_call_site that
+     holds for every row regardless of construct. The first is span
+     containment: every child expression's span lies inside its parent's —
+     child.start >= parent.start && child.end <= parent.end for every row with a
+     parentExpressionHash. cs-oracle derived it from the CS-CORPUS-22 ruling and
+     it would have caught all three wrong answers that finding produced without
+     anyone knowing the construct existed.
+
+     An invariant needs something that FAILS when it regresses. Each file here
+     is arranged so that every wrong span answer already seen — ending at `)`
+     instead of `}`, at the type name instead of `)`, at the string's opening
+     quote instead of its closing one — puts at least one child outside its
+     parent. The principle: every wrapper carries a child in the last syntactic
+     segment a short span would omit. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- a successful build is the expected outcome -->
+    <CsFixtureCompiles>true</CsFixtureCompiles>
+    <CsFixtureVerifiable>true</CsFixtureVerifiable>
+    <CsFixtureRole>spine-invariant-discriminator</CsFixtureRole>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants></DefineConstants>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Fixtures.SpineInvariants</AssemblyName>
+    <RootNamespace>Fixtures.SpineInvariants</RootNamespace>
+    <NoWarn>$(NoWarn);CS0219;CS1998</NoWarn>
+  </PropertyGroup>
+</Project>

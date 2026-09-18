@@ -1,0 +1,2 @@
+known_edge	read	main#getDog() -> Zoo#dog
+known_edge	read	main#getDogPlain() -> Zoo#dog

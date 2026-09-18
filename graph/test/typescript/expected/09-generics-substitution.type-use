@@ -1,0 +1,6 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	generic [EXPRESSION] -> -
+known_edge	METHOD_RETURN	0	Box [METHOD] -> Box
+known_edge	METHOD_TYPE_ARGUMENT	0	generic [EXPRESSION] -> Item
+known_edge	OBJECT_CREATION_TYPE	0	Box [EXPRESSION] -> Box
+known_edge	OBJECT_CREATION_TYPE	0	generic [EXPRESSION] -> Box
+known_edge	OBJECT_CREATION_TYPE	0	generic [EXPRESSION] -> Item

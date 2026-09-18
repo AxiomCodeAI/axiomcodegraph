@@ -1,0 +1,7 @@
+19-receiver-forms
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 in the bytecode)
+  sites 4   resolved 2 (50.0%)
+  tiers ambiguous_unknown=2  known_edge=2
+  access read=3  write=1
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

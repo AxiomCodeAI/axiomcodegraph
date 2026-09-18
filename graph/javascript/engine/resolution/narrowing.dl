@@ -1,0 +1,106 @@
+// ============================================================================
+// Resolution · NARROWING  (what a guard says about its subject)
+//
+// `if (doc instanceof Document) { doc.toObject(); }`,
+// `doc instanceof Document ? doc.toObject() : doc`,
+// `if (!(x instanceof C)) return; x.run();`
+//
+// The subject of an `instanceof` test is, wherever the test is true, an instance of
+// the tested class: a value the engine can name (#687). A callback parameter over an
+// untyped array, or a parameter every caller passes an unknown object to, holds
+// nothing otherwise, and the guarded call was receiver_untyped where the compiler
+// names the class's member.
+//
+// FLOW-INSENSITIVE, like every binding value here: the class is added to the
+// subject for the whole enclosing function, not the branch only, which is why the
+// negated guard and the early-return form need no rule of their own. It ADDS a
+// value and removes none, so it is a sound superset; where the subject already
+// resolves the added class is either the same one or one more target beside it.
+// The TypeScript engine's rule (#585) is the same shape gated on a top declared
+// type; JavaScript has no declared type to gate on. `this` is never narrowed: its
+// value is the class it is written in.
+//
+// The tested class is the right operand's VALUE (a class, a constructor function,
+// a module whose default export is one), so an imported class works as any other.
+// A platform class (`value instanceof Date`, `err instanceof Error`) makes the
+// subject the platform's, so `value.getTime()` is an ambient terminal; `Object` and
+// `Function` are left out, since everything is one and the ambient row would sit
+// beside every project target the subject has.
+// ============================================================================
+
+instanceof_test(subj, t) :- expr_kind(_, "BINARY", _, be), expr_operator(_, "instanceof", be),
+    expr_child(_, be, "OPERAND", "0", subj), expr_child(_, be, "OPERAND", "1", c),
+    expr_value(c, k, i), constructible_value(k, i, t).
+// A parameter or a variable subject.
+param_value(p, "inst", t) :- instanceof_test(s, t), expr_param(_, p, s).
+var_value(v, "inst", t) :- instanceof_test(s, t), expr_binding(_, v, s).
+// A MEMBER subject (`concat.rootModule instanceof NormalModule`) is left alone: the
+// member usually has a declared type already (`@param {Module} rootModule`), the
+// guard names a subclass of it, and writing the subclass onto the member widened
+// five exact webpack sites into supersets for no miss recovered. A member subject
+// wants the branch, not the function, and that is a flow-sensitive rule.
+instanceof_ambient_test(subj, n) :- expr_kind(_, "BINARY", _, be), expr_operator(_, "instanceof", be),
+    expr_child(_, be, "OPERAND", "0", subj), expr_child(_, be, "OPERAND", "1", c),
+    expr_value(c, "ambient", n), !instanceof_umbrella(n).
+instanceof_umbrella("Object").
+instanceof_umbrella("Function").
+param_value(p, "ambient", n) :- instanceof_ambient_test(s, n), expr_param(_, p, s).
+var_value(v, "ambient", n) :- instanceof_ambient_test(s, n), expr_binding(_, v, s).
+
+// ── `typeof x === 'string'` and `Array.isArray(x)` type the subject IN THE GUARDED
+// REGION (#701) ─────────────────────────────────────────────────────────────
+// `typeof path === 'string' ? path.split('.') : path`, `typeof p === 'string' &&
+// p.startsWith(base)`, `if (typeof paths === 'string') { paths = paths.split(' '); }`.
+// Unlike the instanceof rule above this is FLOW-SENSITIVE: the value goes on the
+// REFERENCES of the subject inside the guarded region (the ternary's true branch,
+// the right operand of `&&`, the `if` body by its block span), never on the binding.
+// Measured the other way first: a whole-function `("ambient", "LITERAL")` on the
+// subject spread through every read, call and return of a few hundred mongoose
+// parameters and took the solve from 13 s to minutes; a per-test `arr` identity
+// on the binding for Array.isArray ran away. On the references the facts are one
+// per guarded use and nothing else moves.
+//
+// The guard may be one conjunct of an `&&` condition (`typeof a === 'string' &&
+// a.length > 0 && a.startsWith(x)`): a test inside a conjunction guards the
+// conjuncts to its right and the branch the conjunction selects.
+typeof_guard(g, b) :- expr_kind(_, "BINARY", _, g), expr_operator(_, op, g), typeof_eq_op(op),
+    expr_child(_, g, "OPERAND", _, u), expr_kind(_, "UNARY", _, u), expr_operator(_, "typeof", u), expr_child(_, u, _, _, subj),
+    expr_child(_, g, "OPERAND", _, lit), expr_value(lit, "str", prim), typeof_primitive(prim),
+    subject_binding(subj, b).
+typeof_eq_op("===").
+typeof_eq_op("==").
+typeof_primitive("string").
+typeof_primitive("number").
+typeof_primitive("boolean").
+is_array_guard(g, b) :- expr_kind(_, "CALL", _, g), call_site(_, "METHOD_CALL", "isArray", _, _, _, g, _, _),
+    expr_child(_, g, "RECEIVER", _, r), expr_value(r, "ambient", "Array"), call_arg(g, 0, subj), subject_binding(subj, b).
+subject_binding(e, cat("v:", v)) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e).
+subject_binding(e, cat("p:", p)) :- expr_kind(_, "IDENTIFIER", _, e), expr_param(_, p, e).
+// A guard, or a conjunction the guard sits in, selects a region.
+guard_test(g, g) :- typeof_guard(g, _).
+guard_test(g, g) :- is_array_guard(g, _).
+guard_test(g, c) :- guard_test(g, c0), expr_child(_, c, "OPERAND", _, c0), expr_kind(_, "BINARY", _, c), expr_operator(_, "&&", c).
+// The region: the conjunct to the right of the guard; the ternary's true branch;
+// the `if` body. Expression regions are walked from their root; the `if` body is
+// its block's span.
+region_root(g, r) :- guard_test(g, c), expr_child(_, p, "OPERAND", "0", c), expr_kind(_, "BINARY", _, p), expr_operator(_, "&&", p),
+    expr_child(_, p, "OPERAND", "1", r).
+region_root(g, r) :- guard_test(g, c), expr_child(_, p, "CONDITION", _, c), expr_kind(_, "CONDITIONAL", _, p),
+    expr_child(_, p, "OPERAND", "1", r).
+region_expr(g, e) :- region_root(g, e).
+region_expr(g, e) :- region_expr(g, p), expr_child(_, p, _, _, e).
+region_block(g, body) :- guard_test(g, c), block_condition(_, "IF", c, blk), block_child(_, blk, "BLOCK", "0", body).
+// The subject's references in the region: by expression descent, or by the block's
+// span (a block declares no scope of its own unless it binds something).
+narrowed_ref(g, e) :- typeof_guard(g, b), subject_binding(e, b), region_expr(g, e).
+narrowed_ref(g, e) :- is_array_guard(g, b), subject_binding(e, b), region_expr(g, e).
+narrowed_ref(g, e) :- typeof_guard(g, b), subject_binding(e, b), region_block(g, body), expr_in_block(e, body).
+narrowed_ref(g, e) :- is_array_guard(g, b), subject_binding(e, b), region_block(g, body), expr_in_block(e, body).
+expr_in_block(e, body) :- subject_binding(e, b), guarded_binding(b), expr_owner(_, _, mod, e), expr_span(_, l, c, _, _, e),
+    block_span(_, mod, l1, c1, l2, c2, body), region_block(_, body),
+    (to_number(l) > to_number(l1) ; to_number(l) = to_number(l1), to_number(c) >= to_number(c1)),
+    (to_number(l) < to_number(l2) ; to_number(l) = to_number(l2), to_number(c) <= to_number(c2)).
+guarded_binding(b) :- typeof_guard(_, b).
+guarded_binding(b) :- is_array_guard(_, b).
+expr_value(e, "ambient", "LITERAL") :- narrowed_ref(g, e), typeof_guard(g, _).
+expr_value(e, "arr", g) :- narrowed_ref(g, e), is_array_guard(g, _).

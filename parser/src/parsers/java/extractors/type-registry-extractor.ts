@@ -218,6 +218,7 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
       // Extract imports and package at file level
       const { importMap, hasStarImports } = this.extractImports(rootNode);
       const packageName = this.extractPackageDeclaration(rootNode);
+      this.addFileLocalTypes(rootNode, importMap);
 
       this.extractTypes(rootNode, filePath, basePath, fileName, serviceVersionHash, packageName, importMap, hasStarImports, types);
 
@@ -644,6 +645,32 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   }
 
   /**
+   * Adds the file's own type declarations to the import map, keyed by simple name, so that a
+   * potentialQualifiedName guessed for a name declared in this file carries the nesting chain.
+   *
+   * The guess in resolveTypeQualifiedName is otherwise package + written name: `Inner` inside
+   * `Outer` becomes `pkg.Inner`, and `Inner.this` or `Inner.CONST` then names a type that does
+   * not exist once a nested type is registered as `pkg.Outer.Inner`. A name declared exactly
+   * once in the file is unambiguous; one declared twice (two nested `Builder`s) is left out, and
+   * an explicit single-type import keeps its entry, so the map never overrides what the source
+   * named outright.
+   */
+  private addFileLocalTypes(rootNode: Parser.SyntaxNode, importMap: Map<string, string>): void {
+    const declared = new Map<string, string | null>();
+    const visit = (node: Parser.SyntaxNode): void => {
+      if (this.isTypeDeclaration(node)) {
+        const name = this.extractTypeName(node);
+        if (name) declared.set(name, declared.has(name) ? null : this.extractQualifiedName(node));
+      }
+      for (const child of node.children) visit(child);
+    };
+    visit(rootNode);
+    for (const [name, qualifiedName] of declared) {
+      if (qualifiedName && !importMap.has(name)) importMap.set(name, qualifiedName);
+    }
+  }
+
+  /**
    * Extracts the import path from an import_declaration node
    * Handles: import java.util.List; → "java.util.List"
    * Handles: import java.util.*; → "java.util.*"
@@ -814,7 +841,7 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
     //
     // This is the label only. Identity is the position-derived hash assigned by the caller from
     // `anonClass.anonymousTypeHash`, so two anonymous classes sharing a supertype remain distinct
-    // rows, exactly as two nested types sharing a flattened name do.
+    // rows, exactly as two local classes sharing a name in different methods do.
     const supertype = this.anonymousSupertypeKey(anonClass.baseTypeName);
     const enclosingSimpleName = enclosingQualifiedName.split('.').pop() || 'Anonymous';
     const name = `${enclosingSimpleName}$anon:${supertype}`;
@@ -853,12 +880,31 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   }
 
   /**
-   * Extracts the fully qualified name of a type
+   * The fully qualified name of a type declaration: the package, then every enclosing named
+   * type from the outermost in, then the type's own name (`pkg.Outer.Mid.Inner`).
+   *
+   * A nested type used to be named by package and simple name alone (`pkg.Inner`), which made
+   * every `Builder` in a package the same string, made `Map.Entry` register as `java.util.Entry`
+   * beside anything else called Entry, and left `import static pkg.Outer.Inner.m` with nothing
+   * to join against. The dotted form is what Java source writes and what an import names; a
+   * consumer that needs the JVM binary name replaces the separators after the package with `$`,
+   * which is exactly what the config-resolution rules do for `pkg.Outer$Inner` values.
+   *
+   * A local class (declared in a method body) chains through its enclosing types too. Two local
+   * classes of one name in different methods then share a qualifiedName; identity is the
+   * position-derived hash, so the rows stay distinct.
    */
   private extractQualifiedName(node: Parser.SyntaxNode): string {
     const packageName = this.extractPackageName(node);
     const typeName = this.extractTypeName(node) || 'Unknown';
-    return packageName ? `${packageName}.${typeName}` : typeName;
+    const segments = [typeName];
+    for (let current = node.parent; current; current = current.parent) {
+      if (!this.isTypeDeclaration(current)) continue;
+      const enclosingName = this.extractTypeName(current);
+      if (enclosingName) segments.unshift(enclosingName);
+    }
+    const chain = segments.join('.');
+    return packageName ? `${packageName}.${chain}` : chain;
   }
 
   /**

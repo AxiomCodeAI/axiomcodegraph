@@ -1,0 +1,7 @@
+48-default-export-of-qualified-expression [fields]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 2   resolved 0 (0.0%)
+  tiers ambiguous_unknown=2
+  access read=2
+  not scored: 2 rows whose target is not a client declaration

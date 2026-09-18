@@ -1,0 +1,7 @@
+15-cross-file-same-package
+  precision 1.0000   (8 correct, 0 wrong)
+  recall    1.0000   (8 of 8 in the bytecode)
+  references 10   resolved 8 (80.0%)
+  tiers ambiguous_unknown=2  known_edge=8
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=1  FIELD_TYPE=2  IMPLEMENTS_INTERFACE=1  LOCAL_VARIABLE=1  METHOD_PARAM=2  OBJECT_CREATION_TYPE=3

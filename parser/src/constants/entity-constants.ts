@@ -142,4 +142,36 @@ export const ENTITY_IDENTIFIERS = {
   JS_COMMENT: 'JS_COMMENT',
   JS_PARSE_GAP: 'JS_PARSE_GAP',
   JS_PACKAGE_ENTRY: 'JS_PACKAGE_ENTRY',
+
+  // ------------------------------------------------------------------- C#
+  // One prefix per PK, and the list doubles as the FK chain: CS_MODULE is the
+  // root and every child key chains off its parent's hash, never off a dotted
+  // name and never off a MERGED type — under `partial` a re-derived qualified
+  // name collides BY DESIGN (1,662 partial declarations over 897 identities
+  // measured, max 88 parts). CS_DECLARATION_GROUP is deliberately NOT unique:
+  // it is the merged entity, and its own prefix keeps a group key from ever
+  // being mistaken for an entity hash in a join.
+  CS_MODULE: 'CS_MODULE',
+  CS_TYPE: 'CS_TYPE',
+  CS_TYPE_HERITAGE: 'CS_TYPE_HERITAGE',
+  CS_TYPE_PARAMETER: 'CS_TYPE_PARAMETER',
+  CS_TYPE_REFERENCE: 'CS_TYPE_REFERENCE',
+  CS_METHOD: 'CS_METHOD',
+  CS_METHOD_PARAMETER: 'CS_METHOD_PARAMETER',
+  CS_PROPERTY: 'CS_PROPERTY',
+  CS_EVENT: 'CS_EVENT',
+  CS_FIELD: 'CS_FIELD',
+  CS_ENUM_MEMBER: 'CS_ENUM_MEMBER',
+  CS_VARIABLE: 'CS_VARIABLE',
+  CS_USING: 'CS_USING',
+  CS_ATTRIBUTE: 'CS_ATTRIBUTE',
+  CS_ATTRIBUTE_ARGUMENT: 'CS_ATTRIBUTE_ARGUMENT',
+  CS_EXPRESSION: 'CS_EXPRESSION',
+  CS_CALL_SITE: 'CS_CALL_SITE',
+  CS_QUERY_CLAUSE: 'CS_QUERY_CLAUSE',
+  CS_BLOCK: 'CS_BLOCK',
+  CS_COMMENT: 'CS_COMMENT',
+  CS_PARSE_GAP: 'CS_PARSE_GAP',
+  CS_PREPROC_REGION: 'CS_PREPROC_REGION',
+  CS_DECLARATION_GROUP: 'CS_DECLARATION_GROUP',
 } as const;

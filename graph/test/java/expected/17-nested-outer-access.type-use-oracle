@@ -1,0 +1,12 @@
+17-nested-outer-access
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    0.5455   (6 of 11 in the bytecode)
+  references 37   resolved 6 (16.2%)
+  tiers ambiguous_unknown=31  known_edge=6
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=3  LOCAL_VARIABLE=1  METHOD_PARAM=1  METHOD_RETURN=15  OBJECT_CREATION_TYPE=11  SUPER_TYPE=6
+    MISSING OuterAccess$anon:Supplier METHOD_PARAM OuterAccess
+    MISSING OuterAccess.Inner METHOD_PARAM OuterAccess
+    MISSING OuterAccess.Local METHOD_PARAM OuterAccess
+    MISSING OuterAccess.Middle METHOD_PARAM OuterAccess
+    MISSING OuterAccess.Middle$anon:Supplier METHOD_PARAM OuterAccess.Middle

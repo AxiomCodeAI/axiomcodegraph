@@ -1,0 +1,8 @@
+53-export-assignment-construction [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    0.5000   (1 of 2 the compiler resolved)
+  sites 2   resolved 1 (50.0%)
+  tiers ambiguous_unknown=1  known_edge=1
+  contexts OBJECT_CREATION_TYPE=2
+  not scored: 1 rows whose target is not a client declaration
+    MISSING main USES LegacyImpl

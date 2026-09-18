@@ -47,6 +47,8 @@ import { JsBinding, JsScopeNode, nodeKey, resolveName } from
   '@/parsers/javascript/extractors/js-symbol-table';
 import {
   enclosingStatement,
+  firstRunningFieldInitializer,
+  initializerRunsCode,
   isCallableExpression,
   isRequireCall,
   jsDocTagsOfAllBlocks,
@@ -772,6 +774,108 @@ export class JsDeclarationExtractor {
     for (const member of node.members) {
       this.visitClassMember(member, { ...childContext, block: classBlock });
     }
+    // Second pass: a field initializer is CODE THAT RUNS, and it needs the callable it
+    // runs inside. A constructor declared after the field must already be visited, which
+    // is why this is not done in the loop above.
+    this.attributeFieldInitializers(node, { ...childContext, block: classBlock });
+  }
+
+  /**
+   * `static fromField = this.make()` / `instField = this.make2()` — a field initializer
+   * was owned by the MODULE initializer (#798), so `this` in it had no value and the call
+   * it makes was attributed to the module rather than to the code that runs it. That is
+   * the wrong caller for any reachability question: constructor-time work appeared on the
+   * import path of every module that loads the file.
+   *
+   * The owner it runs in, so the engine needs no new rule:
+   *   static   -> the class's `static { }` callable, or a synthetic row of that kind,
+   *               whose `this` is the constructor already;
+   *   instance -> a synthetic non-static member row, whose `this` is the instance.
+   *
+   * The synthetic row is deliberately NOT a CONSTRUCTOR: a class with no declared
+   * constructor must keep answering `implicit_constructor` at its `new` sites, and
+   * `type_ctor` is read from the class row, so a method row of another kind cannot become
+   * its construct target.
+   *
+   * A declared constructor is NOT reused as the owner even though it is where the
+   * initializer runs: a field written above the constructor would then be an expression
+   * outside its owner's span, which is the containment invariant that catches context
+   * leaking down the traversal. The synthetic row spans the class, so it contains every
+   * initializer in it whatever the member order.
+   */
+  private attributeFieldInitializers(node: ts.ClassLikeDeclaration, context: WalkContext): void {
+    if (context.ownerType === undefined) {
+      return;
+    }
+    for (const isStatic of [true, false]) {
+      const first = firstRunningFieldInitializer(node, isStatic);
+      if (first === undefined) {
+        continue;
+      }
+      // One callable per class per staticness, hung off the same field the scope builder
+      // opened the scope on, so the row's body scope is a scope that exists.
+      const owner = this.synthesizeInitializerOwner(node, first, context, isStatic);
+      for (const member of node.members) {
+        if (!ts.isPropertyDeclaration(member) || member.initializer === undefined
+          || isCallableExpression(member.initializer) || !initializerRunsCode(member.initializer)) {
+          continue;
+        }
+        if (hasModifier(member, ts.SyntaxKind.StaticKeyword) === isStatic) {
+          this.fieldInitOwnerByNode.set(nodeKey(member), owner);
+        }
+      }
+    }
+  }
+
+  /** The synthetic callable a class's field initializers run inside. */
+  private synthesizeInitializerOwner(
+    node: ts.ClassLikeDeclaration, first: ts.PropertyDeclaration,
+    context: WalkContext, isStatic: boolean,
+  ): string {
+    const at = this.positionOf(node);
+    const bodyScope = this.options.binder.scopeOpenedBy.get(nodeKey(first)) ?? context.scope;
+    const ownerType = context.ownerType;
+    const name = isStatic ? '<static-init>' : '<instance-init>';
+    const row = new JsMethodRegistry({
+      name,
+      qualifiedName: `${ownerType?.qualifiedName ?? context.ownerMethodQualifiedName}.${name}`,
+      fileName: this.options.fileName,
+      filePath: this.options.filePath,
+      baseMservPath: this.options.baseMservPath,
+      startLine: at.startLine,
+      endLine: at.endLine,
+      startColumn: at.startColumn,
+      methodKind: isStatic ? JsMethodKind.STATIC_BLOCK : JsMethodKind.CLASS_METHOD,
+      declarationForm: JsMethodDeclarationForm.SYNTACTIC,
+      hoisting: JsHoisting.NOT_APPLICABLE,
+      isAsync: false,
+      isGenerator: false,
+      isStatic,
+      parameterCount: 0,
+      hasRestParameter: false,
+      usesArguments: false,
+      thisBinding: JsThisBinding.DYNAMIC,
+      returnTypeName: '',
+      declaredTypeSource: JsDeclaredTypeSource.NONE,
+      bodyPresence: JsBodyPresence.HAS_BODY,
+      ownerTypeLinkHash: ownerType?.getHash() ?? '',
+      ownerModuleLinkHash: this.options.moduleHash,
+      ownerScopeLinkHash: this.options.hashOfScope(context.scope),
+      bodyScopeLinkHash: this.options.hashOfScope(bodyScope),
+      enclosingMethodLinkHash: context.ownerMethod?.getHash() ?? '',
+      isEntryPoint: false,
+      methodReferenceKind: '',
+      modifiers: isStatic ? 'STATIC' : '',
+      serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+    });
+    this.methods.push(row);
+    // A js_method row carrying an ownerTypeLinkHash IS a member row to every consumer,
+    // including the structural gate that compares `declaredMemberCount` against the
+    // distinct member names. Count it, or the class reports fewer members than it has rows.
+    if (ownerType !== undefined) {
+      this.countMember(ownerType);
+    }
+    return row.getHash();
   }
 
   /**
@@ -900,8 +1004,15 @@ export class JsDeclarationExtractor {
       return;
     }
     if (ts.isClassStaticBlockDeclaration(member)) {
-      this.visitFunctionLike(member, context, JsMethodKind.STATIC_BLOCK,
+      const row = this.visitFunctionLike(member, context, JsMethodKind.STATIC_BLOCK,
         JsHoisting.NOT_APPLICABLE, JsMethodDeclarationForm.SYNTACTIC, undefined);
+      if (context.ownerType !== undefined) {
+        // A class may have several `static { }` blocks; the first is the one a static
+        // field initializer is attributed to, matching evaluation order.
+        if (!this.staticBlockByTypeHash.has(context.ownerType.getHash())) {
+          this.staticBlockByTypeHash.set(context.ownerType.getHash(), row.getHash());
+        }
+      }
       return;
     }
     if (ts.isPropertyDeclaration(member)) {
@@ -918,7 +1029,7 @@ export class JsDeclarationExtractor {
           member.initializer as ts.FunctionLikeDeclaration, context,
           JsMethodKind.CLASS_METHOD, JsHoisting.NOT_APPLICABLE,
           JsMethodDeclarationForm.SYNTACTIC, undefined,
-          ts.isComputedPropertyName(member.name) ? '' : propertyNameText(member.name),
+          propertyNameText(member.name),
           // NO assignedOwner: the owner resolves through `context.ownerType`,
           // which is this class, and passing it explicitly would ALSO increment
           // `declaredMemberCount` — which already counted this member as part of
@@ -928,7 +1039,8 @@ export class JsDeclarationExtractor {
           // members discovered by assignment OUTSIDE the class body, which are
           // not in `node.members` and genuinely need counting.
           undefined,
-          hasModifier(member, ts.SyntaxKind.StaticKeyword)
+          hasModifier(member, ts.SyntaxKind.StaticKeyword),
+          ts.isComputedPropertyName(member.name) ? member.name : undefined
         );
       } else if (member.initializer !== undefined) {
         // A field initializer that is NOT itself a callable can still CONTAIN
@@ -966,7 +1078,13 @@ export class JsDeclarationExtractor {
     /** For an assignment-declared method, the name it was given. */
     assignedName?: string,
     assignedOwner?: JsTypeRegistry,
-    isStaticMember?: boolean
+    isStaticMember?: boolean,
+    /**
+     * The KEY of a member declared under a computed name whose callable is not the
+     * member node itself (`{ [k]: function () {} }`, `[k] = () => {}`); a method
+     * node carries its own `name`.
+     */
+    computedKey?: ts.ComputedPropertyName
   ): JsMethodRegistry {
     // CONSUMED. This callable and everything inside it is handled here, so the
     // generic descent must not reach it again — see {@link consumedNodes}.
@@ -1030,6 +1148,21 @@ export class JsDeclarationExtractor {
     this.methodNodeByIdentity.set(nodeKey(node), node);
     if (assignedOwner !== undefined) {
       this.countMember(assignedOwner);
+    }
+    // A member declared under a computed name links its KEY expression (#598): the
+    // engine joins the value the key holds (a symbol, a string) to the member, which
+    // `name` alone cannot carry. The expression row exists only after the expression
+    // pass, so the link closes with the others.
+    const key = computedKey
+      ?? (!ts.isClassStaticBlockDeclaration(node) && node.name !== undefined && ts.isComputedPropertyName(node.name)
+        ? node.name : undefined);
+    if (key !== undefined) {
+      this.pendingExpressionLinks.push({
+        nodeIdentity: nodeKey(key.expression),
+        link: (hash) => {
+          row.setComputedNameExpressionLinkHash(hash);
+        },
+      });
     }
 
     if (sourceNode !== undefined) {
@@ -1142,9 +1275,10 @@ export class JsDeclarationExtractor {
     if (ts.isPrivateIdentifier(name)) {
       return name.text;
     }
-    // A computed member name. Syntax does not fix it, so the row says so rather
-    // than guessing — 715 computed member names were measured.
-    return '';
+    // A computed member name: `['lit']() {}` and `` [`tpl`]() {} `` are fixed by syntax
+    // and named; `[kRun]() {}` is not, so the row says so rather than guessing (715
+    // computed member names were measured) and links the key instead (#598).
+    return staticComputedNameText(name);
   }
 
   private emitParameter(
@@ -1235,7 +1369,7 @@ export class JsDeclarationExtractor {
     const at = this.positionOf(member);
     const fieldType = declaredTypeFromJsDoc(member, this.sourceFile, 'type');
     const computed = ts.isComputedPropertyName(member.name);
-    const name = computed ? '' : propertyNameText(member.name);
+    const name = propertyNameText(member.name);
     const row = new JsFieldRegistry({
       name,
       qualifiedName: `${context.ownerType.qualifiedName}.${name}`,
@@ -1257,6 +1391,15 @@ export class JsDeclarationExtractor {
     });
     this.fields.push(row);
     this.fieldHashByNode.set(nodeKey(member), row.getHash());
+    if (computed) {
+      // the KEY of `[k] = v` (#598), closed with the other expression links
+      this.pendingExpressionLinks.push({
+        nodeIdentity: nodeKey(member.name.expression),
+        link: (hash) => {
+          row.setComputedNameExpressionLinkHash(hash);
+        },
+      });
+    }
     if (fieldType.source !== JsDeclaredTypeSource.NONE) {
       this.pendingTypeReferences.push({
         node: member,
@@ -1397,7 +1540,7 @@ export class JsDeclarationExtractor {
     if (context.ownerType === undefined) {
       return;
     }
-    const name = ts.isComputedPropertyName(member.name) ? '' : propertyNameText(member.name);
+    const name = propertyNameText(member.name);
     // THE PAIRING KEY, and both of its discriminators were missing.
     //
     // It was `ownerHash:name`. Two defects in one key, and the measured one is
@@ -1418,7 +1561,9 @@ export class JsDeclarationExtractor {
     // INDEX_CALL is reserved. So a computed accessor keys on its own BYTE RANGE
     // and therefore pairs with nothing, which loses a pairing that was never
     // knowable and prevents inventing one that is wrong.
-    const discriminator = ts.isComputedPropertyName(member.name)
+    // A computed key that is itself a literal (`get ['x']()`) is a static name and pairs
+    // by it, like a written one.
+    const discriminator = ts.isComputedPropertyName(member.name) && name === ''
       ? `computed@${member.getStart(this.sourceFile)}:${member.getEnd()}`
       : `${name}:${hasModifier(member, ts.SyntaxKind.StaticKeyword)}`;
     const key = `${context.ownerType.getHash()}:${discriminator}`;
@@ -1520,6 +1665,38 @@ export class JsDeclarationExtractor {
     assignment: ts.BinaryExpression,
     context: WalkContext
   ): boolean {
+    // A CHAIN, `t1 = t2 = … = value` (#706). The parser only saw the outermost
+    // link, so `W.api = W.prototype = { … }` declared a static field `api` whose
+    // value was an assignment and the prototype literal's methods fell through to
+    // the generic walk as free function expressions, and `W.mixin = W.api.mixin =
+    // function () {}` declared a static FIELD where the unchained spelling
+    // declares a static method. The value is what the innermost link holds, and
+    // it is declared under EVERY link whose target is a member form. `exports.a
+    // = exports.b = f` walks the same chain on the export side already.
+    const links: ts.BinaryExpression[] = [];
+    let value: ts.Expression = assignment;
+    while (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      links.push(value);
+      value = value.right;
+    }
+    let declared = false;
+    for (const link of links) {
+      if (this.visitDeclaringLink(link, value, context)) {
+        declared = true;
+      }
+    }
+    return declared;
+  }
+
+  /**
+   * One link of an assignment chain: `<target> = …`, with `value` the chain's
+   * innermost right-hand side (the link's own `right` when it is not chained).
+   */
+  private visitDeclaringLink(
+    assignment: ts.BinaryExpression,
+    value: ts.Expression,
+    context: WalkContext
+  ): boolean {
     const target = assignment.left;
     if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) {
       return false;
@@ -1530,7 +1707,7 @@ export class JsDeclarationExtractor {
     if (ts.isPropertyAccessExpression(target) && target.name.text === 'prototype') {
       const ownerName = typeNameOfExpression(target.expression);
       if (ownerName !== undefined) {
-        return this.visitPrototypeReplacement(assignment, ownerName, context);
+        return this.visitPrototypeReplacement(assignment, value, ownerName, context);
       }
     }
 
@@ -1541,6 +1718,7 @@ export class JsDeclarationExtractor {
       && typeNameOfExpression(target.expression.expression) !== undefined) {
       return this.emitAssignedMember({
         assignment,
+        value,
         ownerName: typeNameOfExpression(target.expression.expression)!,
         memberName: target.name.text,
         isStatic: false,
@@ -1560,6 +1738,7 @@ export class JsDeclarationExtractor {
       if (owner !== undefined) {
         return this.emitAssignedMember({
           assignment,
+          value,
           ownerName: target.expression.text,
           memberName: target.name.text,
           isStatic: true,
@@ -1587,6 +1766,8 @@ export class JsDeclarationExtractor {
    */
   private visitPrototypeReplacement(
     assignment: ts.BinaryExpression,
+    /** The chain's innermost right-hand side — `assignment.right` when unchained. */
+    value: ts.Expression,
     ownerName: string,
     context: WalkContext
   ): boolean {
@@ -1594,7 +1775,6 @@ export class JsDeclarationExtractor {
     if (owner === undefined) {
       return false;
     }
-    const value = assignment.right;
 
     if (ts.isCallExpression(value) && isObjectCreate(value) && value.arguments.length > 0) {
       this.emitHeritage({
@@ -1648,14 +1828,14 @@ export class JsDeclarationExtractor {
         continue;
       }
       if (ts.isPropertyAssignment(property)) {
-        const name = ts.isComputedPropertyName(property.name)
-          ? '' : propertyNameText(property.name);
+        const name = propertyNameText(property.name);
         if (isCallableExpression(property.initializer)) {
           this.visitFunctionLike(
             property.initializer as ts.FunctionLikeDeclaration, context,
             JsMethodKind.CLASS_METHOD,
             JsHoisting.NOT_HOISTED, JsMethodDeclarationForm.PROTOTYPE_OBJECT_LITERAL,
-            assignment, name, owner, false);
+            assignment, name, owner, false,
+            ts.isComputedPropertyName(property.name) ? property.name : undefined);
           continue;
         }
         this.emitAssignedField({
@@ -1674,6 +1854,8 @@ export class JsDeclarationExtractor {
 
   private emitAssignedMember(init: {
     assignment: ts.BinaryExpression;
+    /** The chain's innermost right-hand side — `assignment.right` when unchained. */
+    value: ts.Expression;
     ownerName: string;
     memberName: string;
     isStatic: boolean;
@@ -1687,8 +1869,12 @@ export class JsDeclarationExtractor {
       return false;
     }
     owner.setHasPrototypeMembers();
-    const value = init.assignment.right;
-    if (isCallableExpression(value)) {
+    const value = init.value;
+    // A callable has ONE method row. In a chain (`W.both = W.prototype.both =
+    // function () {}`) the first member link owns it and every further link
+    // declares a field of its own name, whose value the engine reads from the
+    // link's assignment exactly as it reads `T.m = existingFunction`.
+    if (isCallableExpression(value) && !this.consumedNodes.has(nodeKey(value))) {
       // CLASS_METHOD, not FUNCTION_EXPRESSION. The syntax is a function
       // expression and the ROLE is a member of `owner` — `declarationForm`
       // already records the syntax, and `methodKind` records what the thing is.
@@ -2400,6 +2586,12 @@ export class JsDeclarationExtractor {
 
   private readonly constructorByTypeHash = new Map<string, string>();
 
+  /** Class type hash -> its `static { }` method row, for #798's static field initializers. */
+  private readonly staticBlockByTypeHash = new Map<string, string>();
+
+  /** Field declaration node -> the callable its initializer runs inside (#798). */
+  readonly fieldInitOwnerByNode = new Map<string, string>();
+
   /** The type declared under `name` in this file, for same-file one-hop linking. */
   typeNamed(name: string): JsTypeRegistry | undefined {
     return this.typesByName.get(name)?.[0]?.row;
@@ -2999,6 +3191,26 @@ function propertyNameText(name: ts.PropertyName | undefined): string {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)
     || ts.isPrivateIdentifier(name)) {
     return name.text;
+  }
+  return staticComputedNameText(name);
+}
+
+/**
+ * The name a computed key fixes by syntax alone: `['lit']`, `[42]`, `` [`tpl`] `` (a
+ * template with no substitution). Anything else (`[kRun]`, `['a' + b]`) is decided at
+ * runtime and is `''` here; the member then carries the key expression instead (#598).
+ */
+function staticComputedNameText(name: ts.PropertyName): string {
+  if (!ts.isComputedPropertyName(name)) {
+    return '';
+  }
+  let expression: ts.Expression = name.expression;
+  while (ts.isParenthesizedExpression(expression)) {
+    expression = expression.expression;
+  }
+  if (ts.isStringLiteral(expression) || ts.isNumericLiteral(expression)
+    || ts.isNoSubstitutionTemplateLiteral(expression)) {
+    return expression.text;
   }
   return '';
 }

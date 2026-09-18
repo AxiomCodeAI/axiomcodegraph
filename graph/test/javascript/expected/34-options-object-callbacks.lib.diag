@@ -1,0 +1,10 @@
+import_cause     main.js:3:15  https  builtin
+import_cause     main.js:4:9  stream  builtin
+package_entry    options-callbacks  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    walker  .  []  MAIN  index.js  RESOLVED  -> lib:index.js
+unresolved       main.js:12:86  METHOD_CALL destroy  no_target
+unresolved       main.js:12:86  METHOD_CALL on  no_target
+unresolved       main.js:12:86  METHOD_CALL request  no_target
+unresolved       main.js:13:29  CONSTRUCTOR_CALL Transform  no_target
+unresolved       main.js:8:38  FUNCTION_CALL cb  callee_untyped
+unresolved       main.js:9:42  METHOD_CALL map  no_target

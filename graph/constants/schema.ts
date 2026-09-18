@@ -128,6 +128,24 @@ export const TYPESCRIPT_CLIENT_REQUIRED_ENTITIES = [
   'all-typescript-methods.csv',
 ] as const;
 
+/**
+ * C#'s minimum, by the same presence rule. Every .cs file the parser accepts yields
+ * exactly one cs_module row, so `all-csharp-modules.csv` exists for any valid
+ * project and is the block whose absence proves the path is not C# IR.
+ *
+ * `all-csharp-types.csv` is deliberately NOT required, for the same reason Python's
+ * types block is not: a file of C# 9 top-level statements declares no type at all,
+ * and neither does one holding only global usings. Requiring it rejects both.
+ *
+ * `all-csharp-methods.csv` is required because the parser synthesises a
+ * TOP_LEVEL_ENTRY_POINT method for a top-level-statements file, so even that file
+ * yields a method row.
+ */
+export const CSHARP_CLIENT_REQUIRED_ENTITIES = [
+  'all-csharp-modules.csv',
+  'all-csharp-methods.csv',
+] as const;
+
 /** @deprecated pre-split names, kept so existing callers keep compiling. */
 export const CLIENT_REQUIRED_ENTITIES = JAVA_CLIENT_REQUIRED_ENTITIES;
 export const JDK_REQUIRED_ENTITIES = JAVA_JDK_REQUIRED_ENTITIES;

@@ -1,0 +1,196 @@
+// ============================================================================
+// RESOLUTION · PROPERTY, INDEXER AND EVENT ACCESSOR CALLS
+//
+// IN C#, READING A PROPERTY IS A CALL. `x.Name` invokes `get_Name`; `x.Name = v`
+// invokes `set_Name`; `a[i]` invokes an indexer accessor; `e += h` invokes
+// `add_E`. Each has a real method with a real body, and that body is where a
+// framework's change notification, validation, lazy loading and logging live.
+//
+// HOW MUCH THIS IS WORTH, MEASURED: on the dev corpus the oracle reports 3,943
+// property-accessor sites in Humanizer alone, against 3,203 ordinary in-source
+// invocation sites. A Java-shaped engine reads every one as a field access and
+// emits nothing, so it loses more call sites than it finds.
+//
+// WHY THESE ARE NOT IN cs_call_site. The parser cannot know: `x.Name` is a member
+// access, and whether `Name` is a field, a property or an event is a resolution
+// outcome. So the SITE is a MEMBER_ACCESS expression and the engine decides. That
+// makes this file the only place those edges can come from.
+//
+// AN AUTO-PROPERTY ACCESSOR HAS NO BODY, and that is the right answer rather than a
+// gap: `public string Name { get; set; }` declares two accessors whose bodyKind is
+// NONE. The edge into them is real -- it is what the runtime calls -- and there is
+// nothing further to walk into, so the chain ends there with a reason. Counting it
+// as a miss would be wrong in the other direction.
+//
+// THE EDGES ARE KINDED SEPARATELY (`property_read`, `property_write`, `indexer`,
+// `event_subscribe`) so a consumer asking "who calls this method" gets them and a
+// consumer asking "who calls this method EXPLICITLY" can exclude them. Folding them
+// into `method` would make the two questions unaskable.
+// ============================================================================
+
+// ── THE ACCESSOR OF A MEMBER ────────────────────────────────────────────────
+// A property's getter and setter, found through ownerMemberLinkHash. Keyed on the
+// accessor's methodKind rather than on its name, because the name is synthesised
+// (`get_Name`) and is not what anyone writes.
+property_getter(prov, p, acc) :- method_accessor_of(prov, acc, p, "PROPERTY"), method_kind(prov, acc, "PROPERTY_GET").
+property_setter(prov, p, acc) :- method_accessor_of(prov, acc, p, "PROPERTY"), method_kind(prov, acc, "PROPERTY_SET").
+property_setter(prov, p, acc) :- method_accessor_of(prov, acc, p, "PROPERTY"), method_kind(prov, acc, "PROPERTY_INIT").
+indexer_getter(prov, p, acc) :- method_accessor_of(prov, acc, p, "INDEXER"), method_kind(prov, acc, "INDEXER_GET").
+indexer_setter(prov, p, acc) :- method_accessor_of(prov, acc, p, "INDEXER"), method_kind(prov, acc, "INDEXER_SET").
+indexer_setter(prov, p, acc) :- method_accessor_of(prov, acc, p, "INDEXER"), method_kind(prov, acc, "INDEXER_INIT").
+event_adder(prov, ev, acc) :- method_accessor_of(prov, acc, ev, "EVENT"), method_kind(prov, acc, "EVENT_ADD").
+event_remover(prov, ev, acc) :- method_accessor_of(prov, acc, ev, "EVENT"), method_kind(prov, acc, "EVENT_REMOVE").
+
+// ── A MEMBER ACCESS THAT NAMES A PROPERTY ───────────────────────────────────
+// `x.Name`: a MEMBER_ACCESS whose qualifier types to something and whose member
+// name resolves to a property on it.
+//
+// EXCLUDED WHEN THE ACCESS IS THE CALLEE OF AN INVOCATION. `x.Compute()` is a
+// MEMBER_ACCESS too, and its own INVOCATION site already covers it; emitting a
+// property edge as well would double every method call whose receiver happens to be
+// a member access.
+member_access_is_callee(prov, acc) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    expr_parent(prov, acc, inv, _, _),
+    expr_kind(prov, inv, "INVOCATION"),
+    expr_role(prov, acc, "METHOD_NAME").
+member_access_is_callee(prov, nameExpr) :-
+    expr_role(prov, nameExpr, "METHOD_NAME").
+
+property_access(prov, acc, p, recvGk) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_is_callee(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, recvGk),
+    member_lookup(prov, recvGk, n, "property", p).
+
+// A STATIC property read through a type name: `Configurator.Formatter`.
+property_access(prov, acc, p, gk) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_is_callee(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    ref_names_type(prov, q, gk),
+    member_lookup(prov, gk, n, "property", p).
+
+// An UNQUALIFIED property reference: `Name` inside the declaring type, with an
+// implicit `this`. The parser binds these itself (referencedEntityKind PROPERTY),
+// so the engine takes its answer rather than re-deriving it.
+property_access_unqualified(prov, e, p) :- ref_denotes(prov, e, "PROPERTY", p).
+
+// ── READ OR WRITE ───────────────────────────────────────────────────────────
+// The edge role decides: an ASSIGNMENT_TARGET is a write, everything else is a
+// read. A COMPOUND assignment (`x.Count += 1`) is BOTH -- it calls the getter and
+// then the setter -- and both edges are emitted, because a consumer asking who
+// mutates the property and one asking who reads it must both match.
+expr_is_write_target(prov, e) :- expr_role(prov, e, "ASSIGNMENT_TARGET"),
+    expr_parent(prov, e, asg, _, _), expr_kind(prov, asg, "ASSIGNMENT").
+expr_is_readwrite_target(prov, e) :- expr_role(prov, e, "ASSIGNMENT_TARGET"),
+    expr_parent(prov, e, asg, _, _), expr_kind(prov, asg, "COMPOUND_ASSIGNMENT").
+
+// ── THE ACCESSOR CALL, AND ITS DISPATCH ─────────────────────────────────────
+// A property accessor CAN be virtual, and an abstract or interface property is the
+// normal way a framework declares one. So the accessor goes through the same fan as
+// any other method rather than being treated as a direct call.
+property_read_target(prov, e, acc) :-
+    property_access(prov, e, p, _), !expr_is_write_target(prov, e),
+    property_getter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+property_read_target(prov, e, acc) :-
+    property_access_unqualified(prov, e, p), !expr_is_write_target(prov, e),
+    property_getter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+property_write_target(prov, e, acc) :-
+    property_access(prov, e, p, _), expr_is_write_target(prov, e),
+    property_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+property_write_target(prov, e, acc) :-
+    property_access_unqualified(prov, e, p), expr_is_write_target(prov, e),
+    property_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+// A compound assignment reads AND writes.
+property_read_target(prov, e, acc) :-
+    property_access(prov, e, p, _), expr_is_readwrite_target(prov, e),
+    property_getter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+property_write_target(prov, e, acc) :-
+    property_access(prov, e, p, _), expr_is_readwrite_target(prov, e),
+    property_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+
+// ── INDEXERS ────────────────────────────────────────────────────────────────
+// `a[i]`. An ELEMENT_ACCESS on a type with a user-defined indexer. On an ARRAY it is
+// not a call at all, which is why the join is on the indexer member: an array
+// receiver simply does not match.
+indexer_access(prov, e, p) :-
+    expr_kind(prov, e, "ELEMENT_ACCESS"),
+    expr_child(prov, e, "RECEIVER", _, q),
+    expr_type(prov, q, gk),
+    property_in_type(prov, gk, p), property_is_indexer(prov, p).
+indexer_read_target(prov, e, acc) :-
+    indexer_access(prov, e, p), !expr_is_write_target(prov, e),
+    indexer_getter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+indexer_write_target(prov, e, acc) :-
+    indexer_access(prov, e, p), expr_is_write_target(prov, e),
+    indexer_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+
+// ── EVENTS ──────────────────────────────────────────────────────────────────
+// `e += handler` calls add_E and `e -= handler` calls remove_E. The parser gives
+// these their own expression kinds, which is what makes them findable at all.
+// `b.Changed += h` IS A COMPOUND_ASSIGNMENT whose target is a MEMBER_ACCESS, not a
+// dedicated EVENT_SUBSCRIBE node. Those kinds are declared in the schema and the
+// parser does not emit them for this shape -- measured on a case whose only event
+// subscription produced a COMPOUND_ASSIGNMENT with operator `+=`. Keying on the
+// reserved kinds found nothing, which is the failure mode a reserved-with-zero-rows
+// enum value is supposed to warn about.
+//
+// The operator decides add from remove, and the target is resolved through the
+// member access like any other member.
+event_access(prov, e, ev) :-
+    expr_kind(prov, e, "COMPOUND_ASSIGNMENT"), expr_operator(prov, e, "+="),
+    expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
+    event_ref(prov, t, ev).
+event_unaccess(prov, e, ev) :-
+    expr_kind(prov, e, "COMPOUND_ASSIGNMENT"), expr_operator(prov, e, "-="),
+    expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
+    event_ref(prov, t, ev).
+// The dedicated kinds are still read, so a parser that starts emitting them is
+// handled without a change here.
+event_access(prov, e, ev) :-
+    expr_kind(prov, e, "EVENT_SUBSCRIBE"),
+    expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
+    event_ref(prov, t, ev).
+event_unaccess(prov, e, ev) :-
+    expr_kind(prov, e, "EVENT_UNSUBSCRIBE"),
+    expr_child(prov, e, "ASSIGNMENT_TARGET", _, t),
+    event_ref(prov, t, ev).
+
+// An expression that denotes an event: bound by the parser, or a member access whose
+// member name resolves to one on the qualifier's type.
+event_ref(prov, e, ev) :- ref_denotes(prov, e, "EVENT", ev).
+event_ref(prov, acc, ev) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, gk),
+    member_lookup(prov, gk, n, "event", ev).
+event_add_target(prov, e, acc) :-
+    event_access(prov, e, ev), event_adder(prov, ev, decl), dispatch_concrete_target(prov, decl, acc).
+event_remove_target(prov, e, acc) :-
+    event_unaccess(prov, e, ev), event_remover(prov, ev, decl), dispatch_concrete_target(prov, decl, acc).
+
+// ── ONE RELATION FOR THE EDGE LAYER ─────────────────────────────────────────
+// accessor_edge(Prov, SiteExpr, Accessor, Kind). Kinded, so the edge layer emits a
+// row that says what it is and a consumer can include or exclude these without
+// guessing.
+accessor_edge(prov, e, acc, "property_read") :- property_read_target(prov, e, acc).
+accessor_edge(prov, e, acc, "property_write") :- property_write_target(prov, e, acc).
+accessor_edge(prov, e, acc, "indexer") :- indexer_read_target(prov, e, acc).
+accessor_edge(prov, e, acc, "indexer") :- indexer_write_target(prov, e, acc).
+accessor_edge(prov, e, acc, "event_subscribe") :- event_add_target(prov, e, acc).
+accessor_edge(prov, e, acc, "event_subscribe") :- event_remove_target(prov, e, acc).
+
+// How many accessors a site can reach. One is the ordinary case; more means the
+// property is virtual and the receiver's type is open, which is the same fan as a
+// method call and is labelled the same way.
+accessor_edge_count(prov, e, c) :-
+    accessor_edge(prov, e, _, _),
+    c = count : { accessor_edge(prov, e, _, _) }.

@@ -1,0 +1,22 @@
+package_entry    primitive-results  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:18:20  METHOD_CALL toUpperCase  no_target
+unresolved       main.js:19:18  METHOD_CALL toFixed  no_target
+unresolved       main.js:20:19  METHOD_CALL join  no_target
+unresolved       main.js:21:19  METHOD_CALL trim  no_target
+unresolved       main.js:22:27  METHOD_CALL trim  no_target
+unresolved       main.js:23:21  CONSTRUCTOR_CALL Promise  no_target
+unresolved       main.js:23:74  FUNCTION_CALL resolve  no_target
+unresolved       main.js:23:91  FUNCTION_CALL reject  no_target
+unresolved       main.js:23:98  CONSTRUCTOR_CALL Error  no_target
+unresolved       main.js:28:25  METHOD_CALL toFixed  no_target
+unresolved       main.js:28:3  METHOD_CALL toUpperCase  no_target
+unresolved       main.js:28:45  METHOD_CALL toString  no_target
+unresolved       main.js:28:64  METHOD_CALL trim  no_target
+unresolved       main.js:29:3  METHOD_CALL split  no_target
+unresolved       main.js:29:35  METHOD_CALL toFixed  no_target
+unresolved       main.js:29:62  METHOD_CALL toString  no_target
+unresolved       main.js:30:3  METHOD_CALL toUpperCase  no_target
+unresolved       main.js:30:31  METHOD_CALL valueOf  no_target
+unresolved       main.js:30:55  METHOD_CALL toFixed  no_target
+unresolved       main.js:31:26  METHOD_CALL toFixed  no_target
+unresolved       main.js:31:3  METHOD_CALL trim  no_target

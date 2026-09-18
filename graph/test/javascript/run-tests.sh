@@ -88,7 +88,9 @@ for dir in "$HERE"/cases/*/; do
     echo "FAIL (parse client — see $w/parse.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
   HAS_LIB=0
   if [ -d "$dir/lib" ] && [ -n "$(ls -A "$dir/lib" 2>/dev/null)" ]; then
-    if ! node "$PARSER" "$dir/lib" "$name-lib" false "$w/libir" >"$w/parse-lib.log" 2>&1; then
+    # --library: the case's lib/ is a DEPENDENCY, so a build directory it ships from is
+    # its source (#620); the case's src/ is the project, where dist/ stays skipped (#796).
+    if ! node "$PARSER" "$dir/lib" "$name-lib" false "$w/libir" --library >"$w/parse-lib.log" 2>&1; then
       echo "FAIL (parse library — see $w/parse-lib.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
     [ -s "$w/libir/all-javascript-modules.csv" ] && HAS_LIB=1
   fi
@@ -129,4 +131,12 @@ echo; echo "passed: $pass  failed: $fail"
 # (#600, #603). Skipped when a filter selects cases, as the other tool checks are.
 if [ ${#FILTERS[@]} -eq 0 ]; then
   bash "$ROOT/graph/test/tools/library-staging-test.sh" || exit 1
+  # The ground-truth harness checks its own two path defects. Synthesised inputs (and one
+  # symlinked fixture) only, so they cost a second and cannot skip on a missing corpus:
+  #   oracle-symlink  one call site is one oracle row whatever the root is spelled like,
+  #                   and the scorer reports a repeated site key (#794)
+  #   library-path    the scorer tells an in-project .d.ts from the standard library on
+  #                   every platform (#614) — written then, never wired in
+  python3 "$HERE/tools/oracle-symlink-test.py" || exit 1
+  python3 "$HERE/tools/library-path-test.py" || exit 1
 fi

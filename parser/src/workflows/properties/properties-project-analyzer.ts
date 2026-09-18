@@ -3,7 +3,7 @@ import * as path from 'path';
 
 import { PropertyKey } from '@/analysis-types/properties/PropertyKey';
 import { PropertyValueSegment } from '@/analysis-types/properties/PropertyValueSegment';
-import { EXCLUDED_DIRS, ANALYSIS_OUTPUT_DIR, OUTPUT_PROPERTY_KEY_CSV_FILENAME, OUTPUT_PROPERTY_VALUE_SEGMENT_CSV_FILENAME, OUTPUT_SKIPPED_PROPERTIES_FILES_CSV_FILENAME, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD } from '@/constants/consts';
+import { EXCLUDED_DIRS, ANALYSIS_OUTPUT_DIR, OUTPUT_PROPERTY_KEY_CSV_FILENAME, OUTPUT_PROPERTY_VALUE_SEGMENT_CSV_FILENAME, OUTPUT_SKIPPED_PROPERTIES_FILES_CSV_FILENAME, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD, LARGE_FILE_BYTE_THRESHOLD } from '@/constants/consts';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PropertiesParser } from '@/parsers/properties/properties-parser';
@@ -92,6 +92,21 @@ export class PropertiesProjectAnalyzer {
           continue;
         }
 
+        // BYTES first: a machine-generated file is routinely megabytes on a few
+        // hundred lines, so the line guard below never sees it and the extractor
+        // overflows the stack instead (#554). Recorded as a skip like any other.
+        const byteLength = Buffer.byteLength(content, 'utf-8');
+        if (byteLength > LARGE_FILE_BYTE_THRESHOLD) {
+          console.log(`   ⏭️  Skipping very large file (${byteLength} bytes): ${filePath}`);
+          const reason = SkippedFileReason.FILE_TOO_LARGE;
+          const uniqueFileHash = EntityUtils.generateEntityHash(
+            ENTITY_IDENTIFIERS.SKIPPED_FILE,
+            `${filePath}||${project.path}||${serviceVersionHash}||${reason}`
+          );
+          this.skippedFiles.push({ filePath, baseMservPath: project.path, serviceVersionHash, reason, uniqueFileHash });
+          continue;
+        }
+
         const lineCount = content.split('\n').length;
         if (lineCount > LARGE_FILE_LINE_THRESHOLD) {
           console.log(`   ⏭️  Skipping very large file (${lineCount} lines): ${filePath}`);
@@ -115,7 +130,23 @@ export class PropertiesProjectAnalyzer {
         this.allValueSegments.push(...segments);
 
       } catch (error) {
+        // RECORD IT. Both guards above push a skippedFiles row and this one used to
+        // log and return, so a file the extractor THREW on contributed no rows and
+        // nothing anywhere said why (#554). The common shape is a machine-generated
+        // file that is large in BYTES and short in LINES: it passes the line
+        // threshold and then overflows the stack, so the corpus loses it silently.
+        //
+        // EXTRACTION_ERROR rather than READ_ERROR, which the enum is explicit about:
+        // the environment did not fail, the parser did, and filing the second as the
+        // first is how a crash in every file of a corpus produces an empty relation
+        // and a run that still reports success.
         console.error(`   ❌ Error parsing ${filePath}:`, error);
+        const reason = SkippedFileReason.EXTRACTION_ERROR;
+        const uniqueFileHash = EntityUtils.generateEntityHash(
+          ENTITY_IDENTIFIERS.SKIPPED_FILE,
+          `${filePath}||${project.path}||${serviceVersionHash}||${reason}`
+        );
+        this.skippedFiles.push({ filePath, baseMservPath: project.path, serviceVersionHash, reason, uniqueFileHash });
       }
     }
   }
@@ -126,7 +157,35 @@ export class PropertiesProjectAnalyzer {
   private async findPropertiesFiles(dirPath: string): Promise<string[]> {
     const files: string[] = [];
     await this.scanForPropertiesFiles(dirPath, files);
+    await this.collectBubblingLombokConfigs(dirPath, files);
     return files;
+  }
+
+  /**
+   * lombok.config BUBBLES UP. The processor reads every lombok.config from the
+   * directory of the source file upward, so a module whose config sits at its root
+   * governs `src/main/java` below it. A scan rooted at `src/main/java` therefore never
+   * sees the file that decides its accessor NAMES, which is the common case: a library
+   * is normally supplied as its source root, not its module root.
+   *
+   * Only files named exactly `lombok.config` are read outside the scan root, and the
+   * walk stops at `config.stopBubbling = true`, which is the processor's own rule.
+   */
+  private async collectBubblingLombokConfigs(dirPath: string, files: string[]): Promise<void> {
+    let dir = path.dirname(path.resolve(dirPath));
+    let previous = '';
+    while (dir !== previous) {
+      const candidate = path.join(dir, FILE_EXTENSIONS.LOMBOK_CONFIG);
+      try {
+        const body = await fs.readFile(candidate, 'utf8');
+        if (!files.includes(candidate)) files.push(candidate);
+        if (/^\s*config\.stopBubbling\s*=\s*true\s*$/m.test(body)) return;
+      } catch {
+        // no config at this level: keep walking, exactly as the processor does
+      }
+      previous = dir;
+      dir = path.dirname(dir);
+    }
   }
 
   private async scanForPropertiesFiles(dirPath: string, files: string[]): Promise<void> {
@@ -139,7 +198,14 @@ export class PropertiesProjectAnalyzer {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForPropertiesFiles(subPath, files);
           }
-        } else if (entry.isFile() && entry.name.endsWith(FILE_EXTENSIONS.PROPERTIES)) {
+        } else if (
+          entry.isFile() &&
+          (entry.name.endsWith(FILE_EXTENSIONS.PROPERTIES) ||
+            // Matched by NAME, not extension. `.config` is far too broad to scan
+            // wholesale, and lombok.config is the one file in that format whose
+            // contents change the API a caller compiles against.
+            entry.name === FILE_EXTENSIONS.LOMBOK_CONFIG)
+        ) {
           files.push(path.join(dirPath, entry.name));
         }
       }

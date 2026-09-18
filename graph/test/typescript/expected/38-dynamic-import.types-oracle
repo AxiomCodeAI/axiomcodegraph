@@ -1,0 +1,7 @@
+38-dynamic-import [types]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 6   resolved 0 (0.0%)
+  tiers ambiguous_unknown=6
+  contexts METHOD_RETURN=6
+  not scored: 6 rows whose target is not a client declaration

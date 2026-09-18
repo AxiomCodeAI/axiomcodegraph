@@ -60,6 +60,8 @@ const BUILTIN_DECORATORS: ReadonlyMap<string, { kind: PythonBuiltinDecoratorKind
     ['dataclass', { kind: PythonBuiltinDecoratorKind.DATACLASS, replaces: false }],
     ['contextmanager', { kind: PythonBuiltinDecoratorKind.CONTEXTMANAGER, replaces: true }],
     ['asynccontextmanager', { kind: PythonBuiltinDecoratorKind.CONTEXTMANAGER, replaces: true }],
+    ['deprecated', { kind: PythonBuiltinDecoratorKind.DEPRECATED, replaces: true }],
+    ['no_type_check', { kind: PythonBuiltinDecoratorKind.NO_TYPE_CHECK, replaces: false }],
   ]);
 
 /**

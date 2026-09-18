@@ -1,0 +1,4 @@
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       main.js:10:23  FUNCTION_CALL_CALL hasOwnProperty  no_target
+unresolved       main.js:30:10  COMPUTED_CALL   dynamic
+unresolved       main.js:69:15  FUNCTION_CALL Number  no_target

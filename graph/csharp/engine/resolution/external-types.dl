@@ -1,0 +1,272 @@
+// ============================================================================
+// RESOLUTION · EXTERNAL TYPES AND TARGETS
+//
+// A name that resolves to nothing is not one situation. It is either
+//
+//   (a) a type from an assembly nobody staged -- `Console`, `List<T>`,
+//       `ILogger<T>`, every BCL and NuGet type in a client-only run -- which is a
+//       BOUNDARY the engine can NAME even though it cannot expand it, or
+//   (b) a real blind spot: a name that should have resolved and did not.
+//
+// Conflating them makes the blind-spot count useless. On a client-only run of any
+// real C# project, (a) is the overwhelming majority: the probe project here has
+// three unresolved sites and all three are `Console.WriteLine` or a member of
+// `List<IShape>`. Reporting those as engine failures hides the handful that are.
+//
+// SO AN EXTERNAL TARGET IS A LABEL, NOT A HASH. There is no method row to point at,
+// so the edge carries `external:<Type>.<Member>` and the bundle routes it to
+// callee_label by the "external" provenance -- the same convention the Java and
+// Python engines use for unstaged imports. A consumer asking "what does this method
+// reach" gets `external:Console.WriteLine` rather than a dead end, which is the
+// difference between a chain that ends at a named boundary and one that stops.
+//
+// HOW AN EXTERNAL NAME IS RECOGNISED: it is demanded by a real site, it is in a
+// namespace that IS in scope (so the author expected it to resolve), and no staged
+// IR declares it. The middle condition is what separates an unstaged dependency
+// from a typo: a name in no namespace in scope would not compile.
+// ============================================================================
+
+// ── AN EXTERNAL TYPE ────────────────────────────────────────────────────────
+// external_type_name(Prov, ModuleHash, Name, Arity) -- demanded, in scope, unstaged.
+external_type_name(prov, mod, n, ar) :-
+    type_name_unresolved(prov, mod, n, ar),
+    !cs_predefined_alias(n).
+
+// A PREDEFINED alias that no staged library declares is a boundary too, but a
+// framework one rather than a third-party one. Separated so a consumer can tell
+// "this call went into the BCL" from "this call went into a dependency you did not
+// stage", and so the two are not summed into one uninformative number.
+external_predefined_name(prov, mod, n) :- type_name_predefined_unstaged(prov, mod, n).
+
+// ── A CALL WHOSE RECEIVER IS AN EXTERNAL TYPE ───────────────────────────────
+// `Console.WriteLine(x)`. The receiver names a type that did not resolve, so the
+// member lookup never ran. The target is nameable from the two written names.
+call_recv_external_type(prov, e, n) :-
+    call_receiver_expr(prov, e, r),
+    expr_written_name(prov, r, n),
+    expr_ultimate_module(prov, e, mod),
+    external_type_name(prov, mod, n, "0"),
+    !call_recv_type(prov, e, _).
+
+external_target(prov, e, label) :-
+    call_recv_external_type(prov, e, recvName),
+    call_callee_name(prov, e, m),
+    label = cat("external:", cat(recvName, cat(".", m))).
+
+// ── A CALL ON A RECEIVER WHOSE TYPE IS EXTERNAL BY DECLARATION ──────────────
+// `var list = new List<IShape>(); list.Add(x);` -- `list` has a declared type that
+// did not resolve, so the receiver is typed as an unstaged type rather than as
+// nothing. The declared type NAME is what labels the target.
+//
+// This is the shape that dominates a client-only run, because every collection,
+// every logger and every framework abstraction arrives this way.
+expr_external_type_name(prov, e, n) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v),
+    var_type_name(prov, v, n, _),
+    var_method(prov, v, mth), method_module(prov, mth, mod),
+    external_type_name(prov, mod, n, _).
+expr_external_type_name(prov, e, n) :-
+    ref_denotes(prov, e, "PARAMETER", p),
+    param_type_name(prov, p, n, _),
+    param_of(prov, p, mth), method_module(prov, mth, mod),
+    external_type_name(prov, mod, n, _).
+expr_external_type_name(prov, e, n) :-
+    ref_denotes(prov, e, "FIELD", f),
+    field_type_name(prov, f, n, _),
+    field_decl(prov, _, t, f), type_module(prov, t, mod),
+    external_type_name(prov, mod, n, _).
+expr_external_type_name(prov, e, n) :-
+    ref_denotes(prov, e, "PROPERTY", p),
+    property_type_name(prov, p, n, _),
+    property_decl(prov, _, t, p), type_module(prov, t, mod),
+    external_type_name(prov, mod, n, _).
+
+// A `var` local initialised with `new SomeUnstagedType()`: the written type name on
+// the creation is what the local holds.
+expr_external_type_name(prov, e, n) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v),
+    var_is_implicit(prov, v),
+    var_value_initializer(prov, v, init),
+    expr_kind(prov, init, "OBJECT_CREATION"),
+    call_callee_name(prov, init, n),
+    expr_ultimate_module(prov, init, mod),
+    external_type_name(prov, mod, n, _).
+
+external_target(prov, e, label) :-
+    call_receiver_expr(prov, e, r),
+    expr_external_type_name(prov, r, tn),
+    call_callee_name(prov, e, m),
+    !call_recv_type(prov, e, _),
+    label = cat("external:", cat(tn, cat(".", m))).
+
+// ── A CONSTRUCTION OF AN EXTERNAL TYPE ──────────────────────────────────────
+// `new List<IShape>()`. There is no constructor to resolve, and the construction is
+// still a real event: it is where an unstaged type enters the program.
+external_target(prov, e, label) :-
+    call_needs_ctor_lookup(prov, e),
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    call_type_argc(prov, e, ar),
+    external_type_name(prov, mod, n, ar),
+    !expr_new_type(prov, e, _),
+    label = cat("external:", cat(n, ".<constructor>")).
+
+// ── A CALL ON A FRAMEWORK-TYPED RECEIVER ────────────────────────────────────
+// `someString.Trim()`, `list.Add(x)`, `dict.TryGetValue(k, out v)`. The receiver's
+// declared type is a C# keyword alias or an unstaged framework type, so it resolves
+// to nothing and the call leaves the source.
+//
+// MEASURED: without this clause 1,562 of Humanizer's 2,235 external sites were
+// classified ambiguous_unknown -- counted as engine blind spots when every one is a
+// call into the BCL that a client-only run cannot expand. That made the blind-spot
+// number unreadable, which is the number the engine is judged on.
+//
+// GATED ON THE EXTENSION PATH HAVING FAILED. `someString.Humanize()` also has a
+// `string` receiver and DOES resolve, to an extension method in the project. Naming
+// it external as well would emit a boundary edge beside a correct one.
+external_target(prov, e, label) :-
+    call_receiver_expr(prov, e, r),
+    expr_predefined_recv_name(prov, r, tn),
+    call_callee_name(prov, e, m),
+    !call_recv_type(prov, e, _),
+    !extension_candidate(prov, e, _),
+    label = cat("external:", cat(tn, cat(".", m))).
+
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_name(prov, v, n, _), cs_predefined_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "PARAMETER", p), param_type_name(prov, p, n, _), cs_predefined_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "FIELD", f), field_type_name(prov, f, n, _), cs_predefined_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, n, _), cs_predefined_alias(n).
+// A LITERAL receiver: `"text".Trim()`.
+expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "STRING", _).
+expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "VERBATIM_STRING", _).
+
+// A receiver typed by a name that is neither predefined nor resolvable -- an
+// unstaged NuGet or framework type reached through a local, a parameter, a field or
+// a property. The by-name relation extensions.dl already builds is reused, so the
+// two files agree about what a receiver's type is called.
+external_target(prov, e, label) :-
+    call_recv_type_name(prov, e, tn),
+    expr_ultimate_module(prov, e, mod),
+    external_type_name(prov, mod, tn, _),
+    call_callee_name(prov, e, m),
+    !call_recv_type(prov, e, _),
+    !extension_candidate(prov, e, _),
+    label = cat("external:", cat(tn, cat(".", m))).
+
+// ── AN INHERITED MEMBER FROM AN UNSTAGED BASE ───────────────────────────────
+// A client class deriving from a framework base calls an inherited method: the
+// receiver types fine (it is the client class), and the member is not found because
+// the base is not staged. type_hierarchy_incomplete already marks the type; this
+// names the target so the edge is not merely "boundary" but "boundary, to this".
+external_target(prov, e, label) :-
+    call_recv_type(prov, e, gk),
+    type_hierarchy_incomplete(prov, gk),
+    call_callee_name(prov, e, m),
+    member_lookup_miss_boundary(prov, gk, m),
+    type_base_unresolved(prov, gk, _, bn, _),
+    label = cat("external:", cat(bn, cat(".", m))).
+
+// ── AN OVERLOAD THE UNSTAGED BASE MAY DECLARE ───────────────────────────────
+// The engine found a member of that name on the receiver's own type AND the type
+// derives from something unstaged. Arity alone cannot settle which overload binds,
+// because the base may declare another of the same arity and a different parameter
+// type -- and a `new`-hiding member makes that the NORMAL case rather than a corner:
+//
+//     sealed class TagDirectiveCollection : KeyedCollection<string, TagDirective> {
+//         public new bool Contains(TagDirective d) => Contains(GetKeyForItem(d));
+//     }                                              ^-- binds to the BASE's
+//                                                        Contains(string)
+//
+// The engine resolved that to the local `Contains` because both take one argument.
+// Comparing parameter TYPES is real overload resolution and needs the argument
+// typed, which is a separate problem; what is available here is the knowledge that
+// the answer is uncertain. So an external target is added ALONGSIDE the local one.
+// The local edge is not removed -- it may well be right -- and the site becomes
+// multi_inferred, which is the truthful claim: it is one of these two.
+external_target(prov, e, label) :-
+    call_recv_type(prov, e, gk),
+    type_hierarchy_incomplete(prov, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, _),
+    type_base_unresolved(prov, gk, _, bn, _),
+    label = cat("external:", cat(bn, cat(".", n))).
+
+// The same for an UNQUALIFIED call, whose receiver is the implicit `this`: the
+// TagDirectiveCollection case above is written without a receiver.
+external_target(prov, e, label) :-
+    call_is_unqualified(prov, e),
+    expr_ultimate_type_group(prov, e, gk),
+    type_hierarchy_incomplete(prov, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, _),
+    type_base_unresolved(prov, gk, _, bn, _),
+    label = cat("external:", cat(bn, cat(".", n))).
+
+// ── A PROPERTY READ ON AN EXTERNAL RECEIVER ─────────────────────────────────
+// `someString.Length`, `dict.Count`, `ex.Message`. Reading a property IS a call, and
+// on a receiver whose type is not staged there is nothing to resolve -- but there is
+// something to NAME, exactly as for an external method call.
+//
+// MEASURED: 1,871 of one dev project's property-accessor sites are external reads.
+// Left unlabelled they are indistinguishable from a member the engine failed on, and
+// property accessors outnumber ordinary invocations on a property-heavy codebase, so
+// this is the difference between a readable blind-spot count and an unusable one.
+//
+// GATED ON EVERYTHING ELSE HAVING FAILED. A member access that resolves to a
+// property, a field, a generated record member, or that is the callee of an
+// invocation, is not this. The guard is the whole point: a wrong label here would
+// put a boundary edge beside a correct one.
+member_access_resolved(prov, acc) :- property_access(prov, acc, _, _).
+member_access_resolved(prov, acc) :- generated_accessor_read(prov, acc, _).
+member_access_resolved(prov, acc) :- member_access_is_callee(prov, acc).
+member_access_resolved(prov, acc) :-
+    expr_member_name_child(prov, acc, nameExpr), ref_denotes(prov, nameExpr, _, _).
+member_access_resolved(prov, acc) :-
+    expr_qualifier_child(prov, acc, q), ref_names_type(prov, q, _).
+
+external_property_read(prov, acc, label) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_resolved(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    external_recv_name(prov, q, tn),
+    label = cat("external:", cat(tn, cat(".get_", n))).
+
+// The receiver's type name, where that type is not staged. Both spellings: a C#
+// keyword alias, and a named type the project does not declare.
+external_recv_name(prov, e, tn) :- expr_predefined_recv_name(prov, e, tn).
+external_recv_name(prov, e, tn) :-
+    expr_external_type_name(prov, e, tn).
+
+// ── THE EXTERNAL EDGE ───────────────────────────────────────────────────────
+// client_calls_external(SiteExpr, Label). Kept separate from the client and lib
+// relations because the target is a LABEL rather than a method hash, and a consumer
+// that joins on a method id must not match it by accident.
+client_calls_external(e, label) :- external_target("client", e, label).
+
+// ── WHAT IS LEFT: THE REAL BLIND SPOTS ─────────────────────────────────────
+// A site that resolved to nothing, is not external, is not dynamic, and is not an
+// implicit constructor. THIS is the number the engine is judged on, and keeping it
+// clean of unstaged dependencies is the whole reason this file exists.
+//
+// Exported with the receiver text, because the failures group: twenty sites on the
+// same untyped receiver are one bug, not twenty.
+site_unresolved_real(e) :-
+    csite("client", e),
+    !expr_resolves_to_method("client", e, _),
+    !external_target("client", e, _),
+    !call_unresolvable_by_design("client", e, _),
+    !call_ctor_implicit("client", e, _).
+site_unresolved_named(e, recv, callee) :-
+    site_unresolved_real(e),
+    call_callee_name("client", e, callee),
+    call_receiver_text("client", e, recv).
+site_unresolved_named(e, "<none>", callee) :-
+    site_unresolved_real(e),
+    call_callee_name("client", e, callee),
+    !call_receiver_text("client", e, _).

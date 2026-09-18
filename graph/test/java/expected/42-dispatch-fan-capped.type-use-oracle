@@ -1,0 +1,7 @@
+42-dispatch-fan-capped
+  precision 1.0000   (30 correct, 0 wrong)
+  recall    1.0000   (30 of 30 in the bytecode)
+  references 57   resolved 30 (52.6%)
+  tiers ambiguous_unknown=27  known_edge=30
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts METHOD_PARAM=29  OBJECT_CREATION_TYPE=3  SUPER_TYPE=25

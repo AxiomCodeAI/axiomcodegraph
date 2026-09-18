@@ -1,0 +1,5 @@
+# `Item.tag2 = Model.tag2 = function` with `const Model = function () {}` as the SECOND link:
+# the field row is Model's, but the write lands on Model's function value in core.js and
+# main.js reads Model as its type through the export. A member_write-to-class bridge
+# fan-capped 11 sites on mongoose (see value-flow.dl), so the gap is recorded instead.
+main.js:14:3

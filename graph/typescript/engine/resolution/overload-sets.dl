@@ -52,6 +52,15 @@ body_presence_is_ambient("NO_BODY_AMBIENT").
 // ── call_runs_method(CallExprHash, MethodHash) ──────────────────────────────
 // What actually executes. Identity where the resolved target has a body; the
 // group's implementation where it is an overload signature.
+//
+// EXPORTED, per call site. call_runs_edge below is this relation rolled up to the
+// caller METHOD, which is what a reachability walk wants and which cannot answer
+// "at THIS site, what runs". A consumer that has a position, and the runtime
+// oracle is one, had no way to ask: it read call_edges, saw the SIGNATURE the
+// compiler selected, and charged the engine with missing the body. Measured on
+// immer 061c242, 366 executed production sites: 7 of the 17 OUTSIDE rows were
+// this, six of them one `each` whose signature is common.ts:84 and whose
+// implementation is common.ts:89.
 call_runs_method(ce, m) :- expr_resolves_to_method(ce, m),
     method_body_presence(m, bp),
     body_presence_has_body(bp).
@@ -60,6 +69,33 @@ call_runs_method(ce, impl) :- expr_resolves_to_method(ce, m),
     body_presence_is_overload(bp),
     method_group_of(m, g),
     group_implementation(g, impl).
+
+// ── …AND THE FIELD WHOSE ANNOTATION DECLARED THE SIGNATURE ──────────────────
+// `produce: IProduce = (base, recipe) => { ... }`. The selection is the call signature
+// the ANNOTATION carries, and that is right: callee-resolution.dl:212 gates
+// field_arrow_callable on the field being unannotated precisely because the compiler
+// resolves such a call to the annotation, and adding the arrow beside it there was
+// measured to turn exact sites into supersets.
+//
+// But NOTHING then re-points it. An overload signature has an IMPLEMENTATION row in its
+// group; a field's call signature has no group at all, so `call_runs_method` was silent
+// and a consumer asking what runs at the site got a declaration with no body while the
+// body sat in the same declaration. This is the same question the clause above answers,
+// asked of the other way a bodiless target can be selected.
+//
+// SELECTION IS UNTOUCHED. This feeds the call-edge layer only, never expr_call_candidate,
+// so the tier and the targets in call_edges are exactly what they were.
+call_runs_method(ce, impl) :- expr_resolves_to_method(ce, m),
+    method_body_presence(m, bp),
+    body_presence_is_signature(bp),
+    call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    field_in_scope(rt, cn, _, f),
+    field_type_ref(_, _, f),
+    field_initializer(prov, ie, f),
+    expr_anon_decl(prov, impl, ie).
 
 // ── call_target_is_ambient(CallExprHash) ────────────────────────────────────
 // The chain ends here and that is the right answer. Classified rather than left as a

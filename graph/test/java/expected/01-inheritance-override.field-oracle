@@ -1,0 +1,8 @@
+01-inheritance-override
+  precision 0.5000   (1 correct, 1 wrong)
+  recall    1.0000   (1 of 1 in the bytecode)
+  sites 6   resolved 2 (33.3%)
+  tiers ambiguous_unknown=4  known_edge=2
+  access read=5  write=1
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   InheritanceOverride.TaggedException#<init>(String,String) WRITE InheritanceOverride.TaggedException#tag

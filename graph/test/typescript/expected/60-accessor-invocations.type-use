@@ -1,0 +1,17 @@
+ambiguous_unknown	METHOD_PARAM	0	Context [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	handler [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	Context [METHOD] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	Context [EXPRESSION] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	handler [EXPRESSION] -> -
+ambiguous_unknown	TYPE_ELEMENT	1	Context [FIELD] -> -
+known_edge	FIELD_TYPE	0	Context [FIELD] -> Request
+known_edge	METHOD_PARAM	0	Context [METHOD_PARAM] -> Request
+known_edge	METHOD_PARAM	0	handler [METHOD_PARAM] -> Context
+known_edge	METHOD_RETURN	0	Context [METHOD] -> Request
+known_edge	METHOD_RETURN	0	LoggedContext [METHOD] -> Request
+known_edge	METHOD_RETURN	0	Request [METHOD] -> Request
+known_edge	METHOD_RETURN	0	handler [METHOD] -> Context
+known_edge	OBJECT_CREATION_TYPE	0	Request [EXPRESSION] -> Request
+known_edge	OBJECT_CREATION_TYPE	0	handler [EXPRESSION] -> Context
+known_edge	OBJECT_CREATION_TYPE	0	handler [EXPRESSION] -> LoggedContext
+known_edge	SUPER_TYPE	0	LoggedContext [HERITAGE] -> Context

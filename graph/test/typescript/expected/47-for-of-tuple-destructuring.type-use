@@ -1,0 +1,2 @@
+known_edge	TYPE_ELEMENT	1	main [METHOD_PARAM] -> Val
+known_edge	TYPE_ELEMENT	2	main [METHOD_PARAM] -> Val

@@ -1,1 +1,1 @@
-nominal	testcases.engine.Sink.accept -> testcases.engine.ComplexDispatch$anon:Sink.accept
+nominal	testcases.engine.ComplexDispatch.Sink.accept -> testcases.engine.ComplexDispatch$anon:Sink.accept

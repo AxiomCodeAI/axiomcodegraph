@@ -11,5 +11,5 @@ boundary_lib	method	LambdaParamCallback#viaTypedList(List,String) -> external:ja
 known_edge	method	LambdaParamCallback#main(String[]) -> LambdaParamCallback#viaMapValues(String)
 known_edge	method	LambdaParamCallback#main(String[]) -> LambdaParamCallback#viaStream(List,String)
 known_edge	method	LambdaParamCallback#main(String[]) -> LambdaParamCallback#viaTypedList(List,String)
-known_edge	new	LambdaParamCallback#main(String[]) -> Item#<init>()
 known_edge	new	LambdaParamCallback#main(String[]) -> LambdaParamCallback#<init>()
+known_edge	new	LambdaParamCallback#main(String[]) -> LambdaParamCallback.Item#<init>()

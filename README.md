@@ -136,6 +136,8 @@ One SQLite database per language, **same schema for every language**, with names
 |---|---|
 | `call_edges` | the graph: one row per (call site, possible target) with `tier`, provenance and call kind |
 | `methods` · `types` · `call_sites` | every callable, type and call site with qualified name, file and line |
+| `field_access` · `fields` | who reads or writes each field: one row per (access site, resolved field) with `access` (read / write / readwrite) and the same `tier`. Java and TypeScript; declared and empty elsewhere |
+| `type_use` | every place a type is NAMED, with the `context` it was written in (FIELD_TYPE, METHOD_PARAM, OBJECT_CREATION_TYPE, SUPER_TYPE …) and the `depth` that separates a type from its type arguments. Java and TypeScript |
 | `type_ancestors` · `overrides` | hierarchy and virtual-dispatch pairs |
 | `entry_points` · `entry_reachable` | what the runtime invokes, and what it reaches |
 | `unresolved_sites` | the declared blind spots, attributed to the method that contains them |
@@ -225,7 +227,7 @@ bin/axiomcode test                      # everything
 
 Each suite parses its fixture cases with the parser in this repository, solves them, guards that no call site was dropped, and diffs the normalised edges against a golden. `--keep` retains per-case work directories (`graph/test/<lang>/.work/<case>/out/graph.sqlite` is a real bundle to poke at); `--bless` regenerates goldens; review the diff. Torture harnesses under `graph/test/<lang>/torture/` score real projects against their oracles.
 
-Editing rules requires [Soufflé](https://souffle-lang.github.io) 2.5 locally (`brew install souffle`; the pinned version is in `graph/pipeline/engine.conf`); the engine recompiles on the first solve after a rule change. Publishing engines: *Actions → publish-npm → Run workflow* (dry run by default) or push a `v*` tag.
+Editing rules requires [Soufflé](https://souffle-lang.github.io) 2.5 locally (`brew install souffle`; the pinned version is in `graph/pipeline/engine.conf`); the engine recompiles on the first solve after a rule change. Publishing engines: the CI workflows are not in the tree yet, so the packages are assembled with `packaging/assemble-engine-package.sh` and published by hand for now.
 
 ## Known limits
 

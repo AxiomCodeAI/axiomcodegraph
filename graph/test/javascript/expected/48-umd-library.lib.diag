@@ -1,0 +1,2 @@
+package_entry    case48-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    umdlib  .  []  MAIN  umd.js  RESOLVED  -> lib:umd.js

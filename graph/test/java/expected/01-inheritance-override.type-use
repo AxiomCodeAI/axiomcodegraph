@@ -1,0 +1,13 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	InheritanceOverride.LoggingList [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	InheritanceOverride.TaggedException [ANNOTATION] -> -
+ambiguous_unknown	FIELD_TYPE	0	InheritanceOverride.TaggedException [FIELD] -> -
+ambiguous_unknown	LOCAL_VARIABLE	1	InheritanceOverride#main(String[]) [LOCAL_VARIABLE] -> -
+ambiguous_unknown	METHOD_PARAM	0	InheritanceOverride#main(String[]) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	InheritanceOverride.TaggedException#<init>(String,String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	InheritanceOverride.TaggedException#getMessage() [METHOD] -> -
+ambiguous_unknown	SUPER_TYPE	0	InheritanceOverride.LoggingList [TYPE] -> -
+ambiguous_unknown	SUPER_TYPE	0	InheritanceOverride.TaggedException [TYPE] -> -
+known_edge	LOCAL_VARIABLE	0	InheritanceOverride#main(String[]) [LOCAL_VARIABLE] -> InheritanceOverride.LoggingList
+known_edge	LOCAL_VARIABLE	0	InheritanceOverride#main(String[]) [LOCAL_VARIABLE] -> InheritanceOverride.TaggedException
+known_edge	OBJECT_CREATION_TYPE	0	InheritanceOverride#main(String[]) [EXPRESSION] -> InheritanceOverride.LoggingList
+known_edge	OBJECT_CREATION_TYPE	0	InheritanceOverride#main(String[]) [EXPRESSION] -> InheritanceOverride.TaggedException

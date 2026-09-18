@@ -72,7 +72,12 @@ class Names:
                 if p.get('isVarArgs') == 'true' and not suf: suf = '[]'
                 ps.append(b + suf)
             cls = r.get('ownerQualifiedName') or r.get('ownerTypeName')
-            nm = '<init>' if r.get('methodKind') in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR') else r.get('name')
+            # COMPACT_CONSTRUCTOR is the canonical constructor of a record written without a
+            # parameter list. javac compiles it to <init> like any other, so the bytecode
+            # oracle names it that way, and leaving it off this list made the engine's edge
+            # read as MISSING against ground truth while being perfectly correct (#911).
+            nm = '<init>' if r.get('methodKind') in (
+                'CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR', 'COMPACT_CONSTRUCTOR') else r.get('name')
             self.m[h] = f"{self.anon.get(cls, cls)}#{nm}({','.join(ps)})"
             self.file[h] = r.get('filePath') or tfile.get(th, '')
 

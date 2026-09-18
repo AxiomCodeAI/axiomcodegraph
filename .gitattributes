@@ -1,0 +1,31 @@
+# Line endings are part of these files' CONTENT, not a display preference.
+#
+# Git's Windows default is core.autocrlf=true, so without this file a stock clone
+# materialises every text file with CRLF. Three things then break, all silently:
+#
+#   * the IR maps are read with `IFS=$'\t' read -r rel csv`, which splits on tabs only, so
+#     the last field keeps its CR. The staging step looks for a file whose name ends in a
+#     carriage return, never finds one, and takes the documented "absent CSV stages an empty
+#     relation" branch. Every relation stages empty, the solve finds nothing, and the run
+#     exits 0 with a graph containing no call sites and no edges.
+#   * SCHEMA.md is byte-compared against freshly generated output, which is always LF. The
+#     gate reports the committed file stale, and regenerating it does not help because it is
+#     checked back in as CRLF.
+#   * the engine id hashes the rule text, so CRLF rules hash differently: a published engine
+#     built in CI is refused on a Windows clone as "built from other rules".
+#
+# Pinning to eol=lf keeps the working tree LF on every platform. The shell reads these files
+# with bash, awk and sed, which want LF everywhere, and no editor needs them to be CRLF.
+* text=auto eol=lf
+
+# Binary, so git must never touch them. An engine binary rewritten by newline conversion is
+# corrupt, and the checksum that guards it would be computed over the corruption.
+*.node      binary
+*.tgz       binary
+*.gz        binary
+*.zip       binary
+*.jar       binary
+*.png       binary
+*.jpg       binary
+*.pdf       binary
+*.sqlite    binary

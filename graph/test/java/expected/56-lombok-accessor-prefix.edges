@@ -1,0 +1,4 @@
+boundary_lib	method	probe.Uses#notStripped(Point) -> generated:dep.Point#getMode/0
+boundary_lib	method	probe.Uses#plain(Point) -> generated:dep.Point#getSize/0
+boundary_lib	method	probe.Uses#prefixed(Point) -> generated:dep.Point#getDepth/0
+boundary_lib	method	probe.Uses#prefixed(Point) -> generated:dep.Point#setDepth/1

@@ -169,6 +169,8 @@ def main():
     buckets = Counter()
     undecided = Counter()
     ambiguous = Counter()  # the type_ambiguous subset of undecided
+    expando = Counter()    # the global_expando subset of undecided (#644)
+    widened = Counter()    # the jsdoc_type subset of undecided (#723)
     rows_out = []
     conservation_missing = 0
     oracle_sites = 0
@@ -177,12 +179,21 @@ def main():
     # discriminator misread the path. Independent of that discriminator, and zero on
     # a correct run on every platform.
     decl_target_outside = 0
+    # Gate on the ORACLE: one call site must be one row. A site key emitted twice means
+    # the compiler held the same file twice — what a symlinked root did to a workspace
+    # package (#794) — and it inflates every bucket below while leaving the rates
+    # plausible. Counted here so any future cause is caught whatever it is.
+    oracle_key_seen = set()
+    oracle_duplicate_rows = 0
     per_kind = defaultdict(Counter)
     for r in orows:
         f = r[col['callFile']]
         if production and is_test_path(f):
             continue
         key = (f, r[col['callLine']], r[col['callCol']], r[col['callEndLine']], r[col['callEndCol']])
+        if key in oracle_key_seen:
+            oracle_duplicate_rows += 1
+        oracle_key_seen.add(key)
         oracle_sites += 1
         tk = r[col['targetKind']]
         ckind = r[col['callKind']]
@@ -196,12 +207,18 @@ def main():
         cls = eng_class.get(key, '')
         targets = eng_targets.get(key, set())
         otarget = (r[col['targetFile']], r[col['targetLine']], r[col['targetCol']])
-        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved' or tk == 'type_ambiguous':
+        if tk in ('any', 'oracle_error', 'unresolved', 'type_ambiguous', 'global_expando', 'jsdoc_extends', 'jsdoc_type'):
             # `type_ambiguous`: the checker named a declaration by type identity (two
             # same-typed functions, a widened symbol key) — an inference, not a truth;
             # counted apart so the exclusion is visible.
             if tk == 'type_ambiguous':
                 ambiguous['resolved' if targets else cls] += 1
+            if tk == 'global_expando':
+                expando['resolved' if targets else cls] += 1
+            # `jsdoc_type` (#723): a `@type` tag widened the value to a base the compiler
+            # then named; the value's own override runs. Deleting the tag flips the verdict.
+            if tk == 'jsdoc_type':
+                widened['resolved' if targets else cls] += 1
             undecided['resolved' if targets else cls] += 1
             rows_out.append((key, ckind, r[col['calleeName']], tk, 'UNDECIDED', cls, ';'.join('%s:%s:%s' % t for t in sorted(targets))))
             continue
@@ -278,12 +295,23 @@ def main():
             print('  %-18s %6d' % (b, buckets[b]))
     if decl_target_outside:
         print('  SCORER_SELF_CHECK  %6d  DECL_FILE_TARGET rows under node_modules: the in-project test misread a path (#614)' % decl_target_outside)
+    if oracle_duplicate_rows:
+        print('  SCORER_SELF_CHECK  %6d  oracle rows repeating a site key: the compiler held a file twice, so every bucket above is inflated (#794)'
+              % oracle_duplicate_rows)
     print('undecided by the compiler (any): %d' % sum(undecided.values()))
     for k, v in undecided.most_common():
         print('  %-20s %6d' % (k, v))
     if sum(ambiguous.values()):
         print('  of which type_ambiguous (a declaration named by type identity, not by value): %d' % sum(ambiguous.values()))
         for k, v in ambiguous.most_common():
+            print('    %-18s %6d' % (k, v))
+    if sum(expando.values()):
+        print('  of which global_expando (a platform global assigned by a project shim; load order decides): %d' % sum(expando.values()))
+        for k, v in expando.most_common():
+            print('    %-18s %6d' % (k, v))
+    if sum(widened.values()):
+        print('  of which jsdoc_type (a @type tag widened the value to a base; its own override runs): %d' % sum(widened.values()))
+        for k, v in widened.most_common():
             print('    %-18s %6d' % (k, v))
     print('by call kind (decided):')
     for k, c in sorted(per_kind.items(), key=lambda kv: -sum(kv[1].values())):

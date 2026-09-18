@@ -44,7 +44,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * many share a line.
  */
 export class JsMethodRegistry implements EntityIdentifiable {
-  static readonly ARITY = 36;
+  static readonly ARITY = 37;
 
   readonly name: string;
   readonly qualifiedName: string;
@@ -89,6 +89,15 @@ export class JsMethodRegistry implements EntityIdentifiable {
   private readonly isExternal = false;
   readonly serviceVersionLinkHash: string;
   private jsMethodUniqueHash = ABSENT;
+  /**
+   * FK->js_expression, the KEY of a member declared with a computed name
+   * (`[kRun]() {}`, `{ [k]: function () {} }`, `[k] = () => {}`). Appended after the
+   * primary key because the schema is frozen and appending is the only safe edit,
+   * as js_expression.introducesDeclarationLinkHash was. Empty for a member named
+   * by syntax; a computed key that is itself a literal (`['lit']() {}`) fills
+   * `name` with the literal text AND links the key (#598).
+   */
+  private computedNameExpressionLinkHash = '';
 
   constructor(props: {
     name: string;
@@ -222,10 +231,19 @@ export class JsMethodRegistry implements EntityIdentifiable {
         bool(this.isExternal),
         this.serviceVersionLinkHash,
         this.jsMethodUniqueHash,
+        this.computedNameExpressionLinkHash,
       ],
       JsMethodRegistry.ARITY,
       'js_method'
     );
+  }
+
+  setComputedNameExpressionLinkHash(hash: string): void {
+    this.computedNameExpressionLinkHash = hash;
+  }
+
+  getComputedNameExpressionLinkHash(): string {
+    return this.computedNameExpressionLinkHash;
   }
 
   getCsvHeader(): string {
@@ -267,6 +285,7 @@ export class JsMethodRegistry implements EntityIdentifiable {
         'isExternal',
         'serviceVersionLinkHash',
         'jsMethodUniqueHash',
+        'computedNameExpressionLinkHash',
       ],
       JsMethodRegistry.ARITY,
       'js_method'

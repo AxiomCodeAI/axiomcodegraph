@@ -1,0 +1,5 @@
+known_edge	read	Bounded#get() -> Bounded#v
+known_edge	read	Box#get() -> Box#v
+known_edge	read	Held#get() -> Held#v
+known_edge	read	Pair#first() -> Pair#a
+known_edge	read	Pair#second() -> Pair#b

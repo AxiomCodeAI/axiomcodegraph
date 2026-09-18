@@ -1,0 +1,2 @@
+ambiguous_unknown	METHOD_PARAM	0	main [METHOD_PARAM] -> -
+known_edge	METHOD_PARAM	0	main [METHOD_PARAM] -> LocalEmitter

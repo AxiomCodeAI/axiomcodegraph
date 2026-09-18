@@ -19,7 +19,7 @@ lib/async.js:18:26 METHOD_CALL Promise.resolve  ->  ambient_terminal  -
 lib/async.js:18:42 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
 lib/async.js:19:29 CONSTRUCTOR_CALL Promise  ->  ambient_terminal  -
 lib/async.js:19:29 CONSTRUCTOR_CALL Promise  ->  callback_registered  lib/async.js:19:41 <arrow>
-lib/async.js:19:54 FUNCTION_CALL resolve  ->  ambiguous_unknown  -
+lib/async.js:19:54 FUNCTION_CALL resolve  ->  ambient_terminal  -
 lib/async.js:19:62 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
 lib/async.js:21:10 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
 lib/async.js:21:3 METHOD_CALL (await get()).run  ->  known_edge  lib/async.js:4:16 run
@@ -128,7 +128,7 @@ lib/async.js:48:69 FUNCTION_CALL queueMicrotask  ->  ambient_terminal  -
 lib/async.js:48:69 FUNCTION_CALL queueMicrotask  ->  callback_registered  lib/async.js:38:1 h1
 lib/async.js:48:89 METHOD_CALL process.nextTick  ->  ambient_terminal  -
 lib/async.js:48:89 METHOD_CALL process.nextTick  ->  callback_registered  lib/async.js:39:1 h2
-lib/async.js:49:24 FUNCTION_CALL res  ->  ambiguous_unknown  -
+lib/async.js:49:24 FUNCTION_CALL res  ->  ambient_terminal  -
 lib/async.js:49:3 CONSTRUCTOR_CALL Promise  ->  ambient_terminal  -
 lib/async.js:49:3 CONSTRUCTOR_CALL Promise  ->  callback_registered  lib/async.js:49:15 <arrow>
 lib/async.js:49:3 METHOD_CALL new Promise((res) => res(1)).then  ->  ambient_terminal  -

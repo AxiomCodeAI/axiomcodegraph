@@ -1,0 +1,15 @@
+main.js:11:61 METHOD_CALL doc.toObject  ->  known_edge  main.js:4:18 toObject
+main.js:14:10 METHOD_CALL q.exec  ->  known_edge  main.js:5:41 exec
+main.js:17:37 METHOD_CALL r.ping  ->  known_edge  remote.js:1:16 ping
+main.js:22:48 METHOD_CALL holder.doc.toObject  ->  ambient_terminal  -
+main.js:26:10 METHOD_CALL [].concat  ->  ambient_terminal  -
+main.js:26:10 METHOD_CALL [].concat(items).map  ->  ambient_terminal  -
+main.js:26:10 METHOD_CALL [].concat(items).map  ->  callback_registered  main.js:26:31 <function-expression>
+main.js:27:39 METHOD_CALL item.toObject  ->  known_edge  main.js:4:18 toObject
+main.js:32:39 METHOD_CALL value.getTime  ->  ambient_terminal  -
+main.js:38:36 METHOD_CALL q.toObject  ->  known_edge  main.js:5:15 toObject
+main.js:39:10 METHOD_CALL q.exec  ->  known_edge  main.js:5:41 exec
+main.js:41:18 FUNCTION_CALL viaTyped  ->  known_edge  main.js:37:1 viaTyped
+main.js:41:27 CONSTRUCTOR_CALL Query  ->  implicit_constructor  -
+main.js:41:41 FUNCTION_CALL viaMember  ->  known_edge  main.js:21:1 viaMember
+main.js:8:41 METHOD_CALL doc.toObject  ->  known_edge  main.js:4:18 toObject

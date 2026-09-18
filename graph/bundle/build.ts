@@ -29,6 +29,9 @@ export interface CoreTables {
   entry_reachable: Row[];
   unresolved_sites: Row[];
   type_instantiated: Row[];
+  fields: Row[];
+  field_access: Row[];
+  type_use: Row[];
 }
 
 export interface BuildInputs {
@@ -129,6 +132,9 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const rawEntry = A.raw.entryPoints ? await readSource(rawDir, A.raw.entryPoints) : [];
   const rawReach = A.raw.entryReachable ? await readSource(rawDir, A.raw.entryReachable) : [];
   const rawInst = A.raw.typeInstantiated ? await readSource(rawDir, A.raw.typeInstantiated) : [];
+  const rawFieldAccess = A.raw.fieldAccess ? await readSource(rawDir, A.raw.fieldAccess) : [];
+  const rawTypeUse = A.raw.typeUse ? await readSource(rawDir, A.raw.typeUse) : [];
+  const rawConfigBinding = A.raw.configBinding ? await readSource(rawDir, A.raw.configBinding) : [];
   log(`  raw: ${rawEdges.length} edge rows, ${rawAncestors.length} ancestor rows, ${rawOverrides.length} override rows`);
 
   // call_edges: split the raw ToMethod into a method key or a label by provenance
@@ -150,6 +156,28 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     }
   }
 
+  // field_access: (site, caller, field, fieldProv, tier, access) — the field is "-" when the
+  // site did not resolve, exactly as call_edges writes a NULL callee for an unresolved call.
+  // Position columns are filled from the IR in step 5, beside the call sites, so the expression
+  // table is streamed once for both.
+  const field_access: Row[] = [];
+  const fieldSites = new Map<string, Row[]>();
+  for (const r of rawFieldAccess) {
+    const [site, caller, field, fprov, tier, access] = r as string[];
+    const row: Row = [site!, caller!, nul(field), nul(fprov), access!, tier!, null, null, null, null, null];
+    field_access.push(row);
+    const at = fieldSites.get(site!);
+    if (at) at.push(row); else fieldSites.set(site!, [row]);
+  }
+
+  // type_use: (ref, type, context, depth, ownerKind, owner, enclMethod, enclType, prov, tier).
+  // The type reference rows carry no line in the Java IR, so there is nothing to position and
+  // this is a straight projection of the relation.
+  const type_use: Row[] = rawTypeUse.map((r) => {
+    const [ref, type, context, depth, ownerKind, owner, enclMethod, enclType, prov, tier] = r as string[];
+    return [ref!, nul(type), context!, int(depth) ?? 0, ownerKind!, owner!, nul(enclMethod), nul(enclType), nul(prov), tier!];
+  });
+
   // ── 2. which ids the bundle must name ─────────────────────────────────────
   const wantMethods = new Set<string>();
   const wantTypes = new Set<string>();
@@ -162,6 +190,25 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   for (const r of rawReach) wantMethods.add(r[0] as string);
   for (const r of rawAncestors) { wantTypes.add(r[0] as string); wantTypes.add(r[1] as string); }
   for (const r of rawInst) wantTypes.add(r[0] as string);
+  for (const r of type_use) {
+    if (r[1] !== null) wantTypes.add(r[1] as string);
+    if (r[6] !== null) wantMethods.add(r[6] as string);
+    if (r[7] !== null) wantTypes.add(r[7] as string);
+  }
+  const wantFields = new Set<string>();
+  for (const r of field_access) {
+    wantMethods.add(r[1] as string);
+    if (r[2] !== null) wantFields.add(r[2] as string);
+  }
+  // A config key that BINDS to a field is a reason to list that field (#890). `fields`
+  // otherwise lists a library field only when some field_access edge reaches it, and a
+  // @Value field on a library type that nothing reads has no such edge: it was named by
+  // an exported relation and absent from the table it points into, so a consumer joining
+  // the two lost the row with no indication. 73 percent of config_binding rows were in
+  // that state on a run with one shared starter staged as a library.
+  for (const r of rawConfigBinding) {
+    if (r[2] === 'field' && r[3] !== null) wantFields.add(r[3] as string);
+  }
 
   // ── 3. client entities (all of them — the client is the subject) ──────────
   // The IR spells visibility differently per entity file (PUBLIC on methods/types, PUBLIC_ACCESS on
@@ -181,6 +228,19 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   // there (`node_modules/delta/node_modules/gamma`, which is also how the runtime tells two
   // versions apart), else the package name; a name two roots share gets `#2`, `#3` appended.
   const libPrefix = new Map<string, string>(); // library module hash → prefix (no trailing slash)
+  /**
+   * The file an entity row belongs to: its own path column where it has one, and
+   * otherwise the path of the module it names. C# method, type and field rows carry
+   * no path -- the file is a property of the compilation unit, which is what
+   * cs_module is -- so the module map is the route. Returns '' rather than throwing
+   * when neither is available, because a row with no locatable file is a bundling
+   * gap and not a reason to fail the run.
+   */
+  const pathOf = (r: string[], own: number | undefined, viaModule: number | undefined): string => {
+    if (own !== undefined) return r[own] ?? '';
+    if (viaModule !== undefined) return modules.get(r[viaModule] ?? '') ?? '';
+    return '';
+  };
   const prefixed = (prov: 'client' | 'lib', moduleCol: number | undefined, r: string[], s: string): string => {
     if (prov !== 'lib' || moduleCol === undefined) return s;
     const p = libPrefix.get(r[moduleCol] ?? '');
@@ -188,7 +248,9 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   };
   const readMethods = async (src: EntitySource, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
-    const [ci, cn, cq, ck, co, cf, cs1, ce1] = [M.id, M.name, M.qualifiedName, M.kind, M.ownerTypeId, M.filePath, M.startLine, M.endLine].map((n) => h.col(n));
+    const [ci, cn, cq, ck, co, cs1, ce1] = [M.id, M.name, M.qualifiedName, M.kind, M.ownerTypeId, M.startLine, M.endLine].map((n) => h.col(n));
+    const cf = M.filePath ? h.col(M.filePath) : undefined;
+    const cfmod = M.filePath ? undefined : (M.moduleId ? h.col(M.moduleId) : undefined);
     // optional columns: absent from the adapter means the language has no such thing
     const cs = M.signature ? h.col(M.signature) : undefined;
     const coq = M.ownerQualifiedName ? h.col(M.ownerQualifiedName) : undefined;
@@ -202,7 +264,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       if (only && !only.has(id)) continue;
       if (methods.has(id)) continue;
       const owner = nul(r[co!]);
-      methods.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, prefixed(prov, cmod, r, r[cf!] ?? ''), int(r[cs1!]), int(r[ce1!]), prov, vis(cacc === undefined ? '' : (r[cacc] ?? ''))]);
+      methods.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov, vis(cacc === undefined ? '' : (r[cacc] ?? ''))]);
       if (owner) wantTypes.add(owner);
       n++;
     }
@@ -210,7 +272,9 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   };
   const readTypes = async (src: EntitySource, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
-    const [ci, cn, cq, cc, cf, cs1, ce1] = [T.id, T.name, T.qualifiedName, T.category, T.filePath, T.startLine, T.endLine].map((n) => h.col(n));
+    const [ci, cn, cq, cc, cs1, ce1] = [T.id, T.name, T.qualifiedName, T.category, T.startLine, T.endLine].map((n) => h.col(n));
+    const cf = T.filePath ? h.col(T.filePath) : undefined;
+    const cfmod = T.filePath ? undefined : (T.moduleId ? h.col(T.moduleId) : undefined);
     const cmod = T.moduleId && libPrefix.size > 0 ? h.col(T.moduleId) : undefined;
     const cacc = T.access && h.has(T.access) ? h.col(T.access) : undefined;
     let n = 0;
@@ -218,11 +282,38 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       const id = r[ci!] ?? '';
       if (only && !only.has(id)) continue;
       if (types.has(id)) continue;
-      types.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), r[cc!] ?? '', prefixed(prov, cmod, r, r[cf!] ?? ''), int(r[cs1!]), int(r[ce1!]), prov, vis(cacc === undefined ? '' : (r[cacc] ?? ''))]);
+      types.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), r[cc!] ?? '', prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov, vis(cacc === undefined ? '' : (r[cacc] ?? ''))]);
       n++;
     }
     return n;
   };
+  // fields + enum constants, into one table with a `kind` column. `only` filters to the ids some
+  // field_access row names, exactly as readMethods does for library methods; the CLIENT's fields
+  // are all read, because the client is the subject.
+  const fields = new Map<string, Row>();
+  const readFields = async (src: EntitySource, F: { id: string; name: string; ownerTypeId: string; ownerQualifiedName?: string; typeName?: string; modifiers?: string; filePath?: string; moduleId?: string; startLine: string; endLine: string }, kind: string, prov: 'client' | 'lib', only?: Set<string>) => {
+    const h = src.header;
+    const [ci, cn, co, cs1, ce1] = [F.id, F.name, F.ownerTypeId, F.startLine, F.endLine].map((n) => h.col(n));
+    const cf = F.filePath ? h.col(F.filePath) : undefined;
+    const cfmod = F.filePath ? undefined : (F.moduleId ? h.col(F.moduleId) : undefined);
+    const coq = F.ownerQualifiedName ? h.col(F.ownerQualifiedName) : undefined;
+    const ct = F.typeName ? h.col(F.typeName) : undefined;
+    const cmod = F.modifiers ? h.col(F.modifiers) : undefined;
+    let n = 0;
+    for await (const r of rowsOf(src)) {
+      const id = r[ci!] ?? '';
+      if (only && !only.has(id)) continue;
+      if (fields.has(id)) continue;
+      const owner = nul(r[co!]);
+      fields.set(id, [id, r[cn!] ?? '', kind, owner, coq !== undefined ? nul(r[coq]) : null,
+        ct !== undefined ? nul(r[ct]) : null, cmod !== undefined ? nul(r[cmod]) : null,
+        nul(pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov]);
+      if (owner) wantTypes.add(owner);
+      n++;
+    }
+    return n;
+  };
+
   const readLibPrefixes = async () => {
     const Mod = A.ir.modules;
     if (!Mod || !Mod.packageName || !Mod.basePath) return;
@@ -248,15 +339,30 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     if (libPrefix.size > 0) log(`  library modules prefixed by package: ${libPrefix.size} (${[...new Set(labelOf.values())].length} roots)`);
   };
 
-  const cm = await clientSource(inp.clientIrDir, M.file);
-  if (cm) log(`  client methods: ${await readMethods(cm, 'client')}`);
-  const ct = await clientSource(inp.clientIrDir, T.file);
-  if (ct) log(`  client types: ${await readTypes(ct, 'client')}`);
+  // MODULES FIRST. A language whose method and type rows carry no path of their own
+  // resolves the file through the module (see MethodsIR.filePath), so the map has to be
+  // populated before those rows are read. It used to be filled afterwards, which is
+  // invisible for every language that does carry a path and gives a NULL file for every
+  // row of one that does not.
   if (A.ir.modules) {
     const src = await clientSource(inp.clientIrDir, A.ir.modules.file);
     if (src) {
       const ci = src.header.col(A.ir.modules.id), cf = src.header.col(A.ir.modules.filePath);
       for await (const r of rowsOf(src)) modules.set(r[ci] ?? '', r[cf] ?? '');
+    }
+  }
+
+  const cm = await clientSource(inp.clientIrDir, M.file);
+  if (cm) log(`  client methods: ${await readMethods(cm, 'client')}`);
+  const ct = await clientSource(inp.clientIrDir, T.file);
+  if (ct) log(`  client types: ${await readTypes(ct, 'client')}`);
+  const FI = A.ir.fields;
+  if (FI) {
+    const cf = await clientSource(inp.clientIrDir, FI.file);
+    if (cf) log(`  client fields: ${await readFields(cf, FI, 'field', 'client')}`);
+    if (FI.enumConstants) {
+      const ce = await clientSource(inp.clientIrDir, FI.enumConstants.file);
+      if (ce) log(`  client enum constants: ${await readFields(ce, FI.enumConstants, 'enum_constant', 'client')}`);
     }
   }
 
@@ -273,10 +379,53 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const lt = await libSource(inp, T.file);
     if (lt) log(`  library types named: ${await readTypes(lt, 'lib', missingTypes)} of ${missingTypes.size} referenced`);
   }
+  const missingFields = new Set([...wantFields].filter((id) => !fields.has(id)));
+  if (FI && missingFields.size > 0) {
+    const lf = await libSource(inp, FI.file);
+    if (lf) log(`  library fields named: ${await readFields(lf, FI, 'field', 'lib', missingFields)} of ${missingFields.size} referenced`);
+    if (FI.enumConstants) {
+      const le = await libSource(inp, FI.enumConstants.file);
+      if (le) await readFields(le, FI.enumConstants, 'enum_constant', 'lib', missingFields);
+    }
+  }
   // An EXTERNAL type: an ancestor the client names (`extends DateFormat`) that no staged IR
   // declares. The engine keeps the edge under the id `external:<qualified name>` rather than
   // dropping it, so the subtype relation stays visible to impact queries; this is the row that
   // makes the FK hold. No file, no lines, no members — the label is all that is known.
+  // A GENERATED member: one an annotation processor declares on the compile path, which is in
+  // the artefact and in every caller's source but in no IR. resolution/generated-members.dl keeps
+  // the edge under `generated:<owner qualified name>#<name>/<arity>`, the same shape
+  // `external:<qname>` uses below and for the same reason: without a row here the edge points at
+  // an id the methods table does not hold. Provenance `generated` is what lets a consumer tell an
+  // inferred member from one read out of source. No file and no lines, because there is no source
+  // to point at; the owner is carried so the member still hangs off its type.
+  let generated = 0;
+  for (const id of wantMethods) {
+    if (methods.has(id) || !id.startsWith('generated:')) continue;
+    const body = id.slice('generated:'.length);
+    const hash = body.indexOf('#');
+    const ownerQ = hash < 0 ? '' : body.slice(0, hash);
+    const rest = hash < 0 ? body : body.slice(hash + 1);
+    const slash = rest.lastIndexOf('/');
+    const name = slash < 0 ? rest : rest.slice(0, slash);
+    methods.set(id, [id, name, ownerQ ? `${ownerQ}.${name}` : name, '', 'GENERATED_METHOD',
+                     null, ownerQ || null, '', 0, 0, 'generated']);
+    generated++;
+  }
+  for (const id of wantFields) {
+    if (fields.has(id) || !id.startsWith('generated:')) continue;
+    const body = id.slice('generated:'.length);
+    const hash = body.indexOf('#');
+    const ownerQ = hash < 0 ? '' : body.slice(0, hash);
+    const name = hash < 0 ? body : body.slice(hash + 1);
+    // fields rows are [id, name, kind, ownerTypeId, ownerQualifiedName, typeName,
+    // modifiers, filePath, startLine, endLine, provenance]: a different shape from a
+    // methods row, so the columns are spelled out rather than copied from above.
+    fields.set(id, [id, name, 'field', null, ownerQ || null, null, null, null, 0, 0, 'generated']);
+    generated++;
+  }
+  if (generated > 0) log(`  generated members named: ${generated}`);
+
   let external = 0;
   for (const id of wantTypes) {
     if (types.has(id) || !id.startsWith('external:')) continue;
@@ -324,7 +473,16 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       const cname = E.calleeName ? h.col(E.calleeName.column) : -1;
       const nameKinds = new Set(E.calleeName?.kinds ?? []);
       for await (const r of rowsOf(src)) {
-        const row = sites.get(r[ci] ?? '');
+        const id = r[ci] ?? '';
+        // A FIELD ACCESS site is an expression too, and this is the one pass over a table that
+        // can be GB-scale, so both are positioned here rather than streaming it twice.
+        const fa = fieldSites.get(id);
+        if (fa) {
+          const file = fileOf(E.fileVia, h, r);
+          const sl = int(r[cl]), sc = int(r[cc]), el = int(r[cel]), ec = int(r[cec]);
+          for (const fr of fa) { fill(fr, 6, file); fill(fr, 7, sl); fill(fr, 8, sc); fill(fr, 9, el); fill(fr, 10, ec); }
+        }
+        const row = sites.get(id);
         if (!row) continue;
         if (cname >= 0 && nameKinds.has(r[ck] ?? '')) fill(row, 3, nul(r[cname]));
         fill(row, 4, fileOf(E.fileVia, h, r));
@@ -358,6 +516,12 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const m = methods.get(row[1] as string);
     if (m) row[4] = m[7] ?? null;
   }
+  // last resort for a field access's file: the caller's own file, as for a call site
+  for (const row of field_access) {
+    if (row[6] !== null) continue;
+    const m = methods.get(row[1] as string);
+    if (m) row[6] = m[7] ?? null;
+  }
   const unplaced = [...sites.values()].filter((r) => r[5] === null).length;
   if (unplaced > 0) log(`  ! ${unplaced} of ${sites.size} call sites have no position in the IR`);
 
@@ -376,6 +540,9 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     entry_reachable: dedupe(rawReach),
     unresolved_sites,
     type_instantiated: dedupe(rawInst),
+    fields: [...fields.values()],
+    field_access,
+    type_use,
   };
 }
 

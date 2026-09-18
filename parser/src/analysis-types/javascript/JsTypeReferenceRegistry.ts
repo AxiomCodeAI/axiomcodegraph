@@ -34,7 +34,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * text preserved**, rather than a guess or a dropped tag.
  */
 export class JsTypeReferenceRegistry implements EntityIdentifiable {
-  static readonly ARITY = 23;
+  static readonly ARITY = 24;
 
   readonly typeName: string;
   readonly referenceKind: JsTypeReferenceKind;
@@ -73,6 +73,18 @@ export class JsTypeReferenceRegistry implements EntityIdentifiable {
   private readonly isExternal = false;
   readonly serviceVersionLinkHash: string;
   private jsTypeReferenceUniqueHash = ABSENT;
+  /**
+   * The member this node is the type OF, when its parent is an OBJECT_TYPE (#651):
+   * `module` for the `@property {NormalModule} module` line of a
+   * `@typedef {Object}`, or the `name` of `{ name: string }`. When the parent is a
+   * FUNCTION_TYPE (#691): `param:N` for the parameter written at position N
+   * (counting untyped ones, which have no row) and `return` for the return type,
+   * so a reader never mistakes the one for the other. `""` on every other
+   * node. Appended AFTER the primary key, as `js_expression`'s late columns are:
+   * the column order before it is frozen, and a positional reader of c0..c22 is
+   * unaffected.
+   */
+  readonly memberName: string;
 
   constructor(props: {
     typeName: string;
@@ -91,7 +103,9 @@ export class JsTypeReferenceRegistry implements EntityIdentifiable {
     startLine: number;
     startColumn: number;
     serviceVersionLinkHash: string;
+    memberName?: string;
   }) {
+    this.memberName = props.memberName ?? '';
     this.typeName = props.typeName;
     this.referenceKind = props.referenceKind;
     this.parentReferenceLinkHash = props.parentReferenceLinkHash;
@@ -173,6 +187,7 @@ export class JsTypeReferenceRegistry implements EntityIdentifiable {
         bool(this.isExternal),
         this.serviceVersionLinkHash,
         this.jsTypeReferenceUniqueHash,
+        text(this.memberName),
       ],
       JsTypeReferenceRegistry.ARITY,
       'js_type_reference'
@@ -205,6 +220,7 @@ export class JsTypeReferenceRegistry implements EntityIdentifiable {
         'isExternal',
         'serviceVersionLinkHash',
         'jsTypeReferenceUniqueHash',
+        'memberName',
       ],
       JsTypeReferenceRegistry.ARITY,
       'js_type_reference'

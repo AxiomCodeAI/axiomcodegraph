@@ -1,0 +1,5 @@
+oracle=10 engine=14 agree=10 missing=0 (known 0, NEW 0) extra=4
+  extra    testcases.engine.Driver#small -> testcases.engine.SmallA#size()
+  extra    testcases.engine.Driver#small -> testcases.engine.SmallB#size()
+  extra    testcases.engine.Driver#small -> testcases.engine.SmallC#size()
+  extra    testcases.engine.Driver#wide -> testcases.engine.Ev1#matches(String)

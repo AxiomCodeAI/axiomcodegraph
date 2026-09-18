@@ -1,0 +1,3 @@
+known_edge	method	app.Caller#useEndpoint() -> generated:app.Settings#getEndpointUrl/0
+known_edge	method	app.Caller#useHand() -> app.Settings#getHand()
+known_edge	method	app.Caller#useRetry() -> generated:app.Settings#isRetryEnabled/0

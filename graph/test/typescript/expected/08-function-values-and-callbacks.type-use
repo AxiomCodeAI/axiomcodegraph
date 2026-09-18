@@ -1,0 +1,5 @@
+ambiguous_unknown	VARIABLE_TYPE	0	values [VARIABLE] -> -
+known_edge	FIELD_TYPE	0	Pipeline [FIELD] -> Transform
+known_edge	METHOD_PARAM	0	values [METHOD_PARAM] -> Transform
+known_edge	OBJECT_CREATION_TYPE	0	values [EXPRESSION] -> Pipeline
+known_edge	VARIABLE_TYPE	0	values [VARIABLE] -> Transform

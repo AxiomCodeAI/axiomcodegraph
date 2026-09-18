@@ -1,0 +1,90 @@
+// ============================================================================
+// CALL-EDGE-GEN · TYPE USE  (#663)
+//
+// The TypeScript half: every place a type is NAMED, with the context it was written in.
+// `all-type-references.csv` carries 29,163 rows in this repository's own source and
+// `referencedType*LinkHash` is empty in all of them, so "what breaks if I change this
+// type" had only a simple-name match to work from.
+//
+// As in Java, this is an EXPORT and a tier, not a resolution. type_ref_resolves
+// (resolution/type-resolution.dl) already resolves every named reference through the
+// module graph, the import aliases, the declaration merging and the type-alias chain;
+// resolution/reference-types.dl is a stack of projections off it. The manifest simply
+// never named it.
+//
+// THE CONTEXT SET IS TYPESCRIPT'S OWN and is wider than Java's, because the language has
+// type-level constructs Java does not: AS_TARGET and SATISFIES_TARGET beside
+// TYPE_ASSERTION, TYPE_ALIAS_RHS, INDEX_SIGNATURE_KEY and _VALUE, MAPPED_CONSTRAINT,
+// the CONDITIONAL_* family, TEMPLATE_SPAN, DECORATOR_TYPE. They are exported as the
+// parser records them rather than folded into the Java vocabulary: a use inside a
+// conditional type IS a use of that type, and flattening it would answer a different
+// question from the one that was asked.
+//
+// WHICH REFERENCES ARE SITES. Only a reference whose KIND can name a declaration:
+// TYPE_REFERENCE and IMPORT_TYPE. The others in the TsTypeRefKind set are structure
+// (ARRAY, UNION, PARENTHESIZED, TUPLE) whose CHILDREN are the named references, or they
+// name nothing declared at all (PRIMITIVE, LITERAL, TYPE_VARIABLE, THIS_TYPE, MAPPED,
+// CONDITIONAL, TEMPLATE_LITERAL, INDEXED_ACCESS, INFER, INTRINSIC). Emitting a row for
+// those would put a declared unknown on a name that denotes nothing to change, which is
+// noise rather than honesty. Java's copy makes the same cut for TYPE_VARIABLE and the
+// primitives; the kind column here makes it exactly rather than by name.
+//
+// ts_type_reference (31): 0 kind  1 context  7 depth  16 typeReferenceOwnerHash
+//   17 referenceOwnerKind  24 tsModuleLinkHash  30 hash
+// ============================================================================
+
+// DEPTH comes from projections/types.dl's type_ref_depth. A generic reference is a TREE:
+// `Map<string, Widget>` is one TYPE_REFERENCE at depth 0 with its arguments at depth 1.
+// reference-types.dl works at depth 0 only, for the same reason Java's does (dispatching
+// on a type ARGUMENT floods the call graph), but "what uses Widget" must include that
+// declaration, so the depth rides on the row.
+
+// ── THE SITE UNIVERSE ───────────────────────────────────────────────────────
+ts_type_use_kind_names_a_type("TYPE_REFERENCE").
+ts_type_use_kind_names_a_type("IMPORT_TYPE").
+ts_type_use_site(ref, ctx, owner, ownerKind, depth) :-
+    type_ref("client", kind, ctx, tn, _, owner, ownerKind, ref),
+    ts_type_use_kind_names_a_type(kind),
+    tn != "",
+    type_ref_depth("client", depth, ref).
+
+// ── TIER ────────────────────────────────────────────────────────────────────
+ts_type_use_count(ref, n) :- ts_type_use_site(ref, _, _, _, _),
+    n = count : { type_ref_resolves(_, ref, _) }.
+ts_type_use_leaves_client(ref) :- type_ref_resolves("lib", ref, _).
+ts_type_use_class(ref, "known_edge")        :- ts_type_use_count(ref, 1), !ts_type_use_leaves_client(ref).
+ts_type_use_class(ref, "multi_inferred")    :- ts_type_use_count(ref, n), n >= 2.
+ts_type_use_class(ref, "ambiguous_unknown") :- ts_type_use_count(ref, 0).
+
+// ── THE ENCLOSING DECLARATION ───────────────────────────────────────────────
+// The METHOD and the TYPE that contain the reference, so an impact answer joins on one
+// pair rather than on a different entity per owner kind. Both "-" where there is none.
+// ts_type_reference (31): 2 tsTypeLinkHash (the enclosing type, where there is one)
+ts_type_use_encl_type(ref, t) :- ts_type_reference(_, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref), t != "".
+ts_type_use_encl_method(ref, m) :- ts_type_use_site(ref, _, m, "METHOD", _).
+ts_type_use_encl_method(ref, m) :- ts_type_use_site(ref, _, owner, "METHOD_PARAM", _),
+    param_decl("client", _, _, _, m, owner).
+ts_type_use_encl_method(ref, m) :- ts_type_use_site(ref, _, owner, "VARIABLE", _),
+    var_decl("client", _, _, _, m, _, owner), m != "".
+ts_type_use_encl_method(ref, m) :- ts_type_use_site(ref, _, owner, "EXPRESSION", _),
+    expr_enclosing_method(owner, m), m != "".
+ts_type_use_has_method(ref) :- ts_type_use_encl_method(ref, _).
+ts_type_use_method(ref, m) :- ts_type_use_encl_method(ref, m).
+ts_type_use_method(ref, "-") :- ts_type_use_site(ref, _, _, _, _), !ts_type_use_has_method(ref).
+ts_type_use_has_type(ref) :- ts_type_use_encl_type(ref, _).
+ts_type_use_type(ref, t) :- ts_type_use_encl_type(ref, t).
+ts_type_use_type(ref, "-") :- ts_type_use_site(ref, _, _, _, _), !ts_type_use_has_type(ref).
+
+// ── THE EXPORTED ROW — the same ten columns Java emits ──────────────────────
+type_use(ref, owner, ownerKind, et, em, t, "client", ctx, depth, cls) :-
+    ts_type_use_site(ref, ctx, owner, ownerKind, depth),
+    type_ref_resolves("client", ref, t),
+    ts_type_use_class(ref, cls), ts_type_use_type(ref, et), ts_type_use_method(ref, em).
+type_use(ref, owner, ownerKind, et, em, t, "lib", ctx, depth, "boundary_lib") :-
+    ts_type_use_site(ref, ctx, owner, ownerKind, depth),
+    type_ref_resolves("lib", ref, t),
+    ts_type_use_type(ref, et), ts_type_use_method(ref, em).
+type_use(ref, owner, ownerKind, et, em, "-", "-", ctx, depth, "ambiguous_unknown") :-
+    ts_type_use_site(ref, ctx, owner, ownerKind, depth),
+    ts_type_use_class(ref, "ambiguous_unknown"),
+    ts_type_use_type(ref, et), ts_type_use_method(ref, em).

@@ -1,0 +1,5 @@
+known_edge	CONSTRUCTOR_CALL	members#<module-init>() @L14 -> Marker#<new>()
+known_edge	CONSTRUCTOR_CALL	members#<module-init>() @L62 -> Marker#<new>()
+known_edge	CONSTRUCTOR_CALL	members#satisfied() @L66 -> Marker#<new>()
+known_edge	PROPERTY_READ	Box#useAccessor() @L42 -> Box#area()
+known_edge	PROPERTY_WRITE	Box#useAccessor() @L42 -> Box#area(number)

@@ -1,0 +1,10 @@
+app.js:10:1 FUNCTION_CALL main  ->  known_edge  app.js:9:1 main
+app.js:9:19 FUNCTION_CALL createApp  ->  ambiguous_unknown  -
+app.js:9:19 METHOD_CALL createApp().start  ->  ambiguous_unknown  -
+app.js:9:40 FUNCTION_CALL alpha  ->  ambiguous_unknown  -
+app.js:9:49 FUNCTION_CALL beta  ->  ambiguous_unknown  -
+app.js:9:57 FUNCTION_CALL gamma  ->  ambiguous_unknown  -
+app.js:9:66 METHOD_CALL internal.secret  ->  ambiguous_unknown  -
+app.js:9:85 METHOD_CALL nested.x  ->  ambiguous_unknown  -
+app.mjs:3:1 FUNCTION_CALL gamma  ->  ambiguous_unknown  -
+app.mjs:3:10 FUNCTION_CALL alpha  ->  ambiguous_unknown  -

@@ -1,0 +1,9 @@
+28-array-constructor-ref
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    0.5000   (2 of 4 in the bytecode)
+  references 24   resolved 6 (25.0%)
+  tiers ambiguous_unknown=18  known_edge=6
+  not scored: 1 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=1  METHOD_PARAM=7  METHOD_REFERENCE_QUALIFIER=3  METHOD_RETURN=13
+    MISSING probe.ArrayCtorRef ARRAY_CREATION_TYPE probe.ArrayCtorRef.Item
+    MISSING probe.ArrayCtorRef CAST_EXPRESSION probe.ArrayCtorRef.Item

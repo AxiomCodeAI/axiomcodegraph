@@ -1,0 +1,6 @@
+ambiguous_unknown	AS_TARGET	0	ExplicitOne [EXPRESSION] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	narrow [EXPRESSION] -> -
+known_edge	INSTANCEOF_TYPE	0	narrow [EXPRESSION] -> ExplicitOne
+known_edge	TYPE_ELEMENT	1	narrow [METHOD_PARAM] -> ExplicitOne
+known_edge	TYPE_ELEMENT	1	narrow [METHOD_PARAM] -> ImplicitOne
+known_edge	TYPE_PREDICATE_TARGET	1	narrow [METHOD] -> ExplicitOne

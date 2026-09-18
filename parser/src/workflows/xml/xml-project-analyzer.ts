@@ -4,7 +4,7 @@ import * as path from 'path';
 import { XmlAttribute } from '@/analysis-types/xml/XmlAttribute';
 import { XmlElement } from '@/analysis-types/xml/XmlElement';
 import { XmlValueReference } from '@/analysis-types/xml/XmlValueReference';
-import { EXCLUDED_DIRS, ANALYSIS_OUTPUT_DIR, OUTPUT_XML_ELEMENT_CSV_FILENAME, OUTPUT_XML_ATTRIBUTE_CSV_FILENAME, OUTPUT_XML_VALUE_REFERENCE_CSV_FILENAME, OUTPUT_SKIPPED_XML_FILES_CSV_FILENAME, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD } from '@/constants/consts';
+import { EXCLUDED_DIRS, ANALYSIS_OUTPUT_DIR, OUTPUT_XML_ELEMENT_CSV_FILENAME, OUTPUT_XML_ATTRIBUTE_CSV_FILENAME, OUTPUT_XML_VALUE_REFERENCE_CSV_FILENAME, OUTPUT_SKIPPED_XML_FILES_CSV_FILENAME, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD, LARGE_FILE_BYTE_THRESHOLD } from '@/constants/consts';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { XmlParser } from '@/parsers/xml/xml-parser';
@@ -99,6 +99,21 @@ export class XmlProjectAnalyzer {
           continue;
         }
 
+        // BYTES first: a machine-generated file is routinely megabytes on a few
+        // hundred lines, so the line guard below never sees it and the extractor
+        // overflows the stack instead (#554). Recorded as a skip like any other.
+        const byteLength = Buffer.byteLength(content, 'utf-8');
+        if (byteLength > LARGE_FILE_BYTE_THRESHOLD) {
+          console.log(`   ⏭️  Skipping very large file (${byteLength} bytes): ${filePath}`);
+          const reason = SkippedFileReason.FILE_TOO_LARGE;
+          const uniqueFileHash = EntityUtils.generateEntityHash(
+            ENTITY_IDENTIFIERS.SKIPPED_FILE,
+            `${filePath}||${project.path}||${serviceVersionHash}||${reason}`
+          );
+          this.skippedFiles.push({ filePath, baseMservPath: project.path, serviceVersionHash, reason, uniqueFileHash });
+          continue;
+        }
+
         const lineCount = content.split('\n').length;
         if (lineCount > LARGE_FILE_LINE_THRESHOLD) {
           console.log(`   ⏭️  Skipping very large file (${lineCount} lines): ${filePath}`);
@@ -123,7 +138,23 @@ export class XmlProjectAnalyzer {
         this.allValueReferences.push(...valueRefs);
 
       } catch (error) {
+        // RECORD IT. Both guards above push a skippedFiles row and this one used to
+        // log and return, so a file the extractor THREW on contributed no rows and
+        // nothing anywhere said why (#554). The common shape is a machine-generated
+        // file that is large in BYTES and short in LINES: it passes the line
+        // threshold and then overflows the stack, so the corpus loses it silently.
+        //
+        // EXTRACTION_ERROR rather than READ_ERROR, which the enum is explicit about:
+        // the environment did not fail, the parser did, and filing the second as the
+        // first is how a crash in every file of a corpus produces an empty relation
+        // and a run that still reports success.
         console.error(`   ❌ Error parsing XML ${filePath}:`, error);
+        const reason = SkippedFileReason.EXTRACTION_ERROR;
+        const uniqueFileHash = EntityUtils.generateEntityHash(
+          ENTITY_IDENTIFIERS.SKIPPED_FILE,
+          `${filePath}||${project.path}||${serviceVersionHash}||${reason}`
+        );
+        this.skippedFiles.push({ filePath, baseMservPath: project.path, serviceVersionHash, reason, uniqueFileHash });
       }
     }
   }

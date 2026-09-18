@@ -1,0 +1,1163 @@
+{
+  "$comment": [
+    "Every (nodeType, accessor, name) the C# extractors read, checked against the",
+    "vendored grammar's own src/node-types.json BEFORE any row is produced.",
+    "",
+    "WHY THIS EXISTS. A read that names a node type the grammar does not produce",
+    "returns null. It does not throw. The column goes empty, the row count falls",
+    "slightly, and nothing anywhere says so. cs-oracle measured the cost of one",
+    "instance: childForFieldName('parameters') is a real field on",
+    "method_declaration and silently null on class_declaration, which produced 0",
+    "primary constructors in a .NET 8 reference app and 173 generic types against",
+    "19,567 classes. Both were caught by a human finding the number implausible,",
+    "which is luck and does not scale.",
+    "",
+    "It is the structural counterpart of the TypeScript recall probe that reported",
+    "99.8-100% across eleven corpora while being incapable of seeing that 31% of",
+    "calls were missing. This asserts the instrument can see the thing before any",
+    "number exists.",
+    "",
+    "ACCESSORS.",
+    "  child      satisfied by children.types OR by any field whose types include",
+    "             the name. node-types.json PARTITIONS contents into fields and",
+    "             children, but the parse tree exposes a field-bound node as a",
+    "             named child too, so a by-type child scan finds both. Checking",
+    "             only children.types is too strict and reports false faults.",
+    "  field      satisfied only by fields. Stricter, and the accessor that",
+    "             actually fails silently, so a read declared this way is a",
+    "             promise that childForFieldName is correct here.",
+    "  anonymous  an unnamed token, e.g. the `ref` in `ref struct`. node-types.json",
+    "             does not list anonymous children per parent, so this is checked",
+    "             against the top-level anonymous node vocabulary only. Weaker,",
+    "             and stated so rather than pretended otherwise.",
+    "",
+    "mustFail exists so a null result from this gate is known to be a measurement.",
+    "  recovery   a node the parser produces only on error recovery. node-types.json never lists ERROR or MISSING as a child of anything, so this accessor is RECORDED and NOT verified. Saying so is the point: an unverifiable read that looks verified is worse than one that admits it.",
+    "Reconcile with cs-oracle's src/test/csharp-gates/grammar-field-reads.json when",
+    "cs-oracle lands on the c-sharp branch: two read-sets is one too many.",
+    "",
+    "THE #if READS WERE ALL DELETED, and the reason is architectural rather than a",
+    "tidy-up. The parser blanks the `#if` arms this emission does not compile BEFORE",
+    "parsing, so a `preproc_if` node never reaches the tree. Every read that named",
+    "one \u2014 26 of them, across six extractors \u2014 could not match, and a read that",
+    "cannot match is the same defect as a negative control detached from its target:",
+    "it returns null, falls through to a path that happens to be correct, and",
+    "reports nothing. The #if provenance that these reads used to recover is now",
+    "emitted by the blanking pass itself, which sees every directive including the",
+    "ones the grammar recovered as ERROR."
+  ],
+  "reads": [
+    {
+      "nodeType": "compilation_unit",
+      "accessor": "child",
+      "name": "global_statement",
+      "usedBy": "cs-module-extractor: hasTopLevelStatements"
+    },
+    {
+      "nodeType": "compilation_unit",
+      "accessor": "child",
+      "name": "namespace_declaration",
+      "usedBy": "cs-module-extractor: namespaceStyle top-level siblings"
+    },
+    {
+      "nodeType": "compilation_unit",
+      "accessor": "child",
+      "name": "file_scoped_namespace_declaration",
+      "usedBy": "cs-module-extractor: namespaceStyle"
+    },
+    {
+      "nodeType": "namespace_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor: namespaceFrame"
+    },
+    {
+      "nodeType": "namespace_declaration",
+      "accessor": "child",
+      "name": "qualified_name",
+      "usedBy": "cs-type-extractor: namespaceFrame"
+    },
+    {
+      "nodeType": "namespace_declaration",
+      "accessor": "child",
+      "name": "declaration_list",
+      "usedBy": "cs-type-extractor: childDeclarationSites"
+    },
+    {
+      "nodeType": "file_scoped_namespace_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor: namespaceFrame"
+    },
+    {
+      "nodeType": "file_scoped_namespace_declaration",
+      "accessor": "child",
+      "name": "qualified_name",
+      "usedBy": "cs-type-extractor: namespaceFrame"
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor: name"
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "type_parameter_list",
+      "usedBy": "cs-type-extractor: ARITY, which is in the PRIMARY KEY. Read as a CHILD and not as the `type_parameters` field, because class/struct/record do not bind that field and the accessor would be silently null on all three."
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-type-extractor: primary constructor"
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "base_list",
+      "usedBy": "cs-heritage-extractor"
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "declaration_list",
+      "usedBy": "cs-type-extractor: members"
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-type-extractor: readModifiers"
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "type_parameter_constraints_clause",
+      "usedBy": "cs-type-parameter-extractor"
+    },
+    {
+      "nodeType": "struct_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "struct_declaration",
+      "accessor": "child",
+      "name": "type_parameter_list",
+      "usedBy": "cs-type-extractor: arity"
+    },
+    {
+      "nodeType": "struct_declaration",
+      "accessor": "child",
+      "name": "base_list",
+      "usedBy": "cs-heritage-extractor"
+    },
+    {
+      "nodeType": "struct_declaration",
+      "accessor": "child",
+      "name": "declaration_list",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "struct_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "struct_declaration",
+      "accessor": "anonymous",
+      "name": "ref",
+      "usedBy": "cs-type-extractor: isRefLikeStruct. `ref` is NOT a modifier node here."
+    },
+    {
+      "nodeType": "interface_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "interface_declaration",
+      "accessor": "child",
+      "name": "type_parameter_list",
+      "usedBy": "cs-type-extractor: arity. interface_declaration is the ONE type kind that binds this as a field; the by-type child scan finds it either way, which is why the scan is uniform."
+    },
+    {
+      "nodeType": "interface_declaration",
+      "accessor": "child",
+      "name": "base_list",
+      "usedBy": "cs-heritage-extractor"
+    },
+    {
+      "nodeType": "interface_declaration",
+      "accessor": "child",
+      "name": "declaration_list",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "interface_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "interface_declaration",
+      "accessor": "child",
+      "name": "type_parameter_constraints_clause",
+      "usedBy": "cs-type-parameter-extractor"
+    },
+    {
+      "nodeType": "record_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "record_declaration",
+      "accessor": "child",
+      "name": "type_parameter_list",
+      "usedBy": "cs-type-extractor: arity"
+    },
+    {
+      "nodeType": "record_declaration",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-type-extractor: positional record members"
+    },
+    {
+      "nodeType": "record_declaration",
+      "accessor": "child",
+      "name": "base_list",
+      "usedBy": "cs-heritage-extractor"
+    },
+    {
+      "nodeType": "record_declaration",
+      "accessor": "child",
+      "name": "declaration_list",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "record_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "record_declaration",
+      "accessor": "anonymous",
+      "name": "struct",
+      "usedBy": "cs-type-extractor: RECORD vs RECORD_STRUCT. Anonymous, so a modifier scan reports every record as a reference type and inverts the value semantics."
+    },
+    {
+      "nodeType": "enum_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "enum_declaration",
+      "accessor": "child",
+      "name": "base_list",
+      "usedBy": "cs-heritage-extractor: ENUM_UNDERLYING_TYPE"
+    },
+    {
+      "nodeType": "enum_declaration",
+      "accessor": "child",
+      "name": "enum_member_declaration_list",
+      "usedBy": "cs-type-extractor: transparent container"
+    },
+    {
+      "nodeType": "enum_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "delegate_declaration",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "delegate_declaration",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-type-extractor: EXCLUDED from primaryConstructorOf \u2014 this is the delegate's signature, not a constructor"
+    },
+    {
+      "nodeType": "delegate_declaration",
+      "accessor": "child",
+      "name": "type_parameter_list",
+      "usedBy": "cs-type-extractor: arity"
+    },
+    {
+      "nodeType": "delegate_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-type-extractor"
+    },
+    {
+      "nodeType": "base_list",
+      "accessor": "child",
+      "name": "argument_list",
+      "usedBy": "cs-heritage-extractor: the FLAT primary-constructor base invocation, as a class writes it"
+    },
+    {
+      "nodeType": "base_list",
+      "accessor": "child",
+      "name": "primary_constructor_base_type",
+      "usedBy": "cs-heritage-extractor: the WRAPPED shape, as a record writes it. One construct, two tree shapes \u2014 reading only the flat one emitted baseTypeName='Parent(X)' with no row missing anywhere."
+    },
+    {
+      "nodeType": "primary_constructor_base_type",
+      "accessor": "child",
+      "name": "argument_list",
+      "usedBy": "cs-heritage-extractor: baseTypeOf skips it to find the type"
+    },
+    {
+      "nodeType": "type_parameter_list",
+      "accessor": "child",
+      "name": "type_parameter",
+      "usedBy": "cs-type-extractor: arity; cs-type-parameter-extractor"
+    },
+    {
+      "nodeType": "type_parameter",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-parameter-extractor: name (bound as the `name` FIELD, and exposed as a named child)"
+    },
+    {
+      "nodeType": "type_parameter",
+      "accessor": "anonymous",
+      "name": "in",
+      "usedBy": "cs-type-parameter-extractor: variance. Anonymous, so a modifier scan reads every interface as invariant."
+    },
+    {
+      "nodeType": "type_parameter",
+      "accessor": "anonymous",
+      "name": "out",
+      "usedBy": "cs-type-parameter-extractor: variance"
+    },
+    {
+      "nodeType": "type_parameter_constraints_clause",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-type-parameter-extractor: the parameter this clause NAMES \u2014 constraints are matched by name, not position"
+    },
+    {
+      "nodeType": "type_parameter_constraints_clause",
+      "accessor": "child",
+      "name": "type_parameter_constraint",
+      "usedBy": "cs-type-parameter-extractor"
+    },
+    {
+      "nodeType": "type_parameter_constraint",
+      "accessor": "child",
+      "name": "constructor_constraint",
+      "usedBy": "cs-type-parameter-extractor: new()"
+    },
+    {
+      "nodeType": "generic_name",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-heritage-extractor: nameAndArity"
+    },
+    {
+      "nodeType": "generic_name",
+      "accessor": "child",
+      "name": "type_argument_list",
+      "usedBy": "cs-heritage-extractor: baseTypeArity"
+    },
+    {
+      "nodeType": "parameter_list",
+      "accessor": "child",
+      "name": "parameter",
+      "usedBy": "cs-type-extractor: primaryConstructorArity"
+    },
+    {
+      "nodeType": "preproc_define",
+      "accessor": "child",
+      "name": "preproc_arg",
+      "usedBy": "preproc-context: fileLevelSymbols \u2014 the symbol a file-level #define adds (CS-CORPUS-25)"
+    },
+    {
+      "nodeType": "preproc_undef",
+      "accessor": "child",
+      "name": "preproc_arg",
+      "usedBy": "preproc-context: fileLevelSymbols \u2014 the symbol a file-level #undef removes (CS-CORPUS-25)"
+    },
+    {
+      "nodeType": "preproc_if",
+      "accessor": "child",
+      "name": "preproc_elif",
+      "usedBy": "preproc-context: the chain is NESTED, not flat"
+    },
+    {
+      "nodeType": "preproc_if",
+      "accessor": "child",
+      "name": "preproc_else",
+      "usedBy": "preproc-context"
+    },
+    {
+      "nodeType": "preproc_elif",
+      "accessor": "child",
+      "name": "preproc_else",
+      "usedBy": "preproc-context: #else is a child of the LAST #elif"
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor: callableName"
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "field",
+      "name": "returns",
+      "usedBy": "cs-member-extractor: returnTypeOf. A real field here, unlike class_declaration.parameters."
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-member-extractor: readParameters"
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "child",
+      "name": "type_parameter_list",
+      "usedBy": "cs-member-extractor: arity"
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "child",
+      "name": "explicit_interface_specifier",
+      "usedBy": "cs-member-extractor: `void IFoo.Bar()` \u2014 no accessibility and NOT private"
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "child",
+      "name": "block",
+      "usedBy": "cs-member-extractor: bodyKindOf"
+    },
+    {
+      "nodeType": "method_declaration",
+      "accessor": "child",
+      "name": "arrow_expression_clause",
+      "usedBy": "cs-member-extractor: bodyKindOf"
+    },
+    {
+      "nodeType": "constructor_declaration",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "constructor_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-member-extractor: STATIC_CONSTRUCTOR"
+    },
+    {
+      "nodeType": "destructor_declaration",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "operator_declaration",
+      "accessor": "field",
+      "name": "operator",
+      "usedBy": "cs-member-extractor: operatorTokenOf. A real field."
+    },
+    {
+      "nodeType": "operator_declaration",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "conversion_operator_declaration",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor: the TARGET type is the only thing distinguishing two conversions on one type"
+    },
+    {
+      "nodeType": "conversion_operator_declaration",
+      "accessor": "anonymous",
+      "name": "implicit",
+      "usedBy": "cs-member-extractor: conversionKindOf. IMPLICIT runs with NO syntax at the call site."
+    },
+    {
+      "nodeType": "conversion_operator_declaration",
+      "accessor": "anonymous",
+      "name": "explicit",
+      "usedBy": "cs-member-extractor: conversionKindOf"
+    },
+    {
+      "nodeType": "property_declaration",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "property_declaration",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "property_declaration",
+      "accessor": "child",
+      "name": "accessor_list",
+      "usedBy": "cs-member-extractor: readAccessors"
+    },
+    {
+      "nodeType": "property_declaration",
+      "accessor": "child",
+      "name": "arrow_expression_clause",
+      "usedBy": "cs-member-extractor: an expression-bodied property has a GETTER and no `get` token. 5,666 sites."
+    },
+    {
+      "nodeType": "property_declaration",
+      "accessor": "child",
+      "name": "explicit_interface_specifier",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "property_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-member-extractor: required, static, virtual"
+    },
+    {
+      "nodeType": "indexer_declaration",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor. NOTE: an indexer has NO name field \u2014 it is `this[...]`."
+    },
+    {
+      "nodeType": "indexer_declaration",
+      "accessor": "child",
+      "name": "accessor_list",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "accessor_list",
+      "accessor": "child",
+      "name": "accessor_declaration",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "accessor_declaration",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor: get/set/init/add/remove, bound as a FIELD over anonymous tokens"
+    },
+    {
+      "nodeType": "accessor_declaration",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-member-extractor: `{ get; private set; }` \u2014 581 sites of asymmetric accessibility"
+    },
+    {
+      "nodeType": "accessor_declaration",
+      "accessor": "child",
+      "name": "block",
+      "usedBy": "cs-member-extractor: bodyKindOf"
+    },
+    {
+      "nodeType": "accessor_declaration",
+      "accessor": "child",
+      "name": "arrow_expression_clause",
+      "usedBy": "cs-member-extractor: bodyKindOf"
+    },
+    {
+      "nodeType": "event_declaration",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "event_declaration",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "event_declaration",
+      "accessor": "child",
+      "name": "accessor_list",
+      "usedBy": "cs-member-extractor: add/remove"
+    },
+    {
+      "nodeType": "event_field_declaration",
+      "accessor": "child",
+      "name": "variable_declaration",
+      "usedBy": "cs-member-extractor: `event EventHandler A, B;` is N events"
+    },
+    {
+      "nodeType": "variable_declaration",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "variable_declaration",
+      "accessor": "child",
+      "name": "variable_declarator",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "variable_declarator",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "parameter",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor: readParameter"
+    },
+    {
+      "nodeType": "parameter",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor: readParameter"
+    },
+    {
+      "nodeType": "parameter",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-member-extractor: ref/out/in/params/this/scoped"
+    },
+    {
+      "nodeType": "parameter",
+      "accessor": "child",
+      "name": "attribute_list",
+      "usedBy": "cs-member-extractor: attributeCount"
+    },
+    {
+      "nodeType": "parameter_list",
+      "accessor": "anonymous",
+      "name": "params",
+      "usedBy": "cs-member-extractor: `params int[] d` is NOT wrapped in a `parameter` node \u2014 it is FLAT siblings of the list, so a scan for `parameter` children drops it entirely. The grammar declares `name` and `type` as multiple FIELDS on the list itself for exactly this case."
+    },
+    {
+      "nodeType": "parameter_list",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor: the flat params form"
+    },
+    {
+      "nodeType": "parameter_list",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor: the flat params form"
+    },
+    {
+      "nodeType": "scoped_type",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor: unwrapScopedType. `scoped Span<int> f` WRAPS the type; `scoped ref int g` emits a `modifier`. One construct, two shapes \u2014 the third on this branch."
+    },
+    {
+      "nodeType": "local_function_statement",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-member-extractor: a call target a MEMBER walk never reaches, because it is a statement"
+    },
+    {
+      "nodeType": "local_function_statement",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "local_function_statement",
+      "accessor": "child",
+      "name": "parameter_list",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "local_function_statement",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "ref_type",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-member-extractor: a REF RETURN hands back an alias, and `ref` lives in the return TYPE, not the modifier list"
+    },
+    {
+      "nodeType": "yield_statement",
+      "accessor": "child",
+      "name": "expression",
+      "usedBy": "cs-member-extractor: containsYield marks an ITERATOR, whose body does not run when it is called"
+    },
+    {
+      "nodeType": "array_type",
+      "accessor": "child",
+      "name": "array_rank_specifier",
+      "usedBy": "cs-type-reference-extractor: arrayRank is COMMAS PLUS ONE, not the bracket count"
+    },
+    {
+      "nodeType": "array_type",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-type-reference-extractor: the element type"
+    },
+    {
+      "nodeType": "nullable_type",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-type-reference-extractor: collapsed into isNullableAnnotated"
+    },
+    {
+      "nodeType": "pointer_type",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-type-reference-extractor"
+    },
+    {
+      "nodeType": "tuple_type",
+      "accessor": "child",
+      "name": "tuple_element",
+      "usedBy": "cs-type-reference-extractor: the elements are CHILDREN because tupleElementCount alone loses their types"
+    },
+    {
+      "nodeType": "type_argument_list",
+      "accessor": "child",
+      "name": "type",
+      "usedBy": "cs-type-reference-extractor: reified generics make the argument subtree part of the type's identity"
+    },
+    {
+      "nodeType": "qualified_name",
+      "accessor": "child",
+      "name": "generic_name",
+      "usedBy": "cs-type-reference-extractor: A.B.List<int> puts the ARITY on the LAST segment"
+    },
+    {
+      "nodeType": "explicit_interface_specifier",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-member-extractor: the interface an explicit implementation is callable through"
+    },
+    {
+      "nodeType": "explicit_interface_specifier",
+      "accessor": "child",
+      "name": "generic_name",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "explicit_interface_specifier",
+      "accessor": "child",
+      "name": "qualified_name",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "indexer_declaration",
+      "accessor": "child",
+      "name": "bracketed_parameter_list",
+      "usedBy": "cs-member-extractor: an indexer's parameters are BRACKETED, and an indexer with no parameters is not an indexer"
+    },
+    {
+      "nodeType": "bracketed_parameter_list",
+      "accessor": "child",
+      "name": "parameter",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "accessor_list",
+      "accessor": "recovery",
+      "name": "ERROR",
+      "usedBy": "cs-member-extractor: #else and #endif inside an accessor list arrive as bare ERROR siblings \u2014 the grammar produces no preproc_if there. ERROR is a universal recovery node that node-types.json never declares as a child of ANYTHING, so it cannot be checked structurally; declaring it here records the read rather than pretending it is verified."
+    },
+    {
+      "nodeType": "foreach_statement",
+      "accessor": "field",
+      "name": "body",
+      "usedBy": "cs-statement-walker: the node is `foreach_statement`, NOT `for_each_statement`. The wrong name matched nothing, so every expression and every call in every foreach body was invisible \u2014 17% of all call sites in the corpus."
+    },
+    {
+      "nodeType": "foreach_statement",
+      "accessor": "field",
+      "name": "right",
+      "usedBy": "cs-statement-walker: the collection being iterated"
+    },
+    {
+      "nodeType": "if_statement",
+      "accessor": "field",
+      "name": "condition",
+      "usedBy": "cs-statement-walker. NOTE: `if` binds its branches as `consequence`/`alternative` FIELDS \u2014 there is no `else_clause` node, and declaring one matched nothing."
+    },
+    {
+      "nodeType": "if_statement",
+      "accessor": "field",
+      "name": "consequence",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "if_statement",
+      "accessor": "field",
+      "name": "alternative",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "while_statement",
+      "accessor": "field",
+      "name": "condition",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "switch_statement",
+      "accessor": "field",
+      "name": "value",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "switch_statement",
+      "accessor": "field",
+      "name": "body",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "switch_section",
+      "accessor": "child",
+      "name": "statement",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "try_statement",
+      "accessor": "field",
+      "name": "body",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "try_statement",
+      "accessor": "child",
+      "name": "catch_clause",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "try_statement",
+      "accessor": "child",
+      "name": "finally_clause",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "using_statement",
+      "accessor": "field",
+      "name": "body",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "lock_statement",
+      "accessor": "child",
+      "name": "statement",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "local_declaration_statement",
+      "accessor": "child",
+      "name": "variable_declaration",
+      "usedBy": "cs-statement-walker"
+    },
+    {
+      "nodeType": "variable_declarator",
+      "accessor": "child",
+      "name": "bracketed_argument_list",
+      "usedBy": "cs-statement-walker: excluded when finding the initializer"
+    },
+    {
+      "nodeType": "lambda_expression",
+      "accessor": "field",
+      "name": "body",
+      "usedBy": "cs-expression/member: the BODY FIELD, not a positional guess. A single-parameter lambda writes its parameter as a bare `identifier`, so the positional guess picked the PARAMETER as the body and lost 80% of the corpus's LINQ queries."
+    },
+    {
+      "nodeType": "lambda_expression",
+      "accessor": "field",
+      "name": "parameters",
+      "usedBy": "cs-member-extractor"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "from_clause",
+      "usedBy": "cs-expression-extractor: LINQ clauses, which the ENGINE desugars"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "let_clause",
+      "usedBy": "cs-expression-extractor"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "where_clause",
+      "usedBy": "cs-expression-extractor"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "join_clause",
+      "usedBy": "cs-expression-extractor"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "order_by_clause",
+      "usedBy": "cs-expression-extractor"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "group_clause",
+      "usedBy": "cs-expression-extractor"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "select_clause",
+      "usedBy": "cs-expression-extractor"
+    },
+    {
+      "nodeType": "query_expression",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-expression-extractor: the `into` CONTINUATION, where an engine must break the desugaring chain"
+    },
+    {
+      "nodeType": "from_clause",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-expression-extractor: the range variable it BINDS"
+    },
+    {
+      "nodeType": "join_clause",
+      "accessor": "child",
+      "name": "join_into_clause",
+      "usedBy": "cs-expression-extractor: a GROUP join is a different operator from a plain join"
+    },
+    {
+      "nodeType": "order_by_clause",
+      "accessor": "anonymous",
+      "name": "descending",
+      "usedBy": "cs-expression-extractor: the grammar gives NO `ordering` node, so a `descending` token applies to the key BEFORE it and one flag on the clause is wrong about the other key"
+    },
+    {
+      "nodeType": "variable_declarator",
+      "accessor": "child",
+      "name": "tuple_pattern",
+      "usedBy": "cs-block-extractor: `var (a, b) = t` has no name field"
+    },
+    {
+      "nodeType": "local_declaration_statement",
+      "accessor": "child",
+      "name": "modifier",
+      "usedBy": "cs-block-extractor: const, scoped"
+    },
+    {
+      "nodeType": "local_declaration_statement",
+      "accessor": "anonymous",
+      "name": "using",
+      "usedBy": "cs-block-extractor: `using var f = \u2026` is the declaration form"
+    },
+    {
+      "nodeType": "foreach_statement",
+      "accessor": "field",
+      "name": "left",
+      "usedBy": "cs-block-extractor: the loop variable, or a tuple pattern"
+    },
+    {
+      "nodeType": "foreach_statement",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-block-extractor: `foreach (int x in \u2026)`"
+    },
+    {
+      "nodeType": "catch_clause",
+      "accessor": "child",
+      "name": "catch_declaration",
+      "usedBy": "cs-block-extractor: `catch { }` has none"
+    },
+    {
+      "nodeType": "catch_declaration",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-block-extractor: catchTypeNames \u2014 an exception EDGE"
+    },
+    {
+      "nodeType": "catch_declaration",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-block-extractor: optional; `catch (Exception)` binds nothing"
+    },
+    {
+      "nodeType": "declaration_expression",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-block-extractor: `out var n` \u2014 a SECOND RETURN CHANNEL"
+    },
+    {
+      "nodeType": "declaration_expression",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-block-extractor: `out int n`"
+    },
+    {
+      "nodeType": "declaration_pattern",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-block-extractor: `x is Foo f`; optional, may be a discard"
+    },
+    {
+      "nodeType": "declaration_pattern",
+      "accessor": "field",
+      "name": "type",
+      "usedBy": "cs-block-extractor: the tested type"
+    },
+    {
+      "nodeType": "recursive_pattern",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-block-extractor: `x is Foo { A: 1 } f`"
+    },
+    {
+      "nodeType": "var_pattern",
+      "accessor": "field",
+      "name": "name",
+      "usedBy": "cs-block-extractor: `x is var v`"
+    },
+    {
+      "nodeType": "tuple_pattern",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-block-extractor: deconstruction bindings, flattened in source order"
+    },
+    {
+      "nodeType": "tuple_pattern",
+      "accessor": "child",
+      "name": "discard",
+      "usedBy": "cs-block-extractor: `var (a, _, b)` binds two, not three"
+    },
+    {
+      "nodeType": "parenthesized_variable_designation",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-block-extractor: `is var (a, b)`"
+    },
+    {
+      "nodeType": "let_clause",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-block-extractor: `let y = \u2026` exposes no name field"
+    },
+    {
+      "nodeType": "join_clause",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-block-extractor: the FIRST identifier is the range variable"
+    },
+    {
+      "nodeType": "join_into_clause",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-block-extractor: `into g` binds another range variable"
+    },
+    {
+      "nodeType": "do_statement",
+      "accessor": "field",
+      "name": "condition",
+      "usedBy": "cs-block-extractor: conditionExpressionLinkHash"
+    },
+    {
+      "nodeType": "checked_statement",
+      "accessor": "anonymous",
+      "name": "checked",
+      "usedBy": "cs-block-extractor: one node type spells checked AND unchecked"
+    },
+    {
+      "nodeType": "using_statement",
+      "accessor": "child",
+      "name": "variable_declaration",
+      "usedBy": "cs-block-extractor: resourceCount, and the resource local"
+    },
+    {
+      "nodeType": "fixed_statement",
+      "accessor": "child",
+      "name": "variable_declaration",
+      "usedBy": "cs-block-extractor: the pinned pointer"
+    },
+    {
+      "nodeType": "labeled_statement",
+      "accessor": "child",
+      "name": "identifier",
+      "usedBy": "cs-block-extractor: the GOTO TARGET, dropped by TypeScript"
+    },
+    {
+      "nodeType": "ref_type",
+      "accessor": "anonymous",
+      "name": "readonly",
+      "usedBy": "cs-block-extractor: REF_READONLY \u2014 an alias that cannot be written"
+    },
+    {
+      "nodeType": "switch_section",
+      "accessor": "child",
+      "name": "preproc_if",
+      "usedBy": "cs-statement-walker: fork rule 21 label form \u2014 the label under a #if"
+    }
+  ],
+  "mustFail": [
+    {
+      "nodeType": "class_declaration",
+      "accessor": "field",
+      "name": "type_parameters",
+      "why": "THE BUG AS WRITTEN. interface_declaration binds this field and class_declaration does not, so the identical call site is right for interfaces and silently null for classes, structs and records. Arity is in cs_type's PRIMARY KEY, so it would fork the identity of every generic class."
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "field",
+      "name": "parameters",
+      "why": "the same shape on primary constructors. A real field on method_declaration, absent here, and the failure is a null."
+    },
+    {
+      "nodeType": "class_declaration",
+      "accessor": "child",
+      "name": "no_such_node_type",
+      "why": "a plain misspelling must be caught, or the gate is only testing the two cases someone already knew about."
+    },
+    {
+      "nodeType": "indexer_declaration",
+      "accessor": "field",
+      "name": "name",
+      "why": "an indexer has NO name \u2014 it is `this[...]`. Reading one returns null and the property row would be named the empty string, which every other indexer on the type would also be."
+    },
+    {
+      "nodeType": "accessor_list",
+      "accessor": "recovery",
+      "name": "not_a_recovery_node",
+      "why": "the recovery accessor is the weakest of the three and must still be able to say no, or it becomes a way to smuggle any read past the gate."
+    },
+    {
+      "nodeType": "foreach_statement",
+      "accessor": "child",
+      "name": "for_each_statement",
+      "why": "THE BUG AS WRITTEN. The statement walker's table said `for_each_statement`; the grammar's node is `foreach_statement`. It matched nothing, and every expression and call inside every foreach body was invisible \u2014 17% of the corpus's call sites, with no count able to see it because the enclosing method's other statements were all present."
+    }
+  ]
+}

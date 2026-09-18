@@ -1,0 +1,278 @@
+// ============================================================================
+// RESOLUTION · TYPE NAMES
+//
+// type_name_resolves(Prov, ModuleHash, WrittenName, Arity, GroupKey) -- what a type
+// name written in a given file denotes. Everything downstream depends on this: a
+// receiver's type, a base class, a constructor's target, an extension method's
+// receiver constraint.
+//
+// C# RESOLVES A SIMPLE TYPE NAME IN THIS ORDER, and the order is not cosmetic --
+// getting it wrong resolves names to types the compiler would not choose:
+//
+//   1. a type PARAMETER in scope          (`T` is never a type called T)
+//   2. a type nested in the enclosing types, innermost outward
+//   3. a using ALIAS                       (`using Foo = A.B;`)
+//   4. the enclosing namespaces, innermost outward
+//   5. the namespaces brought in by `using`
+//
+// This file does not implement 1-5 as a priority cascade with cut-offs, because
+// Datalog has no cut and because the honest answer when two sources both match is
+// a SET rather than a silent pick. Instead each source produces a candidate with
+// its RANK, and type_name_resolves takes the best available rank per (module, name,
+// arity). Ties at the same rank survive as multiple answers and are reported as
+// ambiguous, which is what the compiler itself would call them.
+//
+// ARITY IS PART OF THE KEY EVERYWHERE. `List` and `List<T>` are two types. A
+// resolver that matches on name alone answers `new Dictionary<K,V>()` with whatever
+// `Dictionary` it found first, and on a codebase with its own non-generic helper of
+// the same name that is a wrong edge rather than a missing one.
+// ============================================================================
+
+// ── RANK 2: nested in an enclosing type ─────────────────────────────────────
+// Searched from the site's own type outward. The nesting distance is the rank
+// offset, so an inner declaration wins over an outer one, which is what shadowing
+// means.
+type_name_cand(prov, mod, n, ar, igk, 2) :-
+    type_module(prov, t, mod), type_group(prov, t, ogk),
+    type_nest_ancestor(prov, ogk, anc),
+    nested_declares(prov, anc, n, ar, igk).
+
+// A type can also name ITSELF and its enclosing types by simple name.
+type_name_cand(prov, mod, n, ar, gk, 2) :-
+    type_module(prov, t, mod), type_group(prov, t, ogk),
+    type_nest_ancestor(prov, ogk, gk),
+    type_decl(prov, n, _, ar, _, d), type_group(prov, d, gk).
+
+// ── RANK 3: a using alias ───────────────────────────────────────────────────
+// `using Shapes = Probe.Geometry;` makes `Shapes` denote `Probe.Geometry`. The
+// written name is the alias and it must be rewritten before any match is attempted,
+// or every use of the alias is unresolved. The target is matched by QUALIFIED name,
+// which is what an alias target always is.
+type_name_cand(prov, mod, alias, ar, gk, 3) :-
+    using_alias(prov, mod, alias, target),
+    type_decl(prov, _, target, ar, _, t), type_group(prov, t, gk).
+
+// An alias may also name a type by simple name where the target is unqualified.
+type_name_cand(prov, mod, alias, ar, gk, 3) :-
+    using_alias(prov, mod, alias, target),
+    !contains(".", target),
+    type_decl(prov, target, _, ar, _, t), type_group(prov, t, gk),
+    type_ns(prov, gk, ns), module_in_scope(prov, mod, ns).
+
+// ── RANK 4 AND 5: a namespace in scope ──────────────────────────────────────
+// module_in_scope already unions the file's own namespaces, its enclosing
+// namespaces, its usings and every global using in the same assembly. Splitting
+// rank 4 from rank 5 would require knowing which of those a namespace came from,
+// and the C# rule that matters in practice -- a name in your own namespace beats a
+// name you imported -- is captured by giving the file's own namespaces the better
+// rank.
+type_name_cand(prov, mod, n, ar, gk, 4) :-
+    module_namespace_own(prov, mod, ns),
+    ns_declares(prov, ns, n, ar, gk).
+type_name_cand(prov, mod, n, ar, gk, 5) :-
+    module_in_scope(prov, mod, ns),
+    ns_declares(prov, ns, n, ar, gk).
+
+// ── A FULLY QUALIFIED NAME ──────────────────────────────────────────────────
+// `Probe.Geometry.Circle` written in full, and `global::Probe.Circle`. Rank 1: a
+// qualified name is not shadowed by anything.
+type_name_cand(prov, mod, qn, ar, gk, 1) :-
+    module_decl(prov, _, _, _, mod),
+    type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk),
+    type_is_top_level(prov, gk).
+
+// A qualified name naming a NESTED type: `Outer.Inner`. The parser writes the full
+// chain in qualifiedName, so this is the same match; it is separated only because
+// nested types are deliberately absent from ns_declares.
+type_name_cand(prov, mod, qn, ar, gk, 1) :-
+    module_decl(prov, _, _, _, mod),
+    type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk),
+    !type_is_top_level(prov, gk).
+
+// ── THE ASSEMBLY GUARD ──────────────────────────────────────────────────────
+// A candidate is only usable if the file could actually see it. Client code sees
+// client types and staged library types; it does NOT see a type from an unrelated
+// client assembly by simple name. Applied as a filter rather than folded into each
+// rule above so the condition is stated once.
+//
+// Cross-provenance is permitted in one direction: a client file resolving a LIBRARY
+// type is the normal case (that is what a dependency is). A library file resolving a
+// CLIENT type is not, and would be a cycle the real compiler cannot have.
+type_name_visible(prov, mod, gk) :-
+    type_name_cand(prov, mod, _, _, gk, _),
+    module_assembly(prov, mod, asm, _), type_assembly(prov, gk, asm).
+type_name_visible("client", mod, gk) :-
+    type_name_cand("client", mod, _, _, gk, _),
+    type_group("lib", _, gk).
+
+// A file with no assembly name (the parser leaves it empty for a loose .cs file with
+// no project) cannot be filtered this way, and refusing every candidate there would
+// make the engine answer nothing on exactly the small inputs the test cases use.
+// Treated as visible, and the looseness is confined to this clause.
+type_name_visible(prov, mod, gk) :-
+    type_name_cand(prov, mod, _, _, gk, _),
+    module_assembly(prov, mod, "", _).
+
+// ── BEST RANK, AND THE ANSWER ───────────────────────────────────────────────
+type_name_best_rank(prov, mod, n, ar, r) :-
+    type_name_cand(prov, mod, n, ar, _, _),
+    r = min k : { type_name_cand(prov, mod, n, ar, g, k), type_name_visible(prov, mod, g) }.
+
+type_name_resolves(prov, mod, n, ar, gk) :-
+    type_name_cand(prov, mod, n, ar, gk, r),
+    type_name_best_rank(prov, mod, n, ar, r),
+    type_name_visible(prov, mod, gk).
+
+// ── AMBIGUITY, DECLARED RATHER THAN HIDDEN ──────────────────────────────────
+// Two types matching one name at the same rank. The compiler reports this as an
+// error and requires a qualifier; the engine keeps both answers and says so, which
+// is why a downstream edge derived through an ambiguous name is never presented as
+// monomorphic.
+type_name_count(prov, mod, n, ar, c) :-
+    type_name_resolves(prov, mod, n, ar, _),
+    c = count : { type_name_resolves(prov, mod, n, ar, _) }.
+type_name_ambiguous(prov, mod, n, ar) :- type_name_count(prov, mod, n, ar, c), c >= 2.
+
+// ── A NAME THAT RESOLVES TO NOTHING ─────────────────────────────────────────
+// An unstaged third party, a type from an assembly nobody passed, or a real typo in
+// generated code. Recorded so the site that needed it can be classified as a
+// boundary rather than as an unexplained miss. See resolution/external-types.dl,
+// which turns these into named external targets.
+type_name_unresolved(prov, mod, n, ar) :-
+    type_ref_demand(prov, mod, n, ar),
+    !type_name_resolves(prov, mod, n, ar, _).
+
+// type_ref_demand -- every (module, name, arity) the engine actually needs an answer
+// for. Demand-driven rather than "every name in the program", so the unresolved
+// count is a count of real failures and not of names nothing asked about.
+type_ref_demand(prov, mod, n, ar) :-
+    type_ref(prov, _, _, owner, "METHOD", n, tr), method_module(prov, owner, mod),
+    type_ref_argc(prov, tr, ar).
+type_ref_demand(prov, mod, n, ar) :-
+    heritage_slot(prov, t, _, n, ar, _), type_module(prov, t, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    call_needs_ctor_lookup(prov, e), call_callee_name(prov, e, n), call_module(prov, e, mod),
+    call_type_argc(prov, e, "0").
+type_ref_demand(prov, mod, n, ar) :-
+    call_needs_ctor_lookup(prov, e), call_callee_name(prov, e, n), call_module(prov, e, mod),
+    call_type_argc(prov, e, ar), ar != "0".
+
+// A CALL RECEIVER WRITTEN AS A BARE NAME. `Console.WriteLine(x)` asks whether
+// `Console` is a type, and that question has to be ASKED for the answer "it is a
+// type nobody staged" to exist. Without this clause `Console` is demanded by
+// nothing, so type_name_unresolved never mentions it, so external-types.dl cannot
+// name the target and every BCL call is counted as an engine blind spot instead of
+// as a boundary. Measured on the probe project: 3 of 3 unresolved sites.
+//
+// Restricted to a receiver NEITHER the parser NOR THE ENGINE bound to a value.
+// expr_ref_unknown is the parser's own flag and says nothing about whether local
+// binding later answered: `foreach (var s in xs) s.M()` leaves `s` unknown to the
+// parser and bound by the engine. Guarding only on the parser's flag demanded `s` as
+// a type name and produced `external:s.Describe` -- an external target named after a
+// local variable, which is a wrong answer rather than a missing one. The !ref_denotes
+// term is what makes the guard "unbound by anyone".
+type_ref_demand(prov, mod, n, "0") :-
+    call_receiver_expr(prov, e, r),
+    expr_ref_unknown(prov, r),
+    expr_written_name(prov, r, n),
+    !ref_denotes(prov, r, _, _),
+    call_module(prov, e, mod).
+
+// A DECLARED TYPE NAME that did not resolve. `List<IShape> xs` and `ILogger log`
+// name types the client does not declare, and the variable's type is what labels
+// every call made on it.
+type_ref_demand(prov, mod, n, "0") :-
+    var_type_name(prov, v, n, _), var_method(prov, v, m), method_module(prov, m, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    param_type_name(prov, p, n, _), n != "", param_of(prov, p, m), method_module(prov, m, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    field_type_name(prov, f, n, _), n != "", field_decl(prov, _, t, f), type_module(prov, t, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    property_type_name(prov, p, n, _), n != "", property_decl(prov, _, t, p), type_module(prov, t, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    method_return_type_name(prov, m, n), n != "", method_module(prov, m, mod).
+
+// ── RESOLVING A TYPE REFERENCE NODE ─────────────────────────────────────────
+// type_ref_resolves(Prov, RefHash, GroupKey) -- a written type reference to the type
+// it denotes. Goes through type_name_resolves, so it inherits the ordering and the
+// ambiguity handling rather than re-deriving them.
+//
+// A reference naming a TYPE PARAMETER resolves to no type, deliberately: `T` denotes
+// whatever it is instantiated with, and pretending it denotes a type called T
+// produces members that do not exist. Its members come from its constraint
+// (resolution/generics.dl).
+type_ref_resolves(prov, tr, gk) :-
+    type_ref_name(prov, tr, n),
+    !type_ref_type_param(prov, tr, _),
+    type_ref_argc(prov, tr, ar),
+    type_ref_module(prov, tr, mod),
+    type_name_resolves(prov, mod, n, ar, gk).
+
+// The module a type reference is written in, by owner kind. Every owner kind that
+// can carry a reference is listed; one that is missing makes every reference in that
+// position unresolvable, which is why they are enumerated rather than defaulted.
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "METHOD"), method_module(prov, o, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "TYPE"), type_module(prov, o, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "FIELD"), field_decl(prov, _, t, o), type_module(prov, t, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "PROPERTY"), property_decl(prov, _, t, o), type_module(prov, t, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "EVENT"), event_decl(prov, _, t, o), type_module(prov, t, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "METHOD_PARAMETER"), param_of(prov, o, m), method_module(prov, m, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "VARIABLE"), var_method(prov, o, m), method_module(prov, m, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "EXPRESSION"), expr_module(prov, o, mod).
+type_ref_module(prov, tr, mod) :- type_ref_owner(prov, tr, o, "ATTRIBUTE"), attribute_module(prov, o, mod).
+
+attribute_module("client", a, mod) :-
+    cs_attribute(_, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, a).
+attribute_module("lib", a, mod) :-
+    lib_cs_attribute(_, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, a).
+
+// ── C# KEYWORD TYPE ALIASES ─────────────────────────────────────────────────
+// `int`, `string`, `double`, `void` and the rest are the language's own spellings of
+// framework types. They are not names the client declares, so in a client-only run
+// they resolve to nothing and land in type_name_unresolved beside a genuinely
+// missing dependency -- which is misleading in both directions: they are not a
+// blind spot, and they are not a third-party boundary either.
+//
+// Named here so they are classified as PREDEFINED. Where a library IR is staged they
+// resolve through it like any other type; where it is not, a call on a `string`
+// receiver is a boundary to the framework and is labelled as one, never as an
+// engine failure.
+//
+// `void` is in the list deliberately: it appears as a return type on most methods,
+// so leaving it out puts the most common return type in the unresolved column.
+cs_predefined_alias("void").
+cs_predefined_alias("object").
+cs_predefined_alias("string").
+cs_predefined_alias("bool").
+cs_predefined_alias("byte").
+cs_predefined_alias("sbyte").
+cs_predefined_alias("char").
+cs_predefined_alias("decimal").
+cs_predefined_alias("double").
+cs_predefined_alias("float").
+cs_predefined_alias("int").
+cs_predefined_alias("uint").
+cs_predefined_alias("long").
+cs_predefined_alias("ulong").
+cs_predefined_alias("short").
+cs_predefined_alias("ushort").
+cs_predefined_alias("nint").
+cs_predefined_alias("nuint").
+cs_predefined_alias("dynamic").
+cs_predefined_alias("var").
+
+// A predefined name that did not resolve is PREDEFINED-UNSTAGED, not unresolved.
+type_name_predefined_unstaged(prov, mod, n) :-
+    type_name_unresolved(prov, mod, n, "0"), cs_predefined_alias(n).
+
+// ── RESOLVING A WRITTEN TYPE NAME IN A MEMBER SIGNATURE ─────────────────────
+// A parameter, field, property or local carries its type as TEXT as well as as a
+// reference. The reference is the better source (it decomposes generics), but it is
+// absent for some positions, so the text path is kept as a fallback. `List<IShape>`
+// arrives as typeName `List` plus completeTypeName `List<IShape>`; the bare name and
+// the ARGUMENT COUNT are what the lookup needs, and the count is recovered from the
+// reference where there is one.
+name_to_type(prov, mod, n, gk) :- type_name_resolves(prov, mod, n, "0", gk).
+name_to_type(prov, mod, n, gk) :-
+    type_name_resolves(prov, mod, n, ar, gk), ar != "0",
+    !type_name_resolves(prov, mod, n, "0", _).

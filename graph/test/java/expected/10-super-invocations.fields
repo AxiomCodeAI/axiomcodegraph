@@ -1,0 +1,9 @@
+ambiguous_unknown	read	testcases.engine.Base#init() -> -
+ambiguous_unknown	read	testcases.engine.SuperInvocations#main(String[]) -> -
+known_edge	read	testcases.engine.Base#describe() -> testcases.engine.Base#id
+known_edge	read	testcases.engine.Base#init() -> testcases.engine.Base#id
+known_edge	read	testcases.engine.SuperInvocations#name() -> testcases.engine.Base#id
+known_edge	read	testcases.engine.SuperInvocations#report() -> testcases.engine.SuperInvocations#level
+known_edge	write	testcases.engine.Base#<init>(String) -> testcases.engine.Base#id
+known_edge	write	testcases.engine.SuperInvocations#<init>(String) -> testcases.engine.SuperInvocations#level
+known_edge	write	testcases.engine.SuperInvocations#<init>(String,int) -> testcases.engine.SuperInvocations#level
