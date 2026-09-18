@@ -9,7 +9,7 @@ import {
 } from '@/enums/typescript/modules';
 import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
-import { stableRootId } from './stable-root-id';
+import { stableRootId } from '../stable-root-id';
 
 /**
  * A TypeScript module — schema §4.1, 28 columns.
