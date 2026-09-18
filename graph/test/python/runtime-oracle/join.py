@@ -59,7 +59,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(os.path.dirname(HERE), 'tools')
 sys.path.insert(0, TOOLS)
 
-from vendor.normalize import Anchor, Normalizer, COMPREHENSION_SCOPES   # noqa: E402
+from vendor.normalize import (Anchor, Normalizer, COMPREHENSION_SCOPES,  # noqa: E402
+                              ir_anchor_line)
 import engine_edges                                                      # noqa: E402
 
 NATIVE_PREFIX = 'NATIVE:'
@@ -213,6 +214,53 @@ def _anchor_of(norm: Normalizer, path: str, line: int, co_name: str):
     return a
 
 
+def rta_unreachable_targets(ir_dir: str, out_dir: str, norm: Normalizer):
+    """Anchors of methods the engine could NOT have named, and why (#937).
+
+    THE HARNESS TRACES A CHECKOUT AND SCORES A SUBTREE, and when those differ a
+    receiver built only in the untraced part makes a right answer look wrong. A
+    template engine declares `self.loader: BaseLoader`, whose `get_source`
+    raises NotImplementedError, and constructs its concrete loaders only in
+    `tests/`. Parsing `src/` alone, RTA records none of them as instantiated and
+    the call resolves to the base; the trace, which ran the tests, saw the
+    subclasses. Scored naively that is a `wrong_target` -- and no sound rule
+    could have named those overrides, because in the program the engine was
+    given, nothing constructs them.
+
+    MEASURED: 3 of the 4 wrong_target verdicts on one subject, and 14 of 124
+    missing_target, are this and nothing else.
+
+    RTA IS READ FROM THE ENGINE, NOT RE-DERIVED. `resolution-type-instantiated.csv`
+    is the set the engine's own widening rests on; a second implementation here
+    would drift from it and the disagreement would be argued as an oracle bug.
+
+    A method with NO owning type (a module-level function) is never marked: it
+    needs no receiver, so RTA has nothing to say about it.
+    """
+    inst = set()
+    path = os.path.join(out_dir, 'resolution-type-instantiated.csv')
+    if os.path.exists(path):
+        with open(path, encoding='utf-8', errors='replace') as fh:
+            for row in csv.reader(fh, delimiter='\t'):
+                if len(row) > 1:
+                    inst.add(row[1])
+    if not inst:
+        return set()
+    out = set()
+    for m in engine_edges.rows(os.path.join(ir_dir, 'all-python-methods.csv')):
+        owner = m.get('pyTypeLinkHash') or ''
+        if not owner or owner in inst:
+            continue
+        rel = (m.get('filePath') or '').replace(os.sep, '/')
+        try:
+            line = int(m.get('startLine') or 0)
+        except ValueError:
+            line = 0
+        idx = norm.index(os.path.join(norm.root, rel))
+        out.add('%s:%d' % (rel, ir_anchor_line(idx, line, m.get('methodKind', ''))))
+    return out
+
+
 # ── the engine side ─────────────────────────────────────────────────────────
 def expression_positions(ir_dir: str):
     """Expression hash -> (relpath, startLine), for the edges that are NOT sites.
@@ -361,6 +409,18 @@ def main() -> int:
     ir, eng, eng_status, eng_native = engine_sites(args.ir, args.out, args.root, norm)
     verdicts, detail = classify(rt, eng, eng_status)
 
+    # #937. AN ANNOTATION, NOT A RECLASSIFICATION. The verdict is retained and the
+    # reader is told how much of it rests on a receiver the analysed program never
+    # constructs. Reclassifying would silently swallow a genuine miss whose target
+    # happens to sit on a rarely-built class, and a suppressed defect is exactly what
+    # this harness exists to prevent.
+    unreachable = rta_unreachable_targets(args.ir, args.out, norm)
+    outside = collections.Counter()
+    for verdict in ('missing_target', 'wrong_target', 'unresolved_but_ran', 'site_gap'):
+        for key, ran, got in detail.get(verdict, []):
+            if ran and all(r in unreachable for r in ran):
+                outside[verdict] += 1
+
     # RULE 7, AS A CHECK RATHER THAN A DEFINITION. A site where the only thing that ran
     # is a C function has no source anchor to resolve to. An engine that names a client
     # method there has fabricated one. Reported separately and NOT as a verdict: a line
@@ -384,7 +444,14 @@ def main() -> int:
     for k in order + ('not_executed',):
         n = verdicts[k]
         pct = ('%6.2f%%' % (100.0 * n / scored)) if scored and k != 'not_executed' else '       '
-        print('  %-20s %6d %s' % (k, n, pct))
+        note = ''
+        if outside.get(k):
+            note = '   (%d with a receiver this program never constructs)' % outside[k]
+        print('  %-20s %6d %s%s' % (k, n, pct, note))
+    if sum(outside.values()):
+        print('\n  %d verdict(s) above rest on a type RTA never saw constructed, so no sound'
+              '\n  rule could have named the target: the receiver was built outside the parsed'
+              '\n  tree. Annotated, not reclassified.' % sum(outside.values()))
 
     def label(anchor_key):
         if anchor_key.startswith(NATIVE_PREFIX):
@@ -410,6 +477,7 @@ def main() -> int:
         with open(args.json, 'w', encoding='utf-8') as fh:
             json.dump({'verdicts': dict(verdicts),
                        'native_only_with_client_target': len(native_only),
+                       'receiver_outside_rta': dict(outside),
                        'detail': {k: [[list(key), ran, got] for key, ran, got in v]
                                   for k, v in detail.items()}}, fh, indent=1)
     return 0
