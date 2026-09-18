@@ -21,7 +21,7 @@ def axiomcode_index(repo: str, lang: str = '', src: str = '', library: str = '')
 
 @srv.tool()
 def axiomcode_path(from_: str, to: str, repo: str, every: bool = False, in_path: str = '', depth: int = 0, limit: int = 0) -> str:
-    """A chain of calls from A to B in the graph, each hop verified, or why there is none. Endpoints exactly as written in the code: Owner.method, method, Type, Outer$Inner.m, file.java:123, file.py, @Decoration, a library call as written (new File, Files.readAllBytes). '*' on one side = everything that reaches B / everything A reaches. every=True lists every route; in_path restricts to files containing it; depth bounds a closure."""
+    """A chain of calls from A to B in the graph, each hop verified, or why there is none. START HERE when you only have a concept word and not an exact name: a bare fragment resolves to every declaration containing it, so path('decrypt', '*') answers "what is the decryption code and what does it touch" without knowing a single name first. Endpoints otherwise as written in the code: Owner.method, method, Type, Outer$Inner.m, file.java:123, file.py, @Decoration, a library call as written (new File, Files.readAllBytes). '*' on one side = everything that reaches B / everything A reaches. every=True lists every route; in_path restricts to files containing it; depth bounds a closure."""
     a = ['path', from_, to, repo] + (['--every'] if every else []) + (['--in', in_path] if in_path else []) + (['--depth', str(depth)] if depth else []) + (['--limit', str(limit)] if limit else [])
     return run(a)
 
