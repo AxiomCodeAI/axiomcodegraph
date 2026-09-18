@@ -356,7 +356,7 @@ config_unresolved("xml", wireElem, refId, "dangling_bean_ref") :-
 // (a) FIELD injection with a unique bean.
 di_field_mono(f, bt) :- cfg_di_narrowing_enabled(),
     inject_point("field", f, dt, _, _),
-    cfg_client_type(dt),                       // gate (1): client-typed slot
+    cfg_injectable_scope_type(dt),             // gate (1): the bean set is complete for this type
     inject_bean_count(f, 1),                   // gate (2): exactly one bean
     bean_satisfies(f, _, bt),
     !field_init_new_type(f, _).                // gate (3): no competing `new`
@@ -374,7 +374,7 @@ cfg_ctor_injected_field(f, dt) :- field_final(f),
     !cfg_value_param(p).
 di_field_mono(f, bt) :- cfg_di_narrowing_enabled(),
     cfg_ctor_injected_field(f, dt),
-    cfg_client_type(dt),
+    cfg_injectable_scope_type(dt),
     inject_point("ctor_param", p, dt, _, _), inject_bean_count(p, 1),
     bean_satisfies(p, _, bt),
     !field_init_new_type(f, _).
