@@ -740,6 +740,17 @@ def _members(q):
             if t:
                 idx.setdefault(t, []).append(i)
                 if t in tid_of: by_tid.setdefault(tid_of[t], []).append((i, n, k))
+        # FIELDS are members too — `declares(t,n) :- member(t,_,n,_)` is how a subclass shadows an inherited name.
+        # The exporter keys a field on `tid_of[f.owner]` with NO walk-up (unlike a method), falling back to the
+        # file's module node, so this reproduces that exactly rather than reusing owner_disp.
+        mod_of = {}
+        for i, f in q("SELECT id, file FROM symbols WHERE kind='module' AND file IS NOT NULL"):
+            mod_of.setdefault(f, i)
+        for rid, fid, o, n, k, f in q("""SELECT rowid, id, owner, name, kind, file FROM symbols
+                                         WHERE method_id IS NULL AND type_id IS NULL
+                                         AND kind IN ('field','const','enum_member','variable')"""):
+            t = tid_of.get(o or '') or mod_of.get(f or '')
+            if t: by_tid.setdefault(t, []).append((fid or f"f:{rid}", n, k))
         _MEM_IDX[key] = (idx, owner_disp, tfile, tid_of, by_tid)
     return _MEM_IDX[key]
 
@@ -766,8 +777,8 @@ def contract_for_method(q, ids):
 
 # ── solve: the dict `Impact.run()` returns, without the .facts round trip ─────────────────────────────────────
 
-SOLVE_KINDS = {'method', 'type'}     # the kinds answered here; anything else falls back to the rules
-BASE_REF_SQL = ("SELECT name FROM type_refs WHERE file=? AND context IN "
+SOLVE_KINDS = {'method', 'type', 'field'}     # the kinds answered here; anything else falls back to the rules
+BASE_REF_SQL = ("SELECT name, line FROM type_refs WHERE file=? AND context IN "
                 "('BASE_CLASS','SUPER_TYPE','IMPLEMENTS_INTERFACE','EXTENDS_TYPE')")
 GEN_DECOR = {'Data', 'Getter', 'Setter', 'Value', 'Builder', 'AllArgsConstructor',
              'RequiredArgsConstructor', 'With', 'Accessors', 'dataclass', 'attrs', 'define', 'BaseModel'}
@@ -805,6 +816,7 @@ def inherited_tests(q, hits):
     return sorted(out)
 
 
+NON_CALLABLE_KINDS = {'field', 'const', 'enum_member', 'variable'}
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}
 CTOR_KINDS = {'new', 'anon_new', 'CONSTRUCTOR_CALL'}
 
@@ -889,6 +901,369 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel):
         if c not in inside: rows.append((c, 'uses', f'uses {nm}, imported from it', 'by name', f, l))
     return rows
 
+
+QUALIFIED_REF_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
+TYPE_OR_CALL_KINDS = {'TYPE', 'METHOD', 'FUNCTION', 'CONSTRUCTOR', 'METHOD_CALL', 'METHOD_REFERENCE'}
+SELF_QUALIFIERS = {'this', 'self', 'cls', 'super'}
+
+
+def field_rec(q, fid):
+    """`field(fl,t,n,f,l)` for one field id, rebuilt the way the exporter writes it.
+
+    The id is the symbol's own id when it has one and `f:<rowid>` when it does not — and `field_type` is keyed on
+    the rowid form ALWAYS, so `holds` through rule 154 only fires for fields with no id of their own. That is the
+    exporter's own inconsistency, reproduced here rather than corrected, because correcting it changes answers.
+    """
+    memb, owner_disp, _tf, tid_of, _bt = _members(q)
+    row = None
+    if isinstance(fid, str) and fid.startswith('f:'):
+        r = q("SELECT rowid, id, owner, name, file, line, kind FROM symbols WHERE rowid=?", int(fid[2:]))
+        if r: row = r[0]
+    else:
+        r = q("""SELECT rowid, id, owner, name, file, line, kind FROM symbols WHERE id=?
+                 AND method_id IS NULL AND type_id IS NULL""", fid)
+        if r: row = r[0]
+    if not row: return None
+    _rid, _id, owner, name, f, l, kind = row
+    t = tid_of.get(owner_disp(owner) or '') if owner else None
+    if not t:                                   # a module-level declaration: its module node is its owner
+        r = q("SELECT id FROM symbols WHERE kind='module' AND file=? LIMIT 1", f)
+        t = r[0][0] if r else None
+    return (t, name, f or '', l or 0, kind, _rid)
+
+
+_SYM_IDX = {}
+def _sym(q):
+    """id -> (owner, method_id, name, display, file, line, end_line, kind), read once.
+
+    `symbols.id` carries no index in the bundle, so every `WHERE id = ?` is a full table scan. One field target
+    made 2,946 of them and spent 14.2 s of a 15 s query inside `SELECT owner, method_id FROM symbols WHERE id=?`.
+    """
+    key = id(q)
+    if key not in _SYM_IDX:
+        _SYM_IDX[key] = {r[0]: r[1:] for r in q("""SELECT id, owner, method_id, name, display, file, line,
+                                                   end_line, kind FROM symbols""")}
+    return _SYM_IDX[key]
+
+
+_REL_IDX = {}
+def _rel_index(q):
+    """ancestors-up, nesting-in and each type's name, built ONCE per connection.
+
+    `_declares` used to issue `type_ancestors WHERE type_id = ?` per call. Neither column is indexed, so each
+    call scanned the table: 481 calls cost 15.6 s of a 31 s query. `_scope` rebuilt the whole down-map per field
+    for the same reason.
+    """
+    key = id(q)
+    if key not in _REL_IDX:
+        up, down, nest_in = {}, {}, {}
+        if _has(q, 'type_ancestors'):
+            for a, b in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
+                up.setdefault(a, []).append(b); down.setdefault(b, []).append(a)
+        if _has(q, 'nesting'):
+            for a, b in q("SELECT type_id, outer_type_id FROM nesting"):
+                down.setdefault(b, []).append(a); nest_in.setdefault(b, []).append(a)
+        nm = {i: n for i, n in q("SELECT id, name FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
+        _REL_IDX[key] = (up, down, nest_in, nm, {})
+    return _REL_IDX[key]
+
+
+def _scope(q, t):
+    """`scope(t,t)` · `scope(t,s) :- scope(t,u), extends(s,u)` · `scope(t,s) :- scope(t,u), nested(s,u)` — a
+    member of t is visible unqualified inside t, inside a subtype, and inside a type nested in either."""
+    _up, down, _ni, _nm, _c = _rel_index(q)
+    seen, stack = {t}, [t]
+    while stack:
+        u = stack.pop()
+        for v in down.get(u, ()):
+            if v not in seen: seen.add(v); stack.append(v)
+    return seen
+
+
+def _declares(q, t):
+    """`declares(t,n)`: a member of t, a member of anything t extends, or a nested type of that name.
+
+    Keyed on the type ID, because `member(t,_,n,_)` is. Falling back to `WHERE owner = <display>` merges every
+    class that shares a display: keycloak has two `ParTest` classes and only one of them extends the base that
+    declares REALM_NAME, so the display lookup shadowed 18 rows the rules report.
+    """
+    up, _down, nest_in, nm, memo = _rel_index(q)
+    if t in memo: return memo[t]
+    _memb, _od, _tf, _tid, by_tid = _members(q)
+    out = set()
+    for u in [t] + list(up.get(t, ())):
+        out |= {n for _c, n, _k in by_tid.get(u, ()) if n}
+    for x in nest_in.get(t, ()):                              # a nested type of that name is a member too
+        if nm.get(x): out.add(nm[x])
+    memo[t] = out
+    return out
+
+
+def direct_for_field(q, fids, at, code, lines, inside, rel):
+    """`direct` for a FIELD target — 33 rules, the largest kind. A field has no call edges of its own, so almost
+    everything here is a reference judged by WHERE it is and HOW it is written.
+
+      fref(q,c,rk,f,l)  a reference to the field's name that is not a local, not a type and not a call, and is
+                        not the declaration itself. `rk` is "qualified" (obj.name) or "bare" (name).
+      in scope          the reference sits inside the owning type, a subtype, or a type nested in one — the
+                        strongest a field reference gets, because the name resolves there.
+      by name           it does not, so the name alone carries it.
+
+    Returns (rows, seeds_extra, direct_edges).
+    """
+    rows, de = [], []
+    memb, _od, _tf, tid_of, by_tid = _members(q)
+    sym = _sym(q)
+    for fid in fids:
+        rec = field_rec(q, fid)
+        if not rec: continue
+        t, n, ff, fll, fkind, rid = rec
+        if not n: continue
+        scope = _scope(q, t) if t else set()
+        # `!declares(s, n)` in rules 233/235/238 is on **s, the CALLER's owning type**, not on the field's owner:
+        # the test is whether the enclosing type has a member of that name ITSELF, which would shadow the
+        # reference. Computing it once for t instead suppressed every row whose caller lives elsewhere — `date`
+        # is a member of the target's own type, so one lookup killed all 19 `input.date` rows.
+        _dec_cache = {}
+        def declares_of(s_):
+            if s_ not in _dec_cache: _dec_cache[s_] = _declares(q, s_) if s_ else set()
+            return _dec_cache[s_]
+        # ── fref: every reference to the name, attributed to its innermost callable ────────────────────────
+        fref = []
+        if _has(q, 'refs'):
+            for nm, rf, rl, kk, ek in q("""SELECT name, file, line, kind, entity_kind FROM refs
+                                           WHERE line > 0 AND name = ?""", n):
+                e = 'CLASS_LITERAL' if kk == 'CLASS_LITERAL' else (ek or '')
+                if e in LOCAL_KINDS: continue
+                if e in TYPE_OR_CALL_KINDS and not (fkind == 'enum_member' and e == 'TYPE'): continue
+                if rf == ff and rl == fll: continue                       # the declaration itself
+                c = at(rf, rl)
+                if not c: continue
+                rk = 'qualified' if kk in QUALIFIED_REF_KINDS else 'bare'
+                fref.append((c, rk, rf, rl, e))
+        owner_of = {}
+        for c, _rk, _f, _l, _e in fref:
+            if c in owner_of: continue
+            # `owner(m,t)` exists only for a symbol that is a METHOD and carries an owner — the exporter writes
+            # no owner row for a type. An anonymous class is a type, so a reference attributed to one has NO
+            # owner and takes rule 240 (`!owner(c,_)`), not 238. Reading the owner column regardless of kind
+            # sent it down 238 and `declares` then suppressed it: 7 rows on each of three MAPPER fields.
+            row = sym.get(c)
+            if row and row[0] and row[1]:
+                d = _od(row[0])
+                owner_of[c] = tid_of.get(d) if d else None
+            else:
+                owner_of[c] = None
+        tname = sym.get(t, (None, None, None))[2] if t else None
+        # 228-240 are SEPARATE rules over the same fref row and they UNION: a qualified reference outside the
+        # scope can be both `in scope` (231, the qualifier is the owner's own type name) and `by name` (233, some
+        # other qualifier). Written as an if/elif chain this picked one and lost 19 rows on one field alone.
+        typenames = {r[0] for r in q("SELECT name FROM symbols WHERE type_id IS NOT NULL AND name IS NOT NULL")}
+        for c, rk, rf, rl, _e in fref:
+            s_ = owner_of.get(c)
+            role, why = ('uses', 'writes/reads it') if rk == 'qualified' else ('reads', 'reads it')
+            in_scope = (s_ is not None and s_ in scope) or (c in scope)
+            if in_scope:                                                      # 228 / 229
+                rows.append((c, role, why, 'in scope', rf, rl))
+            if rk == 'qualified' and s_ is not None and s_ not in scope:
+                quals = _qualifiers(code, rf, rl, n)
+                if tname and tname in quals:                                  # 231
+                    rows.append((c, 'uses', 'writes/reads it', 'in scope', rf, rl))
+                if n not in declares_of(s_):
+                    # 233 — a qualifier that is neither the owner's type nor any other type nor `this`/`self`
+                    if any(qn != tname and qn not in typenames and qn not in SELF_QUALIFIERS for qn in quals):
+                        rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
+                    if not quals:                                             # 235 — no qualifier on the line
+                        rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
+            if rk == 'bare':
+                if s_ is not None and s_ not in scope and n not in declares_of(s_):   # 238
+                    rows.append((c, 'reads', 'reads it', 'by name', rf, rl))
+                if s_ is None and c not in scope:                              # 240
+                    rows.append((c, 'reads', 'reads it', 'by name', rf, rl))
+        # ── the accessors the convention gives the field, and their callers (242 / 243) ────────────────────
+        for an, role_ in _accessors(n):
+            ids_ = [a for (a, nm, _k) in by_tid.get(t, ()) if nm == an] if t else []
+            if not ids_: continue
+            aph = ','.join('?' * len(ids_))
+            for c, f_, l_ in q(f"""SELECT e.caller_id, s.file_path, s.start_line
+                                   FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
+                                   WHERE e.callee_method_id IN ({aph}) AND e.callee_provenance='client'
+                                   ORDER BY s.start_line""", *ids_):
+                verb = 'reads' if role_ == 'read' else 'writes'
+                rows.append((c, verb, f'{verb} it through {an}()', 'resolved', rel(f_) if f_ else '', l_ or 0))
+            de += [(c, a) for c, a in q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
+                                            WHERE callee_method_id IN ({aph})
+                                              AND callee_provenance='client'""", *ids_)]
+        # ── 251: the name written in a string literal ──────────────────────────────────────────────────────
+        if _has(q, 'literals'):
+            for v, lf, ll in q("""SELECT value, file, line FROM literals
+                                  WHERE value = ? AND length(value) < 64""", n):
+                c = at(lf, ll)
+                if c:
+                    rows.append((c, 'uses',
+                                 'names it in a string literal (serialization? a map key? a request key?)',
+                                 'text', lf, ll))
+        # ── 255 / 256: who constructs the owning type ──────────────────────────────────────────────────────
+        if t and tname:
+            ctors = [a for (a, _nm, k) in by_tid.get(t, ()) if k == 'constructor']
+            if ctors:
+                cph = ','.join('?' * len(ctors))
+                for c, f_, l_ in q(f"""SELECT e.caller_id, s.file_path, s.start_line
+                                       FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
+                                       WHERE e.callee_method_id IN ({cph}) AND e.callee_provenance='client'
+                                       ORDER BY s.start_line""", *ctors):
+                    rows.append((c, 'produces', f'constructs {tname}', 'resolved',
+                                 rel(f_) if f_ else '', l_ or 0))
+                de += [(c, k) for c, k in q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
+                                                WHERE callee_method_id IN ({cph})
+                                                  AND callee_provenance='client'""", *ctors)]
+            for c, nm, k, f_, l_ in q("""SELECT s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line
+                                         FROM call_sites s JOIN unresolved_sites u ON u.call_site_id=s.id
+                                         WHERE s.callee_name IS NOT NULL AND s.callee_name<>''"""):
+                if (nm or '').split('.')[-1] == tname and k in CTOR_KINDS:
+                    rows.append((c, 'produces', f'constructs {tname} (unresolved site)', 'by name',
+                                 rel(f_) if f_ else '', l_ or 0))
+            if _has(q, 'refs'):
+                for rf, rl in q("""SELECT file, line FROM refs
+                                   WHERE name=? AND kind='CLASS_LITERAL' AND line > 0""", tname):
+                    c = at(rf, rl)
+                    if c:
+                        rows.append((c, 'produces',
+                                     f'reflects on {tname}.class — deserialization or a framework produces it here',
+                                     'by name', rf, rl))
+            # 258-260: and the same for every type that HOLDS one — a new shape of the field has to be
+            # produced wherever a holder is built, which is usually further out than the owner's constructors.
+            hs = sorted(_holds(q, t, tname, lines))
+            # one lookup for every holder, not one per holder: a common type is held by thousands (ObjectMapper
+            # by 4,306 on jackson) and the per-id query alone was 4,306 round trips.
+            hname = {}
+            for i in range(0, len(hs), 500):
+                chunk = hs[i:i + 500]
+                for hid, hn in q(f"SELECT id, name FROM symbols WHERE id IN ({','.join('?' * len(chunk))})",
+                                 *chunk):
+                    if hn: hname[hid] = hn
+            hctors = {h: [a for (a, _nm, k) in by_tid.get(h, ()) if k == 'constructor'] for h in hs}
+            allc = [a for v in hctors.values() for a in v]
+            # ONE pass over the site tables for ALL holders. Querying per holder re-scanned every call site in
+            # the bundle once per holder — 30 holders on a jackson field took the query from 2 s to 32 s.
+            site_of = {}
+            if allc:
+                aph = ','.join('?' * len(allc))
+                for c, cal, f_, l_ in q(f"""SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line
+                                            FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
+                                            WHERE e.callee_method_id IN ({aph}) AND e.callee_provenance='client'
+                                            ORDER BY s.start_line""", *allc):
+                    site_of.setdefault(cal, []).append((c, f_, l_))
+            hnames = set(hname.values())
+            unres = {}
+            if hnames:
+                for c, nm, k, f_, l_ in q("""SELECT s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line
+                                             FROM call_sites s JOIN unresolved_sites u ON u.call_site_id=s.id
+                                             WHERE s.callee_name IS NOT NULL AND s.callee_name<>''"""):
+                    base = (nm or '').split('.')[-1]
+                    if base in hnames and k in CTOR_KINDS: unres.setdefault(base, []).append((c, f_, l_))
+            lits = {}
+            if hnames and _has(q, 'refs'):
+                nl = sorted(hnames); nph = ','.join('?' * len(nl))
+                for nm, rf, rl in q(f"""SELECT name, file, line FROM refs
+                                        WHERE name IN ({nph}) AND kind='CLASS_LITERAL' AND line > 0""", *nl):
+                    lits.setdefault(nm, []).append((rf, rl))
+            for h in hs:
+                hn = hname.get(h)
+                if not hn: continue
+                for a in hctors[h]:
+                    for c, f_, l_ in site_of.get(a, ()):
+                        rows.append((c, 'produces', f'constructs {hn}, which holds {tname}', 'resolved',
+                                     rel(f_) if f_ else '', l_ or 0))
+                    de += [(c, a) for c, _f, _l in site_of.get(a, ())]
+                for c, f_, l_ in unres.get(hn, ()):
+                    rows.append((c, 'produces', f'constructs {hn}, which holds {tname} (unresolved site)',
+                                 'by name', rel(f_) if f_ else '', l_ or 0))
+                for rf, rl in lits.get(hn, ()):
+                    c = at(rf, rl)
+                    if c:
+                        rows.append((c, 'produces',
+                                     f'reflects on {hn}.class, which holds {tname} — deserialization '
+                                     f'produces the value here', 'by name', rf, rl))
+    return rows, de
+
+
+
+def _holds(q, t, tname, lines):
+    """`holds(h,t)`: type h has a FIELD whose type is t — a value of t is produced whenever an h is.
+
+      152  a FIELD_TYPE type-reference naming t, attributed to a callable whose owner is h
+      154  the type written on a field's own declaration line (`field_type`), naming the DECLARING type
+      158  the file-scoped fallback, used ONLY where no field declaration in that file could be read at all
+
+    `field_type` is keyed on the `f:<rowid>` form of the id always, while `field` uses the symbol's own id when
+    it has one — so both 154 and `file_field_typed` only see fields with NO id of their own. Counting every field
+    whose declaration line parses made `file_field_typed` true almost everywhere and suppressed 158, which is the
+    leg that actually fires: on jackson it supplies all 30 holders of SettableBeanProperty and the other two
+    supply none.
+    """
+    memb, owner_disp, _tf, tid_of, _bt = _members(q)
+    out = set()
+    if not (t and tname and _has(q, 'type_refs')): return out
+    # 152 — the callable carrying the reference, through its owner
+    for rf, rl in q("""SELECT file, line FROM type_refs
+                       WHERE name=? AND context='FIELD_TYPE' AND line > 0""", tname):
+        r = q("""SELECT owner FROM symbols WHERE file=? AND line<=? AND end_line>=?
+                 AND method_id IS NOT NULL AND owner IS NOT NULL
+                 ORDER BY (end_line-line) LIMIT 1""", rf, rl, rl)
+        if r:
+            h = tid_of.get(owner_disp(r[0][0]) or '')
+            if h: out.add(h)
+
+    def field_typed(ffile, fname, fline):
+        """the `field_type` regex on the RAW line, which is what the exporter reads — `self.lines`, not the
+        comment-and-string-blanked `self.code`. Using the blanked source was both wrong and the reason a query
+        on a widely-held type took 32 s: blanking 537 candidate files dominated everything else."""
+        L = lines(ffile)
+        line = L[fline - 1] if 0 < fline <= len(L) else ''
+        if not (fname and line): return None
+        m = re.search(rf'([A-Za-z_$][\w$.]*)\s*(?:<[^;=]*>)?\s*(?:\[\s*\])*\s+{re.escape(fname)}\s*[;=,)]', line)
+        if not m: m = re.search(rf'{re.escape(fname)}\s*:\s*([A-Za-z_$][\w$.]*)', line)
+        return m.group(1).split('.')[-1] if m else None
+
+    # 154 — only fields with no id of their own can join field_type
+    for owner, fname, ffile, fline in q("""SELECT owner, name, file, line FROM symbols
+                                           WHERE method_id IS NULL AND type_id IS NULL AND id IS NULL
+                                           AND kind IN ('field','const','enum_member','variable')
+                                           AND file IS NOT NULL AND line > 0"""):
+        if field_typed(ffile, fname, fline) == tname and owner:
+            h = tid_of.get(owner_disp(owner) or '')
+            if h and h != t: out.add(h)
+    # 158 — the file-scoped fallback, per candidate file only
+    for (rf,) in q("""SELECT DISTINCT file FROM type_refs
+                      WHERE name=? AND context='FIELD_TYPE' AND (line IS NULL OR line = 0)""", tname):
+        typed = any(field_typed(ff, fn, fl)
+                    for fn, ff, fl in q("""SELECT name, file, line FROM symbols
+                                           WHERE file=? AND method_id IS NULL AND type_id IS NULL AND id IS NULL
+                                           AND kind IN ('field','const','enum_member','variable') AND line > 0""",
+                                        rf))
+        if typed: continue                                            # !file_field_typed(f)
+        for (h,) in q("""SELECT id FROM symbols WHERE file=?
+                         AND ((type_id IS NOT NULL AND method_id IS NULL) OR kind='module')""", rf):
+            if h != t: out.add(h)
+    return out
+
+
+def _accessors(n):
+    """`accessor(fl,an,role)` — the names a convention would give this field, exactly as the exporter derives
+    them: the bean pair, the fluent name, and the same name without a leading underscore."""
+    cap = n[:1].upper() + n[1:]
+    out = [('get' + cap, 'read'), ('is' + cap, 'read'), ('set' + cap, 'write'), (n, 'read')]
+    if n.startswith('_') and len(n) > 1: out.append((n.lstrip('_'), 'read'))
+    return out
+
+
+def _qualifiers(code, f, l, n):
+    """`qualifier(f,l,n,qn)` — what is written before `.n` on that line, from the blanked source."""
+    L = code(f) if f else []
+    text = L[l - 1] if 0 < l <= len(L) else ''
+    return set(re.findall(rf'([A-Za-z_$][\w$]*)\s*\.\s*{re.escape(n)}\b', text))
+
 def _same_file_members(q, own_tid, f):
     """`type_in_file(t,f), type_in_file(t2,f), t2 != t, callable_member(t2,c)` — the callables of the OTHER types
     declared in file f, yielded as (c, t2).
@@ -907,10 +1282,12 @@ def _same_file_members(q, own_tid, f):
     for (t2,) in q("""SELECT id FROM symbols WHERE file=?
                       AND ((type_id IS NOT NULL AND method_id IS NULL) OR kind='module')""", f):
         if t2 == own_tid: continue
-        for (c, _n, _k) in by_tid.get(t2, ()): yield c, t2
+        for (c, _n, _k) in by_tid.get(t2, ()):
+            if _k in NON_CALLABLE_KINDS: continue     # callable_member(t2,c): k != field/const/enum_member/variable
+            yield c, t2
 
 
-def _alongside_for_type(q, tids, inside):
+def _alongside_for_type(q, tids, inside, target_fields=(), at=None):
     """`alongside` for a TYPE target, where `target_owner(q,t)` is the type itself.
 
     Two of the three alongside rules collapse here. `is_target_decl` has no rule for a type target, so
@@ -925,9 +1302,29 @@ def _alongside_for_type(q, tids, inside):
     for t in tids:
         r = q("SELECT display, file FROM symbols WHERE id=?", t)
         if r: disp_of[t] = (r[0][0], r[0][1])
+    # shares_field(q,c,n) :- target_field(q,n), ref(c,n,_,ek,_,_), !local_kind(ek), callable_member(t,c)
+    # `target_field` is empty for a TYPE target (is_target_decl has no rule for one) but is the field's own name
+    # for a FIELD target, and rule 329 only emits the plain wording for a sibling that shares NOTHING. One row per
+    # shared name, because shares_field is keyed on the field.
+    shared = {}
+    if target_fields and at is not None and _has(q, 'refs'):
+        members = {c for t in tids for (c, _n, _k) in by_tid.get(t, ())}
+        for nm in sorted(set(target_fields)):
+            for rf, rl, ek in q("""SELECT file, line, entity_kind FROM refs
+                                   WHERE name=? AND line > 0""", nm):
+                if ek in LOCAL_KINDS: continue
+                c = at(rf, rl)
+                if c in members: shared.setdefault(c, set()).add(nm)
     for t in tids:                                            # 329 — kept because a member declared outside the
         for (c, _n, _k) in by_tid.get(t, ()):                 #       type's own span is not `inside_target`
-            if c not in inside: rows.append((c, 'uses', 'a sibling of the same type', 'alongside', '', 0))
+            if _k in NON_CALLABLE_KINDS: continue             # callable_member(t,c): k != field/const/enum/variable
+            if c in inside: continue
+            if c in shared:
+                for nm in sorted(shared[c]):
+                    rows.append((c, 'uses', f'a sibling of the same type, using the same field {nm}',
+                                 'alongside', '', 0))
+            else:
+                rows.append((c, 'uses', 'a sibling of the same type', 'alongside', '', 0))
     sib = {r[0] for r in rows}
     for t in tids:
         _o, f = disp_of.get(t, (None, None))
@@ -953,6 +1350,12 @@ def _declines_type(q, tids):
     ph = ','.join('?' * len(tids))
     # 343: an enum can be switched over
     if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND kind='enum' LIMIT 1", *tids): return True
+    # `gen(t,"fluent_read")` and `gen(t,"ctor")` hold for a RECORD with no decoration at all — the shape
+    # alone generates the accessors. 72 `reads it through the generated accessor name()` rows on one
+    # record field, and nothing in `decorations` to see it by.
+    if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND kind='record' LIMIT 1", *tids): return True
+    if _has(q, 'types') and q(f"SELECT 1 FROM types WHERE id IN ({ph}) "
+                              f"AND category LIKE '%RECORD%' LIMIT 1", *tids): return True
     # 397: a barrel is a JS/TS construct; a bundle with no such module can have no reexport row
     if q("SELECT 1 FROM symbols WHERE kind='module' AND (file LIKE '%.ts' OR file LIKE '%.tsx' OR file LIKE '%.js'"
          " OR file LIKE '%.jsx' OR file LIKE '%.mjs' OR file LIKE '%.cjs') LIMIT 1"): return True
@@ -974,16 +1377,30 @@ def _declines_type(q, tids):
         # gen_alias(d,w) :- named(d,m), ref(m,g,…), gen_table(g,w) — the alias is recognised by what the
         # decorator's own body calls, which is a source read. A decoration naming a declaration IN THIS PROJECT
         # could be one; a library annotation (@Override, @Test) declares nothing here and cannot be.
-        if decs:
-            dph = ','.join('?' * len(decs))
-            if q(f"SELECT 1 FROM symbols WHERE name IN ({dph}) LIMIT 1", *decs): return True
+        for d in sorted(decs - GEN_DECOR):
+            # `named(d,m)` is METHODS only — an annotation TYPE of that name is not a candidate. Matching any
+            # symbol declined `@JacksonStdImpl` and `@JsonPOJOBuilder`, which generate nothing, and took jackson
+            # field coverage down to 4 of 14.
+            for m, mf, ml, me in q("""SELECT id, file, line, end_line FROM symbols
+                                      WHERE name=? AND method_id IS NOT NULL AND kind<>'module'
+                                      AND file IS NOT NULL AND line > 0""", d):
+                # ref(m,g,…), gen_table(g,_): the decorator's own body names a generator
+                if _has(q, 'refs') and q("""SELECT 1 FROM refs WHERE file=? AND line BETWEEN ? AND ?
+                                            AND name IN ({}) LIMIT 1""".format(','.join('?' * len(GEN_DECOR))),
+                                         mf, ml, me or ml, *sorted(GEN_DECOR)):
+                    return True
     # `base_name(t,n)`: the supertype as WRITTEN. Checked per file rather than per span — broader than the rule,
     # which costs a fallback on a file that happens to hold such a base, never a wrong answer.
     if _has(q, 'type_refs'):
-        for (f,) in q(f"SELECT file FROM symbols WHERE id IN ({ph})", *tids):
+        for f, ln, en in q(f"SELECT file, line, end_line FROM symbols WHERE id IN ({ph})", *tids):
             if not f: continue
-            for (nm,) in q(BASE_REF_SQL, f):
-                if (nm or '').split('.')[-1] in GEN_DECOR: return True
+            for nm, trl in q(BASE_REF_SQL, f):
+                if (nm or '').split('.')[-1] not in GEN_DECOR: continue
+                # the exporter resolves a base-class reference WITH a line through type_at — the nearest
+                # enclosing type — and only a LINELESS one falls back to every type in the file. Testing the
+                # whole file either way declined any file that merely contains a class called `Builder`.
+                if not trl: return True
+                if ln and en and ln <= trl <= en: return True
     return False
 
 
@@ -1012,7 +1429,7 @@ def _throws_catches(code, f, ln, en):
 
 
 def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=None,
-                       inside=(), textuse=(), importuse=()):
+                       inside=(), textuse=(), importuse=(), lines=None):
     """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
 
     T is the target relation: (query_id, kind, symbol_id, extra). Only method targets are answered here; a
@@ -1024,7 +1441,15 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     """
     if not T or any(k not in SOLVE_KINDS for _, k, _, _ in T): return None
     tys = {s_ for _r, k, s_, _x in T if k == 'type'}
-    if tys and (at is None or _declines_type(q, tys)): return None
+    flds = {s_ for _r, k, s_, _x in T if k == 'field'}
+    if (tys or flds) and at is None: return None
+    if flds and lines is None: return None
+    if tys and _declines_type(q, tys): return None
+    if flds:
+        # a FIELD reaches gen (245-249), switch_over (344) and reexport (396) through its owner type, so it
+        # declines on exactly the same tests — `gen(t,"get")` is what turns a field into its generated accessors.
+        owners = {r[0] for r in (field_rec(q, f_) for f_ in flds) if r and r[0]}
+        if not owners or _declines_type(q, sorted(owners)): return None
     # a call site's file as the REPO sees it: Java bundles store absolute paths and the index's `paths` table maps
     # them. Without this the answer prints the machine's absolute path where the rules print src/main/java/…
     rel = site_file or (lambda x: x)
@@ -1084,6 +1509,22 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
                 de += q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                             WHERE callee_method_id IN ({','.join('?' * len(memids))})
                               AND callee_provenance='client'""", *memids)
+        if 'field' in by_kind:
+            fids = sorted(by_kind['field'])
+            d, fde = direct_for_field(q, fids, at, code, lines, ins, rel)
+            # alongside, through target_owner(q,t) :- target(q,"field",fl,_), field(fl,t,_,_,_)
+            ftypes = set()
+            for f_ in fids:
+                r = field_rec(q, f_)
+                if r and r[0]: ftypes.add(r[0])
+            fnames = {r[1] for r in (field_rec(q, f_) for f_ in fids) if r and r[1]}
+            if ftypes:
+                d += _alongside_for_type(q, sorted(ftypes), ins, fnames, at)
+            dr += d
+            de += fde
+            # seed_of(q,t) :- target(q,"field",fl,_), field(fl,t,_,_,_)  (372), plus the generic rule 376:
+            # every non-alongside direct row is a seed for a target kind that is not method/param/var
+            seeds |= ftypes | {c for c, _r, _w, cert, _f, _l in d if cert != 'alongside'}
         seeds = sorted(seeds)
         out['contract'] += [[c, why, qq] for c, why in con]
         # a Soufflé relation is a SET. Two call_edges rows for the same caller, member and site — different
@@ -1097,7 +1538,13 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         dr = _dr
         out['direct'] += [[c, role, why, cert, (rel(f) if f else ''), str(l), qq] for c, role, why, cert, f, l in dr]
         out['seed'] += [[m, qq] for m in seeds]
-        out['direct_edge'] += [[c, m, qq] for c, m in de]
+        # direct_edge is a SET too. The holds legs append one pair per CALL SITE, so a caller that builds the
+        # same holder twice appeared twice — the duplicate check in the parity harness is what found it.
+        _sde = set(); _de = []
+        for c, m in de:
+            if (c, m) in _sde: continue
+            _sde.add((c, m)); _de.append((c, m))
+        out['direct_edge'] += [[c, m, qq] for c, m in _de]
         out['seed_byname'] += [[c, qq] for c in byname]
         depth = reach_from(rev, seeds, byname)
         out['reach'] += [[m, str(d), qq] for m, d in depth.items()]
@@ -1121,9 +1568,16 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             # Built per KIND, not once over every id: a query carrying both a method and a type would otherwise
             # word one of them after the other.
             simple, full = {}, {}
-            for kind, kids in (('method', by_kind.get('method')), ('type', by_kind.get('type'))):
+            for kind, kids in (('method', by_kind.get('method')), ('type', by_kind.get('type')),
+                               ('field', by_kind.get('field'))):
                 if not kids: continue
                 kph = ','.join('?' * len(kids)); kl = sorted(kids)
+                if kind == 'field':
+                    # extbind(…,"names the field") :- field(fl,_,n,_,_), nonsource(n,f,l) — no "in full" form
+                    for f_ in kl:
+                        r = field_rec(q, f_)
+                        if r and r[1]: simple.setdefault(r[1], 'field')
+                    continue
                 for (n,) in q(f"SELECT name FROM symbols WHERE id IN ({kph})", *kl):
                     if n: simple.setdefault(n, kind)
                 if kind == 'method':
