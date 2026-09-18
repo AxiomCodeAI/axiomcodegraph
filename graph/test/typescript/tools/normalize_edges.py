@@ -245,6 +245,12 @@ def main():
     ir, out = args[0], args[1]
     n = Names(ir, lib_ir)
     site_line = {}
+    # An accessor edge (PROPERTY_READ / PROPERTY_WRITE) is keyed on the PROPERTY_ACCESS
+    # expression, which is no call site; its line comes from the expressions table. The
+    # call-sites table is read second so a written call keeps the line the parser gave it.
+    for r in rows(f'{ir}/all-typescript-expressions.csv'):
+        if r.get('kind') == 'PROPERTY_ACCESS':
+            site_line[r['tsExpressionUniqueHash']] = r.get('startLine') or '?'
     for r in rows(f'{ir}/all-typescript-call-sites.csv'):
         site_line[r['tsExpressionLinkHash']] = r.get('startLine') or '?' 
     seen = set()

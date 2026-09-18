@@ -32,7 +32,7 @@ on its own — this is what catches a caller rendered as `pk.Inner#pk.D$Inner(St
 
 usage: oracle_agreement.py <cases-dir> <work-dir> [--bless] [case-filter ...]
 """
-import os, re, subprocess, sys, shutil
+import os, re, re, subprocess, sys, shutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -67,11 +67,26 @@ def main():
     # costs more than the whole rest of this check.
     ocls = os.path.join(work, '.oracle-classes')
     os.makedirs(ocls, exist_ok=True)
+    # java.lang.classfile is final in JDK 24 and PREVIEW in 22 and 23. Try the plain
+    # compile, then the preview one, before concluding the JDK cannot do it: skipping
+    # here takes the oracle-agreement pin with it, and a green suite then proves no
+    # regression rather than correctness (#911).
+    oflags = []
     c = run(['javac', '-d', ocls, os.path.join(HERE, 'ClassFileOracle.java')])
     if c.returncode:
-        print('SKIP: ClassFileOracle.java does not compile (needs a JDK with java.lang.classfile)')
-        print(c.stderr.strip()[:400])
-        return 0
+        ver = ''
+        v = run(['javac', '-version'])
+        m = re.match(r'javac (\d+)', (v.stdout or v.stderr or '').strip())
+        if m:
+            ver = m.group(1)
+        c2 = run(['javac', '--enable-preview', '--release', ver, '-d', ocls,
+                  os.path.join(HERE, 'ClassFileOracle.java')]) if ver else c
+        if c2.returncode:
+            print(f'SKIP: ClassFileOracle.java does not compile on javac {ver or "unknown"} '
+                  '(java.lang.classfile needs JDK 22+ preview or 24+ final)')
+            print(c2.stderr.strip()[:400])
+            return 0
+        oflags = ['--enable-preview']
 
     names = sorted(d for d in os.listdir(cases_dir) if os.path.isdir(os.path.join(cases_dir, d)))
     if filters:
@@ -89,7 +104,7 @@ def main():
         if p.returncode:
             # javac needs a classpath this check does not build (Spring jars, a stub library).
             skipped.append(name); continue
-        j = run(['java', '-cp', ocls, 'ClassFileOracle', '--app', os.path.join(w, 'classes')])
+        j = run(['java', *oflags, '-cp', ocls, 'ClassFileOracle', '--app', os.path.join(w, 'classes')])
         if j.returncode:
             skipped.append(name); continue
         a = set(x for x in p.stdout.splitlines() if x.strip())

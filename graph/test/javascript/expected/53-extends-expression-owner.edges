@@ -1,0 +1,15 @@
+main.js:15:45 FUNCTION_CALL mix  ->  known_edge  main.js:10:1 mix
+main.js:18:20 METHOD_CALL Base.viaThis  ->  known_edge  main.js:7:3 viaThis
+main.js:18:47 METHOD_CALL Base.viaName  ->  known_edge  main.js:8:3 viaName
+main.js:19:3 METHOD_CALL FromThis.tag  ->  known_edge  main.js:5:3 tag
+main.js:20:3 METHOD_CALL FromName.tag  ->  known_edge  main.js:5:3 tag
+main.js:21:3 CONSTRUCTOR_CALL FromThis  ->  implicit_constructor  -
+main.js:21:3 METHOD_CALL new FromThis().greet  ->  known_edge  main.js:6:3 greet
+main.js:22:3 CONSTRUCTOR_CALL FromName  ->  implicit_constructor  -
+main.js:22:3 METHOD_CALL new FromName().greet  ->  known_edge  main.js:6:3 greet
+main.js:23:21 FUNCTION_CALL viaLocalConst  ->  known_edge  main.js:11:1 viaLocalConst
+main.js:24:3 METHOD_CALL FromConst.tag  ->  known_edge  main.js:5:3 tag
+main.js:25:3 CONSTRUCTOR_CALL FromConst  ->  implicit_constructor  -
+main.js:25:3 METHOD_CALL new FromConst().greet  ->  known_edge  main.js:6:3 greet
+main.js:26:21 FUNCTION_CALL viaParam  ->  known_edge  main.js:15:1 viaParam
+main.js:27:3 METHOD_CALL FromParam.tag  ->  known_edge  main.js:5:3 tag

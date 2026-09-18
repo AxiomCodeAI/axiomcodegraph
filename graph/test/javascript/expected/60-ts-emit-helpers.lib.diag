@@ -1,0 +1,2 @@
+package_entry    60-ts-emit-helpers  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    tspkg  .  []  MAIN  dist/index.js  RESOLVED  -> lib:dist/index.js

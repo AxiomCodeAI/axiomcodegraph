@@ -1,0 +1,2 @@
+known_edge	LOCAL_VARIABLE	0	Probe#a() [LOCAL_VARIABLE] -> Probe
+known_edge	OBJECT_CREATION_TYPE	0	Probe#a() [EXPRESSION] -> Probe

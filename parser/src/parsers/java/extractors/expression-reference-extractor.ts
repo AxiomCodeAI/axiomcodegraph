@@ -15,6 +15,7 @@ import {
 } from '@/enums/java/expressions';
 import { AnnotationExtractor } from '@/parsers/java/extractors/annotation-extractor';
 import { TypeReferenceExtractor } from '@/parsers/java/extractors/type-reference-extractor';
+import { MethodLocalScopes } from '@/parsers/java/extractors/local-scopes';
 import { EntityUtils } from '@/utils/entity-utils';
 import { resolveTypeQualifiedName } from '@/utils/java/type-resolution-utils';
 
@@ -107,9 +108,6 @@ export class ExpressionReferenceExtractor {
   
   // Local variable names in scope for classifying LOCAL_VARIABLE references
   private currentLocalVariableNames: Set<string> = new Set();
-  // Where each local of that name is first declared. A use BEFORE it is not that local: in Java a local's
-  // scope starts at its declaration, so a field read that precedes a same-named local is a field read.
-  private currentLocalVariableDeclStart: Map<string, number> = new Map();
   
   // Pattern binding variable names in scope for classifying PATTERN_BINDING references
   private currentPatternBindingNames: Set<string> = new Set();
@@ -136,6 +134,26 @@ export class ExpressionReferenceExtractor {
   // Matching on the name alone would call all three the binding, which trades one wrong answer
   // for another. A use is the binding only when it falls inside the declaring statement.
   private methodPatternBindings: Array<{ name: string; startIndex: number; endIndex: number }> = [];
+
+  // Where each local declared in the method body currently being extracted is IN SCOPE, as a byte
+  // range per declaration.
+  //
+  // `currentLocalVariableNames` is every local name declared ANYWHERE in the body, so on its own it
+  // answers "is this name a local somewhere in this method", not "is this name a local here". Two
+  // shapes make those different questions, and Java answers both by position (JLS 6.3):
+  //
+  //     Object value;                       // the field
+  //     void m() {
+  //         if (value == null) { ... }      // (1) the FIELD: the local below is not in scope yet
+  //         long value = 7L;                //     scope of the local starts at its declarator
+  //         { int t = 1; }                  // (2) `t` leaves scope with the block that declared it
+  //         use(t);                         //     so this `t` is not that local
+  //     }
+  //
+  // The range is [start of the declarator, end of the scope that contains it], so a use is the local
+  // only when it falls inside one. A name with no range recorded keeps the old name-only answer, so
+  // a declaration form this walk does not model cannot make an answer worse.
+  private methodLocalScopes: MethodLocalScopes | null = null;
   
   // Return statement index for distinguishing multiple returns in a method
   private currentReturnStatementIndex?: number;
@@ -3418,20 +3436,6 @@ export class ExpressionReferenceExtractor {
       return;
     }
     
-    // A constant in a case label. Without types the parser cannot tell an enum constant from another
-    // compile-time constant, and both are fields of some type, so one kind is used for every arm rather
-    // than TYPE for the PascalCase ones and FIELD for the ALL_CAPS one.
-    const inCaseLabel = (() => {
-      let p = node.parent;
-      for (let i = 0; p && i < 4; i += 1, p = p.parent) if (p.type === 'switch_label') return true;
-      return false;
-    })();
-    if ((edgeRole === EdgeRole.SWITCH_CASE_LABEL || inCaseLabel) && !this.currentLocalVariableNames.has(identifierName)
-        && !this.currentMethodParamNames.has(identifierName) && !this.currentLambdaParamNames.has(identifierName)) {
-      builder.referencesEntity(ReferencedEntityKind.FIELD);
-      return;
-    }
-
     // Lambda parameter usage (identifier in lambda body matching a lambda param)
     if (this.currentLambdaParamNames.has(identifierName)) {
       builder.referencesEntity(ReferencedEntityKind.LAMBDA_PARAMETER);
@@ -3444,14 +3448,10 @@ export class ExpressionReferenceExtractor {
       return;
     }
     
-    // Local variable references (identifiers matching local variable names in scope)
-    if (this.currentLocalVariableNames.has(identifierName)) {
-      const declStart = this.currentLocalVariableDeclStart.get(identifierName);
-      if (declStart === undefined || node.startIndex >= declStart) {
-        builder.referencesEntity(ReferencedEntityKind.LOCAL_VARIABLE);
-        return;
-      }
-      // falls through: this use precedes every local of that name, so it is the field
+    // Local variable references (identifiers matching a local variable in scope AT THIS SITE)
+    if (this.isLocalVariableInScopeAt(identifierName, node)) {
+      builder.referencesEntity(ReferencedEntityKind.LOCAL_VARIABLE);
+      return;
     }
     
     // Pattern binding variable usage (identifier matching a pattern variable from instanceof/switch)
@@ -3476,11 +3476,37 @@ export class ExpressionReferenceExtractor {
   }
 
   /**
-   * Set once per method body: the source offset where each local name is first declared, so a use that
-   * precedes the declaration is not classified as that local.
+   * Records where every local declared in the method body about to be extracted is in scope.
+   *
+   * Set once per method, for the same reason the pattern bindings are: a local's declaration and
+   * its uses are in different statements, and therefore different extraction calls.
    */
-  setLocalVariableDeclStarts(starts: Map<string, number>): void {
-    this.currentLocalVariableDeclStart = starts;
+  setMethodLocalScopes(scopes: MethodLocalScopes | null): void {
+    this.methodLocalScopes = scopes;
+  }
+
+  /**
+   * True when a local of this name is in scope at this use site.
+   *
+   * Falls back to the name-only answer when there is no range information for the name, or when the
+   * site is outside the body the ranges were collected from: another file (byte offsets are per
+   * file and this extractor is reused across them), or a field initializer extracted between two
+   * method bodies.
+   */
+  private isLocalVariableInScopeAt(identifierName: string, node: Parser.SyntaxNode): boolean {
+    if (!this.currentLocalVariableNames.has(identifierName)) return false;
+
+    const scopes = this.methodLocalScopes;
+    if (!scopes) return true;
+    if (node.tree !== scopes.tree) return true;
+    if (node.startIndex < scopes.bodyStartIndex || node.endIndex > scopes.bodyEndIndex) return true;
+
+    const ranges = scopes.byName.get(identifierName);
+    if (!ranges || ranges.length === 0) return true;
+
+    return ranges.some(
+      range => node.startIndex >= range.startIndex && node.endIndex <= range.endIndex
+    );
   }
 
   /**

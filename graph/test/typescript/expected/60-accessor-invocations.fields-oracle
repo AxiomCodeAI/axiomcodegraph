@@ -1,0 +1,11 @@
+60-accessor-invocations [fields]
+  precision 0.8462   (11 correct, 2 wrong)
+  recall    0.8462   (11 of 13 the compiler resolved)
+  sites 15   resolved 13 (86.7%)
+  tiers ambiguous_unknown=2  known_edge=13
+  access read=10  write=5
+  not scored: 2 rows whose target is not a client declaration
+    WRONG   Request#method() READ { url: string; method: string }#method
+    WRONG   Request#url() READ { url: string; method: string }#url
+    MISSING Request#method() READ Request#method
+    MISSING Request#url() READ Request#url

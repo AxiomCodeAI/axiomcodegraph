@@ -1,0 +1,5 @@
+oracle=50 engine=50 agree=48 missing=2 (known 2, NEW 0) extra=2
+  known    r587#viaInferredTypeArgument() -> AlphaOp#run(number)
+  known    r587#viaNestedGeneric() -> AlphaOp#run(number)
+  extra    r587#ctlNoTypeArgument() -> AlphaOp#run(number)
+  extra    r587#ctlNoTypeArgument() -> BetaOp#run(number)

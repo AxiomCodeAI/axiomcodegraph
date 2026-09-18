@@ -1,0 +1,7 @@
+32-decorator-application [types]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 5   resolved 0 (0.0%)
+  tiers ambiguous_unknown=5
+  contexts DECORATOR_TYPE=2  METHOD_PARAM=1  METHOD_RETURN=2
+  not scored: 5 rows whose target is not a client declaration

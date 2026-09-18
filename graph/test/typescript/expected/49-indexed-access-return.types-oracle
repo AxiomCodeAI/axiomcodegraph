@@ -1,0 +1,7 @@
+49-indexed-access-return [types]
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 the compiler resolved)
+  sites 7   resolved 7 (100.0%)
+  tiers known_edge=7
+  contexts FIELD_TYPE=2  METHOD_RETURN=1  TYPE_ELEMENT=3  VARIABLE_TYPE=1
+  not scored: 1 rows whose target is not a client declaration

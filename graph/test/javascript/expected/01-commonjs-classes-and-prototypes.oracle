@@ -1,7 +1,7 @@
 lib/util.js:11:20 SUPER_CALL super  EXACT  lib/util.js:5:3
 lib/util.js:12:20 METHOD_CALL greet  EXACT  lib/util.js:6:3
 lib/util.js:13:20 METHOD_CALL greet  EXACT  lib/util.js:12:3
-lib/util.js:13:20 METHOD_CALL toUpperCase  LIB_MISSED  
+lib/util.js:13:20 METHOD_CALL toUpperCase  LIB_AMBIENT_OK  
 lib/util.js:17:39 CONSTRUCTOR_CALL Legacy  EXACT  lib/util.js:15:1
 lib/util.js:19:16 FUNCTION_CALL helper  EXACT  lib/util.js:2:1
 lib/util.js:20:27 FUNCTION_CALL arrow  EXACT  lib/util.js:3:15

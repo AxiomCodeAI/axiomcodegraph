@@ -1,0 +1,2 @@
+known_edge	INSTANCEOF_TYPE	0	narrow [EXPRESSION] -> Node
+known_edge	TYPE_ELEMENT	1	narrow [METHOD_PARAM] -> Node

@@ -1,0 +1,7 @@
+08-function-values-and-callbacks [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 7   resolved 6 (85.7%)
+  tiers ambiguous_unknown=1  known_edge=6
+  contexts FIELD_TYPE=1  METHOD_PARAM=1  OBJECT_CREATION_TYPE=1  VARIABLE_TYPE=4
+  not scored: 1 rows whose target is not a client declaration

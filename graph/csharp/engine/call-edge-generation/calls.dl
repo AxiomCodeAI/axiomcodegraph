@@ -1,0 +1,48 @@
+// ============================================================================
+// CALL-EDGE GEN · PROVENANCE SPLIT
+//
+// The resolved targets, split by WHERE THE CALLEE LIVES. A client->client edge is
+// part of the traversable graph; a client->lib edge is a BOUNDARY that is marked and
+// not expanded in a client-only solve. The chain therefore always ends at a named
+// reason rather than trailing off.
+//
+// client_calls_client(CallerProv, SiteExpr, CalleeProv, CalleeMethod)
+// client_calls_lib   (CallerProv, SiteExpr, CalleeProv, CalleeMethod)
+//
+// The column order matches the other engines exactly, because the stage<->solve
+// loop reads column 4 of call-edges-lib.csv as the library frontier
+// (templates/staging.conf, LIB_FRONTIER_COL=4). A different order here stages the
+// wrong thing and the symptom is an empty library frontier rather than an error.
+// ============================================================================
+
+client_calls_client("client", e, "client", m) :-
+    expr_resolves_to_method("client", e, m),
+    method_decl("client", _, _, _, m).
+
+client_calls_lib("client", e, "lib", m) :-
+    expr_resolves_to_method("client", e, m),
+    method_decl("lib", _, _, _, m).
+
+// ── THE DISPATCH CAP'S REFUSAL ──────────────────────────────────────────────
+// Where a cap is set and a site's fan exceeds it, the fan is refused rather than
+// truncated. The site keeps the DECLARED base as its one named target so it stays in
+// the graph, and the tier says the enumeration was refused. Truncating instead would
+// hand a consumer a set that looks sound and is not.
+call_fan_refused(prov, e) :-
+    expr_call_candidate(prov, e, base),
+    cha_wide_base(base),
+    !dispatch_is_exact(prov, e).
+
+client_calls_client("client", e, "client", base) :-
+    call_fan_refused("client", e),
+    expr_call_candidate("client", e, base),
+    method_decl("client", _, _, _, base).
+client_calls_lib("client", e, "lib", base) :-
+    call_fan_refused("client", e),
+    expr_call_candidate("client", e, base),
+    method_decl("lib", _, _, _, base).
+
+dispatch_capped_site(e, base, n) :-
+    call_fan_refused("client", e),
+    expr_call_candidate("client", e, base),
+    cha_override_count(base, n).

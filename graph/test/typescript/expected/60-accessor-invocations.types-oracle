@@ -1,0 +1,7 @@
+60-accessor-invocations [types]
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    1.0000   (6 of 6 the compiler resolved)
+  sites 17   resolved 11 (64.7%)
+  tiers ambiguous_unknown=6  known_edge=11
+  contexts FIELD_TYPE=1  METHOD_PARAM=4  METHOD_RETURN=5  OBJECT_CREATION_TYPE=5  SUPER_TYPE=1  TYPE_ELEMENT=1
+  not scored: 6 rows whose target is not a client declaration

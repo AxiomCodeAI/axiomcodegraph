@@ -63,7 +63,7 @@ ext_ref_context("CAST_EXPRESSION").
 // imports, java.lang. A name any of those answers is left to the resolver. Two further
 // guards keep this conservative: a single-type import whose path a staged type carries,
 // and a simple name any staged type declares at all — measured before the second guard,
-// a nested type imported as `Outer.Inner` (flattened to `pkg.Inner` by the parser) was
+// a nested type imported as `Outer.Inner` (then registered flattened, as `pkg.Inner`) was
 // given an external node beside its real declaration, and an argument of that type then
 // contradicted every overload whose parameter resolved.
 qualified_name_declared(q) :- java_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).
@@ -231,3 +231,52 @@ external_target(call, label) :- call_unqualified(call, name),
     !static_name_imported(t, name),
     !static_star_imported(t),
     label = cat(x, cat(".", name)).
+
+// ── (d) the IMPLICIT supertype: java.lang.Object with no JDK staged ─────────
+// `accum.toString()` on a receiver declared as a client type whose own hierarchy declares
+// no toString, in a client-only build: the declared method is Object's, which no staged
+// IR holds, so method lookup found nothing and the client subtypes that DO override it
+// (`StringBuilderAppendable.toString`) were never consulted. The site was a blind spot
+// although the receiver's client hierarchy held the answer (#665). Object is every
+// class's ancestor whether or not it is written, so it gets the treatment a declared
+// `extends Unstaged` gets in (a)/(b): the client overrides beneath the receiver are the
+// candidates, the platform method is the boundary label, and call_chain.dl reports the
+// site multi_inferred. Only Object's own PUBLIC members qualify, by name and arity (JLS
+// 4.3.2, a fixed set), and only while no staged java.lang.Object exists: with the JDK
+// staged, method-lookup.dl's object_sig fallback and the ordinary fan apply. The
+// dispatch cap applies as in (a).
+object_member_sig("toString", "0").
+object_member_sig("hashCode", "0").
+object_member_sig("equals", "1").
+object_member_sig("getClass", "0").
+object_member_sig("notify", "0").
+object_member_sig("notifyAll", "0").
+object_member_sig("wait", "0").
+object_member_sig("wait", "1").
+object_member_sig("wait", "2").
+object_staged() :- lib_type(_, "java.lang.Object", _, _, _, _, _, _, _, _, _, _, _, _).
+// the receiver's declared client type inherits the member from the implicit Object
+implicit_object_site(call, name, pc, t) :- call_site(call, name, recv),
+    expr_type("client", recv, t),
+    call_arity(call, pc),
+    object_member_sig(name, pc),
+    !object_staged(),
+    !sig_in_hierarchy(t, name, pc),
+    !call_exact_receiver(call).
+// The override set is computed from the RAW hierarchy alone (java_method, type_ancestor,
+// the fixed member list), not from the site: the cap negates it, and the site's receiver
+// type sits inside the call-graph SCC, which is the stratification dispatch-cap.dl
+// explains. java_type (14): 13 hash.
+implicit_object_impl(t, name, pc, m) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t),
+    object_member_sig(name, pc),
+    type_ancestor(sub, t),
+    java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, pc, _, _, _, m).
+implicit_object_impl_count(t, name, pc, n) :- implicit_object_impl(t, name, pc, _),
+    n = count : { implicit_object_impl(t, name, pc, _) }.
+implicit_object_wide(t, name, pc) :- dispatch_cap(k),
+    implicit_object_impl_count(t, name, pc, n),
+    n > to_number(k).
+expr_call_candidate(call, m) :- implicit_object_site(call, name, pc, t),
+    implicit_object_impl(t, name, pc, m),
+    !implicit_object_wide(t, name, pc).
+external_target(call, cat("external:java.lang.Object.", name)) :- implicit_object_site(call, name, _, _).

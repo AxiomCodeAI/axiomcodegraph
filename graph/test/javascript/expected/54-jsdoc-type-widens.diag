@@ -1,0 +1,5 @@
+package_entry    54-jsdoc-type-widens  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       plain.js:5:21  METHOD_CALL get  no_target
+unresolved       plain.js:5:21  METHOD_CALL get  receiver_untyped
+unresolved       registry.js:6:21  METHOD_CALL get  no_target
+unresolved       registry.js:6:21  METHOD_CALL get  receiver_untyped

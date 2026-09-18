@@ -15,8 +15,7 @@ lib/values.js:20:10 METHOD_CALL cfg.deep.deeper.deepest.fn  ->  known_edge  lib/
 lib/values.js:22:76 METHOD_CALL o.m  ->  known_edge  lib/values.js:6:16 m
 lib/values.js:22:90 METHOD_CALL o.extra  ->  known_edge  lib/values.js:22:49 extra
 lib/values.js:23:37 METHOD_CALL Object.assign  ->  ambient_terminal  -
-lib/values.js:23:69 METHOD_CALL o.m  ->  ambient_terminal  -
-lib/values.js:23:69 METHOD_CALL o.m  ->  multi_inferred  lib/values.js:6:16 m
+lib/values.js:23:69 METHOD_CALL o.m  ->  known_edge  lib/values.js:6:16 m
 lib/values.js:24:31 METHOD_CALL Object.freeze  ->  ambient_terminal  -
 lib/values.js:24:63 METHOD_CALL o.m  ->  ambient_terminal  -
 lib/values.js:24:63 METHOD_CALL o.m  ->  multi_inferred  lib/values.js:3:1 a
@@ -40,7 +39,7 @@ lib/values.js:35:50 COMPUTED_CALL others[0]  ->  multi_inferred  lib/values.js:4
 lib/values.js:35:50 COMPUTED_CALL others[0]  ->  multi_inferred  lib/values.js:5:1 c
 lib/values.js:40:38 FUNCTION_CALL deep  ->  known_edge  lib/values.js:3:1 a
 lib/values.js:40:46 FUNCTION_CALL cb  ->  known_edge  lib/values.js:4:1 b
-lib/values.js:41:31 FUNCTION_CALL missing  ->  ambiguous_unknown  -
+lib/values.js:41:31 FUNCTION_CALL missing  ->  known_edge  lib/values.js:5:1 c
 lib/values.js:42:30 FUNCTION_CALL renamed  ->  known_edge  lib/values.js:4:1 b
 lib/values.js:43:26 METHOD_CALL rest.cb  ->  known_edge  lib/values.js:4:1 b
 lib/values.js:48:3 FUNCTION_CALL factory  ->  known_edge  lib/values.js:46:1 factory

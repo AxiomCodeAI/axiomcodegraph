@@ -70,6 +70,25 @@ expr_lib_type(e, t) :-
 expr_type(p, e, t) :-
     expr_node(p, "SELF_REFERENCE", _, _, e),
     expr_owner(p, _, _, t, e), t != "".
+// (a') `self` as the FIRST PARAMETER OF A LAMBDA WRITTEN IN A CLASS BODY. A class-level
+//     table of handlers, `_handlers = {tuple: lambda self, obj: self._tuple(obj), ...}`,
+//     is called as `self._handlers[k](self, obj)`: the lambda is a function stored on the
+//     class, so its first argument is the instance exactly as a method's is. The parser
+//     tags that `self` a PARAMETER (it is one), and a lambda parameter has no annotation
+//     to type it from, so every `self.<method>(..)` inside the lambda was a declared
+//     unknown and the handlers had no callers (#704: 42 sites in one such table).
+//     Typed as `self` in a method is: the enclosing class, plus the constructed
+//     subclasses dispatch admits for a `self` receiver (resolution/dispatch.dl), since a
+//     receiver typed through expr_type does not pass through call_self_dispatch_type.
+class_body_lambda_self(p, ph, k) :-
+    param_decl(p, name, "0", _, lam, ph), instance_receiver_name(name),
+    method_kind(p, "LAMBDA", _, lam),
+    method_enclosing_member(p, init, lam),
+    method_kind(p, "CLASS_INITIALIZER", _, init),
+    method_owner(p, k, init).
+expr_type(p, e, k) :- expr_names_param(p, e, ph), class_body_lambda_self(p, ph, k).
+expr_type(p, e, s) :- expr_names_param(p, e, ph), class_body_lambda_self(p, ph, k),
+    type_subclass(p, k, s), type_instantiated_reachable(p, s).
 // (b) A CALL whose callee denotes a CLASS: a construction. This is where "there is no
 //     OBJECT_CREATION kind" is paid for, and it is one join.
 expr_type(p, e, t) :- call_of_expr(e, site), call_constructs_type(site, t), p = "client".

@@ -1,0 +1,183 @@
+// ============================================================================
+// PROJECTIONS · TYPES
+//
+// THE ONE THING TO READ FIRST: a cs_type row is a DECLARATION SITE, not a type.
+// `partial class Foo` written in three files is ONE type and THREE rows. The merged
+// entity is declarationGroupKey (c8), which is deliberately not unique. Every rule
+// that asks "does this type declare M" must group on the declaration group, or it
+// answers from one file and misses the members declared in the other two. That is
+// not a rare shape in C#: it is how every source generator, every designer file and
+// every large partial service is written.
+//
+// So this file projects BOTH:
+//   type_decl        one row per declaration site (position, file, span)
+//   type_group       the merged entity, keyed by declarationGroupKey
+// and member lookup goes through the group, never the site.
+//
+// GENERICS ARE REIFIED. `List<int>` and `List<string>` are different runtime types,
+// and arity (c2) is part of a type's identity. Nothing here erases it. `Foo` and
+// `Foo<T>` are two types that happen to share a name, so name resolution matches on
+// (name, arity) and never on name alone.
+//
+// cs_type cols: 0 name 1 qualifiedName 2 arity 3 typeCategory 4 typeAccess
+//   5 typeModifiers 6 typePlacement 7 declarationScopeKey 8 declarationGroupKey
+//   9 isPartial 10 isStatic 11 isAbstract 12 isSealed 13 isReadOnly
+//   14 isRefLikeStruct 15 isFileLocal 16 isRecord 17 hasPrimaryConstructor
+//   18 primaryConstructorArity 19 nullableContext 20 csModuleLinkHash
+//   21 containingTypeLinkHash 22 csNamespaceName 23 startLine 24 endLine
+//   25 startColumn 26 attributeCount 27 isExternal 28 serviceVersionLinkHash
+//   29 csTypeUniqueHash
+// ============================================================================
+
+// ── type_decl(Prov, Name, QualifiedName, Arity, Category, TypeHash) ─────────
+type_decl("client", n, qn, ar, category, t) :-
+    cs_type(n, qn, ar, category, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_decl("lib", n, qn, ar, category, t) :-
+    lib_cs_type(n, qn, ar, category, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── type_group(Prov, TypeHash, GroupKey) ────────────────────────────────────
+// The merged entity. One row per declaration site; several sites share a key when
+// the type is partial.
+type_group("client", t, gk) :-
+    cs_type(_, _, _, _, _, _, _, _, gk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_group("lib", t, gk) :-
+    lib_cs_type(_, _, _, _, _, _, _, _, gk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── type_sibling(Prov, TypeHash, TypeHash) ──────────────────────────────────
+// Two declaration sites of the SAME type (reflexive: a non-partial type is its own
+// only sibling). This is the join every member-lookup rule uses to see the whole
+// type: `type_sibling(prov, t, part), method_owner(prov, part, m)` finds a method
+// declared in any part of t, including t itself.
+type_sibling(prov, a, b) :- type_group(prov, a, gk), type_group(prov, b, gk).
+
+// ── type_module(Prov, TypeHash, ModuleHash) ─────────────────────────────────
+// The FILE this declaration site is written in. A partial type has one per part, so
+// "the file a type lives in" is not a function of the type.
+type_module("client", t, m) :-
+    cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, t).
+type_module("lib", t, m) :-
+    lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, t).
+
+// ── type_namespace(Prov, TypeHash, NamespaceName) ───────────────────────────
+// The namespace the declaration sits in, "" at global scope. For a NESTED type the
+// parser writes the enclosing namespace here too, so this is the namespace of the
+// outermost container and not a path through the nesting.
+type_namespace("client", t, ns) :-
+    cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ns, _, _, _, _, _, _, t).
+type_namespace("lib", t, ns) :-
+    lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ns, _, _, _, _, _, _, t).
+
+// ── type_containing(Prov, TypeHash, ContainingTypeHash) ─────────────────────
+// The IMMEDIATE enclosing type, straight from the IR. C# gives this as a link, so
+// unlike the Java engine there is no line-range inference here: containment is a
+// fact, not a geometric guess, and a nested type whose braces a generator wrote on
+// one line is placed correctly.
+type_containing("client", t, outer) :-
+    cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, outer, _, _, _, _, _, _, _, t),
+    outer != "".
+type_containing("lib", t, outer) :-
+    lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, outer, _, _, _, _, _, _, _, t),
+    outer != "".
+
+// ── type_scope_key(Prov, TypeHash, DeclarationScopeKey) ─────────────────────
+// The lexical scope a declaration was written in ("NS:Probe", a containing type, a
+// method body for a local type). Two types with the same name in the same scope key
+// are the same type; the same name in different scope keys are different types, and
+// that is the test name resolution applies before it looks at anything else.
+type_scope_key("client", t, sk) :-
+    cs_type(_, _, _, _, _, _, _, sk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_scope_key("lib", t, sk) :-
+    lib_cs_type(_, _, _, _, _, _, _, sk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── type_modifier(Prov, TypeHash, Modifier) ─────────────────────────────────
+// One row per flag that is true, so a rule tests membership rather than remembering
+// which of nine boolean columns it wanted.
+type_modifier("client", t, "partial")  :- cs_type(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("client", t, "static")   :- cs_type(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("client", t, "abstract") :- cs_type(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("client", t, "sealed")   :- cs_type(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("client", t, "readonly") :- cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("client", t, "refstruct"):- cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("client", t, "filelocal"):- cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("client", t, "record")   :- cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "partial")  :- lib_cs_type(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "static")   :- lib_cs_type(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "abstract") :- lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "sealed")   :- lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "readonly") :- lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "refstruct"):- lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "filelocal"):- lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_modifier("lib", t, "record")   :- lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── type_is_sealed_entity(Prov, GroupKey) ───────────────────────────────────
+// Sealedness is a property of the TYPE, and a partial type may write `sealed` on one
+// part only (the language permits the modifier on any part and applies it to all).
+// Asking the declaration site would make dispatch narrowing depend on which part the
+// receiver's declaration happened to resolve to. Group-scoped, so it does not.
+type_is_sealed_entity(prov, gk) :- type_modifier(prov, t, "sealed"), type_group(prov, t, gk).
+type_is_abstract_entity(prov, gk) :- type_modifier(prov, t, "abstract"), type_group(prov, t, gk).
+type_is_static_entity(prov, gk) :- type_modifier(prov, t, "static"), type_group(prov, t, gk).
+
+// ── type_primary_ctor(Prov, TypeHash, Arity) ────────────────────────────────
+// A primary constructor (`class Foo(int a)`, and every positional record) declares a
+// constructor with no constructor syntax. The parser gives cs_method a CONSTRUCTOR
+// row for it; this relation is what lets a `: Base(a)` base-list invocation find the
+// arity it has to match.
+type_primary_ctor("client", t, ar) :-
+    cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", ar, _, _, _, _, _, _, _, _, _, _, t).
+type_primary_ctor("lib", t, ar) :-
+    lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", ar, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── type_span(Prov, TypeHash, StartLine, EndLine, StartColumn) ──────────────
+type_span("client", t, sl, el, sc) :-
+    cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, sc, _, _, _, t).
+type_span("lib", t, sl, el, sc) :-
+    lib_cs_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, sc, _, _, _, t).
+
+// ── type_placement(Prov, TypeHash, Placement) ───────────────────────────────
+// TOP_LEVEL / NESTED / LOCAL (declared in a method body). A LOCAL type is invisible
+// outside its method, which name resolution has to respect or it matches a local
+// type from an unrelated method that happens to share a name.
+type_placement("client", t, p) :-
+    cs_type(_, _, _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_placement("lib", t, p) :-
+    lib_cs_type(_, _, _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── type_access(Prov, TypeHash, Access) ─────────────────────────────────────
+type_access("client", t, a) :-
+    cs_type(_, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_access("lib", t, a) :-
+    lib_cs_type(_, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── type_kind tests, by category ────────────────────────────────────────────
+// The category is what settles a heritage clause: C# writes a base class and an
+// interface with identical syntax, so `class C : B` is only decidable once B's own
+// category is known. See resolution/type-hierarchy.dl, which is the sole consumer
+// that matters.
+// RECORD AND RECORD_STRUCT ARE THEIR OWN CATEGORIES, and they must be folded into
+// the right one or a record is neither a class nor a struct and therefore
+//
+//   * cannot be a base class, so `record Point3(...) : Point(...)` puts nothing in
+//     the hierarchy and the base constructor call resolves to nothing;
+//   * is not concrete, so it never appears in a dispatch fan;
+//   * is not "cannot be derived from", so a record struct receiver fans pointlessly.
+//
+// A `record` is a reference type that is a class in every way that matters here. A
+// `record struct` is a value type and, like any struct, cannot be derived from --
+// which makes a receiver of that type exact. Measured across three corpus projects:
+// 18 RECORD and 68 RECORD_STRUCT declarations, all of them mis-classified before
+// this.
+type_is_interface(prov, t) :- type_decl(prov, _, _, _, "INTERFACE", t).
+type_is_class(prov, t)     :- type_decl(prov, _, _, _, "CLASS", t).
+type_is_class(prov, t)     :- type_decl(prov, _, _, _, "RECORD", t).
+type_is_struct(prov, t)    :- type_decl(prov, _, _, _, "STRUCT", t).
+type_is_struct(prov, t)    :- type_decl(prov, _, _, _, "RECORD_STRUCT", t).
+type_is_enum(prov, t)      :- type_decl(prov, _, _, _, "ENUM", t).
+type_is_delegate(prov, t)  :- type_decl(prov, _, _, _, "DELEGATE", t).
+
+// A struct, an enum and a sealed class cannot be derived from, so a receiver of that
+// type is EXACT and dispatch on it needs no fan-out at all. Named once here so the
+// dispatch rules state the reason rather than re-deriving the condition.
+type_cannot_be_derived(prov, gk) :- type_is_sealed_entity(prov, gk).
+type_cannot_be_derived(prov, gk) :- type_is_struct(prov, t), type_group(prov, t, gk).
+type_cannot_be_derived(prov, gk) :- type_is_enum(prov, t), type_group(prov, t, gk).

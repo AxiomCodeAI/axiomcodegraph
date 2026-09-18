@@ -1,0 +1,8 @@
+09-cha-interface-injection
+  precision 0.5000   (1 correct, 1 wrong)
+  recall    1.0000   (1 of 1 in the bytecode)
+  sites 2   resolved 2 (100.0%)
+  tiers known_edge=2
+  access read=1  write=1
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   testcases.engine.InterfaceDI#<init>(Handler) WRITE testcases.engine.InterfaceDI#handler

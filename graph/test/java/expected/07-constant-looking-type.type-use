@@ -1,0 +1,3 @@
+ambiguous_unknown	LOCAL_VARIABLE	0	Caps#f() [LOCAL_VARIABLE] -> -
+ambiguous_unknown	METHOD_PARAM	0	Caps.JSON#parseObject(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	Caps.JSON#parseObject(String) [METHOD] -> -

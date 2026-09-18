@@ -1,0 +1,9 @@
+34-callback-of-callback [types]
+  precision 0.8750   (7 correct, 1 wrong)
+  recall    0.8750   (7 of 8 the compiler resolved)
+  sites 18   resolved 16 (88.9%)
+  tiers ambiguous_unknown=2  known_edge=16
+  contexts METHOD_PARAM=2  METHOD_RETURN=3  METHOD_TYPE_ARGUMENT=2  OBJECT_CREATION_TYPE=5  SUPER_TYPE=2  TYPE_ARGUMENT=2  TYPE_ELEMENT=1  VARIABLE_TYPE=1
+  not scored: 2 rows whose target is not a client declaration
+    WRONG   globals USES MakerConstructor
+    MISSING globals.d USES MakerConstructor

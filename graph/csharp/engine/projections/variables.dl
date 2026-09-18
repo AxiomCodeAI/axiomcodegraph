@@ -1,0 +1,249 @@
+// ============================================================================
+// PROJECTIONS · VARIABLES AND PARAMETERS
+//
+// `var` IS THE NORMAL CASE IN C#, and a `var` local arrives here with an EMPTY
+// variableTypeName and isImplicitlyTyped=true. Its type is the type of its
+// initializer, which the engine infers (resolution/local-flow.dl). Reading the type
+// name column and stopping gives no type for most locals in a modern codebase, and
+// therefore no receiver type, and therefore no call edge.
+//
+// A FOREACH VARIABLE'S "INITIALIZER" IS THE ITERATED EXPRESSION, not a value of the
+// variable's own type. `foreach (var s in shapes)` records shapes as
+// initializerExpressionLinkHash, and s's type is shapes' ELEMENT type. Treating it
+// as a direct initializer types every foreach variable as its collection, which
+// then resolves `s.Area()` against IEnumerable and finds nothing.
+//
+// cs_variable cols: 0 name 1 variableTypeName 2 completeTypeName
+//   3 potentialQualifiedName 4 isAmbiguous 5 isImplicitlyTyped 6 isNullableAnnotated
+//   7 declarationKind 8 scopeKind 9 scopeDepth 10 isConst 11 refKind 12 isScoped
+//   13 csTypeLinkHash 14 csMethodLinkHash 15 csModuleLinkHash 16 csBlockLinkHash
+//   17 hasInitializer 18 initializerExpressionLinkHash 19 typeReferenceLinkHash
+//   20 deconstructionIndex 21 declarationIndex 22 startLine 23 endLine
+//   24 startColumn 25 isExternal 26 serviceVersionLinkHash 27 csVariableUniqueHash
+// ============================================================================
+
+// ── var_decl(Prov, Name, DeclarationKind, MethodHash, VarHash) ──────────────
+var_decl("client", n, dk, mth, v) :-
+    cs_variable(n, _, _, _, _, _, _, dk, _, _, _, _, _, _, mth, _, _, _, _, _, _, _, _, _, _, _, _, v).
+var_decl("lib", n, dk, mth, v) :-
+    lib_cs_variable(n, _, _, _, _, _, _, dk, _, _, _, _, _, _, mth, _, _, _, _, _, _, _, _, _, _, _, _, v).
+
+var_name(prov, v, n) :- var_decl(prov, n, _, _, v).
+var_method(prov, v, m) :- var_decl(prov, _, _, m, v), m != "".
+
+// ── var_type_name(Prov, VarHash, TypeName, CompleteTypeName) ────────────────
+// Non-empty only for an EXPLICITLY typed local. completeTypeName carries the generic
+// arguments (`List<IShape>`) where typeName carries the bare name (`List`).
+var_type_name("client", v, tn, ctn) :-
+    cs_variable(_, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v),
+    tn != "".
+var_type_name("lib", v, tn, ctn) :-
+    lib_cs_variable(_, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v),
+    tn != "".
+
+var_is_implicit("client", v) :-
+    cs_variable(_, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v).
+var_is_implicit("lib", v) :-
+    lib_cs_variable(_, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v).
+
+// ── var_initializer(Prov, VarHash, ExprHash) ────────────────────────────────
+// For a LOCAL this is a value of the variable's type. For FOREACH it is the iterated
+// collection, and for a `using` resource it is the disposable. The declarationKind
+// says which reading applies, so the two shorthands below exist to stop a rule
+// picking the wrong one by accident.
+var_initializer("client", v, e) :-
+    cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", e, _, _, _, _, _, _, _, _, v),
+    e != "".
+var_initializer("lib", v, e) :-
+    lib_cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", e, _, _, _, _, _, _, _, _, v),
+    e != "".
+
+// The initializer IS a value of the variable's type.
+var_value_initializer(prov, v, e) :- var_initializer(prov, v, e), var_decl(prov, _, "LOCAL", _, v).
+var_value_initializer(prov, v, e) :- var_initializer(prov, v, e), var_decl(prov, _, "CONST", _, v).
+// The initializer is a COLLECTION and the variable takes its element type.
+var_iterated_initializer(prov, v, e) :- var_initializer(prov, v, e), var_decl(prov, _, "FOREACH", _, v).
+
+var_type_ref("client", v, tr) :-
+    cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr, _, _, _, _, _, _, _, v),
+    tr != "".
+var_type_ref("lib", v, tr) :-
+    lib_cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr, _, _, _, _, _, _, _, v),
+    tr != "".
+
+// ── var_scope(Prov, VarHash, ScopeKind, ScopeDepth, BlockHash) ──────────────
+// The scope a name is visible in. Two locals with the same name in two sibling
+// blocks are two variables, and binding a use to the wrong one types it wrongly, so
+// local binding matches on the enclosing block chain rather than on the method.
+var_scope("client", v, sk, sd, blk) :-
+    cs_variable(_, _, _, _, _, _, _, _, sk, sd, _, _, _, _, _, _, blk, _, _, _, _, _, _, _, _, _, _, v).
+var_scope("lib", v, sk, sd, blk) :-
+    lib_cs_variable(_, _, _, _, _, _, _, _, sk, sd, _, _, _, _, _, _, blk, _, _, _, _, _, _, _, _, _, _, v).
+
+var_block(prov, v, blk) :- var_scope(prov, v, _, _, blk), blk != "".
+
+var_span("client", v, sl, el, sc) :-
+    cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, sc, _, _, v).
+var_span("lib", v, sl, el, sc) :-
+    lib_cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, sc, _, _, v).
+
+// A deconstruction declares several variables from one expression:
+// `var (a, b) = pair`. deconstructionIndex says which slot, and the element types
+// come from the tuple, so a rule that ignores the index types both names as the
+// whole tuple.
+var_deconstruction_slot("client", v, i) :-
+    cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, i, _, _, _, _, _, _, v),
+    i != "", i != "0".
+var_deconstruction_slot("lib", v, i) :-
+    lib_cs_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, i, _, _, _, _, _, _, v),
+    i != "", i != "0".
+
+// ── PARAMETERS ──────────────────────────────────────────────────────────────
+// cs_method_parameter cols: 0 csMethodLinkHash 1 position 2 name 3 parameterMode
+//   4 typeName 5 completeTypeName 6 isNullableAnnotated 7 hasDefaultValue
+//   8 defaultValueText 9 isParams 10 isThis 11 scopedModifier 12 attributeCount
+//   13 startLine 14 startColumn 15 isExternal 16 serviceVersionLinkHash
+//   17 csMethodParameterUniqueHash
+param_decl("client", m, pos, n, p) :-
+    cs_method_parameter(m, pos, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+param_decl("lib", m, pos, n, p) :-
+    lib_cs_method_parameter(m, pos, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+
+param_of(prov, p, m) :- param_decl(prov, m, _, _, p).
+param_position(prov, p, pos) :- param_decl(prov, _, pos, _, p).
+param_name(prov, p, n) :- param_decl(prov, _, _, n, p).
+
+// A parameter is ALWAYS explicitly typed in C#, which makes parameters the most
+// reliable type source in the language and the anchor most receiver typing starts
+// from.
+param_type_name("client", p, tn, ctn) :-
+    cs_method_parameter(_, _, _, _, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, p).
+param_type_name("lib", p, tn, ctn) :-
+    lib_cs_method_parameter(_, _, _, _, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, p).
+
+// ref / out / in / value. Part of the signature: `M(ref int)` and `M(int)` are two
+// methods, so overload selection reads this.
+param_mode("client", p, mode) :-
+    cs_method_parameter(_, _, _, mode, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+param_mode("lib", p, mode) :-
+    lib_cs_method_parameter(_, _, _, mode, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+
+// `params T[] xs` accepts ANY argument count from its position onward, so a site
+// with more arguments than the method has parameters can still be the right target.
+// Overload selection has to know, or every variadic call looks like an arity
+// mismatch.
+param_is_params("client", p) :-
+    cs_method_parameter(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, p).
+param_is_params("lib", p) :-
+    lib_cs_method_parameter(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, p).
+
+// A DEFAULTED parameter may be omitted, so a method of four parameters is a valid
+// target for a two-argument call. Same consequence as params: arity is a RANGE, not
+// a number, and resolution/overload.dl computes that range from these two facts.
+param_has_default("client", p) :-
+    cs_method_parameter(_, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, p).
+param_has_default("lib", p) :-
+    lib_cs_method_parameter(_, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, p).
+
+// `this` on the first parameter is what MAKES a method an extension method. The
+// receiver of `xs.Where(...)` binds to it, so this is the join that turns a member
+// lookup that found nothing on the receiver's own type into a resolved static call.
+param_is_this("client", p) :-
+    cs_method_parameter(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, p).
+param_is_this("lib", p) :-
+    lib_cs_method_parameter(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, p).
+
+// ── TYPE PARAMETERS ─────────────────────────────────────────────────────────
+// cs_type_parameter cols: 0 ownerLinkHash 1 ownerKind 2 position 3 name
+//   4 varianceModifier 5 constraintText 6 hasStructConstraint 7 hasClassConstraint
+//   8 hasNotNullConstraint 9 hasConstructorConstraint 10 hasAllowRefStructConstraint
+//   11 hasUnmanagedConstraint 12 constraintTypeCount 13 isExternal
+//   14 serviceVersionLinkHash 15 csTypeParameterUniqueHash
+type_param_decl("client", owner, ok, pos, n, tp) :-
+    cs_type_parameter(owner, ok, pos, n, _, _, _, _, _, _, _, _, _, _, _, tp).
+type_param_decl("lib", owner, ok, pos, n, tp) :-
+    lib_cs_type_parameter(owner, ok, pos, n, _, _, _, _, _, _, _, _, _, _, _, tp).
+
+type_param_name(prov, tp, n) :- type_param_decl(prov, _, _, _, n, tp).
+type_param_owner(prov, tp, owner, ok) :- type_param_decl(prov, owner, ok, _, _, tp).
+
+// A constraint is the ONLY thing that gives a type parameter members. `where T :
+// IShape` makes `t.Area()` resolvable against IShape; without a constraint T has
+// only object's members and a call on it resolves to nothing, which is the correct
+// answer and not a miss.
+type_param_constraint_text("client", tp, ct) :-
+    cs_type_parameter(_, _, _, _, _, ct, _, _, _, _, _, _, _, _, _, tp),
+    ct != "".
+type_param_constraint_text("lib", tp, ct) :-
+    lib_cs_type_parameter(_, _, _, _, _, ct, _, _, _, _, _, _, _, _, _, tp),
+    ct != "".
+
+// `where T : new()` permits `new T()`, which is a constructor call whose target
+// depends on the instantiation and not on the syntax.
+type_param_has_ctor_constraint("client", tp) :-
+    cs_type_parameter(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, tp).
+type_param_has_ctor_constraint("lib", tp) :-
+    lib_cs_type_parameter(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, tp).
+
+// ── BLOCKS ──────────────────────────────────────────────────────────────────
+// cs_block cols: 0 blockKind 1 order 2 nestingDepth 3 csTypeLinkHash
+//   4 csMethodLinkHash 5 csModuleLinkHash 6 methodOwnerHash 7 parentContainerHash
+//   8 tryStatementHash 9 catchTypeNames 10 resourceCount
+//   11 conditionExpressionLinkHash 12 switchSectionIndex 13 labelName 14 isUnsafe
+//   15 isChecked 16 startLine 17 endLine 18 startColumn 19 endColumn 20 isExternal
+//   21 serviceVersionLinkHash 22 csBlockUniqueHash
+block_decl("client", bk, mth, blk) :-
+    cs_block(bk, _, _, _, mth, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, blk).
+block_decl("lib", bk, mth, blk) :-
+    lib_cs_block(bk, _, _, _, mth, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, blk).
+
+block_method(prov, blk, m) :- block_decl(prov, _, m, blk), m != "".
+
+block_parent("client", blk, parent) :-
+    cs_block(_, _, _, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, blk),
+    parent != "".
+block_parent("lib", blk, parent) :-
+    lib_cs_block(_, _, _, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, blk),
+    parent != "".
+
+block_span("client", blk, sl, el) :-
+    cs_block(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, _, _, _, _, blk).
+block_span("lib", blk, sl, el) :-
+    lib_cs_block(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, _, _, _, _, blk).
+
+// block_ancestor(Prov, Block, Ancestor) -- the enclosing chain, reflexive. This is
+// what makes shadowing decidable: a name binds to the declaration in the NEAREST
+// enclosing block that declares it.
+block_ancestor(prov, blk, blk) :- block_decl(prov, _, _, blk).
+block_ancestor(prov, blk, anc) :- block_parent(prov, blk, mid), block_ancestor(prov, mid, anc).
+
+// A catch clause's exception types, as written text. `catch (IOException e)` types
+// e, which is the only source for that variable's type.
+block_catch_types("client", blk, cts) :-
+    cs_block(_, _, _, _, _, _, _, _, _, cts, _, _, _, _, _, _, _, _, _, _, _, _, blk),
+    cts != "".
+block_catch_types("lib", blk, cts) :-
+    lib_cs_block(_, _, _, _, _, _, _, _, _, cts, _, _, _, _, _, _, _, _, _, _, _, _, blk),
+    cts != "".
+
+// ── PARSE GAPS ──────────────────────────────────────────────────────────────
+// cs_parse_gap IS PART OF THE ANSWER. Where the grammar could not read the source, a
+// row says so with a byte length and a coverage percentage. An engine that joins the
+// other relations and ignores this one is reading a fact base with holes it has been
+// told about, and every call site missing from a gap-bearing file has its explanation
+// here rather than in the resolution rules.
+//
+// cs_parse_gap cols: 0 csModuleLinkHash 1 gapKind 2 nodeType 3 parentNodeType
+//   4 startLine 5 endLine 6 startColumn 7 byteLength 8 coveragePercent 9 isExternal
+//   10 serviceVersionLinkHash 11 csParseGapUniqueHash
+parse_gap("client", mod, gk, nt, sl, el, g) :-
+    cs_parse_gap(mod, gk, nt, _, sl, el, _, _, _, _, _, g).
+parse_gap("lib", mod, gk, nt, sl, el, g) :-
+    lib_cs_parse_gap(mod, gk, nt, _, sl, el, _, _, _, _, _, g).
+
+parse_gap_bytes("client", g, bl, cp) :- cs_parse_gap(_, _, _, _, _, _, _, bl, cp, _, _, g).
+parse_gap_bytes("lib", g, bl, cp)    :- lib_cs_parse_gap(_, _, _, _, _, _, _, bl, cp, _, _, g).
+
+// module_has_parse_gap(Prov, ModuleHash) -- the file-level test. A missing call site
+// in such a file is explained; the same absence in a clean file is a resolution bug.
+module_has_parse_gap(prov, mod) :- parse_gap(prov, mod, _, _, _, _, _).

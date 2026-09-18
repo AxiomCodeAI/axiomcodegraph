@@ -322,8 +322,26 @@ module_has_export_surface(mod) :- module_export_assignment(_, _, mod).
 module_export_recovered(mod, "no_export_rows") :- module_decl(_, _, _, _, _, mod),
     !module_has_export_surface(mod),
     module_local_decl(_, mod, _, _, _).
-module_export_any(prov, mod, name, k, h) :- module_export_recovered(mod, _),
-    module_local_decl(prov, mod, name, k, h).
+// LIBRARY MODULES ONLY, which is what the paragraph above describes: the recovery
+// exists so that a CommonJS-shaped DEPENDENCY whose export rows the parser did not
+// record is reachable at all. A CLIENT module is parsed from source in the same run;
+// if it has no export rows it has no exports, and treating its locals as exports
+// publishes its internals.
+//
+// Measured on zustand: 1,193 of 1,326 client module_export rows -- 90% -- were this
+// rule firing on test files, which export nothing. 1,174 of them were named `<arrow>`,
+// i.e. every anonymous callback in every test body was a module export. module_export
+// is documented as "the surface for the CALL graph", so that surface was 90% noise.
+//
+// Rule (f) directly above already carries this guard in its own words: "Gated on the
+// module kind so a SOURCE_MODULE that exports nothing keeps exporting nothing." The
+// recovery is the one path that did not.
+//
+// A client module that really is CommonJS-shaped keeps working: `export =` is
+// module_export_assignment, which module_has_export_surface already counts, so such a
+// module is never recovered in the first place.
+module_export_any("lib", mod, name, k, h) :- module_export_recovered(mod, _),
+    module_local_decl("lib", mod, name, k, h).
 
 // ── ENTITY KINDS NORMALISED BY WHAT THE HASH IS ─────────────────────────────
 // `ts_export.exportedEntityKind` distinguishes ENUM and NAMESPACE from TYPE, which is
@@ -350,8 +368,17 @@ module_export_any(prov, mod, name, "VARIABLE", ent) :- module_export_any(prov, m
 // A name whose export row is type-only is removed from the call-graph surface. The
 // negation reads only base export rows (never module_export_any), so it stratifies
 // below the re-export recursion.
+// A MERGED declaration (`export interface $constructor<T> {...}` beside
+// `export function $constructor(...)`) exports one name through two rows, one
+// type-only and one not. The name is on the runtime surface: what is removed is a
+// name EVERY row of which is type-only. Keyed by name alone, the interface's row
+// removed the function too, and `core.$constructor(...)` through a direct namespace
+// import resolved to nothing while the same call through a barrel (whose `export *`
+// has no per-name row) resolved (#645).
 module_export_type_only(prov, mod, en) :- export_decl(prov, en, _, _, mod, h),
-    export_is_type_only(prov, h).
+    export_is_type_only(prov, h), !module_export_runtime_row(prov, mod, en).
+module_export_runtime_row(prov, mod, en) :- export_decl(prov, en, _, _, mod, h),
+    !export_is_type_only(prov, h).
 module_export(prov, mod, en, k, h) :- module_export_any(prov, mod, en, k, h),
     !module_export_type_only(prov, mod, en).
 

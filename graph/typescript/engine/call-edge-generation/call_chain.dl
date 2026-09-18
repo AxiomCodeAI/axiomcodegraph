@@ -148,6 +148,32 @@ entry_module(m) :- module_decl("client", _, _, _, _, m),
     !module_imported(m).
 entry_point(init, "unimported_module") :- entry_module(m),
     module_init("client", init, m).
+// … PLUS ANYTHING EXPORTED FROM ONE, which the sentence above promised and no rule
+// did. Marking only the module INITIALIZER makes a root of the code that runs at
+// import time and of nothing else, so a library's whole surface is unreachable: the
+// thing that calls an exported function is the CONSUMER, and the consumer is not in
+// the repository.
+//
+// Measured before this rule — zustand 26 of 1567 methods entry_reachable, immer 41 of
+// 487 — and cross-checked against the runtime oracle, which is what makes the number
+// mean something: of the 1081 declarations zustand's own suite demonstrably entered,
+// NONE was entry_reachable, and the closure from the 25 existing roots reached exactly
+// one further declaration.
+//
+// Structural, not framework knowledge: an export is in the import graph, so this stays
+// here beside the definition it completes rather than moving to a framework layer.
+// NAMED exports only. A consumer reaches a package through a NAME, so an entity with
+// a placeholder name -- `<arrow>`, `<module>` -- is not something anything outside the
+// repository can call, and is not a root. The guard is not cosmetic: without it
+// zustand gained 1,255 roots of which 1,238 were anonymous arrows inside its own test
+// bodies, and `entry_reachable` read 83% by counting callbacks nobody can name.
+entry_point(m, "exported_from_entry_module") :- entry_module(mod),
+    module_export_any("client", mod, en, "METHOD", m),
+    en != "",
+    !cfg_placeholder_name(en).
+
+// A parser placeholder for an entity with no source name. See methods.name.
+cfg_placeholder_name(n) :- module_export_any(_, _, n, _, _), substr(n, 0, 1) = "<".
 
 entry_reachable(m) :- entry_point(m, _).
 entry_reachable(callee) :- entry_reachable(caller),

@@ -1,6 +1,6 @@
 oracle=8 engine=11 agree=7 missing=1 (known 1, NEW 0) extra=4
   known-missing  testcases.engine.EdgeCHA#<init> -> testcases.engine.EdgeCHA$anon:Sink#<init>
-  extra    testcases.engine.Codec#twice -> testcases.engine.UpperCodec#encode(String)
   extra    testcases.engine.EdgeCHA#driver -> testcases.engine.EdgeCHA$anon:Sink#accept(String)
-  extra    testcases.engine.EdgeCHA#driver -> testcases.engine.NamedSink#accept(String)
-  extra    testcases.engine.EdgeCHA#driver -> testcases.engine.UpperCodec#encode(String)
+  extra    testcases.engine.EdgeCHA#driver -> testcases.engine.EdgeCHA.NamedSink#accept(String)
+  extra    testcases.engine.EdgeCHA#driver -> testcases.engine.EdgeCHA.UpperCodec#encode(String)
+  extra    testcases.engine.EdgeCHA.Codec#twice -> testcases.engine.EdgeCHA.UpperCodec#encode(String)

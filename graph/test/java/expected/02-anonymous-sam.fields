@@ -1,0 +1,3 @@
+ambiguous_unknown	read	AnonymousClasses#main(String[]) -> -
+ambiguous_unknown	read	AnonymousClasses$anon:Runnable#run() -> -
+ambiguous_unknown	read	AnonymousClasses$anon:Thread#run() -> -

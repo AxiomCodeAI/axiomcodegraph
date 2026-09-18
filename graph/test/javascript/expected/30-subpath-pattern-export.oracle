@@ -1,0 +1,2 @@
+app.js:10:1 FUNCTION_CALL main  EXACT  app.js:9:1
+# defects: 0

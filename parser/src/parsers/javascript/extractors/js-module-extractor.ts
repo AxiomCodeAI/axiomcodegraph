@@ -20,6 +20,7 @@ import {
 import { JsModuleRegistry } from '@/analysis-types/javascript/JsModuleRegistry';
 import { keyOf } from '@/analysis-types/javascript/js-row';
 import { EntityUtils } from '@/utils/entity-utils';
+import { stableRootId } from '@/analysis-types/stable-root-id';
 import {
   isFlowDeclarationFileName, isRequireCall, jsExtensionOf, lastLineOf,
   opensFunctionBoundary, stripJsExtension,
@@ -58,7 +59,12 @@ export function moduleHashFor(
 ): string {
   return EntityUtils.generateEntityHash(
     ENTITY_IDENTIFIERS.JS_MODULE,
-    keyOf(filePath, baseMservPath, moduleSystem, JS_EMISSION_REGIME, serviceVersionLinkHash)
+    // stableRootId, exactly as JsModuleRegistry.generateHash does it. This function is a
+    // SECOND spelling of that key, so the two drift the moment one of them changes: the
+    // registry moved to the root's identity and this did not, and every package entry FK
+    // stopped joining its module. 7 cases, each a `package_entry ... RESOLVED -> -`.
+    keyOf(filePath, stableRootId(baseMservPath), moduleSystem, JS_EMISSION_REGIME,
+          serviceVersionLinkHash)
   );
 }
 

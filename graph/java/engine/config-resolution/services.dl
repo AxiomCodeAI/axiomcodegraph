@@ -10,35 +10,35 @@
 // provider looks like a dead root: nothing constructs it and nothing calls its methods,
 // even though the platform does both.
 //
-// The IR registers a nested type's qualifiedName as package + SIMPLE name (java.md §5), and
-// the parser's provider columns are split the same way, so the two join directly on
-// package + simple without reconstructing the binary name.
+// The parser hands a provider's name over in dotted form (a.b.Outer$Inner arrives as
+// a.b.Outer.Inner), which is exactly a client type's qualifiedName, nested or not: one
+// equi-join, no reconstruction of the binary name. The library side keeps the older
+// package + simple join beside it, because a library IR may still carry the flattened
+// nested form (a.b.Inner).
 // java_type (14): 2 qualifiedName 14 hash
 // ============================================================================
 
 // svc_provider_resolves(Provider, Descriptor, TypeHash) — the client type a provider names.
-svc_provider_resolves(p, d, t) :- svc_provider(p, d, pkg, simple),
-    pkg != "", simple != "",
-    java_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
-// A provider in the default package has no package segment to prepend.
-svc_provider_resolves(p, d, t) :- svc_provider(p, d, "", simple),
-    simple != "",
-    java_type(_, simple, _, _, _, _, _, _, _, _, _, _, _, t).
+svc_provider_resolves(p, d, t) :- svc_provider_class(p, d, qname),
+    java_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
 
 // A provider may name a LIBRARY class — a library's own descriptor usually does. Resolved
 // with provenance so the instantiation label can distinguish the two; entry points below
 // stay CLIENT-only, because a library provider's methods are not client code to reach.
+svc_provider_resolves_lib(p, d, t) :- svc_provider_class(p, d, qname),
+    lib_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
 svc_provider_resolves_lib(p, d, t) :- svc_provider(p, d, pkg, simple),
     pkg != "", simple != "",
     lib_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
+svc_provider_resolves_lib(p, d, t) :- svc_provider_class_lib(p, d, qname),
+    lib_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
 svc_provider_resolves_lib(p, d, t) :- svc_provider_lib(p, d, pkg, simple),
     pkg != "", simple != "",
     lib_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
 // A library descriptor naming a CLIENT class is the plugin shape: the dependency declares
 // the service, the client implements it and registers it in the dependency's file.
-svc_provider_resolves(p, d, t) :- svc_provider_lib(p, d, pkg, simple),
-    pkg != "", simple != "",
-    java_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
+svc_provider_resolves(p, d, t) :- svc_provider_class_lib(p, d, qname),
+    java_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
 
 // ── The type is REGISTERED: the container instantiates it and calls back into it ─────
 // cfg_registered_type already drives all three entry-point shapes in entry-points.dl —

@@ -1,0 +1,18 @@
+ambiguous_unknown	read	members#unresolvable(any) -> -
+known_edge	read	Box#area() -> Box#width
+known_edge	read	Box#chained() -> Box#marker
+known_edge	read	Box#chained() -> Marker#tag
+known_edge	read	Box#otherRead(Box) -> Box#label
+known_edge	read	Box#plainRead() -> Box#width
+known_edge	read	Box#run() -> Box#label
+known_edge	read	Box#staticRead() -> Box#static total
+known_edge	read	Box#viaInterface(Shaped) -> Shaped#width
+known_edge	read	Narrow#own() -> Narrow#width
+known_edge	readwrite	Box#compound(number) -> Box#width
+known_edge	readwrite	Box#decrement() -> Box#hidden
+known_edge	readwrite	Box#increment() -> Box#hidden
+known_edge	write	Box#<new>(string) -> Box#label
+known_edge	write	Box#area(number) -> Box#width
+known_edge	write	Box#otherWrite(Box,string) -> Box#label
+known_edge	write	Box#plainWrite(number) -> Box#width
+known_edge	write	Box#staticWrite(number) -> Box#static total

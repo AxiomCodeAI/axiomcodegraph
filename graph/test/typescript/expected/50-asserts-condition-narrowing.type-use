@@ -1,0 +1,4 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	main [EXPRESSION] -> -
+known_edge	SUPER_TYPE	0	Caller [HERITAGE] -> Runner
+known_edge	TYPE_ELEMENT	1	main [METHOD_PARAM] -> Runner
+known_edge	TYPE_PREDICATE_TARGET	1	main [METHOD] -> Caller

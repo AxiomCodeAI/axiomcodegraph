@@ -1,0 +1,9 @@
+main.js:12:5 METHOD_CALL this.configure  ->  known_edge  main.js:5:3 configure
+main.js:13:5 METHOD_CALL Child.configure  ->  known_edge  main.js:5:3 configure
+main.js:14:5 METHOD_CALL this.own  ->  known_edge  main.js:10:3 own
+main.js:16:5 METHOD_CALL self.hook  ->  known_edge  main.js:6:3 hook
+main.js:18:31 METHOD_CALL this.configure  ->  known_edge  main.js:5:3 configure
+main.js:25:18 METHOD_CALL this.helper  ->  known_edge  main.js:26:3 helper
+main.js:28:26 METHOD_CALL Child.viaMethod  ->  known_edge  main.js:18:3 viaMethod
+main.js:28:45 CONSTRUCTOR_CALL Inst  ->  implicit_constructor  -
+main.js:28:45 METHOD_CALL new Inst().run  ->  known_edge  main.js:25:3 run

@@ -52,7 +52,20 @@
 // cfg_raw(Raw): every string this layer will inspect. Populated from the four
 // mechanisms below; the ONE entry point for the char-level machinery, so the
 // scans stay bounded to strings a knob selected.
-cfg_raw(v) :- annotation_arg("client", _, _, v, _, _, _, _, _), v != "".
+// ANNOTATION arguments are taken from BOTH sides. An annotation on a dependency's type
+// is part of the application's own wiring: @ConditionalOnProperty names a key the
+// consumer sets, @Qualifier names a bean the consumer injects. Scoping this line to
+// "client" left every library argument out of cfg_raw, so cfg_clean never derived a row
+// for it and ann_arg, which joins cfg_clean, silently dropped it. #851 made the ATTACH
+// points provenance-aware, which is why the annotation was found on the right library
+// type and its arguments were still empty: a condition with no key rather than no
+// condition, which is the hardest shape of this to see.
+cfg_raw(v) :- annotation_arg(_, _, _, v, _, _, _, _, _), v != "".
+// The FILE-based mechanisms stay client-only, deliberately. A dependency ships its own
+// .properties, .yml and XML, and those configure the dependency's tests and defaults, not
+// the application: merging them into the key space would let a library's own test value
+// decide a question about the consumer's deployment. The consumer's files are the only
+// ones that decide.
 cfg_raw(v) :- xml_attr("client", _, v, _, _), v != "".
 cfg_raw(v) :- xml_elem("client", _, _, v, _, _, _), v != "".
 cfg_raw(v) :- prop_segment("client", _, v, _, _, _, _), v != "".
@@ -64,10 +77,10 @@ cfg_strip(v, v) :- cfg_raw(v).
 cfg_strip(v, inner) :- cfg_strip(v, s),
     strlen(s) >= 2,
     substr(s, 0, 1) = "\"",
-    substr(s, strlen(s) - 1, 1) = "\"",
+    substr(s, max(0, strlen(s) - 1), 1) = "\"",
     inner = substr(s, 1, strlen(s) - 2).
 cfg_quoted(s) :- cfg_strip(_, s), strlen(s) >= 2,
-    substr(s, 0, 1) = "\"", substr(s, strlen(s) - 1, 1) = "\"".
+    substr(s, 0, 1) = "\"", substr(s, max(0, strlen(s) - 1), 1) = "\"".
 // cfg_clean(Raw, Clean) — the fully-unquoted form. Exactly one per Raw.
 cfg_clean(v, s) :- cfg_strip(v, s), !cfg_quoted(s).
 
@@ -178,8 +191,10 @@ cfg_name_type(n, "lib", t) :- cfg_name_demand(n),
     lib_type(_, n, _, _, _, _, _, _, _, _, _, _, _, t).
 
 // (b) NESTED type written with the binary `$` separator (com.x.Outer$Inner), which
-// is what a config file must use for a nested class. The IR flattens a nested
-// type's qualifiedName to package + simple name, so match on that instead.
+// is what a config file must use for a nested class. The client IR names it by its
+// dotted chain (com.x.Outer.Inner) and an older library IR by package + simple name;
+// matching on the simple name after the last `$` serves both, at the cost of naming
+// every same-named nested type when two exist.
 cfg_dollar(n, i) :- cfg_name_demand(n), contains("$", n),
     i = range(0, strlen(n)), substr(n, i, 1) = "$".
 cfg_dollar_last(n, m) :- cfg_dollar(n, _), m = max i : cfg_dollar(n, i).

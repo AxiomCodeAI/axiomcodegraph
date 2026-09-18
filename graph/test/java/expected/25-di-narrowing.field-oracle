@@ -1,0 +1,8 @@
+25-di-narrowing
+  precision 0.8000   (4 correct, 1 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  sites 5   resolved 5 (100.0%)
+  tiers known_edge=5
+  access read=4  write=1
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   testcases.config.Service2#<init>(Store) WRITE testcases.config.Service2#store

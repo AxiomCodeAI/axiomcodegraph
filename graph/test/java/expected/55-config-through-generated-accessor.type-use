@@ -1,0 +1,7 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	app.Caller [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	app.Settings [ANNOTATION] -> -
+ambiguous_unknown	FIELD_TYPE	0	app.Settings [FIELD] -> -
+ambiguous_unknown	METHOD_RETURN	0	app.Caller#useEndpoint() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	app.Caller#useHand() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	app.Settings#getHand() [METHOD] -> -
+known_edge	FIELD_TYPE	0	app.Caller [FIELD] -> app.Settings

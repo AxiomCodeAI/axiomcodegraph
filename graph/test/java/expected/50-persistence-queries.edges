@@ -1,0 +1,10 @@
+ambiguous_unknown	method	testcases.persistence.PetStore#all() -> -
+ambiguous_unknown	method	testcases.persistence.PetStore#byName(String) -> -
+ambiguous_unknown	method	testcases.persistence.PetStore#byNickname(String) -> -
+ambiguous_unknown	method	testcases.persistence.PetStore#ordered(String) -> -
+ambiguous_unknown	method	testcases.persistence.PetStore#undeclared() -> -
+boundary_lib	method	testcases.persistence.PetStore#all() -> external:jakarta.persistence.EntityManager.createNamedQuery
+boundary_lib	method	testcases.persistence.PetStore#byName(String) -> external:jakarta.persistence.EntityManager.createNamedQuery
+boundary_lib	method	testcases.persistence.PetStore#byNickname(String) -> external:jakarta.persistence.EntityManager.createQuery
+boundary_lib	method	testcases.persistence.PetStore#ordered(String) -> external:jakarta.persistence.EntityManager.createQuery
+boundary_lib	method	testcases.persistence.PetStore#undeclared() -> external:jakarta.persistence.EntityManager.createNamedQuery

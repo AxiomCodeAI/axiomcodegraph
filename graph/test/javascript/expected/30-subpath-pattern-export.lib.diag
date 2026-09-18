@@ -1,0 +1,12 @@
+import_cause     app.js:7:18  kit/internal/secret  staged_unreached
+import_cause     app.js:8:16  kit/feat/deep/none  staged_unreached
+package_entry    case30-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    kit  .  [default]  EXPORTS  src/index.js  RESOLVED  -> lib:src/index.js
+package_entry    kit  .  [node.require]  EXPORTS  src/index.js  RESOLVED  -> lib:src/index.js
+package_entry    kit  ./feat/*  []  EXPORTS  lib/feat/*.js  PATTERN  -> -
+package_entry    kit  ./feat/beta  []  EXPORTS  lib/feat/beta-exact.js  RESOLVED  -> lib:lib/feat/beta-exact.js
+package_entry    kit  ./internal/*  []  EXPORTS    BLOCKED  -> -
+package_entry    kit  ./mjs/*  [import]  EXPORTS  lib/feat/*.mjs  PATTERN  -> -
+package_entry    kit  ./mjs/*  [require]  EXPORTS  lib/feat/*.js  PATTERN  -> -
+unresolved       app.js:9:66  METHOD_CALL secret  receiver_untyped
+unresolved       app.js:9:85  METHOD_CALL x  receiver_untyped

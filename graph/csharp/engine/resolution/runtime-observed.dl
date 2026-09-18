@@ -1,0 +1,166 @@
+// ============================================================================
+// RESOLUTION · RUNTIME-OBSERVED EDGES
+//
+// A trace of the subject's own test suite, fed back into graph construction.
+//
+// THE ONE RULE THAT GOVERNS THIS WHOLE FILE:
+//
+//     A TRACE MAY ADD AN EDGE. IT MAY NEVER REMOVE ONE.
+//
+// A workload is a LOWER BOUND on behaviour. Everything in the trace happened, so
+// every observed edge is real and may be asserted. Nothing that is ABSENT from the
+// trace is thereby shown not to happen: FluentValidation's suite reaches 554 of its
+// 604 methods, and the other 50 are untested, not unreachable. An engine that
+// narrowed a dispatch fan to "what the tests took" would produce a graph that is
+// wrong for every code path the tests do not cover, and would look BETTER by every
+// precision metric while doing it. That is the trap this file is written to avoid,
+// and it is why there is no rule below that deletes, filters or narrows anything.
+//
+// WHAT THE RUNTIME SIGNAL IS ACTUALLY FOR, then, is two things a static reading
+// cannot do:
+//
+//   1. CLOSE A BLIND SPOT WITH A WITNESS. A site the engine resolved to nothing,
+//      whose caller was observed calling something, yields an edge that is known to
+//      be real. Reflection, a DI container, a source generator and `dynamic` all
+//      produce edges no reading of the source can find, and this is the only
+//      instrument that finds them.
+//
+//   2. MARK A FAN AS OBSERVED-NARROW. Where the engine named several targets and
+//      the run only ever took one, the site stays multi_inferred -- the set is
+//      still the sound answer -- and gains a separate fact saying which member was
+//      seen. A consumer ranking call chains can use that; the graph does not
+//      change shape.
+//
+// THE INPUT. runtime_observed_edge(CallerKey, CalleeKey, Count) is staged as facts
+// by the harness, keyed on `Type.Name/paramCount` because that is the one spelling
+// the instrumenter can produce without a semantic model. Empty is the normal case:
+// a run with no trace behaves exactly as it did before, which is what makes this
+// safe to leave switched on.
+//
+// A CAVEAT THE JOIN ALSO CARRIES: the caller comes off a per-thread shadow stack,
+// which is exact for ordinary control flow and NOT exact across an `await`
+// continuation resumed on another thread. So an observed edge is evidence about the
+// CALLEE always, and about the CALLER only for synchronous frames. Rules that use
+// the caller are marked.
+// ============================================================================
+
+// ── THE ENGINE'S OWN KEY FOR A METHOD ───────────────────────────────────────
+// Built to match the instrumenter's, which assembles it syntactically from the
+// namespace and type nest because it runs over a mirror with nothing resolved. So
+// the join is on the qualified name and the parameter count, with generic argument
+// lists absent from both sides.
+method_runtime_key(prov, m, k) :-
+    method_decl(prov, _, qn, _, m),
+    method_paramc(prov, m, pc),
+    k = cat(qn, cat("/", pc)).
+
+// ── OBSERVED, AND MATCHED TO A METHOD ───────────────────────────────────────
+runtime_edge_method(callerM, calleeM, n) :-
+    runtime_observed_edge(ck, dk, ns),
+    method_runtime_key("client", callerM, ck),
+    method_runtime_key("client", calleeM, dk),
+    n = to_number(ns).
+
+// An entry the trace saw called from OUTSIDE the instrumented subtree: a test
+// method, the runtime, a framework callback. The caller is not a method of the
+// subject, so this is an ENTRY-POINT observation rather than an edge -- and it is
+// the honest source for "what does something outside actually call", which no
+// static reading of a library can answer.
+runtime_entry_point(m) :-
+    runtime_observed_edge("<external>", dk, _),
+    method_runtime_key("client", m, dk).
+
+// ── (1) A BLIND SPOT CLOSED BY A WITNESS ────────────────────────────────────
+// The caller contains a site the engine could not resolve, and the run shows that
+// caller reaching a method the engine never named from it. The edge is real: it
+// happened.
+//
+// ATTRIBUTED TO THE CALLER, NOT TO A SITE. The tracer probes method entry, not call
+// sites, so it cannot say WHICH unresolved site in the caller produced the call --
+// only that the caller called it. Claiming a site would be inventing precision the
+// instrument does not have. The edge is therefore emitted at method granularity and
+// the call-edge layer labels it `runtime_observed`, which is what tells a consumer
+// that it has no written call site behind it.
+caller_has_blind_spot(m) :- method_has_unknown_call(m, _).
+
+runtime_closes_blind_spot(callerM, calleeM) :-
+    runtime_edge_method(callerM, calleeM, _),
+    caller_has_blind_spot(callerM),
+    !static_edge_exists(callerM, calleeM).
+
+// The static answer, at method granularity, so "the engine already named it" is a
+// question that can be asked.
+static_edge_exists(callerM, calleeM) :-
+    client_calls_client("client", e, "client", calleeM),
+    call_from("client", e, callerM).
+static_edge_exists(callerM, calleeM) :-
+    accessor_edge("client", e, calleeM, _),
+    call_from_expr("client", e, callerM).
+
+// An observed edge the engine did not name AND whose caller has no unresolved site
+// either. This is the more interesting of the two: the engine believed it had
+// resolved everything in that method and was wrong, or the call came from a path
+// with no syntax at all (a compiler-generated state machine, an interface
+// dispatched by a container). Kept separate so the two causes are not summed.
+runtime_unexplained_edge(callerM, calleeM) :-
+    runtime_edge_method(callerM, calleeM, _),
+    !caller_has_blind_spot(callerM),
+    !static_edge_exists(callerM, calleeM).
+
+// ── (2) A FAN THE RUN NARROWED ──────────────────────────────────────────────
+// The engine named several targets from one caller under one simple name and the
+// run only ever took one. THE FAN IS NOT CHANGED. This records which member was
+// seen, so a consumer ranking chains can prefer it, and so the count of such sites
+// is a measurable statement about how much precision a runtime signal could buy.
+static_fan_member(callerM, n, calleeM) :-
+    static_edge_exists(callerM, calleeM),
+    method_name("client", calleeM, n).
+static_fan_width(callerM, n, c) :-
+    static_fan_member(callerM, n, _),
+    c = count : { static_fan_member(callerM, n, _) }.
+runtime_fan_taken(callerM, n, calleeM) :-
+    static_fan_member(callerM, n, calleeM),
+    runtime_edge_method(callerM, calleeM, _).
+runtime_fan_taken_count(callerM, n, c) :-
+    runtime_fan_taken(callerM, n, _),
+    c = count : { runtime_fan_taken(callerM, n, _) }.
+
+// The fan is wide and exactly one member was ever taken.
+runtime_narrowable_fan(callerM, n, calleeM) :-
+    static_fan_width(callerM, n, w), w >= 2,
+    runtime_fan_taken_count(callerM, n, 1),
+    runtime_fan_taken(callerM, n, calleeM).
+
+// ── (3) A TYPE THE RUN SHOWS IS CONSTRUCTED ─────────────────────────────────
+// type_instantiated is derived statically from `new` sites, and a type built by
+// reflection or by a container has none. Observing its constructor run is direct
+// evidence it exists at runtime.
+//
+// This ADDS to type_instantiated, which is exported and NOT used to filter the
+// dispatch fan -- for the reason stated in virtual-dispatch.dl: narrowing by
+// observed instantiation is unsound on any dependency-injected application, and a
+// trace makes that no safer, only more tempting.
+type_instantiated("client", gk) :-
+    runtime_edge_method(_, ctor, _),
+    method_is_ctor("client", ctor),
+    method_in_type("client", gk, ctor).
+
+// ── WHAT THE RUN CONFIRMED ──────────────────────────────────────────────────
+// A static edge the run took. Exported because it is the strongest evidence a
+// static edge is real, and because the ratio of confirmed to named is the honest
+// way to describe how much of a graph a workload actually exercises.
+runtime_confirms_edge(callerM, calleeM) :-
+    runtime_edge_method(callerM, calleeM, _),
+    static_edge_exists(callerM, calleeM).
+
+// A static edge the run did NOT take. NOT A DEFECT AND NOT EXPORTED AS ONE: the
+// workload simply did not go there. Named here so that nothing downstream is
+// tempted to treat the absence as a finding.
+// A one-column marker rather than a nullary relation: souffle declares relations
+// with at least one attribute, and the generator infers the arity from the head, so
+// a 0-arity head is a mismatch rather than a fact.
+runtime_trace_present("yes") :- runtime_observed_edge(_, _, _).
+runtime_did_not_execute(callerM, calleeM) :-
+    static_edge_exists(callerM, calleeM),
+    runtime_trace_present("yes"),
+    !runtime_edge_method(callerM, calleeM, _).

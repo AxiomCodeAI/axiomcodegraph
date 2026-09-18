@@ -1,0 +1,25 @@
+# Soufflé input-relation -> library IR CSV basename (concatenated across all library modules).
+# run-souffle.sh scopes these to the signature relations named in staging.conf (LIB_SIG);
+# bodies (expressions / call sites / blocks / variables) are never staged wholesale.
+lib_cs_attribute	all-csharp-attributes
+lib_cs_attribute_argument	all-csharp-attribute-arguments
+lib_cs_block	all-csharp-blocks
+lib_cs_call_site	all-csharp-call-sites
+lib_cs_comment	all-csharp-comments
+lib_cs_enum_member	all-csharp-enum-members
+lib_cs_event	all-csharp-events
+lib_cs_expression	all-csharp-expressions
+lib_cs_field	all-csharp-fields
+lib_cs_method	all-csharp-methods
+lib_cs_method_parameter	all-csharp-method-parameters
+lib_cs_module	all-csharp-modules
+lib_cs_parse_gap	all-csharp-parse-gaps
+lib_cs_preproc_region	all-csharp-preproc-regions
+lib_cs_property	all-csharp-properties
+lib_cs_query_clause	all-csharp-query-clauses
+lib_cs_type	all-csharp-types
+lib_cs_type_heritage	all-csharp-type-heritages
+lib_cs_type_parameter	all-csharp-type-parameters
+lib_cs_type_reference	all-csharp-type-references
+lib_cs_using	all-csharp-usings
+lib_cs_variable	all-csharp-variables

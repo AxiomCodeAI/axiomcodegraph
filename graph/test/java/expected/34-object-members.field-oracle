@@ -1,0 +1,7 @@
+34-object-members
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 in the bytecode)
+  sites 1   resolved 1 (100.0%)
+  tiers known_edge=1
+  access write=1
+  not scored: 0 initializer-owned, 1 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

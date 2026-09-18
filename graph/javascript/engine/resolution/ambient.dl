@@ -27,14 +27,55 @@ import_value(imp, "ambient", spec) :- import_decl(_, spec, _, bf, n, _, "RESOLVE
 // The id stays the ROOT name (`Math`, `path`): a constructed `Math.floor.call`
 // string would grow without bound through the recursion, and the root is all the
 // classification needs.
-expr_value(e, "ambient", n) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
+expr_value(e, "ambient", n) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n),
+    !well_known_symbol_read(e).
 expr_value(e, "ambient", n) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
+
+// ── a well-known symbol is a constant, not an opaque platform value (#722) ──
+// `Symbol.iterator` is a fixed, unique, program-wide key: as static as a string literal,
+// and the member declared `[Symbol.iterator]() {}` three lines up is the one it names.
+// Without a value of its own the read stays `("ambient", "Symbol")`, the #597 fabrication
+// guard keeps the key nameless, and every call on the iteration protocol is a
+// `dynamic_terminal` — which also states, wrongly, that the site has no static target by
+// construction. Both sides (the key of the declaration and the key at the call) go through
+// `key_name`, so one value makes them meet.
+// The set is enumerated on purpose: each of these is a program-wide constant, while
+// `Symbol('x')` has an identity per creation site (#597) and `Symbol[x]` names nothing.
+well_known_symbol("iterator").      well_known_symbol("asyncIterator").
+well_known_symbol("hasInstance").   well_known_symbol("isConcatSpreadable").
+well_known_symbol("match").         well_known_symbol("matchAll").
+well_known_symbol("replace").       well_known_symbol("search").
+well_known_symbol("species").       well_known_symbol("split").
+well_known_symbol("toPrimitive").   well_known_symbol("toStringTag").
+well_known_symbol("unscopables").   well_known_symbol("dispose").
+well_known_symbol("asyncDispose").
+// Recognised syntactically (`Symbol` written as a free/global identifier), so the rule sits
+// outside the value fixpoint the negation above is read in.
+well_known_symbol_read(e) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e), well_known_symbol(n),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_kind(_, "IDENTIFIER", _, r), expr_text(_, "Symbol", r).
+expr_value(e, "sym", cat("Symbol.", n)) :- well_known_symbol_read(e), expr_name(_, n, e).
 expr_value(e, "ambient", n) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
 callee_value(ce, "ambient", n) :- call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
 new_callee_value(ce, "ambient", n) :- call_site(_, "CONSTRUCTOR_CALL", _, "SYNTACTIC", _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
-expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "ambient", n).
+// A call on the platform is the platform — EXCEPT where the platform call is MODELLED
+// (#721). `Object.assign(dst, src)` evaluates to its target object (frameworks.dl), and
+// this rule used to give it the ambient `Object` beside that: a read through the result
+// with a key the analysis cannot pin down then landed on the platform and was filed
+// `ambient_terminal`, a claimed correct end, where the identical read on the un-merged
+// object says `ambiguous_unknown`. The model is the better answer, so it is the only one.
+// Recognised syntactically, so the negation sits below the value fixpoint it is read in.
+expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "ambient", n),
+    !modelled_platform_call(ce).
+modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", m, _, _, _, ce, _, _),
+    modelled_object_method(m), expr_child(_, ce, "RECEIVER", _, recv),
+    expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "Object", recv).
+modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "_extend", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "util", recv).
+// The Object statics whose result frameworks.dl gives a value of its own.
+modelled_object_method("assign").
+modelled_object_method("create").
 expr_value(ce, "ambient", n) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n).
 // A literal receiver is a platform object: `"a,b".split`, `[1, 2].forEach`, `` `x`.trim ``.
 expr_value(e, "ambient", k) :- expr_kind(_, k, _, e), expr_kind_is_literal(k).
@@ -44,3 +85,43 @@ param_value(p, "ambient", n) :- param_type_name(_, _, r, p), type_ref(_, n, "NAM
 var_value(v, "ambient", n) :- var_type_name(_, _, r, v), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
 return_value(m, "ambient", n) :- method_return_type(_, _, r, m), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
 prop_value("inst", t, fn, "ambient", n) :- field_type_name(_, fn, t, _, r, _), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
+
+// ── the global object: the one platform value programs WRITE to (#641) ───────
+// `globalThis.x = f`, `global.x = f`, `Object.assign(globalThis, { x: f })` install a
+// function every file can call as `globalThis.x()` or as a bare `x()`. The global
+// object is ONE value of its own, `("global", "globalThis")`, distinct from `ambient`
+// so the member_write guard against writing through the platform's shared identities
+// (`@param {Object}` is one `("ambient", "Object")` for the whole program) stays intact:
+// no annotation ever evaluates to it. `globalThis`, `global`, `window` and `self`
+// evaluate to it whether the binder marked them GLOBAL_BUILTIN or left them
+// UNRESOLVED_FREE, and keep their ambient value beside it, so `globalThis.setTimeout`
+// stays a platform terminal while `globalThis.gHelper` reads the project write. A site
+// whose value is both is multi_inferred with an ambient_terminal row, per the
+// existing rule. An unbound name (`gHelper()`) reads the same property.
+global_object_name("globalThis").
+global_object_name("global").
+global_object_name("window").
+global_object_name("self").
+global_name_resolution("GLOBAL_BUILTIN").
+global_name_resolution("UNRESOLVED_FREE").
+expr_value(e, "global", "globalThis") :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n, e), global_object_name(n),
+    expr_binding_resolution(_, res, e), global_name_resolution(res).
+expr_value(e, "ambient", n) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n, e), global_object_name(n),
+    expr_binding_resolution(_, "UNRESOLVED_FREE", e).
+expr_value(e, k, i) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n, e), !global_object_name(n),
+    expr_binding_resolution(_, res, e), global_name_resolution(res), prop_value("global", "globalThis", n, k, i).
+
+// ── operators yield primitives, and a primitive is the platform's (#674) ────
+// `a + '-' + b`, `x * 2`, `a === b`, `!x`, `typeof x`, `-n`: every operator except the
+// value-passing `||` / `&&` / `??` (value-flow.dl) and the assignment forms yields a
+// number, a string, a boolean, a bigint or a symbol, whose methods are the platform's.
+// A call on such a result (`viaConcat(a, b).split('-')`) was receiver_untyped; it is an
+// ambient terminal, as a call on a literal already is. Nothing resolves to a project
+// method through this, so it cannot invent an edge.
+expr_value(e, "ambient", "LITERAL") :- expr_kind(_, "BINARY", _, e), expr_operator(_, op, e), !binary_op_passes_value(op).
+expr_value(e, "ambient", "LITERAL") :- expr_kind(_, "UNARY", _, e).
+// A Promise executor's `resolve` and `reject` are the platform's functions: a call through
+// either is an ambient terminal, not a callee the project declares.
+param_value(p, "ambient", "Promise") :- promise_executor_resolve(_, p).
+param_value(p, "ambient", "Promise") :- expr_kind(_, "NEW", _, ne), new_callee_value(ne, "ambient", "Promise"),
+    call_arg(ne, 0, ex), expr_value(ex, "func", m), param_decl(_, _, "1", m, p).

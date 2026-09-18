@@ -1,0 +1,22 @@
+<!-- A partial type whose SECOND part sits, whole namespace and all, inside a
+     #if that is TRUE here, and whose base list is itself split by a nested
+     #if. Roslyn sees two parts; the parser saw one. Found by the partial gate
+     on a serialisation library's async half; this is the same shape under
+     neutral names. Both symbols are defined so the branch is live. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <CsFixtureCompiles>true</CsFixtureCompiles>
+    <CsFixtureVerifiable>true</CsFixtureVerifiable>
+    <CsFixtureRole>partial-gate</CsFixtureRole>
+    <CsFixtureCategory>partial-under-if</CsFixtureCategory>
+    <CsFixtureJavaCounterpart>none</CsFixtureJavaCounterpart>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants>HAVE_ASYNC;HAVE_ASYNC_DISPOSABLE</DefineConstants>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Fixtures.PartialUnderIf</AssemblyName>
+    <RootNamespace>Fixtures.PartialUnderIf</RootNamespace>
+  </PropertyGroup>
+</Project>

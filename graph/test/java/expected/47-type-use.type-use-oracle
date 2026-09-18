@@ -1,0 +1,7 @@
+47-type-use
+  precision 1.0000   (14 correct, 0 wrong)
+  recall    1.0000   (14 of 14 in the bytecode)
+  references 33   resolved 21 (63.6%)
+  tiers ambiguous_unknown=12  known_edge=21
+  not scored: 2 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_PARAM=1  ANNOTATION_TYPE=1  ARRAY_CREATION_TYPE=1  CAST_EXPRESSION=1  FIELD_TYPE=6  IMPLEMENTS_INTERFACE=1  INSTANCEOF_TYPE=2  LOCAL_VARIABLE=2  METHOD_PARAM=6  METHOD_RETURN=6  METHOD_TYPE_PARAM_BOUND=1  OBJECT_CREATION_TYPE=1  SUPER_TYPE=2  THROWS_CLAUSE=1  TYPE_PARAM_BOUND=1

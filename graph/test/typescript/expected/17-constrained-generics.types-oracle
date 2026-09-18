@@ -1,0 +1,9 @@
+17-constrained-generics [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    0.3333   (1 of 3 the compiler resolved)
+  sites 17   resolved 13 (76.5%)
+  tiers ambiguous_unknown=4  known_edge=13
+  contexts METHOD_PARAM=3  METHOD_TYPE_PARAM_BOUND=8  SUPER_TYPE=2  TYPE_ELEMENT=4
+  not scored: 10 rows whose target is not a client declaration
+    MISSING curried-local USES Container
+    MISSING curried-local USES Named

@@ -1,0 +1,128 @@
+// ============================================================================
+// RESOLUTION · COMPILER-GENERATED MEMBERS
+//
+// A POSITIONAL RECORD'S PARAMETERS ARE ITS PROPERTIES, and nothing in the source
+// says so:
+//
+//     record struct OrdinalNumberFormatting(bool UsesInvariantDigits,
+//                                           NumberFormatInfo NumberFormat);
+//     ...
+//     formatting.UsesInvariantDigits          <- reads a property nobody declared
+//
+// The parser emits the primary constructor and NO cs_property rows for the members,
+// because there are no property declarations to extract. So member lookup answers
+// "no such member", the access is a blind spot, and -- much worse -- the READ HAS NO
+// TYPE, so every chain through it stops.
+//
+// MEASURED, on the dev corpus: 758 in-source property-accessor sites unresolved on
+// one project, and the most frequent targets were exactly these, `get_Value`,
+// `get_Symbol`, `get_DataUnit`, `get_Text`, `get_Tokens`. 82 record types in that
+// project, 20 in another, 10 in a third.
+//
+// THE LANGUAGE GUARANTEES THE SHAPE, which is why synthesising it is sound rather
+// than a heuristic. For a record declared `record R(T1 P1, T2 P2)`:
+//
+//   * each parameter Pi declares a PUBLIC property Pi of type Ti
+//   * `record` gives it an `init` setter, `readonly record struct` does not; the
+//     distinction does not change what a READ resolves to, and this file only
+//     claims the getter
+//   * the property is exactly the parameter's name and type, positionally
+//
+// WHAT IS NOT SYNTHESISED, and why. A record also gets `Equals`, `GetHashCode`,
+// `ToString`, `Deconstruct`, `op_Equality`, `op_Inequality` and a copy constructor.
+// Those are real and they are NOT added here: none of them has a body an author
+// wrote, so an edge into one leads nowhere, and adding six members to every record
+// would widen every name lookup on a record-heavy codebase for no reachability gain.
+// A call to one of them is an external-shaped boundary and is labelled as such.
+//
+// A PRIMARY CONSTRUCTOR ON A PLAIN CLASS IS DIFFERENT AND IS EXCLUDED.
+// `class Svc(IDep dep)` does NOT declare a property: `dep` is a captured parameter,
+// visible only inside the body, and `svc.dep` does not compile. Synthesising a
+// property there would resolve member accesses the compiler rejects. Only RECORD and
+// RECORD_STRUCT get members from their parameters.
+// ============================================================================
+
+// ── THE SYNTHESISED PROPERTY ────────────────────────────────────────────────
+// generated_property(Prov, GroupKey, Name, ParamHash) -- keyed on the PARAMETER,
+// which is the only real entity behind it. That identity is used for the member's
+// type; it is never presented as a property row, and the edge layer labels an access
+// rather than pointing at a cs_property that does not exist.
+generated_property(prov, gk, n, p) :-
+    type_group(prov, t, gk),
+    type_is_positional_record(prov, t),
+    type_ctor(prov, gk, ctor),
+    method_kind(prov, ctor, "PRIMARY_CONSTRUCTOR"),
+    param_decl(prov, ctor, _, n, p),
+    n != "".
+
+// RECORD and RECORD_STRUCT only. A primary constructor on a plain class or struct
+// captures its parameters; it does not publish them.
+type_is_positional_record(prov, t) :-
+    type_decl(prov, _, _, _, "RECORD", t), type_primary_ctor(prov, t, ar), ar != "0".
+type_is_positional_record(prov, t) :-
+    type_decl(prov, _, _, _, "RECORD_STRUCT", t), type_primary_ctor(prov, t, ar), ar != "0".
+
+// ── IT IS A MEMBER, SO LOOKUP FINDS IT ──────────────────────────────────────
+// Entered into the one member name space as a `generated_property`, a kind of its
+// own rather than `property`, so that every consumer can tell an access it can walk
+// into from one it cannot. A rule that wanted either still asks by name.
+type_member_name(prov, gk, n, "generated_property", p) :- generated_property(prov, gk, n, p).
+
+// ── AND IT HAS A TYPE, WHICH IS THE POINT ───────────────────────────────────
+// This is the recall that matters. Without it `formatting.NumberFormat.NegativeSign`
+// stops at the first dot; with it the chain continues, and so does every call made
+// on the value.
+generated_property_type(prov, p, gk) :- param_type(prov, p, gk).
+
+expr_type(prov, acc, gk) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "generated_property", p),
+    generated_property_type(prov, p, gk).
+
+// The same through the declared type NAME, for a chain whose element type is a
+// record whose own members are external.
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    expr_kind(prov, r, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, r, q),
+    expr_member_name_child(prov, r, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "generated_property", p),
+    param_type_name(prov, p, tn, _).
+
+// ── THE ACCESS IS A CALL, AND IT IS LABELLED ────────────────────────────────
+// Reading a record property invokes its compiler-generated getter. There is no
+// cs_method row to point at -- the parser emits none, correctly, because no accessor
+// was written -- so the edge carries a LABEL in the same shape the oracle uses for
+// the member, `generated:<Type>.get_<Name>`. That keeps the site out of the
+// blind-spot column and tells a consumer there is no body to walk into, which is
+// true: an auto-generated accessor has none.
+generated_accessor_read(prov, acc, label) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_is_callee(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, qgk),
+    member_lookup(prov, qgk, n, "generated_property", _),
+    type_group(prov, t, qgk), type_decl(prov, _, qn, _, _, t),
+    label = cat("generated:", cat(qn, cat(".get_", n))).
+
+// ── DECONSTRUCTION ──────────────────────────────────────────────────────────
+// `var (a, b) = point` on a record calls its generated Deconstruct, and the two
+// variables take the positional parameters' types. The call has no body to reach, so
+// only the TYPES are claimed here: that is what keeps a chain going after a
+// deconstruction, and it is the same reasoning as the accessor above.
+var_type(prov, v, gk) :-
+    var_deconstruction_slot(prov, v, i),
+    var_value_initializer(prov, v, e),
+    expr_type(prov, e, rgk),
+    type_group(prov, t, rgk), type_is_positional_record(prov, t),
+    type_ctor(prov, rgk, ctor), method_kind(prov, ctor, "PRIMARY_CONSTRUCTOR"),
+    param_decl(prov, ctor, i, _, p),
+    param_type(prov, p, gk).

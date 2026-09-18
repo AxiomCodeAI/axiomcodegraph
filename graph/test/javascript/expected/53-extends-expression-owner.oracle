@@ -1,0 +1,15 @@
+main.js:15:45 FUNCTION_CALL mix  EXACT  main.js:10:1
+main.js:18:20 METHOD_CALL viaThis  EXACT  main.js:7:3
+main.js:18:47 METHOD_CALL viaName  EXACT  main.js:8:3
+main.js:19:3 METHOD_CALL tag  EXACT  main.js:5:3
+main.js:20:3 METHOD_CALL tag  EXACT  main.js:5:3
+main.js:21:3 CONSTRUCTOR_CALL FromThis  SYNTHESIZED_OK  
+main.js:21:3 METHOD_CALL greet  EXACT  main.js:6:3
+main.js:22:3 CONSTRUCTOR_CALL FromName  SYNTHESIZED_OK  
+main.js:22:3 METHOD_CALL greet  EXACT  main.js:6:3
+main.js:23:21 FUNCTION_CALL viaLocalConst  EXACT  main.js:11:1
+main.js:24:3 METHOD_CALL tag  EXACT  main.js:5:3
+main.js:25:3 CONSTRUCTOR_CALL FromConst  SYNTHESIZED_OK  
+main.js:25:3 METHOD_CALL greet  EXACT  main.js:6:3
+main.js:26:21 FUNCTION_CALL viaParam  EXACT  main.js:15:1
+# defects: 0

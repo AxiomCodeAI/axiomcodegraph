@@ -1,0 +1,7 @@
+04-overload-selection [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 5   resolved 4 (80.0%)
+  tiers ambiguous_unknown=1  known_edge=4
+  contexts METHOD_RETURN=3  OBJECT_CREATION_TYPE=2
+  not scored: 1 rows whose target is not a client declaration

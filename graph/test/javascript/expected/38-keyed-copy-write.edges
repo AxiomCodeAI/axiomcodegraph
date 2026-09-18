@@ -1,0 +1,14 @@
+main.js:14:16 FUNCTION_CALL mixin  ->  known_edge  main.js:7:1 mixin
+main.js:15:30 METHOD_CALL target.alpha  ->  known_edge  main.js:3:1 alpha
+main.js:18:21 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:21:16 FUNCTION_CALL copyInline  ->  known_edge  main.js:17:1 copyInline
+main.js:22:31 METHOD_CALL copied.beta  ->  known_edge  main.js:4:1 beta
+main.js:26:1 FUNCTION_CALL mixin  ->  known_edge  main.js:7:1 mixin
+main.js:27:29 METHOD_CALL lodash.alpha  ->  known_edge  main.js:3:1 alpha
+main.js:30:33 METHOD_CALL names.forEach  ->  ambient_terminal  -
+main.js:30:33 METHOD_CALL names.forEach  ->  callback_registered  main.js:30:47 <function-expression>
+main.js:31:16 FUNCTION_CALL fill  ->  callback_registered  main.js:4:1 beta
+main.js:31:16 FUNCTION_CALL fill  ->  known_edge  main.js:30:1 fill
+main.js:32:29 METHOD_CALL filled.alpha  ->  ambiguous_unknown  -
+main.js:8:3 METHOD_CALL names.forEach  ->  ambient_terminal  -
+main.js:8:3 METHOD_CALL names.forEach  ->  callback_registered  main.js:8:17 <function-expression>

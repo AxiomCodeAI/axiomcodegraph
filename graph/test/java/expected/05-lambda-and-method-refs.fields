@@ -1,0 +1,5 @@
+ambiguous_unknown	read	Lam#main(String[]) -> -
+known_edge	read	Lam#main(String[]) -> Lam#byName
+known_edge	read	Lam#main(String[]) -> Lam.Item#count
+known_edge	read	Lam#viaForEach(String) -> Lam#byName
+known_edge	readwrite	Lam.Item#validate(String) -> Lam.Item#count

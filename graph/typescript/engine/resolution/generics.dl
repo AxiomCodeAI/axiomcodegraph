@@ -201,3 +201,34 @@ call_tvar_arg_binding(ce, tp, prov, t) :- expr_call_candidate(ce, m),
 expr_type(ce, prov, t) :- expr_call_candidate(ce, m),
     return_is_type_param(m, tp),
     call_tvar_arg_binding(ce, tp, prov, t).
+
+// ── A TYPE ARGUMENT WRITTEN ON A `new` EXPRESSION (#587) ────────────────────
+// `new Box<AlphaOp>()` binds T exactly as `const b: Box<AlphaOp> = ...` does, and only
+// the annotation bound it: the call on what `get()` returned was ambiguous_unknown in
+// the first spelling and AlphaOp#run in the second, with the constructor and `get`
+// itself resolving identically in both.
+//
+// Nothing was missing from the IR. What differs is WHERE the parser hangs the argument.
+// In a TYPE position the arguments are CHILDREN of the reference (`Box` with one
+// TYPE_ARGUMENT child at depth 1), which is what type_arg_binding above joins on. On an
+// EXPRESSION they are SIBLINGS of the OBJECT_CREATION_TYPE reference, anchored on the
+// expression as METHOD_TYPE_ARGUMENT rows at depth 0 — the same shape an explicit type
+// argument on a CALL takes, which call_type_argument already reads for `make<AlphaOp>()`.
+//
+// So this is the existing positional join fed from the other of the two spellings, keyed
+// on the OBJECT_CREATION_TYPE reference so that every consumer of type_arg_binding
+// (substitution here, contextual parameters, overload selection) reaches it unchanged.
+new_expression_ref(e, ref) :- ts_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, _, e, "EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, ref).
+
+type_arg_binding(ref, pname, argRef) :- new_expression_ref(e, ref),
+    type_ref_resolves(_, ref, t),
+    type_param(_, pname, pos, _, t, _),
+    pname != "",
+    call_type_argument(e, pos, argRef).
+
+// The `new` expression IS the declaration reference for what it constructs, so
+// `new Box<AlphaOp>().get()` substitutes directly and `const b = new Box<AlphaOp>()`
+// reaches the same binding through the un-annotated-variable clause above. Only a `new`
+// that WRITES a type argument gets one: with no argument there is nothing to bind, and
+// admitting the reference anyway would widen every other consumer for nothing.
+expr_decl_ref(e, ref) :- new_expression_ref(e, ref), call_type_argument(e, _, _).

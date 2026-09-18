@@ -1,0 +1,8 @@
+15-cross-file-same-package
+  precision 0.8000   (4 correct, 1 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  sites 7   resolved 6 (85.7%)
+  tiers ambiguous_unknown=1  known_edge=6
+  access read=5  write=2
+  not scored: 0 initializer-owned, 1 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   shop.PercentDiscount#<init>(int) WRITE shop.PercentDiscount#pct

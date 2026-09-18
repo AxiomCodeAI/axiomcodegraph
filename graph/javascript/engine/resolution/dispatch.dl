@@ -31,6 +31,9 @@ this_value(m, "inst", s) :- method_decl(_, _, k, _, "false", t, _, m), t != "", 
 // ── `this` in a static member of T: every subclass reached as a receiver ───
 this_value(m, "ctor", s) :- method_decl(_, _, _, _, "true", t, _, m), t != "",
     type_ancestor(s, t), type_used_statically(s).
+// ── `this` in a static block of T: the same fan (#729) ─────────────────────
+this_value(m, "ctor", s) :- method_decl(_, _, "STATIC_BLOCK", _, _, t, _, m), t != "",
+    type_ancestor(s, t), type_used_statically(s).
 // A constructor function's `this` fans the same way (`Animal.call(this, name)` in a
 // subclass constructor is the same receiver).
 this_value(m, "inst", s) :- type_ctor(_, m, t), type_ancestor(s, t), type_instantiated(s).

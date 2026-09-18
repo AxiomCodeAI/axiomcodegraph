@@ -1,0 +1,24 @@
+core.js:11:66 FUNCTION_CALL log  EXACT  core.js:4:1
+core.js:12:68 FUNCTION_CALL log  EXACT  core.js:4:1
+core.js:14:19 METHOD_CALL create  LIB_AMBIENT_OK  
+core.js:15:45 FUNCTION_CALL log  EXACT  core.js:4:1
+core.js:16:47 FUNCTION_CALL log  EXACT  core.js:4:1
+core.js:6:41 FUNCTION_CALL log  EXACT  core.js:4:1
+core.js:7:46 FUNCTION_CALL log  EXACT  core.js:4:1
+core.js:8:50 FUNCTION_CALL log  EXACT  core.js:4:1
+main.js:10:3 CONSTRUCTOR_CALL Item  EXACT  core.js:10:1
+main.js:10:3 METHOD_CALL helper  EXACT  core.js:12:47
+main.js:11:3 FUNCTION_CALL helper  EXACT  core.js:12:47
+main.js:12:3 METHOD_CALL tag  EXACT  core.js:15:24
+main.js:13:3 METHOD_CALL tag  EXACT  core.js:15:24
+main.js:14:3 METHOD_CALL tag2  MISSED  
+main.js:15:3 METHOD_CALL tag2  EXACT  core.js:16:26
+main.js:3:3 METHOD_CALL mixin  EXACT  core.js:7:25
+main.js:4:3 METHOD_CALL each  EXACT  core.js:6:25
+main.js:6:3 METHOD_CALL both  EXACT  core.js:8:29
+main.js:7:3 METHOD_CALL both  EXACT  core.js:8:29
+main.js:8:3 CONSTRUCTOR_CALL Item  EXACT  core.js:10:1
+main.js:8:3 METHOD_CALL run  EXACT  core.js:11:45
+main.js:9:3 CONSTRUCTOR_CALL Item  EXACT  core.js:10:1
+main.js:9:3 METHOD_CALL alias  EXACT  core.js:11:45
+# defects: 1
