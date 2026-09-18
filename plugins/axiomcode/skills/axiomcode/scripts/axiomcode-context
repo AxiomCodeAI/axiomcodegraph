@@ -284,12 +284,12 @@ def main(argv):
 
     scored = {sid: v for sid, v in scored.items() if scope in (g.sym.get(sid, {}).get('file') or '')}
     if not scored:
-        # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it
-        dirs = dirs_with_counts(g)
-        inside = sorted(((d, n) for d, n in dirs.items() if scope in d or d in scope),
-                        key=lambda kv: -(len(set(terms) & set(subtokens(kv[0]))) * 100000 + kv[1]))
+        # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it,
+        # ranked the same way the scope-less menu is: by where the words land, never by how big a directory is
+        ranked = rank_dirs(g, terms)
+        inside = [r for r in ranked if scope in r[0] or r[0] in scope]
         return offer(f"'{scope}' exists, but none of these words appear under it: {', '.join(terms[:8])}.",
-                     inside or sorted(dirs.items(), key=lambda kv: -kv[1]), terms)
+                     inside or ranked, terms)
 
     seeds = pick_seeds(g, scored, terms, seeds_wanted)
 

@@ -23,7 +23,7 @@ Five rules, and every verb obeys all five:
   5. STATE THE BOUND. Say what the answer cannot see — the relations this graph does not encode — so a
      partial list is not read as a complete one.
 """
-import collections, re, sys
+import collections, difflib, re, sys
 
 SPLIT = re.compile(r'[^A-Za-z0-9]+')
 CAMEL = re.compile(r'[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+')
@@ -128,8 +128,15 @@ def require_scope(g, scope, terms=(), rank=None):
         return offer("this needs to know WHERE to look: --in <path> is required.",
                      rank or sorted(dirs.items(), key=by_terms), terms)
     if not g.q("SELECT COUNT(*) n FROM symbols WHERE file LIKE ?", f'%{scope}%')[0]['n']:
+        # A path that is not in the graph is usually a TYPO, and a typo is a character-level miss, not a
+        # token-level one: `complier-core` shares exactly the same two tokens with `compiler-core` as with
+        # `runtime-core`, so token overlap ties them and the tiebreak by symbol count then answered with
+        # whichever package was larger. Similarity over the whole string is what the question is asking.
         want = set(subtokens(scope))
-        near = sorted(dirs.items(), key=lambda d: -(len(want & set(subtokens(d[0]))) * 100000 + d[1]))
+        def near_key(d):
+            ratio = difflib.SequenceMatcher(None, scope, d[0]).ratio()
+            return -(len(want & set(subtokens(d[0]))) + ratio)
+        near = sorted(dirs.items(), key=near_key)
         return offer(f"no indexed file has '{scope}' in its path.", near, terms,
                      hint="check the spelling against these, or widen to the package above it.")
     return None
