@@ -9,6 +9,7 @@ import {
 } from '@/enums/typescript/modules';
 import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
+import { stableRootId } from './stable-root-id';
 
 /**
  * A TypeScript module — schema §4.1, 28 columns.
@@ -138,18 +139,22 @@ export class TsModuleRegistry implements EntityIdentifiable {
   }
 
   /**
-   * **PK** `TS_MODULE_md5(filePath ‖ baseMservPath ‖ declaredSpecifier ‖ startLine ‖ emissionRegime ‖ serviceVersionLinkHash)`
+   * **PK** `TS_MODULE_md5(filePath ‖ stableRootId(baseMservPath) ‖ declaredSpecifier ‖ startLine ‖ emissionRegime ‖ serviceVersionLinkHash)`
    *
    * `declaredSpecifier` and `startLine` are both present because one file can
    * hold many ambient module declarations, and a key without them would collapse
    * them into one row.
+   *
+   * The ROOT enters as its `name@version` and not as its path, because the path is
+   * absolute and made every key in the bundle move with the directory the analysis ran
+   * in. `baseMservPath` stays as a payload column. See stable-root-id.ts and #934.
    */
   generateHash(): void {
     this.tsModuleUniqueHash = EntityUtils.generateEntityHash(
       ENTITY_IDENTIFIERS.TS_MODULE,
       keyOf(
         this.filePath,
-        this.baseMservPath,
+        stableRootId(this.baseMservPath),
         this.declaredSpecifier,
         this.startLine,
         this.emissionRegime,
