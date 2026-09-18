@@ -28,6 +28,28 @@ con = sqlite3.connect(db); con.row_factory = sqlite3.Row
 q = lambda s, *p: con.execute(s, p).fetchall()
 if not q("SELECT 1 FROM sqlite_master WHERE name='symbols'"): sys.exit(0)
 
+# What is this session actually trying to do? Written once by the orientation hook. Everything below ranked
+# declarations by degree -- callers plus unresolved calls -- which answers "which of these is most connected"
+# when the question was "which of these is about my task". In a measured run the agent opened the right file
+# six times, and the one function its fix needed was listed last in an overflow line behind two that were not
+# in the fix at all, because those two had more edges.
+TASK = []
+try:
+    _t = open(os.path.join(cwd, '.axiomcode', 'task.txt')).read()
+    import ax_contract as _ax
+    TASK = _ax.task_terms(_ax.task_text(_t))[:40]
+except Exception:
+    TASK = []
+_TSET = set(TASK)
+
+def task_hits(display):
+    """Which of the task's words this declaration's name carries."""
+    if not _TSET: return []
+    try: toks = set(_ax.subtokens(display or ''))
+    except Exception: return []
+    out = [t for t in TASK if t in toks or any(x.startswith(t) and len(t) >= 4 for x in toks)]
+    return out[:2]
+
 def edges(mid, sid):
     up = q("SELECT DISTINCT cr.display d FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? LIMIT 40", mid)
     dn = q("SELECT DISTINCT ce.display d FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND e.callee_provenance = 'client' LIMIT 40", sid)
@@ -180,9 +202,13 @@ elif tool == 'Read':
             if x['sd']: parts.append(f"→ {', '.join(f'{nm(y)} ★' for y in x['sd'][:2])}" + (f", +{len(x['dn']) - min(2, len(x['sd']))}" if len(x['dn']) > min(2, len(x['sd'])) else ''))
             elif x['dn']: parts.append(f"→{len(x['dn'])}" + (" " + ', '.join(nm(y) for y in x['dn'][:2]) if len(x['dn']) <= 2 else ''))
             if x['un']: parts.append(f"?{x['un']} unresolved call(s)")
+            if x.get('hits'): parts.append("— your task says " + ', '.join(repr(h) for h in x['hits']))
             return f"  {short(r['display'])} L{r['line']}  " + '   '.join(parts)
         # ★ lines ranked by how many DISTINCT earlier-read methods reach them; one hub caller cannot claim every slot
-        stars = sorted([x for x in info if x['star']], key=lambda x: -len({y['id'] for y in x['star']}))
+        for x in info: x['hits'] = task_hits(x['r']['display'])
+        # a declaration whose NAME carries the task's words is shown first, ahead of the better-connected ones
+        stars = sorted([x for x in info if x['star'] or x['hits']],
+                       key=lambda x: (-len(x['hits']), -len({y['id'] for y in x['star']})))
         seen = collections.Counter(); picked = []
         for x in stars:
             k = tuple(sorted({y['id'] for y in x['star']}))
@@ -192,7 +218,7 @@ elif tool == 'Read':
         shown = (picked + few)[:5]
         for x in shown: lines.append(line(x))
         left = [x for x in info if x not in shown]
-        if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{len(x['up'])}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: -(len(x['up']) + x['un']))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
+        if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{len(x['up'])}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
 elif tool == 'Grep':
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
     # Split the alternation, strip the regex around each branch, keep the identifiers, look each one up — in parallel, one

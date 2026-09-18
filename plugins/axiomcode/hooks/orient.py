@@ -51,6 +51,10 @@ if not out:
 try:
     os.makedirs(os.path.dirname(stamp), exist_ok=True)
     open(stamp, 'w').write('1')
+    # Keep the task itself. Orientation is the only moment anything in this plugin is told what the work is
+    # about, and the passive half -- which annotates each file the agent opens -- has never known. Without it
+    # that half can only rank what it finds by degree, which is a property of the code and not of the job.
+    open(os.path.join(cwd, '.axiomcode', 'task.txt'), 'w').write(prompt[:20000])
 except Exception:
     pass
 
