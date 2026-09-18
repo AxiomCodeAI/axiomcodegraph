@@ -8,3 +8,4 @@
 # name	src	repo	commit	test command	note
 click	src/click	https://github.com/pallets/click.git	6aabf099bfdd4c1e75fe8d0e0d4241372b988ab1	python -m pytest -q -p no:cacheprovider --deselect tests/test_imports.py::test_light_imports tests	test_light_imports asserts the interpreter's own module set; see README, "Known subject interference"
 jinja	src/jinja2	https://github.com/pallets/jinja.git	5ef70112a1ff19c05324ff889dd30405b1002044	python -m pytest -q -p no:cacheprovider tests	needs trio, a test-only dependency
+pygments	pygments	https://github.com/pygments/pygments.git	38f426a6b1cd4ffc6429f5808031b7c62ea57b1f	python -m pytest -q -p no:cacheprovider tests	HELD OUT: added after the first two were measured, and it found #941 on its first run. Needs wcag-contrast-ratio, a test-only dependency, without which the suite does not collect
