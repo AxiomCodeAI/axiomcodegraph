@@ -27,7 +27,8 @@ command -v javac >/dev/null || { echo "SKIP: no javac"; exit 77; }
 rm -rf .work && mkdir -p .work/{lib-classes,client-classes,oracle-classes,emptylib}
 javac -g -d .work/lib-classes $(find lib -name '*.java') 2>.work/javac.log || { echo "FAIL (javac lib)"; cat .work/javac.log; exit 1; }
 javac -g -d .work/client-classes -cp .work/lib-classes $(find client -name '*.java') 2>>.work/javac.log || { echo "FAIL (javac client)"; cat .work/javac.log; exit 1; }
-javac -d .work/oracle-classes "$TOOLS/ClassFileOracle.java" 2>>.work/javac.log || { echo "SKIP: ClassFileOracle needs a JDK with java.lang.classfile"; exit 77; }
+. "$TOOLS/oracle-build.sh"
+ORACLE_FLAGS="$(oracle_build .work/oracle-classes .work/javac.log)" || { echo "SKIP: ClassFileOracle does not compile on this JDK"; exit 77; }
 
 # ── IR: the two halves are parsed SEPARATELY, which is what makes dep.* a library ──────────────
 node "$PARSER" lib    torture-lib    false .work/lib-ir    >.work/parse-lib.log 2>&1 || { echo "FAIL (parse lib)"; exit 1; }
@@ -62,7 +63,7 @@ python3 "$TOOLS/coverage_guard.py" .work/client-ir .work/out/raw >.work/coverage
   echo "FAIL (silent drop)"; sed 's/^/    /' .work/coverage.txt; exit 1; }
 
 # ── ground truth, and the score ────────────────────────────────────────────────────────────────
-java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
+java $ORACLE_FLAGS -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
      > .work/oracle.edges 2>/dev/null
 python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out/raw --client-pairs > .work/engine.pairs 2>/dev/null
 python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out/raw "$LIBROOT" > .work/actual.edges 2>/dev/null
@@ -75,9 +76,9 @@ python3 harness/score.py .work/client-ir .work/out/raw .work/engine.pairs .work/
 # directory named `fixtures` scored zero. Both are invisible at corpus scale — a wrong denominator
 # among tens of thousands reads exactly like a right one. Here the answer is known, so the report
 # is a golden.
-java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
+java $ORACLE_FLAGS -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
      > .work/scale-lb.txt 2>/dev/null
-java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only --envelope \
+java $ORACLE_FLAGS -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only --envelope \
      > .work/scale-ub.txt 2>/dev/null
 python3 "$TOOLS/score_scale.py" .work/client-ir .work/out/raw .work/scale-lb.txt .work/scale-ub.txt \
      > .work/actual.scale 2>&1

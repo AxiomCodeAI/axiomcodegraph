@@ -19,8 +19,9 @@ W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 
 command -v javac >/dev/null 2>&1 || { echo "synthetic-callee: SKIP (no javac)"; exit 0; }
 mkdir -p "$W/src/p" "$W/cls" "$W/oc"
-javac -d "$W/oc" "$HERE/ClassFileOracle.java" 2>"$W/oc.log" \
-  || { echo "synthetic-callee: SKIP (ClassFileOracle needs a JDK with java.lang.classfile)"; exit 0; }
+. "$HERE/oracle-build.sh"
+ORACLE_FLAGS="$(oracle_build "$W/oc" "$W/oc.log")" \
+  || { echo "synthetic-callee: SKIP (ClassFileOracle does not compile on this JDK, see $W/oc.log)"; exit 0; }
 
 cat > "$W/src/p/Probe.java" <<'EOF'
 package p;
@@ -33,7 +34,7 @@ public class Probe {
 EOF
 javac -g -d "$W/cls" "$W/src/p/Probe.java" || { echo "  FAIL (javac)"; exit 1; }
 
-oracle(){ java -cp "$W/oc" ClassFileOracle --app "$W/cls" --app-only 2>/dev/null | grep -- '->' || true; }
+oracle(){ java $ORACLE_FLAGS -cp "$W/oc" ClassFileOracle --app "$W/cls" --app-only 2>/dev/null | grep -- '->' || true; }
 
 # Quiet on success -- this runs as a preflight before every suite run, and four green lines that
 # are always green is noise. SYNTHETIC_CALLEE_VERBOSE=1 shows each check.
@@ -95,7 +96,7 @@ public class Cov {
 }
 EOF
 javac -g -d "$W/cls2" "$W/src2/p/Cov.java" || { echo "  FAIL (javac, covariant fixture)"; exit 1; }
-cov="$(java -cp "$W/oc" ClassFileOracle --app "$W/cls2" --app-only 2>/dev/null | grep -- '->' || true)"
+cov="$(java $ORACLE_FLAGS -cp "$W/oc" ClassFileOracle --app "$W/cls2" --app-only 2>/dev/null | grep -- '->' || true)"
 echo "$cov" | grep -q 'p.Cov.Sub#make() -> p.Cov.Base#make()'   && ok "a real method sharing its key with a bridge is still ground truth"   || { echo "  FAIL  the covariant override's super.make() edge was dropped as synthetic:";
        echo "${cov:-(no edges at all)}" | sed 's/^/          /'; fail=1; }
 
