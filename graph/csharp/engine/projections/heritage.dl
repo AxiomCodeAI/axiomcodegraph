@@ -1,0 +1,265 @@
+// ============================================================================
+// PROJECTIONS · HERITAGE, TYPE REFERENCES, USINGS, ATTRIBUTES
+//
+// THE CENTRAL C# DIFFERENCE FROM JAVA IS IN THIS FILE.
+//
+// Java writes `extends B implements I` and the parser records two different things.
+// C# writes `class C : B, I` and there is NO SYNTACTIC DIFFERENCE between the base
+// class and the interfaces. heritageKind is BASE_OR_INTERFACE for every entry, by
+// construction, because syntax genuinely cannot tell them apart.
+//
+// So the hierarchy cannot be built from the heritage rows alone. It needs, for each
+// named type, that type's OWN typeCategory — which means resolving the name first,
+// and which is why cs_type_heritage is staged for libraries as a signature relation:
+// a client class deriving from a library base cannot be placed without it.
+//
+// The consequences if this is got wrong are not subtle. Treat a base class as an
+// interface and every inherited member becomes unreachable through the subclass.
+// Treat an interface as a base class and single inheritance is violated, which makes
+// the "nearest base declaration" that dispatch depends on ill-defined.
+//
+// There is one further ordering fact C# gives and Java does not need: IF a base
+// CLASS is present it is at position 0. The language requires it. That is a useful
+// cross-check on the resolved answer, but it is not sufficient on its own, because
+// position 0 is an interface whenever the type derives from no class.
+// ============================================================================
+
+// ── heritage_slot(Prov, TypeHash, Position, BaseName, BaseArity, RefHash) ───
+// cs_type_heritage cols: 0 csTypeLinkHash 1 position 2 heritageText 3 baseTypeName
+//   4 baseTypeArity 5 heritageKind 6 hasPrimaryConstructorArguments 7 startLine
+//   8 startColumn 9 csTypeReferenceLinkHash 10 isExternal 11 serviceVersionLinkHash
+//   12 csTypeHeritageUniqueHash
+heritage_slot("client", t, pos, bn, ba, tr) :-
+    cs_type_heritage(t, pos, _, bn, ba, _, _, _, _, tr, _, _, _).
+heritage_slot("lib", t, pos, bn, ba, tr) :-
+    lib_cs_type_heritage(t, pos, _, bn, ba, _, _, _, _, tr, _, _, _).
+
+heritage_text("client", t, pos, txt) :- cs_type_heritage(t, pos, txt, _, _, _, _, _, _, _, _, _, _).
+heritage_text("lib", t, pos, txt)    :- lib_cs_type_heritage(t, pos, txt, _, _, _, _, _, _, _, _, _, _).
+
+// heritage_of_entity(Prov, GroupKey, Position, BaseName, BaseArity, RefHash)
+// GROUP-SCOPED, and this is load-bearing rather than tidiness. A partial type may
+// declare its base class in one file and its interfaces in another, and the compiler
+// takes the union. A site-scoped hierarchy answers from whichever part the receiver's
+// declaration happened to resolve to and misses the rest.
+//
+// Position is NOT unique across the group for the same reason: two parts each write a
+// position 0. That is why the base-class-at-position-0 rule below is a cross-check and
+// not the decision procedure.
+heritage_of_entity(prov, gk, pos, bn, ba, tr) :-
+    heritage_slot(prov, t, pos, bn, ba, tr), type_group(prov, t, gk).
+
+// A primary constructor's base-list entry carries ARGUMENTS: `class D(int a) :
+// B(a)`. That is a base constructor CALL written in the heritage clause, with no
+// call syntax anywhere in the body, and it is one of the miss causes the parser's
+// own corpus audit measured (PRIMARY_CONSTRUCTOR_BASE_INVOCATION, 2207 sites). The
+// flag is where the edge comes from.
+heritage_has_ctor_args("client", t, pos) :-
+    cs_type_heritage(t, pos, _, _, _, _, "true", _, _, _, _, _, _).
+heritage_has_ctor_args("lib", t, pos) :-
+    lib_cs_type_heritage(t, pos, _, _, _, _, "true", _, _, _, _, _, _).
+
+// ── TYPE REFERENCES ─────────────────────────────────────────────────────────
+// Every written type name, with its generic arguments as a NESTED TREE rather than
+// as text. This is what makes `Dictionary<string, List<IShape>>` decomposable: the
+// element type of the value is reachable by walking parentReferenceHash, where
+// parsing completeTypeName would need a generic-argument parser in Datalog.
+//
+// cs_type_reference cols: 0 kind 1 context 2 ownerLinkHash 3 referenceOwnerKind
+//   4 parentReferenceHash 5 position 6 depth 7 typeName 8 completeTypeName
+//   9 typeArgumentCount 10 arrayRank 11 isNullableAnnotated 12 isPointer 13 isTuple
+//   14 tupleElementCount 15 typeParameterLinkHash 16 startLine 17 endLine
+//   18 startColumn 19 isExternal 20 serviceVersionLinkHash
+//   21 csTypeReferenceUniqueHash
+type_ref("client", k, ctx, owner, ok, tn, tr) :-
+    cs_type_reference(k, ctx, owner, ok, _, _, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, tr).
+type_ref("lib", k, ctx, owner, ok, tn, tr) :-
+    lib_cs_type_reference(k, ctx, owner, ok, _, _, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, tr).
+
+type_ref_name(prov, tr, tn) :- type_ref(prov, _, _, _, _, tn, tr).
+type_ref_owner(prov, tr, owner, ok) :- type_ref(prov, _, _, owner, ok, _, tr).
+type_ref_context(prov, tr, ctx) :- type_ref(prov, _, ctx, _, _, _, tr).
+
+type_ref_complete("client", tr, ctn) :-
+    cs_type_reference(_, _, _, _, _, _, _, _, ctn, _, _, _, _, _, _, _, _, _, _, _, _, tr).
+type_ref_complete("lib", tr, ctn) :-
+    lib_cs_type_reference(_, _, _, _, _, _, _, _, ctn, _, _, _, _, _, _, _, _, _, _, _, _, tr).
+
+// type_ref_parent(Prov, RefHash, ParentRefHash, Position, Depth) — the generic
+// argument tree. Position is the argument index, so the VALUE type of a
+// `Dictionary<K, V>` reference is its child at position 1.
+type_ref_parent("client", tr, parent, pos, d) :-
+    cs_type_reference(_, _, _, _, parent, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr),
+    parent != "".
+type_ref_parent("lib", tr, parent, pos, d) :-
+    lib_cs_type_reference(_, _, _, _, parent, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr),
+    parent != "".
+
+// type_ref_arg(Prov, ParentRefHash, Position, ArgRefHash) — the same edge downward.
+type_ref_arg(prov, parent, pos, tr) :- type_ref_parent(prov, tr, parent, pos, _).
+
+type_ref_argc("client", tr, n) :-
+    cs_type_reference(_, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, tr).
+type_ref_argc("lib", tr, n) :-
+    lib_cs_type_reference(_, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, tr).
+
+// An ARRAY reference: `IShape[]`. arrayRank > 0. The element type is the reference
+// itself with the rank stripped, so iterating an array yields the same named type.
+type_ref_array_rank("client", tr, r) :-
+    cs_type_reference(_, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, tr),
+    r != "0", r != "".
+type_ref_array_rank("lib", tr, r) :-
+    lib_cs_type_reference(_, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, tr),
+    r != "0", r != "".
+
+// A reference that names a TYPE PARAMETER rather than a type. The parser resolves
+// this itself, which spares the engine from mistaking `T` for a type called T.
+type_ref_type_param("client", tr, tp) :-
+    cs_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tp, _, _, _, _, _, tr),
+    tp != "".
+type_ref_type_param("lib", tr, tp) :-
+    lib_cs_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tp, _, _, _, _, _, tr),
+    tp != "".
+
+type_ref_is_tuple("client", tr, n) :-
+    cs_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", n, _, _, _, _, _, _, tr).
+type_ref_is_tuple("lib", tr, n) :-
+    lib_cs_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", n, _, _, _, _, _, _, tr).
+
+// `int?` and `string?` are different things and only one is a real type difference.
+// Nullable<T> on a value type is a distinct type whose members are Nullable's;
+// the annotation on a reference type is a compile-time claim with no runtime
+// identity and no effect on dispatch. The flag is carried and read only where that
+// distinction matters.
+type_ref_nullable("client", tr) :-
+    cs_type_reference(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, tr).
+type_ref_nullable("lib", tr) :-
+    lib_cs_type_reference(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, tr).
+
+// ── USINGS ──────────────────────────────────────────────────────────────────
+// cs_using cols: 0 usingKind 1 namespaceOrTypeName 2 aliasName 3 aliasTargetText
+//   4 isGlobal 5 isStatic 6 isImplicit 7 originFile 8 csModuleLinkHash 9 position
+//   10 startLine 11 startColumn 12 isExternal 13 serviceVersionLinkHash
+//   14 csUsingUniqueHash
+using_decl("client", uk, nt, mod, u) :-
+    cs_using(uk, nt, _, _, _, _, _, _, mod, _, _, _, _, _, u).
+using_decl("lib", uk, nt, mod, u) :-
+    lib_cs_using(uk, nt, _, _, _, _, _, _, mod, _, _, _, _, _, u).
+
+// A plain `using System;` — brings a NAMESPACE's types into scope by simple name.
+using_namespace(prov, mod, ns) :- using_decl(prov, _, ns, mod, u), !using_is_static(prov, u), !using_is_alias(prov, u).
+
+// `using static System.Math;` — brings a TYPE's STATIC MEMBERS into scope, so `PI`
+// and `Sqrt(x)` resolve with no qualifier at all. This is the only way an
+// unqualified call can reach a member of a type the enclosing type has no relation
+// to, and an engine without it reports those sites unresolved.
+using_is_static("client", u) :- cs_using(_, _, _, _, _, "true", _, _, _, _, _, _, _, _, u).
+using_is_static("lib", u)    :- lib_cs_using(_, _, _, _, _, "true", _, _, _, _, _, _, _, _, u).
+using_static_type(prov, mod, tn) :- using_decl(prov, _, tn, mod, u), using_is_static(prov, u).
+
+// `using Foo = Bar.Baz;` — an ALIAS. The written name is Foo and it denotes Baz, so
+// name resolution must rewrite before it matches, or every use of the alias is
+// unresolved.
+using_alias("client", mod, alias, target) :-
+    cs_using(_, _, alias, target, _, _, _, _, mod, _, _, _, _, _, _),
+    alias != "".
+using_alias("lib", mod, alias, target) :-
+    lib_cs_using(_, _, alias, target, _, _, _, _, mod, _, _, _, _, _, _),
+    alias != "".
+using_is_alias("client", u) :- cs_using(_, _, alias, _, _, _, _, _, _, _, _, _, _, _, u), alias != "".
+using_is_alias("lib", u)    :- lib_cs_using(_, _, alias, _, _, _, _, _, _, _, _, _, _, _, u), alias != "".
+
+// `global using` applies to EVERY file in the compilation, not to the one it is
+// written in. Scoping it to its own module would leave every other file missing the
+// namespaces the project expects to be present everywhere, which is how modern
+// projects are laid out: one GlobalUsings.cs and no using lines anywhere else.
+using_is_global("client", u) :- cs_using(_, _, _, _, "true", _, _, _, _, _, _, _, _, _, u).
+using_is_global("lib", u)    :- lib_cs_using(_, _, _, _, "true", _, _, _, _, _, _, _, _, _, u).
+
+// Implicit: put there by the SDK, not written by the author. Treated identically for
+// resolution, and separated only so an unresolved name can be attributed correctly.
+using_is_implicit("client", u) :- cs_using(_, _, _, _, _, _, "true", _, _, _, _, _, _, _, u).
+using_is_implicit("lib", u)    :- lib_cs_using(_, _, _, _, _, _, "true", _, _, _, _, _, _, _, u).
+
+// ── ATTRIBUTES ──────────────────────────────────────────────────────────────
+// cs_attribute cols: 0 attributeName 1 qualifiedName 2 attributeTarget 3 ownerHash
+//   4 ownerKind 5 csTypeLinkHash 6 csModuleLinkHash 7 attributeListIndex 8 position
+//   9 argumentCount 10 hasNamedArguments 11 typeReferenceLinkHash
+//   12 csExpressionLinkHash 13 startLine 14 endLine 15 startColumn 16 isExternal
+//   17 serviceVersionLinkHash 18 csAttributeUniqueHash
+//
+// Attributes matter to a call graph because they are how a framework names an ENTRY
+// POINT. A `[Fact]` method, an `[HttpGet]` action and a `[JsonConstructor]` are each
+// called by something outside the project, so a reachability answer that starts only
+// from Main reports most of a real application as dead.
+attribute_on("client", an, qn, owner, ok, a) :-
+    cs_attribute(an, qn, _, owner, ok, _, _, _, _, _, _, _, _, _, _, _, _, _, a).
+attribute_on("lib", an, qn, owner, ok, a) :-
+    lib_cs_attribute(an, qn, _, owner, ok, _, _, _, _, _, _, _, _, _, _, _, _, _, a).
+
+attribute_name(prov, a, an) :- attribute_on(prov, an, _, _, _, a).
+attribute_target_owner(prov, a, owner, ok) :- attribute_on(prov, _, _, owner, ok, a).
+
+// cs_attribute_argument cols: 0 argumentName 1 argumentValue 2 valueKind 3 position
+//   4 isNamedArgument 5 parentAttributeHash 6 referencedTypeReferenceLinkHash
+//   7 csExpressionLinkHash 8 startLine 9 endLine 10 startColumn 11 isExternal
+//   12 serviceVersionLinkHash 13 csAttributeArgumentUniqueHash
+attribute_arg("client", a, pos, an, av, aa) :-
+    cs_attribute_argument(an, av, _, pos, _, a, _, _, _, _, _, _, _, aa).
+attribute_arg("lib", a, pos, an, av, aa) :-
+    lib_cs_attribute_argument(an, av, _, pos, _, a, _, _, _, _, _, _, _, aa).
+
+// An attribute argument that names a TYPE: `[JsonConverter(typeof(FooConverter))]`
+// is a reference to FooConverter and, in effect, a construction of it by the
+// framework. The type reference link is what makes that recoverable.
+attribute_arg_type_ref("client", aa, tr) :-
+    cs_attribute_argument(_, _, _, _, _, _, tr, _, _, _, _, _, _, aa),
+    tr != "".
+attribute_arg_type_ref("lib", aa, tr) :-
+    lib_cs_attribute_argument(_, _, _, _, _, _, tr, _, _, _, _, _, _, aa),
+    tr != "".
+
+// ── QUERY CLAUSES ───────────────────────────────────────────────────────────
+// cs_query_clause cols: 0 csExpressionLinkHash 1 parentQueryLinkHash 2 position
+//   3 clauseKind 4 identifierName 5 sourceExpressionLinkHash
+//   6 bodyExpressionLinkHash 7 intoIdentifier 8 isDescending 9 startLine
+//   10 startColumn 11 isExternal 12 serviceVersionLinkHash 13 csQueryClauseUniqueHash
+//
+// The parser emits the STRUCTURE of a LINQ query and leaves the desugaring to the
+// engine, by ruling. `from x in xs where p select f` is a call to Where and a call to
+// Select, on a receiver type reached through extension methods that are in scope
+// only because of a using directive. Which is all resolution.
+query_clause("client", q, parent, pos, ck, ident, qc) :-
+    cs_query_clause(q, parent, pos, ck, ident, _, _, _, _, _, _, _, _, qc).
+query_clause("lib", q, parent, pos, ck, ident, qc) :-
+    lib_cs_query_clause(q, parent, pos, ck, ident, _, _, _, _, _, _, _, _, qc).
+
+query_clause_source("client", qc, src) :-
+    cs_query_clause(_, _, _, _, _, src, _, _, _, _, _, _, _, qc), src != "".
+query_clause_source("lib", qc, src) :-
+    lib_cs_query_clause(_, _, _, _, _, src, _, _, _, _, _, _, _, qc), src != "".
+query_clause_body("client", qc, body) :-
+    cs_query_clause(_, _, _, _, _, _, body, _, _, _, _, _, _, qc), body != "".
+query_clause_body("lib", qc, body) :-
+    lib_cs_query_clause(_, _, _, _, _, _, body, _, _, _, _, _, _, qc), body != "".
+query_clause_descending("client", qc) :-
+    cs_query_clause(_, _, _, _, _, _, _, _, "true", _, _, _, _, qc).
+query_clause_descending("lib", qc) :-
+    lib_cs_query_clause(_, _, _, _, _, _, _, _, "true", _, _, _, _, qc).
+
+// ── PREPROCESSOR REGIONS ────────────────────────────────────────────────────
+// cs_preproc_region cols: 0 csModuleLinkHash 1 regionKind 2 conditionText
+//   3 conditionSymbols 4 isActive 5 regionShape 6 branchIndex 7 branchCount
+//   8 activationSource 9 parentRegionLinkHash 10 startLine 11 endLine 12 isExternal
+//   13 serviceVersionLinkHash 14 csPreprocRegionUniqueHash
+//
+// A call inside an INACTIVE #if branch is not compiled and not called. The engine
+// does not filter on this — the parser already decides which branch it read — but the
+// region rows are what let a disagreement between the two be attributed rather than
+// argued about.
+preproc_region("client", mod, rk, active, sl, el, r) :-
+    cs_preproc_region(mod, rk, _, _, active, _, _, _, _, _, sl, el, _, _, r).
+preproc_region("lib", mod, rk, active, sl, el, r) :-
+    lib_cs_preproc_region(mod, rk, _, _, active, _, _, _, _, _, sl, el, _, _, r).
+
+preproc_inactive(prov, mod, sl, el) :- preproc_region(prov, mod, _, "false", sl, el, _).
