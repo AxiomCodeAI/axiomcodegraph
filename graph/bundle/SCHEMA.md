@@ -232,7 +232,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | 7 | `file_path` | TEXT |  |  | yes | Source file, as the parser recorded it (relative to the project root it was given). |
 | 8 | `start_line` | INTEGER |  |  |  | 1-based first line of the declaration. |
 | 9 | `end_line` | INTEGER |  |  |  | 1-based last line of the declaration. |
-| 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR. |
+| 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR; `generated` — declared by an annotation processor and synthesised here (Java). See vocabulary. |
 
 **`methods.provenance` values**
 
@@ -240,6 +240,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 |---|---|---|
 | `client` | all | Declared in the analysed project. |
 | `lib` | all | Declared in a staged library IR; listed because an edge reaches it. |
+| `generated` | java | Declared by a compile-time annotation processor: present in the compiled artefact and in every caller's source, and in no IR, so the bundle synthesises it to give the edge a target. id `generated:<owner qualified name>#<name>/<arity>`, no file and no line numbers. |
 
 **`methods.kind` values**
 
@@ -251,6 +252,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `DEFAULT_METHOD` | java | Interface default method. |
 | `CONSTRUCTOR` | java, typescript | Constructor (Java `<init>`; TypeScript `constructor`). |
 | `STATIC_INITIALIZER` | java | `static { … }` block. |
+| `GENERATED_METHOD` | java | Synthesised for a member an annotation processor declares, which is in no IR and so has no real methodKind. Always paired with provenance `generated`. |
 | `ENUM_CONSTANT_METHOD` | java | Method body declared on an enum constant. |
 | `RECORD_ACCESSOR` | java | A record component accessor. |
 | `COMPACT_CONSTRUCTOR` | java | A record's compact canonical constructor. |
@@ -443,6 +445,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `method` | java | `obj.m()`, `Class.m()`, `super.m()`, or an unqualified `m()`. |
 | `new` | java | `new X(…)`. |
 | `ref` | java | A method reference `X::m`, `obj::m`, `X::new`. |
+| `lambda_body` | java | An edge from the method that INVOKES a lambda to something the lambda body calls. The body is not a method of its own, so its calls are attributed to the invoker rather than lost (call-edge-generation/lambda_dispatch.dl). |
 | `ctor_delegate` | java | `this(…)` / `super(…)` inside a constructor. |
 | `anon_new` | java | `new X() { … }` — an anonymous class creation. |
 | `record_accessor` | java | Synthesised: a record pattern `case Pair(var l, var r)` calls each accessor. Not a written call; the site is the pattern expression. |
@@ -606,7 +609,7 @@ Every field-like storage location the graph refers to: all client fields and enu
 | 7 | `file_path` | TEXT |  | yes | yes | Source file. |
 | 8 | `start_line` | INTEGER |  | yes |  | 1-based first line of the declaration. |
 | 9 | `end_line` | INTEGER |  | yes |  | 1-based last line. |
-| 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR. |
+| 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR; `generated` — declared by an annotation processor and synthesised here (Java). See vocabulary. |
 
 **`fields.kind` values**
 
@@ -621,6 +624,7 @@ Every field-like storage location the graph refers to: all client fields and enu
 |---|---|---|
 | `client` | java, typescript | Declared in the analysed project. |
 | `lib` | java, typescript | Declared in a staged library IR. |
+| `generated` | java | Declared by a compile-time annotation processor and synthesised by the bundle, same shape and same reason as methods.provenance `generated`. |
 
 **Notes**
 
@@ -741,6 +745,7 @@ THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the con
 | `FIELD_TYPE` | java, typescript | The declared type of a field. |
 | `METHOD_PARAM` | java, typescript | The declared type of a formal parameter. |
 | `METHOD_RETURN` | java, typescript | The declared return type. |
+| `LAMBDA_PARAMETER_TYPE` | java | The declared type of an explicitly typed lambda parameter, `(Foo f) -> f.bar()`. It is a receiver-typing source, so it is what types `f` at the call inside the body. |
 | `LOCAL_VARIABLE` | java | The declared type of a local, a catch parameter or a try-with-resources resource. |
 | `OBJECT_CREATION_TYPE` | java, typescript | The type of a `new T(...)`. |
 | `ARRAY_CREATION_TYPE` | java | The element type of a `new T[n]`. |
