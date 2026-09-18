@@ -30,10 +30,10 @@
 // ============================================================================
 
 // ── type_decl(Prov, Name, QualifiedName, Arity, Category, TypeHash) ─────────
-type_decl("client", n, qn, ar, cat, t) :-
-    cs_type(n, qn, ar, cat, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
-type_decl("lib", n, qn, ar, cat, t) :-
-    lib_cs_type(n, qn, ar, cat, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_decl("client", n, qn, ar, category, t) :-
+    cs_type(n, qn, ar, category, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
+type_decl("lib", n, qn, ar, category, t) :-
+    lib_cs_type(n, qn, ar, category, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t).
 
 // ── type_group(Prov, TypeHash, GroupKey) ────────────────────────────────────
 // The merged entity. One row per declaration site; several sites share a key when

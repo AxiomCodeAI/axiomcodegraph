@@ -1,0 +1,163 @@
+// ============================================================================
+// PROJECTIONS · NON-METHOD MEMBERS  (properties, indexers, events, fields, enum members)
+//
+// WHY THIS FILE MATTERS FOR A CALL GRAPH: in C# most member access IS a call.
+// `x.Name` runs get_Name, `x.Name = v` runs set_Name, `a[i]` runs an indexer
+// accessor, `e += h` runs add_E. Each of those has a cs_method row of its own
+// (isAccessor=true, ownerMemberLinkHash pointing here), so the edge exists and is
+// reachable — but only if the member relations are projected and joined.
+//
+// A Java-shaped engine reads `x.Name` as a field access and emits no edge. On a
+// modern C# codebase that is not a small loss: properties are the default way to
+// expose state, and an auto-property's accessors are where a framework's change
+// notification, validation and lazy loading live.
+//
+// AUTO-PROPERTY ACCESSORS HAVE NO BODY, and that is the correct answer rather than
+// a gap. `public string Name { get; set; }` declares two accessors whose bodyKind is
+// NONE. The edge into them is real (it is what the runtime calls) and there is
+// nothing further to walk into, so the chain ends there with a reason.
+// ============================================================================
+
+// ── PROPERTIES AND INDEXERS ─────────────────────────────────────────────────
+// cs_property cols: 0 name 1 isIndexer 2 propertyTypeName 3 completeTypeName
+//   4 isNullableAnnotated 5 propertyAccess 6 getAccessorAccess 7 setAccessorAccess
+//   8 hasGetter 9 hasSetter 10 setterKind 11 isRequired 12 isStatic 13 isAbstract
+//   14 isVirtual 15 isOverride 16 explicitInterfaceName
+//   17 initializerExpressionLinkHash 18 csTypeLinkHash 19 startLine 20 endLine
+//   21 startColumn 22 attributeCount 23 isExtension 24 isExternal
+//   25 serviceVersionLinkHash 26 csPropertyUniqueHash
+//
+// c23 isExtension is a C# 14 extension member: a property declared inside an
+// `extension` block, whose receiver is the block's parameter rather than the
+// enclosing type. It is carried here so an extension property's accessors are not
+// looked for on the containing static class, where they are not members.
+property_decl("client", n, t, p) :-
+    cs_property(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, p).
+property_decl("lib", n, t, p) :-
+    lib_cs_property(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, p).
+
+// An INDEXER has no name a caller writes: `a[i]` names nothing. The parser still
+// gives the row a name (`this`), so indexers are separated out here rather than
+// being matched by name against a written identifier that never appears.
+property_is_indexer("client", p) :-
+    cs_property(_, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_is_indexer("lib", p) :-
+    lib_cs_property(_, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+
+property_type_name("client", p, tn, ctn) :-
+    cs_property(_, _, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_type_name("lib", p, tn, ctn) :-
+    lib_cs_property(_, _, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+
+property_has_getter("client", p) :- cs_property(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_has_getter("lib", p)    :- lib_cs_property(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_has_setter("client", p) :- cs_property(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_has_setter("lib", p)    :- lib_cs_property(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+
+property_modifier("client", p, "static")   :- cs_property(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_modifier("client", p, "abstract") :- cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_modifier("client", p, "virtual")  :- cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, p).
+property_modifier("client", p, "override") :- cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, p).
+property_modifier("lib", p, "static")   :- lib_cs_property(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_modifier("lib", p, "abstract") :- lib_cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, p).
+property_modifier("lib", p, "virtual")  :- lib_cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, p).
+property_modifier("lib", p, "override") :- lib_cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, p).
+
+property_explicit_interface("client", p, iface) :-
+    cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, iface, _, _, _, _, _, _, _, _, _, p),
+    iface != "".
+property_explicit_interface("lib", p, iface) :-
+    lib_cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, iface, _, _, _, _, _, _, _, _, _, p),
+    iface != "".
+
+property_initializer("client", p, e) :-
+    cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, _, p),
+    e != "".
+property_initializer("lib", p, e) :-
+    lib_cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, _, p),
+    e != "".
+
+// property_in_type(Prov, GroupKey, PropertyHash) — group-scoped, same reason as
+// method_in_type: a partial type may declare the property in another file.
+property_in_type(prov, gk, p) :- property_decl(prov, _, t, p), type_group(prov, t, gk).
+
+// ── EVENTS ──────────────────────────────────────────────────────────────────
+// cs_event cols: 0 name 1 eventTypeName 2 completeTypeName 3 eventKind 4 eventAccess
+//   5 isStatic 6 isVirtual 7 isOverride 8 explicitInterfaceName 9 csTypeLinkHash
+//   10 startLine 11 endLine 12 startColumn 13 attributeCount 14 isExternal
+//   15 serviceVersionLinkHash 16 csEventUniqueHash
+event_decl("client", n, t, ev) :-
+    cs_event(n, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, ev).
+event_decl("lib", n, t, ev) :-
+    lib_cs_event(n, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, ev).
+event_type_name("client", ev, tn, ctn) :- cs_event(_, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, ev).
+event_type_name("lib", ev, tn, ctn)    :- lib_cs_event(_, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, ev).
+event_in_type(prov, gk, ev) :- event_decl(prov, _, t, ev), type_group(prov, t, gk).
+
+// ── FIELDS ──────────────────────────────────────────────────────────────────
+// cs_field cols: 0 name 1 fieldTypeName 2 completeTypeName 3 potentialQualifiedName
+//   4 isAmbiguous 5 fieldAccess 6 fieldModifiers 7 isStatic 8 isReadOnly 9 isConst
+//   10 isVolatile 11 isRequired 12 isFixedSizeBuffer 13 isNullableAnnotated
+//   14 memberKind 15 csTypeLinkHash 16 csModuleLinkHash 17 typeReferenceLinkHash
+//   18 initializerExpressionLinkHash 19 declarationIndex 20 attributeCount
+//   21 startLine 22 endLine 23 startColumn 24 isExternal 25 serviceVersionLinkHash
+//   26 csFieldUniqueHash
+field_decl("client", n, t, f) :-
+    cs_field(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, f).
+field_decl("lib", n, t, f) :-
+    lib_cs_field(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, f).
+
+field_type_name("client", f, tn, ctn) :-
+    cs_field(_, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_type_name("lib", f, tn, ctn) :-
+    lib_cs_field(_, tn, ctn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+
+field_is_static("client", f) :- cs_field(_, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_is_static("lib", f)    :- lib_cs_field(_, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_is_readonly("client", f) :- cs_field(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_is_readonly("lib", f)    :- lib_cs_field(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_is_const("client", f) :- cs_field(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_is_const("lib", f)    :- lib_cs_field(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f).
+
+// A readonly field assigned exactly once in a constructor holds one type for the
+// object's whole life, which is what makes `_dep.Handle()` resolvable in the dependency
+// injection shape every service class is written in. Used by resolution/field-flow.dl.
+field_initializer("client", f, e) :-
+    cs_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, f),
+    e != "".
+field_initializer("lib", f, e) :-
+    lib_cs_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, f),
+    e != "".
+
+field_type_ref("client", f, tr) :-
+    cs_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr, _, _, _, _, _, _, _, _, f),
+    tr != "".
+field_type_ref("lib", f, tr) :-
+    lib_cs_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr, _, _, _, _, _, _, _, _, f),
+    tr != "".
+
+field_in_type(prov, gk, f) :- field_decl(prov, _, t, f), type_group(prov, t, gk).
+
+// ── ENUM MEMBERS ────────────────────────────────────────────────────────────
+// cs_enum_member cols: 0 name 1 qualifiedName 2 ordinal 3 hasInitializer
+//   4 initializerText 5 constantValue 6 valueKind 7 csTypeLinkHash
+//   8 csModuleLinkHash 9 ownerTypeName 10 csExpressionLinkHash 11 attributeCount
+//   12 startLine 13 endLine 14 startColumn 15 isExternal 16 serviceVersionLinkHash
+//   17 csEnumMemberUniqueHash
+enum_member_decl("client", n, t, em) :-
+    cs_enum_member(n, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, em).
+enum_member_decl("lib", n, t, em) :-
+    lib_cs_enum_member(n, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, em).
+enum_member_in_type(prov, gk, em) :- enum_member_decl(prov, _, t, em), type_group(prov, t, gk).
+
+// ── ONE MEMBER NAMESPACE PER TYPE ───────────────────────────────────────────
+// C# members share ONE name space: a type cannot declare a field and a property with
+// the same name, and a name lookup on a receiver has to consider all member kinds at
+// once rather than asking "is it a method" and stopping. type_member_name is that
+// combined view, and it is what makes an unresolved `x.Foo` distinguishable from
+// `x.Foo` resolving to a property rather than a method.
+type_member_name(prov, gk, n, "method", m)   :- method_in_type(prov, gk, m), method_name(prov, m, n), !method_is_accessor(prov, m).
+type_member_name(prov, gk, n, "property", p) :- property_in_type(prov, gk, p), property_decl(prov, n, _, p), !property_is_indexer(prov, p).
+type_member_name(prov, gk, n, "event", ev)   :- event_in_type(prov, gk, ev), event_decl(prov, n, _, ev).
+type_member_name(prov, gk, n, "field", f)    :- field_in_type(prov, gk, f), field_decl(prov, n, _, f).
+type_member_name(prov, gk, n, "enum", em)    :- enum_member_in_type(prov, gk, em), enum_member_decl(prov, n, _, em).

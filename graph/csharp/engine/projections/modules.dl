@@ -122,4 +122,4 @@ module_parse_errors("lib", m, cnt, bytes) :-
 module_namespace_style("client", m, style, cnt) :-
     cs_module(_, _, _, _, _, style, cnt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
 module_namespace_style("lib", m, style, cnt) :-
-    lib_cs_module(_, _, _, _, _, style, cnt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+    lib_cs_module(_, _, _, _, _, style, cnt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).

@@ -1,0 +1,175 @@
+// ============================================================================
+// PROJECTIONS · CALL SITES
+//
+// cs_call_site is the parser's record of every place a call is WRITTEN. It is the
+// universe the engine is judged against: a site in this relation that produces no
+// row in the output is a silently dropped call, which is the one failure mode the
+// call-edge layer is built to make impossible.
+//
+// FOUR CALL KINDS ARE RESERVED WITH ZERO ROWS, by ruling rather than by omission:
+// DYNAMIC_CALL, EXTENSION_REDUCED_CALL, QUERY_DESUGARED_CALL and (as receiver-shape
+// facts) the conversion and operator forms the parser will not guess at. Their
+// absence is not coverage. Two of them are this engine's work rather than a
+// permanent gap:
+//
+//   QUERY_DESUGARED_CALL — the parser emits cs_query_clause and the ENGINE desugars.
+//     `from x in xs where p select f` is three calls to Where/Select on a receiver
+//     type reached through extension methods in a using scope. See
+//     expression-resolution/linq.dl.
+//
+//   EXTENSION_REDUCED_CALL — the parser emits the `a.B()` SHAPE and never claims B
+//     resolved to an extension method. Deciding that is resolution/extensions.dl.
+//
+// DYNAMIC_CALL stays a gap on purpose: a call through a `dynamic` value is dispatched
+// at runtime by the DLR and syntax cannot decide it. The engine declares those
+// unknown rather than guessing.
+//
+// cs_call_site cols: 0 callKind 1 calleeName 2 receiverKind
+//   3 receiverExpressionLinkHash 4 receiverTypeName 5 csExpressionLinkHash
+//   6 csModuleLinkHash 7 callerMethodLinkHash 8 callerTypeLinkHash 9 argumentCount
+//   10 namedArgumentCount 11 typeArgumentCount 12 refArgumentCount
+//   13 outArgumentCount 14 isConditional 15 isQueryDesugarCandidate 16 startLine
+//   17 startColumn 18 isExternal 19 serviceVersionLinkHash 20 csCallSiteUniqueHash
+//
+// KEYED ON THE EXPRESSION, NOT ON THE SITE HASH. Every downstream relation — the
+// resolved callee set, the edge, the oracle join — is keyed by csExpressionLinkHash,
+// because that is the node the receiver and arguments hang off and the thing a
+// position-based oracle can match. csCallSiteUniqueHash is carried for provenance
+// only.
+// ============================================================================
+
+// ── call_decl(Prov, CallKind, CalleeName, ExprHash, SiteHash) ───────────────
+call_decl("client", ck, cn, e, s) :-
+    cs_call_site(ck, cn, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s).
+call_decl("lib", ck, cn, e, s) :-
+    lib_cs_call_site(ck, cn, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s).
+
+// csite(Prov, ExprHash) — the site universe, by expression. The conservation guard
+// counts this against the emitted edges.
+csite(prov, e) :- call_decl(prov, _, _, e, _).
+
+call_kind(prov, e, ck) :- call_decl(prov, ck, _, e, _).
+call_callee_name(prov, e, cn) :- call_decl(prov, _, cn, e, _), cn != "".
+
+// ── call_receiver(Prov, ExprHash, ReceiverKind, ReceiverExprHash, ReceiverTypeName) ──
+// receiverTypeName is the TEXT of the qualifier where there is one (`Console`, `s`,
+// `base`), not a resolved type. Whether `Foo.M()` is a static call on a type or an
+// instance call through a property named Foo is a resolution outcome, so both arrive
+// here as NAME and the engine decides.
+call_receiver("client", e, rk, rexpr, rtn) :-
+    cs_call_site(_, _, rk, rexpr, rtn, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+call_receiver("lib", e, rk, rexpr, rtn) :-
+    lib_cs_call_site(_, _, rk, rexpr, rtn, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+
+call_receiver_kind(prov, e, rk) :- call_receiver(prov, e, rk, _, _).
+call_receiver_expr(prov, e, r) :- call_receiver(prov, e, _, r, _), r != "".
+call_receiver_text(prov, e, rtn) :- call_receiver(prov, e, _, _, rtn), rtn != "".
+
+// Receiverless: `M()` with nothing written before it. Resolves against the implicit
+// `this`, then the enclosing type's statics, then the enclosing types outward, then
+// the `using static` imports. FUNCTION_CALL and LOCAL_FUNCTION_CALL are both this
+// shape.
+call_is_unqualified(prov, e) :- call_receiver_kind(prov, e, "NONE").
+
+// `base.M()` DISPATCHES NON-VIRTUALLY. The target is the base implementation and
+// there is no fan-out, which is why this is a named fact rather than a receiver type
+// like any other: getting it wrong turns one exact edge into a fan over every
+// override in the hierarchy.
+call_is_base(prov, e) :- call_receiver_kind(prov, e, "BASE").
+call_is_this(prov, e) :- call_receiver_kind(prov, e, "THIS").
+
+// ── call_context(Prov, ExprHash, CallerMethodHash, CallerTypeHash, ModuleHash) ──
+// The parser's own caller attribution. Present for nearly every site; containment
+// derives the same answer from the expression tree and the two are cross-checked, so
+// a parser regression in this column surfaces as a disagreement rather than as a
+// wrong graph.
+call_context("client", e, cm, ct, mod) :-
+    cs_call_site(_, _, _, _, _, e, mod, cm, ct, _, _, _, _, _, _, _, _, _, _, _, _).
+call_context("lib", e, cm, ct, mod) :-
+    lib_cs_call_site(_, _, _, _, _, e, mod, cm, ct, _, _, _, _, _, _, _, _, _, _, _, _).
+
+call_module(prov, e, mod) :- call_context(prov, e, _, _, mod).
+call_parser_caller(prov, e, cm) :- call_context(prov, e, cm, _, _), cm != "".
+call_enclosing_type(prov, e, ct) :- call_context(prov, e, _, ct, _), ct != "".
+
+// ── call_arity(Prov, ExprHash, ArgC, NamedArgC, TypeArgC) ───────────────────
+// namedArgumentCount is what makes positional arity insufficient for overload
+// selection: `Log(message: m)` has one argument at position 0 that may bind to any
+// parameter. A site with named arguments is narrowed by NAME, not by position.
+call_arity("client", e, ac, nac, tac) :-
+    cs_call_site(_, _, _, _, _, e, _, _, _, ac, nac, tac, _, _, _, _, _, _, _, _, _).
+call_arity("lib", e, ac, nac, tac) :-
+    lib_cs_call_site(_, _, _, _, _, e, _, _, _, ac, nac, tac, _, _, _, _, _, _, _, _, _).
+
+call_argc(prov, e, ac) :- call_arity(prov, e, ac, _, _).
+call_has_named_args(prov, e) :- call_arity(prov, e, _, nac, _), nac != "0", nac != "".
+call_type_argc(prov, e, tac) :- call_arity(prov, e, _, _, tac).
+
+// ── call_ref_out(Prov, ExprHash, RefArgC, OutArgC) ──────────────────────────
+// `ref` and `out` are part of the signature in C#: `M(ref int)` and `M(int)` are
+// different methods and both may be declared. An overload set narrowed without them
+// picks the wrong one.
+call_ref_out("client", e, rc, oc) :-
+    cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, rc, oc, _, _, _, _, _, _, _).
+call_ref_out("lib", e, rc, oc) :-
+    lib_cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, rc, oc, _, _, _, _, _, _, _).
+
+// ── call_is_conditional(Prov, ExprHash) ─────────────────────────────────────
+// `a?.M()`, and a call under `[Conditional]`. Affects whether the call runs, not
+// what it targets.
+call_is_conditional("client", e) :-
+    cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _).
+call_is_conditional("lib", e) :-
+    lib_cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _).
+
+// ── call_query_desugar_candidate(Prov, ExprHash) ────────────────────────────
+// The parser's marker that this site came out of query syntax and the engine is
+// expected to finish the job.
+call_query_desugar_candidate("client", e) :-
+    cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _).
+call_query_desugar_candidate("lib", e) :-
+    lib_cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _).
+
+// ── call_position(Prov, ExprHash, StartLine, StartColumn) ───────────────────
+call_position("client", e, sl, sc) :-
+    cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, sl, sc, _, _, _).
+call_position("lib", e, sl, sc) :-
+    lib_cs_call_site(_, _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, sl, sc, _, _, _).
+
+// ── CALL KIND CLASSES THE RESOLUTION RULES BRANCH ON ────────────────────────
+// Grouped by WHAT HAS TO BE RESOLVED, not by syntax, so each resolution rule states
+// one question. A kind absent from every class below still reaches the edge layer as
+// a site and degrades to a declared unknown rather than vanishing.
+
+// Resolve a member against a receiver type.
+call_needs_member_lookup(prov, e) :- call_kind(prov, e, "METHOD_CALL").
+call_needs_member_lookup(prov, e) :- call_kind(prov, e, "NULL_CONDITIONAL_CALL").
+
+// Resolve a name with no receiver, in the enclosing scope.
+call_needs_scope_lookup(prov, e) :- call_kind(prov, e, "FUNCTION_CALL").
+call_needs_scope_lookup(prov, e) :- call_kind(prov, e, "LOCAL_FUNCTION_CALL").
+
+// Resolve a type name, then its constructor.
+call_needs_ctor_lookup(prov, e) :- call_kind(prov, e, "CONSTRUCTOR_CALL").
+
+// Constructor delegation: `: base(...)` and `: this(...)`. The target type is the
+// enclosing type's base, or the enclosing type itself, so no name is resolved at all.
+call_is_base_ctor(prov, e) :- call_kind(prov, e, "BASE_CONSTRUCTOR_CALL").
+call_is_this_ctor(prov, e) :- call_kind(prov, e, "THIS_CONSTRUCTOR_CALL").
+
+// A call through a delegate VALUE. The target is whatever was assigned to it, which
+// is a value-flow question and not a member lookup. resolution/delegates.dl.
+call_is_delegate_invoke(prov, e) :- call_kind(prov, e, "DELEGATE_INVOKE").
+
+// A user-defined operator or conversion: a static method call wearing other syntax.
+call_is_operator(prov, e) :- call_kind(prov, e, "OPERATOR_CALL").
+call_is_conversion(prov, e) :- call_kind(prov, e, "CONVERSION_CALL").
+
+// `a[i]` through a user-defined indexer — an accessor call.
+call_is_element_access(prov, e) :- call_kind(prov, e, "ELEMENT_ACCESS_CALL").
+
+// A call through a `dynamic` value. RESERVED by the parser and declared unresolvable
+// by the engine: the DLR decides it at runtime and no reading of the source settles
+// it. Named so the site is classified as a known blind spot rather than an unexplained
+// miss.
+call_is_dynamic(prov, e) :- call_kind(prov, e, "DYNAMIC_CALL").
