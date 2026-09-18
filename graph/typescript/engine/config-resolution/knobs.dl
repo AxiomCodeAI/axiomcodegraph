@@ -1,0 +1,70 @@
+// ============================================================================
+// CONFIG-RESOLUTION · KNOBS  (framework name lists — the only per-ecosystem edit)
+//
+// The counterpart of java/ and python/engine/config-resolution/knobs.dl, in the
+// matching phase and for the same reason: every framework-specific NAME lives here
+// and nowhere else, so adding an ecosystem is a matter of adding facts, and NO RULE
+// MENTIONS A FRAMEWORK BY NAME.
+//
+// ── WHY TYPESCRIPT'S VERSION IS NOT A PORT OF JAVA'S ────────────────────────
+// Java registers a handler with an ANNOTATION, so its knobs are annotation names and
+// `ann_on_method` finds the handler directly. TypeScript's dominant form is a CALL
+// that takes the handler as an ARGUMENT:
+//
+//     app.get('/api/orders/:id', handler)        // Express, Fastify, Hono, Koa
+//     it('does a thing', async () => { … })      // every test runner
+//
+// So the knobs here are CALLEE names, and the handler is reached through
+// `callback_arg` rather than through an attach point. Decorators (Nest, Angular) are
+// the minority form in this ecosystem and are not covered yet: the parser emits
+// decorator rows but nothing projects them, and #233 records that a bare decorator
+// application produces no call site at all.
+// ============================================================================
+
+// ── ts_http_route_verb(Verb) — the method name a route registration is called by ──
+// The set is HTTP's, not any project's — RFC 9110's methods — plus the three
+// verb-agnostic registrations every router in this ecosystem spells the same way:
+// `use` (middleware), `all` (any method), `route` (a path with verbs hung off it).
+// Choosing HTTP's own vocabulary rather than a sampled one is what makes this
+// generalise to a framework it was never written against.
+//
+// THE NAME IS NOWHERE NEAR SUFFICIENT AND IS NEVER MATCHED ALONE.
+// Python's knobs record that `patch` is both an HTTP method and the stdlib's mock
+// entry point, and that `<receiver>.<verb>` alone was wrong for 229 of 253 matches.
+// TypeScript is far worse: `get` and `set` are Map, Set, Headers, URLSearchParams,
+// Reflect, every cache and every accessor pair in the language. `delete` is Map and
+// Set. `head` and `options` are ordinary identifiers.
+//
+// So config-resolution/entry-points.dl additionally requires (a) a STRING ARGUMENT
+// THAT LOOKS LIKE A PATH — it begins with `/` — and (b) a FUNCTION ARGUMENT at the
+// site. `map.get(key)` has neither; `cache.set(k, v)` has no path; `app.get('/x', h)`
+// has both. The verb list can therefore move a declaration from "no entry point" to
+// "entry point" and never silently the other way.
+ts_http_route_verb("get").     ts_http_route_verb("post").    ts_http_route_verb("put").
+ts_http_route_verb("delete").  ts_http_route_verb("patch").   ts_http_route_verb("head").
+ts_http_route_verb("options"). ts_http_route_verb("trace").   ts_http_route_verb("connect").
+// verb-agnostic registrations
+ts_http_route_verb("use").     ts_http_route_verb("all").     ts_http_route_verb("route").
+
+// ── ts_test_registrar(Name) — a function the TEST RUNNER invokes ────────────
+// A test body is not dead code: the runner calls it, and on a library it is the only
+// thing in the repository that calls the library at all. Left unmarked, a project's
+// own suite is invisible to reachability — measured on zustand, whose 25 entry
+// modules ARE its test files and whose closure from them reached ONE declaration,
+// because the module body calls `it(cb)` and `cb` was reachable from nothing.
+//
+// These are deliberately the BARE names. A test registrar is called unqualified
+// (`it(...)`, not `runner.it(...)`) in every runner in this ecosystem, and requiring
+// a receiver would match none of them. The names are distinctive enough to stand
+// alone -- but see entry-points.dl, which still requires a FUNCTION ARGUMENT, so a
+// variable named `test` being called is not a test.
+//
+// The KIND these produce is "test", separately from "http", precisely so a consumer
+// asking "is this dead in production?" can exclude them. Reachable-only-from-tests is
+// a real and useful distinction, and collapsing it into one kind would destroy it.
+ts_test_registrar("it").         ts_test_registrar("test").
+ts_test_registrar("describe").   ts_test_registrar("suite").
+ts_test_registrar("beforeEach"). ts_test_registrar("afterEach").
+ts_test_registrar("beforeAll").  ts_test_registrar("afterAll").
+ts_test_registrar("before").     ts_test_registrar("after").
+ts_test_registrar("bench").
