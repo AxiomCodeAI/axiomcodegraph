@@ -103,7 +103,40 @@ local_bind_cand(prov, e, v, 140) :-
 // one. Compared on start line, which is sufficient: a declaration and a use on the
 // same line is the declaration's own initializer, and that case is handled by
 // value-flow rather than by name binding.
+//
+// THE ORDERING TEST IS NOT A RELATION OF ITS OWN, and writing it as one is the most
+// expensive mistake in this engine. `var_span(v, ...), expr_span(e, ...), vsl <= esl`
+// shares NO variable between its two atoms, and an inequality cannot be an index key,
+// so it is a full cross product of every local against every expression in the
+// program, scanned pair by pair. MEASURED on a 427-type corpus member, which is not a
+// large project by any standard: 81,988,926 rows for a relation whose consumers
+// together ask about a few thousand pairs.
+//
+// Both consumers above already require the local to be in the SAME METHOD and to have
+// the SAME NAME as the reference. That pair set is what the ordering test is for, so
+// it is the seed: the join is then keyed on (name, method), both selective, and the
+// spans are indexed probes on an already-bound v and e rather than the thing being
+// enumerated. Same rows at both call sites, because each of them intersects this set
+// anyway -- clause one adds a block constraint, clause two adds the absence of one.
+//
+// MEASURED on that member, same binary cache, both runs warm, nothing else changed:
+//
+//   rows        81,988,926  ->  1,456
+//   solve            20.14s ->  2.77s
+//   peak RSS       1.13 GiB ->  75.8 MiB
+//
+// and every one of the 33 other exported relations is byte-identical, which is the
+// check that makes this a cost change rather than a behaviour change.
+//
+// This is the lesson the other engines record for their own products, restated: when
+// a filter is selective, make it the index key rather than the last conjunct.
+var_use_cand(prov, v, e) :-
+    unbound_ref(prov, e, n, m, _),
+    var_method(prov, v, m),
+    var_name(prov, v, n).
+
 var_declared_before(prov, v, e) :-
+    var_use_cand(prov, v, e),
     var_span(prov, v, vsl, _, _), expr_span(prov, e, esl, _, _, _),
     to_number(vsl) <= to_number(esl).
 
