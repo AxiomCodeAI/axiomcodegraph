@@ -1,0 +1,26 @@
+main.js:10:23 FUNCTION_CALL_CALL Object.prototype.hasOwnProperty.call  ->  ambient_terminal  -
+main.js:17:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:7:1 fromA
+main.js:17:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:8:1 fromB
+main.js:17:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:9:1 deep
+main.js:22:18 FUNCTION_CALL has  ->  known_edge  main.js:10:13 <arrow>
+main.js:23:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:7:1 fromA
+main.js:23:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:8:1 fromB
+main.js:23:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:9:1 deep
+main.js:30:10 COMPUTED_CALL table[prop]  ->  dynamic_terminal  -
+main.js:38:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:7:1 fromA
+main.js:38:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:9:1 deep
+main.js:44:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:8:1 fromB
+main.js:44:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:9:1 deep
+main.js:51:10 FUNCTION_CALL chosen  ->  known_edge  main.js:9:1 deep
+main.js:59:10 FUNCTION_CALL chosen  ->  ambient_terminal  -
+main.js:59:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:7:1 fromA
+main.js:59:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:8:1 fromB
+main.js:59:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:9:1 deep
+main.js:63:1 FUNCTION_CALL viaOr  ->  known_edge  main.js:15:1 viaOr
+main.js:64:1 FUNCTION_CALL viaTernary  ->  known_edge  main.js:21:1 viaTernary
+main.js:65:1 FUNCTION_CALL viaDirect  ->  known_edge  main.js:29:1 viaDirect
+main.js:66:1 FUNCTION_CALL viaLiteralKey  ->  known_edge  main.js:36:1 viaLiteralKey
+main.js:67:1 FUNCTION_CALL viaDottedKey  ->  known_edge  main.js:42:1 viaDottedKey
+main.js:68:1 FUNCTION_CALL viaDefaultOnly  ->  known_edge  main.js:49:1 viaDefaultOnly
+main.js:69:1 FUNCTION_CALL viaArrayIndex  ->  known_edge  main.js:57:1 viaArrayIndex
+main.js:69:15 FUNCTION_CALL Number  ->  ambient_terminal  -

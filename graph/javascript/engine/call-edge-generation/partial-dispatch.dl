@@ -1,0 +1,89 @@
+// ============================================================================
+// A DEFAULT THAT SWALLOWED A COMPUTED READ (#931)
+//
+// `table[k]` contributes no value when the key cannot be read, and on its own that
+// is the honest answer: the call is a dynamic_terminal and the variable an
+// ambiguous_unknown. Merged with a default it stops being honest. The unreadable
+// side contributes nothing, the fallback becomes the whole value set, and the site
+// is reported at known_edge, the tier that ASSERTS a resolved edge:
+//
+//     const merge = has(map, prop) ? map[prop] : mergeDeep      one target, known_edge
+//     resolvers[findKey(resolvers, t) || 'text'](res, cfg)      one target, known_edge
+//
+// On axios that is five functions with zero incoming edges and zero entry
+// reachability, running ten thousand times in the project's own suite, while the one
+// the engine named is reported as the only thing the site can reach.
+//
+// WHY THIS IS AN EDGE RULE AND NOT A VALUE RULE, measured twice.
+// The obvious fix adds the object's properties to expr_value at the access. Values
+// feed the value fixpoint: the widened set reaches the variable, the call, the
+// methods it now resolves to, their RETURN values, the object those returns are
+// written into, and every caller of the function returning it. axios:
+//
+//     main, unchanged                        41s solve, 0.29GB peak
+//     widen every computed read              did not finish in 6m56s, 9.6GB
+//     widen only reads inside a default      did not finish in 4m28s, 7.4GB
+//
+// So the callees are emitted as EDGES and the call's VALUE is left unknown, which is
+// also the more honest of the two: which function ran decides what the call returns,
+// and the engine does not know which one ran. call_chain_edge is read back only by
+// method_call_edge for reachability, never by the value layer, so the cost is bounded
+// by the number of such sites times the properties of one object literal.
+// ============================================================================
+
+default_op("||").
+default_op("??").
+
+// ── swallowed_read(Access, ObjectLiteral) ──────────────────────────────────
+// A computed read whose key is not WRITTEN as a literal, on an object literal,
+// sitting where a default is about to absorb it. The key test is syntactic, as it is
+// for a Map key in resolution/arrays.dl: the key's value comes from expr_value, so
+// asking whether it resolved would close a loop through the relation the rule feeds.
+//
+// Two placements, because the two real shapes differ in where the default sits.
+// The read is an operand of the default:  `map[prop] : mergeDeep`
+swallowed_read(e, i) :- expr_kind(_, "ELEMENT_ACCESS", _, e),
+    expr_child(_, e, "COMPUTED_KEY", _, key), !expr_kind(_, "LITERAL", _, key),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "obj", i),
+    expr_kind(_, "BINARY", _, p), expr_operator(_, op, p), default_op(op),
+    expr_child(_, p, _, _, e).
+swallowed_read(e, i) :- expr_kind(_, "ELEMENT_ACCESS", _, e),
+    expr_child(_, e, "COMPUTED_KEY", _, key), !expr_kind(_, "LITERAL", _, key),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "obj", i),
+    expr_kind(_, "CONDITIONAL", _, p), expr_child(_, p, br, _, e), br != "CONDITION".
+// The KEY is the default:  `resolvers[findKey(...) || 'text']`, where one side of the
+// key resolved to a name and the other did not, so exactly one property was found.
+swallowed_read(e, i) :- expr_kind(_, "ELEMENT_ACCESS", _, e),
+    expr_child(_, e, "COMPUTED_KEY", _, key),
+    expr_kind(_, "BINARY", _, key), expr_operator(_, op, key), default_op(op),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "obj", i).
+
+// ── partial_dispatch(CallExpr) ─────────────────────────────────────────────
+// The site invokes such a read: written at the site, or one hop through the const
+// it was assigned to, which is how both real shapes are written.
+partial_dispatch(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), swallowed_read(c, _).
+partial_dispatch(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
+    expr_binding(_, v, c), var_init(_, _, ie, v), expr_child(_, ie, _, _, o), swallowed_read(o, _).
+// `resolvers[<default>](...)`: the parser puts the object under RECEIVER and the key
+// under COMPUTED_KEY on the call itself, with no ELEMENT_ACCESS node of its own.
+partial_dispatch(ce) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "COMPUTED_KEY", _, key),
+    expr_kind(_, "BINARY", _, key), expr_operator(_, op, key), default_op(op),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "obj", _).
+
+// ── partial_dispatch_target(CallExpr, Method) ──────────────────────────────
+partial_dispatch_target(ce, m) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
+    swallowed_read(c, i), prop_value("obj", i, _, "func", m).
+partial_dispatch_target(ce, m) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
+    expr_binding(_, v, c), var_init(_, _, ie, v), expr_child(_, ie, _, _, o),
+    swallowed_read(o, i), prop_value("obj", i, _, "func", m).
+partial_dispatch_target(ce, m) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "COMPUTED_KEY", _, key),
+    expr_kind(_, "BINARY", _, key), expr_operator(_, op, key), default_op(op),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "obj", i),
+    prop_value("obj", i, _, "func", m).
+
+// ── the edges, and the tier that stops asserting ───────────────────────────
+call_chain_edge(ce, caller, "-", m, "client", "multi_inferred", kind) :-
+    partial_dispatch_target(ce, m), !expr_resolves_to_method(ce, m),
+    call_from(ce, caller), invocation_site(ce, kind).
