@@ -174,12 +174,32 @@ case "$cmd" in
       case " ${found[*]} " in *" $lang "*) langs=("$lang");; *) echo "❌ --language=$lang, but the IR holds only: ${found[*]}" >&2; exit 1;; esac
     fi
     echo "▶ languages: ${langs[*]}"
+    # ONE LANGUAGE'S FAILURE MUST NOT COST THE OTHERS THEIR GRAPHS. Under `set -e` this loop
+    # used to end the whole run at the first non-zero exit, and the languages come from
+    # `ls "$ir"`, so they are alphabetical: csharp, java, javascript, python, typescript. A
+    # broken Java front end therefore took javascript, python and typescript down with it,
+    # none of which it has anything to do with. That contradicts what this command promises at
+    # the head of this file -- every language it finds, a graph per language -- and the graphs
+    # it silently skipped were each seconds of work.
+    # Failures are collected and reported together, and the exit status is still non-zero, so
+    # a caller that checks it is no worse off. Only the languages that produced a graph are
+    # listed at the end, so the output stays a list of files that exist.
+    solved=(); failed=()
     for l in "${langs[@]}"; do
       echo "▶ solving $l → $out/$l/graph.sqlite"
-      "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" --library "$libroots" \
-           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
+      if "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" --library "$libroots" \
+           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}; then
+        solved+=("$l")
+      else
+        failed+=("$l"); echo "❌ $l failed; continuing with the remaining languages" >&2
+      fi
     done
-    for l in "${langs[@]}"; do echo "$out/$l/graph.sqlite"; done
+    for l in ${solved[@]+"${solved[@]}"}; do echo "$out/$l/graph.sqlite"; done
+    if [ ${#failed[@]} -gt 0 ]; then
+      echo "❌ ${#failed[@]} of ${#langs[@]} languages failed: ${failed[*]}" >&2
+      [ ${#solved[@]} -gt 0 ] && echo "   ${#solved[@]} produced a graph: ${solved[*]}" >&2
+      exit 1
+    fi
     ;;
   test)
     which="${1:-all}"; [ $# -gt 0 ] && shift
