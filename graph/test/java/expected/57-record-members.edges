@@ -6,6 +6,6 @@ known_edge	method	probe.Records#chainedHandWritten(Plain) -> probe.Plain#origin(
 known_edge	method	probe.Records#direct(Compact) -> probe.Compact#id()
 known_edge	method	probe.Records#direct(Compact) -> probe.Compact#label()
 known_edge	method	probe.Records#viaLocal(Plain) -> probe.Plain#origin()
-known_edge	new	probe.Records#viaCompact(Point) -> probe.Compact#Compact(String,Point)
+known_edge	new	probe.Records#viaCompact(Point) -> probe.Compact#<init>(String,Point)
 known_edge	new	probe.Records#viaOthers(Point) -> probe.Explicit#<init>(String,Point)
 known_edge	new	probe.Records#viaOthers(Point) -> probe.Plain#<init>(String,Point)

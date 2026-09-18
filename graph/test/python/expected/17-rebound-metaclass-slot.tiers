@@ -1,0 +1,30 @@
+distinct call sites emitted: 20
+
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      3 rows      3 sites  ambiguous_unknown
+     11 rows     11 sites  boundary_lib
+      8 rows      6 sites  known_edge
+
+--- edge rows by call kind ---
+      3  CHAINED_CALL
+      5  METACLASS_CREATION
+      1  METHOD_CALL
+      9  SIMPLE_CALL
+      4  SUPER_CALL
+
+--- unresolved reasons ---
+      2  construction_of_dynamically_extended_class
+      1  untyped_receiver:unresolved_name
+
+--- the engine's own conservation ledger ---
+     17  _total_sites
+      3  ambiguous_unknown
+     11  boundary_lib
+      3  known_edge
+
+--- reconciling rows against the conserved site count ---
+  edge rows                                  22
+  minus extra rows from multi-target sites    2
+  = tier/site pairs                          20
+  engine's conserved site total              17
+  of which 5 are METACLASS_CREATION, an edge with no call site (README decision 5)

@@ -15,12 +15,23 @@ buckets below are written so that no bucket silently claims it is.
   MISSED             engine resolved nothing (ambiguous_*), the run hit something.
                      A demonstrable recall gap, with a witness.
   OUTSIDE            the run hit a declaration the engine did not name at all,
-                     while naming others. UNSOUNDNESS IF REAL -- and the two
+                     while naming others. UNSOUNDNESS IF REAL -- and the three
                      ways it can be an artefact instead are excluded first:
-                     a callback the site passes (recorded by the instrumenter)
-                     and a site flagged `unwrapped_chain_link`. What is left is
-                     reported as a candidate, never as a proven engine error,
-                     because the tracer cannot see inside a library frame.
+                     a callback the site passes (recorded by the instrumenter),
+                     a site flagged `unwrapped_chain_link`, and a target the
+                     engine named in call_runs_method rather than in call_edges.
+                     What is left is reported as a candidate, never as a proven
+                     engine error, because the tracer cannot see inside a
+                     library frame.
+
+TWO RELATIONS, BECAUSE THE ENGINE ANSWERS TWO QUESTIONS. `call_edges` records
+what the compiler SELECTED, which for an overload set is the bodiless SIGNATURE.
+`call_runs_method` re-points that to the IMPLEMENTATION row of the same group,
+and it is the one that answers the question this harness asks, because a run can
+only enter a body. Reading call_edges alone charged the engine with missing an
+edge it had: 7 of immer's 17 OUTSIDE rows were `each`'s signature at
+common.ts:84 named while common.ts:89 ran, with the implementation sitting in
+call_runs_method the whole time.
   LIB_BOUNDARY       engine says the call leaves the client. The run agrees if
                      what it saw at the site was only a callback.
   NOT_EXECUTED       the workload never reached the site. NO INFORMATION -- it is
@@ -115,6 +126,33 @@ for row in con.execute(
     if row["tf"] is not None:
         slot["targets"][(row["tf"], row["tl"])] = (row["tq"], row["tp"])
 
+# ── what the engine says RUNS at the site ───────────────────────────────────
+# call_runs_method is per call site; call_runs_edge is the same thing rolled up to
+# the caller METHOD and cannot be asked "at this site", which is why this join could
+# not use it before it was exported.
+runs = collections.defaultdict(dict)
+try:
+    for row in con.execute(
+        """
+        SELECT s.file_path, s.start_line, s.start_column, s.end_line, s.end_column,
+               m.file_path AS tf, m.start_line AS tl, m.qualified_name AS tq,
+               m.provenance AS tp
+        FROM ext_call_runs_method r
+        JOIN call_sites s ON s.id = r.c0
+        JOIN methods m ON m.id = r.c1
+        WHERE s.file_path IS NOT NULL AND s.start_line IS NOT NULL
+        """
+    ):
+        runs[(row["file_path"], row["start_line"], row["start_column"],
+              row["end_line"], row["end_column"])][(row["tf"], row["tl"])] = (
+                  row["tq"], row["tp"])
+except sqlite3.OperationalError:
+    # A bundle built before the relation was exported. Say so rather than scoring a
+    # site against a table that is not there and reporting the difference as engine
+    # behaviour.
+    print("NOTE: this bundle has no ext_call_runs_method; OUTSIDE will overcount "
+          "overload signatures re-pointed to their implementation.", file=sys.stderr)
+
 # A declaration's line in the bundle need not be the line the instrumenter gave
 # it: for `const f = () => {}` one may record the variable statement and the other
 # the arrow. Allow a small window, and REPORT how often it was needed, so a silent
@@ -134,6 +172,10 @@ def target_in(engine_targets, rt_key):
 buckets = collections.Counter()
 examples = collections.defaultdict(list)
 unjoinable = []
+# Sites that would have scored OUTSIDE against call_edges alone, and do not once
+# call_runs_method is read. Reported rather than absorbed: it is the size of the
+# correction, and a reader comparing against an older run needs to see it.
+recovered_by_runs = collections.Counter()
 
 for key, rt in sorted(runtime.items()):
     if production_only and is_test_path(key[0]):
@@ -144,10 +186,20 @@ for key, rt in sorted(runtime.items()):
         continue
     tiers = eng["tiers"]
     et = eng["targets"]
+    rn = runs.get(key, {})
     client_targets = {k: v for k, v in et.items() if v[1] == "client"}
     rts = rt["targets"]
+    # NAMED = selected, or re-pointed to the body that the selection implies. A
+    # declaration the engine reached either way is one the engine named. Each
+    # target is tested against call_edges once and against call_runs_method only
+    # if that missed, so the fuzz counter stays a count of targets and not of
+    # lookups.
     inside = [k for k in rts if target_in(et, k)]
+    extra = [k for k in rts if k not in inside and target_in(rn, k)]
+    inside = inside + extra
     outside = [k for k in rts if k not in inside]
+    if extra and not outside:
+        recovered_by_runs[1] += 1
 
     if not rts:
         b = "NOT_EXECUTED"
@@ -192,6 +244,7 @@ summary = {
     "sites_executed_and_joined": sum(buckets.values()),
     "sites_executed_not_in_bundle": len(unjoinable),
     "buckets": dict(buckets),
+    "outside_recovered_by_call_runs_method": recovered_by_runs[1],
     "declaration_line_fuzz": {str(k): v for k, v in sorted(fuzz_used.items())},
 }
 with open(os.path.join(work, "join-summary.json"), "w") as fh:

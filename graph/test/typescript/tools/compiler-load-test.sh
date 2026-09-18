@@ -124,7 +124,16 @@ offenders="$W/offenders.txt"
 find "$TS_DIR" -name '*.mjs' -not -path '*/node_modules/*' -not -path '*/.work*' -print0 \
   | while IFS= read -r -d '' f; do
       case "$f" in */load-typescript.mjs) continue ;; esac
-      if grep -qE "^import .*from 'typescript'|require\('typescript'\)" "$f"; then
+      # A file that already comes through the loader is not an offender however it
+      # spells the rest.
+      grep -q "load-typescript.mjs" "$f" && continue
+      # TWO SHAPES, because matching only the literal specifier missed the one that
+      # mattered. instrument.mjs reached the compiler as `createRequire(...)(TS_PATH)`
+      # with TS_PATH a VARIABLE, so no 'typescript' literal appeared in a load
+      # position and this lint stayed green while that tool ran on one machine only.
+      # `createRequire` in an .mjs here exists to load the compiler; if a future one
+      # needs it for something else, it can say so by importing the loader too.
+      if grep -qE "^import .*from 'typescript'|require\('typescript'\)|createRequire" "$f"; then
         printf '%s\n' "${f#"$TS_DIR"/}" >> "$offenders"
       fi
     done
@@ -133,6 +142,29 @@ if [ -s "$offenders" ]; then
   sed 's/^/          /' "$offenders"
 else
   ok "lint: every .mjs reaches the compiler through the shared loader"
+fi
+
+# 7. NO ABSOLUTE PATH INTO SOMEONE'S HOME. The lint above says WHERE the compiler
+#    comes from; this says the answer may not be baked to one machine. It is the
+#    defect class itself rather than one instance of it: a default like
+#    `/Users/<name>/.../node_modules/typescript/lib/typescript.js` runs green for
+#    whoever wrote it and is MODULE_NOT_FOUND for everyone else, and the tree is
+#    public, so the path also publishes a developer's name and directory layout.
+#    Environment variables and $HOME are the supported way to say "not in the repo".
+homepaths="$W/homepaths.txt"
+: > "$homepaths"
+find "$TS_DIR" \( -name '*.mjs' -o -name '*.sh' -o -name '*.py' -o -name '*.ts' \) \
+     -not -path '*/node_modules/*' -not -path '*/.work*' -print0 \
+  | while IFS= read -r -d '' f; do
+      if grep -qE '(^|[^A-Za-z0-9_$])/(Users|home)/[A-Za-z0-9._-]+/' "$f"; then
+        printf '%s\n' "${f#"$TS_DIR"/}" >> "$homepaths"
+      fi
+    done
+if [ -s "$homepaths" ]; then
+  bad "these hard-code an absolute path under a home directory:"
+  sed 's/^/          /' "$homepaths"
+else
+  ok "lint: no tool hard-codes a path under a home directory"
 fi
 
 if [ "$fail" -ne 0 ]; then
