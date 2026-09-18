@@ -157,6 +157,49 @@ bean_def(name, t, "factory_method", m) :- cfg_factory_type(m, t), cfg_factory_na
 bean_def(name, t, "factory_method", m) :- cfg_factory_type(m, t), !cfg_factory_has_name(m),
     method_decl(_, name, _, _, m).
 
+// (b\') PROXY REPOSITORIES: an interface whose base is a repository base.
+// Spring Data, and everything shaped like it, registers a proxy for an INTERFACE the
+// application declares and never implements. There is no class in any source tree and
+// no annotation on the interface, so both of the things that make a bean above are
+// absent and every injection of one reads `unsatisfied`.
+//
+// Matched on the extends-clause NAME, not on a resolved ancestor. That is the whole
+// point: the base lives in the persistence framework, which is normally NOT passed as
+// --library, so type_parent never fires for it and type_ancestor has no edge to match
+// on. An earlier draft of this rule joined type_ancestor, passed its fixture because
+// the fixture vendored the base into lib-src, and moved nothing at all on a real
+// service. The name is the only evidence present in the common case.
+//
+// Interfaces only. A CLASS extending a repository base is ordinary code the container
+// does not proxy, and a stereotype on it would already have made it a bean.
+cfg_repo_super_name(sub, tn) :-
+    java_type_reference(_, "SUPER_TYPE", sub, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, _).
+cfg_repo_super_name(sub, tn) :-
+    java_type_reference(_, "IMPLEMENTS_INTERFACE", sub, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, _).
+
+cfg_repo_name_matches(tn) :- cfg_repo_super_name(_, tn), cfg_repository_base_suffix(suffix),
+    strlen(tn) >= strlen(suffix),
+    substr(tn, strlen(tn) - strlen(suffix), strlen(suffix)) = suffix.
+
+// Direct: `interface OrderRepository extends MongoRepository<Order, String>`.
+cfg_repo_iface(t) :- cfg_repo_super_name(t, tn), cfg_repo_name_matches(tn),
+    type_decl(_, _, _, _, "INTERFACE_TYPE", _, t).
+// Transitive, through a base the project declares itself: a house
+// `interface BaseRepo<T> extends MongoRepository<T, String>` with per-aggregate
+// children. The intermediate resolves, so type_ancestor carries that hop.
+cfg_repo_iface(t) :- cfg_repo_iface(mid), type_ancestor(t, mid),
+    type_decl(_, _, _, _, "INTERFACE_TYPE", _, t).
+
+// A base marked @NoRepositoryBean is a shared supertype, not a bean: the framework
+// skips it and proxies only its children. Without this the house base above is
+// reported as an injectable bean that does not exist at runtime, and any interface
+// typed slot it fits gains a candidate the container never supplies.
+cfg_repo_excluded(t) :- ann_on_type(_, _, n, t), cfg_no_repository_ann(n).
+
+cfg_decap_demand(sn) :- cfg_repo_iface(t), type_decl(_, sn, _, _, _, _, t).
+bean_def(name, t, "repository_proxy", t) :- cfg_repo_iface(t), !cfg_repo_excluded(t),
+    type_decl(_, sn, _, _, _, _, t), cfg_decap(sn, name).
+
 // (c) XML <bean class="…"/>  (xml-wiring.dl)
 bean_def(id, t, "xml", elem) :- xml_bean(elem, id, t, _).
 
