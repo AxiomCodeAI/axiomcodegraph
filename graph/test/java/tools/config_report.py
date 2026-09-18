@@ -66,8 +66,30 @@ def load(out, name):
 
 
 def main():
-    ir, out = sys.argv[1], sys.argv[2]
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    ir, out = args[0], args[1]
     L = Labels(ir)
+    # A case that ships a STUB LIBRARY passes its IR as a third argument, exactly as
+    # normalize_edges.py and normalize_field_access.py already accept one. Without it a
+    # library type has no name here and `lbl` falls through to printing the raw hash,
+    # and a TYPE_REGISTRY hash is NOT stable across checkouts: the golden for a case
+    # with a library-typed injection point then passes only in the working tree it was
+    # blessed in and fails in every other, which is what it did on case 50.
+    if len(args) > 3:
+        sys.exit(f"config_report: too many arguments: {args[3:]!r}\n"
+                 "  usage: config_report.py <ir> <out> [lib-ir]\n"
+                 "  a path containing a space, unquoted by the caller, arrives split")
+    if len(args) > 2 and not os.path.isdir(args[2]):
+        sys.exit(f"config_report: library root is not a directory: {args[2]!r}")
+    if len(args) > 2:
+        roots = [args[2]] if os.path.exists(os.path.join(args[2], 'all-types.csv')) else \
+                [os.path.join(args[2], d) for d in sorted(os.listdir(args[2]))
+                 if os.path.exists(os.path.join(args[2], d, 'all-types.csv'))]
+        for root in roots:
+            lib = Labels(root)
+            for attr in ('m', 'types', 'f', 'p', 'a'):
+                for h, label in getattr(lib, attr).items():
+                    getattr(L, attr).setdefault(h, label)
 
     # (relation file, section title, row -> golden line)
     SECTIONS = [
@@ -87,8 +109,12 @@ def main():
          lambda r: f"{r[0]:<26} {r[2]:<16} {L.lbl(r[1])}"),
         ('config-entry-point.csv', 'config_entry_point',
          lambda r: f"{r[1]:<18} {L.lbl(r[0])}"),
+        # The DETAIL column goes through lbl as well. For an unsatisfied injection point it
+        # IS a type hash, and a raw TYPE_REGISTRY hash is not stable across checkouts, so a
+        # golden holding one passes only in the tree it was blessed in. That is what made
+        # case 50 fail on a clean checkout of the commit that added it.
         ('config-unresolved.csv', 'config_unresolved  [DECLARED UNKNOWNS]',
-         lambda r: f"{r[3]:<26} {r[0]:<12} {L.lbl(r[1])}" + (f"  \"{r[2]}\"" if r[2] else "")),
+         lambda r: f"{r[3]:<26} {r[0]:<12} {L.lbl(r[1])}" + (f"  \"{L.lbl(r[2])}\"" if r[2] else "")),
         # The cross-process edges, and both halves of what could not be joined. The two
         # unjoined relations are in the golden for the same reason config_unresolved is:
         # a destination that stops being linkable must show up as a diff, not as silence.
