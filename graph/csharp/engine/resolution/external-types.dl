@@ -170,6 +170,42 @@ external_target(prov, e, label) :-
     type_base_unresolved(prov, gk, _, bn, _),
     label = cat("external:", cat(bn, cat(".", m))).
 
+// ── AN OVERLOAD THE UNSTAGED BASE MAY DECLARE ───────────────────────────────
+// The engine found a member of that name on the receiver's own type AND the type
+// derives from something unstaged. Arity alone cannot settle which overload binds,
+// because the base may declare another of the same arity and a different parameter
+// type -- and a `new`-hiding member makes that the NORMAL case rather than a corner:
+//
+//     sealed class TagDirectiveCollection : KeyedCollection<string, TagDirective> {
+//         public new bool Contains(TagDirective d) => Contains(GetKeyForItem(d));
+//     }                                              ^-- binds to the BASE's
+//                                                        Contains(string)
+//
+// The engine resolved that to the local `Contains` because both take one argument.
+// Comparing parameter TYPES is real overload resolution and needs the argument
+// typed, which is a separate problem; what is available here is the knowledge that
+// the answer is uncertain. So an external target is added ALONGSIDE the local one.
+// The local edge is not removed -- it may well be right -- and the site becomes
+// multi_inferred, which is the truthful claim: it is one of these two.
+external_target(prov, e, label) :-
+    call_recv_type(prov, e, gk),
+    type_hierarchy_incomplete(prov, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, _),
+    type_base_unresolved(prov, gk, _, bn, _),
+    label = cat("external:", cat(bn, cat(".", n))).
+
+// The same for an UNQUALIFIED call, whose receiver is the implicit `this`: the
+// TagDirectiveCollection case above is written without a receiver.
+external_target(prov, e, label) :-
+    call_is_unqualified(prov, e),
+    expr_ultimate_type_group(prov, e, gk),
+    type_hierarchy_incomplete(prov, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, _),
+    type_base_unresolved(prov, gk, _, bn, _),
+    label = cat("external:", cat(bn, cat(".", n))).
+
 // ── THE EXTERNAL EDGE ───────────────────────────────────────────────────────
 // client_calls_external(SiteExpr, Label). Kept separate from the client and lib
 // relations because the target is a LABEL rather than a method hash, and a consumer

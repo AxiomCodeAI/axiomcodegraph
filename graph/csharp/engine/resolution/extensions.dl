@@ -60,11 +60,21 @@ extension_method(prov, m, p) :-
 extension_recv_name(prov, m, tn) :- extension_method(prov, m, p), param_type_name(prov, p, tn, _), tn != "".
 extension_recv_type(prov, m, gk) :- extension_method(prov, m, p), param_type(prov, p, gk).
 
-// A generic `this` parameter: `this T source`. The parser resolves the reference to
-// a type parameter, which is how this is told apart from a type called T.
+// A generic `this` parameter: `this T source`, where the parameter's type IS a type
+// parameter and therefore matches any receiver.
+//
+// THE ROOT REFERENCE, NOT ANY REFERENCE UNDER IT. A parameter typed
+// `this IRuleBuilderOptions<T, TProperty>` owns THREE type references: the
+// constructed one and its two arguments, and the arguments ARE type parameters.
+// Matching on "owns a type-parameter reference" therefore made every generic
+// extension method match every receiver -- FluentValidation's
+// `DefaultValidatorOptions.Where` was offered for `assemblies.Where(...)` on an
+// IEnumerable and won, producing six edges the compiler does not make. The root is
+// the reference with no parent.
 extension_recv_is_generic(prov, m) :-
     extension_method(prov, m, p),
     type_ref_owner(prov, tr, p, "METHOD_PARAMETER"),
+    !type_ref_parent(prov, tr, _, _, _),
     type_ref_type_param(prov, tr, _).
 
 // ── SCOPE ───────────────────────────────────────────────────────────────────
