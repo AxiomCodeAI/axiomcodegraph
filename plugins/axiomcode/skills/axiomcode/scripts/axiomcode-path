@@ -495,6 +495,28 @@ def closure(g, sel, upstream, limit=40, depth=40):
     if not rows:
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(ids))})", *ids)[0]['n'] if not upstream else 0
         print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ") + "an unresolved site elsewhere may still " + ("call it" if upstream else "be it")))
+        # A word that resolves to a TYPE has no outbound calls by construction — a type declares members, it does
+        # not call anything — so `path <type> '*'` is empty for every type, declared or not. That is the form the
+        # guide gives someone who has no name yet, and a large share of the words they will try are type-valued
+        # (a component, a class, a symbol lifted from an error message), so ending the answer here sends them away
+        # with nothing while the inbound direction holds what they asked for. Counted, not guessed, and only said
+        # when there is something to find.
+        if not upstream:
+            radj = collections.defaultdict(set)
+            for x, y, _ in g.edges(): radj[y].add(x)
+            seen_r, fr = set(ids), list(ids)
+            while fr:
+                nxt = []
+                for x in fr:
+                    for y in radj.get(x, ()):
+                        if y not in seen_r: seen_r.add(y); nxt.append(y)
+                fr = nxt
+            up = len(seen_r - set(ids))
+            if up:
+                # the resolver words a declared type "X (type: n methods)" and an undeclared one "type X (…)"
+                is_type = label.startswith('type ') or '(type:' in label
+                why = " — a type calls nothing itself; who uses it is the question" if is_type else ""
+                print(f"  → the other direction has it: `path '*' {sel}` reaches {up} method(s){why}")
         return 1
     byhop = collections.Counter(d for _, d in rows); print("  by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
     # most_common breaks a tie by insertion order, which is the order the closure rows arrived in: two files with the
