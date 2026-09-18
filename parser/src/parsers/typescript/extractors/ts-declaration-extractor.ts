@@ -83,13 +83,21 @@ import { EntityUtils } from '@/utils/entity-utils';
 function omittableTrailingParameterCount(
   parameters: readonly ts.ParameterDeclaration[],
 ): number {
+  // Indexing is narrowed rather than asserted: `noUncheckedIndexedAccess` is on
+  // repository-wide, so `parameters[i]` is `ParameterDeclaration | undefined` however
+  // well the bounds are guarded by hand. Optional chaining and an explicit undefined
+  // branch state the same invariant in a form the compiler can check, and cost nothing
+  // at runtime: `i` never leaves range, so neither branch is reachable.
   let i = parameters.length - 1;
-  if (i >= 0 && parameters[i].dotDotDotToken !== undefined) {
+  if (parameters[i]?.dotDotDotToken !== undefined) {
     i -= 1;
   }
   let n = 0;
   for (; i >= 0; i -= 1) {
     const p = parameters[i];
+    if (p === undefined) {
+      break;
+    }
     if (p.questionToken === undefined && p.initializer === undefined) {
       break;
     }
