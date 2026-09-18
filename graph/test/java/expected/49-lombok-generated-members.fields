@@ -1,2 +1,3 @@
 known_edge	read	probe.Lombok#handWritten() -> probe.Lombok#label
+known_edge	read	probe.Lombok#ownLogger() -> generated:probe.Lombok#log
 known_edge	read	probe.Lombok#ownLogger() -> probe.Lombok#count
