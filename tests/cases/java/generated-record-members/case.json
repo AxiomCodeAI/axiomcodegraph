@@ -1,0 +1,5 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a record component is reached through its accessor and through the canonical constructor — the target used to be handed back to the rules instead of answered",
+   "run": ["impact", "Money.amount", "--kind", "field", "--limit", "50"],
+   "want": ["reads it through amount()", "Wallet.doubled", "constructs Money", "Wallet.make"]}]}
