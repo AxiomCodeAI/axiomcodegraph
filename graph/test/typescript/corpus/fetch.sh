@@ -75,12 +75,29 @@ grep -v '^#' "$HERE/corpus.tsv" | grep -v '^[[:space:]]*$' | while read -r name 
     echo "  $name: node_modules present"
   else
     echo "  $name: installing"
+    # THE PROJECT'S OWN PACKAGE MANAGER, through corepack, which ships with node and
+    # honours the `packageManager` field. The old fallback ran npm with
+    # --legacy-peer-deps wherever pnpm was not already on PATH, and that is not a
+    # slower install of the same tree: it is a different one. Measured on the pnpm
+    # subject, whose peer `@testing-library/dom` npm then leaves out, so all 13 of its
+    # test files fail to collect. With corepack the same checkout is 13 passed and 224
+    # passed, which is the figure the oracle was built against.
+    #
+    # --ignore-scripts STAYS. It is the reason this is safe to run over nine cloned
+    # repositories, and the static evaluation never executes anything. A harness that
+    # needs the subject to RUN checks that for itself now, and says so: see
+    # runtime-oracle/trace-subject.sh, which takes a baseline before it instruments.
     ( cd "$d"
-      if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null; then
-        pnpm install --ignore-scripts --silent >/dev/null 2>&1 \
+      if [ -f pnpm-lock.yaml ]; then
+        corepack pnpm install --ignore-scripts --silent >/dev/null 2>&1 \
+          || pnpm install --ignore-scripts --silent >/dev/null 2>&1 \
+          || npm install --silent --ignore-scripts --no-audit --no-fund --legacy-peer-deps >/dev/null 2>&1
+      elif [ -f yarn.lock ]; then
+        corepack yarn install --ignore-scripts --silent >/dev/null 2>&1 \
           || npm install --silent --ignore-scripts --no-audit --no-fund --legacy-peer-deps >/dev/null 2>&1
       else
-        npm install --silent --ignore-scripts --no-audit --no-fund --legacy-peer-deps >/dev/null 2>&1
+        npm install --silent --ignore-scripts --no-audit --no-fund >/dev/null 2>&1 \
+          || npm install --silent --ignore-scripts --no-audit --no-fund --legacy-peer-deps >/dev/null 2>&1
       fi )
     echo "  $name: node_modules=$([ -d "$d/node_modules" ] && echo yes || echo NONE)"
   fi
