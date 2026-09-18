@@ -134,6 +134,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const rawInst = A.raw.typeInstantiated ? await readSource(rawDir, A.raw.typeInstantiated) : [];
   const rawFieldAccess = A.raw.fieldAccess ? await readSource(rawDir, A.raw.fieldAccess) : [];
   const rawTypeUse = A.raw.typeUse ? await readSource(rawDir, A.raw.typeUse) : [];
+  const rawConfigBinding = A.raw.configBinding ? await readSource(rawDir, A.raw.configBinding) : [];
   log(`  raw: ${rawEdges.length} edge rows, ${rawAncestors.length} ancestor rows, ${rawOverrides.length} override rows`);
 
   // call_edges: split the raw ToMethod into a method key or a label by provenance
@@ -198,6 +199,15 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   for (const r of field_access) {
     wantMethods.add(r[1] as string);
     if (r[2] !== null) wantFields.add(r[2] as string);
+  }
+  // A config key that BINDS to a field is a reason to list that field (#890). `fields`
+  // otherwise lists a library field only when some field_access edge reaches it, and a
+  // @Value field on a library type that nothing reads has no such edge: it was named by
+  // an exported relation and absent from the table it points into, so a consumer joining
+  // the two lost the row with no indication. 73 percent of config_binding rows were in
+  // that state on a run with one shared starter staged as a library.
+  for (const r of rawConfigBinding) {
+    if (r[2] === 'field' && r[3] !== null) wantFields.add(r[3] as string);
   }
 
   // ── 3. client entities (all of them — the client is the subject) ──────────
