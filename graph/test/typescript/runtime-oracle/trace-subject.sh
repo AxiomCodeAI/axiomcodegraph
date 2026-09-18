@@ -37,9 +37,16 @@ rm -rf "$MIRROR" "$TABLES" "$TRACE"
 mkdir -p "$MIRROR" "$TABLES" "$TRACE"
 
 echo "▶ $NAME: mirroring"
-# -a keeps mtimes so the test runner's own caches stay valid; node_modules and
-# .git are excluded and node_modules is symlinked back in.
-rsync -a --exclude node_modules --exclude .git --exclude coverage --exclude dist \
+# -a keeps mtimes so the test runner's own caches stay valid. ONLY node_modules and
+# .git are left out, and node_modules is symlinked back in: the mirror has to BE the
+# program, and what to instrument is the instrumenter's decision rather than the
+# copy's. Leaving `dist` out of the copy costs two koa tests on the JavaScript
+# sibling of this script: they load the package by its own name, whose `exports` maps
+# that to dist/koa.mjs, so they fail with ERR_MODULE_NOT_FOUND inside the mirror and
+# pass in the checkout, and the integrity check cannot tell a missing build product
+# from a defect in the rewrite (#925). The instrumenter skips `dist` by name, so the
+# artefact is present and untouched.
+rsync -a --exclude node_modules --exclude .git \
       "$PROJECT"/ "$MIRROR"/
 [ -d "$PROJECT/node_modules" ] && ln -s "$PROJECT/node_modules" "$MIRROR/node_modules"
 
