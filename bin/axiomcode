@@ -24,7 +24,7 @@
 # The pieces, when you want them separately:
 #   bin/axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]   → <ir-dir>/<lang>/
 #   bin/axiomcode engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
-#   bin/axiomcode test   [java|typescript|python|javascript|parser|all] [suite options]
+#   bin/axiomcode test   [java|typescript|python|javascript|csharp|parser|all] [suite options]
 #
 # Requires Node ≥ 22.5; no Soufflé or compiler (binaries/, or a local souffle if present).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ case "$cmd" in
     # from `parser`, or a JDK-style root of module folders). Folder NAMES prove nothing — a
     # source tree may well have a java/ directory.
     is_ir(){ local d="$1" m sub
-      for m in all-types.csv all-typescript-modules.csv all-python-modules.csv all-javascript-modules.csv; do
+      for m in all-types.csv all-typescript-modules.csv all-python-modules.csv all-javascript-modules.csv all-csharp-modules.csv; do
         [ -f "$d/$m" ] && return 0
         for sub in "$d"/*/; do [ -f "$sub$m" ] && return 0; done
       done; return 1; }
@@ -156,7 +156,7 @@ case "$cmd" in
         rc=0; "$0" parser "$L" "$lir" --library --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 || rc=$?
         case "$rc" in
           0) libroots="$libroots,$lir";;
-          3) echo "⚠️  library $L holds no Java, TypeScript, Python or JavaScript source; not staged (see $int/parse-lib-$n.log)" >&2;;
+          3) echo "⚠️  library $L holds no Java, TypeScript, Python, JavaScript or C# source; not staged (see $int/parse-lib-$n.log)" >&2;;
           *) echo "❌ parsing library $L failed — see $int/parse-lib-$n.log" >&2; exit 1;;
         esac
       fi
@@ -185,11 +185,11 @@ case "$cmd" in
     rc=0
     run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
     case "$which" in
-      java|typescript|python|javascript) run_suite "$which" "$@";;
-      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests discovery-tests; do
+      java|typescript|python|javascript|csharp) run_suite "$which" "$@";;
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests csharp-tests gradle-tests services-tests discovery-tests; do
                 [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
-      all) for l in java typescript python javascript; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
-      *) die "test: unknown suite $which (java | typescript | python | javascript | parser | all)";;
+      all) for l in java typescript python javascript csharp; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
+      *) die "test: unknown suite $which (java | typescript | python | javascript | csharp | parser | all)";;
     esac
     exit $rc
     ;;

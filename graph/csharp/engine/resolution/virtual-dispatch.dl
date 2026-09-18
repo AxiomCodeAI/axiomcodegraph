@@ -63,7 +63,7 @@ override_cand("client", derived, base, d) :-
 // connects them.
 override_depth(prov, derived, base, d) :-
     override_cand(prov, derived, base, _),
-    d = min k : { override_cand(prov, derived, b, k) }.
+    d = min k : { override_cand(prov, derived, _, k) }.
 overrides(prov, derived, base) :-
     override_cand(prov, derived, base, d), override_depth(prov, derived, base, d).
 
