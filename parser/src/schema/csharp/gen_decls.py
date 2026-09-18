@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Generate decls_base_cs.dl FROM CSHARP-FACT-SCHEMA.md's own column lists.
+"""Generate decls_base_cs.dl FROM schema.json's own column lists.
 
 Run with --check to diff instead of write (for CI). Exit 0 clean, 1 on drift.
 
-WHY THIS READS THE MARKDOWN AND NOT A schema.json
-=================================================
-Python, TypeScript and JavaScript each generate their `.dl` from a `schema.json`
-that sits beside it. C# does not have one, and adding one would create a SECOND
-SOURCE OF TRUTH for a schema that is already frozen: the ruling document is
-`CSHARP-FACT-SCHEMA.md`, every column list in it is numbered and ordered, and
-`src/test/csharp-gates/schema-arity-selfcheck.py` already parses it to prove
-each heading agrees with its own list. A transcription step between the ruling
-and the generator is a place for the two to disagree, and nothing would be
-watching the transcription.
+WHERE THE SCHEMA LIVES
+======================
+`schema.json`, beside this file, exactly as python, typescript and javascript
+each keep theirs. It was generated once from the retired `CSHARP-FACT-SCHEMA.md`
+and is now edited HERE: one machine-readable file per language, no prose
+document to transcribe from and no second source of truth.
 
-So the frozen document IS the machine-readable schema here. The parser below is
-deliberately the same shape as the arity self-check's, and the two are run
-together by the release gate: the self-check proves the document is internally
-consistent, this proves the `.dl` matches it, and `arity contract` in
-csharp-tests.ts proves the EMITTED headers match it too. Three links, one chain:
-document -> engine declarations -> emitted rows.
+The invariants the retired document's self-check carried come with it, and are
+asserted below on every run: no relation repeats a column name, and every
+relation ends in `isExternal, serviceVersionLinkHash, <its own hash>`. What is
+gone with the prose is the prose — the rulings, their reasons and the version
+ledger, which are history and belong in the git log, not in a file the
+generator has to parse.
+
+Two links, one chain: `--check` proves the `.dl` matches this schema, and
+`arity contract` in csharp-tests.ts proves the EMITTED headers match it too,
+reading the columns from `--columns` so the schema keeps ONE parser.
 
 WHAT THE .dl IS
 ===============
@@ -28,12 +28,12 @@ RENAME is free after the freeze and a REORDER is not — which is exactly why th
 file is generated rather than hand-maintained. A hand-edited `.dl` drifts
 silently, and a shifted column loads into Souffle without error.
 """
+import json
 import os
-import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DOC = os.path.join(HERE, 'CSHARP-FACT-SCHEMA.md')
+DOC = os.path.join(HERE, 'schema.json')
 OUT = os.path.join(HERE, 'decls_base_cs.dl')
 
 #: What an engine author has to know before joining anything C#. Kept HERE
@@ -92,31 +92,14 @@ PREAMBLE = """// ===============================================================
 TRAILER = ['isExternal', 'serviceVersionLinkHash']
 
 
-def relations(text):
-    """Every relation's ordered column list, from the document's own lists.
+def relations(doc):
+    """Every relation's ordered column list, in the order the schema declares.
 
-    A heading is `### N.N \\`cs_x\\` — K columns`, optionally followed by a star,
-    and the list is the first fenced block after it. The LIST is authoritative:
-    only a list states an ORDER, and the arity self-check already refuses a
-    document whose heading and list disagree.
+    The LIST is the contract: only a list states an ORDER, and column order is
+    what the Souffle engine joins on.
     """
-    out = []
-    pattern = re.compile(
-        r'^###\s+[0-9.]+\s+`(cs_[a-z_]+)`\s+—\s+(\d+)\s+columns',
-        re.M,
-    )
-    for match in pattern.finditer(text):
-        name = match.group(1)
-        declared = int(match.group(2))
-        fence = text.find('```', match.end())
-        if fence == -1:
-            raise SystemExit(f'{name}: heading with no column list')
-        close = text.find('```', fence + 3)
-        body = text[fence + 3:close]
-        columns = [c.strip() for c in body.replace('\n', ' ').split(',')]
-        columns = [c for c in columns if c]
-        out.append((name, declared, columns))
-    return out
+    return [(name, len(entry['columns']), list(entry['columns']))
+            for name, entry in doc['relations'].items()]
 
 
 def dl_text(rels):
@@ -140,17 +123,19 @@ def dl_text(rels):
 
 def main():
     with open(DOC, encoding='utf-8') as f:
-        text = f.read()
-    rels = relations(text)
+        doc = json.load(f)
+    rels = relations(doc)
     if not rels:
-        raise SystemExit('no relations found in CSHARP-FACT-SCHEMA.md')
+        raise SystemExit('no relations found in schema.json')
 
     problems = []
-    for name, declared, columns in rels:
-        if declared != len(columns):
-            problems.append(
-                f'{name}: heading says {declared} columns, its list has {len(columns)}'
-            )
+    for name, _declared, columns in rels:
+        # FROM THE RETIRED SELF-CHECK. A repeated column name is a schema that
+        # cannot say which position a consumer means, and it read as a valid
+        # arity from every side.
+        seen = [c for i, c in enumerate(columns) if c in columns[:i]]
+        if seen:
+            problems.append(f'{name}: repeats the column name(s) {sorted(set(seen))}')
         if columns[-len(TRAILER):] != TRAILER + [] and columns[-3:-1] != TRAILER:
             # The trailer convention: ... isExternal, serviceVersionLinkHash, <ownHash>
             problems.append(
@@ -163,7 +148,7 @@ def main():
 
     if '--columns' in sys.argv:
         # ONE PARSER, TWO CONSUMERS. The suite's `emitted headers match the
-        # schema` check reads this instead of parsing the document a second
+        # schema` check reads this instead of parsing schema.json a second
         # time in TypeScript: a schema with two parsers has two schemas, and
         # the day they disagree neither is the contract.
         for name, _declared, columns in rels:
@@ -178,7 +163,7 @@ def main():
         with open(OUT, encoding='utf-8') as f:
             current = f.read()
         if current != generated:
-            print(f'DRIFT {os.path.basename(OUT)} differs from the schema document.')
+            print(f'DRIFT {os.path.basename(OUT)} differs from schema.json.')
             print('Re-run `python3 gen_decls.py` and commit the result.')
             cur = current.splitlines()
             new = generated.splitlines()
@@ -189,7 +174,7 @@ def main():
                     print(f'  line {i + 1}:\n    file:   {a[:160]}\n    schema: {b[:160]}')
                     break
             return 1
-        print(f'{len(rels)} relations checked; {os.path.basename(OUT)} matches the schema document')
+        print(f'{len(rels)} relations checked; {os.path.basename(OUT)} matches schema.json')
         return 0
 
     with open(OUT, 'w', encoding='utf-8') as f:

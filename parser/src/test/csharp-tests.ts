@@ -2687,12 +2687,11 @@ function grammarGate(): number {
  * every later column — no type error, no parse error, no failing join.
  */
 /**
- * EVERY RELATION EMITS EXACTLY THE COLUMNS THE SCHEMA DOCUMENT DECLARES, in
- * that order, and all twenty-two of them exist.
+ * EVERY RELATION EMITS EXACTLY THE COLUMNS `schema.json` DECLARES, in that
+ * order, and all twenty-two of them exist.
  *
- * The chain this closes: `schema-arity-selfcheck.py` proves the document agrees
- * with itself, `gen_decls.py --check` proves the Souffle declarations match the
- * document, and this proves the EMITTED HEADERS match it too. Document ->
+ * The chain this closes: `gen_decls.py --check` proves the Souffle declarations
+ * match the schema, and this proves the EMITTED HEADERS match it too. Schema ->
  * engine declarations -> rows on disk, with nothing unwatched in between.
  *
  * Before this, `arity contract` compared each registry's `ARITY` constant
@@ -2708,30 +2707,23 @@ function grammarGate(): number {
  * one is the contract.
  */
 /**
- * THE SCHEMA CHAIN HOLDS: document, engine declarations, emitted rows.
+ * THE SCHEMA CHAIN HOLDS: schema, engine declarations, emitted rows.
  *
- * Three instruments, run here as one check so a release cannot pass with any
- * link unverified:
+ * `gen_decls.py --check` proves that `decls_base_cs.dl` — the Souffle
+ * declarations an engine actually reads — matches `schema.json`, and it
+ * asserts on the way through the two invariants the retired ruling document's
+ * self-check carried: no relation repeats a column name, and every relation
+ * ends in the `isExternal, serviceVersionLinkHash, <own hash>` trailer. C# had
+ * no `.dl` at all while Python, TypeScript and JavaScript each had one, so the
+ * engine had nothing to declare C# relations with.
  *
- *   schema-arity-selfcheck.py  the document agrees with ITSELF — every heading
- *                              matches its own column list, and every relation
- *                              HAS a list. Eight headings once disagreed with
- *                              their lists and eight relations had a count and
- *                              no list at all.
- *   gen_decls.py --check       `decls_base_cs.dl` — the Souffle declarations an
- *                              engine actually reads — matches the document.
- *                              C# had no such file at all while Python,
- *                              TypeScript and JavaScript each had one, so the
- *                              engine had nothing to declare C# relations with.
- *
- * The third link, emitted headers against the document, is its own check
- * because it needs the analyzer's output directory.
+ * The other link, emitted headers against the schema, is its own check because
+ * it needs the analyzer's output directory.
  */
 function theSchemaChainHolds(): number {
   let failures = 0;
   for (const [what, script, args] of [
-    ['the document agrees with itself', path.join('src', 'test', 'csharp-gates', 'schema-arity-selfcheck.py'), []],
-    ['the .dl matches the document', path.join('src', 'schema', 'csharp', 'gen_decls.py'), ['--check']],
+    ['the .dl matches schema.json', path.join('src', 'schema', 'csharp', 'gen_decls.py'), ['--check']],
   ] as const) {
     const run = spawnSync('python3', [script, ...args], { encoding: 'utf-8' });
     if (run.status !== 0) {
@@ -6335,7 +6327,7 @@ async function multiTargetKeying(corpusDir: string): Promise<number> {
  * `cs_preproc_region` — the audit trail for what everything else was emitted
  * FROM.
  *
- * Was PENDING: `CSHARP-FACT-SCHEMA.md` v1.1 §3.22 stated 15 columns and listed
+ * Was PENDING: the schema stated 15 columns for this relation and listed
  * 14, and column ORDER is the contract, so inventing the fifteenth would have
  * been the silent corruption the arity check exists to prevent. v1.2 lists all
  * fifteen and the check is switched on in the same commit that lowers
@@ -6673,7 +6665,7 @@ function heritageAndGenerics(outputDir: string): number {
   // AND THE REFERENCE IS THE RIGHT ONE: its typeName is the entry's own
   // baseTypeName. A link that resolves is all that was checked, and a link
   // to the neighbouring entry's tree would have passed — the LINQ shape.
-  // First on the risk register in LINK-COLUMNS.md, promoted here.
+  // First on the link-column risk register, promoted here.
   const referenceByHash = new Map(
     (heritageTypeReferences?.rows ?? []).map((r) => [r[heritageTypeReferences!.header.length - 1]!, r])
   );
@@ -8292,7 +8284,7 @@ function fieldsAndEnumMembers(outputDir: string): number {
   // A FIELD'S INITIALIZER LINK NAMES ITS OWN ROOT: `ConstOne = 1` links to a
   // LITERAL `1` in FIELD_INITIALIZER context owned by ConstOne, and `ConstTwo
   // = 2` to `2` — not to the first initializer on the line, not to a row of
-  // the type. Fifth on the risk register in LINK-COLUMNS.md.
+  // the type. Fifth on the link-column risk register.
   const fieldExpressions = relations.get('all-csharp-expressions.csv');
   if (fieldExpressions !== undefined) {
     const ex = (n: string): number => fieldExpressions.header.indexOf(n);
@@ -11079,7 +11071,7 @@ function blocksAndVariables(outputDir: string): number {
     }
   }
   // AND IT IS THE CONDITION: a root in CONDITION context, not merely an
-  // expression that exists. Second on the risk register in LINK-COLUMNS.md.
+  // expression that exists. Second on the link-column risk register.
   const expressionRowByPk = new Map(expressions.rows.map((r) => [r[expressions.header.length - 1]!, r]));
   for (const row of conditioned) {
     const target = expressionRowByPk.get(row[b('conditionExpressionLinkHash')]!);
@@ -11444,7 +11436,7 @@ function attributesAndComments(outputDir: string): number {
     }
     // AND IT IS THE TYPE WRITTEN: `typeof(Documented<int>)` links to a
     // reference named Documented with the argument int, not to the attribute's
-    // own type or a neighbour's. Fourth on the risk register in LINK-COLUMNS.md.
+    // own type or a neighbour's. Fourth on the link-column risk register.
     if (reference[tr('typeName')] !== 'Documented' || argument[tr('typeName')] !== 'int') {
       failures += fail(
         `\`typeof(Documented<int>)\` links to a reference named ${reference[tr('typeName')]}<${argument[tr('typeName')]}> ` +
@@ -11599,7 +11591,7 @@ function attributesAndComments(outputDir: string): number {
   // AND THE OWNER IS THE DECLARATION THE COMMENT PRECEDES, by name: the doc
   // comment that says "Does a thing" belongs to `Act`, and "A documented
   // type" to `Documented`. A resolving owner one declaration off would have
-  // passed. Third on the risk register in LINK-COLUMNS.md.
+  // passed. Third on the link-column risk register.
   const methodNameByHash = new Map(methods.rows.map((r) => [r[methods.header.length - 1]!, r[methods.header.indexOf('name')]!]));
   const typeRelation = relations.get('all-csharp-types.csv');
   const typeNameByHash = new Map((typeRelation?.rows ?? []).map((r) => [r[typeRelation!.header.length - 1]!, r[typeRelation!.header.indexOf('name')]!]));
@@ -13059,7 +13051,7 @@ async function main(): Promise<number> {
       {
         name: 'emitted headers match the schema document',
         proves:
-          'all 22 relations emit exactly the columns CSHARP-FACT-SCHEMA.md declares, in that ' +
+          'all 22 relations emit exactly the columns schema.json declares, in that ' +
           'order, read through gen_decls.py so the schema has ONE parser. `arity contract` ' +
           'compared two registries against their own ARITY constant and twenty against nothing',
         run: () => emittedHeadersMatchTheSchema(outputDir),
