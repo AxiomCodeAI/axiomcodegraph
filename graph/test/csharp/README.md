@@ -42,9 +42,10 @@ corpus/run-corpus.sh <work> --set dev|holdout|all
 corpus/aggregate.py <before> <after>              # the diff, with a verdict
 ```
 
-Ten projects, five and five, defined in `corpus/corpus.tsv` with the split and the
+Ten projects, five and five, defined in a manifest OUTSIDE this repository (see
+`corpus/manifest.sh` and `corpus/corpus.tsv.template`) with the split and the
 pins in the tree. The holdout set deliberately contains two dominant idioms the dev
-set does not have -- NodaTime's operators and conversions, CsvHelper's expression
+set does not have -- one member's operators and conversions, another's expression
 trees and `dynamic` -- because a held-out set that only repeats the dev set's shapes
 measures nothing.
 
@@ -95,7 +96,7 @@ The static oracle is pinned to the 8.0 SDK so a parser figure and an engine figu
 from this repository stay comparable. Several of these repositories' TEST projects
 target net10.0 only, and those cannot be traced on that SDK: `trace-subject.sh`
 reports them and skips rather than failing. At the pinned commits, the test projects
-that build on net8.0 are `dapper`, `fluentvalidation` and `csvhelper` -- one
+that build on net8.0 are three of the ten -- one
 holdout among them, which is what makes the runtime numbers more than a dev-set
 anecdote.
 

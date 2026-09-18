@@ -300,3 +300,8 @@ package-lock.json
 # C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
 .cs-case-work/
 .cs-dev-cache/
+
+# The C# corpus manifest names the evaluation set and is deliberately NOT committed.
+# corpus.tsv.template documents the format; the filled-in copy lives outside the repo
+# (CS_CORPUS_MANIFEST, default ~/.config/axiom/cs-corpus.tsv). See corpus/manifest.sh.
+graph/test/csharp/corpus/corpus.tsv

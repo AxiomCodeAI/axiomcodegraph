@@ -176,8 +176,8 @@ ref_unbound(prov, e, n) :-
 //
 // NOT WHERE THE NAME ALSO BINDS TO A VALUE. C# allows a member and a type to share a
 // name (the language's own "Color Color" rule) and prefers the MEMBER in an
-// expression position. Serilog has a static property `Log.Logger` of type `ILogger`
-// and a sealed class `Serilog.Core.Logger` in scope; reading the receiver as both
+// expression position. One corpus member has a static property `Log.Logger` of type
+// `ILogger` and a sealed class `Core.Logger` in scope; reading the receiver as both
 // gave the site two receiver types, one of them sealed, which then made the whole
 // site exact and deleted the interface fan.
 //

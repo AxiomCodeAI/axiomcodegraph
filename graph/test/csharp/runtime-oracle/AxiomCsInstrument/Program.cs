@@ -286,7 +286,7 @@ internal sealed class EntryProbeRewriter : CSharpSyntaxRewriter
 
         // ENTRY PUSHES AND A finally POPS. An entry probe alone is not enough: the
         // tracer reads the caller off the top of a per-thread shadow stack, and
-        // without a matching pop the stack only grows. Measured on FluentValidation:
+        // without a matching pop the stack only grows. Measured on one traceable member:
         // 111,405 stack overflows in one run, after which every caller read as
         // whatever happened to sit at depth 511 -- so the edges were fiction.
         //
@@ -308,7 +308,7 @@ internal sealed class EntryProbeRewriter : CSharpSyntaxRewriter
             // new `{` lands immediately before the first statement's leading trivia --
             // and when that trivia starts with a preprocessor directive the result is
             // `{#region`, which is CS1040: a directive must be the first
-            // non-whitespace on its line. Measured on FluentValidation's
+            // non-whitespace on its line. Measured on one traceable member's
             // DefaultValidatorExtensions.cs. Reusing the node keeps every byte of its
             // trivia where the author put it.
             var guarded = TryStatement(visited, default, FinallyClause(pop));

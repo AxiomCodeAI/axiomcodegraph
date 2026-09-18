@@ -7,7 +7,7 @@
 // framework's change notification, validation, lazy loading and logging live.
 //
 // HOW MUCH THIS IS WORTH, MEASURED: on the dev corpus the oracle reports 3,943
-// property-accessor sites in Humanizer alone, against 3,203 ordinary in-source
+// property-accessor sites on one member alone, against 3,203 ordinary in-source
 // invocation sites. A Java-shaped engine reads every one as a field access and
 // emits nothing, so it loses more call sites than it finds.
 //

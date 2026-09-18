@@ -116,12 +116,12 @@ external_target(prov, e, label) :-
 // declared type is a C# keyword alias or an unstaged framework type, so it resolves
 // to nothing and the call leaves the source.
 //
-// MEASURED: without this clause 1,562 of Humanizer's 2,235 external sites were
+// MEASURED: without this clause 1,562 of one member's 2,235 external sites were
 // classified ambiguous_unknown -- counted as engine blind spots when every one is a
 // call into the BCL that a client-only run cannot expand. That made the blind-spot
 // number unreadable, which is the number the engine is judged on.
 //
-// GATED ON THE EXTENSION PATH HAVING FAILED. `someString.Humanize()` also has a
+// GATED ON THE EXTENSION PATH HAVING FAILED. `someString.Titlecase()` also has a
 // `string` receiver and DOES resolve, to an extension method in the project. Naming
 // it external as well would emit a boundary edge beside a correct one.
 external_target(prov, e, label) :-

@@ -8,7 +8,7 @@
 //
 // IT MAKES NO ASSUMPTION ABOUT THE SUBJECT'S COMPILER SETTINGS, and that is not a
 // style preference. Measured: written with `using System;` and nullable
-// annotations, it failed to build inside FluentValidation with five errors --
+// annotations, it failed to build inside a traceable member with five errors --
 // CS0246 for ThreadStaticAttribute and CS8632 for `?` -- because that project sets
 // neither ImplicitUsings nor a nullable context. A file injected into an arbitrary
 // project cannot rely on either, so every name here is `global::`-qualified, no
@@ -42,8 +42,8 @@
 // assembly as well (a shared-source include, or a test that needs an internal
 // type), so an instrumented file can end up in more than one assembly. An
 // `internal` tracer is then invisible from the second one and the build fails with
-// CS0122 on every probe -- measured on FluentValidation, whose test project
-// compiles src/FluentValidation/Internal/*.cs directly.
+// CS0122 on every probe -- measured on a traceable member whose test project
+// compiles the library's own internal sources directly.
 //
 // The same instrumented file landing in two assemblies is harmless for the trace:
 // the ids are identical, so the edges merge.
