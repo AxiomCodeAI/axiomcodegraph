@@ -113,6 +113,9 @@ def main():
         # IS a type hash, and a raw TYPE_REGISTRY hash is not stable across checkouts, so a
         # golden holding one passes only in the tree it was blessed in. That is what made
         # case 50 fail on a clean checkout of the commit that added it.
+        ('config-bean-condition.csv', 'bean_condition',
+         lambda r: f"{r[5]:<10} {r[2]:<9} {r[0]:<22} {r[3]}"
+                   + (f" = \"{r[4]}\"" if r[4] not in ('-', '') else "")),
         ('config-unresolved.csv', 'config_unresolved  [DECLARED UNKNOWNS]',
          lambda r: f"{r[3]:<26} {r[0]:<12} {L.lbl(r[1])}" + (f"  \"{L.lbl(r[2])}\"" if r[2] else "")),
         # The cross-process edges, and both halves of what could not be joined. The two
