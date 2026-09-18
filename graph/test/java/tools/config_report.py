@@ -3,8 +3,8 @@
 
 The call-graph goldens (normalize_edges.py) say nothing about config: bean_def,
 di_edge, config_binding, config_affects_method, config_entry_point, config_class_ref,
-config_key_ref and config_unresolved are separate relations, so they need their own
-golden or a change in them lands silently.
+config_key_ref, config_unresolved and the remote_* destination relations are separate
+relations, so they need their own golden or a change in them lands silently.
 
 Every hash is resolved to a name and every absolute path to a basename, so the output
 is reviewable and is not sensitive to hash churn or to where the repo is checked out.
@@ -99,6 +99,17 @@ def main():
          lambda r: f"{r[1]:<18} {L.lbl(r[0])}"),
         ('config-unresolved.csv', 'config_unresolved  [DECLARED UNKNOWNS]',
          lambda r: f"{r[3]:<26} {r[0]:<12} {L.lbl(r[1])}" + (f"  \"{r[2]}\"" if r[2] else "")),
+        # The cross-process edges, and both halves of what could not be joined. The two
+        # unjoined relations are in the golden for the same reason config_unresolved is:
+        # a destination that stops being linkable must show up as a diff, not as silence.
+        ('remote-edge.csv', 'remote_edge',
+         lambda r: f"{r[2]:<7} {r[4]:<12} {r[3]:<34} {L.lbl(r[0])} -> {L.lbl(r[1])}"),
+        ('remote-unserved.csv', 'remote_unserved  [SENT, NO CONSUMER HERE]',
+         lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
+        ('remote-unsent.csv', 'remote_unsent  [SERVED, NO PRODUCER HERE]',
+         lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
+        ('remote-undetermined.csv', 'remote_undetermined  [DECLARED UNKNOWNS]',
+         lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
     ]
 
     for fname, title, fmt in SECTIONS:

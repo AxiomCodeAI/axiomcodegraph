@@ -122,3 +122,94 @@ cfg_di_narrowing_enabled().
 cfg_stub_base_suffix("ImplBase", "grpc_service").      // gRPC (protoc java)
 cfg_stub_base_suffix("Grpc", "grpc_service").          // gRPC outer holder
 cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators
+
+// ── (8) DESTINATIONS: a name that identifies a place a message or request goes ──
+// A producer and the consumer that serves it live in different deployables and never
+// call each other, so the only thing tying them together is this string. These lists
+// are what destinations.dl joins on; adding a broker or an HTTP client is a fact here.
+
+// (a) an annotation that declares the destination a method SERVES, and the argument
+//     that carries it. @KafkaListener(topics = "orders.created") serves "orders.created".
+cfg_serves_ann("KafkaListener",  "kafka", "topics").
+cfg_serves_ann("KafkaHandler",   "kafka", "topics").
+cfg_serves_ann("RabbitListener", "amqp",  "queues").
+cfg_serves_ann("RabbitListener", "amqp",  "value").
+cfg_serves_ann("JmsListener",    "jms",   "destination").
+cfg_serves_ann("SqsListener",    "sqs",   "value").
+cfg_serves_ann("StreamListener", "stream", "value").
+
+// (b) an annotation that declares an HTTP ROUTE. On a type it is a prefix; on a
+//     method it is the remainder. Both the server (@GetMapping) and a declarative
+//     client (@GetExchange, @FeignClient) spell a route this way, which is what makes
+//     the two ends joinable at all.
+cfg_route_ann("RequestMapping"). cfg_route_ann("GetMapping").    cfg_route_ann("PostMapping").
+cfg_route_ann("PutMapping").     cfg_route_ann("DeleteMapping"). cfg_route_ann("PatchMapping").
+cfg_route_ann("Path").                                            // JAX-RS
+cfg_route_ann("FeignClient").    // its url= is the client's base
+cfg_route_ann("HttpExchange").   cfg_route_ann("GetExchange").   cfg_route_ann("PostExchange").
+cfg_route_ann("PutExchange").    cfg_route_ann("DeleteExchange"). cfg_route_ann("PatchExchange").
+
+// (c) a route annotation that marks the SERVER end. A route annotation that is not
+//     one of these is a client declaration, and the two must not be confused: a
+//     client interface and a controller in one repository would otherwise link to
+//     themselves.
+cfg_route_server_ann("RequestMapping"). cfg_route_server_ann("GetMapping").
+cfg_route_server_ann("PostMapping").    cfg_route_server_ann("PutMapping").
+cfg_route_server_ann("DeleteMapping").  cfg_route_server_ann("PatchMapping").
+cfg_route_server_ann("Path").
+
+// (d) the argument names a route annotation uses for the path.
+cfg_route_arg("value"). cfg_route_arg("path"). cfg_route_arg("url").
+
+// (e) a library method that SENDS to a destination, and which argument names it.
+//     KafkaTemplate.send(topic, key, value) names it first; RabbitTemplate's
+//     convertAndSend(exchange, routingKey, payload) names the routing key second.
+cfg_sends_method("send",           "kafka", "0").
+cfg_sends_method("sendDefault",    "kafka", "0").
+cfg_sends_method("convertAndSend", "amqp",  "1").
+cfg_sends_method("convertSendAndReceive", "amqp", "1").
+cfg_sends_method("convertAndSend", "jms",   "0").
+
+// (f) a library method that sends an HTTP request whose first argument is the URL.
+cfg_sends_http("getForObject").   cfg_sends_http("getForEntity").
+cfg_sends_http("postForObject").  cfg_sends_http("postForEntity").
+cfg_sends_http("postForLocation"). cfg_sends_http("put").
+cfg_sends_http("delete").         cfg_sends_http("patchForObject").
+cfg_sends_http("exchange").       cfg_sends_http("execute").
+cfg_sends_http("uri").            // RestClient / WebClient fluent builders
+
+// (g) the receiver type that makes a call a send. Without this a method merely NAMED
+//     `send` is read as a broker produce — measured: a notification dispatcher's own
+//     send("email", …) was reported as a Kafka topic called "email".
+cfg_sends_owner("KafkaTemplate", "kafka").      cfg_sends_owner("KafkaOperations", "kafka").
+cfg_sends_owner("RabbitTemplate", "amqp").      cfg_sends_owner("AmqpTemplate", "amqp").
+cfg_sends_owner("JmsTemplate", "jms").
+cfg_sends_owner("RestTemplate", "http").        cfg_sends_owner("RestClient", "http").
+cfg_sends_owner("WebClient", "http").
+// … and the builders those clients are reached through, because the fluent chain
+// starts on the builder: webClientBuilder.build().get().uri(path).
+cfg_sends_owner("WebClient.Builder", "http").   cfg_sends_owner("RestClient.Builder", "http").
+cfg_sends_owner("RestTemplateBuilder", "http").
+
+// (h) the HTTP verb each end names. A route is a path AND a verb; without the verb a
+//     GET to /owners is an edge to the @PostMapping that creates one.
+cfg_route_verb("GetMapping", "GET").       cfg_route_verb("PostMapping", "POST").
+cfg_route_verb("PutMapping", "PUT").       cfg_route_verb("DeleteMapping", "DELETE").
+cfg_route_verb("PatchMapping", "PATCH").
+cfg_route_verb("GetExchange", "GET").      cfg_route_verb("PostExchange", "POST").
+cfg_route_verb("PutExchange", "PUT").      cfg_route_verb("DeleteExchange", "DELETE").
+cfg_route_verb("PatchExchange", "PATCH").
+// @RequestMapping, @Path and @HttpExchange name no verb on their own — they stay "any".
+
+cfg_sends_verb("getForObject", "GET").     cfg_sends_verb("getForEntity", "GET").
+cfg_sends_verb("postForObject", "POST").   cfg_sends_verb("postForEntity", "POST").
+cfg_sends_verb("postForLocation", "POST"). cfg_sends_verb("put", "PUT").
+cfg_sends_verb("delete", "DELETE").        cfg_sends_verb("patchForObject", "PATCH").
+cfg_sends_verb("get", "GET").              cfg_sends_verb("post", "POST").
+cfg_sends_verb("patch", "PATCH").
+
+// (i) an annotation that makes a TYPE a declarative HTTP CLIENT. Its methods carry the
+//     same mapping annotations a controller does, so without this a Feign interface is
+//     read as a handler and answers "who serves this route".
+cfg_client_type_ann("FeignClient").  cfg_client_type_ann("HttpExchange").
+cfg_client_type_ann("RegisterRestClient").   // MicroProfile

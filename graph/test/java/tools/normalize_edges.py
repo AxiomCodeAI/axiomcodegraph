@@ -117,6 +117,13 @@ class Names:
         # ancestor no staged IR declares (resolution/external-types.dl). Printed whole — it is
         # already a readable name, and truncating it would hide which type the call left for.
         if h.startswith('external:'): return h
+        # A GENERATED target is also a label, not a hash: `generated:<type>#<name>/<arity>`, a
+        # member an annotation processor declares that no IR carries
+        # (resolution/generated-members.dl). Printed whole, for the same reason external: is, and
+        # for a sharper one: truncated to 24 characters `generated:dep.Catalog#getName/0` and
+        # `generated:dep.Catalog#getSize/0` are the SAME string, so two different edges would
+        # collapse into one golden line and a regression in either could not be seen.
+        if h.startswith('generated:'): return h
         return f"<unresolved:{h[:24]}>"
 
 def main():

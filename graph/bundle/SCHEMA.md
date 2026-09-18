@@ -191,10 +191,10 @@ FROM call_edges GROUP BY tier ORDER BY edges DESC
 
 What produced this bundle: one key/value row per fact about the run (language, engine commit, inputs, knobs, timestamps, schema version). Read `language` first — it selects which vocabulary rows apply.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `key` 🔑 | TEXT |  | Fact name — see the `run.key` vocabulary. |
-| 1 | `value` | TEXT |  | Fact value, as text. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `key` | TEXT | yes |  |  | Fact name — see the `run.key` vocabulary. |
+| 1 | `value` | TEXT |  |  |  | Fact value, as text. |
 
 **`run.key` values**
 
@@ -220,19 +220,19 @@ What produced this bundle: one key/value row per fact about the run (language, e
 
 Every callable the graph refers to: all client methods/functions from the IR, plus every LIBRARY method some edge reaches (library methods nothing reaches are not listed — a library IR is GB-scale). A module-level function is a method whose owner columns are NULL; top-level code is the module initializer method (kind MODULE_INITIALIZER in TypeScript and Python, absent in Java).
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `id` 🔑 | TEXT |  | The parser's unique hash for the method (METHOD_REGISTRY_… / TS_METHOD_… / PY_METHOD_…). The value every other table uses to refer to a method. |
-| 1 | `name` | TEXT |  | Simple name as written (`render`, `__init__`, `<init>` for a Java constructor). |
-| 2 | `qualified_name` | TEXT |  | Parser-qualified name — package/module path plus owner plus name. Unique only together with the signature. |
-| 3 | `signature` | TEXT |  | Parameter-type signature as the parser prints it, e.g. `main(String[])`; language-native formatting. |
-| 4 | `kind` | TEXT |  | The parser's methodKind — see vocabulary; the sets differ per language. |
-| 5 | `owner_type_id` | TEXT | yes | FK → types.id of the declaring class/interface/enum; NULL for a free function or a module initializer. |
-| 6 | `owner_qualified_name` | TEXT | yes | Qualified name of the owner, denormalised so a row prints without a join; NULL when owner_type_id is NULL. |
-| 7 | `file_path` | TEXT |  | Source file, as the parser recorded it (relative to the project root it was given). |
-| 8 | `start_line` | INTEGER |  | 1-based first line of the declaration. |
-| 9 | `end_line` | INTEGER |  | 1-based last line of the declaration. |
-| 10 | `provenance` | TEXT |  | `client` — from the analysed project; `lib` — from a staged library IR. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `id` | TEXT | yes |  |  | The parser's unique hash for the method (METHOD_REGISTRY_… / TS_METHOD_… / PY_METHOD_…). The value every other table uses to refer to a method. |
+| 1 | `name` | TEXT |  |  | yes | Simple name as written (`render`, `__init__`, `<init>` for a Java constructor). |
+| 2 | `qualified_name` | TEXT |  |  | yes | Parser-qualified name — package/module path plus owner plus name. Unique only together with the signature. |
+| 3 | `signature` | TEXT |  |  |  | Parameter-type signature as the parser prints it, e.g. `main(String[])`; language-native formatting. |
+| 4 | `kind` | TEXT |  |  |  | The parser's methodKind — see vocabulary; the sets differ per language. |
+| 5 | `owner_type_id` | TEXT |  | yes | yes | FK → types.id of the declaring class/interface/enum; NULL for a free function or a module initializer. |
+| 6 | `owner_qualified_name` | TEXT |  | yes |  | Qualified name of the owner, denormalised so a row prints without a join; NULL when owner_type_id is NULL. |
+| 7 | `file_path` | TEXT |  |  | yes | Source file, as the parser recorded it (relative to the project root it was given). |
+| 8 | `start_line` | INTEGER |  |  |  | 1-based first line of the declaration. |
+| 9 | `end_line` | INTEGER |  |  |  | 1-based last line of the declaration. |
+| 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR. |
 
 **`methods.provenance` values**
 
@@ -317,16 +317,16 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 
 Every class-like declaration the graph refers to: all client types, plus every library type that owns a listed library method or appears in type_ancestors.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `id` 🔑 | TEXT |  | The parser's unique hash (TYPE_REGISTRY_… / TS_TYPE_… / PY_TYPE_…). |
-| 1 | `name` | TEXT |  | Simple name. |
-| 2 | `qualified_name` | TEXT |  | Parser-qualified name. |
-| 3 | `category` | TEXT |  | The parser's typeCategory — see vocabulary. |
-| 4 | `file_path` | TEXT | yes | Source file; NULL for an external type (no declaration was staged). |
-| 5 | `start_line` | INTEGER | yes | 1-based first line; NULL for an external type. |
-| 6 | `end_line` | INTEGER | yes | 1-based last line; NULL for an external type. |
-| 7 | `provenance` | TEXT |  | `client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary). |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `id` | TEXT | yes |  |  | The parser's unique hash (TYPE_REGISTRY_… / TS_TYPE_… / PY_TYPE_…). |
+| 1 | `name` | TEXT |  |  | yes | Simple name. |
+| 2 | `qualified_name` | TEXT |  |  | yes | Parser-qualified name. |
+| 3 | `category` | TEXT |  |  |  | The parser's typeCategory — see vocabulary. |
+| 4 | `file_path` | TEXT |  | yes | yes | Source file; NULL for an external type (no declaration was staged). |
+| 5 | `start_line` | INTEGER |  | yes |  | 1-based first line; NULL for an external type. |
+| 6 | `end_line` | INTEGER |  | yes |  | 1-based last line; NULL for an external type. |
+| 7 | `provenance` | TEXT |  |  |  | `client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary). |
 
 **`types.provenance` values**
 
@@ -370,43 +370,44 @@ Every class-like declaration the graph refers to: all client types, plus every l
 
 One row per place a call is written (or, for a synthesised edge, the construct that implies the call). Every call_edges.call_site_id is here. Location columns come from the IR; they are NULL when the site is a construct the IR does not position (see notes).
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `id` 🔑 | TEXT |  | Site identifier — an expression hash in every language; in Python it may also be a decorator hash or, for METACLASS_CREATION, the class's type hash (see notes). |
-| 1 | `caller_id` | TEXT |  | The method whose body contains the site (FK → methods.id) — or, for code that runs outside any method, the enclosing TYPE (Java: TYPE_REGISTRY_… = the type's static/instance initializer) or MODULE (TypeScript: TS_MODULE_… as a fallback marker). Never NULL. See notes. |
-| 2 | `kind` | TEXT |  | What syntactic form the call takes — the same value as call_edges.kind for this site; see vocabulary (language-specific sets). |
-| 3 | `callee_name` | TEXT | yes | The name written at the site (`render` in `w.render()`, the class name in `new Widget()`); NULL when the form has no written name (a constructor delegation, a record deconstruction). |
-| 4 | `file_path` | TEXT | yes | Source file. |
-| 5 | `start_line` | INTEGER | yes | 1-based line. |
-| 6 | `start_column` | INTEGER | yes | Column, as the parser counts it. |
-| 7 | `end_line` | INTEGER | yes | 1-based last line; NULL where the IR records only the start. |
-| 8 | `end_column` | INTEGER | yes | End column; NULL where the IR records only the start. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `id` | TEXT | yes |  |  | Site identifier — an expression hash in every language; in Python it may also be a decorator hash or, for METACLASS_CREATION, the class's type hash (see notes). |
+| 1 | `caller_id` | TEXT |  |  | yes | The method whose body contains the site (FK → methods.id) — or, for code that runs outside any method, the enclosing TYPE (Java: TYPE_REGISTRY_… = the type's static/instance initializer) or MODULE (TypeScript: TS_MODULE_… as a fallback marker). Never NULL. See notes. |
+| 2 | `kind` | TEXT |  |  |  | What syntactic form the call takes — the same value as call_edges.kind for this site; see vocabulary (language-specific sets). |
+| 3 | `callee_name` | TEXT |  | yes | yes | The name written at the site (`render` in `w.render()`, the class name in `new Widget()`); NULL when the form has no written name (a constructor delegation, a record deconstruction). |
+| 4 | `file_path` | TEXT |  | yes | yes | Source file. |
+| 5 | `start_line` | INTEGER |  | yes |  | 1-based line. |
+| 6 | `start_column` | INTEGER |  | yes |  | Column, as the parser counts it. |
+| 7 | `end_line` | INTEGER |  | yes |  | 1-based last line; NULL where the IR records only the start. |
+| 8 | `end_column` | INTEGER |  | yes |  | End column; NULL where the IR records only the start. |
 
 **Notes**
 
 - **java** — caller_id is a TYPE_REGISTRY_ id (a types row, not a methods row) for a call written in a field initializer or a static/instance initializer block: the parser gives such code no enclosing method, and the rule set attributes it to the type — read it as "runs in this type's <clinit>/<init>".
 - **typescript** — caller_id is normally the parser's caller method, or the module initializer for top-level code; when neither exists it is the TS_MODULE_ hash itself, kept as a greppable marker rather than a blank.
-- **java** — callee_name for `new X()` is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`), anon_new, and record_accessor.
+- **java** — callee_name for `new X()` and for `new X() { … }` (anon_new) is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`) and record_accessor, which write no name. A by-name lookup must therefore exclude kind IN (new, anon_new) to avoid counting a construction as a call to a same-named method.
 - **java** — A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.
+- **python** — A DECORATOR_APPLICATION edge targets the callable the decorator factory RETURNS, not the name written at the `@` — `@deco(X)` applies the inner callable that `deco` returned. The written name is carried by the separate DECORATOR_CALL row, so a by-name lookup must exclude DECORATOR_APPLICATION or it will read the wrapper as a mismatch.
 - **typescript** — end_line / end_column come from the expression row; the call-site row itself records only the start.
 - **javascript** — caller_id is the parser's enclosing method, or the module initializer for top-level code. end_line / end_column come from the expression row. `require()` is a module edge, not a call site.
 - **typescript** — PROPERTY_READ and PROPERTY_WRITE rows are accessor invocations with no written call: the site is the property-access expression that runs the getter or setter, positioned from the expressions table, and callee_name is NULL because nothing was written; the accessor's name is on the callee's methods row. Filter them out with kind NOT IN (…) when counting calls.
-- **python** — PROPERTY_READ, CONTEXT_MANAGER and ITERATION_PROTOCOL rows are protocol edges with no written call: their site is the expression that triggers the protocol, and callee_name is NULL because nothing was written. Filter them out with kind NOT IN (…) when counting calls.
+- **python** — PROPERTY_READ, CONTEXT_MANAGER, ITERATION_PROTOCOL, METACLASS_CREATION and DYNAMIC_CALL rows are protocol or indirect edges with no written call: their site is the expression that triggers them, and callee_name is always NULL because nothing was written. SUBSCRIPT_CALL is NULL only when the subscript is not a written name (measured 206 of 337 rows on a Python subject). Filter them out with kind NOT IN (…) when counting calls.
 - **python** — The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class's TYPE hash for METACLASS_CREATION, positioned at the class declaration.
 
 ### `call_edges`
 
 THE GRAPH. One row per (site, resolved target). A site with N possible targets has N rows, each carrying the same tier; a site the engine could not resolve has exactly one row with a NULL callee and an `ambiguous_*` tier — so every call site written in the client appears at least once, and the table alone shows where every chain ends and why. Filter on `tier` to choose your risk tolerance.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `call_site_id` | TEXT |  | FK → call_sites.id. |
-| 1 | `caller_id` | TEXT |  | Same value as call_sites.caller_id for this site: the containing method, or the enclosing type/module id when there is none (see call_sites). |
-| 2 | `callee_method_id` | TEXT | yes | FK → methods.id of the resolved target, when the target is a method the bundle knows (callee_provenance client or lib). NULL otherwise. |
-| 3 | `callee_label` | TEXT | yes | The target when it is NOT a method row: a builtin (`builtin:len`) or an import path outside every staged IR (`requests.get`) — Python only today. NULL when callee_method_id is set or the site is unresolved. |
-| 4 | `callee_provenance` | TEXT | yes | Where the target lives — see vocabulary. NULL for an unresolved site. |
-| 5 | `tier` | TEXT |  | Confidence class of this edge — see vocabulary. `known_edge` and `multi_inferred` are assertions about client code; `boundary_lib` leaves the client; the `ambiguous_*` tiers are declared blind spots, not edges. |
-| 6 | `kind` | TEXT |  | Syntactic form of the site — see vocabulary; language-specific sets, kept native. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `call_site_id` | TEXT |  |  | yes | FK → call_sites.id. |
+| 1 | `caller_id` | TEXT |  |  | yes | Same value as call_sites.caller_id for this site: the containing method, or the enclosing type/module id when there is none (see call_sites). |
+| 2 | `callee_method_id` | TEXT |  | yes | yes | FK → methods.id of the resolved target, when the target is a method the bundle knows (callee_provenance client or lib). NULL otherwise. |
+| 3 | `callee_label` | TEXT |  | yes |  | The target when it is NOT a method row: a builtin (`builtin:len`) or an import path outside every staged IR (`requests.get`) — Python only today. NULL when callee_method_id is set or the site is unresolved. |
+| 4 | `callee_provenance` | TEXT |  | yes |  | Where the target lives — see vocabulary. NULL for an unresolved site. |
+| 5 | `tier` | TEXT |  |  | yes | Confidence class of this edge — see vocabulary. `known_edge` and `multi_inferred` are assertions about client code; `boundary_lib` leaves the client; the `ambiguous_*` tiers are declared blind spots, not edges. |
+| 6 | `kind` | TEXT |  |  |  | Syntactic form of the site — see vocabulary; language-specific sets, kept native. |
 
 **`call_edges.tier` values**
 
@@ -507,20 +508,20 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 
 Transitive supertype closure: (type, ancestor) for every ancestor reachable through extends/implements/bases, client and library alike. Not a member-inheritance claim — in TypeScript an `implements` edge inherits nothing (the rule set keeps two closures; this is the conformance one).
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `type_id` 🔑 | TEXT |  | FK → types.id. |
-| 1 | `ancestor_type_id` 🔑 | TEXT |  | FK → types.id. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `type_id` | TEXT | yes |  | yes | FK → types.id. |
+| 1 | `ancestor_type_id` | TEXT | yes |  | yes | FK → types.id. |
 
 ### `dispatch_candidates`
 
 THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call that statically resolves to the base. This is the set `call_edges` narrowed FROM — the difference between "these are the targets" and "these are the targets, out of these possibilities". Populated in every language; `basis` says what admitted the pair, because the three front ends admit by different means.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `base_method_id` 🔑 | TEXT |  | FK → methods.id — the method a call resolves to statically. |
-| 1 | `candidate_method_id` 🔑 | TEXT |  | FK → methods.id — a method that may run instead at such a call. |
-| 2 | `basis` 🔑 | TEXT |  | What admitted the pair — see vocabulary. Filter on it to trust only declarations. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `base_method_id` | TEXT | yes |  | yes | FK → methods.id — the method a call resolves to statically. |
+| 1 | `candidate_method_id` | TEXT | yes |  | yes | FK → methods.id — a method that may run instead at such a call. |
+| 2 | `basis` | TEXT | yes |  |  | What admitted the pair — see vocabulary. Filter on it to trust only declarations. |
 
 **`dispatch_candidates.basis` values**
 
@@ -534,10 +535,10 @@ THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call
 
 Virtual-dispatch pairs: (base method, overriding method) wherever a call to the base may run the override. Java only, and kept for compatibility — it is exactly `dispatch_candidates` filtered to `basis = nominal`. Prefer `dispatch_candidates`, which is populated in every language.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `method_id` 🔑 | TEXT |  | FK → methods.id — the base (declared) method. |
-| 1 | `overriding_method_id` 🔑 | TEXT |  | FK → methods.id — the override in a subtype. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `method_id` | TEXT | yes |  | yes | FK → methods.id — the base (declared) method. |
+| 1 | `overriding_method_id` | TEXT | yes |  | yes | FK → methods.id — the override in a subtype. |
 
 **Notes**
 
@@ -548,10 +549,10 @@ Virtual-dispatch pairs: (base method, overriding method) wherever a call to the 
 
 Methods the runtime invokes without a client call site — process roots, test methods, HTTP handlers, framework hooks. The seeds of entry_reachable.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `method_id` 🔑 | TEXT |  | FK → methods.id. |
-| 1 | `reason` 🔑 | TEXT |  | Why it is an entry — see vocabulary. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `method_id` | TEXT | yes |  | yes | FK → methods.id. |
+| 1 | `reason` | TEXT | yes |  |  | Why it is an entry — see vocabulary. |
 
 **`entry_points.reason` values**
 
@@ -576,36 +577,36 @@ Methods the runtime invokes without a client call site — process roots, test m
 
 Methods reachable from some entry point through call_edges (client edges only). A method absent here is dead from every known entry — or reachable only through a declared unknown.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `method_id` 🔑 | TEXT |  | FK → methods.id. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `method_id` | TEXT | yes |  |  | FK → methods.id. |
 
 ### `unresolved_sites`
 
 The blind spots, attributed to the code that contains them: (caller, site) for every call site whose tier is `ambiguous_*` — a declared unknown, not an edge. A change-impact answer computed from a caller listed here is a lower bound. Derived from call_edges, so it is present in every language.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `caller_id` 🔑 | TEXT |  | Same domain as call_sites.caller_id: usually FK → methods.id. |
-| 1 | `call_site_id` 🔑 | TEXT |  | FK → call_sites.id. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `caller_id` | TEXT | yes |  | yes | Same domain as call_sites.caller_id: usually FK → methods.id. |
+| 1 | `call_site_id` | TEXT | yes |  |  | FK → call_sites.id. |
 
 ### `fields`
 
 Every field-like storage location the graph refers to: all client fields and enum constants from the IR, plus every LIBRARY field some field_access edge reaches. A field is not a callable, so it has no row in `methods`; this is where `field_access.field_id` resolves to a name, an owner and a position.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `id` 🔑 | TEXT |  | The parser's unique hash for the field or enum constant (FIELD_REGISTRY_… / ENUM_CONSTANT_…). The value field_access.field_id refers to. |
-| 1 | `name` | TEXT |  | Simple name as written (`count`, `RED`). |
-| 2 | `kind` | TEXT |  | `field` or `enum_constant` — see vocabulary. An enum constant is a static final field of its enum and is recorded here so `Colour.RED` resolves like any other read. |
-| 3 | `owner_type_id` | TEXT | yes | FK → types.id of the declaring class/interface/enum/record. |
-| 4 | `owner_qualified_name` | TEXT | yes | Qualified name of the owner, denormalised so a row prints without a join. |
-| 5 | `type_name` | TEXT | yes | The declared type as the parser wrote it; NULL for an enum constant, whose type is its own enum. |
-| 6 | `modifiers` | TEXT | yes | The parser's comma-separated modifier set (`STATIC,FINAL`); NULL where the IR records none. |
-| 7 | `file_path` | TEXT | yes | Source file. |
-| 8 | `start_line` | INTEGER | yes | 1-based first line of the declaration. |
-| 9 | `end_line` | INTEGER | yes | 1-based last line. |
-| 10 | `provenance` | TEXT |  | `client` — from the analysed project; `lib` — from a staged library IR. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `id` | TEXT | yes |  |  | The parser's unique hash for the field or enum constant (FIELD_REGISTRY_… / ENUM_CONSTANT_…). The value field_access.field_id refers to. |
+| 1 | `name` | TEXT |  |  | yes | Simple name as written (`count`, `RED`). |
+| 2 | `kind` | TEXT |  |  |  | `field` or `enum_constant` — see vocabulary. An enum constant is a static final field of its enum and is recorded here so `Colour.RED` resolves like any other read. |
+| 3 | `owner_type_id` | TEXT |  | yes | yes | FK → types.id of the declaring class/interface/enum/record. |
+| 4 | `owner_qualified_name` | TEXT |  | yes |  | Qualified name of the owner, denormalised so a row prints without a join. |
+| 5 | `type_name` | TEXT |  | yes |  | The declared type as the parser wrote it; NULL for an enum constant, whose type is its own enum. |
+| 6 | `modifiers` | TEXT |  | yes |  | The parser's comma-separated modifier set (`STATIC,FINAL`); NULL where the IR records none. |
+| 7 | `file_path` | TEXT |  | yes | yes | Source file. |
+| 8 | `start_line` | INTEGER |  | yes |  | 1-based first line of the declaration. |
+| 9 | `end_line` | INTEGER |  | yes |  | 1-based last line. |
+| 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR. |
 
 **`fields.kind` values**
 
@@ -631,19 +632,19 @@ Every field-like storage location the graph refers to: all client fields and enu
 
 THE DATA GRAPH. One row per (site, resolved field), and the answer to "who reads or writes this field" — the question call_edges cannot answer, because a field access is not a call. A site with N possible fields has N rows carrying the same tier; a site the engine could not resolve has exactly one row with a NULL field and tier `ambiguous_unknown`, so every field access written in the client appears at least once and the table alone shows where the resolution stopped. A field is NOT virtually dispatched: a `known_edge` row names the storage location, not a best estimate of one.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `site_id` | TEXT |  | The expression where the access is written. Not a call_sites id: a field access is not a call site. The location columns on this row are the site's own. |
-| 1 | `caller_id` | TEXT |  | The method whose body contains the access (FK → methods.id) — or, for an access written in a field initializer or an initializer block, the enclosing TYPE, exactly as call_sites.caller_id does. Never NULL. |
-| 2 | `field_id` | TEXT | yes | FK → fields.id of the resolved field or enum constant. NULL when the site is unresolved. |
-| 3 | `field_provenance` | TEXT | yes | Where the field is declared — `client` or `lib`. NULL for an unresolved site. |
-| 4 | `access` | TEXT |  | Which way the data moves — see vocabulary. Present on an unresolved row too: the direction is decided by how the access is WRITTEN, which does not need the receiver to resolve. |
-| 5 | `tier` | TEXT |  | Confidence class of this edge — see vocabulary. Same four values and same promises as call_edges.tier. |
-| 6 | `file_path` | TEXT | yes | Source file of the site. |
-| 7 | `start_line` | INTEGER | yes | 1-based line of the site. |
-| 8 | `start_column` | INTEGER | yes | Column, as the parser counts it. |
-| 9 | `end_line` | INTEGER | yes | 1-based last line. |
-| 10 | `end_column` | INTEGER | yes | End column. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `site_id` | TEXT |  |  | yes | The expression where the access is written. Not a call_sites id: a field access is not a call site. The location columns on this row are the site's own. |
+| 1 | `caller_id` | TEXT |  |  | yes | The method whose body contains the access (FK → methods.id) — or, for an access written in a field initializer or an initializer block, the enclosing TYPE, exactly as call_sites.caller_id does. Never NULL. |
+| 2 | `field_id` | TEXT |  | yes | yes | FK → fields.id of the resolved field or enum constant. NULL when the site is unresolved. |
+| 3 | `field_provenance` | TEXT |  | yes |  | Where the field is declared — `client` or `lib`. NULL for an unresolved site. |
+| 4 | `access` | TEXT |  |  | yes | Which way the data moves — see vocabulary. Present on an unresolved row too: the direction is decided by how the access is WRITTEN, which does not need the receiver to resolve. |
+| 5 | `tier` | TEXT |  |  | yes | Confidence class of this edge — see vocabulary. Same four values and same promises as call_edges.tier. |
+| 6 | `file_path` | TEXT |  | yes | yes | Source file of the site. |
+| 7 | `start_line` | INTEGER |  | yes |  | 1-based line of the site. |
+| 8 | `start_column` | INTEGER |  | yes |  | Column, as the parser counts it. |
+| 9 | `end_line` | INTEGER |  | yes |  | 1-based last line. |
+| 10 | `end_column` | INTEGER |  | yes |  | End column. |
 
 **`field_access.access` values**
 
@@ -683,18 +684,18 @@ THE DATA GRAPH. One row per (site, resolved field), and the answer to "who reads
 
 THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the context it was written in. `call_edges` says who calls a method and `field_access` who touches a field; this says what breaks if the TYPE changes — every signature, field, local, `new`, cast, `instanceof`, throws clause and generic argument that mentions it. A name that resolved to nothing is one row with a NULL type and tier `ambiguous_unknown`, so an unstaged third party is a declared unknown rather than an absence.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `reference_id` | TEXT |  | The type-reference node. Not an expression id: a type reference is its own IR entity. |
-| 1 | `type_id` | TEXT | yes | FK → types.id of the type the name denotes. NULL when it resolved to nothing. |
-| 2 | `context` | TEXT |  | Where the reference is written — see vocabulary. This is the column that makes an impact answer specific: `seventeen METHOD_PARAM and four FIELD_TYPE`, not `twenty-one mentions`. |
-| 3 | `depth` | INTEGER |  | 0 for the type as written, 1 or more for a type argument of the one above it. A field of type `Map<String, Widget>` yields Map at depth 0 and String and Widget at depth 1; all three are uses of the type named. |
-| 4 | `owner_kind` | TEXT |  | What kind of declaration carries the reference — see vocabulary. It says what `owner_id` points at. |
-| 5 | `owner_id` | TEXT |  | The declaration that carries the reference. FK → methods.id when owner_kind is METHOD, → types.id for TYPE, → fields.id for FIELD; for METHOD_PARAM, LOCAL_VARIABLE, EXPRESSION and the annotation kinds it is the parser hash of an entity the bundle does not table, so join on owner_method_id / owner_type_id instead. |
-| 6 | `owner_method_id` | TEXT | yes | FK → methods.id of the method whose declaration or body contains the reference; NULL where there is none (a field type, a supertype clause). |
-| 7 | `owner_type_id` | TEXT | yes | FK → types.id of the type whose source contains the reference. Set for every reference written inside a type declaration. |
-| 8 | `type_provenance` | TEXT | yes | Where the referenced type is declared — `client` or `lib`. NULL when unresolved. |
-| 9 | `tier` | TEXT |  | Confidence class — see vocabulary. Same four values and same promises as call_edges.tier. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `reference_id` | TEXT |  |  | yes | The type-reference node. Not an expression id: a type reference is its own IR entity. |
+| 1 | `type_id` | TEXT |  | yes | yes | FK → types.id of the type the name denotes. NULL when it resolved to nothing. |
+| 2 | `context` | TEXT |  |  | yes | Where the reference is written — see vocabulary. This is the column that makes an impact answer specific: `seventeen METHOD_PARAM and four FIELD_TYPE`, not `twenty-one mentions`. |
+| 3 | `depth` | INTEGER |  |  |  | 0 for the type as written, 1 or more for a type argument of the one above it. A field of type `Map<String, Widget>` yields Map at depth 0 and String and Widget at depth 1; all three are uses of the type named. |
+| 4 | `owner_kind` | TEXT |  |  |  | What kind of declaration carries the reference — see vocabulary. It says what `owner_id` points at. |
+| 5 | `owner_id` | TEXT |  |  |  | The declaration that carries the reference. FK → methods.id when owner_kind is METHOD, → types.id for TYPE, → fields.id for FIELD; for METHOD_PARAM, LOCAL_VARIABLE, EXPRESSION and the annotation kinds it is the parser hash of an entity the bundle does not table, so join on owner_method_id / owner_type_id instead. |
+| 6 | `owner_method_id` | TEXT |  | yes | yes | FK → methods.id of the method whose declaration or body contains the reference; NULL where there is none (a field type, a supertype clause). |
+| 7 | `owner_type_id` | TEXT |  | yes | yes | FK → types.id of the type whose source contains the reference. Set for every reference written inside a type declaration. |
+| 8 | `type_provenance` | TEXT |  | yes |  | Where the referenced type is declared — `client` or `lib`. NULL when unresolved. |
+| 9 | `tier` | TEXT |  |  | yes | Confidence class — see vocabulary. Same four values and same promises as call_edges.tier. |
 
 **`type_use.tier` values**
 
@@ -791,10 +792,10 @@ THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the con
 
 Types this run creates an instance of — the rapid-type-analysis set that bounds virtual dispatch. (A subtype nothing instantiates cannot receive a dispatched call.) Deliberately an over-approximation: narrowing it on evidence the run does not have would lose real edges. Populated in every language.
 
-| # | column | type | null | meaning |
-|---|---|---|---|---|
-| 0 | `type_id` 🔑 | TEXT |  | FK → types.id. |
-| 1 | `how` 🔑 | TEXT |  | What creates the instance — see vocabulary. |
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `type_id` | TEXT | yes |  | yes | FK → types.id. |
+| 1 | `how` | TEXT | yes |  |  | What creates the instance — see vocabulary. |
 
 **`type_instantiated.how` values**
 
