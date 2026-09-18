@@ -235,22 +235,6 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR; `generated` — declared by an annotation processor and synthesised here (Java). See vocabulary. |
 | 11 | `visibility` | TEXT |  | yes | yes | Declared access as the parser recorded it, normalised (PUBLIC / PROTECTED / PACKAGE / PRIVATE). NULL where the language has no access modifiers. A public or protected declaration with no dependent in this graph is exported surface, not dead code. |
 
-**`methods.visibility` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `PUBLIC` | java | Callable from anywhere; exported surface. No in-repo caller does not mean unused. |
-| `PROTECTED` | java | Callable by subclasses outside the package; exported surface for extension. |
-| `PACKAGE` | java | Default access; callable only within the declaring package. |
-| `PRIVATE` | java | Callable only within the declaring type. |
-
-**`methods.provenance` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `client` | all | Declared in the analysed project. |
-| `lib` | all | Declared in a staged library IR; listed because an edge reaches it. |
-
 **`methods.kind` values**
 
 | value | languages | meaning |
@@ -337,6 +321,15 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `STATIC_BLOCK` | javascript | `static {}` block of a class. |
 | `MODULE_INITIALIZER` | javascript | Synthetic method holding a module's top-level code. Every module has one; top-level call sites belong to it. |
 
+**`methods.visibility` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `PUBLIC` | java | Callable from anywhere; exported surface. No in-repo caller does not mean unused. |
+| `PROTECTED` | java | Callable by subclasses outside the package; exported surface for extension. |
+| `PACKAGE` | java | Default access; callable only within the declaring package. |
+| `PRIVATE` | java | Callable only within the declaring type. |
+
 **`methods.provenance` values**
 
 | value | languages | meaning |
@@ -366,14 +359,6 @@ Every class-like declaration the graph refers to: all client types, plus every l
 | 6 | `end_line` | INTEGER |  | yes |  | 1-based last line; NULL for an external type. |
 | 7 | `provenance` | TEXT |  |  |  | `client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary). |
 | 8 | `visibility` | TEXT |  | yes | yes | Declared access as the parser recorded it, normalised (PUBLIC / PROTECTED / PACKAGE / PRIVATE). NULL where the language has no access modifiers. |
-
-**`types.provenance` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `client` | all | Declared in the analysed project. |
-| `lib` | all | Declared in a staged library IR. |
-| `external` | java | Named by the client as an ancestor (`extends`/`implements`) but declared in no staged IR: id `external:<qualified name>`, category EXTERNAL_TYPE, no file, no members. Kept so the subtype edge survives; stage the library to replace it with the real declaration. |
 
 **`types.category` values**
 
@@ -461,33 +446,6 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | 4 | `callee_provenance` | TEXT |  | yes |  | Where the target lives — see vocabulary. NULL for an unresolved site. |
 | 5 | `tier` | TEXT |  |  | yes | Confidence class of this edge — see vocabulary. `known_edge` and `multi_inferred` are assertions about client code; `boundary_lib` leaves the client; the `ambiguous_*` tiers are declared blind spots, not edges. |
 | 6 | `kind` | TEXT |  |  |  | Syntactic form of the site — see vocabulary; language-specific sets, kept native. |
-
-**`call_edges.tier` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `known_edge` | all | Exactly one target resolved. The strongest claim. |
-| `multi_inferred` | all | A sound SET of possible targets; each member is one row. The set over-approximates — every member is a real possibility, but not every member runs. HOW WIDE the set is differs by language: see the per-language notes on this table for whether the fan is narrowed by the instantiation set. |
-| `boundary_lib` | all | The target is outside the client (library, builtin, or unstaged external). The chain is not expanded past it here. |
-| `ambiguous_unknown` | all | Declared blind spot: the engine could not resolve the site (unresolved receiver, missing type, reflection…). callee is NULL. Never dropped. |
-| `ambiguous_anon` | java | Known structural gap: an anonymous-class creation has no candidate rule yet. callee is NULL. |
-| `ambient_terminal` | typescript | The target is an ambient declaration (a `.d.ts` signature with no body anywhere) — resolved, but there is nothing to expand into. |
-| `ambient_terminal` | javascript | The callee or receiver VALUE is the platform (`console.log`, `path.join`, `arr.forEach`) — a correct end, not a blind spot; callee is NULL. Beside a project edge it is the platform ALTERNATIVE of a `multi_inferred` site. |
-| `implicit_constructor` | javascript | `new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL. |
-| `dynamic_terminal` | javascript | `obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL. |
-| `fan_capped` | javascript | More targets than --dispatch-cap: the set was refused rather than emitted; callee is NULL. |
-| `callback_registered` | javascript | The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`), which may invoke it. Not the site's own callee; a reachability edge, labelled so it is never read as a resolved call. |
-| `event_dispatch` | javascript | `x.emit('name')` reaching a handler registered by `x.on('name', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one. |
-| `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
-
-**`call_edges.callee_provenance` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `client` | all | Target is a client method (callee_method_id set). |
-| `lib` | all | Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib). |
-| `builtin` | python | Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`). |
-| `external` | python, java | Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external. |
 
 **`call_edges.kind` values**
 
