@@ -48,12 +48,19 @@ import * as path from 'path';
  * roots under `node_modules/`) is a second discriminator wanting its own evidence, so it
  * is not taken here.
  *
- * A root with no readable `package.json`, or one with no `name`, gets `""`. Two such roots
- * in one run would share that token and collide, so it is a real edge and not a formality.
- * Measured on a corpus member's run: 6 roots, exactly one of them empty, the staged
- * TypeScript standard library source, whose directory sits below its package's own
- * `package.json` and so carries no name of its own. If a second ever appears, the row
- * counts are what shows it, since a collision cannot fail a golden.
+ * ## A root with no manifest keeps its path, and that is deliberate
+ *
+ * An earlier form of this returned `""` when no `package.json` could be read. That is a
+ * COLLISION waiting to happen: two manifest-less roots in one run share the empty token
+ * and their files merge. It is not hypothetical, and it is not only a Java or Python
+ * concern: this repository's own JavaScript torture fixture has no `package.json`, and
+ * neither do its Java and Python case directories. On one TypeScript corpus member the
+ * staged standard-library source is already such a root; it is alone there, and a second
+ * would have been silent, because a key collision cannot fail a golden.
+ *
+ * So the fallback is the path it replaced. A root that can be named portably is named
+ * portably; a root that cannot keeps exactly the behaviour it had. The change is then
+ * monotonic: strictly better where a manifest exists, and never worse where none does.
  */
 const cache = new Map<string, string>();
 
@@ -67,9 +74,9 @@ export function stableRootId(rootPath: string): string {
       id = pkg.version ? `${pkg.name}@${pkg.version}` : pkg.name;
     }
   } catch {
-    // No package.json, or not readable, or not JSON. `""` is the answer, not a throw:
-    // a key that cannot be computed is worse than one root sharing the empty token.
+    // No package.json, or not readable, or not JSON. Fall through to the path.
   }
+  if (!id) id = rootPath;
   cache.set(rootPath, id);
   return id;
 }
