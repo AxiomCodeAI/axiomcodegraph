@@ -1,0 +1,5 @@
+ambiguous_unknown	METHOD_RETURN	0	probe.Uses#notStripped(Point) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Uses#prefixed(Point) [METHOD] -> -
+boundary_lib	METHOD_PARAM	0	probe.Uses#notStripped(Point) [METHOD_PARAM] -> dep.Point
+boundary_lib	METHOD_PARAM	0	probe.Uses#plain(Point) [METHOD_PARAM] -> dep.Point
+boundary_lib	METHOD_PARAM	0	probe.Uses#prefixed(Point) [METHOD_PARAM] -> dep.Point
