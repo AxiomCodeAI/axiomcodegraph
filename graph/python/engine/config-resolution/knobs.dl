@@ -1,0 +1,42 @@
+// ============================================================================
+// CONFIG-RESOLUTION · KNOBS  (framework name lists — the only per-ecosystem edit)
+//
+// The counterpart of java/engine/config-resolution/knobs.dl, in the matching phase,
+// and for the same reason:
+// every framework-specific NAME lives here and nowhere else, so adding an ecosystem is
+// a matter of adding facts, and NO RULE MENTIONS A FRAMEWORK BY NAME.
+//
+// WHY NOT resolution/builtins.dl, where this list first landed. That file is about
+// CPython's C-level callables — `super`, `object`, `len` — things with no Python source
+// anywhere. An HTTP verb is not a builtin; it is a name a third-party framework chose.
+// Keeping the two apart is what makes "which names did we assume?" answerable in one
+// file per language, which is the whole point of the Java convention.
+// ============================================================================
+
+// ── py_http_route_verb(Verb) — the HTTP method a route decorator is named after ──
+// A WSGI/ASGI framework registers a handler by decorating it with the HTTP verb:
+// `@app.route(...)` (Flask, Bottle), `@router.get(...)` / `@app.post(...)` (FastAPI,
+// Starlette), `@routes.get(...)` (an aiohttp route table), `@api.websocket(...)`.
+//
+// The set is HTTP's, not any project's — RFC 9110's methods plus `route` (a
+// verb-agnostic registration) and `websocket` (the upgrade handshake) — so it
+// generalises by construction rather than by sampling, and it did: it matched a third
+// framework it was never written against, unmodified.
+//
+// A decorator is a route ONLY if its final segment is NAMED here, so the list can move
+// a declaration from "no entry point" to "entry point" and never silently the other way.
+//
+// THE NAME IS NOT SUFFICIENT AND IS NEVER MATCHED ALONE. `patch` is an HTTP method and
+// also the stdlib's mock entry point, so `@mock.patch(...)` satisfies <receiver>.<verb>
+// exactly — measured, that was 229 of 253 matches across five real projects.
+// config-resolution/entry-points.dl also requires a URL path argument, which a mock target,
+// being a dotted name, never has.
+py_http_route_verb("route").
+py_http_route_verb("get").
+py_http_route_verb("post").
+py_http_route_verb("put").
+py_http_route_verb("delete").
+py_http_route_verb("patch").
+py_http_route_verb("head").
+py_http_route_verb("options").
+py_http_route_verb("websocket").
