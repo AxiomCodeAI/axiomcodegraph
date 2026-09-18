@@ -67,9 +67,17 @@ call_receiver_text(prov, e, rtn) :- call_receiver(prov, e, _, _, rtn), rtn != ""
 
 // Receiverless: `M()` with nothing written before it. Resolves against the implicit
 // `this`, then the enclosing type's statics, then the enclosing types outward, then
-// the `using static` imports. FUNCTION_CALL and LOCAL_FUNCTION_CALL are both this
-// shape.
-call_is_unqualified(prov, e) :- call_receiver_kind(prov, e, "NONE").
+// the `using static` imports.
+//
+// NOT DEFINED AS receiverKind = NONE, although that is the tempting reading. A
+// CONSTRUCTOR_CALL also has receiverKind NONE -- `new Circle(1.0)` writes no
+// receiver either -- so the shorthand makes every `new` an unqualified scope lookup
+// as well. Measured on the probe project: every construction emitted two rows, one
+// `new` and one `method`, and its receiver was typed as the ENCLOSING type, because
+// the implicit-`this` clause fired on it. The kinds where "no receiver" means scope
+// lookup are exactly these two, so they are named.
+call_is_unqualified(prov, e) :- call_kind(prov, e, "FUNCTION_CALL").
+call_is_unqualified(prov, e) :- call_kind(prov, e, "LOCAL_FUNCTION_CALL").
 
 // `base.M()` DISPATCHES NON-VIRTUALLY. The target is the base implementation and
 // there is no fan-out, which is why this is a named fact rather than a receiver type
