@@ -53,6 +53,27 @@ true of nothing and reads as a pass.
 
 `not_executed` is never scored. A runtime oracle can only speak about what executed.
 
+### A receiver the analysed program never constructs
+
+The harness traces a whole checkout and scores the subtree that was parsed, and when those
+differ a receiver built only in the untraced part makes a right answer look wrong. A
+template engine declares `self.loader: BaseLoader`, whose `get_source` raises
+`NotImplementedError`, and constructs its concrete loaders only in `tests/`. Parsing
+`src/` alone, RTA records none of them as instantiated and the call resolves to the base;
+the trace, which ran the tests, saw the subclasses. Scored naively that is a
+`wrong_target`, and no sound rule could have named those overrides.
+
+`join.py` reads the engine's own `resolution-type-instantiated.csv` rather than
+re-deriving RTA, and **annotates** such a verdict rather than reclassifying it: the
+verdict is retained and the reader is told how much of it rests on code the engine never
+saw. Reclassifying would swallow a genuine miss whose target happens to sit on a rarely
+built class.
+
+Widening the parsed tree to the whole checkout is not the answer either: on one subject it
+drops `agree` from 83.2% to 57.9% and raises `unresolved_but_ran` from 4.1% to 25.9%,
+because test code is written with untyped receivers and fixtures. The engine measurement
+then describes the tests.
+
 ## What it cannot see, and why that is safe
 
 * **A construction with no Python `__init__`.** `C()` on a class without one runs
