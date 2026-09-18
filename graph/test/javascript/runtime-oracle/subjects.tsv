@@ -28,3 +28,4 @@
 #
 # ── name    set      commit   test              note
 axios       dev      56a5f1a  npx vitest run    1075 tests, 1 failed, instrumented and not. 13,975 sites, 3,230 executed, 896 of them production. ESM, "type": "module", and the suite drives node and fetch adapters both
+koa         dev      c3c14b6  node --test       459 tests, 0 failed, instrumented and not. 3,918 sites, 1,043 executed, 78 of them production. CommonJS, and its runner is node's own, which is what the NODE_OPTIONS path is for. Small, so it is a shape probe and not a weight in the aggregate
