@@ -1,0 +1,3 @@
+boundary_lib	method	probe.Gateway#viaAlways(String) -> dep.AlwaysGate#route(String)
+boundary_lib	method	probe.Gateway#viaFallback(String) -> dep.FallbackGate#route(String)
+boundary_lib	method	probe.Gateway#viaPrimary(String) -> dep.PrimaryGate#route(String)
