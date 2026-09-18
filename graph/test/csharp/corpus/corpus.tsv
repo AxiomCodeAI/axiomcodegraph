@@ -40,14 +40,26 @@
 # oracle would compile all of them as one assembly — merging several `Program`
 # classes and every `internal`. Each entry therefore names the LIBRARY subtree.
 #
-# ── EVERY ENTRY TARGETS net8.0 OR LOWER at its pinned commit ─────────────────
-# The static oracle is pinned to Microsoft.CodeAnalysis.CSharp 4.12.0 and SDK
-# 8.0.401, matching the parser's own corpus audit so a parser figure and an engine
-# figure from this repository are comparable. A subject using a C# 14 construct
-# parses as an error there, and a file the oracle could not read is not evidence
-# about the engine in either direction — so the pins avoid the question rather than
-# leaving it to be discovered per run. run-corpus.sh reports the oracle's own error
-# count per project, so a pin that drifts into this problem is visible.
+# ── TARGET FRAMEWORKS, CHECKED RATHER THAN ASSUMED ───────────────────────────
+# Every LIBRARY subtree below lists net8.0 among its TargetFrameworks at its pinned
+# commit. Verified, not assumed: an earlier version of this comment claimed the
+# whole repository did, and tracing MediatR disproved it in one run.
+#
+# THE TEST PROJECTS ARE A DIFFERENT MATTER. Several target net10.0 only (mediatr,
+# serilog, humanizer, yamldotnet among them). That does not affect the STATIC
+# oracle, which parses source and compiles against reference assemblies and never
+# builds a project. It does affect the RUNTIME oracle, which has to build and run
+# the suite, so runtime-oracle/trace-subject.sh needs an SDK new enough for the
+# subject's own tests and reports the ones it cannot build rather than silently
+# producing no trace.
+#
+# The static oracle stays pinned to Microsoft.CodeAnalysis.CSharp 4.12.0 and
+# LanguageVersion 13, matching the parser's own corpus audit so a parser figure and
+# an engine figure from this repository are comparable. A subject using a C# 14
+# construct parses as an error there, and a file the oracle could not read is not
+# evidence about the engine in either direction — so run-corpus.sh prints the
+# oracle's own compile-error count per project next to the score, and a pin that
+# drifts into that problem is visible instead of quietly lowering recall.
 #
 # name	set	path	repo	commit	note
 serilog	dev	src/Serilog	https://github.com/serilog/serilog	bebc7719004f76187ae72e64ce138ec2540f2070	Interfaces, fluent builders, extension methods, a sink hierarchy. The shape a DI-heavy application is written in.
