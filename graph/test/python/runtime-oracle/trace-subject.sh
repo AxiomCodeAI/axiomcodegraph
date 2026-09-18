@@ -76,13 +76,23 @@ if [ "$SKIP_BASE" = "0" ]; then
   # between any two runs and would make the check fail for no reason.
   b="$(grep -oE '[0-9]+ (passed|failed|error|errors|skipped|xfailed|deselected)' "$WORK/baseline.log" | sort | tr '\n' ' ')"
   t="$(grep -oE '[0-9]+ (passed|failed|error|errors|skipped|xfailed|deselected)' "$WORK/traced.log" | sort | tr '\n' ' ')"
-  # A VACUOUS PASS IS THE ONE OUTCOME THIS CHECK MUST NOT HAVE. A subject whose
-  # suite fails to collect prints no "N passed" at all, both sides extract to the
-  # empty string, and "identical" is then true of nothing. Measured: a missing
-  # test-only dependency produced `integrity ok` over 3 traced rows and 0 scored
-  # sites, and the run reported a clean join.
-  if [ -z "$b" ]; then
-    echo "  INTEGRITY INCONCLUSIVE — the baseline run reported no test counts"
+  # A VACUOUS PASS IS THE ONE OUTCOME THIS CHECK MUST NOT HAVE, and equality is the
+  # wrong question when there is nothing on either side.
+  #
+  # The first version of this guard required the verdict string to be NON-EMPTY, after a
+  # subject with a missing test-only dependency produced `integrity ok` over 3 traced
+  # rows. That is not enough, and a second subject proved it: pytest aborted during
+  # COLLECTION, so the verdict was the non-empty string "1 error", the two sides matched,
+  # and not one test had executed. The harness then scored the engine over 4,510 sites
+  # reached while importing the package during collection and reported 94.17% agree, the
+  # highest figure in the corpus, describing import-time code alone.
+  #
+  # So the test is POSITIVE: at least one test must have PASSED. A verdict made only of
+  # errors, failures or skips stops the run.
+  passed_n="$(grep -oE '[0-9]+ passed' "$WORK/baseline.log" | grep -oE '^[0-9]+' | tail -1)"
+  if [ -z "$b" ] || [ -z "$passed_n" ] || [ "$passed_n" -lt 1 ]; then
+    echo "  INTEGRITY INCONCLUSIVE: the baseline reported no passing test, so there is"
+    echo "  nothing to compare and nothing the trace can be said to describe."
     echo "    $(tail -3 "$WORK/baseline.log" | tr '\n' ' ' | cut -c1-160)"
     exit 1
   fi
