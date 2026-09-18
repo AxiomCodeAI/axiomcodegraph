@@ -52,6 +52,15 @@ body_presence_is_ambient("NO_BODY_AMBIENT").
 // ── call_runs_method(CallExprHash, MethodHash) ──────────────────────────────
 // What actually executes. Identity where the resolved target has a body; the
 // group's implementation where it is an overload signature.
+//
+// EXPORTED, per call site. call_runs_edge below is this relation rolled up to the
+// caller METHOD, which is what a reachability walk wants and which cannot answer
+// "at THIS site, what runs". A consumer that has a position, and the runtime
+// oracle is one, had no way to ask: it read call_edges, saw the SIGNATURE the
+// compiler selected, and charged the engine with missing the body. Measured on
+// immer 061c242, 366 executed production sites: 7 of the 17 OUTSIDE rows were
+// this, six of them one `each` whose signature is common.ts:84 and whose
+// implementation is common.ts:89.
 call_runs_method(ce, m) :- expr_resolves_to_method(ce, m),
     method_body_presence(m, bp),
     body_presence_has_body(bp).
