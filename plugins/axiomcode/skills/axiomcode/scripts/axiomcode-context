@@ -29,7 +29,7 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, budgeted, BOUND,
-                         dirs_with_counts, offer, task_text, task_terms, winnow)
+                         dirs_with_counts, offer, task_text, task_terms, winnow, headline)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, die = P.G, P.die
@@ -107,6 +107,11 @@ def score_symbols(g, terms, use_path=True):
 # 44% (one lucky symbol decides a package), 2 or 3 score 55%, 5 and 8 both score 61%, 15 drops to 55% and
 # 50 to 50% -- by then the score is drifting back toward "how much does this directory contain".
 DIR_EVIDENCE = 5
+
+
+def scope_terms(g, task):
+    """The words that choose a PLACE — the headline's, not the whole report's. See ax_contract.headline."""
+    return winnow(g, task_terms(headline(task_text(task))))
 
 
 def rank_dirs(g, terms, depth=3, topk=DIR_EVIDENCE):
@@ -217,14 +222,14 @@ def main(argv):
     # named in the issue's labels. That is worth more than any amount of inferring the package from prose,
     # so a scope restricts the seeds outright rather than nudging a weight. Everything outside it is dropped
     # BEFORE seeding, so the entry points come from the right package instead of its same-named twin.
-    bad = require_scope(g, scope, terms, rank=(rank_dirs(g, terms) if not scope else None))
+    bad = require_scope(g, scope, terms, rank=(rank_dirs(g, scope_terms(g, task)) if not scope else None))
     if bad is not None: return bad
 
     scored = {sid: v for sid, v in scored.items() if scope in (g.sym.get(sid, {}).get('file') or '')}
     if not scored:
         # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it,
         # ranked the same way the scope-less menu is: by where the words land, never by how big a directory is
-        ranked = rank_dirs(g, terms)
+        ranked = rank_dirs(g, scope_terms(g, task))
         inside = [r for r in ranked if scope in r[0] or r[0] in scope]
         return offer(f"'{scope}' exists, but none of these words appear under it: {', '.join(terms[:8])}.",
                      inside or ranked, terms)
