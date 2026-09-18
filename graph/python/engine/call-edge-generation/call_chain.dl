@@ -509,6 +509,54 @@ call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION")
     class_creation_caller("client", t, caller),
     mro_lookup_after("client", t, t, "__init_subclass__", m).
 
+// ── A SLOT REBOUND LATER IN THE SAME MODULE DID NOT REBIND IT YET ────────────
+// `Meta.__new__ = staticmethod(_closed)` written at the END of a module closes the
+// hierarchy for anyone who constructs a class AFTERWARDS. Every class statement ABOVE
+// that line already ran, and ran the `__new__` written in the class body.
+//
+// mro_lookup declines a rebound name, correctly and for a use it cannot place: a method
+// defined before the write may still be CALLED after it. A class statement is not that
+// kind of use. It is module-level code, it executes where it is written, and module
+// bodies run top to bottom -- so a class statement on an earlier line than the write
+// provably precedes it, and the class-body definition is what ran.
+//
+// MEASURED on a template engine whose node hierarchy is closed this way: 69 executed
+// class statements, every one of them with NO row of any kind -- not a resolved edge,
+// not an unresolved one -- because of one assignment on the module's last line.
+//
+// THE GATE IS THE ORDER AND NOTHING ELSE, and both halves are tested (case 17):
+//   * the class statement must be TOP-LEVEL in its module (type_nesting_decl "" ""),
+//     because a class nested in a function runs when that function is called, which the
+//     line numbers do not bound;
+//   * every rebinding of that slot must be in the SAME module and on a LATER line. A
+//     write in another module is unordered against this one and keeps the suppression.
+metaclass_creation_slot("__new__").
+metaclass_creation_slot("__init__").
+
+class_stmt_module_level(t, mod, line) :-
+    type_nesting_decl("client", "", "", t),
+    type_module("client", mod, t),
+    type_span("client", _, line, _, t).
+
+// A rebinding that this class statement CANNOT be shown to precede: a different module,
+// or the same module at an earlier line.
+metaclass_rebind_unordered(t, c, n) :-
+    class_stmt_module_level(t, cmod, _),
+    type_attr_rebind_site("client", c, n, wmod, _),
+    wmod != cmod.
+metaclass_rebind_unordered(t, c, n) :-
+    class_stmt_module_level(t, cmod, cline),
+    type_attr_rebind_site("client", c, n, cmod, wline),
+    to_number(wline) < to_number(cline).
+
+call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION") :-
+    metaclass_of("client", t, mcls),
+    class_creation_caller("client", t, caller),
+    class_stmt_module_level(t, _, _),
+    metaclass_creation_slot(n),
+    mro_lookup_rebound_body("client", mcls, n, c, m),
+    !metaclass_rebind_unordered(t, c, n).
+
 // ── THE THREE PROTOCOL EDGES ARE TIERED BY TARGET COUNT, like every other edge ──
 //
 // A property read, a context-manager entry and an iteration all reach their target
@@ -621,6 +669,7 @@ call_chain_edge(cm, caller, "-", m, "client", cls, "CONTEXT_MANAGER") :-
 call_chain_edge(src, caller, "-", m, "client", cls, "ITERATION_PROTOCOL") :-
     iter_protocol_edge(src, caller, m), method_decl(_, d, _, _, _, m),
     protocol_edge_class(src, d, cls).
+
 
 // A site whose caller could not be determined AT ALL would vanish from every rule
 // above. That must be impossible (the parser guarantees a non-empty owner), so it is
