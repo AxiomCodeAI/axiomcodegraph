@@ -285,3 +285,7 @@ package-lock.json
 # A JavaScript fixture dependency is a real package under node_modules — that is the shape
 # the parser resolves and the shape the library join is written for.
 !graph/test/javascript/cases/*/src/node_modules/
+
+# C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
+.cs-case-work/
+.cs-dev-cache/

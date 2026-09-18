@@ -20,7 +20,8 @@ TWO THINGS ARE DERIVED, NOT GUESSED:
   than against the declaration. Hand-listing the numeric columns means finding them
   one compile error at a time, so they are inferred from HOW EACH VARIABLE IS USED
   and then propagated to a fixpoint: a column is number if any rule binds it with an
-  aggregate, with arithmetic or with to_number, or compares it against a numeric
+  aggregate, with arithmetic, with to_number or with a number-valued generator
+  (range, strlen, ord), or compares it against a numeric
   literal -- or if it is ever unified with a column already known to be number.
 
   Inference is deliberately narrow. `=` and `!=` between two variables say nothing
@@ -217,6 +218,11 @@ def numeric_evidence(body):
         num.add(m.group(2))
     # X = to_number(...)
     for m in re.finditer(r"([a-z_][a-z0-9_]*)\s*=\s*to_number\s*\(", body):
+        num.add(m.group(1))
+    # X = range(a, b) / strlen(s) / ord(s) -- functors whose RESULT is a number. A
+    # generator is the only way a rule binds a fresh number without arithmetic, and
+    # without this the column it feeds is declared symbol and souffle rejects the rule.
+    for m in re.finditer(r"([a-z_][a-z0-9_]*)\s*=\s*(?:range|strlen|ord)\s*\(", body):
         num.add(m.group(1))
     # arithmetic: X = a + 1, X = pc - opt, ...
     for m in re.finditer(r"([a-z_][a-z0-9_]*)\s*=\s*([^,;)]*?[-+*/][^,;)]*)", body):
