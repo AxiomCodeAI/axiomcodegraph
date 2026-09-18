@@ -148,7 +148,14 @@ class G:
         t = self.type_use(s)                                                              # a type the code USES but does not declare: File, Path, Socket
         if t: return t
         near = self.q("SELECT DISTINCT display FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL) AND (lower(display) = lower(?) OR lower(name) = lower(?) OR display LIKE ?) LIMIT 6", s, s.split('.')[-1], f"%{s.split('.')[-1]}%")
-        die(f"nothing named '{s}' in the graph" + (". Exact names that are close: " + ', '.join(r['display'] for r in near) if near else '') + "\n  use one of them as written, or file:line")
+        # with candidates the advice is "pick one"; with none it has to be something else, or the line reads
+        # "use one of them" pointing at an empty list
+        if near:
+            die(f"nothing named '{s}' in the graph. Exact names that are close: "
+                + ', '.join(r['display'] for r in near) + "\n  use one of them as written, or file:line")
+        die(f"nothing named '{s}' in the graph, and nothing close to it.\n"
+            f"  a SHORTER fragment is the way in — `path {s.split('.')[-1][:6] or 'name'} '*'` matches every\n"
+            f"  declaration containing it — or a file:line from a stack trace or an issue.")
 
     def nested_methods(self, outer, inner, mem):
         """methods named mem on the type(s) `inner` nested inside a type named `outer` — inner = a name (Inner, or Inner$Deeper
