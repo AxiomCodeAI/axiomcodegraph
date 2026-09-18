@@ -95,6 +95,17 @@ export interface LanguageAdapter {
     fieldAccess?: RawSource;
     /** (ref, owner, ownerKind, enclType, enclMethod, type, prov, context, depth, tier) — #663 */
     typeUse?: RawSource;
+    /**
+     * Relations that NAME a field without being a field access. `fields` lists every client
+     * field, but a LIBRARY field only when something references it, and that something was
+     * `fieldAccess` alone. A relation like a config binding says the field matters and then
+     * could not resolve it, so its rows pointed at ids the table does not hold (#890).
+     *
+     * Each entry is a raw relation plus the column holding the field id. Declared per
+     * language because which relations name a field is a language's own business, and
+     * build.ts stays neutral.
+     */
+    fieldRefs?: { file: string; column: number }[];
   };
   ir: {
     methods: MethodsIR;
@@ -126,6 +137,10 @@ const JAVA: LanguageAdapter = {
     fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
     // ref, type, context, depth, ownerKind, owner, enclMethod, enclType, typeProv, tier
     typeUse: { file: 'type-use.csv', columns: [0, 5, 7, 8, 2, 1, 4, 3, 6, 9] },
+    // config_binding(Key, Mechanism, TargetKind, Target, Owner): column 3 is the bound
+    // field when TargetKind is "field". A row naming a library field is why that field
+    // has to be listed at all.
+    fieldRefs: [{ file: 'config-binding.csv', column: 3 }],
   },
   ir: {
     methods: {

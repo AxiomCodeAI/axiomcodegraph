@@ -199,6 +199,15 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     wantMethods.add(r[1] as string);
     if (r[2] !== null) wantFields.add(r[2] as string);
   }
+  // A relation may NAME a field without being a field access, and such a row is exactly a
+  // statement that the field matters. Counting only field_access left those ids resolving
+  // to nothing in `fields` (#890). Which relations do this is declared by the adapter.
+  for (const fr of inp.adapter.raw.fieldRefs ?? []) {
+    for await (const r of readRaw(path.join(inp.rawDir, fr.file))) {
+      const id = r[fr.column];
+      if (id && id !== NONE) wantFields.add(id);
+    }
+  }
 
   // ── 3. client entities (all of them — the client is the subject) ──────────
   const methods = new Map<string, Row>();
