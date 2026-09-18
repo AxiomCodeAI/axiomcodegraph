@@ -31,6 +31,8 @@ POOL = {
     # source and not in the bundle), so sampling enums here would only measure the fallback.
     'type': """SELECT display FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL
                AND kind='class' ORDER BY id""",
+    'field': """SELECT display FROM symbols WHERE kind IN ('field','const')
+                AND display IS NOT NULL ORDER BY id""",
 }
 pool = [r[0] for r in con.execute(POOL[KIND])]
 targets = random.sample(pool, min(N, len(pool)))
@@ -47,10 +49,16 @@ def run(t, dl, dump):
     f = [os.path.join(dump, x) for x in sorted(os.listdir(dump))] if os.path.isdir(dump) else []
     if f: rel = json.load(open(f[0]))
     be = 'sql' if 'backend=sql' in r.stderr else ('datalog' if 'backend=datalog' in r.stderr else '?')
-    # a target the tool refuses (more than one kind, not in the graph) prints prose, not JSON. json.loads raised
-    # and one such target killed the whole sweep; compare it as text instead.
-    try: out = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
-    except json.JSONDecodeError: out = ('text', r.stdout)
+    # Two shapes of non-JSON here, and they are not the same thing.
+    #  - a `note:` LINE before the JSON: an ambiguous name that is both a field and a method says so first, and
+    #    the JSON still follows. Parse from the first brace so the answer is still compared.
+    #  - genuine prose with no JSON at all: a target the tool refuses. Compare it as text rather than skipping,
+    #    so a refusal that changes between the two engines is still caught.
+    out = None
+    if r.returncode == 0 and r.stdout.strip():
+        txt = r.stdout[r.stdout.index('{'):] if '{' in r.stdout else ''
+        try: out = json.loads(txt) if txt else ('text', r.stdout)
+        except json.JSONDecodeError: out = ('text', r.stdout)
     return time.time() - t0, out, rel, be
 
 

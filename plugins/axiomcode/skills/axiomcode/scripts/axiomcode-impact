@@ -788,7 +788,7 @@ class Impact:
         if not os.environ.get('AXIOMCODE_DATALOG'):          # SQL is the default; AXIOMCODE_DATALOG=1 falls back to the rules
             import graph_sql
             _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource, self.code, self.at,
-                                                inside, textuse, importuse)
+                                                inside, textuse, importuse, self.lines)
             # AXIOMCODE_SQL_STRICT=1: fail instead of falling back, so a coverage run can assert that a kind is
             # really answered here rather than quietly handed to the rules.
             if os.environ.get('AXIOMCODE_SQL_STRICT') and _sql is None:
