@@ -1,5 +1,6 @@
 call_chain_edge	call-chain-edges.csv
 call_runs_edge	call-runs-edges.csv
+call_runs_method	call-runs-method.csv
 call_class	call-class.csv
 client_calls_client	client-to-client-calls.csv
 client_calls_lib	client-to-lib-calls.csv
