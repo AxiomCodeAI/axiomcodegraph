@@ -162,7 +162,17 @@ fi
 # Cheap, and it guards a number rather than a behaviour: an edge to a synthetic member is scored
 # MISSING against the engine for a call the source does not contain. javac's own synthetics are
 # all excluded by name, so nothing in this suite can reach the flag path -- hence a direct test.
-if ! bash "$HERE/tools/synthetic-callee-test.sh"; then
+# ── PREFLIGHT: a file the extractor loses leaves a row saying so ────────────────────────
+# Not about a case: it is about whether the IR admits what it dropped. An XML file that is
+# large in BYTES and short in LINES passed the line guard, threw inside the extractor, and
+# contributed nothing with no skip row to say why (#554). A corpus can lose files that way
+# and every downstream number still looks clean.
+if ! bash "$ROOT/graph/test/tools/xml-skip-test.sh"; then
+  echo "aborting: a file the extractor failed on left no skip row"
+  exit 1
+fi
+
+if ! bash "$HERE/tools/synthetic-callee-test.sh"; thenif ! bash "$HERE/tools/synthetic-callee-test.sh"; then
   echo "aborting: the class-file oracle emits compiler-generated callees as ground truth"
   exit 1
 fi
