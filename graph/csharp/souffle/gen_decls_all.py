@@ -60,6 +60,26 @@ NUMBER_TYPED = {
     "import_link_ambiguous": ("symbol", "symbol", "number"),
     "site_target_count": ("symbol", "number"),
     "protocol_edge_wide": ("symbol", "symbol", "number"),
+    # Name resolution: a candidate carries its RANK and the answer is the best rank
+    # per (module, name, arity). Ranks and counts are arithmetic, so they are number
+    # columns; leaving them as symbols makes `min` and `>=` untypeable.
+    "type_name_cand": ("symbol", "symbol", "symbol", "symbol", "symbol", "number"),
+    "type_name_best_rank": ("symbol", "symbol", "symbol", "symbol", "number"),
+    "type_name_count": ("symbol", "symbol", "symbol", "symbol", "number"),
+    "type_base_count": ("symbol", "symbol", "number"),
+    "type_base_chain": ("symbol", "symbol", "symbol", "number"),
+    "member_cand": ("symbol", "symbol", "symbol", "symbol", "symbol", "number"),
+    "member_best_rank": ("symbol", "symbol", "symbol", "number"),
+    "scope_cand": ("symbol", "symbol", "symbol", "symbol", "number"),
+    "scope_best_rank": ("symbol", "symbol", "number"),
+    "local_bind_cand": ("symbol", "symbol", "symbol", "number"),
+    "local_bind_best_depth": ("symbol", "symbol", "number"),
+    "override_depth": ("symbol", "symbol", "symbol", "number"),
+    "call_target_count": ("symbol", "symbol", "number"),
+    "overload_cand": ("symbol", "symbol", "symbol", "number"),
+    "overload_best_rank": ("symbol", "symbol", "number"),
+    "method_arity_min": ("symbol", "symbol", "number"),
+    "method_arity_max": ("symbol", "symbol", "number"),
 }
 
 

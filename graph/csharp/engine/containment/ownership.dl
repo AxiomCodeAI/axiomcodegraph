@@ -1,0 +1,175 @@
+// ============================================================================
+// CONTAINMENT · OWNERSHIP  (caller attribution)
+//
+// expr_ultimate_method(Prov, ExprHash, MethodHash) — the method a call site
+// ultimately runs in. This is the FROM end of every call edge, so a site with no
+// answer here produces no edge no matter how well its callee resolved.
+//
+// C# IS EASIER HERE THAN JAVA, AND THE REASON IS WORTH STATING. The Java IR stamps
+// an expression with its innermost owner, which is a block about 40% of the time,
+// so the Java engine walks blocks and local variables to reach a method. The C#
+// parser stamps expressionOwnerHash with the owning DECLARATION — the method, field,
+// property, event or attribute — so the common case is one join.
+//
+// WHAT IS NOT ONE JOIN, AND IS THE WHOLE DIFFICULTY:
+//
+//  1. A LAMBDA BODY IS ITS OWN METHOD. `xs.Where(x => Check(x))` has a call to
+//     Check whose caller is the LAMBDA, not the method containing the query. That
+//     is the truthful answer: the lambda is a separate method the runtime invokes
+//     through a delegate, and attributing Check's caller to the enclosing method
+//     would claim a direct edge that does not exist. The lambda's own caller comes
+//     from wherever the delegate is invoked, which is delegates.dl's job.
+//
+//  2. A CALL IN AN INITIALIZER HAS NO ENCLOSING METHOD. `private readonly Foo _f =
+//     new Foo();` runs in the constructor, and `static int X = Compute();` runs in
+//     the static constructor, neither of which is written. The parser gives the
+//     expression a FIELD or PROPERTY owner. Those calls are real and must not be
+//     dropped, so they are attributed to the type's constructor where one exists,
+//     and to the enclosing TYPE otherwise — mirroring what the Java engine does
+//     with <init>/<clinit>.
+//
+//  3. TOP-LEVEL STATEMENTS HAVE NO ENCLOSING TYPE. The parser synthesises a
+//     TOP_LEVEL_ENTRY_POINT method and names it on the module, so the caller
+//     exists; what does not exist is expr_type_owner. Every rule that reaches for
+//     the enclosing type has to tolerate its absence.
+//
+// FromMethod IS NEVER BLANK. That is the invariant this file exists to hold, and
+// the fallback chain below is ordered so the last resort always answers.
+// ============================================================================
+
+// ── Case 1: the owner IS a method ───────────────────────────────────────────
+// The common case, including a lambda body (whose owner is the lambda's own
+// cs_method row) and a local function.
+expr_ultimate_method(prov, e, m) :- expr_owner(prov, m, "METHOD", e), method_decl(prov, _, _, _, m).
+
+// ── Case 2: the owner is a FIELD initializer ────────────────────────────────
+// `private readonly Foo _f = new Foo();`. The call runs in a constructor the author
+// did not write. Attributed to the declaring type's constructor set: an instance
+// field initializer runs in EVERY instance constructor, which is why this can
+// legitimately produce more than one caller for one site rather than picking one
+// arbitrarily.
+expr_in_field_initializer(prov, e, f) :- expr_owner(prov, f, "FIELD", e), field_decl(prov, _, _, f).
+expr_ultimate_method(prov, e, ctor) :-
+    expr_in_field_initializer(prov, e, f),
+    !field_is_static(prov, f),
+    field_in_type(prov, gk, f),
+    type_ctor(prov, gk, ctor),
+    !method_is_static(prov, ctor).
+// A STATIC field initializer runs in the static constructor, which is a different
+// method and often absent (the compiler emits one when it is needed). Where it is
+// absent the type-level fallback below answers.
+expr_ultimate_method(prov, e, cctor) :-
+    expr_in_field_initializer(prov, e, f),
+    field_is_static(prov, f),
+    field_in_type(prov, gk, f),
+    method_in_type(prov, gk, cctor),
+    method_is_static_ctor(prov, cctor).
+
+// ── Case 3: the owner is a PROPERTY initializer ─────────────────────────────
+// `public Foo F { get; } = new Foo();` — same reasoning as a field initializer.
+expr_in_property_initializer(prov, e, p) :- expr_owner(prov, p, "PROPERTY", e), property_decl(prov, _, _, p).
+expr_ultimate_method(prov, e, ctor) :-
+    expr_in_property_initializer(prov, e, p),
+    !property_modifier(prov, p, "static"),
+    property_in_type(prov, gk, p),
+    type_ctor(prov, gk, ctor),
+    !method_is_static(prov, ctor).
+
+// ── Case 4: the owner is another EXPRESSION ─────────────────────────────────
+// The parser stamps a declaration owner on every expression, so this should not
+// arise; it is kept because an owner that is an expression would otherwise produce
+// no caller at all, and a structural surprise must degrade rather than delete.
+expr_ultimate_method(prov, e, m) :-
+    expr_owner(prov, owner, "EXPRESSION", e),
+    expr_ultimate_method(prov, owner, m).
+
+// ── expr_ultimate_type(Prov, ExprHash, TypeHash) ────────────────────────────
+// The type an expression is written in. This is what an unqualified call and an
+// implicit `this` resolve against. Taken from the stamped owner type where present,
+// and otherwise from the owning method's own type — the two can differ for a lambda
+// in a field initializer, and the method's type is the one that decides member
+// visibility.
+expr_ultimate_type(prov, e, t) :- expr_type_owner(prov, e, t).
+expr_ultimate_type(prov, e, t) :-
+    expr_ultimate_method(prov, e, m), method_owner(prov, t, m).
+
+// expr_ultimate_type_group(Prov, ExprHash, GroupKey) — the MERGED enclosing type,
+// which is what member lookup needs: a call in one part of a partial class can
+// reach a private member declared in another part, and a site-scoped answer cannot
+// see it.
+expr_ultimate_type_group(prov, e, gk) :- expr_ultimate_type(prov, e, t), type_group(prov, t, gk).
+
+// ── expr_ultimate_module(Prov, ExprHash, ModuleHash) ────────────────────────
+// Always answerable. The FILE decides which usings are in scope, so name resolution
+// keys on this and not on the type.
+expr_ultimate_module(prov, e, mod) :- expr_module(prov, e, mod).
+
+// ── CALLER ATTRIBUTION, WITH A GUARANTEED ANSWER ────────────────────────────
+// call_from(Prov, SiteExpr, Caller). Ordered fallbacks, each narrower than the last:
+//
+//   1. the engine's own containment answer (a method)
+//   2. the parser's own callerMethodLinkHash, where containment produced nothing
+//   3. the enclosing TYPE, so a call in an initializer with no constructor at all
+//      still has a FROM end. A CS_TYPE_ hash in this position means "runs in this
+//      type's instance or static initializer", which is the same convention the
+//      Java engine uses for <init>/<clinit>.
+//
+// The third clause is guarded by negation on the first two, which is stratified:
+// both are computed from projections and neither reads call_from.
+call_has_method_caller(prov, e) :- csite(prov, e), expr_ultimate_method(prov, e, _).
+call_has_parser_caller(prov, e) :- csite(prov, e), call_parser_caller(prov, e, _).
+
+call_from(prov, e, m) :- csite(prov, e), expr_ultimate_method(prov, e, m).
+call_from(prov, e, m) :- csite(prov, e), !call_has_method_caller(prov, e), call_parser_caller(prov, e, m).
+call_from(prov, e, t) :- csite(prov, e), !call_has_method_caller(prov, e), !call_has_parser_caller(prov, e),
+    expr_ultimate_type(prov, e, t).
+
+// ── THE CROSS-CHECK ─────────────────────────────────────────────────────────
+// The parser and the engine derive the caller independently, from the call-site row
+// and from the expression tree. Where both answer they should agree, and where they
+// do not the disagreement is a defect in one of them rather than something to
+// average. Exported, so a parser regression in callerMethodLinkHash shows up as a
+// named disagreement instead of as a call graph that is quietly wrong.
+caller_agrees(prov, e, m) :- expr_ultimate_method(prov, e, m), call_parser_caller(prov, e, m).
+caller_differs(prov, e, engineM, parserM) :-
+    expr_ultimate_method(prov, e, engineM),
+    call_parser_caller(prov, e, parserM),
+    engineM != parserM.
+
+// A site with NO caller from either source. Should be empty; exported so that if it
+// is not, the count is visible rather than showing up as missing edges.
+call_caller_unknown(prov, e) :- csite(prov, e), !call_from(prov, e, _).
+
+// ── ENCLOSING-METHOD CHAIN FOR NESTED FUNCTIONS ─────────────────────────────
+// A lambda and a local function are methods whose bodies are written INSIDE another
+// method. That lexical nesting is what makes a captured variable resolvable: a name
+// used in a lambda body may be declared in the enclosing method, so local binding
+// has to search outward through this chain.
+//
+// Derived from the lambda EXPRESSION's own owner: the expression that declares the
+// lambda is written in the outer method, and expr_anon_decl links it to the inner
+// one. That is a link, not a line-range guess, so a generated one-line lambda nests
+// correctly.
+method_lexical_parent(prov, inner, outer) :-
+    expr_anon_decl(prov, e, inner),
+    expr_ultimate_method(prov, e, outer),
+    inner != outer.
+
+// A local function's parent is the method whose body declares it. The parser stamps
+// its csTypeLinkHash but not an enclosing method, so the link comes from the
+// declaring block.
+method_lexical_parent(prov, inner, outer) :-
+    method_is_local_function(prov, inner),
+    method_span(prov, inner, isl, _, _),
+    method_owner(prov, t, inner), method_owner(prov, t, outer),
+    method_span(prov, outer, osl, oel, _),
+    inner != outer,
+    !method_is_local_function(prov, outer),
+    to_number(isl) > to_number(osl),
+    to_number(isl) <= to_number(oel).
+
+// method_lexical_ancestor — reflexive and transitive, so a name in a lambda inside a
+// lambda inside a method searches all three.
+method_lexical_ancestor(prov, m, m) :- method_decl(prov, _, _, _, m).
+method_lexical_ancestor(prov, m, anc) :-
+    method_lexical_parent(prov, m, mid), method_lexical_ancestor(prov, mid, anc).
