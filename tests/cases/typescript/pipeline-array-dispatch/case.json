@@ -1,0 +1,10 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a step registered in an array and invoked by iteration is reached from the function that iterates, so a test driving the pipeline reaches the step (#967)",
+   "run": ["impact", "measure", "--tests"],
+   "want": ["src/pipeline.test.ts"],
+   "avoid": ["0 of 1 test method(s)"]},
+  {"why": "the same silence, one hop earlier: the pipeline's own caller is the iterating function",
+   "run": ["path", "run", "widenRange"],
+   "want": ["widenRange"],
+   "avoid": ["no chain of resolved calls"]}]}
