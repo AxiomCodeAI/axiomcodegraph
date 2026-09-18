@@ -88,9 +88,9 @@
 .input cs_method_parameter
 .input lib_cs_method_parameter
 
-// cs_property: c0 name, c1 isIndexer, c2 propertyTypeName, c3 completeTypeName, c4 isNullableAnnotated, c5 propertyAccess, c6 getAccessorAccess, c7 setAccessorAccess, c8 hasGetter, c9 hasSetter, c10 setterKind, c11 isRequired, c12 isStatic, c13 isAbstract, c14 isVirtual, c15 isOverride, c16 explicitInterfaceName, c17 initializerExpressionLinkHash, c18 csTypeLinkHash, c19 startLine, c20 endLine, c21 startColumn, c22 attributeCount, c23 isExternal, c24 serviceVersionLinkHash, c25 csPropertyUniqueHash
-.decl cs_property(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
-.decl lib_cs_property(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
+// cs_property: c0 name, c1 isIndexer, c2 propertyTypeName, c3 completeTypeName, c4 isNullableAnnotated, c5 propertyAccess, c6 getAccessorAccess, c7 setAccessorAccess, c8 hasGetter, c9 hasSetter, c10 setterKind, c11 isRequired, c12 isStatic, c13 isAbstract, c14 isVirtual, c15 isOverride, c16 explicitInterfaceName, c17 initializerExpressionLinkHash, c18 csTypeLinkHash, c19 startLine, c20 endLine, c21 startColumn, c22 attributeCount, c23 isExtension, c24 isExternal, c25 serviceVersionLinkHash, c26 csPropertyUniqueHash
+.decl cs_property(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_cs_property(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
 .input cs_property
 .input lib_cs_property
 

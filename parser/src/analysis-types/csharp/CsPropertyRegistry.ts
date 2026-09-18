@@ -36,7 +36,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * difference between "anyone may write this" and "only the declaring type may".
  */
 export class CsPropertyRegistry implements EntityIdentifiable {
-  static readonly ARITY = 26;
+  static readonly ARITY = 27;
   static readonly RELATION = 'cs_property';
 
   readonly name: string;
@@ -55,6 +55,16 @@ export class CsPropertyRegistry implements EntityIdentifiable {
   readonly isAbstract: boolean;
   readonly isVirtual: boolean;
   readonly isOverride: boolean;
+  /**
+   * Declared in a C# 14 EXTENSION BLOCK.
+   *
+   * The counterpart of `cs_method.isExtension`, and the column whose absence
+   * made an extension property indistinguishable from an ordinary property of
+   * the static class that holds it. The RECEIVER is not here: it lives as
+   * parameter 0 of each accessor, which is the static method the compiler
+   * emits, so the C# 13 and C# 14 forms are the same fact in the IR.
+   */
+  readonly isExtension: boolean;
   readonly explicitInterfaceName: string;
   private initializerExpressionLinkHash = ABSENT;
   readonly csTypeLinkHash: string;
@@ -83,6 +93,7 @@ export class CsPropertyRegistry implements EntityIdentifiable {
     isAbstract: boolean;
     isVirtual: boolean;
     isOverride: boolean;
+    isExtension: boolean;
     explicitInterfaceName: string;
     csTypeLinkHash: string;
     startLine: number;
@@ -107,6 +118,7 @@ export class CsPropertyRegistry implements EntityIdentifiable {
     this.isAbstract = props.isAbstract;
     this.isVirtual = props.isVirtual;
     this.isOverride = props.isOverride;
+    this.isExtension = props.isExtension;
     this.explicitInterfaceName = props.explicitInterfaceName;
     this.csTypeLinkHash = props.csTypeLinkHash;
     this.startLine = props.startLine;
@@ -175,6 +187,12 @@ export class CsPropertyRegistry implements EntityIdentifiable {
         num(this.endLine),
         num(this.startColumn),
         num(this.attributeCount),
+        // APPENDED, not inserted. The schema's contract is that new columns go
+        // immediately before the trailing isExternal / serviceVersionLinkHash /
+        // hash triple: column ORDER is what the engine joins on, so inserting
+        // this next to the other modifier flags — where it reads better —
+        // would shift six columns and load into Souffle without an error.
+        bool(this.isExtension),
         bool(this.isExternal),
         this.serviceVersionLinkHash,
         this.csPropertyUniqueHash,
@@ -192,6 +210,7 @@ export class CsPropertyRegistry implements EntityIdentifiable {
         'hasSetter', 'setterKind', 'isRequired', 'isStatic', 'isAbstract', 'isVirtual',
         'isOverride', 'explicitInterfaceName', 'initializerExpressionLinkHash',
         'csTypeLinkHash', 'startLine', 'endLine', 'startColumn', 'attributeCount',
+        'isExtension',
         'isExternal', 'serviceVersionLinkHash', 'csPropertyUniqueHash',
       ],
       CsPropertyRegistry.ARITY,
