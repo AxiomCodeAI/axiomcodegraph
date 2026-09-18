@@ -38,7 +38,7 @@ about values: a callable that is reached may or may not change behaviour; a call
 resolved chain to the change or reaches it through something the graph cannot see (reflection, a framework, a library
 callback) — the bound line says how many such sites there are.
 """
-import collections, contextlib, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, time
+import collections, contextlib, importlib.machinery, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, time
 PROF = os.environ.get('AXIOMCODE_PROFILE'); _t0 = time.time()
 def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
@@ -397,10 +397,15 @@ class Impact:
         hits = [i for i, d in have.items() if d == want]
         if hits: return hits, ' '.join(want) and f"({', '.join(want)})"
         sigs = sorted({'(' + ', '.join(d) + ')' for d in have.values()})
+        # hoisted out of the f-strings below: a backslash inside an f-string EXPRESSION is
+        # PEP 701, which is 3.12+. Inline, this file did not COMPILE on 3.10 or 3.11, so
+        # `axiomcode impact` died with a SyntaxError before main() on any older interpreter
+        # the bare `python3` shebang happened to resolve to (#833).
+        bare = re.sub(r'\(.*', '', whole)
         if unknown:
             die(f"{whole}: {', '.join(unknown)} is not a type in the graph, and it is not a parameter name of "
-                f"{re.sub(r'\(.*', '', whole)}. Its declaration(s) take: " + ' · '.join(sigs or ['(unknown)']))
-        die(f"{whole}: no declaration of {re.sub(r'\(.*', '', whole)} takes ({', '.join(want)}). "
+                f"{bare}. Its declaration(s) take: " + ' · '.join(sigs or ['(unknown)']))
+        die(f"{whole}: no declaration of {bare} takes ({', '.join(want)}). "
             f"It is declared as: " + ' · '.join(sigs or ['(unknown)']) + " — write one of those, or drop the parentheses for all of them")
     SOURCE_EXT = {'.java','.py','.ts','.tsx','.js','.jsx','.mjs','.cjs','.kt','.kts','.scala','.go','.rb','.cs','.class','.jar'}
     SKIP_DIR = {'.git','node_modules','target','build','out','dist','.axiomcode','.idea','.gradle','venv','.venv','__pycache__','.mvn'}
