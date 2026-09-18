@@ -28,10 +28,17 @@ CASES = [                                       # (target, extra args, [substrin
  # sentence for both. `overrides` joined to methods.kind decides it.
  ('Impl.must', ['--delete'], ['implements the abstract', 'Base.must', 'the build fails']),
  ('Impl.may', ['--delete'], ['overrides the concrete', 'Base.may', 'COMPILES']),
+ # exact spelling wins over a heuristic: a $ in the NAME is not Outer$Inner, and Type.Type is the
+ # constructor, not the type (which is a different question).
+ ('Dollar$Types.declaringClassOf', [], ['Dollar$Types.declaringClassOf', '[method]']),
+ ('Ctor.Ctor', [], ['Ctor.Ctor', '[method]']),
+ ('Ctor', [], ['[type]']),
 ]
 NEVER = {'Svc.plain': ['throws:'],
          # the concrete case must NOT be given as a build-breaking reason
-         'Impl.may': ['leaves the type without an implementation']}
+         'Impl.may': ['leaves the type without an implementation'],
+         'Ctor.Ctor': ['[type]'],
+         'Dollar$Types.declaringClassOf': ['declares no nested type']}
 
 def main():
     if not graph(): print("kinds: skipped — could not build the fixture graph (needs the engine)"); return 0

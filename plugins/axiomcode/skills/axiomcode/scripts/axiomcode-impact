@@ -277,7 +277,15 @@ class Impact:
             if tids: out.append(('type', f"{self.g.sym[tids[0]]['kind']} {self.g.disp(tids[0])}" + (f" (+{len(tids)-1})" if len(tids) > 1 else ''), tids))
         if kind in (None, 'method'):
             mids = self.methods(s, soft=True)
-            if mids and any(k == 'type' for k, _, _ in out) and all(self.g.sym[i]['kind'] == 'constructor' for i in mids): mids = []   # `Type` is the type; its construction is Type.<init>
+            # `Type` written alone is the type, and its construction is Type.<init>, so a bare type name must not
+            # come back as its constructor. But `Type.Type` is the CONSTRUCTOR spelled out, and types() finds the
+            # class only by dropping the first segment. When the exact spelling is a declaration's display, that
+            # spelling wins and the suffix-matched type is dropped: the two are different questions (delete this
+            # constructor, or delete the whole class).
+            exact_m = [i for i in mids if self.g.sym[i]['display'] == s] if mids else []
+            if exact_m and any(k == 'type' for k, _, _ in out):
+                out = [o for o in out if o[0] != 'type']
+            elif mids and any(k == 'type' for k, _, _ in out) and all(self.g.sym[i]['kind'] == 'constructor' for i in mids): mids = []
             if mids: out.append(('method', (self.g.disp(mids[0]) if len(mids) == 1 else f"{s} ({len(mids)} declarations)"), mids))
         if not out:
             # an inherited member is written under the name the code uses: Sub.member, declared in a base. Answer for the
