@@ -233,6 +233,24 @@ call_chain_edge(e, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
     !call_has_edge("client", e),
     !call_class("client", e, _).
 
+// ── RUNTIME-OBSERVED EDGES ──────────────────────────────────────────────────
+// An edge the TRACE saw and the static pass did not name. Real by construction: it
+// happened. Emitted with the tier `runtime_observed` and the kind `runtime`, so a
+// consumer can tell at a glance that it has no written call site behind it and that
+// its evidence is a workload rather than a reading of the source.
+//
+// FromExpr is the CALLER METHOD, not an expression. The tracer probes method entry,
+// so it knows the caller called the callee and cannot say from which site --
+// claiming one would invent precision the instrument does not have.
+//
+// These only ever ADD. Nothing in the engine removes an edge because a trace did not
+// contain it: a workload is a lower bound, and a run that covered 554 of 604 methods
+// says nothing about the other 50.
+call_chain_edge(callerM, callerM, "-", calleeM, "client", "runtime_observed", "runtime") :-
+    runtime_closes_blind_spot(callerM, calleeM).
+call_chain_edge(callerM, callerM, "-", calleeM, "client", "runtime_observed", "runtime") :-
+    runtime_unexplained_edge(callerM, calleeM).
+
 // ── CALLER-SCOPED BLIND SPOTS ───────────────────────────────────────────────
 // Which methods contain sites the engine could not resolve, so change-impact can
 // say "this answer is incomplete, and here is where".

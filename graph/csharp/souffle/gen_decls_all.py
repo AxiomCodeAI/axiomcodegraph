@@ -81,6 +81,12 @@ TUNING_INPUTS = {
     # Java's taint-gated library expansion, and there is no taint layer here.
     "jdk_max_depth": ("number",),
     "taint_gating": ("symbol",),
+    # THE RUNTIME TRACE, staged by the harness as facts. (CallerKey, CalleeKey,
+    # Count), keyed on `Type.Name/paramCount` -- the one spelling the instrumenter
+    # can produce without a semantic model. EMPTY IS THE NORMAL CASE and means the
+    # engine behaves exactly as it does with no trace, which is what makes the
+    # feature safe to leave switched on.
+    "runtime_observed_edge": ("symbol", "symbol", "symbol"),
 }
 
 
