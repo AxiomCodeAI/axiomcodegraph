@@ -1,0 +1,17 @@
+main.js:11:38 METHOD_CALL create  EXACT  main.js:6:16
+main.js:23:20 METHOD_CALL save  EXACT  main.js:27:24
+main.js:25:19 METHOD_CALL create  LIB_AMBIENT_OK  
+main.js:36:21 METHOD_CALL create  LIB_AMBIENT_OK  
+main.js:41:13 METHOD_CALL extend  EXACT  main.js:33:1
+main.js:44:20 METHOD_CALL viaExpr  EXACT  main.js:11:17
+main.js:44:3 METHOD_CALL viaDecl  EXACT  main.js:9:1
+main.js:44:50 METHOD_CALL viaDeclK  EXACT  main.js:17:1
+main.js:44:64 CONSTRUCTOR_CALL Model  EXACT  main.js:5:1
+main.js:44:64 METHOD_CALL viaProto  EXACT  main.js:18:1
+main.js:45:21 METHOD_CALL shared  EXACT  main.js:28:1
+main.js:45:3 METHOD_CALL viaConst  EXACT  main.js:21:18
+main.js:45:37 METHOD_CALL shared  EXACT  main.js:28:1
+main.js:45:53 CONSTRUCTOR_CALL Other  EXACT  main.js:23:1
+main.js:46:21 CONSTRUCTOR_CALL Sub  SYNTHESIZED_OVER  main.js:35:17
+main.js:46:3 CONSTRUCTOR_CALL Sub  SYNTHESIZED_OVER  main.js:35:17
+# defects: 0

@@ -2,9 +2,8 @@
 # (function ids as file:line:col). A new missing edge fails run.sh; a listed one that
 # starts resolving fails too, so this list cannot rot.
 
-# PD-JS-5: a default INSIDE a destructured parameter (`{ mapper = twice } = {}`) has no
-# link to the name it initialises.
-lib/functional.js:17:1 lib/functional.js:7:1
+# (PD-JS-5, `withDefault -> twice` through the `{ mapper = twice } = {}` default, was listed
+# here until #673 linked the default to the binding.)
 
 # A Proxy `get` trap manufactures the callee at runtime; nothing static names it.
 lib/registry.js:10:1 lib/registry.js:9:38
@@ -15,3 +14,15 @@ lib/registry.js:10:1 lib/registry.js:9:48
 # stream hook model (one trigger on one instance) does not express.
 lib/streams.js:17:3 lib/streams.js:8:3
 lib/streams.js:18:3 lib/streams.js:9:3
+
+# `Function.prototype.call.bind(helper)` makes a function whose every call runs `helper`;
+# the engine has no model for a bound `call`. Listed here because before #640 this direct
+# call was credited through the setTimeout registration in another function and never
+# appeared.
+lib/direct.js:7:1 lib/direct.js:4:1
+
+# A getter read through `Reflect.get`: the engine models no reflective property read,
+# so the accessor edge is absent. Listed here rather than fixed, and it is also the
+# test that the execution oracle scores accessor edges at all (#791) - if they were set
+# aside again this entry would stop being missing and the run would fail on a stale list.
+main.js:73:1 lib/shapes.js:9:3

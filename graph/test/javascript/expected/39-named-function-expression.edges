@@ -1,0 +1,11 @@
+main.js:12:21 CONSTRUCTOR_CALL Aggregate  ->  known_edge  main.js:3:1 Aggregate
+main.js:13:3 METHOD_CALL aggregate.model  ->  known_edge  main.js:4:29 model
+main.js:14:10 METHOD_CALL aggregate.exec  ->  known_edge  main.js:5:28 exec
+main.js:19:20 FUNCTION_CALL applyDefaults  ->  known_edge  main.js:18:23 applyDefaults
+main.js:23:43 METHOD_CALL walk.exec  ->  known_edge  main.js:5:28 exec
+main.js:25:63 FUNCTION_CALL countDown  ->  known_edge  main.js:25:19 countDown
+main.js:28:3 METHOD_CALL Model.aggregate  ->  known_edge  main.js:11:19 aggregate
+main.js:29:3 METHOD_CALL Model.applyDefaults  ->  known_edge  main.js:18:23 applyDefaults
+main.js:30:14 CONSTRUCTOR_CALL Aggregate  ->  known_edge  main.js:3:1 Aggregate
+main.js:30:3 METHOD_CALL Model.walk  ->  known_edge  main.js:23:14 walk
+main.js:31:10 FUNCTION_CALL countDown  ->  known_edge  main.js:25:19 countDown

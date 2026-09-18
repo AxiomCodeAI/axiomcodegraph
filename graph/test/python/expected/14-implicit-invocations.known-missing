@@ -1,0 +1,14 @@
+# ACCEPTED GAPS for 14-implicit-invocations, one `caller<TAB>callee` per line (anchors are
+# file:def-line, Rule 1). Reconciled in BOTH directions by tools/oracle_check.py: a miss that
+# is not listed here fails, and a listed edge that starts resolving fails too.
+#
+# Both entries are the SAME gap, and it is not the one this case was written for. The case
+# pins that the `self` of a class-body lambda is the instance, so `self.handle_tuple(obj)`
+# INSIDE the lambda resolves (it does: the three METHOD_CALL edges out of Schema.<lambda> are
+# in the golden and agree with the trace). What stays unresolved is the call INTO the lambda:
+# `handler = self._handlers.get(type(obj)); handler(self, obj)` calls a function value read
+# out of a dict, and a function value held in a container is not tracked (README known
+# limits). Tier 4 sees the two edges by running the code; a static reader cannot without
+# container-element flow, which is a separate mechanism from anything here.
+main.py:83	main.py:70
+main.py:83	main.py:71

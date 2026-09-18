@@ -1,0 +1,5 @@
+known_edge	METHOD_PARAM	0	strict-bind [METHOD_PARAM] -> OwnBind
+known_edge	METHOD_PARAM	0	strict-bind [METHOD_PARAM] -> Registry
+known_edge	METHOD_PARAM	0	strict-bind [METHOD_PARAM] -> Transformer
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function

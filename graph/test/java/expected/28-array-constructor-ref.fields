@@ -1,0 +1,2 @@
+known_edge	read	probe.ArrayCtorRef.Item#label() -> probe.ArrayCtorRef.Item#name
+known_edge	write	probe.ArrayCtorRef.Item#<init>(String) -> probe.ArrayCtorRef.Item#name

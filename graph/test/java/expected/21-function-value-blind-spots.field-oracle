@@ -1,0 +1,7 @@
+21-function-value-blind-spots
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  sites 6   resolved 5 (83.3%)
+  tiers ambiguous_unknown=1  known_edge=5
+  access read=6
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

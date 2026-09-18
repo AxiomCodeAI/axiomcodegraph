@@ -4391,6 +4391,64 @@ async function everyProgramIsExtractedAndNoneAreMerged(): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// A solution-style root tsconfig delegates to its references
+// ---------------------------------------------------------------------------
+
+/**
+ * `{ "files": [], "references": [...] }` at the root claims no file itself. Its
+ * same-directory references (`tsconfig.build.json`, `tsconfig.spec.json`) are that
+ * directory's programs, a reference into a subdirectory is a nested program, and a
+ * file no config claims is reported as skipped rather than dropped (#660). Before
+ * this, hono's root parsed to its runtime tests and nothing under `src/` (289 files),
+ * with an empty skipped list.
+ */
+async function solutionStyleRootDelegatesToReferences(): Promise<number> {
+  const nodeNext = { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true };
+  const { outputDir, cleanup } = await analyseProgramsInline('ts-solution-', {
+    'tsconfig.json': JSON.stringify({ files: [], references: [
+      { path: './tsconfig.build.json' }, { path: './tsconfig.spec.json' }, { path: './runtime-tests/bun' },
+    ] }),
+    'tsconfig.build.json': JSON.stringify({ compilerOptions: nodeNext, include: ['src/**/*.ts'], exclude: ['src/**/*.test.ts'] }),
+    'tsconfig.spec.json': JSON.stringify({ compilerOptions: nodeNext, include: ['src/**/*.test.ts'] }),
+    'runtime-tests/bun/tsconfig.json': JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler' }, include: ['*.ts'] }),
+    'src/lib/greet.ts': 'export function greet(n: string): string { return `hi ${n}`; }',
+    'src/index.ts': 'import { greet } from "./lib/greet.js"; export function main(): string { return greet("a"); }',
+    'src/index.test.ts': 'import { main } from "./index.js"; export const t = main();',
+    'runtime-tests/bun/run.ts': 'import { main } from "../../src/index.js"; export const r = main();',
+    'benchmarks/bench.ts': 'export const bench = 1;',
+  });
+  const failures: string[] = [];
+  const modules = relation(outputDir, 'all-typescript-modules.csv');
+  const paths = new Set(modules.map((r) => r.filePath ?? ''));
+  for (const want of ['src/lib/greet.ts', 'src/index.ts', 'src/index.test.ts', 'runtime-tests/bun/run.ts']) {
+    if (!paths.has(want)) {
+      failures.push(`${want} is missing: the program that claims it was never extracted (have ${[...paths].join(', ')})`);
+    }
+  }
+  if (paths.has('benchmarks/bench.ts')) {
+    failures.push('benchmarks/bench.ts was extracted although no program claims it');
+  }
+  // the governing config is the REFERENCED one, under its own name
+  for (const row of modules) {
+    const fp = row.filePath ?? '';
+    const cfg = row.tsConfigPath ?? '';
+    if (fp === 'src/index.ts' && !cfg.endsWith('tsconfig.build.json')) failures.push(`src/index.ts is governed by '${cfg}', want tsconfig.build.json`);
+    if (fp === 'src/index.test.ts' && !cfg.endsWith('tsconfig.spec.json')) failures.push(`src/index.test.ts is governed by '${cfg}', want tsconfig.spec.json`);
+    if (fp === 'src/index.ts' && row.moduleResolutionMode !== 'NODE_NEXT' && row.moduleResolutionMode !== 'NODENEXT') failures.push(`src/index.ts resolves as ${row.moduleResolutionMode}, want the referenced config's NodeNext`);
+  }
+  const skipped = relation(outputDir, 'skipped-typescript-files.csv');
+  const orphan = skipped.find((r) => r.filePath === 'benchmarks/bench.ts');
+  if (!orphan) failures.push(`benchmarks/bench.ts has no skip row (skipped: ${skipped.map((r) => r.filePath).join(', ') || 'none'})`);
+  else if (orphan.reason !== 'NO_PROGRAM_CLAIMS_FILE') failures.push(`benchmarks/bench.ts is skipped as ${orphan.reason}, want NO_PROGRAM_CLAIMS_FILE`);
+  cleanup();
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log(`  a solution-style root: ${modules.length} module row(s) across build, spec and a nested reference; the orphan is a skip row`);
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // 34. strictBindCallApply is emitted RESOLVED, not as written
 // ---------------------------------------------------------------------------
 
@@ -4467,6 +4525,7 @@ async function strictBindCallApplyIsResolved(): Promise<number> {
 
 const CHECKS: Check[] = [
   { name: 'strictBindCallApply is emitted resolved', proves: 'the flag is emitted as the checker resolves it — implied by strict, not by individual strict flags, explicit false winning — so a consumer can pick between the Function and CallableFunction overloads of call/apply/bind', run: strictBindCallApplyIsResolved },
+  { name: 'a solution-style root delegates to its references', proves: 'a root tsconfig with files: [] and references extracts the files its same-directory references claim under those configs, reaches a referenced subdirectory as a nested program, and reports a file no program claims as NO_PROGRAM_CLAIMS_FILE (#660)', run: solutionStyleRootDelegatesToReferences },
   { name: 'every program is extracted, none are merged', proves: 'each program under a root reaches one flat relation set with unique keys, while the module link passes stay inside a program so two global scopes are never merged', run: everyProgramIsExtractedAndNoneAreMerged },
   { name: 'streamed relations are well formed', proves: 'rows written as extraction proceeds produce one header per relation, a file for every relation, no leftover temporaries and no dropped tail', run: streamedRelationsAreWellFormed },
   { name: 'streamed read-back catches a torn row', proves: 'the chunked verifier accepts a multi-MB well-formed file and still rejects short, long, truncated, U+2028-bearing and mid-file tears', run: streamedVerificationCatchesTornRows },

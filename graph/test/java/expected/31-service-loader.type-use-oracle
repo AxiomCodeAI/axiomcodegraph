@@ -1,0 +1,7 @@
+31-service-loader
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 in the bytecode)
+  references 16   resolved 3 (18.8%)
+  tiers ambiguous_unknown=13  known_edge=3
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=3  IMPLEMENTS_INTERFACE=3  METHOD_PARAM=5  METHOD_RETURN=5

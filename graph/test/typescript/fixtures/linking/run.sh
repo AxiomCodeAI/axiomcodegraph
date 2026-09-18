@@ -23,7 +23,7 @@ NM="${2:-$(bash "$HERE/../../tools/find-node-modules.sh")}"
 
 rm -rf "$WORK"; mkdir -p "$WORK"
 cp -R "$HERE"/. "$WORK/project"
-rm -f "$WORK/project/run.sh" "$WORK/project/README.md"
+rm -f "$WORK/project/run.sh"
 
 # TypeScript itself is symlinked, not copied: the oracle loads the compiler from the
 # project under analysis, and the standard library staged as the global scope has to be

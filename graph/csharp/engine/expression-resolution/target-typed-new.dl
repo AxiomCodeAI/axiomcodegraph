@@ -1,0 +1,135 @@
+// ============================================================================
+// EXPRESSION RESOLUTION · TARGET-TYPED `new()`
+//
+//     readonly object lockObject = new();
+//     readonly ConditionalWeakTable<CultureInfo, StrongBox<T>> cache = new();
+//     return new();
+//
+// C# 9's target-typed `new()` writes NO TYPE NAME. The parser records a
+// CONSTRUCTOR_CALL with an EMPTY calleeName and attaches no type reference, because
+// there is nothing to attach: the type comes from what the expression is being
+// assigned to, returned as, or passed as.
+//
+// WHY THIS IS THE LARGEST REMAINING RECALL ITEM, MEASURED. On the dev corpus, after
+// arity narrowing, extension methods and accessor calls were in place, the failure
+// buckets were:
+//
+//     777  humanizer         implicit_object_creation
+//      35  polly             implicit_object_creation
+//      28  serilog           implicit_object_creation
+//      98  humanizer         invocation (everything else)
+//
+// One construct, more than five times the size of every other cause combined. It is
+// also the construct most likely to be under-counted by intuition, because it reads
+// as a trivial shorthand rather than as a resolution problem.
+//
+// FIVE CONTEXTS SUPPLY A TARGET TYPE, and they are enumerated rather than
+// generalised because each reaches the declared type by a different link:
+//
+//   a field initializer        the field's own declared type
+//   a property initializer     the property's declared type
+//   a variable initializer     the variable's declared type
+//   a return statement         the enclosing method's return type
+//   an assignment              the assignment target's type
+//
+// An ARGUMENT position is deliberately left out. The target type is the parameter's,
+// which requires the callee to be resolved first -- and the callee's overload is
+// chosen partly by the argument's type, so the two are circular in a way the other
+// five are not. A `new()` in an argument position stays a declared unknown, and the
+// count of those is exported rather than hidden.
+//
+// AN EXPLICIT `new T()` IS UNAFFECTED. This file only fires where the creation has
+// no written type, so it cannot override a type the author did write.
+// ============================================================================
+
+// ── THE SITES ───────────────────────────────────────────────────────────────
+// An object creation with no written type. Recognised from the IR rather than from a
+// language-version flag: no type reference in the OBJECT_CREATION context, and no
+// callee name on the call site.
+expr_is_implicit_new(prov, e) :-
+    expr_kind(prov, e, "OBJECT_CREATION"),
+    !expr_new_type_ref(prov, e, _),
+    !call_callee_name(prov, e, _).
+
+// ── (a) A FIELD INITIALIZER ─────────────────────────────────────────────────
+// `readonly object lockObject = new();`. The field row names the initializer
+// expression, so the link is exact rather than positional.
+expr_target_type(prov, e, gk) :-
+    field_initializer(prov, f, e), field_type(prov, f, gk).
+// The initializer may be a sub-expression of the recorded root (a cast, a
+// parenthesised expression), so the root's own target type flows down to a
+// descendant that is the value.
+expr_target_type(prov, e, gk) :-
+    field_initializer(prov, f, root), field_type(prov, f, gk),
+    expr_value_descendant(prov, root, e).
+
+// ── (b) A PROPERTY INITIALIZER ──────────────────────────────────────────────
+expr_target_type(prov, e, gk) :-
+    property_initializer(prov, p, e), property_type(prov, p, gk).
+expr_target_type(prov, e, gk) :-
+    property_initializer(prov, p, root), property_type(prov, p, gk),
+    expr_value_descendant(prov, root, e).
+
+// ── (c) A VARIABLE INITIALIZER ──────────────────────────────────────────────
+// Only for an EXPLICITLY typed local. `var x = new()` does not compile -- there is
+// no type on either side -- so a `var` local cannot supply a target type, and
+// joining on var_type would make the two rules mutually recursive for no gain.
+expr_target_type(prov, e, gk) :-
+    var_value_initializer(prov, v, e), !var_is_implicit(prov, v), var_type(prov, v, gk).
+expr_target_type(prov, e, gk) :-
+    var_value_initializer(prov, v, root), !var_is_implicit(prov, v), var_type(prov, v, gk),
+    expr_value_descendant(prov, root, e).
+
+// ── (d) A RETURN STATEMENT ──────────────────────────────────────────────────
+// `return new();` -- the enclosing method's declared return type. rootContext
+// RETURN_VALUE is what marks it, and the enclosing method comes from containment, so
+// this works inside a lambda too (where the target is the lambda's own return type,
+// which is the right answer).
+expr_target_type(prov, e, gk) :-
+    expr_root_context(prov, e, "RETURN_VALUE"),
+    expr_ultimate_method(prov, e, m),
+    method_return_type_group(prov, m, gk).
+// AN EXPRESSION-BODIED MEMBER IS A RETURN TOO. `public Holder Returned() => new();`
+// has rootContext EXPRESSION_BODY, not RETURN_VALUE, so keying only on the latter
+// misses the shorthand -- which is the form most such members are written in.
+expr_target_type(prov, e, gk) :-
+    expr_root_context(prov, e, "EXPRESSION_BODY"),
+    expr_ultimate_method(prov, e, m),
+    method_return_type_group(prov, m, gk).
+
+// ── (e) AN ASSIGNMENT ───────────────────────────────────────────────────────
+// `_field = new();` inside a constructor. The target's type is whatever the
+// assignment's left side resolves to.
+expr_target_type(prov, e, gk) :-
+    expr_role(prov, e, "ASSIGNMENT_VALUE"),
+    expr_parent(prov, e, asg, _, _),
+    expr_child(prov, asg, "ASSIGNMENT_TARGET", _, lhs),
+    expr_type(prov, lhs, gk).
+
+// ── expr_value_descendant ───────────────────────────────────────────────────
+// A chain of expressions that pass a value through unchanged, so a target type
+// reaches the creation that actually produces the value. Enumerated by edge role
+// rather than taken as "any descendant": a target type must not flow into an
+// ARGUMENT of the creation, which is a different type entirely.
+expr_value_descendant(prov, root, e) :-
+    expr_parent(prov, e, root, _, _), expr_role(prov, e, "PARENTHESIZED_OPERAND").
+expr_value_descendant(prov, root, e) :-
+    expr_parent(prov, e, root, _, _), expr_role(prov, e, "INITIALIZER_VALUE").
+expr_value_descendant(prov, root, e) :-
+    expr_value_descendant(prov, root, mid), expr_value_descendant(prov, mid, e).
+
+// ── THE TYPE, AND THEREFORE THE CONSTRUCTOR ─────────────────────────────────
+// This is the whole point: once the creation has a type, the existing constructor
+// path (callee-resolution.dl's call_ctor_target) resolves it like any other `new`,
+// including arity selection and a record's primary constructor.
+expr_new_type(prov, e, gk) :-
+    expr_is_implicit_new(prov, e), expr_target_type(prov, e, gk).
+
+// ── WHAT IS LEFT ────────────────────────────────────────────────────────────
+// A target-typed `new()` whose context this file does not cover -- an argument
+// position, or a context whose declared type did not resolve. Exported with its
+// context so the remaining cases are countable rather than merely absent.
+implicit_new_untargeted(prov, e, rc) :-
+    expr_is_implicit_new(prov, e),
+    !expr_target_type(prov, e, _),
+    expr_root_context(prov, e, rc).

@@ -25,6 +25,7 @@ function reexports() {
 function events() { const b = new Bus(); b.on('done', onDone); b.start(); }
 async function asyncs() { await pipeline(); ready.describe(); }
 function plugins() { const p = makePlugin('p'); p.run().describe(); p.base().describe(); new Anon('an').own(); }
+function platform() { return Buffer.isBuffer(new Uint8Array(1)); }
 function cjs() { interop.fromCjs(); new interop.CjsThing().run(); interop.later(); viaRequire.fromCjs(); }
-async function main() { classes(); reexports(); events(); await asyncs(); plugins(); cjs(); }
+async function main() { classes(); reexports(); events(); await asyncs(); plugins(); cjs(); platform(); }
 await main();

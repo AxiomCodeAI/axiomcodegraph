@@ -1,0 +1,7 @@
+ambiguous_unknown	read	probe.QualifiedThis#main(String[]) -> -
+ambiguous_unknown	read	probe.QualifiedThis#selfQualified() -> -
+ambiguous_unknown	read	probe.QualifiedThis$anon:Runnable#run() -> -
+ambiguous_unknown	read	probe.QualifiedThis.Inner#viaQualifiedThis() -> -
+ambiguous_unknown	read	probe.QualifiedThis.Inner#viaQualifiedThisNoClash() -> -
+ambiguous_unknown	read	probe.QualifiedThis.Inner.Deeper#oneLevelOut() -> -
+ambiguous_unknown	read	probe.QualifiedThis.Inner.Deeper#twoLevelsOut() -> -

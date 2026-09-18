@@ -1,0 +1,214 @@
+// ============================================================================
+// CALL-EDGE-GEN · FIELD ACCESS  (the read/write graph, confidence-classified)
+//
+// What call_chain_edge is for `obj.method()`, this is for `obj.field`: one row per
+// (site, resolved field), carrying WHICH WAY the data moves and HOW WELL the site
+// resolved. Change impact of a field ("who reads or writes Foo.bar") had nothing sound
+// to read before it — `referencedEntityHash` is empty on every FIELD-stamped expression
+// the parser emits, so the only available answer was a match on simple name.
+//
+// THE RECEIVER TYPING IS NOT A SECOND IMPLEMENTATION. A field access resolves through
+// expr_type, the same relation that types the receiver of a call, so `obj.field` gets
+// the flow typing, the pattern bindings, the generic substitution, the ternary union and
+// the qualified-`this` handling that `obj.method()` already gets, and gains whatever is
+// added there next. The only new machinery is the member lookup itself
+// (resolution/field-lookup.dl), because a field hides where a method overrides.
+//
+// TIERS, the same four the call graph uses and with the same promises:
+//   known_edge        exactly one field. There is no dispatch on a field, so this is a
+//                     stronger claim than the call-graph tier of the same name: it is
+//                     the storage location, not a best estimate of one.
+//   multi_inferred    2+, because the receiver has more than one possible type or two
+//                     unrelated ancestors declare the name. A sound set.
+//   boundary_lib      the field is declared in a staged library type.
+//   ambiguous_unknown a field access whose receiver could not be typed, or whose name is
+//                     not a member of the type it was typed to. Field = "-", kept as a
+//                     row. This is the tier the relation exists to make honest: a
+//                     declared unknown is the answer when there is no answer, and NO
+//                     CLAUSE IN THIS FILE MATCHES A FIELD BY SIMPLE NAME ALONE.
+//
+// ACCESS, which is the half a call edge has no analogue for:
+//   read       the value is used
+//   write      the value is replaced          (`f = v`)
+//   readwrite  the value is read and replaced (`f += v`, `f++`, `--f`)
+//
+// java_expression (25): 0 kind  1 edgeRole  2 rootContext  6 parentExpressionHash
+//   10 literalValue  13 operatorString  14 referencedEntityKind  24 hash
+// ============================================================================
+
+// ── THE SITE UNIVERSE ───────────────────────────────────────────────────────
+// Three written forms, and nothing else is a field access:
+//
+// (A) QUALIFIED — `obj.f`, `this.f`, `Type.CONST`, `a().f`, `((C) x).f`. A FIELD_ACCESS
+// node with a QUALIFIER child. The node's own referencedEntityKind is NOT consulted: the
+// parser stamps `SharedConstants.UseRe2j` (a real static field) TYPE and stamps the `re2j`
+// segment of a dotted package path FIELD, so the kind is not a usable filter here. What
+// decides is whether the QUALIFIER has a type and the name is a member of it, which is a
+// fact about the program rather than about the extractor.
+field_access_site(e, name) :- java_expression("FIELD_ACCESS", _, ctx, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    name != "", ctx != "SWITCH_CASE_LABEL",
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    !field_site_names_a_type(e).
+field_site_qualifier(e, q) :- java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q).
+
+// A dotted name that names a TYPE is not a field access — `java.net.Proxy.Type`,
+// `Map.Entry`. expr-type.dl's dotted_qualifier already decides this (it is how a
+// fully-qualified inline type is typed at all), so this reuses that decision rather than
+// re-deriving it, and the two cannot drift apart.
+field_site_names_a_type(e) :- dotted_qualifier(e, full),
+    java_type(_, full, _, _, _, _, _, _, _, _, _, _, _, _).
+field_site_names_a_type(e) :- dotted_qualifier(e, full),
+    lib_type(_, full, _, _, _, _, _, _, _, _, _, _, _, _).
+
+// (B) IMPLICIT RECEIVER — a bare `f` the parser stamped FIELD, with no qualifier: a field
+// of the enclosing type, an inherited one, or a static of the enclosing type. Both node
+// shapes occur (the extractor emits FIELD_ACCESS for some and IDENTIFIER_REFERENCE for
+// others), so both are taken.
+//
+// EXCLUDED, all three for a reason that is a defect elsewhere and must not become a wrong
+// edge here:
+//   * a SWITCH_CASE_LABEL. An enum constant in a case label is recorded TYPE for some arms
+//     and FIELD for others (#760), and javac compiles the switch through a $SwitchMap
+//     array rather than through a read of the constant, so the label is not a field access
+//     in the bytecode either. Excluding it costs nothing and admits no wrong row.
+//   * a CONSTANT-LOOKING TYPE QUALIFIER. `URI.create(...)` arrives stamped FIELD
+//     (expr-type.dl FIX-13); the engine already decides such a name is a type, and this
+//     reuses that decision by name (ident_field_recv without a visible field or local).
+//   * a name with a written qualifier, which is form (A).
+field_access_site(e, name) :- java_expression("FIELD_ACCESS", _, ctx, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    name != "", ctx != "SWITCH_CASE_LABEL",
+    !field_access_qualified(e).
+field_access_site(e, name) :- java_expression("IDENTIFIER_REFERENCE", _, ctx, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    name != "", ctx != "SWITCH_CASE_LABEL",
+    !field_access_qualified(e),
+    !field_name_is_a_type_qualifier(e).
+// ...where "the engine already decides such a name is a type" is FIX-13's own condition, minus
+// one case it does not have to consider and this does: a STATICALLY IMPORTED member. `import
+// static probe.Outer.Mode.FAST; … FAST.label()` puts a name in scope that is neither a field of
+// the enclosing type nor a local, so the two negations alone call it a type qualifier and the
+// read of the enum constant disappears. The import says otherwise, and it is written down.
+field_static_imported(e) :- ident_field_recv(e, name), expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    static_import_owner(name, _, file).
+field_static_imported(e) :- ident_field_recv(e, _), expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    static_import_star_owner(_, file).
+field_name_is_a_type_qualifier(e) :- ident_field_recv(e, _), !recv_name_is_field(e),
+    !recv_name_is_local(e), !field_static_imported(e).
+
+// ── THE CONSERVATION LEDGER ─────────────────────────────────────────────────
+// Every field-shaped expression in the IR is either a site or an exclusion named here. Exported
+// beside field_access_site so the coverage guard can check the two against the IR EXACTLY, rather
+// than re-deriving the rules' decisions in Python and calling the difference a silent drop
+// (tools/field_coverage_guard.py). An exclusion nobody can count is one nobody can check.
+field_site_excluded(e, "switch_case_label") :-
+    java_expression("IDENTIFIER_REFERENCE", _, "SWITCH_CASE_LABEL", _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    name != "".
+field_site_excluded(e, "switch_case_label") :-
+    java_expression("FIELD_ACCESS", _, "SWITCH_CASE_LABEL", _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    name != "".
+field_site_excluded(e, "switch_case_label") :-
+    java_expression("FIELD_ACCESS", _, "SWITCH_CASE_LABEL", _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    name != "", field_access_qualified(e).
+field_site_excluded(e, "names_a_type") :- field_site_names_a_type(e).
+field_site_excluded(e, "type_qualifier") :- field_name_is_a_type_qualifier(e).
+
+// ── ACCESS DIRECTION ────────────────────────────────────────────────────────
+// Decided by the role the site plays in its PARENT, which is where the mutation is
+// written. Default read; the two mutating shapes override it. Exactly one clause fires
+// per site (the three parent forms are disjoint node kinds), so a site has one direction.
+field_access_written(e) :- java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression("ASSIGNMENT_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+field_access_updated(e) :- java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression("COMPOUND_ASSIGNMENT", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p).
+// `f++` / `--f` — a UNARY_EXPRESSION whose operator is an increment or a decrement. The
+// other unary operators (`!`, `-`, `~`) do not write, so the operator is the test.
+field_access_updated(e) :- java_expression(_, "UNARY_OPERAND", _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression("UNARY_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, "++", _, _, _, _, _, _, _, _, _, _, p).
+field_access_updated(e) :- java_expression(_, "UNARY_OPERAND", _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression("UNARY_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, "--", _, _, _, _, _, _, _, _, _, _, p).
+
+field_access_kind(e, "write")     :- field_access_site(e, _), field_access_written(e).
+field_access_kind(e, "readwrite") :- field_access_site(e, _), field_access_updated(e).
+field_access_kind(e, "read")      :- field_access_site(e, _), !field_access_written(e), !field_access_updated(e).
+
+// ── RESOLUTION ──────────────────────────────────────────────────────────────
+// (A) through the qualifier's type. expr_type may give a qualifier more than one type
+// (a ternary, a receiver with two flows); every one contributes, which is what makes the
+// resulting set sound rather than a guess between them.
+field_access_target(e, f) :- field_access_site(e, name),
+    field_site_qualifier(e, q),
+    expr_type(_, q, qt),
+    field_name_in_type(name, qt, f).
+// (B) implicit receiver — the enclosing type, then its ancestors. expr_ultimate_type is
+// containment, so this works inside an initializer block and inside a lambda body alike.
+field_access_target(e, f) :- field_access_site(e, name),
+    !field_access_qualified(e),
+    expr_ultimate_type("client", e, encl),
+    field_name_in_type(name, encl, f).
+// A STATIC IMPORT — `import static java.util.Locale.ENGLISH; … ENGLISH`. The name is not a
+// member of the enclosing type at all, so (B) finds nothing; the import names the owner.
+// Reuses the same static_import_owner the unqualified-call path uses.
+field_access_target(e, f) :- field_access_site(e, name),
+    !field_access_qualified(e),
+    expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    static_import_owner(name, ownerName, file),
+    field_owner_named(ownerName, owner),
+    field_name_in_type(name, owner, f).
+field_owner_named(qname, t) :- java_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
+field_owner_named(qname, t) :- lib_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── TIER ────────────────────────────────────────────────────────────────────
+field_access_count(e, n) :- field_access_site(e, _),
+    n = count : { field_access_target(e, _) }.
+// Provenance of a resolved field: the IR that declares it.
+field_prov("client", f) :- java_field(_, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_prov("client", f) :- java_enum_constant(_, _, _, _, _, _, _, _, _, _, _, _, f).
+field_prov("lib", f) :- lib_field(_, _, _, _, _, _, _, _, _, _, _, _, _, f).
+field_prov("lib", f) :- lib_enum_constant(_, _, _, _, _, _, _, _, _, _, _, _, f).
+
+field_site_leaves_client(e) :- field_access_target(e, f), field_prov("lib", f).
+field_access_class(e, "known_edge")        :- field_access_count(e, 1), !field_site_leaves_client(e).
+field_access_class(e, "multi_inferred")    :- field_access_count(e, n), n >= 2.
+field_access_class(e, "ambiguous_unknown") :- field_access_count(e, 0).
+
+// ── the caller, never blank — the same fallback call_from makes ─────────────
+// A field access written in a field initializer or an init block has no enclosing named
+// method, and the parser leaves that owner's methodRegistryLinkHash empty; the enclosing
+// TYPE stands for the JVM's <clinit>/<init>, exactly as it does for a call site.
+field_access_named_method(e) :- expr_ultimate_method("client", e, m), m != "".
+field_access_from(e, m) :- field_access_site(e, _), expr_ultimate_method("client", e, m), m != "".
+field_access_from(e, t) :- field_access_site(e, _), !field_access_named_method(e),
+    expr_ultimate_type("client", e, t).
+
+// ── THE EXPORTED ROW ────────────────────────────────────────────────────────
+// field_access(Site, Caller, Field, Prov, Tier, Access)
+//   Site    the expression where the access is written
+//   Caller  the method containing it, or the enclosing TYPE for an initializer
+//   Field   the resolved field/enum-constant hash, "-" when the site did not resolve
+//   Prov    "client" | "lib" | "-"
+//   Tier    known_edge | multi_inferred | boundary_lib | ambiguous_unknown
+//   Access  read | write | readwrite
+// Every site appears at least once: a site with N possible fields has N rows, a site with
+// none has exactly one row carrying "-" and ambiguous_unknown. Nothing is dropped.
+field_access(e, caller, f, "client", cls, acc) :- field_access_target(e, f),
+    field_prov("client", f),
+    field_access_from(e, caller), field_access_class(e, cls), field_access_kind(e, acc).
+field_access(e, caller, f, "lib", "boundary_lib", acc) :- field_access_target(e, f),
+    field_prov("lib", f),
+    field_access_from(e, caller), field_access_kind(e, acc).
+field_access(e, caller, "-", "-", "ambiguous_unknown", acc) :-
+    field_access_class(e, "ambiguous_unknown"),
+    field_access_from(e, caller), field_access_kind(e, acc).
+// ── AND UNCONDITIONALLY, for any site that emitted no row at all ────────────
+// The same structural guard call_chain_edge carries: a site whose targets are all removed
+// by some later filter must degrade to a declared unknown, never to silence.
+field_access_has_row(e) :- field_access_target(e, f), field_prov(_, f).
+field_access(e, caller, "-", "-", "ambiguous_unknown", acc) :- field_access_site(e, _),
+    !field_access_has_row(e),
+    field_access_from(e, caller), field_access_kind(e, acc).
+
+// ── the blind spots, attributed to the code that contains them ──────────────
+method_has_unknown_field_access(caller, e) :- field_access_class(e, "ambiguous_unknown"),
+    field_access_from(e, caller).

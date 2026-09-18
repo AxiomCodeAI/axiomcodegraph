@@ -1,0 +1,7 @@
+59-merged-export-through-namespace [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 1   resolved 1 (100.0%)
+  tiers known_edge=1
+  contexts METHOD_RETURN=1
+  not scored: 0 rows whose target is not a client declaration

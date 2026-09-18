@@ -15,7 +15,7 @@ lib/async.js:17:31 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK
 lib/async.js:18:26 METHOD_CALL resolve  LIB_AMBIENT_OK  
 lib/async.js:18:42 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
 lib/async.js:19:29 CONSTRUCTOR_CALL Promise  LIB_AMBIENT_OK  
-lib/async.js:19:54 FUNCTION_CALL resolve  LIB_MISSED  
+lib/async.js:19:54 FUNCTION_CALL resolve  LIB_AMBIENT_OK  
 lib/async.js:19:62 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
 lib/async.js:21:10 FUNCTION_CALL get  EXACT  lib/async.js:17:1
 lib/async.js:21:3 METHOD_CALL run  EXACT  lib/async.js:4:16
@@ -83,7 +83,7 @@ lib/async.js:47:36 METHOD_CALL forEach  LIB_AMBIENT_OK
 lib/async.js:48:13 FUNCTION_CALL setInterval  LIB_AMBIENT_OK  
 lib/async.js:48:33 FUNCTION_CALL clearInterval  LIB_AMBIENT_OK  
 lib/async.js:48:69 FUNCTION_CALL queueMicrotask  LIB_AMBIENT_OK  
-lib/async.js:49:24 FUNCTION_CALL res  LIB_MISSED  
+lib/async.js:49:24 FUNCTION_CALL res  LIB_AMBIENT_OK  
 lib/async.js:49:3 CONSTRUCTOR_CALL Promise  LIB_AMBIENT_OK  
 lib/async.js:49:3 METHOD_CALL then  LIB_AMBIENT_OK  
 lib/async.js:56:18 FUNCTION_CALL_BIND bind  EXACT  lib/async.js:63:3

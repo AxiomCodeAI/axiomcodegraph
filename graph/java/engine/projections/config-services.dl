@@ -24,9 +24,13 @@ svc_descriptor(d, svc, wf) :- java_service_descriptor(svc, _, _, _, _, wf, _, _,
 // Only well-formed names: a malformed line is emitted by the parser WITH its columns left
 // empty and flagged, precisely so a consumer cannot fabricate a class out of it.
 svc_provider(p, d, pkg, simple) :- java_service_provider(_, _, simple, pkg, _, _, "true", _, _, _, _, _, _, _, d, _, _, _, p).
+// svc_provider_class(Provider, Descriptor, QualifiedName) — the provider's dotted name
+// (a nested provider written as a.b.Outer$Inner arrives as a.b.Outer.Inner).
+svc_provider_class(p, d, qname) :- java_service_provider(qname, _, _, _, _, _, "true", _, _, _, _, _, _, _, d, _, _, _, p).
 
 // The library side. A dependency ships its own provider-configuration files, and the
 // platform ships one in its base module — so a client that calls ServiceLoader on a
 // library service has its providers named in the LIBRARY's descriptors, not its own.
 svc_descriptor_lib(d, svc, wf) :- lib_service_descriptor(svc, _, _, _, _, wf, _, _, _, _, _, _, _, d).
 svc_provider_lib(p, d, pkg, simple) :- lib_service_provider(_, _, simple, pkg, _, _, "true", _, _, _, _, _, _, _, d, _, _, _, p).
+svc_provider_class_lib(p, d, qname) :- lib_service_provider(qname, _, _, _, _, _, "true", _, _, _, _, _, _, _, d, _, _, _, p).

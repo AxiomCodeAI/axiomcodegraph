@@ -1,0 +1,8 @@
+45-this-flow-default-method
+  precision 0.9895   (94 correct, 1 wrong)
+  recall    1.0000   (94 of 94 in the bytecode)
+  sites 50   resolved 49 (98.0%)
+  tiers ambiguous_unknown=1  known_edge=49
+  access read=3  readwrite=46  write=1
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   testcases.thisflow.Node#<init>(Node[]) WRITE testcases.thisflow.Node#children

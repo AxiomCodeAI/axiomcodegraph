@@ -8,6 +8,6 @@
 #   viaMapValues: map.values().forEach(x -> x.validate(...))   two library generics deep
 #   viaStream:    stream().forEach(...)
 #   viaTypedList: a List<Item> parameter
-LambdaParamCallback#viaMapValues -> Item#validate(String)
-LambdaParamCallback#viaStream -> Item#validate(String)
-LambdaParamCallback#viaTypedList -> Item#validate(String)
+LambdaParamCallback#viaMapValues -> LambdaParamCallback.Item#validate(String)
+LambdaParamCallback#viaStream -> LambdaParamCallback.Item#validate(String)
+LambdaParamCallback#viaTypedList -> LambdaParamCallback.Item#validate(String)

@@ -1,0 +1,2 @@
+known_edge	read	Box#get() -> Box#value
+known_edge	read	Box#map((t: T) =) -> Box#value

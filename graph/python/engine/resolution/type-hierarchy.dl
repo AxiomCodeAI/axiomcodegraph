@@ -223,14 +223,57 @@ type_self_or_ancestor(p, t, a) :- type_ancestor(p, t, a).
 // ambiguous only if a positional base were itself named `metaclass`.
 // ============================================================================
 
-// ── metaclass_of(Prov, TypeHash, MetaclassTypeHash) ──────────────────────────
-metaclass_of(p, sub, mcls) :-
+// ── metaclass_declared(Prov, TypeHash, MetaclassTypeHash) ────────────────────
+// The `metaclass=` keyword written on the class statement itself.
+metaclass_declared(p, sub, mcls) :-
     type_base_keyword(p, sub, kw, text, bh), class_definition_keyword(kw),
     type_base_span(p, bh, mod, sl),
     expr_node(p, _, "BASE_CLASS", text, e),
     expr_scope(p, _, mod, e),
     expr_span(p, sl, _, e),
     expr_names_type(p, e, mcls).
+// ...and the DOTTED spelling, `metaclass=_construction.ModelMetaclass`: the keyword's
+// value is an ATTRIBUTE_ACCESS whose literalValue is the last segment, so matching it
+// against baseText needs the expression's dotted path, and the type it names resolves
+// through the module hop (expr_attr_names_type) rather than the bare-name one. The base
+// class of a framework's whole model layer is written this way, and every subclass of it
+// inherited nothing because the keyword itself never resolved.
+metaclass_declared(p, sub, mcls) :-
+    type_base_keyword(p, sub, kw, text, bh), class_definition_keyword(kw),
+    type_base_span(p, bh, mod, sl),
+    expr_node(p, "ATTRIBUTE_ACCESS", "BASE_CLASS", _, e),
+    expr_dotted_path(p, text, e),
+    expr_scope(p, _, mod, e),
+    expr_span(p, sl, _, e),
+    expr_attr_names_type(p, e, mcls).
+type_declares_metaclass(p, sub) :-
+    type_base_keyword(p, sub, kw, _, _), class_definition_keyword(kw).
+
+// ── metaclass_of(Prov, TypeHash, MetaclassTypeHash) ──────────────────────────
+// A METACLASS IS INHERITED. `class Model(Base)` where Base was declared with
+// `metaclass=Meta` runs Meta.__new__ / Meta.__init__ exactly as `class Base(metaclass=Meta)`
+// did: the interpreter picks the most derived metaclass among the explicit keyword and the
+// bases' metaclasses (Python reference 3.3.3.3), and a class statement with no keyword takes
+// its bases'. Reading only the keyword left every subclass of a metaclassed base without the
+// creation edge, which on a framework whose whole model layer is one such base is nearly
+// every class statement in the program (#704: 17 of 21 client `__new__` definitions had no
+// caller, and the construction subtree under one of them was dead from every entry).
+//
+// The candidates walk the bases only where the class writes no keyword of its own; among
+// the candidates, one that is a proper ANCESTOR of another is not the winner (the
+// interpreter requires the winner to be a subtype of every candidate, so the most derived
+// one is it). The walk may cross into a staged library base, whose own keyword is a lib
+// fact under the same relations.
+metaclass_cand(p, sub, mcls) :- metaclass_declared(p, sub, mcls).
+metaclass_cand(p, sub, mcls) :-
+    type_base_resolved(p, sub, _, base),
+    !type_declares_metaclass(p, sub),
+    metaclass_cand(_, base, mcls).
+metaclass_cand_dominated(p, sub, mcls) :-
+    metaclass_cand(p, sub, mcls),
+    metaclass_cand(p, sub, other), other != mcls,
+    type_ancestor(_, other, mcls).
+metaclass_of(p, sub, mcls) :- metaclass_cand(p, sub, mcls), !metaclass_cand_dominated(p, sub, mcls).
 
 // ── class_creation_caller(Prov, TypeHash, CallerMethodHash) ──────────────────
 // The class statement runs where it is written: a top-level class in the module

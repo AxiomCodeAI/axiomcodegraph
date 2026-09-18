@@ -8,7 +8,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
+node_modules
 node_modules/
+# and the bare name: `node_modules/` matches a directory only, so a symlink named node_modules slips past it
+node_modules
 jspm_packages/
 web_modules/
 .pnp
@@ -45,15 +48,36 @@ dist/
 #
 # Both lines per directory are needed — git does not descend into an excluded directory,
 # so the directory itself must be re-included before its contents can be.
-!test/**/vendor/**/dist/
-!test/**/vendor/**/dist/**
-!test/**/vendor/**/build/
-!test/**/vendor/**/build/**
-!test/**/vendor/**/out/
-!test/**/vendor/**/out/**
+# ...and these six lines were DEAD for the whole time they existed. A pattern containing a
+# slash is anchored to the directory holding this file, so `test/**/vendor/**/dist/` matches
+# a TOP-LEVEL `test/` and the suites live under `graph/test/`. `git check-ignore` confirms
+# it: a vendored dist under graph/test/ was still ignored by the blanket above, and the one
+# such file in the index survived only because it was force-added. Case
+# 60-ts-emit-helpers shipped in #813 with four files and without its `lib/dist/`, so its
+# golden had been blessed against inputs that existed only in one working tree and the case
+# failed for everybody else from the day it landed.
+#
+# The rule is stated positively instead: a fixture's INPUTS are inputs whatever they are
+# called, and nothing under a cases/ or fixtures/ tree is ever build output of THIS
+# repository. `test/tools/no-ignored-fixtures.sh` still enforces the invariant; it could not
+# catch this one, because a file that was never added is not a file it can see.
+!graph/test/**/cases/**
+!graph/test/**/fixtures/**
 build/
 out/
 lib-cov/
+
+# ...EXCEPT the Python case that tests the parser's OWN build-output exclusion (#564).
+# `build/lib/pkg` inside it is a byte-identical setuptools artifact and must stay
+# checked in for the case to catch a regression; `build/__init__.py` beside it is the
+# CONTROL — a legitimate source package literally named `build` — which the blanket
+# `build/` rule above would otherwise drop silently, same as the vendor case above. A
+# negation MUST come after the rule it excepts — gitignore is last-match-wins, and a
+# negation placed before the blanket it is meant to except (as the vendor `build/`
+# lines above are) is dead: the blanket re-ignores everything the exception just
+# re-included.
+!graph/test/python/cases/15-build-artifact-exclusion/src/build/
+!graph/test/python/cases/15-build-artifact-exclusion/src/build/**
 *.tsbuildinfo
 .tsbuildinfo
 *.d.ts.map
@@ -96,6 +120,17 @@ inter/
 # impact-compare agents (bytecode oracles, dynamic traces, diff reports).
 oracle/
 oracles/
+
+# .NET build output. The C# ground-truth tool and the runtime instrumenter are
+# real source under graph/test/csharp/, and `dotnet build` drops obj/ and bin/
+# beside them. This repository had no such pattern because nothing in it was C#
+# until now, and the first commit after those directories stopped matching the
+# `oracle/` rule above carried 50-odd generated files, a project.assets.json and
+# four binaries into the tree.
+[Oo]bj/
+[Bb]in/
+*.user
+
 reports/
 scratch/
 .scratch/
@@ -226,6 +261,14 @@ $RECYCLE.BIN/
 # if any vendored package's declared `types` is missing from the index. A guard that
 # checks the property beats a pattern list that tries to anticipate it.
 
+# A work directory at the REPOSITORY ROOT, which the per-suite lines below do not
+# cover. Scratch written there is measurement scaffolding: run scripts, corpus
+# outputs and issue drafts, which routinely carry absolute paths to a machine and to
+# whatever corpus was measured. `git add -A` from the root stages all of it, and a
+# commit-message guard cannot catch it because the leak is in the FILE, not the
+# message. Ignored here so the safe habit is the default one.
+.work/
+
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
 graph/test/java/.work/
 
@@ -255,3 +298,7 @@ package-lock.json
 !graph/test/javascript/cases/*/src/node_modules/
 graph/test/*/.work-skill/
 __pycache__/
+
+# C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
+.cs-case-work/
+.cs-dev-cache/

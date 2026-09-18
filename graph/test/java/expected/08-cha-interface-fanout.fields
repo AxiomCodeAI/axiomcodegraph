@@ -1,0 +1,5 @@
+ambiguous_unknown	read	testcases.engine.EdgeCHA$anon:Sink#accept(String) -> -
+ambiguous_unknown	read	testcases.engine.EdgeCHA.NamedSink#accept(String) -> -
+known_edge	read	testcases.engine.EdgeCHA.Box#get() -> testcases.engine.EdgeCHA.Box#val
+known_edge	write	testcases.engine.EdgeCHA.Box#set(Object) -> testcases.engine.EdgeCHA.Box#val
+known_edge	write	testcases.engine.EdgeCHA.SBox#set(String) -> testcases.engine.EdgeCHA.Box#val

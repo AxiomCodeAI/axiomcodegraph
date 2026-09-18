@@ -41,4 +41,29 @@ export enum SkippedFileReason {
    * run that still reports success.
    */
   EXTRACTION_ERROR = 'EXTRACTION_ERROR',
+
+  /**
+   * Every file under a directory the walker pruned by name (`node_modules`,
+   * `dist`, …). ONE row per pruned directory, carrying the count, not one per
+   * file: the files were never enumerated individually, and claiming otherwise
+   * would invent paths.
+   *
+   * The row exists because the pruning is invisible without it (#790). A
+   * repository whose first-party packages live under `packages/node_modules`
+   * analysed as eleven files with an empty skip table, and the graph built from
+   * that IR is a correct graph of eleven files with nothing to say it was meant
+   * to be a graph of 321. This is the JavaScript instance of #531.
+   */
+  DIRECTORY_EXCLUDED = 'DIRECTORY_EXCLUDED',
+
+  /**
+   * A TypeScript file under a root that declares programs (a `tsconfig.json`), which
+   * no program claims and no claimed file imports.
+   *
+   * A root config that delegates to references, or one whose `include` leaves a
+   * directory out, is saying those files are not part of any program it knows.
+   * Before this reason existed the file was simply absent from every relation, and
+   * a consumer could not tell an unparsed file from an empty one (#660).
+   */
+  NO_PROGRAM_CLAIMS_FILE = 'NO_PROGRAM_CLAIMS_FILE',
 }

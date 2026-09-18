@@ -1,0 +1,37 @@
+// ============================================================================
+// Projections · BLOCKS  (pure column views)
+//
+// A lexical block is SYNTAX where js_scope is BINDING: `if`, `else`, `for`,
+// `for..in`, `for..of`, `while`, `try`, `catch`, a `case`, a function body. The
+// engine reads the block relation for one residue: the loop FORM. The parser roots
+// the iterated expression of both `for..in` and `for..of` under ITERABLE, so the
+// expression alone cannot say whether the loop binding holds an element or a key;
+// the block row can, because its kind is the statement's and its condition link is
+// the iterated expression (#685).
+//
+// js_block / lib_js_block cols (17):
+//   0 blockKind  1 label  2 parentBlockLinkHash  3 depth  4 childIndex
+//   5 scopeLinkHash  6 opensScope  7 conditionExpressionLinkHash
+//   8 ownerMethodLinkHash  9 ownerModuleLinkHash  10 startLine  11 startColumn
+//   12 endLine  13 endColumn  14 isExternal  15 serviceVersionLinkHash
+//   16 jsBlockUniqueHash
+// ============================================================================
+
+// ── block_condition(Prov, Kind, ConditionExpr, BlockHash) ───────────────────
+// Kind: IF | ELSE | FOR | FOR_IN | FOR_OF | WHILE | DO | SWITCH | SWITCH_CASE |
+//       TRY | CATCH | BLOCK | FUNCTION_BODY | CLASS_BODY | MODULE_BODY
+// The condition is the `if` / `while` test, the `for` head, or the ITERATED
+// EXPRESSION of a `for..in` / `for..of`; empty for the block forms without one.
+block_condition("client", k, c, h) :- js_block(k, _, _, _, _, _, _, c, _, _, _, _, _, _, _, _, h), c != "".
+block_condition("lib", k, c, h) :- lib_js_block(k, _, _, _, _, _, _, c, _, _, _, _, _, _, _, _, h), c != "".
+
+// ── block_child(Parent, Kind, ChildIndex, BlockHash) ────────────────────────
+// An `if`'s body is its child BLOCK at index 0; an `else` or `else if` sits at 1.
+block_child("client", p, k, idx, h) :- js_block(k, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+block_child("lib", p, k, idx, h) :- lib_js_block(k, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+
+// ── block_span(Prov, OwnerModule, StartLine, StartCol, EndLine, EndCol, BlockHash) ──
+// A block opens no scope of its own unless it declares something, so the span is
+// the one handle on "the expressions inside this block" (#701).
+block_span("client", mod, l1, c1, l2, c2, h) :- js_block(_, _, _, _, _, _, _, _, _, mod, l1, c1, l2, c2, _, _, h).
+block_span("lib", mod, l1, c1, l2, c2, h) :- lib_js_block(_, _, _, _, _, _, _, _, _, mod, l1, c1, l2, c2, _, _, h).

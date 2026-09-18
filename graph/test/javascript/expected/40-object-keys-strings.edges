@@ -1,0 +1,29 @@
+main.js:10:32 METHOD_CALL out.push  ->  ambient_terminal  -
+main.js:10:41 METHOD_CALL key.split  ->  ambient_terminal  -
+main.js:10:9 METHOD_CALL key.startsWith  ->  ambient_terminal  -
+main.js:15:17 METHOD_CALL Object.getOwnPropertyNames  ->  ambient_terminal  -
+main.js:15:17 METHOD_CALL Object.getOwnPropertyNames(fields).filter  ->  ambient_terminal  -
+main.js:15:17 METHOD_CALL Object.getOwnPropertyNames(fields).filter  ->  callback_registered  main.js:15:59 <function-expression>
+main.js:15:81 METHOD_CALL n.indexOf  ->  ambient_terminal  -
+main.js:16:17 METHOD_CALL names[0].trim  ->  ambient_terminal  -
+main.js:17:3 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:17:3 METHOD_CALL Object.keys(fields).forEach  ->  ambient_terminal  -
+main.js:17:3 METHOD_CALL Object.keys(fields).forEach  ->  callback_registered  main.js:17:31 <function-expression>
+main.js:17:46 METHOD_CALL first.concat  ->  ambient_terminal  -
+main.js:17:59 METHOD_CALL k.toUpperCase  ->  ambient_terminal  -
+main.js:18:10 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:18:10 METHOD_CALL Object.keys(fields).reduce  ->  ambient_terminal  -
+main.js:18:10 METHOD_CALL Object.keys(fields).reduce  ->  callback_registered  main.js:18:37 <function-expression>
+main.js:21:19 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:22:10 METHOD_CALL all.map  ->  ambient_terminal  -
+main.js:22:10 METHOD_CALL all.map  ->  callback_registered  main.js:22:18 <function-expression>
+main.js:22:40 METHOD_CALL k.padEnd  ->  ambient_terminal  -
+main.js:26:32 METHOD_CALL seen.push  ->  ambient_terminal  -
+main.js:26:42 METHOD_CALL name.toLowerCase  ->  ambient_terminal  -
+main.js:33:27 FUNCTION_CALL fn  ->  multi_inferred  main.js:3:1 alpha
+main.js:33:27 FUNCTION_CALL fn  ->  multi_inferred  main.js:4:1 beta
+main.js:34:26 METHOD_CALL i.padStart  ->  ambient_terminal  -
+main.js:34:41 COMPUTED_CALL fns[i]  ->  multi_inferred  main.js:3:1 alpha
+main.js:34:41 COMPUTED_CALL fns[i]  ->  multi_inferred  main.js:4:1 beta
+main.js:35:34 COMPUTED_CALL handlers[name]  ->  dynamic_terminal  -
+main.js:9:21 METHOD_CALL Object.keys  ->  ambient_terminal  -

@@ -1,0 +1,7 @@
+14-cross-file-shadowing [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 3   resolved 3 (100.0%)
+  tiers known_edge=3
+  contexts OBJECT_CREATION_TYPE=3
+  not scored: 0 rows whose target is not a client declaration

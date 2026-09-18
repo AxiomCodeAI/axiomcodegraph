@@ -1,0 +1,12 @@
+main.js:4:26 METHOD_CALL registry.get  ->  known_edge  registry.js:6:3 get
+main.js:5:31 METHOD_CALL plain.get  ->  known_edge  plain.js:5:3 get
+main.js:6:25 FUNCTION_CALL read  ->  known_edge  main.js:4:1 read
+main.js:6:34 FUNCTION_CALL readPlain  ->  known_edge  main.js:5:1 readPlain
+plain.js:5:21 METHOD_CALL super.get  ->  ambient_terminal  -
+plain.js:7:18 CONSTRUCTOR_CALL EagerMap  ->  ambient_terminal  -
+plain.js:7:18 CONSTRUCTOR_CALL EagerMap  ->  implicit_constructor  -
+registry.js:6:21 FUNCTION_CALL super.get(key)  ->  ambient_terminal  -
+registry.js:6:21 FUNCTION_CALL super.get(key)  ->  multi_inferred  registry.js:9:37 <arrow>
+registry.js:6:21 METHOD_CALL super.get  ->  ambient_terminal  -
+registry.js:9:18 CONSTRUCTOR_CALL LazyMap  ->  ambient_terminal  -
+registry.js:9:18 CONSTRUCTOR_CALL LazyMap  ->  implicit_constructor  -

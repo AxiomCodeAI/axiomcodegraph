@@ -1,0 +1,8 @@
+# Accepted gap, and not this case's subject: a class that declares NO constructor but DOES declare
+# a field initializer gets a javac-generated one whose body is the initializer plus an implicit
+# `super()`. The oracle keeps that constructor (its body is not the empty three-instruction shape),
+# so the implicit super() is ground truth; the engine emits no edge for a constructor delegation
+# nobody wrote. ShadowSub is here because a shadowed field needs a subclass with its own
+# initializer, not because the case is about constructors.
+# It cannot rot: if the engine starts emitting it, this line reports NOW-FIXED and fails.
+probe.FieldAccess.ShadowSub#<init> -> probe.FieldAccess.ShadowBase#<init>

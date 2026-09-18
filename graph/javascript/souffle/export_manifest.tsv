@@ -39,3 +39,4 @@ import_unresolved_cause	import-unresolved-cause.csv
 site_in_partial_module	site-in-partial-module.csv
 package_entry	package-entry.csv
 import_staged_package_unreached	import-staged-package-unreached.csv
+member_write_refused	member-write-refused.csv

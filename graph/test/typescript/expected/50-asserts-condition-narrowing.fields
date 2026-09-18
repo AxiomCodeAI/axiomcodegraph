@@ -1,0 +1,1 @@
+known_edge	read	main#canCall(Runner | null) -> Runner#call

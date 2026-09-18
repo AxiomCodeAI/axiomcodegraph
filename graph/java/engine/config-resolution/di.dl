@@ -41,16 +41,23 @@
 // spring-boot-autoconfigure's own @Configuration classes, which are not in the
 // scanned set, so those points read unsatisfied or multi_bean instead of resolving.
 //
-// WHAT THIS POINTS AT. Every rule in this folder is scoped to "client".
-// lib_annotation / lib_annotation_argument are staged (as of #136 — the comment
-// asserted this before it was true, and the relations were empty on every run) and
-// carry the framework's own stereotypes and @Bean methods. Reading them would populate the
-// bean set with the autoconfiguration beans and move most of those 16 unsatisfied
-// and 164 multi_bean rows. Until that is done the honest statement is: the
-// narrowing is correct and validated (live-context precision/recall 1.000 across
-// beans, field, constructor, @Bean-parameter and @Value injection — see
-// test/java/expected/26-spring-oracle.spring-oracle), and on a framework-heavy
-// module it is currently INERT.
+// WHAT THIS POINTED AT, AND WHAT #851 DID ABOUT IT. This paragraph used to read
+// "every rule in this folder is scoped to client", which was the defect: the
+// lib_annotation / lib_annotation_argument relations were staged (as of #136) and
+// carried the framework's own stereotypes and @Bean methods, and nothing read them.
+// annotation-args.dl now threads a provenance column, so a dependency supplied with
+// --library contributes bean_def, inject_point and di_edge rows like any other source.
+//
+// The NARROWING is a separate question and #851 deliberately left it alone. Gate (1)
+// below is still cfg_client_type, so a library-typed slot is still not narrowed, and
+// no call edge moved. The 16 unsatisfied and 164 multi_bean rows above were measured
+// before library beans were visible; whether narrowing should now widen to
+// "client, or a library type from a root that was actually supplied" is open and needs
+// its own soundness argument and its own numbers.
+//
+// The narrowing itself is correct and validated (live-context precision/recall 1.000
+// across beans, field, constructor, @Bean-parameter and @Value injection: see
+// test/java/expected/26-spring-oracle.spring-oracle).
 //
 // HOW THE NARROWING ATTACHES. Nothing here edits virtual-dispatch.dl or
 // callee-resolution.dl. resolution/type-flow.dl already established the hook:
@@ -119,20 +126,19 @@ cfg_decap(s, d) :- cfg_decap_demand(s), cfg_upper_at(s, 0), !cfg_two_caps(s),
 
 // (a) STEREOTYPE on a type. An explicit name — @Service("orders") — wins; otherwise
 // the decapitalized simple name, matching Spring's generator.
-cfg_stereotype(a, t) :- ann_on_type(a, n, t), cfg_bean_ann(n).
-cfg_stereotype_named(t, name) :- cfg_stereotype(a, t), ann_arg_value(a, name), name != "".
+cfg_stereotype(prov, a, t) :- ann_on_type(prov, a, n, t), cfg_bean_ann(n).
+cfg_stereotype_named(t, name) :- cfg_stereotype(prov, a, t), ann_arg_value(prov, a, name), name != "".
 cfg_stereotype_has_name(t) :- cfg_stereotype_named(t, _).
-cfg_decap_demand(sn) :- cfg_stereotype(_, t),
-    java_type(sn, _, _, _, _, _, _, _, _, _, _, _, _, t).
+cfg_decap_demand(sn) :- cfg_stereotype(prov, _, t), type_decl(prov, sn, _, _, _, _, t).
 
-bean_def(name, t, "stereotype", a) :- cfg_stereotype(a, t), cfg_stereotype_named(t, name).
-bean_def(name, t, "stereotype", a) :- cfg_stereotype(a, t), !cfg_stereotype_has_name(t),
-    java_type(sn, _, _, _, _, _, _, _, _, _, _, _, _, t), cfg_decap(sn, name).
+bean_def(name, t, "stereotype", a) :- cfg_stereotype(_, a, t), cfg_stereotype_named(t, name).
+bean_def(name, t, "stereotype", a) :- cfg_stereotype(prov, a, t), !cfg_stereotype_has_name(t),
+    type_decl(prov, sn, _, _, _, _, t), cfg_decap(sn, name).
 
 // (b) FACTORY METHOD: @Bean / @Produces / @Provides. The bean's type is the
 // method's DECLARED RETURN type; its name is the method name unless given.
-cfg_factory(a, m, owner) :- ann_on_method(a, n, m, owner), cfg_factory_ann(n).
-cfg_factory_named(m, name) :- cfg_factory(a, m, _), ann_arg_value(a, name), name != "".
+cfg_factory(prov, a, m, owner) :- ann_on_method(prov, a, n, m, owner), cfg_factory_ann(n).
+cfg_factory_named(m, name) :- cfg_factory(prov, a, m, _), ann_arg_value(prov, a, name), name != "".
 cfg_factory_has_name(m) :- cfg_factory_named(m, _).
 // The bean's TYPE is the method's DECLARED return type — EXCEPT when the body
 // returns a single `new T()`, in which case T is the object the container actually
@@ -140,12 +146,59 @@ cfg_factory_has_name(m) :- cfg_factory_named(m, _).
 // beans precision/recall 0.818 (`clock` typed Clock, not SystemClock); preferring
 // the concrete return takes it to 1.000. method_return_mono (expr-type.dl) is the
 // existing relation for exactly this and is LOW-stratum, so it is safe to read here.
-cfg_factory_type(m, t) :- cfg_factory(_, m, _), method_return_mono("client", m, t).
-cfg_factory_type(m, t) :- cfg_factory(_, m, _), !method_return_mono("client", m, _),
-    method_return_type_resolves("client", m, _, t).
+// method_return_mono needs a BODY, which a library staged as signatures only does not
+// have, so the concrete-return preference simply does not fire for a library factory and
+// the declared return type stands. That is the correct answer for a signature, not a
+// degradation: there is no `new` to read.
+cfg_factory_type(m, t) :- cfg_factory(prov, _, m, _), method_return_mono(prov, m, t).
+cfg_factory_type(m, t) :- cfg_factory(prov, _, m, _), !method_return_mono(prov, m, _),
+    method_return_type_resolves(prov, m, _, t).
 bean_def(name, t, "factory_method", m) :- cfg_factory_type(m, t), cfg_factory_named(m, name).
 bean_def(name, t, "factory_method", m) :- cfg_factory_type(m, t), !cfg_factory_has_name(m),
-    java_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+    method_decl(_, name, _, _, m).
+
+// (b\') PROXY REPOSITORIES: an interface whose base is a repository base.
+// Spring Data, and everything shaped like it, registers a proxy for an INTERFACE the
+// application declares and never implements. There is no class in any source tree and
+// no annotation on the interface, so both of the things that make a bean above are
+// absent and every injection of one reads `unsatisfied`.
+//
+// Matched on the extends-clause NAME, not on a resolved ancestor. That is the whole
+// point: the base lives in the persistence framework, which is normally NOT passed as
+// --library, so type_parent never fires for it and type_ancestor has no edge to match
+// on. An earlier draft of this rule joined type_ancestor, passed its fixture because
+// the fixture vendored the base into lib-src, and moved nothing at all on a real
+// service. The name is the only evidence present in the common case.
+//
+// Interfaces only. A CLASS extending a repository base is ordinary code the container
+// does not proxy, and a stereotype on it would already have made it a bean.
+cfg_repo_super_name(sub, tn) :-
+    java_type_reference(_, "SUPER_TYPE", sub, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, _).
+cfg_repo_super_name(sub, tn) :-
+    java_type_reference(_, "IMPLEMENTS_INTERFACE", sub, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, _).
+
+cfg_repo_name_matches(tn) :- cfg_repo_super_name(_, tn), cfg_repository_base_suffix(suffix),
+    strlen(tn) >= strlen(suffix),
+    substr(tn, strlen(tn) - strlen(suffix), strlen(suffix)) = suffix.
+
+// Direct: `interface OrderRepository extends MongoRepository<Order, String>`.
+cfg_repo_iface(t) :- cfg_repo_super_name(t, tn), cfg_repo_name_matches(tn),
+    type_decl(_, _, _, _, "INTERFACE_TYPE", _, t).
+// Transitive, through a base the project declares itself: a house
+// `interface BaseRepo<T> extends MongoRepository<T, String>` with per-aggregate
+// children. The intermediate resolves, so type_ancestor carries that hop.
+cfg_repo_iface(t) :- cfg_repo_iface(mid), type_ancestor(t, mid),
+    type_decl(_, _, _, _, "INTERFACE_TYPE", _, t).
+
+// A base marked @NoRepositoryBean is a shared supertype, not a bean: the framework
+// skips it and proxies only its children. Without this the house base above is
+// reported as an injectable bean that does not exist at runtime, and any interface
+// typed slot it fits gains a candidate the container never supplies.
+cfg_repo_excluded(t) :- ann_on_type(_, _, n, t), cfg_no_repository_ann(n).
+
+cfg_decap_demand(sn) :- cfg_repo_iface(t), type_decl(_, sn, _, _, _, _, t).
+bean_def(name, t, "repository_proxy", t) :- cfg_repo_iface(t), !cfg_repo_excluded(t),
+    type_decl(_, sn, _, _, _, _, t), cfg_decap(sn, name).
 
 // (c) XML <bean class="…"/>  (xml-wiring.dl)
 bean_def(id, t, "xml", elem) :- xml_bean(elem, id, t, _).
@@ -158,13 +211,13 @@ cfg_client_type(t) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
 // A bean answers to its own name, and to any @Qualifier on its type.
 bean_qualifier(name, name) :- bean_def(name, _, _, _).
 bean_qualifier(name, q) :- bean_def(name, t, "stereotype", _),
-    ann_on_type(a, an, t), cfg_qualifier_ann(an), ann_arg_value(a, q), q != "".
+    ann_on_type(prov, a, an, t), cfg_qualifier_ann(an), ann_arg_value(prov, a, q), q != "".
 
 // ── PRIMARY: the tie-break the container applies before declaring an ambiguity ─
 bean_primary(name) :- bean_def(name, t, "stereotype", _),
-    ann_on_type(_, an, t), cfg_primary_ann(an).
+    ann_on_type(_, _, an, t), cfg_primary_ann(an).
 bean_primary(name) :- bean_def(name, _, "factory_method", m),
-    ann_on_method(_, an, m, _), cfg_primary_ann(an).
+    ann_on_method(_, _, an, m, _), cfg_primary_ann(an).
 bean_primary(name) :- bean_def(name, _, "xml", elem),
     xml_attr("client", "primary", "true", elem, _).
 
@@ -178,13 +231,13 @@ bean_primary(name) :- bean_def(name, _, "xml", elem),
 
 // (a) FIELD injection: @Autowired / @Inject / @Resource on a field. @Value is
 // excluded — it asks for a config KEY, not a bean, and is handled in impact.dl.
-cfg_inject_field(f, owner) :- ann_on_field(_, n, f, owner), cfg_inject_ann(n), !cfg_value_ann(n).
+cfg_inject_field(f, owner) :- ann_on_field(_, _, n, f, owner), cfg_inject_ann(n), !cfg_value_ann(n).
 inject_point("field", f, dt, owner, "-") :- cfg_inject_field(f, owner),
     field_type_resolves(_, f, _, dt).
 
 // (b) CONSTRUCTOR injection, explicit: @Autowired/@Inject on a constructor.
-cfg_inject_ctor(m, owner) :- ann_on_method(_, n, m, owner), cfg_inject_ann(n), !cfg_value_ann(n),
-    method_kind("client", "CONSTRUCTOR", _, m).
+cfg_inject_ctor(m, owner) :- ann_on_method(prov, _, n, m, owner), cfg_inject_ann(n), !cfg_value_ann(n),
+    method_kind(prov, "CONSTRUCTOR", _, m).
 // (b') CONSTRUCTOR injection, IMPLICIT (Spring 4.3+): a bean class with exactly one
 // constructor, and that constructor takes arguments, is autowired without any
 // annotation. This is the dominant modern idiom; omitting it would make the whole
@@ -198,39 +251,39 @@ cfg_inject_ctor(m, owner) :- ann_on_method(_, n, m, owner), cfg_inject_ann(n), !
 // constructor-injected and Spring disagreed — ctor_inject precision 0.500 -> 1.000.
 cfg_container_constructed(t) :- bean_def(_, t, "stereotype", _).
 cfg_container_constructed(t) :- bean_def(_, t, "xml", _).
-cfg_type_ctor(t, m) :- method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
+cfg_type_ctor(t, m) :- method_kind(prov, "CONSTRUCTOR", _, m), method_owner(prov, t, m).
 cfg_type_ctor_count(t, n) :- cfg_container_constructed(t), n = count : { cfg_type_ctor(t, _) }.
 cfg_inject_ctor(m, t) :- cfg_type_ctor_count(t, 1), cfg_type_ctor(t, m),
-    method_kind("client", "CONSTRUCTOR", pc, m), pc != "0".
+    method_kind(_, "CONSTRUCTOR", pc, m), pc != "0".
 inject_point("ctor_param", p, dt, owner, m) :- cfg_inject_ctor(m, owner),
-    param_decl("client", _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
+    param_decl(_, _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
     !cfg_value_param(p).
 
 // (c) SETTER / method injection: @Autowired on a non-constructor method.
-cfg_inject_setter(m, owner) :- ann_on_method(_, n, m, owner), cfg_inject_ann(n), !cfg_value_ann(n),
-    method_kind("client", k, _, m), k != "CONSTRUCTOR".
+cfg_inject_setter(m, owner) :- ann_on_method(prov, _, n, m, owner), cfg_inject_ann(n), !cfg_value_ann(n),
+    method_kind(prov, k, _, m), k != "CONSTRUCTOR".
 inject_point("setter_param", p, dt, owner, m) :- cfg_inject_setter(m, owner),
-    param_decl("client", _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
+    param_decl(_, _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
     !cfg_value_param(p).
 
 // (d) FACTORY-METHOD parameters: a @Bean method's parameters are resolved from the
 // context exactly like constructor arguments.
-inject_point("factory_param", p, dt, owner, m) :- cfg_factory(_, m, owner),
-    param_decl("client", _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
+inject_point("factory_param", p, dt, owner, m) :- cfg_factory(_, _, m, owner),
+    param_decl(_, _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
     !cfg_value_param(p).
 
 // A parameter carrying @Value is a config-key injection, not a bean injection.
-cfg_value_param(p) :- ann_on_param(_, n, p, _), cfg_value_ann(n).
+cfg_value_param(p) :- ann_on_param(_, _, n, p, _), cfg_value_ann(n).
 
 // (e) XML wiring is NOT an inject_point: <property ref="other"/> names its target
 // bean DIRECTLY, so there is no type matching to do and no candidate set to count.
 // It goes straight to di_edge below, resolved or dangling.
 
 // ── explicit qualifier on a site ─────────────────────────────────────────────
-inject_qualifier(f, q) :- cfg_inject_field(f, _), ann_on_field(a, n, f, _),
-    cfg_qualifier_ann(n), ann_arg_value(a, q), q != "".
-inject_qualifier(p, q) :- ann_on_param(a, n, p, _), cfg_qualifier_ann(n),
-    ann_arg_value(a, q), q != "".
+inject_qualifier(f, q) :- cfg_inject_field(f, _), ann_on_field(prov, a, n, f, _),
+    cfg_qualifier_ann(n), ann_arg_value(prov, a, q), q != "".
+inject_qualifier(p, q) :- ann_on_param(prov, a, n, p, _), cfg_qualifier_ann(n),
+    ann_arg_value(prov, a, q), q != "".
 inject_has_qualifier(s) :- inject_qualifier(s, _).
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -303,7 +356,7 @@ config_unresolved("xml", wireElem, refId, "dangling_bean_ref") :-
 // (a) FIELD injection with a unique bean.
 di_field_mono(f, bt) :- cfg_di_narrowing_enabled(),
     inject_point("field", f, dt, _, _),
-    cfg_client_type(dt),                       // gate (1): client-typed slot
+    cfg_injectable_scope_type(dt),             // gate (1): the bean set is complete for this type
     inject_bean_count(f, 1),                   // gate (2): exactly one bean
     bean_satisfies(f, _, bt),
     !field_init_new_type(f, _).                // gate (3): no competing `new`
@@ -313,7 +366,7 @@ di_field_mono(f, bt) :- cfg_di_narrowing_enabled(),
 // value that can reach it is the injected one, its runtime type is the bean's. The
 // constructor parameter is matched BY TYPE, which is how the container matches it.
 cfg_ctor_injected_field(f, dt) :- field_final(f),
-    java_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, f),
+    field_decl("client", _, _, owner, f),
     field_type_resolves(_, f, _, dt),
     cfg_inject_ctor(m, owner),
     param_decl("client", _, _, _, m, p),
@@ -321,7 +374,7 @@ cfg_ctor_injected_field(f, dt) :- field_final(f),
     !cfg_value_param(p).
 di_field_mono(f, bt) :- cfg_di_narrowing_enabled(),
     cfg_ctor_injected_field(f, dt),
-    cfg_client_type(dt),
+    cfg_injectable_scope_type(dt),
     inject_point("ctor_param", p, dt, _, _), inject_bean_count(p, 1),
     bean_satisfies(p, _, bt),
     !field_init_new_type(f, _).

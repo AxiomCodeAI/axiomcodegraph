@@ -14,14 +14,24 @@
 // is an ambient terminal, classified in call_chain.dl.
 // ============================================================================
 
-type_ref_type(r, t) :- type_ref(_, _, "NAMED", _, _, _, _, _, imp, _, r), imp != "",
+// ── type_ref_names(Prov, Name, ImportHash, OwnerModule, RefHash) ────────────
+// A node that NAMES a declaration: a NAMED node, and a GENERIC_APPLICATION of a
+// project name (#692). `LazySet<string>`, `LibraryContext<T>`, `Registry<Widget>`
+// are the class or typedef they apply, their arguments ignored: the engine keeps
+// no type parameters, and the value declared with `SortableSet<Module>` is a
+// SortableSet. The platform generics (`Promise<T>`, `Map<K, V>`, `Array<T>`,
+// `Record<K, V>`) are builtins by the parser's flag and keep their own rules below.
+type_ref_names(prov, n, imp, mod, r) :- type_ref(prov, n, "NAMED", _, _, _, _, _, imp, mod, r).
+type_ref_names(prov, n, imp, mod, r) :- type_ref(prov, n, "GENERIC_APPLICATION", _, _, _, _, _, imp, mod, r), !type_ref_builtin(_, r).
+
+type_ref_type(r, t) :- type_ref_names(_, _, imp, _, r), imp != "",
     import_value(imp, k, i), constructible_value(k, i, t).
-type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r), !type_ref_builtin(_, r),
+type_ref_type(r, t) :- type_ref_names(_, n, "", mod, r), !type_ref_builtin(_, r),
     type_decl(_, n, _, _, mod, t).
 // `@param {ns.Thing}` through a namespace binding (`@import * as ns`, `import * as
 // ns`, `const ns = require(...)`): the parser links the import that binds the ROOT,
 // and the member is the rest of the name, looked up on the module's surface (#621).
-type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, imp, _, r), imp != "", contains(".", n),
+type_ref_type(r, t) :- type_ref_names(_, n, imp, _, r), imp != "", contains(".", n),
     import_local(_, q, imp), strlen(n) > strlen(q) + 1,
     substr(n, 0, strlen(q) + 1) = cat(q, "."),
     import_value(imp, "module", mod),
@@ -34,7 +44,7 @@ type_ref_type(r, t) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), 
 // `@typedef {import('./x.js').default} Chart` — a name that is an ALIAS of another
 // type expression. The typedef is a type-only js_type whose own reference row
 // (context TYPEDEF, owner = the typedef) is the aliased expression.
-type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r),
+type_ref_type(r, t) :- type_ref_names(_, n, "", mod, r),
     type_only_decl(_, n, "JSDOC_TYPEDEF", mod, td),
     type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
     type_ref_type(c, t).
@@ -46,6 +56,64 @@ type_ref_kind_is_wrapper("NON_NULLABLE").
 type_ref_kind_is_wrapper("OPTIONAL").
 type_ref_kind_is_wrapper("UNION").
 type_ref_kind_is_wrapper("TYPE_QUERY").
+
+// ── type_ref_module(RefHash, ModuleHash): a type that names a MODULE (#631) ──
+// `@typedef {import("./surface")} Surface` of a file that exports through
+// `exports.x =`, or `import("./esm.mjs")` of an ES module: the type is the namespace
+// object, and a value declared with it holds the module, whose properties are the
+// export surface. The same hops as type_ref_type: the import row, a typedef alias, a
+// wrapper.
+type_ref_module(r, mod) :- type_ref_names(_, _, imp, _, r), imp != "",
+    import_value(imp, "module", mod).
+type_ref_module(r, mod) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",
+    import_value(imp, "module", mod).
+type_ref_module(r, mod) :- type_ref_names(_, n, "", m, r),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", m, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_module(c, mod).
+type_ref_module(r, mod) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_module(c, mod).
+param_value(p, "module", mod) :- param_type_name(_, _, r, p), type_ref_module(r, mod).
+var_value(v, "module", mod) :- var_type_name(_, _, r, v), type_ref_module(r, mod).
+return_value(m, "module", mod) :- method_return_type(_, _, r, m), type_ref_module(r, mod).
+prop_value("inst", t, n, "module", mod) :- field_type_name(_, n, t, _, r, _), type_ref_module(r, mod).
+
+// ── type_ref_shape(RefHash, ShapeHash): a type that is an OBJECT TYPE (#651) ──
+// `@typedef {Object} State` + `@property {Module} module`, or an inline
+// `{ module: Module }`: a record type whose members are the OBJECT_TYPE node's
+// children, each carrying its name. A value declared with such a type is a
+// "shape" value identified by the OBJECT_TYPE row, and reading a member of it is
+// reading the member's declared type. Reached the same three ways a class is:
+// the node itself, a typedef alias, and a wrapper; plus an INTERSECTION, whose
+// every arm contributes (`Record<string, any> & State` is still a State).
+type_ref_shape(r, r) :- type_ref(_, _, "OBJECT_TYPE", _, _, _, _, _, _, _, r).
+type_ref_shape(r, s) :- type_ref_names(_, n, "", m, r),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", m, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_shape(c, s).
+type_ref_shape(r, s) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_shape(c, s).
+type_ref_shape(r, s) :- type_ref(_, _, "INTERSECTION", _, _, _, _, _, _, _, r),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_shape(c, s).
+// A typedef imported from another file: `@typedef {import("./Parser").ParserStateBase} S`.
+// The import-type row names the typedef, whose own reference is the shape.
+type_ref_shape(r, s) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",
+    import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _, imp), n != "", import_module(imp, mod),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", mod, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), type_ref_shape(c, s).
+// The members: each child of the shape with a name gives the shape's property
+// that name's declared type, whatever kind it resolves to.
+prop_value("shape", s, n, "inst", t) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_type(c, t).
+prop_value("shape", s, n, "module", mod) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_module(c, mod).
+prop_value("shape", s, n, "shape", s2) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_shape(c, s2).
+prop_value("shape", s, n, "coll", c) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_is_coll(c).
+prop_value("shape", s, n, "arr", c) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_is_array(c).
+prop_value("shape", s, n, "ambient", b) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c),
+    type_ref(_, b, "NAMED", _, _, _, _, _, _, _, c), type_ref_builtin(_, c).
+param_value(p, "shape", s) :- param_type_name(_, _, r, p), type_ref_shape(r, s).
+var_value(v, "shape", s) :- var_type_name(_, _, r, v), type_ref_shape(r, s).
+return_value(m, "shape", s) :- method_return_type(_, _, r, m), type_ref_shape(r, s).
+prop_value("inst", t, n, "shape", s) :- field_type_name(_, n, t, _, r, _), type_ref_shape(r, s).
 
 // ── type_ref_unresolved(RefHash, TypeName) — countable ──────────────────────
 // A NAMED reference that reached no class: a typedef (type-only by design), a
@@ -70,3 +138,9 @@ elem_value(r, "inst", t) :- type_ref_is_coll(r), type_ref(_, _, _, r, _, _, _, _
 elem_value(r, "arr", c) :- type_ref_is_coll(r), coll_last_child(r, c), type_ref_is_array(c).
 coll_last_child(r, c) :- type_ref_is_coll(r), type_ref_child_index(r, c, idx),
     to_number(idx) = max n : { type_ref_child_index(r, _, idx2), n = to_number(idx2) }.
+// `Map<K, V>` / `WeakMap<K, V>`: the FIRST type argument is the key type (#659).
+coll_key_value(r, "inst", t) :- map_coll(r), type_ref_child_index(r, c, "0"), type_ref_type(c, t).
+coll_key_value(r, "module", mod) :- map_coll(r), type_ref_child_index(r, c, "0"), type_ref_module(c, mod).
+coll_key_value(r, "shape", s) :- map_coll(r), type_ref_child_index(r, c, "0"), type_ref_shape(c, s).
+elem_value(r, "module", mod) :- type_ref_is_coll(r), coll_last_child(r, c), type_ref_module(c, mod).
+elem_value(r, "shape", s) :- type_ref_is_coll(r), coll_last_child(r, c), type_ref_shape(c, s).

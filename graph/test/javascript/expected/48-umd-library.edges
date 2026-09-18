@@ -1,0 +1,4 @@
+app.js:5:1 METHOD_CALL umd.format  ->  ambiguous_unknown  -
+app.js:6:1 FUNCTION_CALL format  ->  ambiguous_unknown  -
+app.js:7:1 CONSTRUCTOR_CALL umd.Formatter  ->  ambiguous_unknown  -
+app.js:7:1 METHOD_CALL new umd.Formatter().render  ->  ambiguous_unknown  -

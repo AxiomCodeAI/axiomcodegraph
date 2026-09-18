@@ -1,0 +1,8 @@
+main.js:10:12 FUNCTION_CALL_APPLY super.apply  ->  known_edge  main.js:4:3 apply
+main.js:12:20 FUNCTION_CALL_CALL super.call  ->  known_edge  main.js:5:3 call
+main.js:18:3 CONSTRUCTOR_CALL Guarded  ->  implicit_constructor  -
+main.js:18:3 FUNCTION_CALL_APPLY new Guarded().apply  ->  known_edge  main.js:8:3 apply
+main.js:19:3 CONSTRUCTOR_CALL Guarded  ->  implicit_constructor  -
+main.js:19:3 FUNCTION_CALL_CALL new Guarded().call  ->  known_edge  main.js:12:3 call
+main.js:20:3 FUNCTION_CALL_APPLY target.apply  ->  known_edge  main.js:15:1 target
+main.js:21:3 FUNCTION_CALL_APPLY selector.apply  ->  known_edge  main.js:16:20 apply

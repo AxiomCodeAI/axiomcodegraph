@@ -1,0 +1,7 @@
+31-asserts-predicate [types]
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 the compiler resolved)
+  sites 10   resolved 8 (80.0%)
+  tiers ambiguous_unknown=2  known_edge=8
+  contexts AS_TARGET=1  INSTANCEOF_TYPE=2  OBJECT_CREATION_TYPE=1  TYPE_ELEMENT=4  TYPE_PREDICATE_TARGET=2
+  not scored: 2 rows whose target is not a client declaration

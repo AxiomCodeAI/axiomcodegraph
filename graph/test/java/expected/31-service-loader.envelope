@@ -1,3 +1,3 @@
-nominal	probe.Codec.encode -> probe.ReverseCodec.encode
-nominal	probe.Codec.encode -> probe.Unregistered.encode
-nominal	probe.Codec.encode -> probe.UpperCodec.encode
+nominal	probe.Plugins.Codec.encode -> probe.Plugins.ReverseCodec.encode
+nominal	probe.Plugins.Codec.encode -> probe.Plugins.Unregistered.encode
+nominal	probe.Plugins.Codec.encode -> probe.Plugins.UpperCodec.encode

@@ -10,11 +10,13 @@
 // strings, so numeric line comparison needs this dedicated typed import.
 // Self-joining a raw import (not two derived projections) is safe.
 //
-// Consumed by resolution: nested type names drop their outer in qualifiedName
-// (Map.Entry is registered as java.util.Entry, and collides), so a nested name is
-// resolved by "the type nested in <enclosing>". type_direct_parent gives the
+// Consumed by resolution: a nested name is resolved by "the type nested in
+// <enclosing>", which does not depend on how the IR spells the nested type's
+// qualifiedName (the client parser writes the full chain, pkg.Outer.Inner; an older
+// library IR may still write the flattened pkg.Inner). type_direct_parent gives the
 // immediate enclosing type; it also lets an inner class's unqualified call resolve
-// in the enclosing type.
+// in the enclosing type. The package of a nested type is read off its top-level
+// container through type_in_type (type_pkg / lib_type_pkg).
 //
 // java_type_lines / lib_type_lines cols (14; 9,10 int):
 //   0 name 1 qualifiedName 2 fileName 3 typeCategory 4 typeAccess 5 typeModifier

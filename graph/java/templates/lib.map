@@ -10,6 +10,11 @@ lib_field_position	all-field-positions
 lib_import	all-imports
 lib_local_variable	all-local-variables
 lib_method	all-methods
+# build config that decides the generated API's NAMES (lombok.config). Nothing reads a
+# library's APPLICATION config: every consumer of prop_key/prop_segment is scoped to
+# "client" on purpose, because a dependency's own yml configures the dependency.
+lib_property_key	all-property-keys
+lib_property_value_segment	all-property-value-segments
 lib_method_parameter	all-method-parameters
 lib_method_type_parameter	all-method-type-parameters
 lib_type	all-types

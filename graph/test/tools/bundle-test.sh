@@ -151,6 +151,38 @@ for lang in java typescript python; do
   fi
 done
 
+# 4b. A CONFIG_BINDING ROW IS A REASON TO LIST THE FIELD (#890)
+#
+# `fields` lists a LIBRARY field only when some field_access edge reaches it. A @Value
+# field on a library type that nothing reads has no such edge, and config_binding named
+# it anyway, so a consumer joining the two lost the row with no indication. Measured at
+# 73 percent of config_binding rows on a run with one shared starter staged as a library.
+#
+# The fixture is the minimum that reproduces it: a library field, NO field_access row
+# anywhere, and one config_binding row naming it.
+if [ "$HAVE_SQLITE" = 1 ]; then
+  cb="$W/cb"; mkdir -p "$cb/ir" "$cb/raw" "$cb/lib-ir" "$cb/lib-facts"
+  mk_java "$cb"
+  FH='name\tfieldTypeName\tfieldBaseType\tpotentialQualifiedName\tisAmbiguous\tfilePath\tstartLine\tendLine\ttypeRegistryLinkHash\townerTypeName\townerQualifiedName\tfieldAccess\tfieldModifier\tfieldRegistryUniqueHash\n'
+  FR='timeout\tint\tint\t\tfalse\tdep/Conf.java\t7\t7\tTYPE_REGISTRY_L1\tConf\tdep.Conf\tprivate\t\tFIELD_REGISTRY_LIBFIELD\n'
+  printf "$FH" > "$cb/lib-ir/all-fields.csv"
+  printf "$FR" >> "$cb/lib-ir/all-fields.csv"
+  printf "$FR" > "$cb/lib-facts/lib_field.facts"          # staged rows carry no header
+  printf 'svc.timeout\tvalue_annotation\tfield\tFIELD_REGISTRY_LIBFIELD\tlib\n' > "$cb/raw/config-binding.csv"
+  : > "$cb/raw/field-access.csv"                           # the point: nothing reaches it
+  BUNDLE --language java --client-ir "$cb/ir" --raw "$cb/raw" \
+         --library "$cb/lib-ir" --lib-facts "$cb/lib-facts" --out "$cb/out" >/dev/null 2>&1 \
+    || bad "config_binding fixture did not bundle"
+  CBDB="$cb/out/graph.sqlite"
+  if [ -f "$CBDB" ]; then
+    [ "$(SQL "$CBDB" "SELECT count(*) FROM ext_config_binding")" = 1 ] \
+      || bad "config_binding: the fixture row did not reach ext_config_binding"
+    dangling="$(SQL "$CBDB" "SELECT count(*) FROM ext_config_binding b WHERE b.c2='field' AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.id=b.c3)")"
+    [ "$dangling" = 0 ] \
+      || bad "config_binding names $dangling field(s) that the fields table does not list"
+  fi
+fi
+
 # 5. ONE schema for every language: the DDL of every non-ext table, the column catalog and
 #    the core catalog rows are byte-identical across the three bundles; only ext_* differs.
 if [ "$HAVE_SQLITE" = 1 ]; then

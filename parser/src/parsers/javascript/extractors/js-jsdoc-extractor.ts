@@ -330,7 +330,8 @@ export class JsDocExtractor {
     tagName: string,
     parentHash: string,
     depth: number,
-    childIndex: number
+    childIndex: number,
+    memberName = ''
   ): JsTypeReferenceRegistry | undefined {
     if (depth > JS_TYPE_REFERENCE_MAX_DEPTH) {
       return undefined;
@@ -353,12 +354,13 @@ export class JsDocExtractor {
       context,
       tagName,
       node: written,
+      memberName,
     });
-    const children = childTypesOf(node);
+    const children = typedChildrenOf(node);
     let emitted = 0;
     for (let i = 0; i < children.length; i += 1) {
-      const child = this.emitNode(children[i]!, owner, context, tagName,
-        row.getHash(), depth + 1, i);
+      const child = this.emitNode(children[i]!.type, owner, context, tagName,
+        row.getHash(), depth + 1, i, children[i]!.memberName);
       if (child === undefined) {
         row.setIsTruncated();
         continue;
@@ -379,6 +381,8 @@ export class JsDocExtractor {
     context: JsTypeReferenceContextKind;
     tagName: string;
     node: ts.Node;
+    /** The member this node types when the parent is an OBJECT_TYPE (#651); `param:N` or `return` under a FUNCTION_TYPE (#691). */
+    memberName?: string;
   }): JsTypeReferenceRegistry {
     const at = pointOf(init.node, this.sourceFile);
     const row = new JsTypeReferenceRegistry({
@@ -400,6 +404,7 @@ export class JsDocExtractor {
       startLine: at.startLine,
       startColumn: at.startColumn,
       serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+      memberName: init.memberName ?? '',
     });
     this.typeReferences.push(row);
     if (ts.isImportTypeNode(init.node)) {
@@ -572,21 +577,57 @@ function childTypesOf(node: ts.Node): ts.Node[] {
   if (ts.isOptionalTypeNode(node) || ts.isRestTypeNode(node)) {
     return [node.type];
   }
+  return [];
+}
+
+/** A child type node with the member it types, when the parent is an object type. */
+interface TypedChild { readonly type: ts.Node; readonly memberName: string }
+
+/**
+ * The children of a type node, each with its member name where there is one.
+ *
+ * An object type's members are its children, exactly as a union's arms are, and
+ * the NAME rides on the child row's `memberName` (#651): `{ name: string }` and
+ * `@typedef {Object} T` + `@property {string} name` both give the child `name`.
+ * A `@property {T} a.b` nested name is kept as written.
+ *
+ * A FUNCTION TYPE's children are its parameters and its return, and the child
+ * row says which (#691): `param:N` for the parameter written at position N,
+ * `return` for the return type. Without the label the reader could not tell
+ * `function(Snapshot)` (one parameter) from `function(): Snapshot` (one return),
+ * and a parameter written without a type (`(a, b: T) => void` is `any` for `a`)
+ * would shift every later parameter one place left. The position counts every
+ * written parameter, typed or not.
+ *
+ * Every other node's children carry `""`.
+ */
+function typedChildrenOf(node: ts.Node): TypedChild[] {
   if (ts.isTypeLiteralNode(node)) {
-    return node.members
-      .map((member) => (ts.isPropertySignature(member) ? member.type : undefined))
-      .filter((type): type is ts.TypeNode => type !== undefined);
+    return node.members.flatMap((member) => (
+      ts.isPropertySignature(member) && member.type !== undefined
+        ? [{ type: member.type, memberName: member.name.getText(node.getSourceFile()) }]
+        : []));
   }
   if (ts.isJSDocTypeLiteral(node)) {
-    // `@typedef {Object} T` followed by `@property {string} name` lines: the
-    // property types are the members, exactly as a written `{name: string}`'s
-    // are above. The names ride on the tags and this relation has no column
-    // for a member name in either spelling.
-    return (node.jsDocPropertyTags ?? [])
-      .map((tag) => tag.typeExpression?.type)
-      .filter((type): type is ts.TypeNode => type !== undefined);
+    return (node.jsDocPropertyTags ?? []).flatMap((tag) => (
+      tag.typeExpression === undefined
+        ? []
+        : [{ type: tag.typeExpression.type, memberName: tag.name.getText(node.getSourceFile()) }]));
   }
-  return [];
+  if (ts.isFunctionTypeNode(node) || ts.isJSDocFunctionType(node) || ts.isConstructorTypeNode(node)) {
+    const parameters = node.parameters.flatMap((parameter, index) => (
+      parameter.type === undefined ? [] : [{ type: parameter.type, memberName: `param:${index}` }]));
+    return node.type === undefined ? parameters : [...parameters, { type: node.type, memberName: 'return' }];
+  }
+  if (ts.isJSDocSignature(node)) {
+    const parameters = node.parameters.flatMap((parameter, index) => (
+      parameter.typeExpression === undefined
+        ? []
+        : [{ type: parameter.typeExpression.type, memberName: `param:${index}` }]));
+    const returned = node.type?.typeExpression?.type;
+    return returned === undefined ? parameters : [...parameters, { type: returned, memberName: 'return' }];
+  }
+  return childTypesOf(node).map((type) => ({ type, memberName: '' }));
 }
 
 /**

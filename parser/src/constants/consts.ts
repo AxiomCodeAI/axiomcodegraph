@@ -124,6 +124,21 @@ export const JAVA_ENTITY_TYPES = {
 export const LARGE_FILE_LINE_THRESHOLD = 55_000;
 
 /**
+ * The same guard in BYTES, for a file that is large but short (#554).
+ *
+ * The line threshold above misses the common machine-generated shape: a report or a
+ * rule set written with few line breaks is megabytes on a few hundred lines, passes the
+ * line guard, and then overflows the stack inside the extractor. The file is lost either
+ * way; the difference is whether the loss is a recorded skip or a silent throw.
+ *
+ * DERIVED from the line threshold rather than picked: 55,000 lines of XML at a
+ * conservative 70 bytes a line is a little under 4 MB, so 4 MB expresses the same
+ * intent measured the other way. A file under it that still throws is caught and
+ * recorded as EXTRACTION_ERROR, so nothing depends on this being exactly right.
+ */
+export const LARGE_FILE_BYTE_THRESHOLD = 4 * 1024 * 1024;
+
+/**
  * File extension constants
  */
 export const FILE_EXTENSIONS = {
@@ -132,7 +147,13 @@ export const FILE_EXTENSIONS = {
   PYTHON_STUB: '.pyi',
   TYPESCRIPT: '.ts',
   JAVASCRIPT: '.js',
+  CSHARP: '.cs',
   PROPERTIES: '.properties',
+  // A file in .properties FORMAT whose name carries no such extension. Build config
+  // that decides the shape of the generated API belongs here: lombok.config sets
+  // lombok.accessors.prefix, which changes every generated accessor NAME in its tree,
+  // so a scan that matches on extension alone never sees the thing that decides them.
+  LOMBOK_CONFIG: 'lombok.config',
   XML: '.xml',
   YAML: '.yml',
   YAML_LONG: '.yaml',

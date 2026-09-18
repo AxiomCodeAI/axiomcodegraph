@@ -1,0 +1,17 @@
+57-record-members
+  precision 0.2000   (1 correct, 4 wrong)
+  recall    0.1429   (1 of 7 in the bytecode)
+  sites 5   resolved 5 (100.0%)
+  tiers known_edge=5
+  access read=2  write=3
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   probe.Compact#<init>(String,Point) READ probe.Compact#id
+    WRONG   probe.Compact#<init>(String,Point) WRITE probe.Compact#id
+    WRONG   probe.Explicit#<init>(String,Point) WRITE probe.Explicit#id
+    WRONG   probe.Explicit#<init>(String,Point) WRITE probe.Explicit#origin
+    MISSING probe.Compact#id() READ probe.Compact#id
+    MISSING probe.Compact#origin() READ probe.Compact#origin
+    MISSING probe.Explicit#id() READ probe.Explicit#id
+    MISSING probe.Explicit#origin() READ probe.Explicit#origin
+    MISSING probe.Plain#id() READ probe.Plain#id
+    MISSING probe.Plain#origin() READ probe.Plain#origin

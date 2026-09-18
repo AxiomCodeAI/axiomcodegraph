@@ -1,0 +1,13 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.Item [ANNOTATION] -> -
+ambiguous_unknown	FIELD_TYPE	0	probe.Item [FIELD] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Item#<init>(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Item#equals(Object) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Item#name(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Item#name() [METHOD] -> -
+known_edge	CAST_EXPRESSION	0	probe.Item#equals(Object) [EXPRESSION] -> probe.Item
+known_edge	INSTANCEOF_TYPE	0	probe.Item#equals(Object) [EXPRESSION] -> probe.Item
+known_edge	METHOD_PARAM	0	probe.Walk#viaOneArg(Item) [METHOD_PARAM] -> probe.Item
+known_edge	METHOD_PARAM	0	probe.Walk#viaSelf(Item) [METHOD_PARAM] -> probe.Item
+known_edge	METHOD_PARAM	0	probe.Walk#viaZeroArg(Item) [METHOD_PARAM] -> probe.Item
+known_edge	METHOD_RETURN	0	probe.Item#name(String) [METHOD] -> probe.Item
+known_edge	METHOD_RETURN	0	probe.Item#self() [METHOD] -> probe.Item

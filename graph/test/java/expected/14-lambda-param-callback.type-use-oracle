@@ -1,0 +1,9 @@
+14-lambda-param-callback
+  precision 0.6667   (4 correct, 2 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  references 21   resolved 8 (38.1%)
+  tiers ambiguous_unknown=13  known_edge=8
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=3  LOCAL_VARIABLE=3  METHOD_PARAM=9  METHOD_RETURN=1  OBJECT_CREATION_TYPE=5
+    WRONG   LambdaParamCallback OBJECT_CREATION_TYPE LambdaParamCallback
+    WRONG   LambdaParamCallback OBJECT_CREATION_TYPE LambdaParamCallback.Item

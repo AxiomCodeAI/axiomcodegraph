@@ -1,0 +1,7 @@
+24-config-properties-yaml
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 in the bytecode)
+  references 3   resolved 1 (33.3%)
+  tiers ambiguous_unknown=2  known_edge=1
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts METHOD_PARAM=1  METHOD_RETURN=1  OBJECT_CREATION_TYPE=1
