@@ -336,9 +336,6 @@ for dir in "$HERE"/cases/*/; do
   # points, so they need their own. A case with config rows and NO golden fails, and a
   # golden with no rows fails too — so neither gaining nor losing interpretation power
   # can land silently.
-  # "${lib_args[@]}" is the case's own lib-ir when it ships lib-src/, empty otherwise.
-  # config-resolution reads library annotations, so a bean a dependency contributes is a
-  # bean_def like any other; without the library IR those rows print as bare hashes.
   python3 "$HERE/tools/config_report.py" "$w/ir" "$w/out/raw" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.config" 2>"$w/config.log" || {
     echo "FAIL (config report — see $w/config.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
   cfg_rows=$(grep -c '^  ' "$w/actual.config" || true)

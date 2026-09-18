@@ -1,0 +1,9 @@
+boundary_lib	method	testcases.destinations.ItemClient#viaConfiguredField(String) -> external:org.springframework.web.client.RestTemplate.getForObject
+boundary_lib	method	testcases.destinations.ItemClient#viaConstant(String) -> external:org.springframework.web.client.RestTemplate.getForObject
+boundary_lib	method	testcases.destinations.ItemClient#viaLiteral(String) -> external:org.springframework.web.client.RestTemplate.getForObject
+boundary_lib	method	testcases.destinations.ItemClient#viaPost(String) -> external:org.springframework.web.client.RestTemplate.postForObject
+boundary_lib	method	testcases.destinations.Messaging#publishAudit(String) -> external:org.springframework.kafka.core.KafkaTemplate.send
+boundary_lib	method	testcases.destinations.Messaging#publishCreated(String) -> external:org.springframework.kafka.core.KafkaTemplate.send
+boundary_lib	method	testcases.destinations.Messaging#publishElsewhere(String) -> external:org.springframework.kafka.core.KafkaTemplate.send
+known_edge	method	testcases.destinations.Messaging#onAudit(String) -> testcases.destinations.Messaging#record(String)
+known_edge	method	testcases.destinations.Messaging#onCreated(String) -> testcases.destinations.Messaging#record(String)

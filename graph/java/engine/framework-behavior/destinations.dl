@@ -1,0 +1,485 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · DESTINATIONS  (the cross-process edge)
+//
+// ── WHY THIS IS ITS OWN PHASE ───────────────────────────────────────────────
+// Every phase before this one answers "what does this code mean", and is checkable
+// against the language: the Java suite diffs it against javac + javap, and a
+// disagreement is a bug. The rules HERE answer a different question — "what does the
+// FRAMEWORK do at run time" — and no compiler can adjudicate them. Their oracle is a
+// running system: an instrumented JVM, or a trace.
+//
+// That difference is worth a folder because it is a difference in CONTRACT:
+//   - a rule here models a library's behaviour, so it may be version-specific, and
+//     every framework NAME it keys on lives in config-resolution/knobs.dl;
+//   - a rule here may only ADD relations. It must never change call_chain_edge or any
+//     other relation the resolution phases own — a framework model is a weaker kind of
+//     knowledge than a resolved call, and folding the two together would silently
+//     restate every existing consumer in terms of it;
+//   - it is included AFTER call-edge-generation because it CONSUMES the resolved graph.
+//
+// Other framework-mediated hops belong here as they are built: an event published to
+// an @EventListener, an @Async or @Scheduled handoff, a gRPC stub to its service
+// implementation. Each is a hop no call site expresses.
+//
+// A producer and the consumer that serves it live in different deployables. Neither
+// calls the other — there is no call site to resolve — so every rule in
+// call-edge-generation is silent across that boundary, and a change-impact or
+// "who handles this" question stops at the send. What actually ties the two ends
+// together is a STRING: a topic, a queue, a routing key, an HTTP route. Both ends of
+// that string are already in the IR; nothing joined them.
+//
+// This file does the join, and emits it as `remote_edge` — deliberately NOT as a
+// call_chain_edge. A cross-process hop is not an invocation: it crosses a process,
+// it may be asynchronous, and it carries different confidence. Folding it into the
+// call graph would silently change the meaning of every existing consumer.
+//
+//   remote_edge(FromMethod, ToMethod, Transport, Destination, Confidence)
+//     Transport   kafka | amqp | jms | sqs | stream | http
+//     Confidence  exact      the two ends spell the destination identically
+//                 route_shape an HTTP route matched on its literal prefix and its
+//                            segment count, which is how a client that concatenates
+//                            a path meets a server that declares a template
+//
+// The name lists this joins on are in knobs.dl, section (8) — adding a broker or an
+// HTTP client is a fact there, not a rule here.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. RESOLVING A DESTINATION STRING
+// ─────────────────────────────────────────────────────────────────────────────
+// A destination is written three ways and all three have to end at the same value,
+// or the two ends of one conversation will not meet:
+//   "orders.created"                  a literal
+//   "${app.topics.orders-created}"    a configured key, resolved through the YAML
+//   Topics.ORDERS_CREATED             a constant declared elsewhere
+
+// dest_resolved(Raw, Value) — what a raw annotation/argument string denotes.
+// (a) no placeholder: the string is the destination.
+dest_resolved(v, v) :- dest_raw(v), !contains("${", v).
+// (b) a placeholder that a configuration file defines.
+dest_resolved(v, d) :- dest_raw(v), cfg_placeholder(v, k, _), config_key_value(_, k, d).
+// (c) a placeholder with an inline default and no file to override it. The default is
+//     what the framework would use, so it is the honest answer rather than nothing.
+dest_resolved(v, d) :- dest_raw(v), cfg_placeholder(v, k, d), d != "",
+    !config_key_value(_, k, _).
+
+// ── constants ───────────────────────────────────────────────────────────────
+// The parser leaves referencedEntityHash empty for a field reference, so a constant
+// is matched by NAME — which is only sound if the name is unambiguous. A name that
+// several client constants declare with DIFFERENT values resolves to nothing rather
+// than to an arbitrary one.
+// const_string(Name, Value): a static final String whose initializer is a literal.
+const_string(n, v) :- java_field(n, _, _, _, _, _, _, _, _, _, _, _, mods, f),
+    contains("STATIC", mods), contains("FINAL", mods),
+    expr_owner("client", f, _, e), expr_literal("client", v, e).
+const_string_values(n, c) :- const_string(n, _), c = count : { const_string(n, _) }.
+const_string_unique(n, v) :- const_string(n, v), const_string_values(n, 1).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. WHAT A METHOD SERVES
+// ─────────────────────────────────────────────────────────────────────────────
+// (a) a listener annotation naming its topic/queue.
+dest_raw(v) :- ann_on_method(_, a, n, _, _), cfg_serves_ann(n, _, arg), ann_arg(_, a, arg, v, _, _).
+serves_destination(m, tr, d) :- ann_on_method(_, a, n, m, _), cfg_serves_ann(n, tr, arg),
+    ann_arg(_, a, arg, v, _, _), dest_resolved(v, d).
+// … and the same annotation written with a constant instead of a literal.
+serves_destination(m, tr, d) :- ann_on_method(_, a, n, m, _), cfg_serves_ann(n, tr, arg),
+    ann_arg(_, a, arg, v, _, _), const_string_unique(v, d).
+
+// (b) an HTTP route. The path is the type's prefix followed by the method's remainder,
+//     and either half may be absent.
+dest_raw(v) :- ann_on_type(_, a, n, _), cfg_route_ann(n), cfg_route_arg(arg), ann_arg(_, a, arg, v, _, _).
+dest_raw(v) :- ann_on_method(_, a, n, _, _), cfg_route_ann(n), cfg_route_arg(arg), ann_arg(_, a, arg, v, _, _).
+
+route_base(t, b) :- ann_on_type(_, a, n, t), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, v, _, _), dest_resolved(v, b).
+// A type with a route-annotated method but no route annotation of its own contributes
+// no prefix; without this clause such a method would have no route at all.
+route_base(t, "") :- ann_on_method(_, _, n, _, t), cfg_route_ann(n), !route_base_declared(t).
+route_base_declared(t) :- ann_on_type(_, a, n, t), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, _, _, _).
+
+// the method's own half — present, or absent (a bare @PostMapping on the class route).
+route_tail(m, s) :- ann_on_method(_, a, n, m, _), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, v, _, _), dest_resolved(v, s).
+route_tail(m, "") :- ann_on_method(_, a, n, m, _), cfg_route_ann(n), !route_tail_declared(a).
+route_tail_declared(a) :- ann_on_method(_, a, n, _, _), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, _, _, _).
+
+// Which END a route annotation describes is decided by the TYPE first. A Feign
+// interface declares its methods with @GetMapping — the same annotation a controller
+// uses — so keying off the annotation alone makes a client look like a handler, and it
+// then answers "who serves this route" with somebody else's outbound call.
+route_type_is_client(t) :- ann_on_type(_, _, n, t), cfg_client_type_ann(n).
+
+route_raw_of_method(m, path, "server") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
+    cfg_route_ann(n), cfg_route_server_ann(n), !route_type_is_client(owner),
+    route_base(owner, base), path = cat(base, tail).
+route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
+    cfg_route_ann(n), !cfg_route_server_ann(n), route_base(owner, base), path = cat(base, tail).
+route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
+    cfg_route_ann(n), route_type_is_client(owner), route_base(owner, base), path = cat(base, tail).
+route_declared(raw) :- route_raw_of_method(_, raw, _).
+// A declared route goes through the same normalisation as a client's URL, so
+// @GetMapping("pets/visits") and a client's "…/pets/visits?petId={id}" meet.
+route_of_method(m, norm, side) :- route_raw_of_method(m, raw, side), url_path(raw, norm).
+
+serves_destination(m, "http", p) :- route_of_method(m, p, "server").
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. WHAT A METHOD SENDS TO
+// ─────────────────────────────────────────────────────────────────────────────
+// A method NAME alone is not enough to say a call is a send. `send` is one of the
+// commonest method names there is, and matching it bare read this project's own
+// `dispatcher.send("email", …)` as a Kafka produce to a topic called "email". So the
+// RECEIVER's declared type has to be a producer before any argument is read.
+recv_declared_simple(recv, t) :- recv_is_field(recv, f),
+    java_field(_, _, t, _, _, _, _, _, _, _, _, _, _, f).
+recv_declared_simple(recv, t) :- recv_is_local(recv, l),
+    java_local_variable(_, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l).
+// … and a chain that starts on a static factory rather than an injected field:
+// WebClient.create(base).get().uri(path). The chain root is then the TYPE NAME itself,
+// which is only accepted because it has to be a name knobs.dl already calls a producer.
+recv_declared_simple(recv, t) :- expr_reference_name(recv, t), cfg_sends_owner(t, _).
+
+// Real client code is a fluent chain — webClientBuilder.build().get().uri(path) —
+// so the receiver of the call that carries the path is the RESULT of the previous
+// call, not the field. Walking the chain back to what it started on is what makes
+// the common shape visible at all; requiring the immediate receiver to be the field
+// found nothing on a real multi-service codebase.
+recv_root(r, r) :- call_site(_, _, r).
+recv_root(r, root) :- call_site(_, _, r), call_site(r, _, inner), recv_root(inner, root).
+
+sends_via(call, tr) :- call_site(call, _, recv), recv_root(recv, root),
+    recv_declared_simple(root, t), cfg_sends_owner(t, tr).
+
+// (a) a declarative HTTP client: the interface method IS the send.
+sends_destination(m, "http", p) :- route_of_method(m, p, "client").
+
+// (b) the argument that names the destination, in each of the ways one is written.
+//     call_arg(Call, Index, Expr) — the argument expressions of a call site.
+call_arg(call, idx, arg) :- call_site(call, _, _), expr_child("client", call, "ARGUMENT", arg),
+    expr_position("client", arg, idx).
+
+// arg_destination(Expr, Value) — what an argument expression denotes as a destination.
+//   a literal, guarded on the expression KIND: literalValue also holds the NAME of a
+//   reference, so without this guard a field called `cancelledTopic` would be read as
+//   a topic called "cancelledTopic".
+arg_destination(arg, d) :- expr_kind("client", "LITERAL", _, arg),
+    expr_literal("client", v, arg), dest_resolved(v, d).
+//   a reference to a constant declared elsewhere.
+arg_destination(arg, d) :- expr_reference_name(arg, n), const_string_unique(n, d).
+//   a reference to a field whose value comes from configuration.
+arg_destination(arg, d) :- expr_reference_name(arg, n), field_named_config_value(n, d).
+//   a getter on a @ConfigurationProperties bean: properties.getItemPath().
+arg_destination(arg, d) :- call_site(arg, gn, _), props_getter_value(gn, d).
+
+// the NAME a reference expression carries (the parser stores it in literalValue and
+// leaves referencedEntityHash empty, so a reference is matched by name).
+expr_reference_name(e, n) :- expr_kind("client", "FIELD_ACCESS", _, e),
+    expr_literal("client", n, e).
+expr_reference_name(e, n) :- expr_kind("client", "IDENTIFIER_REFERENCE", _, e),
+    expr_literal("client", n, e).
+
+// A field whose value is a configuration value — bound directly, or, far more often,
+// injected through a constructor parameter of the same name carrying @Value.
+field_config_key(f, k) :- config_binding(k, _, "field", f, _).
+field_config_key(f, k) :- java_field(n, _, _, _, _, _, _, _, owner, _, _, _, _, f),
+    java_method_parameter(n, _, ctor, _, _, _, _, _, _, _, _, _, prm),
+    method_owner("client", owner, ctor), config_binding(k, _, "param", prm, ctor).
+field_named_config_value(n, d) :- java_field(n, _, _, _, _, _, _, _, _, _, _, _, _, f),
+    field_config_key(f, k), config_key_value(_, k, d).
+
+// A getter on a @ConfigurationProperties type, mapped to the value its backing
+// field is bound to.
+cfg_getter_demand(p) :- config_binding(_, "config_properties", "field", f, _),
+    java_field(p, _, _, _, _, _, _, _, _, _, _, _, _, f).
+cfg_getter_name(p, g) :- cfg_getter_demand(p), strlen(p) > 0,
+    cfg_upper(substr(p, 0, 1), up), g = cat("get", cat(up, substr(p, 1, strlen(p) - 1))).
+props_getter_value(g, d) :- config_binding(k, "config_properties", "field", f, _),
+    java_field(fn, _, _, _, _, _, _, _, _, _, _, _, _, f),
+    cfg_getter_name(fn, g), config_key_value(_, k, d).
+
+// (c) a broker send, whose destination is a positional argument.
+dest_raw(v) :- sends_via(call, _), call_site(call, name, _), cfg_sends_method(name, _, idx),
+    call_arg(call, idx, arg), expr_kind("client", "LITERAL", _, arg),
+    expr_literal("client", v, arg).
+// Carries the CALL, like the HTTP clause, because remote_unserved is judged per call —
+// without it a broker send whose destination nothing here consumes vanished from the
+// report entirely instead of being listed.
+sends_destination_at(call, m, tr, d) :- sends_via(call, tr), call_site(call, name, _),
+    cfg_sends_method(name, tr, idx), call_arg(call, idx, arg), arg_destination(arg, d),
+    expr_ultimate_method("client", call, m).
+
+// (d) an imperative HTTP call. The URL is routinely built by concatenation, so the
+//     destination is any path-shaped string written anywhere inside the URL argument.
+expr_descendant(a, a) :- sends_via(c, "http"), call_arg(c, _, a).
+expr_descendant(a, d) :- expr_descendant(a, c), expr_child("client", c, _, d).
+// Real code builds the URL into a local and passes the local:
+//     String url = base + "/api/x/" + id + "/detail";
+//     http.getForObject(url, …)
+// so the argument subtree is a single identifier and every fragment is in the local's
+// initializer, which hangs off the LOCAL as its owner rather than off the call.
+expr_descendant(a, d) :- expr_descendant(a, c), expr_reference_name(c, n),
+    expr_ultimate_method("client", c, m),
+    java_local_variable(n, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, lv),
+    expr_owner("client", lv, _, d).
+
+http_arg_literal(v) :- sends_via(call, "http"), call_site(call, name, _), cfg_sends_http(name),
+    call_arg(call, _, arg), expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
+    expr_literal("client", v, d).
+// A URL literal is a destination in its own right. Without this the only client paths
+// that resolved were the ones that happened to be spelled identically to a declared
+// route somewhere else in the tree — which looked like it worked, on exactly one case.
+dest_raw(v) :- http_arg_literal(v).
+path_candidate(v) :- http_arg_literal(v).
+path_candidate(v) :- const_string(_, v).
+path_candidate(v) :- config_key_value(_, _, v).
+// A path is recognised by its leading slash. The candidate set is kept separate from
+// dest_raw on purpose: deriving the shape from dest_raw, while dest_raw is derived
+// from the shape, is a cycle that admits nothing.
+// Path-shaped means: it survives normalisation and names more than a bare word.
+// Only the prefix rule consults this; an exact match needs no shape filter, because
+// equality with a declared route is a far stronger test than any shape test.
+http_path_shaped(u) :- url_path(_, u), strlen(u) >= 2, contains("/", substr(u, 1, strlen(u) - 1)).
+// NOTE — deliberately NOT `dest_raw(u) :- url_path(_, u)`. Placeholder resolution
+// happens BEFORE normalisation, so feeding normalised paths back into the raw set
+// puts url_path and dest_raw in one cycle with negation in it, which Soufflé cannot
+// stratify. A normalised path needs no second resolution pass.
+
+// ── URL NORMALISATION ───────────────────────────────────────────────────────
+// Both ends of one route are written differently in every real codebase:
+//   "http://customers-service/owners/{ownerId}"   a client, with scheme and host
+//   "pets/visits?petId={petId}"                   a client, with a query string
+//   "vets"                                        a client, with no leading slash
+//   @RequestMapping("/vets")                      the server, with one
+// Comparing them raw matches none of these, so every route is reduced to a path:
+// scheme and authority removed, query string removed, leading slash ensured.
+url_raw(v) :- path_candidate(v).
+url_raw(v) :- route_declared(v).
+
+url_scheme_at(s, i) :- url_raw(s), strlen(s) >= 3,
+    i = range(0, strlen(s) - 2), substr(s, i, 3) = "://".
+url_after_scheme(s, r) :- url_scheme_at(s, i), r = substr(s, i + 3, strlen(s) - i - 3).
+url_slash_in(r, i) :- url_after_scheme(_, r), i = range(0, strlen(r)), substr(r, i, 1) = "/".
+url_no_scheme(s, s) :- url_raw(s), !contains("://", s).
+url_no_scheme(s, p) :- url_after_scheme(s, r), m = min i : url_slash_in(r, i),
+    p = substr(r, m, strlen(r) - m).
+url_no_scheme(s, "/") :- url_after_scheme(s, r), !url_slash_in(r, _).
+
+url_q(p, i) :- url_no_scheme(_, p), i = range(0, strlen(p)), substr(p, i, 1) = "?".
+url_no_query(p, p) :- url_no_scheme(_, p), !url_q(p, _).
+url_no_query(p, q) :- url_no_scheme(_, p), m = min i : url_q(p, i), q = substr(p, 0, m).
+
+url_path(s, u) :- url_no_scheme(s, p), url_no_query(p, q), strlen(q) > 0,
+    substr(q, 0, 1) = "/", u = q.
+url_path(s, u) :- url_no_scheme(s, p), url_no_query(p, q), strlen(q) > 0,
+    substr(q, 0, 1) != "/", u = cat("/", q).
+
+sends_destination_at(call, m, "http", u) :- sends_via(call, "http"), call_site(call, name, _),
+    cfg_sends_http(name), call_arg(call, _, arg), expr_descendant(arg, d),
+    arg_destination(d, p), url_path(p, u), expr_ultimate_method("client", call, m).
+sends_destination(m, tr, u) :- sends_destination_at(_, m, tr, u).
+
+// EVERY path fragment this one call writes. A URL built by concatenation leaves more
+// than one — "/api/inventory/" + sku + "/reserved" leaves two — and a prefix rule that
+// looks at only the first will answer the route that the second one rules out.
+send_fragment(call, f) :- sends_via(call, "http"), call_arg(call, _, arg),
+    expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
+    expr_literal("client", raw, d), url_path(raw, f).
+// NOTE: deliberately NOT gated on http_path_shaped. That guard wants two segments,
+// and the fragment that rules a route out is usually a single one — "/reserved".
+// Gating this on it let /api/inventory/{sku}/reserved be reported as
+// /api/inventory/{sku}, which is the exact wrong edge the guard exists to stop.
+// A candidate route that does not contain one of this call's own fragments is not the
+// route this call names. Measured: without it, a client reaching
+// /api/inventory/{sku}/reserved was reported as reaching /api/inventory/{sku}.
+route_contradicted(call, s) :- send_fragment(call, f), serves_destination(_, "http", s),
+    !contains(f, s).
+
+// ── RECONSTRUCTING A CONCATENATED ROUTE ─────────────────────────────────────
+// A concatenation leaves several fragments and no single one is the route. Ordered by
+// where they are written, the FIRST is the route's literal prefix and the LAST is its
+// tail, and the segment counts must add up — which is what keeps
+// /api/x/{id}/reserve away from /api/x/{id}/reservation.
+send_frag_at(call, f, key) :- sends_via(call, "http"), call_arg(call, _, arg),
+    expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
+    expr_literal("client", raw, d), url_path(raw, f),
+    expr_src_pos("client", d, line, col),
+    key = to_number(line) * 10000 + to_number(col).
+send_frag_key_min(call, k) :- send_frag_at(call, _, _), k = min j : send_frag_at(call, _, j).
+send_frag_key_max(call, k) :- send_frag_at(call, _, _), k = max j : send_frag_at(call, _, j).
+send_frag_first(call, f) :- send_frag_key_min(call, k), send_frag_at(call, f, k).
+send_frag_last(call, f)  :- send_frag_key_max(call, k), send_frag_at(call, f, k).
+send_frag_count(call, n) :- send_frag_at(call, _, _), n = count : { send_frag_at(call, _, _) }.
+send_frag_segsum(call, n) :- send_frag_at(call, _, _),
+    n = sum c : { send_frag_at(call, f, _), route_segments_of(f, c) }.
+// segment counts for a fragment, which is not necessarily a declared route
+route_segments_of(f, n) :- send_frag_at(_, f, _),
+    n = count : { i = range(0, strlen(f)), substr(f, i, 1) = "/" }.
+
+route_ends_with(s, f) :- serves_destination(_, "http", s), send_frag_at(_, f, _),
+    strlen(s) >= strlen(f), substr(s, strlen(s) - strlen(f), strlen(f)) = f.
+
+remote_edge_via(call, from, to, "http", s, "route_built") :- sends_destination_at(call, from, "http", _),
+    serves_destination(to, "http", s), from != to,
+    send_frag_count(call, n), n > 1,
+    send_frag_first(call, first), route_prefix(s, first),
+    send_frag_last(call, last), first != last, route_ends_with(s, last),
+    send_frag_segsum(call, segs), route_segments(s, segs),
+    !route_contradicted(call, s),
+    send_verb(from, sv), method_verb(to, mv), verb_compatible(sv, mv).
+
+// ── AMQP: THE BINDING IS THE HOP ────────────────────────────────────────────
+// A publisher names an EXCHANGE and a ROUTING KEY; a listener names a QUEUE. They are
+// different strings and match only through the binding that ties them together — which
+// is itself a @Bean, built from other @Beans:
+//     @Bean Queue q()          { return new Queue("inventory.q"); }
+//     @Bean TopicExchange e()  { return new TopicExchange("inventory.exchange"); }
+//     @Bean Binding b(Queue q, TopicExchange e) {
+//         return BindingBuilder.bind(q).to(e).with("inventory.reserve"); }
+// Spring resolves those parameters to the beans of the same NAME, which is what makes
+// the chain followable without modelling the container.
+
+// the fluent binding chain, read from its last call backwards
+amqp_bind_rk(w, rk) :- call_site(w, "with", _), call_arg(w, "0", a),
+    expr_kind("client", "LITERAL", _, a), expr_literal("client", rk, a).
+amqp_bind_exchange(w, e) :- call_site(w, "with", to), call_site(to, "to", _),
+    call_arg(to, "0", a), expr_reference_name(a, e).
+amqp_bind_queue(w, q) :- call_site(w, "with", to), call_site(to, "to", bind),
+    call_site(bind, "bind", _), call_arg(bind, "0", a), expr_reference_name(a, q).
+amqp_bind_chain(w, q, e, rk) :- amqp_bind_rk(w, rk), amqp_bind_exchange(w, e),
+    amqp_bind_queue(w, q).
+
+// a @Bean whose body constructs something from one string literal: that literal is the
+// AMQP name the bean stands for. Demanded only for beans a binding actually names, so
+// this never walks every constructor in the tree.
+amqp_bean_demand(n) :- amqp_bind_chain(_, n, _, _).
+amqp_bean_demand(n) :- amqp_bind_chain(_, _, n, _).
+amqp_bean_name(mname, name) :- amqp_bean_demand(mname),
+    java_method(mname, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    ann_on_method(_, _, "Bean", m, _),
+    expr_ultimate_method("client", e, m), expr_kind("client", "OBJECT_CREATION", _, e),
+    expr_child("client", e, "ARGUMENT", a), expr_position("client", a, "0"),
+    expr_kind("client", "LITERAL", _, a), expr_literal("client", name, a).
+
+amqp_binding(exchange, rk, queue) :- amqp_bind_chain(w, qref, eref, rk),
+    amqp_bean_name(qref, queue), amqp_bean_name(eref, exchange).
+
+// what a publisher names. convertAndSend is overloaded: (routingKey, payload) names no
+// exchange, (exchange, routingKey, payload) does, so the arity decides which argument
+// is which. Reading argument 1 unconditionally would call the PAYLOAD a routing key.
+call_arg_count(call, n) :- call_site(call, _, _), n = count : { call_arg(call, _, _) }.
+amqp_publish(call, m, exchange, rk) :- sends_via(call, "amqp"), call_site(call, name, _),
+    cfg_sends_method(name, "amqp", _), call_arg_count(call, n), n >= 3,
+    call_arg(call, "0", ae), arg_destination(ae, exchange),
+    call_arg(call, "1", re), arg_destination(re, rk),
+    expr_ultimate_method("client", call, m).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. THE JOIN
+// ─────────────────────────────────────────────────────────────────────────────
+// A route is a path AND a verb. Matching on the path alone made one client call an
+// edge to every handler on that path — a GET to /owners linked to the @PostMapping
+// that creates one, which is a wrong answer to "what does this call reach".
+// An end whose verb cannot be determined stays compatible with all of them, so this
+// filters wrong edges without dropping ones it merely cannot judge.
+verb_compatible(a, b) :- http_verb_known(a), http_verb_known(b), a = b.
+verb_compatible(a, "any") :- http_verb_known(a).
+verb_compatible("any", b) :- http_verb_known(b).
+http_verb_known("any"). http_verb_known("GET"). http_verb_known("POST").
+http_verb_known("PUT"). http_verb_known("DELETE"). http_verb_known("PATCH").
+
+// the server's verb comes from which mapping annotation it used …
+method_verb(m, v) :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), cfg_route_verb(n, v).
+method_verb(m, "any") :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), !cfg_route_verb_known(n).
+cfg_route_verb_known(n) :- cfg_route_verb(n, _).
+// … the client's from the call it made, or from its own exchange annotation.
+call_verb(call, v) :- call_site(call, name, _), cfg_sends_verb(name, v).
+// a fluent chain names the verb one call earlier: .get().uri(path)
+call_verb(call, v) :- call_site(call, _, recv), call_site(recv, name, _), cfg_sends_verb(name, v).
+
+send_verb(m, v) :- sends_via(call, "http"), expr_ultimate_method("client", call, m), call_verb(call, v).
+send_verb(m, "any") :- sends_destination(m, "http", _), !send_verb_known(m).
+send_verb_known(m) :- sends_via(call, "http"), expr_ultimate_method("client", call, m), call_verb(call, _).
+send_verb(m, v) :- route_of_method(m, _, "client"), method_verb(m, v).
+
+// (a) exact — a topic, a queue, or a route both ends spell the same way.
+remote_edge_via(call, from, to, tr, d, "exact") :- sends_destination_at(call, from, tr, d),
+    serves_destination(to, tr, d), from != to, tr != "http".
+
+// (a2) AMQP through the binding: publisher names exchange+key, listener names a queue.
+remote_edge_via(call, from, to, "amqp", dest, "amqp_binding") :- amqp_publish(call, from, exchange, rk),
+    amqp_binding(exchange, rk, queue), serves_destination(to, "amqp", queue), from != to,
+    dest = cat(exchange, cat("/", rk)).
+remote_edge_via(call, from, to, "http", d, "exact") :- sends_destination_at(call, from, "http", d),
+    serves_destination(to, "http", d), from != to,
+    send_verb(from, sv), method_verb(to, mv), verb_compatible(sv, mv).
+// a declarative client's method IS the send, so it has no call site of its own
+remote_edge(from, to, "http", d, "exact") :- route_of_method(from, d, "client"),
+    serves_destination(to, "http", d), from != to,
+    send_verb(from, sv), method_verb(to, mv), verb_compatible(sv, mv).
+
+// (b) route shape — the client concatenated a path where the server declared a
+//     template, so the client's string stops at the first variable. This is only
+//     applied when the CLIENT wrote no template of its own: matching two templates on
+//     their common prefix made /api/x/{id}/reserve and /api/x/{id}/reservation each
+//     other's answer, which is a wrong edge rather than a missing one.
+remote_edge_via(call, from, to, "http", d, "route_shape") :- sends_destination_at(call, from, "http", d),
+    serves_destination(to, "http", s), d != s, from != to,
+    send_frag_count(call, 1),
+    !contains("{", d), http_path_shaped(d),
+    route_prefix(s, d),
+    route_segments(d, n), route_segments(s, n),
+    !route_contradicted(call, s),
+    send_verb(from, sv), method_verb(to, mv), verb_compatible(sv, mv).
+
+// NOTE — a second clause that linked a call whose fragments were ALL contained in a
+// route was tried and reverted: `contains(prefix, fragment)` is satisfied by every
+// route sharing a prefix, so one call became an edge to four handlers. The prefix
+// rule stays anchored on route_prefix equality, and a URL built from several
+// fragments that no single route explains stays unlinked and reported.
+
+route_prefix(p, pre) :- http_route(p), !contains("{", p), pre = p.
+route_brace(p, i) :- http_route(p), contains("{", p),
+    i = range(0, strlen(p)), substr(p, i, 1) = "{".
+route_prefix(p, pre) :- http_route(p), contains("{", p),
+    m = min i : route_brace(p, i), pre = substr(p, 0, m).
+route_segments(p, n) :- http_route(p), n = count : { i = range(0, strlen(p)), substr(p, i, 1) = "/" }.
+http_route(p) :- sends_destination(_, "http", p).
+http_route(p) :- serves_destination(_, "http", p).
+
+remote_edge(from, to, tr, d, conf) :- remote_edge_via(_, from, to, tr, d, conf).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. WHAT COULD NOT BE JOINED — the honest other half
+// ─────────────────────────────────────────────────────────────────────────────
+// A send whose destination nothing in this analysis serves. Usually correct — the
+// consumer is in another repository — so it is reported rather than treated as a
+// defect. It is precisely the list a cross-repository analysis would consume.
+// Judged per CALL, not per destination string. A URL built by concatenation yields a
+// fragment per piece — "/api/warehouses/", "/us-east", "/capacity" — and reporting each
+// of them as an unserved destination, for a call that linked perfectly well, turns the
+// honest half into noise.
+remote_unserved(m, tr, d) :- sends_destination_at(call, m, tr, d),
+    !remote_edge_via(call, _, _, _, _, _).
+remote_unserved(m, tr, d) :- route_of_method(m, d, "client"), tr = "http",
+    !remote_edge(m, _, "http", d, _).
+// NOTE: no separate suppression is needed for an AMQP publish linked through its
+// binding — that edge now carries its call like every other, so the one negation above
+// covers it. A rule that answered "is this linked?" a second, different way was how a
+// destination came to be reported as BOTH linked and unserved.
+// A send whose destination cannot be named at all — built at runtime, as in
+//     String topic = "orders." + version;  kafka.send(topic, …)
+// There is no honest static answer, and SILENCE is the wrong way to say so: a caller
+// cannot tell "no destination here" from "a destination I could not read". Declaring it
+// is the same contract ambiguous_unknown and config_unresolved already keep.
+remote_undetermined(m, tr, "unresolved_destination") :- sends_via(call, tr), tr != "http",
+    call_site(call, name, _), cfg_sends_method(name, tr, idx), call_arg(call, idx, arg),
+    !arg_destination(arg, _), expr_ultimate_method("client", call, m).
+remote_undetermined(m, "http", "unresolved_destination") :- sends_via(call, "http"),
+    call_site(call, name, _), cfg_sends_http(name),
+    !sends_destination_at(call, _, _, _), expr_ultimate_method("client", call, m).
+
+// A consumer nothing here sends to: the producer is elsewhere.
+remote_unsent(m, tr, d) :- serves_destination(m, tr, d), !remote_edge(_, m, tr, d, _).
