@@ -59,6 +59,16 @@ done < <(grep -vE '^[[:space:]]*(#|$)' "$SRC/csharp/templates/client-ir.map")
 : > "$FACTS/dispatch_cap.facts"
 [ -n "${AXIOM_DISPATCH_CAP:-}" ] && printf '%s\n' "$AXIOM_DISPATCH_CAP" > "$FACTS/dispatch_cap.facts"
 
+# THE RUNTIME TRACE, optional. runtime-oracle/join.py --facts writes it, keyed on
+# `Type.Name/paramCount`. Empty is the normal case and the engine then behaves
+# exactly as it does with no trace, which is what makes the feature safe to leave
+# switched on. AXIOM_CS_RUNTIME_FACTS points at the file.
+: > "$FACTS/runtime_observed_edge.facts"
+if [ -n "${AXIOM_CS_RUNTIME_FACTS:-}" ] && [ -f "${AXIOM_CS_RUNTIME_FACTS}" ]; then
+  cp "$AXIOM_CS_RUNTIME_FACTS" "$FACTS/runtime_observed_edge.facts"
+  echo "▶ staged $(wc -l < "$FACTS/runtime_observed_edge.facts" | tr -d ' ') runtime-observed edge(s)"
+fi
+
 export LC_ALL=C LC_COLLATE=C
 PROG="$WORK/program.dl"
 {
