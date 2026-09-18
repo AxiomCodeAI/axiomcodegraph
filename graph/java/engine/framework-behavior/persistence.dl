@@ -1,3 +1,10 @@
+// PROVENANCE. ann_on_type / ann_on_method / ann_arg gained a leading provenance
+// column when config-resolution learned to read a staged dependency's annotations
+// (#851). Every use below binds it to "client" explicitly rather than leaving it
+// free: a persistence entity or query declared by a DEPENDENCY is a different
+// question from one declared here, and leaving the column free would have widened
+// this phase to answer it silently. Widen deliberately, with a measurement, or not
+// at all.
 // ============================================================================
 // FRAMEWORK-BEHAVIOR · PERSISTENCE  (a query is a reference to a schema)
 //
@@ -28,7 +35,7 @@
 // ============================================================================
 
 // ── what is an entity, and what does it declare ─────────────────────────────
-jpa_entity(t) :- ann_on_type(_, n, t), cfg_entity_ann(n).
+jpa_entity(t) :- ann_on_type("client", _, n, t), cfg_entity_ann(n).
 // a @MappedSuperclass's fields are the entity's fields too
 jpa_entity_field(t, fname, f) :- jpa_entity(t),
     java_field(fname, _, _, _, _, _, _, _, t, _, _, _, _, f).
@@ -38,8 +45,8 @@ jpa_entity_field(t, fname, f) :- jpa_entity(t), type_ancestor(t, sup),
 // ── declarations: @NamedQuery(name = …, query = …) ──────────────────────────
 // @NamedQueries({…}) nests them, and the parser flattens each one onto the owning
 // type with its own arguments, so no special handling of the container is needed.
-jpa_named_query(name, text, t) :- ann_on_type(a, n, t), cfg_query_ann(n),
-    ann_arg(a, "name", name, _, _), ann_arg(a, "query", text, _, _).
+jpa_named_query(name, text, t) :- ann_on_type("client", a, n, t), cfg_query_ann(n),
+    ann_arg("client", a, "name", name, _, _), ann_arg("client", a, "query", text, _, _).
 
 // ── uses: em.createNamedQuery("…") / em.createQuery("…") ────────────────────
 // Gated on the receiver's declared type, for the same reason a broker send is: the
@@ -89,8 +96,8 @@ persistence_query(m, "inline", "-", text) :- query_call(_, m, "inline", text).
 // ── Spring Data: the method IS the query ────────────────────────────────────
 // There is no call site at all. @Query carries the text and the framework generates
 // the implementation, so the annotated method is the thing that touches the schema.
-persistence_query(m, "spring_data", "-", text) :- ann_on_method(a, n, m, _),
-    cfg_method_query_ann(n), cfg_query_arg(arg), ann_arg(a, arg, text, _, _).
+persistence_query(m, "spring_data", "-", text) :- ann_on_method("client", a, n, m, _),
+    cfg_method_query_ann(n), cfg_query_arg(arg), ann_arg("client", a, arg, text, _, _).
 
 // ── what the query text names ───────────────────────────────────────────────
 // No JPQL parser: an entity is recognised where a query can introduce one, and the
