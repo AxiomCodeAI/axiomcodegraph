@@ -64,10 +64,10 @@ cfg_strip(v, v) :- cfg_raw(v).
 cfg_strip(v, inner) :- cfg_strip(v, s),
     strlen(s) >= 2,
     substr(s, 0, 1) = "\"",
-    substr(s, strlen(s) - 1, 1) = "\"",
+    substr(s, max(0, strlen(s) - 1), 1) = "\"",
     inner = substr(s, 1, strlen(s) - 2).
 cfg_quoted(s) :- cfg_strip(_, s), strlen(s) >= 2,
-    substr(s, 0, 1) = "\"", substr(s, strlen(s) - 1, 1) = "\"".
+    substr(s, 0, 1) = "\"", substr(s, max(0, strlen(s) - 1), 1) = "\"".
 // cfg_clean(Raw, Clean) — the fully-unquoted form. Exactly one per Raw.
 cfg_clean(v, s) :- cfg_strip(v, s), !cfg_quoted(s).
 

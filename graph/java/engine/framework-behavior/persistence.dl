@@ -1,0 +1,189 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · PERSISTENCE  (a query is a reference to a schema)
+//
+// A repository or DAO method reaches the database through a STRING. The string names
+// an entity and its properties, and sometimes it does not even contain them — it names
+// another string that does:
+//
+//     @NamedQuery(name = "OrderEntity.findByCustomer",
+//                 query = "SELECT o FROM OrderEntity o WHERE o.customerId = :customerId")
+//     …
+//     em.createNamedQuery("OrderEntity.findByCustomer", OrderEntity.class)
+//
+// Nothing calls anything. The declaration and the use are tied together only by the
+// name, exactly as a producer and a consumer are tied by a topic — which is why this
+// lives in the same phase and is written the same way.
+//
+// Measured on a 1.2M-line production system: 305 named queries declared, 296 used,
+// 255 joinable by exact name, against 78 @Entity classes. None of it was in the graph,
+// so "I am renaming this column — what breaks?" answered nothing.
+//
+//   persistence_query(Method, Kind, Name, Text)   a method that runs a query
+//   persistence_entity(Method, EntityType)        the entity that query names
+//   persistence_field(Method, Field)              the property that query reads
+//   persistence_unresolved(Method, Why)           declared unknowns
+//
+// The phase contract holds: these rules only ADD relations. A query is evidence about
+// a schema, not a call, and nothing here touches call_chain_edge.
+// ============================================================================
+
+// ── what is an entity, and what does it declare ─────────────────────────────
+jpa_entity(t) :- ann_on_type(_, n, t), cfg_entity_ann(n).
+// a @MappedSuperclass's fields are the entity's fields too
+jpa_entity_field(t, fname, f) :- jpa_entity(t),
+    java_field(fname, _, _, _, _, _, _, _, t, _, _, _, _, f).
+jpa_entity_field(t, fname, f) :- jpa_entity(t), type_ancestor(t, sup),
+    java_field(fname, _, _, _, _, _, _, _, sup, _, _, _, _, f).
+
+// ── declarations: @NamedQuery(name = …, query = …) ──────────────────────────
+// @NamedQueries({…}) nests them, and the parser flattens each one onto the owning
+// type with its own arguments, so no special handling of the container is needed.
+jpa_named_query(name, text, t) :- ann_on_type(a, n, t), cfg_query_ann(n),
+    ann_arg(a, "name", name, _, _), ann_arg(a, "query", text, _, _).
+
+// ── uses: em.createNamedQuery("…") / em.createQuery("…") ────────────────────
+// Gated on the receiver's declared type, for the same reason a broker send is: the
+// method name alone is far too common to be evidence of anything.
+query_via(call) :- call_site(call, _, recv), recv_root(recv, root),
+    recv_declared_simple(root, t), cfg_query_owner(t).
+
+query_call(call, m, kind, v) :- query_via(call), call_site(call, name, _),
+    cfg_query_method(name, kind), call_arg(call, "0", arg),
+    expr_kind("client", "LITERAL", _, arg), expr_literal("client", v, arg),
+    expr_ultimate_method("client", call, m).
+
+// … and WITHOUT the receiver gate, where the argument itself settles it. Measured: the
+// gate alone saw 356 of 482 query call sites on a real codebase, because an
+// EntityManager is routinely reached through getEntityManager() or inherited from a
+// base class, and neither gives the receiver a declared type to read.
+//   - a named query whose name a @NamedQuery actually declares is not a guess;
+//   - an inline query is accepted only if the string OPENS like one, which a random
+//     argument to some other method called `createQuery` will not.
+query_call(call, m, "named", name) :- call_site(call, nm, _), cfg_query_method(nm, "named"),
+    call_arg(call, "0", arg), expr_kind("client", "LITERAL", _, arg),
+    expr_literal("client", name, arg), jpa_named_query(name, _, _),
+    expr_ultimate_method("client", call, m).
+query_call(call, m, "inline", text) :- call_site(call, nm, _), cfg_query_method(nm, "inline"),
+    call_arg(call, "0", arg), expr_kind("client", "LITERAL", _, arg),
+    expr_literal("client", text, arg), query_opens(text),
+    expr_ultimate_method("client", call, m).
+
+// "does this string open like a query" — split from the comparison for the same reason
+// route_suffix_ok is: the length guard must not race the substr.
+query_open_ok(t, n) :- query_literal(t), jpa_open(kw), n = strlen(kw), strlen(t) >= n.
+query_opens(t) :- query_open_ok(t, n), jpa_open(kw), strlen(kw) = n, substr(t, 0, n) = kw.
+query_literal(t) :- call_site(call, nm, _), cfg_query_method(nm, _), call_arg(call, "0", arg),
+    expr_kind("client", "LITERAL", _, arg), expr_literal("client", t, arg).
+jpa_open("select"). jpa_open("SELECT"). jpa_open("Select").
+jpa_open("from").   jpa_open("FROM").   jpa_open("From").
+jpa_open("insert"). jpa_open("INSERT"). jpa_open("Insert").
+jpa_open("update"). jpa_open("UPDATE"). jpa_open("Update").
+jpa_open("delete"). jpa_open("DELETE"). jpa_open("Delete").
+
+// a named query resolves to the TEXT its declaration carries …
+persistence_query(m, "named", name, text) :- query_call(_, m, "named", name),
+    jpa_named_query(name, text, _).
+// … and an inline one is its own text.
+persistence_query(m, "inline", "-", text) :- query_call(_, m, "inline", text).
+
+// ── Spring Data: the method IS the query ────────────────────────────────────
+// There is no call site at all. @Query carries the text and the framework generates
+// the implementation, so the annotated method is the thing that touches the schema.
+persistence_query(m, "spring_data", "-", text) :- ann_on_method(a, n, m, _),
+    cfg_method_query_ann(n), cfg_query_arg(arg), ann_arg(a, arg, text, _, _).
+
+// ── what the query text names ───────────────────────────────────────────────
+// No JPQL parser: an entity is recognised where a query can introduce one, and the
+// candidate set is only the @Entity types, so the test is both cheap and specific.
+// Matching a bare name anywhere in the text would let a three-letter entity match a
+// column that merely contains it.
+// The text is padded with a space at each end so that one test covers a name at the
+// start, in the middle and at the end. Both delimiters are required: measured on a real
+// codebase, matching " FROM Pet" without the trailing space also matched
+// " FROM PetType", and the blast radius of PetType.name then included Pet.name.
+query_padded(text, p) :- persistence_query(_, _, _, text), p = cat(" ", cat(text, " ")).
+query_names_type(text, name) :- query_padded(text, p), jpa_entity(t),
+    java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, t), jpa_intro(kw),
+    contains(cat(" ", cat(kw, cat(name, " "))), p).
+jpa_intro("FROM "). jpa_intro("from "). jpa_intro("From ").
+jpa_intro("JOIN "). jpa_intro("join "). jpa_intro("Join ").
+jpa_intro("UPDATE "). jpa_intro("update "). jpa_intro("Update ").
+jpa_intro("INTO "). jpa_intro("into ").
+
+persistence_entity(m, t) :- persistence_query(m, _, _, text), query_names_type(text, name),
+    java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, t), jpa_entity(t).
+
+// A property is named with a dot after its alias — `o.customerId`. The dot is what
+// keeps `status` from matching every query that happens to contain the word.
+// `.name` must be followed by something that cannot continue an identifier, or
+// `.name` matches `.nameOfSomethingElse`.
+jpa_after(" "). jpa_after(","). jpa_after(")"). jpa_after("="). jpa_after(";").
+jpa_after("<"). jpa_after(">"). jpa_after("!").
+
+// Every occurrence of `.property<delimiter>` in the text.
+pf_any(m, f) :- persistence_entity(m, t), persistence_query(m, _, _, text),
+    query_padded(text, p), jpa_entity_field(t, fname, f), jpa_after(d),
+    contains(cat(".", cat(fname, d)), p).
+// … but `p.resourceServer.id` names the ASSOCIATED entity's id, not the root's. The
+// segment before the property is itself a property of the entity, which is what marks
+// the path as nested. Measured on a real codebase: without this, a query that never
+// mentions the root's own id was reported as reading it, and `id` is the commonest
+// property name there is.
+pf_nested(m, f) :- persistence_entity(m, t), persistence_query(m, _, _, text),
+    query_padded(text, p), jpa_entity_field(t, mid, _), jpa_entity_field(t, fname, f),
+    mid != fname, jpa_after(d),
+    contains(cat(".", cat(mid, cat(".", cat(fname, d)))), p).
+// A property read directly SOMEWHERE is direct, even if it also appears nested.
+pf_direct(m, f) :- pf_any(m, f), !pf_nested(m, f).
+persistence_field(m, f, "direct") :- pf_direct(m, f).
+persistence_field(m, f, "nested") :- pf_nested(m, f), !pf_direct(m, f).
+
+// ── a whole-entity select reads EVERY column ────────────────────────────────
+// `SELECT i FROM InventoryItem i WHERE i.warehouse = :w` names one property, and the
+// statement the database receives selects all four — because selecting the entity
+// hydrates it. Measured against the real SQL: claiming only the properties written in
+// the text covered 43% of the column references the database actually saw. For "can I
+// drop this column", a whole-entity select is affected by all of them.
+//
+// A query selects the ENTITY when its select list is a bare alias: no dot, no function
+// call, no comma. A query with no select clause at all (`FROM X i …`) is the same thing.
+query_select_at(text, i) :- persistence_query(_, _, _, text), jpa_select(kw),
+    i = range(0, strlen(text)), strlen(text) >= strlen(kw),
+    substr(text, i, min(strlen(kw), strlen(text))) = kw.
+query_from_at(text, i) :- persistence_query(_, _, _, text), jpa_from(kw),
+    i = range(0, strlen(text)), strlen(text) >= strlen(kw),
+    substr(text, i, min(strlen(kw), strlen(text))) = kw.
+jpa_select("SELECT "). jpa_select("select "). jpa_select("Select ").
+jpa_from(" FROM "). jpa_from(" from "). jpa_from(" From ").
+
+// the select list: what sits between the first SELECT and the first FROM after it
+query_select_list(text, seg) :- query_select_at(text, i),
+    s0 = min j : query_select_at(text, j), i = s0,
+    query_from_at(text, k), f0 = min j : { query_from_at(text, j), j > s0 }, k = f0,
+    k > i + 7, seg = substr(text, i + 7, k - i - 7).
+
+query_projects_entity(text) :- query_select_list(text, seg),
+    !contains(".", seg), !contains("(", seg), !contains(",", seg).
+// no select clause at all — the query IS the entity
+query_projects_entity(text) :- persistence_query(_, _, _, text), jpa_intro(kw),
+    strlen(text) >= strlen(kw), substr(text, 0, min(strlen(kw), strlen(text))) = kw.
+
+persistence_field(m, f, "projection") :- persistence_query(m, _, _, text),
+    query_projects_entity(text), persistence_entity(m, t), jpa_entity_field(t, _, f),
+    !pf_any(m, f).
+
+// ── the honest other half ───────────────────────────────────────────────────
+// A name no @NamedQuery declares: either it is declared in another deployable, or it
+// is a typo that fails at start-up. Either way it is a fact worth having.
+persistence_unresolved(m, "undeclared_named_query") :- query_call(_, m, "named", name),
+    !jpa_named_query(name, _, _).
+// A query assembled at run time. Its literal fragment is a LEFT_OPERAND of a
+// concatenation rather than the whole argument, so there is no honest static answer —
+// and silence is the wrong way to say so.
+persistence_unresolved(m, "query_built_at_runtime") :- call_site(call, name, _),
+    cfg_query_method(name, _), call_arg(call, "0", arg),
+    !expr_kind("client", "LITERAL", _, arg), expr_ultimate_method("client", call, m).
+// A query whose text resolves but names no entity this analysis knows: the entity is
+// defined elsewhere, or the text is a native SQL statement naming tables, not classes.
+persistence_unresolved(m, "no_entity_in_query") :- persistence_query(m, _, _, _),
+    !persistence_entity(m, _).

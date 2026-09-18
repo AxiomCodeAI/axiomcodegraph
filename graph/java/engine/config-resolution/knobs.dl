@@ -213,3 +213,21 @@ cfg_sends_verb("patch", "PATCH").
 //     read as a handler and answers "who serves this route".
 cfg_client_type_ann("FeignClient").  cfg_client_type_ann("HttpExchange").
 cfg_client_type_ann("RegisterRestClient").   // MicroProfile
+
+// ── (10) PERSISTENCE: a query is a reference to a schema ────────────────────
+cfg_entity_ann("Entity").         cfg_entity_ann("MappedSuperclass").
+cfg_query_ann("NamedQuery").      cfg_query_ann("NamedNativeQuery").
+
+// the EntityManager-like receivers that make a call a query, for the same reason a
+// broker send is gated on its template: `createQuery` is not a rare method name.
+cfg_query_owner("EntityManager"). cfg_query_owner("Session").
+cfg_query_owner("StatelessSession"). cfg_query_owner("EntityManagerFactory").
+
+cfg_query_method("createNamedQuery", "named").
+cfg_query_method("createNamedStoredProcedureQuery", "named").
+cfg_query_method("createQuery", "inline").
+cfg_query_method("createNativeQuery", "inline").
+// a query annotation on the METHOD, where the framework generates the implementation
+// and there is no call site anywhere (Spring Data, and Micronaut Data's @Query).
+cfg_method_query_ann("Query").    cfg_method_query_ann("NativeQuery").
+cfg_query_arg("value").           cfg_query_arg("query").

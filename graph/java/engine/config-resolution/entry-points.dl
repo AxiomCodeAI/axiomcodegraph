@@ -90,7 +90,11 @@ config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "xml", _),
 cfg_stub_base(base, kind) :- java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, base),
     cfg_stub_base_suffix(suffix, kind),
     strlen(name) >= strlen(suffix),
-    substr(name, strlen(name) - strlen(suffix), strlen(suffix)) = suffix.
+    // Clamped, not merely guarded: Soufflé evaluates the functor on pairs the length
+    // test rejects, and `substr("Access", -2, 8)` — a six-character type name against
+    // the eight-character suffix "ImplBase" — warned 656 times on one real codebase.
+    // The answer was always right; the noise could hide a fault that is not.
+    substr(name, max(0, strlen(name) - strlen(suffix)), min(strlen(suffix), strlen(name))) = suffix.
 config_entry_point(m, kind, t) :- cfg_stub_base(base, kind),
     type_ancestor(t, base),
     java_method(name, _, _, _, _, _, _, base, _, _, _, _, _, _, _, _, _, pc, _, _, _, _),

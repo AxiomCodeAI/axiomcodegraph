@@ -29,3 +29,7 @@ remote_edge	remote-edge.csv
 remote_unserved	remote-unserved.csv
 remote_unsent	remote-unsent.csv
 remote_undetermined	remote-undetermined.csv
+persistence_query	persistence-query.csv
+persistence_entity	persistence-entity.csv
+persistence_field	persistence-field.csv
+persistence_unresolved	persistence-unresolved.csv
