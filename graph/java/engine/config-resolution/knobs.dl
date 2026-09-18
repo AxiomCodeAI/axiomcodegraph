@@ -240,3 +240,22 @@ cfg_opaque_condition_ann("ConditionalOnExpression",     "spel_expression").
 cfg_opaque_condition_ann("ConditionalOnClass",          "depends_on_classpath").
 cfg_opaque_condition_ann("ConditionalOnMissingClass",   "depends_on_classpath").
 cfg_opaque_condition_ann("Conditional",                 "custom_condition_class").
+
+// ── (16) REPOSITORY BASES: a bean with no stereotype and no implementation ───
+// Spring Data, and every framework shaped like it, registers a proxy for an
+// INTERFACE the application declares and never implements. There is no class in any
+// source tree and no annotation on the interface, so the two things that make a bean
+// elsewhere in this folder are both absent. Matched on the SUPERTYPE's simple-name
+// SUFFIX, the way cfg_stub_base_suffix matches a generated gRPC base, because the
+// base is chosen per store (MongoRepository, JpaRepository, ElasticsearchRepository,
+// a house base named FooRepository) and the list cannot be enumerated.
+//
+// The suffix is deliberately the whole word, so `PersonFinder` is not a repository
+// and neither is a plain interface. A base that carries the suffix is not itself a
+// bean: the rule requires a type to EXTEND one, so CrudRepository is excluded by
+// having no such supertype of its own.
+cfg_repository_base_suffix("Repository").
+cfg_repository_base_suffix("Dao").
+// An annotation that marks a repository base as NOT itself a bean. A house base over
+// a framework base carries it, and the framework does not register a proxy for it.
+cfg_no_repository_ann("NoRepositoryBean").
