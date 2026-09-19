@@ -606,9 +606,13 @@ test_near(q, m, d) :- test_hit(q, m, d, _), d = min x : test_hit(q, m, x, _).
 // silent and a rename breaks it. There is no callable to attribute it to, so it is its own answer.
 .decl extbind(q:symbol, f:symbol, l:number, n:symbol, how:symbol)
 extbind(q, f, l, n, "names the type") :- target(q, "type", t, _), typ(t, n, _), nonsource(n, f, l).
-extbind(q, f, l, n, "names the type in full") :- target(q, "type", t, _), qual_name(t, n), nonsource(n, f, l).
+// "…in full" is a SECOND row about the same site, and it says nothing when the qualified spelling IS the plain name:
+// a free function's `qual_name` is its own name, so one mention of `apply` in a workflow file was reported twice —
+// three times for a name that is both a field and a method — and the count line said "3 site(s)" for one site. The
+// row is only informative when the two spellings differ.
+extbind(q, f, l, n, "names the type in full") :- target(q, "type", t, _), qual_name(t, n), nonsource(n, f, l), typ(t, tn, _), n != tn.
 extbind(q, f, l, n, "names the method") :- target(q, "method", m, _), named(n, m), nonsource(n, f, l).
-extbind(q, f, l, n, "names the method in full") :- target(q, "method", m, _), qual_name(m, n), nonsource(n, f, l).
+extbind(q, f, l, n, "names the method in full") :- target(q, "method", m, _), qual_name(m, n), nonsource(n, f, l), named(pn, m), n != pn.
 extbind(q, f, l, n, "names the field") :- target(q, "field", fl, _), field(fl, _, n, _, _), nonsource(n, f, l).
 extbind(q, f, l, n, "defines or overrides the key") :- target(q, "config", k, _), nonsource(n, f, l), n = k.
 .output extbind
