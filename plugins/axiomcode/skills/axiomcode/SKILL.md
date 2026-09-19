@@ -132,7 +132,12 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   which test FILES newly fail): 0.000 → 0.790. It was zero because a vitest test is an anonymous callback handed to
   `it(…)` — 6,661 of hono's 7,723 callables in test files are `<arrow>` and two carried a name the old rule accepted,
   so the test universe was empty and every answer named no test file at all. A callable registered by `it` / `test` /
-  `bench` on its own line is a test, and a helper declared beside them carries them.
+  `bench` on its own line is a test, and a helper declared beside them carries them. The PARAMETERISED form needs the
+  call site rather than the line: `test.each` + a template table writes the arrow after the closing backtick, on a
+  line naming no registrar at all (18 of them in that library), so a callable inside the span of a `TAGGED_TEMPLATE_CALL`
+  to `each` — its first line read to confirm the receiver the call site does not carry — is a test too. That shape is
+  vitest / jest / mocha's alone: a pytest test is found by its name however deep the decorator stack, so nothing there
+  depends on which line the registrar is written on.
   **What a selection costs and buys, on that same TypeScript library, measured again with the rungs separated** (a
   fresh clone, 311 source files, 130 test files, 5,193 tests in 17 s; 16 methods broken one at a time, 54 (method,
   test file) pairs of behavioural truth): recall **0.778**, precision 0.636, and the answer names **4.1 test files of
