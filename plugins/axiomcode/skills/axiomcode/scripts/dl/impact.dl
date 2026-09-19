@@ -58,6 +58,8 @@
 .decl regsite(m:symbol, d:symbol, v:symbol, f:symbol, l:number)   .input regsite
 //   key_cap(n)                        how many declarations one key may register before the set is refused
 .decl key_cap(n:number)                                           .input key_cap
+//   key_use_cap(n)                    and how many callables may WRITE one before it stops identifying anything
+.decl key_use_cap(n:number)                                       .input key_use_cap
 .decl route_alias(w:symbol, r:symbol)                             .input route_alias
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
@@ -472,8 +474,18 @@ reg_key(m, d, k) :- regsite(m, d, k, _, _).
 // judgement one layer up — over the cap the SET IS REFUSED rather than emitted, and the answer says how many.
 .decl reg_key_fan(k:symbol, n:number)
 reg_key_fan(k, n) :- reg_key(_, _, k), n = count : { reg_key(_, _, k) }.
+// and the same on the OTHER side, for the same reason. On jsoup the keys that survive the registration cap are
+// `p`, `b`, `table`, `em` — HTML tag names, written by 356 callables and "registered" by two, because a
+// decoration argument is not always a registration (`@ValueSource(strings = {"p"})` is test DATA). A key written
+// everywhere identifies nothing either, whichever side the fan is on, and this needs no catalogue of which
+// decorations register and which do not.
+.decl key_written(c:symbol, k:symbol)
+key_written(c, k) :- literal(c, k, _, _).
+.decl key_use_fan(k:symbol, n:number)
+key_use_fan(k, n) :- key_written(_, k), n = count : { key_written(_, k) }.
 .decl key_capped(k:symbol)
 key_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
+key_capped(k) :- key_use_fan(k, n), key_use_cap(c), n > c.
 .output key_capped
 .decl fw_edge(a:symbol, b:symbol, how:symbol)
 fw_edge(a, b, "by key") :- literal(a, k, _, _), reg_key(b, _, k), a != b, !key_capped(k).
