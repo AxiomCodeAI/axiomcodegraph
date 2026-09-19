@@ -15,6 +15,9 @@ Events are generated on the repo (Reads of whole files and ranges, Greps of decl
 a signature, a field's type) or replayed from .axiomcode/hooks.jsonl (--replay: entries that recorded their input and text).
 Prints facts checked / facts wrong, and every wrong fact."""
 import json, os, random, re, sqlite3, subprocess, sys, tempfile, shutil
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                'skills', 'axiomcode', 'scripts'))
+from ax_contract import subtokens        # the annotation's own tokeniser, so this checks its claim
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 def hook(script, event, tool, inp, cwd, session='validate'):
@@ -92,6 +95,18 @@ class V:
                         for nname in ns: self.fact(nname in D, f"Read {rel}: {s['display']} callee {nname} has no edge the text cannot show")
                         self.fact(len(ns) + plus == len(D), f"Read {rel}: {s['display']} says {len(ns)}+{plus} callees, graph has {len(D)}")
                     elif part.startswith('?'): self.fact(int(part[1:].split()[0]) == self.unresolved(s['id']), f"Read {rel}: {s['display']} says {part}, table has {self.unresolved(s['id'])}")
+                    elif part.startswith('— your task says '):
+                        # The annotation claims this declaration's NAME carries a word from the session's task,
+                        # which is why it was promoted above better-connected ones. That is checkable, and it is
+                        # worth checking: a promotion the reader cannot verify is worse than no promotion, and a
+                        # term that is not really in the name would move the wrong declaration to the top.
+                        for term in re.findall(r"'([^']+)'", part):
+                            # sqlite3.Row indexes, it does not .get() — the same slip this validator exists to catch
+                            nm = s['name'] if 'name' in s.keys() else ''
+                            toks = set(subtokens(s['display'] or '')) | set(subtokens(nm or ''))
+                            carried = term in toks or any(t.startswith(term) and len(term) >= 4 for t in toks)
+                            self.fact(carried, f"Read {rel}: {s['display']} is promoted for the task word "
+                                               f"'{term}', which its name does not carry")
                     else: self.fact(False, f"Read {rel}: {s['display']} has an unparseable part: {part}")
             elif l.strip().startswith('+'):
                 mr = re.match(r'  \+(\d+) more: (.*?)\s+\(grep', l); n = int(mr.group(1))
