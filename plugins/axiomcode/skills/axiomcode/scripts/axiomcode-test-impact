@@ -26,14 +26,18 @@ the rest is a decision about risk that this tool cannot make for you.
 HOW GOOD THE SELECTION IS, measured rather than asserted. 55 single-function edits on a Python service
 driven through its frameworks, truth being which test FILES newly fail when that function is broken:
 
-    the call-graph answer alone      recall 0.738   precision 0.957   14 edits selected nothing
-    what the command actually shows  recall 0.852   precision 0.963    0 edits shown nothing
+    the call-graph answer alone      recall 0.861   precision 0.963    8 edits selected nothing
+    what the command actually shows  recall 0.926   precision 0.966    0 edits shown nothing
 
 The second row is the first plus the name tier that prints when the graph is silent. It is the honest one,
-because it is what a reader sees. Two things follow. Recall is 0.85, not 1.0, on a subject BUILT to be
+because it is what a reader sees. Two things follow. Recall is 0.93, not 1.0, on a subject BUILT to be
 hostile — so "run these first" is the supported use and "skip the rest" is still not. And precision does
 not fall when the fallback fires, because that tier names about one file: the cost of the safety net is
 roughly one extra test file per edit the graph could not reach.
+
+These numbers move as the rules do, and they are re-derived rather than adjusted: the same 55 edits gave
+0.738 / 0.852 before the registration-key, import-time and protocol hops landed. A figure in a docstring
+that nobody re-measures is the same defect as a certainty table that no longer matches what is printed.
 """
 import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections
 
