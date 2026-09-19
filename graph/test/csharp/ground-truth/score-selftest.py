@@ -132,6 +132,13 @@ class Fixture:
     def classify(self, expr, tier):
         self.raw_row("call-class.csv", "client", expr, tier)
 
+    def accessor_edge(self, expr, method, edge_kind):
+        """`edge_kind` is the engine's own column 4: indexer / property_read / property_write."""
+        self.raw_row("accessor-edges.csv", "client", expr, method, edge_kind)
+
+    def external_label(self, expr, label):
+        self.raw_row("call-edges-external.csv", expr, label)
+
     # ── the ground truth ─────────────────────────────────────────────────────
     def oracle_row(self, path, line, column, site_kind, where, target_key, **extra):
         row = {"filePath": path, "line": str(line), "column": str(column),
@@ -295,10 +302,99 @@ def case_missing_manifest_says_so(fx):
     yield "and the absence is printed", "no oracle manifest" in r["_stdout"], r["_stdout"]
 
 
+def case_indexer_row_does_not_pair_with_a_property_named_Item(fx):
+    """
+    #1060. `get_Item` is the compiler's name for BOTH an indexer accessor and the
+    getter of a property that happens to be called `Item`, and written together they
+    anchor at one column:
+
+        var x = items[i].Item;
+
+    The oracle row is the indexer on the external receiver. The engine's only site
+    there is the property read, correctly resolved to the element type's own
+    `get_Item/0`. Name equality paired them and reported `external_wrongly_resolved`
+    -- the one bucket the harness treats as unarguable, and a GATE: one occurrence
+    fails the run and the corpus verdict.
+
+    The right verdict is that the engine did not see the element access at all.
+
+    CONTROL: a real indexer, one line down, that the engine DID resolve. A fix that
+    simply stopped pairing indexer rows would go green on the first assertion and
+    red here.
+    """
+    m = fx.module("mod", "ItemClash.cs")
+    fx.method("mProp", "Probe.Element.get_Item", 0)
+    fx.method("mIdx", "Probe.Grid.get_this[]", 1)
+
+    # items[i].Item -- the engine has ONLY the member access (the element access on an
+    # unstaged receiver emits nothing; that is the engine defect this was hiding).
+    e_prop = fx.expression("eProp", m, 15, 70, kind="MEMBER_ACCESS")
+    fx.accessor_edge(e_prop, "mProp", "property_read")
+
+    # grid[i] -- a real indexer on an in-source type, resolved.
+    e_idx = fx.expression("eIdx", m, 16, 70, kind="ELEMENT_ACCESS")
+    fx.accessor_edge(e_idx, "mIdx", "indexer")
+
+    fx.oracle_row("ItemClash.cs", 15, 71, "indexer", "external",
+                  "System.Collections.Generic.IReadOnlyList<T>.get_Item/1")
+    fx.oracle_row("ItemClash.cs", 16, 71, "indexer", "in_source", "Probe.Grid.get_Item/1")
+
+    r = fx.score()
+    s = r["stats"]
+    yield "no wrong edge is invented", s.get("external_wrongly_resolved", 0) == 0, s
+    yield "the run does not fail", r["_rc"] == 0, r["_rc"]
+    yield "the element access reads as unseen", s.get("site_missed", 0) == 1, s
+    yield "the real indexer beside it still pairs", s.get("declared_agree", 0) == 1, s
+
+
+def case_a_real_indexer_is_untouched(fx):
+    """
+    #1060, the other direction. The guard must only refuse the pairing it was written
+    for, and there are three ways to get that wrong.
+
+    1. AN INDEXER READ the engine resolved. The evidence is an `indexer` edge and the
+       row must still pair.
+    2. AN INDEXER WRITE. `grid[i] = v` carries the same edge kind on the same
+       expression kind; a guard keyed on "read" would drop it.
+    3. A KEY CARRYING BOTH KINDS of accessor edge. The key cannot tell those apart,
+       so the guard stands aside and the pairing is made as before rather than
+       refused on the strength of half the evidence.
+
+    Without these, a fix that simply refused every indexer row would pass the case
+    above and silently turn a real construct into a coverage hole.
+    """
+    m = fx.module("mod", "Grid.cs")
+    fx.method("mGet", "Probe.Grid.get_this[]", 1)
+    fx.method("mSet", "Probe.Grid.set_this[]", 2)
+    fx.method("mProp", "Probe.Grid.get_Item", 0)
+
+    e_read = fx.expression("eRead", m, 20, 30, kind="ELEMENT_ACCESS")
+    fx.accessor_edge(e_read, "mGet", "indexer")
+    e_write = fx.expression("eWrite", m, 21, 30, kind="ELEMENT_ACCESS")
+    fx.accessor_edge(e_write, "mSet", "indexer")
+    # one key, both kinds of evidence
+    e_both_i = fx.expression("eBothI", m, 22, 30, kind="ELEMENT_ACCESS")
+    fx.accessor_edge(e_both_i, "mGet", "indexer")
+    e_both_p = fx.expression("eBothP", m, 22, 30, kind="MEMBER_ACCESS")
+    fx.accessor_edge(e_both_p, "mProp", "property_read")
+
+    fx.oracle_row("Grid.cs", 20, 31, "indexer", "in_source", "Probe.Grid.get_Item/1")
+    fx.oracle_row("Grid.cs", 21, 31, "indexer", "in_source", "Probe.Grid.set_Item/2")
+    fx.oracle_row("Grid.cs", 22, 31, "indexer", "in_source", "Probe.Grid.get_Item/1")
+
+    r = fx.score()
+    s = r["stats"]
+    yield "all three indexer rows are seen", s.get("site_seen", 0) == 3, s
+    yield "and all three agree", s.get("declared_agree", 0) == 3, s
+    yield "none is missed", s.get("site_missed", 0) == 0, s
+
+
 CASES = [
     case_unparsable_file_is_not_scored,
     case_binding_errors_are_still_scored,
     case_missing_manifest_says_so,
+    case_indexer_row_does_not_pair_with_a_property_named_Item,
+    case_a_real_indexer_is_untouched,
 ]
 
 

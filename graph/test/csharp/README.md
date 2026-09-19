@@ -47,6 +47,16 @@ cannot drift into a shape the parser never writes.
 bad pairing gone would pass equally well if the join stopped pairing anything, so
 every one of them also asserts the legitimate pairing at that position still scores.
 
+**An indexer row never pairs with a property named `Item`.** `get_Item` is the
+compiler's name for both an indexer accessor and the getter of a property called
+`Item`, and `items[i].Item` anchors both at one column. Name equality alone paired
+them and reported the engine as having resolved an external target to an in-source
+method, which is a gate rather than a number. The join tests the engine's own
+accessor edge kind (`indexer` / `property_read` / `property_write`, column 4 of
+`accessor-edges.csv`) rather than the expression kind, because a property read on an
+implicit `this` is a NAME_REFERENCE and an expression-kind rule would refuse every
+bare property read.
+
 **A file the oracle could not PARSE is not scored.** The oracle is pinned to one
 compiler package and one `LanguageVersion` on purpose, and a subject on a newer
 language version does not fail against that pin -- Roslyn recovers, and recovery

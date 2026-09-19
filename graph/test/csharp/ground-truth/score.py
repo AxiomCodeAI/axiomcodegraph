@@ -280,6 +280,11 @@ def main():
     #
     # Keyed by the ACCESSOR'S OWN NAME (`get_Item`, `add_Changed`), which is what
     # Roslyn reports, so the join needs no special case.
+    # AND THE EDGE KIND IS KEPT, because `get_Item` is the compiler's name for BOTH
+    # an indexer accessor and the getter of a property that happens to be called
+    # `Item`, and the two anchor at one column when they are written together
+    # (`items[i].Item`). See the accessor-kind guard in engine_site_for.
+    acc_edge_kind = defaultdict(set)
     for row in read_raw(os.path.join(a.engine_raw, "accessor-edges.csv")):
         if len(row) < 4 or row[0] != "client":
             continue
@@ -291,6 +296,7 @@ def main():
         k = pos + (nm,)
         resolved[k].add(target)
         at_pos[pos].add(nm)
+        acc_edge_kind[k].add(row[3])
 
     # A GENERATED RECORD PROPERTY READ is an accessor edge too. Its target is a
     # LABEL (`generated:Type.get_Name`) because the compiler generated the accessor
@@ -411,6 +417,58 @@ def main():
         return n
 
 
+    def accessor_kind_clash(key, rows):
+        """
+        True where pairing `key` with these oracle rows would cross an indexer and a
+        property accessor.
+
+        `get_Item` IS THE COMPILER'S NAME FOR BOTH. An indexer's getter is
+        `get_Item`, and so is the getter of a property that happens to be named
+        `Item`; written together they anchor at one column:
+
+            var x = items[i].Item;
+            //      ^ ELEMENT_ACCESS  items[i]       -> the indexer on the receiver
+            //      ^ MEMBER_ACCESS   items[i].Item  -> `Item` on the element type
+
+        The oracle row is the indexer, external. The engine's only site at that
+        position is the property read, correctly resolved to the element type's own
+        `get_Item/0`. Name equality alone paired them and reported the engine as
+        having resolved an external target to an in-source method -- the one bucket
+        the harness treats as unarguable, and a gate that fails the run and the
+        corpus verdict on a single occurrence. Eight of the fourteen such verdicts on
+        the set measured were this pairing, invented here.
+
+        The existing synthesised-name guard below does not cover it: that one only
+        suppresses the SINGLE-SITE SHORTCUT, and the shortcut is never reached when
+        the name matches on the first branch, which is exactly what a property really
+        called `Item` does.
+
+        THE TEST IS THE ENGINE'S OWN EDGE KIND, NOT THE EXPRESSION KIND. Carrying
+        `kind` out of the IR looks equivalent and is not: a property read on an
+        implicit `this` (`return Name;`) is a NAME_REFERENCE, not a MEMBER_ACCESS, so
+        requiring MEMBER_ACCESS for a `property_accessor` row would refuse a correct
+        pairing for every bare property read. accessor-edges.csv already records
+        `indexer` / `property_read` / `property_write` in column 4, which is the
+        distinction itself rather than a proxy for it.
+
+        ONE-SIDED ON PURPOSE. The mirror rule -- a `property_accessor` row may not
+        pair with indexer-only evidence -- would never run: this function is only
+        ever called with the HELD rows, and `property_accessor` is reported
+        separately rather than held, so no call can carry one. Writing it anyway
+        would mean a branch no fixture can reach and a test that has to invent a
+        shape the oracle does not produce to reach it.
+
+        A key carrying BOTH kinds of accessor edge is also left alone: the key cannot
+        tell those apart, and a rule for a shape nothing in the corpus produces is a
+        rule nothing holds to.
+        """
+        evidence = acc_edge_kind.get(key)
+        if not evidence:
+            return False                      # not an accessor site; no constraint
+        if "indexer" in evidence:
+            return False                      # the evidence supports an indexer row
+        return any(r["siteKind"] == "indexer" for r in rows)
+
     def engine_site_for(pos, name, group_size, rows=()):
         """
         The engine site key for ONE oracle row, or None.
@@ -429,7 +487,7 @@ def main():
         side would invent a miss.
         """
         names = at_pos.get(pos, set())
-        if name in names:
+        if name in names and not accessor_kind_clash(pos + (name,), rows):
             return pos + (name,)
         # A TARGET-TYPED `new()` HAS NO WRITTEN NAME. The parser records a
         # CONSTRUCTOR_CALL with an empty calleeName because there is nothing to
@@ -464,7 +522,8 @@ def main():
         # defensible and neither is a resolution outcome, so the join falls back to
         # (file, line, name) and requires the name to be UNIQUE on that line: two
         # calls of one name on one line get no match rather than a guessed one.
-        cands = [k for k in by_line.get((pos[0], pos[1]), ()) if k[3] == name]
+        cands = [k for k in by_line.get((pos[0], pos[1]), ())
+                 if k[3] == name and not accessor_kind_clash(k, rows)]
         if len(cands) == 1:
             return cands[0]
         return None
