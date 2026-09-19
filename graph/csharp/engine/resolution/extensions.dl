@@ -214,6 +214,50 @@ extension_candidate(prov, e, m) :-
     extension_match(prov, e, m),
     call_instance_lookup_failed(prov, e).
 
+// A candidate the engine has real evidence for, as opposed to one it reached by
+// assuming an unanswerable question was answered "nothing". Only a FIRM candidate
+// suppresses the external boundary label, so a guess widens the site to
+// multi_inferred instead of committing it to a single known_edge. See
+// extension_is_guess below.
+extension_candidate_firm(prov, e, m) :-
+    extension_candidate(prov, e, m),
+    !extension_is_guess(prov, e, m).
+
+// ── A `this T` MATCH ON A RECEIVER THE ENGINE CANNOT TYPE IS A GUESS ────────
+// The third clause of the gate above reads "the engine has no facts for this
+// receiver's type" as "instance member lookup found nothing applicable". Those
+// are not the same statement, and where the extension's own receiver is an
+// unconstrained type parameter the difference decides the site:
+//
+//     public static string Substring<T>(this T self, int n) => "ext";
+//     public string Local(string t) => t.Substring(1);
+//
+// The compiler binds `t.Substring(1)` to string's own instance method, because
+// an extension is considered ONLY where instance lookup found nothing. The
+// engine has no members for `string`, so the gate opened and the site committed
+// to the in-source extension: a resolved target for a call the compiler sends
+// out of the source, tiered known_edge. That is the one defect class the scorer
+// treats as unarguable, and it was six sites on one corpus member.
+//
+// A `this T` match is evidence of nothing: it fits every receiver by
+// construction. A by-NAME match is different and is deliberately still allowed
+// -- `this string` against a receiver written `string` is the commonest
+// extension shape in the language, and the written names agreeing is real
+// evidence. What was wrong here is the gate, not the match.
+//
+// THE EXTENSION IS STILL A TARGET. Refusing it outright was measured and is
+// wrong in the other direction: `x.Identity()` on an `int`, with `this T
+// Identity<T>`, is a CORRECT resolution that the same test cannot tell from the
+// wrong one, and dropping it cost a case and a corpus member. Without library
+// facts the engine cannot answer, so it says so: the site keeps the extension AND
+// the external boundary label, which is multi_inferred rather than a committed
+// known_edge naming only the extension. That is the honest answer and it is what
+// the report asked for.
+extension_is_guess(prov, e, m) :-
+    extension_match(prov, e, m),
+    extension_recv_is_generic(prov, m),
+    !call_recv_type(prov, e, _).
+
 // An extension method is STATIC and is never virtually dispatched: the receiver is
 // an ordinary argument, so the target is exact and needs no fan.
 expr_resolves_to_method(prov, e, m) :- extension_candidate(prov, e, m).

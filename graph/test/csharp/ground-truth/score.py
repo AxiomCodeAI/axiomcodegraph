@@ -303,6 +303,20 @@ def main():
         external[pos + (nm,)].add(row[2])
         at_pos[pos].add(nm)
 
+    # AN ELEMENT ACCESS ON AN EXTERNAL RECEIVER, read the same way. `xs[0]` on an
+    # unstaged collection is a call to get_Item that the engine can name but not
+    # resolve. Without this the engine emits the label and the scorer still counts
+    # the site as one it never saw, so the fix for it is unmeasurable.
+    for row in read_raw(os.path.join(a.engine_raw, "external-element-access.csv")):
+        if len(row) < 3 or row[0] != "client":
+            continue
+        pos = expr.get(row[1])
+        if not pos:
+            continue
+        nm = row[2].rsplit(".", 1)[-1]
+        external[pos + (nm,)].add(row[2])
+        at_pos[pos].add(nm)
+
     dropped = len(read_raw(os.path.join(a.engine_raw, "call-site-dropped.csv")))
 
     # ── the oracle ───────────────────────────────────────────────────────────

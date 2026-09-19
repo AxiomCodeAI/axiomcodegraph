@@ -89,6 +89,46 @@ type_name_cand(prov, mod, qn, ar, gk, 1) :-
     type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk),
     !type_is_top_level(prov, gk).
 
+// ── A CLIENT FILE NAMING A STAGED LIBRARY TYPE ──────────────────────────────
+// Every clause above is SINGLE-PROVENANCE: it joins a module and a declaration
+// under one `prov`, so a client module and a library namespace are never brought
+// together and `type_name_cand("client", mod, _, _, <lib group>, _)` has no
+// derivation at all. A C# library could therefore be staged and nothing it
+// declares could ever be named.
+//
+// MEASURED before this existed, on a one-type library and a client that extends
+// it: `resolution-type-base-unresolved` held the client's base as unresolved,
+// `resolution-type-ancestor` was empty, member lookup found nothing, and the
+// edge set was byte-identical to the same client analysed with no --library at
+// all. Every client-to-library call was reported as if the dependency had not
+// been supplied.
+//
+// The clauses below are the cross-provenance halves of the four above, at the
+// same ranks and with the same bodies. Nothing else changes: the assembly guard
+// was already written for exactly this case, and member_cand's base-chain
+// clause, implements_member's cross-provenance clause and
+// dispatch_runtime_target were all already written and simply unreachable.
+//
+// ONE DIRECTION ONLY. A client file resolving a LIBRARY type is what a
+// dependency is. A library file resolving a CLIENT type is a cycle the real
+// compiler cannot have, so there is no mirror of these.
+type_name_cand("client", mod, n, ar, gk, 4) :-
+    module_namespace_own("client", mod, ns),
+    ns_declares("lib", ns, n, ar, gk).
+type_name_cand("client", mod, n, ar, gk, 5) :-
+    module_in_scope("client", mod, ns),
+    ns_declares("lib", ns, n, ar, gk).
+
+// A library type named in FULL, which needs no namespace in scope.
+type_name_cand("client", mod, qn, ar, gk, 1) :-
+    module_decl("client", _, _, _, mod),
+    type_decl("lib", _, qn, ar, _, t), type_group("lib", t, gk),
+    type_is_top_level("lib", gk).
+type_name_cand("client", mod, qn, ar, gk, 1) :-
+    module_decl("client", _, _, _, mod),
+    type_decl("lib", _, qn, ar, _, t), type_group("lib", t, gk),
+    !type_is_top_level("lib", gk).
+
 // ── THE ASSEMBLY GUARD ──────────────────────────────────────────────────────
 // A candidate is only usable if the file could actually see it. Client code sees
 // client types and staged library types; it does NOT see a type from an unrelated

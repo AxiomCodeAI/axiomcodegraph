@@ -239,6 +239,13 @@ call_chain_edge(acc, caller, "-", label, "external", "boundary_lib", "property_r
     external_property_read("client", acc, label),
     call_from_expr("client", acc, caller).
 
+// AN ELEMENT ACCESS ON AN EXTERNAL RECEIVER, for the same reason and in the same
+// shape. `xs[0]` is a call to get_Item; with the receiver's type unstaged there is
+// no member to resolve, and the site used to reach the output as no row at all.
+call_chain_edge(e, caller, "-", label, "external", "boundary_lib", "indexer") :-
+    external_element_access("client", e, label),
+    call_from_expr("client", e, caller).
+
 // ── A GENERATED RECORD PROPERTY READ ────────────────────────────────────────
 // `formatting.UsesInvariantDigits` on a positional record invokes a getter the
 // compiler generated. There is no cs_method row to point at, correctly, because no
