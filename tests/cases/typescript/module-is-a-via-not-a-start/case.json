@@ -1,0 +1,8 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a module body is where an import-time call is recorded, so impact must NAME it — it is the only link between a helper and every file that imports its caller",
+   "run": ["impact", "makeTable"],
+   "want": ["config.<module>"]},
+  {"why": "the same symbol is never an entry point: <module> is not a place to start reading, and on some languages every class has one",
+   "run": ["context", "boolean attribute table", "--in", "src"],
+   "avoid": ["<module>"]}]}
