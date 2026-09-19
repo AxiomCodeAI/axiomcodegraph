@@ -586,6 +586,26 @@ fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b
 dec_decl(d, w) :- decorated(_, d), named(d, w), 1 = count : { named(d, _) }.
 dec_decl(d, w) :- decorated(s, d), named(d, w), decl_file(s, f), decl_file(w, f).
 fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
+// THE PROTOCOL MEMBERS OF A TYPE YOU CONSTRUCT. `with Audit(...) as a`, `for line in audit`, `a == b`, `len(x)`,
+// `x[k]` — each runs a method, and none of them writes its name, so `__enter__`, `__iter__`, `__eq__` and their
+// siblings have no call site at all and a test that drives them looks unrelated. The one thing the graph does see
+// is the CONSTRUCTION: you do not make a context manager without entering it, or a comparable value without
+// comparing it, so whoever constructs the type is the one who runs its protocol.
+// `__init__` is excluded because a construction already IS an edge to it — adding it here would say the same thing
+// twice, which is the shape that made an override count as both contract and reached.
+.decl protocol_member(t:symbol, m:symbol)
+protocol_member(t, m) :- member(t, m, n, _), match("__.*__", n), n != "__init__".
+.decl constructs(c:symbol, t:symbol)
+constructs(c, t) :- member(t, i, "__init__", _), edge(c, i, _), c != i.
+// The hop is taken only where the CHANGE ITSELF is a protocol member, not wherever one turns up in the closure.
+// As a global edge it was logically fine and empirically noisy: any closure that happened to contain a protocol
+// member pulled in every constructor of that type and, through them, their tests. Measured across three subjects
+// that cost 115 false pairs for 46 true ones. Narrowed to the seed it keeps what it was written for — a
+// declaration with NO call site by design, whose callers are whoever built the object — and drops the rest.
+.decl protocol_hop(q:symbol, c:symbol, m:symbol)
+protocol_hop(q, c, m) :- seed(q, m), protocol_member(t, m), constructs(c, t), c != m.
+up(q, c, 1) :- protocol_hop(q, c, _).
+parent_up(q, a, b, "protocol") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, protocol_hop(q, a, b).
 // WHAT RUNS AT IMPORT. `settings = Settings()` at the top level of a module is executed by the import statement,
 // so breaking Settings.__init__ breaks importing that module, and with it every module that imports it and every
 // test in those files. The graph records the module body's call to the constructor and records nothing at all about
