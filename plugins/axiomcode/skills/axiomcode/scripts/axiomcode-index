@@ -245,6 +245,29 @@ for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type
     fp = rel(m['file_path'])
     sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
 
+# ── members an annotation processor DECLARES, which no source line spells ─────────────────────────
+# Java (Lombok, a record) and C# (an auto-property) synthesise members in the engine: `methods` carries them with
+# provenance `generated`, no owner_type_id, no file, line 0 — and `call_edges` RESOLVES the sites that write their
+# name to them. Building `symbols` from client rows only meant the callee of a resolved edge had no row at all: the
+# edge was dropped as non-client, and because the site is no longer unresolved the by-name convention layer could not
+# name it either. `impact User.name` on a Lombok class then named NEITHER caller of its accessors — a silent loss.
+# The id carries what the row does not: Java `generated:<owner qualified name>#<name>/<arity>`, C#
+# `generated:<owner qualified name>.<name>`. A row whose owner cannot be found is skipped, never guessed.
+by_qname = {}
+for t in types.values():
+    if t['qualified_name']: by_qname.setdefault(t['qualified_name'], t)
+for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, file_path, start_line, end_line FROM methods WHERE provenance='generated'"):
+    t = types.get(m['owner_type_id']) if m['owner_type_id'] else None
+    if t is None and (m['id'] or '').startswith('generated:'):
+        body = m['id'].split(':', 1)[1]
+        q = body.split('#')[0] if '#' in body else body.rsplit('.', 1)[0]
+        t = by_qname.get(q)
+    if t is None: continue
+    od = tdisplay(t['id']); fp = rel(t['file_path']); nm = m['name'] or ''
+    if not nm: continue
+    sym.append((m['id'], nm, (od + '.' if od else '') + nm, 'method', m['qualified_name'], m['signature'],
+                fp, t['start_line'], t['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+
 # ── other declarations from the IR: fields, constants, enum members ───────────────────────────────
 modules = {}
 if A['modules']:
@@ -299,6 +322,13 @@ if tr:
         c.executemany("INSERT INTO type_refs VALUES (?,?,?,?,?)", ((r.get(tr['name'], '').split('.')[-1].split('<')[0], file_of(r, tr), int(r.get(tr['line']) or 0), r.get(tr['context'], ''), r.get(tr['ownerKind'], '')) for r in rows(tr['file']) if r.get(tr['name'])))
     except (KeyError, ValueError): pass
 # decorations: @Annotation(args) / @decorator(args) on a method or type — a route, a bean name, a validator, a marker
+def unquoted(v):
+    """The IR is tab-separated, but the writer still RFC4180-quotes a field that contains a double quote and the
+    reader is QUOTE_NONE, so `@router.post("/orders")` arrives as `"@router.post(""/orders"")"`. Every decoration
+    whose argument is a double-quoted string is in that shape — which is exactly the decorations that carry a KEY
+    (a route path, a command name, a topic, a validated field), so everything downstream that reads a key out of
+    the text read the quoting instead: `@exporter("csv")` yielded `@exporter(` and `)` and never `csv`."""
+    return v[1:-1].replace('""', '"') if len(v) > 1 and v[0] == '"' == v[-1] and '""' in v else v
 dec = A.get('decorations')
 if dec:
     args = collections.defaultdict(list)
@@ -309,7 +339,7 @@ if dec:
     for r in rows(dec['file']):
         nm = r.get(dec['name'], '')
         if not nm: continue
-        text = r.get(dec['text'], '') if dec.get('text') else ('@' + nm + ('(' + ', '.join(args.get(r.get(dec['id'], ''), [])) + ')' if args.get(r.get(dec['id'], '')) else ''))
+        text = unquoted(r.get(dec['text'], '')) if dec.get('text') else ('@' + nm + ('(' + ', '.join(args.get(r.get(dec['id'], ''), [])) + ')' if args.get(r.get(dec['id'], '')) else ''))
         try: drows.append((r.get(dec['owner'], ''), nm, text[:200], file_of(r, dec), int(r.get(dec['line']) or 0)))
         except ValueError: pass
     c.executemany("INSERT INTO decorations VALUES (?,?,?,?,?)", drows)

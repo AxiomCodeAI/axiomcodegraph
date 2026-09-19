@@ -55,7 +55,7 @@ G, run_dl, die = P.G, P.run_dl, P.die
 # written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
 # export re-ran on EVERY query — the cache never hit once.
-PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named'}
+PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named', 'key_cap'}
 
 # WHICH FACTS A QUESTION ACTUALLY NEEDS. Soufflé loads and joins every .input relation of the program, so a query about a
 # METHOD was reading the 4 MB reference layer that only a field or type target can use — and computing `gen`, `holds` and
@@ -74,13 +74,18 @@ _CONFIG = {'config', 'config_key_known', 'config_site'}
 # that names it, and the `export *` that re-exports the whole module it is declared in. Skipping it handed Soufflé
 # an empty relation and both rules silently yielded nothing, so a method, param or var target on a JS or TS bundle
 # lost those rows entirely. Invisible on a Java bundle, where the relation is empty either way.
+# and `literal` / `dec_literal` are not skippable for ANY kind either, for the same sort of reason: the
+# registration-key hop (fw_edge) reads both, and a route handler or a signal receiver is a METHOD target, which is
+# exactly the kind that used to be handed them empty. Skipping them there made the rule produce nothing at all,
+# silently — the one failure mode this table can have.
+_KEY_LAYER = {'literal', 'dec_literal'}
 KIND_SKIPS = {                                     # relations a query of this kind can never reach
- 'method':    (_REF_LAYER - {'reexport'}) | _CONFIG,
- 'param':     (_REF_LAYER - {'reexport'}) | _CONFIG,
- 'var':       (_REF_LAYER - {'reexport'}) | _CONFIG,
- 'decoration': _REF_LAYER | _CONFIG,
- 'config':    _REF_LAYER,
- 'newconst':  (_REF_LAYER - {'switch_over'}) | _CONFIG,
+ 'method':    (_REF_LAYER - {'reexport'} - _KEY_LAYER) | _CONFIG,
+ 'param':     (_REF_LAYER - {'reexport'} - _KEY_LAYER) | _CONFIG,
+ 'var':       (_REF_LAYER - {'reexport'} - _KEY_LAYER) | _CONFIG,
+ 'decoration': (_REF_LAYER - _KEY_LAYER) | _CONFIG,
+ 'config':    _REF_LAYER - _KEY_LAYER,
+ 'newconst':  (_REF_LAYER - {'switch_over'} - _KEY_LAYER) | _CONFIG,
 }
 def ckey(k):
     """the canonical form of a configuration key. A framework binds app.serverPrefix, app.server-prefix,
@@ -96,6 +101,10 @@ MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}         
 FIXTURE_DECOR = re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', re.I)
 FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}   # `init` / `before` alone are ordinary helper names: they count as a fixture only with the decoration
 TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|it|test)$')
+# a URL path as a router accepts it: path-absolute (RFC 3986 §3.3) with no whitespace and no quote in it. A path
+# parameter — `{id}`, `<int:id>`, `:id`, `*` — is left exactly as written: its spelling is per framework, and the
+# join matches the two spellings against each other rather than normalising either into the other
+ROUTEISH = re.compile(r'/[^\s"\'\\]{0,158}')
 # a decoration that GENERATES members the source never declares — the parser cannot see them, so a call to a generated
 # accessor is an unresolved site. Which members each one generates, per convention (Lombok, records, dataclasses); a
 # language-neutral idea with a per-framework table, printed as such. get/set/is: bean accessors; fluent: a method named as
@@ -486,7 +495,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '13'          # 3: decl_file facts (the import-time test-file rule)
+    IMPACT_VERSION = '14'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key layer
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
@@ -540,13 +549,19 @@ class Impact:
         # in a file makes every type declared in that file a holder of T
         ftypes = []
         for rid, f in self.fields.items():
+            # THE SAME ID THE `field` FACT USED. This built `f:<rowid>` unconditionally while `field` used the graph's
+            # own id where there is one, so on any bundle whose fields carry ids the two relations never joined: every
+            # field's declared type was unreadable, `file_field_typed` stayed empty, and the FILE-SCOPED fallback made
+            # every type declared in a file a holder of every field type in it — `Sibling`, which has no fields at all,
+            # was reported as producing a value of `Payload` because a sibling class in the same file declares one.
+            fid = f['id'] or f"f:{rid}"
             if not f.get('file') or not f.get('line'): continue
             L = self.lines(f['file']); line = L[f['line'] - 1] if f['line'] <= len(L) else ''
             m = re.search(rf'([A-Za-z_$][\w$.]*)\s*(?:<[^;=]*>)?\s*(?:\[\s*\])*\s+{re.escape(f["name"])}\s*[;=,)]', line)
-            if m: ftypes.append((f"f:{rid}", m.group(1).split('.')[-1]))
+            if m: ftypes.append((fid, m.group(1).split('.')[-1]))
             else:
                 m = re.search(rf'{re.escape(f["name"])}\s*:\s*([A-Za-z_$][\w$.]*)', line)        # name: Type
-                if m: ftypes.append((f"f:{rid}", m.group(1).split('.')[-1]))
+                if m: ftypes.append((fid, m.group(1).split('.')[-1]))
         W('field_type', ftypes)
         W('extends', [(r[0], r[1]) for r in g.q("SELECT type_id, ancestor_type_id FROM type_ancestors")])
         W('nested', [(r[0], r[1]) for r in g.q("SELECT type_id, outer_type_id FROM nesting")] if g.has('nesting') else [])
@@ -598,21 +613,85 @@ class Impact:
                     if c: trs.append((c, r['name'], r['context'], r['file'], r['line']))
                 else: trf.add((r['file'], r['name'], r['context']))
         W('typeref', trs); W('typeref_file', sorted(trf))
+        # an identifier-shaped literal is a name in some other namespace (a serialized field, a map key, a bean
+        # qualifier). A PATH-shaped one is the other half of a registration: the URL a test asks for is a string in
+        # the test and a string in the handler's decoration, and nothing else in the graph connects the two. It is
+        # kept to the RFC 3986 path-absolute form the routers accept, so it cannot pull in prose.
         lits = []
         if g.has('literals'):
             for r in g.q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64"):
                 if re.fullmatch(r'[A-Za-z_]\w*', r['value']):
                     c = self.at(r['file'], r['line'])
                     if c: lits.append((c, r['value'], r['file'], r['line']))
-        W('literal', lits)
+            for r in g.q("SELECT value, file, line FROM literals WHERE value GLOB '/*' AND length(value) < 160"):
+                if ROUTEISH.fullmatch(r['value']):
+                    c = self.at(r['file'], r['line'])
+                    if c: lits.append((c, r['value'], r['file'], r['line']))
+        W('literal', sorted(set(lits)))
         # a string written inside a decoration (@Listener(topics = "topicOne"), @RequestMapping("/a/{b}")) is in no
         # other table: literals does not carry it, and it is how a topic, a queue, a route or a bean qualifier binds
+        # The decoration's OWN owner is the declaration it decorates, and it is what the answer must name. `at()` maps
+        # a line to the callable whose span contains it, and a decorator line is ABOVE the `def`, so on Python it
+        # landed on the enclosing module every time: `@exporter("csv")` was attributed to `registry.<module>`, not to
+        # `export_csv`. Take the recorded owner when the index knows it; fall back to the line only when it does not.
         decl = []
         for r in (g.q("SELECT owner_id, name, text, file, line FROM decorations WHERE text IS NOT NULL AND text <> ''") if g.has('decorations') else []):
-            c = self.at(r['file'], r['line']) or r['owner_id']
+            c = (r['owner_id'] if r['owner_id'] in g.sym else None) or self.at(r['file'], r['line']) or r['owner_id']
             for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', r['text'] or '')):
                 if c: decl.append((c, r['name'].split('.')[-1], v, r['file'] or '', r['line'] or 0))
         W('dec_literal', sorted(set(decl)))
+        # a registration written as a CALL, not a decoration: `app.add_url_rule("/quote/<order_id>", view_func=legacy_quote)`,
+        # `router.get("/x", handler)`. The declaration is handed over as a VALUE, so no call site names it at all; what
+        # says so is one line carrying a route-shaped literal AND the declaration's name as a VALUE.
+        #
+        # "as a value" is the whole guard, and it has to be exact. `flask_client.get("/orders/o-1/export")` in a test
+        # puts a route literal and the name `get` on one line too, and `get` is declared by three classes here — taking
+        # any name on the line registered every one of them at the test's URL and made the join meaningless. The refs
+        # table separates them: a handed-over declaration is a NAME_REFERENCE whose entity is a METHOD or FUNCTION
+        # (`legacy_quote`), while the call is an ATTRIBUTE_ACCESS with an UNKNOWN entity and the receiver is a
+        # PARAMETER. The declaration must also be one the file can name — declared in it, or imported into it.
+        regsite = []
+        if g.has('literals') and g.has('refs'):
+            byline = collections.defaultdict(set)
+            for r in g.q("SELECT name, file, line FROM refs WHERE name IS NOT NULL AND line > 0"
+                         " AND kind = 'NAME_REFERENCE' AND entity_kind IN ('METHOD', 'FUNCTION')"):
+                byline[(r['file'], r['line'])].add(r['name'])
+            in_file = collections.defaultdict(set)
+            for i, sy in g.sym.items():
+                if sy.get('method_id') and sy['kind'] != 'module' and sy['name'] and sy.get('file'):
+                    in_file[(sy['file'], sy['name'])].add(i)
+            uniq = collections.defaultdict(set)          # a handler imported from another module, registered here
+            for i, sy in g.sym.items():
+                if sy.get('method_id') and sy['kind'] != 'module' and sy['name']: uniq[sy['name']].add(i)
+            for r in g.q("SELECT value, file, line FROM literals WHERE value GLOB '/*' AND length(value) < 160"):
+                if not ROUTEISH.fullmatch(r['value']): continue
+                for n in byline.get((r['file'], r['line']), ()):
+                    # the file's own declaration of that name, or — only when the graph declares it exactly once,
+                    # so the name cannot be a different module's same-named callable — the one elsewhere
+                    for m in in_file.get((r['file'], n)) or (uniq[n] if len(uniq.get(n, ())) == 1 else ()):
+                        regsite.append((m, 'registered', r['value'], r['file'] or '', r['line'] or 0))
+        W('regsite', sorted(set(regsite)))
+        # ── the two spellings of one route ──────────────────────────────────────────────────────────────────────
+        # A test asks for `/orders/o-1/price`; the handler is registered as `/orders/{order_id}/price`. Neither
+        # string contains the other, and no call site joins them — the router does, at run time, by matching the
+        # path. The segments are matched here because Soufflé cannot split a string; WHAT the match means is a rule.
+        # A path parameter is whatever the framework spells it (`{id}` FastAPI, `<int:id>` Flask, `:id` Express),
+        # so a registered segment in any of those forms matches any written segment, and nothing is normalised.
+        PARAM = re.compile(r'\{.*\}|<.*>|:.+|\*.*')
+        segs = lambda p: p.split('?')[0].split('#')[0].rstrip('/').split('/')
+        written = collections.defaultdict(set); regd = collections.defaultdict(set)
+        for c, v, f, l in lits:
+            if v.startswith('/'): written[len(segs(v))].add(v)
+        for c, d, v, f, l in decl:
+            if v.startswith('/'): regd[len(segs(v))].add(v)
+        for c, k, v, f, l in regsite:
+            if v.startswith('/'): regd[len(segs(v))].add(v)
+        alias = set()
+        for n, ws in written.items():                      # bucketed by segment count: a mismatch there is no match
+            for w in ws:
+                for r in regd.get(n, ()):                   # and only a REGISTERED path is ever the right-hand side
+                    if w != r and all(a == b or PARAM.fullmatch(b) for a, b in zip(segs(w), segs(r))): alias.add((w, r))
+        W('route_alias', sorted(alias))
         # the BINDING SITE of a configuration key: the one line that connects the key to the code, written as a
         # placeholder inside a decoration (@Value("${app.server.prefix}"), @ConditionalOnProperty(name = "...")).
         # Matched on the canonical key, so the spelling at the site need not be the spelling that was asked for.
@@ -648,6 +727,42 @@ class Impact:
             if sy['line'] - 1 < len(L) and REGISTRAR.search(L[sy['line'] - 1]): tm.append(i)
         fx = [i for i, s in g.sym.items() if s['is_test'] and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
+        # ── which fixture runs before which test, when nothing calls it ────────────────────────────────────────
+        # pytest hands a fixture to a test BY THE NAME OF A PARAMETER, and the fixture that serves a whole directory
+        # is declared in `conftest.py`, which is not the test's file and is imported by nothing. Neither end is a call
+        # site, so the rule that carried a fixture's tests — same file — carried nothing at all for the fixtures a real
+        # suite actually uses. Breaking one of this subject's three conftest fixtures fails exactly one test file each,
+        # and the answer named none of them.
+        #
+        # Three facts, so the JOIN stays a rule: the parameter names a callable takes, the name and path a fixture
+        # serves under, and the prefixes a file lies under. A fixture in conftest.py serves its directory subtree
+        # (pytest's own rule); any other fixture serves its own file.
+        fdir = lambda f: f.rsplit('/', 1)[0] + '/' if '/' in f else ''
+        params = []
+        for i, sy in g.sym.items():
+            if not sy.get('method_id') or sy['kind'] == 'module': continue
+            sig = sy.get('signature') or ''
+            for n in re.findall(r'[A-Za-z_]\w*', sig[sig.find('(') + 1:sig.rfind(')')] if '(' in sig else ''):
+                if n != 'self' and n != 'cls': params.append((i, n))
+        W('takes_param', sorted(set(params)))
+        scope = []; auto = []
+        dtext = collections.defaultdict(list)
+        for r in (g.q("SELECT owner_id, name, text FROM decorations") if g.has('decorations') else []): dtext[r[0]].append((r[1], r[2] or ''))
+        for i in fx:
+            sy = g.sym.get(i) or {}
+            f = sy.get('file') or ''
+            if not sy.get('name'): continue
+            scope.append((i, sy['name'], fdir(f) if f.rsplit('/', 1)[-1] == 'conftest.py' else f))
+            if any(re.search(r'autouse\s*=\s*True', t) for _, t in dtext.get(i, ())): auto.append((i,))
+        W('fixture_scope', sorted(set(scope))); W('autouse_fixture', sorted(set(auto)))
+        fsc = set()
+        for i, sy in g.sym.items():
+            f = sy.get('file') or ''
+            if not f: continue
+            fsc.add((f, f)); parts = f.split('/')
+            for k in range(len(parts)):
+                fsc.add((f, '/'.join(parts[:k]) + ('/' if k else '')))
+        W('file_scope', sorted(fsc))
         # the engine's framework extension, when it ran: what a configuration key is bound into, and what the container injects.
         # These are edges no call site carries — without them a change to a key or a bean has no visible consumer at all.
         cfg = []; keys = set(); beans = []; inj = []
@@ -789,6 +904,7 @@ class Impact:
             elif kind == 'config': want.add(payload)
         cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
         prof('  per-query: targets walked'); _nonsource = sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))); g.write('nonsource', _nonsource, F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
+        g.write('key_cap', [(int(os.environ.get('AXIOMCODE_KEY_CAP', '4')),)], F)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
         # Answered from graph.sqlite. Same dict, so everything below — the grouping, the
         # wording, the `verified:` check — is untouched. Returns None for a target kind it does not cover, and the
@@ -1057,8 +1173,8 @@ def main(argv):
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines'}
-    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by name': 4}
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key'}
+    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by key': 4, 'by name': 5}
     def cert_of(m):
         ch = chains.get(m) or []
         worst = 'by name' if (ch and ch[-1] in byname_seeds) or (not ch and m in byname_seeds) else 'sound'
@@ -1078,7 +1194,9 @@ def main(argv):
     for ch in chains.values():
         for a, b in zip(ch, ch[1:]):
             hops += 1
-            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines') for x, t in parent.get(a, [])): bad += 1
+            # a `by key` hop is not in call_edges BY CONSTRUCTION — it is the hop the framework makes and the engine
+            # never resolved — so it is verified the same way `dispatch` and `defines` are: the rules asserted it
+            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key') for x, t in parent.get(a, [])): bad += 1
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
