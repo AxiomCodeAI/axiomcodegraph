@@ -244,6 +244,32 @@ def sole_scope(g):
     return rows[0][0] if len(rows) == 1 else None
 
 
+def best_scope(ranked):
+    """The top row of a menu this program ranked, or None when the ranking has no evidence to rank on.
+
+    `sole_scope` answers when the layout leaves nothing to pick. This answers when it leaves several and
+    the CALLER still has nothing to pick with — the shape the prose verbs exist for, an issue and no
+    symbol. A conventional Maven or Gradle tree always offers at least a main and a test root, so the
+    sole-row case never reaches an ordinary project and the refusal was what an issue-shaped question got.
+
+    Refusing was defensible only while the refusal was cheap for the caller to repair. It is not: the
+    caller who has a scope to name passes `--in` already, and the caller who does not is handed a menu
+    this program ranked, term-matched and then declined to act on. The rank is the same one `offer` would
+    have printed at the top.
+
+    The evidence test is why this is not the guessing `--in` exists to prevent. A row scores only when the
+    task's own words land in the names of the symbols under it, so a zero top row means no directory is
+    about the question and there is no "best" to take — that still refuses. And the row this returns is
+    NOT knowledge: the caller marks it `--in-offered`, which by rule 2 does not filter, so a wrong guess
+    costs the reader a line of text and never an answer.
+    """
+    rows = drop_ancestors(list(ranked))
+    if not rows: return None
+    top = rows[0]
+    score = top[2] if len(top) > 2 else 0
+    return (top[0], len(rows)) if score > 0 else None
+
+
 def require_scope(g, scope, terms=(), rank=None, flag=''):
     """Rule 1. Returns None when the scope is usable, or an exit code after printing the correction.
 
