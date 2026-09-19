@@ -58,8 +58,32 @@ def impact(repo, target, depth=DEPTH):
     try:
         if not set(NEEDED) <= _tables(con): return None
         q = con.execute
-        rows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (target,)).fetchall()
-        if not rows: rows = q("SELECT id, kind, method_id FROM symbols WHERE display=?", (target,)).fetchall()
+        # `Owner.m(p)` — A RETYPED PARAMETER, and the shape `changed` emits for exactly that edit (#1033). The
+        # lookup below is an EXACT match on `display`, which no parenthesised target can ever equal, so the most
+        # consequential signature edit there is declined here and fell through to the Datalog path — into the
+        # hook's 14 s budget, which on a large graph it does not make. The hook then prints "(impact unavailable)".
+        # Resolved to the declaring method, and the parameter is checked to exist rather than assumed: a name that
+        # is not a parameter of that method is a DIFFERENT question (a one-argument signature), and the rules
+        # answer it with their own ~20 cases, so it still declines.
+        param = None
+        m_par = re.fullmatch(r'(.+?)\(\s*([A-Za-z_]\w*)\s*\)', target.strip())
+        if m_par:
+            base, pname = m_par.group(1).strip(), m_par.group(2)
+            brows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (base,)).fetchall()
+            if not brows: return None
+            if not _has(lambda sql, *p_: q(sql, p_).fetchall(), 'refs'): return None
+            ok = False
+            for i_, _k, _m in brows:
+                srow = q("SELECT file, line, end_line FROM symbols WHERE id=?", (i_,)).fetchone()
+                if not srow or not srow[0]: continue
+                if q("""SELECT 1 FROM refs WHERE file=? AND line BETWEEN ? AND ? AND name=?
+                          AND entity_kind IN ('PARAMETER','PARAM','LAMBDA_PARAMETER') LIMIT 1""",
+                     (srow[0], srow[1], srow[2] or srow[1], pname)).fetchone(): ok = True; break
+            if not ok: return None
+            target, param, rows = base, pname, brows
+        else:
+            rows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (target,)).fetchall()
+            if not rows: rows = q("SELECT id, kind, method_id FROM symbols WHERE display=?", (target,)).fetchall()
         if not rows: return None
         # A FIELD is declined for the same reason a constructor is, and the failure it caused was worse. What
         # depends on a field is a READ or a WRITE — rows in `refs` and `field_access`, not in `call_edges` — so
@@ -177,6 +201,12 @@ def impact(repo, target, depth=DEPTH):
         tset = {x[0] for x in rows if x[1] == 1} - contract_ids
         t = len(tset)
         test_names = [x[2] for x in rows if x[1] == 1 and x[2] and x[0] not in contract_ids][:3]
+        if param:
+            # the rules put the declaring method in `direct` as "declares it" — it is the declaration the edit
+            # is inside, so omitting it under-reports by the one row the caller is certain to care about
+            own = sorted({r[0] for r in q(f"SELECT display FROM symbols WHERE id IN ({ph})", ids) if r[0]})
+            reads = sorted(set(reads) | set(own))
+            byname = sorted(set(byname) - set(reads))
         return dict(target=target, overloads=len(ids), contract=contract, reads=reads, byname=byname,
                     reached=max(0, n - len(ids)), tests=t, test_names=test_names, depth=depth)
     finally:

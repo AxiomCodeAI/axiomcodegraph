@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "four call sites, two of them on one line: the grouped count is the number of SITES, not the number of distinct lines (#1039)",
+   "run": ["impact", "Shape.getCenter"],
+   "want": ["ShapeRenderer.render", "(4 sites)"],
+   "avoid": ["(3 sites)"]},
+  {"why": "the row is keyed on the query, so a line calling two overloads of the target is two sites behind one tuple (#1039)",
+   "run": ["impact", "Shape.getCenter"],
+   "want": ["ShapeRenderer.both", "(2 sites)"],
+   "avoid": []}]}

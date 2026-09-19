@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>] [--budget N] [--source]
+"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source]
 
 THE FRONT DOOR — the context an agent needs before it can ask anything precise. Every other verb needs a name you already have — a method, a type, a file:line. That is
 the wrong first question on an unfamiliar repository, and it is measurably where an agent gives up: in a
@@ -199,7 +199,7 @@ def neighbourhood(g, seed_ids, cap=3):
 
 
 def main(argv):
-    budget, seeds_wanted, scope, args = 40, 6, '', []
+    budget, seeds_wanted, scopes, args = 40, 6, [], []
     scope_offered = False
     show_source = False
     i = 0
@@ -207,7 +207,9 @@ def main(argv):
         a = argv[i]
         if a == '--budget' and i + 1 < len(argv): budget = int(argv[i + 1]); i += 2
         elif a == '--seeds' and i + 1 < len(argv): seeds_wanted = int(argv[i + 1]); i += 2
-        elif a == '--in' and i + 1 < len(argv): scope = argv[i + 1]; i += 2
+        # --in is REPEATABLE and takes a comma-separated list: a change that spans two roots has to be
+        # askable in one call (#1029). They are combined, never intersected.
+        elif a == '--in' and i + 1 < len(argv): scopes += [x.strip() for x in argv[i + 1].split(',') if x.strip()]; i += 2
         elif a == '--in-offered': scope_offered = True; i += 1
         elif a == '--source': show_source = True; i += 1
         elif a in ('-h', '--help'): print(__doc__); return 0
@@ -233,15 +235,17 @@ def main(argv):
     # does not filter. It does not weight either: boosting seeds inside it and penalising files outside
     # it was swept over 57 real commits and was worth at most 0.012 recall@10 against not doing it, which
     # is noise at that sample size. The menu is worth printing for the reader; it is not worth ranking on.
-    rank = rank_dirs(g, scope_terms(g, task)) if not scope else None
-    if not scope:
+    rank = rank_dirs(g, scope_terms(g, task)) if not scopes else None
+    if not scopes:
         # One candidate is not a choice: take it and SAY SO, rather than refusing and being handed back
         # the only path there was. This is NOT the offered-scope case above, so it is not marked
         # `--in-offered` and it does filter -- a filter that removes nothing, since a sole row means
         # every indexed file already lives under it. Printed, because an answer silently narrowed to one
         # package reads as an answer about the whole repository.
-        scope = sole_scope(g) or ''
-        if scope: print(f"scope: {scope} (the only package this graph indexes; --in overrides)\n")
+        sole = sole_scope(g)
+        if sole:
+            scopes = [sole]
+            print(f"scope: {sole} (the only package this graph indexes; --in overrides)\n")
         elif rank:
             # Several candidates, and a caller holding an issue and no symbol — which is the caller this
             # verb was written for, and by construction the one who cannot name the scope. Refusing here
@@ -257,23 +261,28 @@ def main(argv):
             picked = best_scope(rank)
             if picked:
                 scope, n = picked
+                scopes = [scope]
                 scope_offered = True   # a guess by rule 2: it neither filters the answer nor weights it
                 menu = ', '.join(r[0] for r in drop_ancestors(list(rank))[:4])
                 print(f"where this task's words land: {scope} (of {n} scope(s) this graph offers: {menu}"
                       + ("…" if n > 4 else "") + ")")
                 print("  no --in was given, so NOTHING below is narrowed to it — "
                       "pass --in <path> to narrow.\n")
-    bad = require_scope(g, scope, terms, rank=rank, flag=' --in-offered')
+    bad = require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
     if bad is not None: return bad
 
-    if not scope_offered:
-        scored = {sid: v for sid, v in scored.items() if scope in (g.sym.get(sid, {}).get('file') or '')}
+    # a symbol is kept when it is under ANY of the scopes -- the union, because the caller naming two roots
+    # is naming a change that spans them, and intersecting those two paths answers nothing (#1029)
+    in_scope = lambda f: any(sc in (f or '') for sc in scopes)
+    if scopes and not scope_offered:
+        scored = {sid: v for sid, v in scored.items() if in_scope(g.sym.get(sid, {}).get('file'))}
     if not scored:
         # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it,
         # ranked the same way the scope-less menu is: by where the words land, never by how big a directory is
         ranked = rank_dirs(g, scope_terms(g, task))
-        inside = [r for r in ranked if scope in r[0] or r[0] in scope]
-        return offer(f"'{scope}' exists, but none of these words appear under it: {', '.join(terms[:8])}.",
+        inside = [r for r in ranked if any(sc in r[0] or r[0] in sc for sc in scopes)]
+        where = ', '.join(f"'{sc}'" for sc in scopes)
+        return offer(f"{where} exist(s), but none of these words appear under it: {', '.join(terms[:8])}.",
                      inside or ranked, terms)
 
     # an entry point is somewhere to START. <module> and <classbody> are the file and the class
@@ -324,7 +333,7 @@ def main(argv):
         ptoks = set(subtokens(f))
         pkg = len(tset & ptoks)
         return (d - 0.8 * hit - 1.6 * pkg, d, f)
-    if scope and not scope_offered: files = {f: v for f, v in files.items() if scope in f}
+    if scopes and not scope_offered: files = {f: v for f, v in files.items() if in_scope(f)}
     order = sorted(files.items(), key=file_rank)
     shown, foot = budgeted([x for x in order if not TESTY.search(x[0])], budget, "file")
     print(f"\nwhere the work is ({len(files)} file(s) within 3 hops of those entry points; "

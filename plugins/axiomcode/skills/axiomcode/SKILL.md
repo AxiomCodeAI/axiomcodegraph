@@ -36,7 +36,8 @@ axiomcode install [<repo>] [--remove]                                     write 
 | **`.axiomcode/out/graph.sqlite` already exists** | **use it — do NOT run `index`** (see below) |
 | no graph at all | `axiomcode index` |
 | "who calls X" / "what breaks if X changes" | `axiomcode impact X` |
-| "where is the decryption code" — a concept, no name yet | `axiomcode path decrypt '*'` |
+| a task in words, no name to ask about yet | `axiomcode context "<the task>"` |
+| "where is the decryption code" — one concept, and you can name it | `axiomcode path decrypt '*'` |
 | "how does A reach B" | `axiomcode path A B` |
 | "everything that reaches X" | `axiomcode path '*' X` |
 | "which tests do I run for this edit" | `axiomcode test-impact` |
@@ -90,6 +91,33 @@ tie-break on what kind of evidence a hop is, not a measured ranking** — `[by k
 the worst on another. Per-subject hit rates: `reference/impact.md`.
 
 `[sound]` never means the test exercises the change, only that the edges connect. Reaching is not failing.
+
+## context — from a problem statement, when there is no name yet
+
+Every other verb needs a name you already have: a method, a type, a `file:line`. That is the wrong first
+question on an unfamiliar repository, and it is where a run gives up — asked once, the word resolved to
+nothing usable, the graph never touched again.
+
+```
+axiomcode context "<the task, in your own words>" [<repo>] [--in <path>] [--budget N] [--source]
+```
+
+Deterministic — no model, no embedding index, no network. The task text is split into content terms
+(stopwords dropped, camelCase and snake_case split); every symbol is scored against them — exact name,
+prefix, substring, then file path — each weighted by inverse document frequency over the graph's own
+vocabulary, so a rare term outweighs a common one. A test or benchmark declaration is demoted, not
+dropped. The best seed per term is kept, so a multi-concept task gets several entry points; the closure
+is walked from those seeds and ranked by nearest hop, then by how many of the task's terms the file
+matches — not by how many methods it happens to contain.
+
+`--in` is **repeatable and takes a list**: `--in a --in b` or `--in a,b`. A path you supply is knowledge —
+a stack frame, the file you just read, the package named in the issue — so it does restrict the answer;
+several are **combined, not intersected**, which is what makes a change spanning two roots answerable in
+one call. A scope this program offered comes back marked `--in-offered` and does not restrict at all,
+because that one is its guess and not your knowledge.
+
+It ends by saying what it could not see. A partial list that reads as complete is what turns a five-file
+change into a one-file patch.
 
 ## impact — what a change to a declaration reaches
 

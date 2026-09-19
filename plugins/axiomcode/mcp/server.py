@@ -20,8 +20,14 @@ def axiomcode_index(repo: str, lang: str = '', src: str = '', library: str = '')
     return run(a)
 
 @srv.tool()
+def axiomcode_context(task: str, repo: str, in_path: str = '', budget: int = 0, source: bool = False) -> str:
+    """START HERE when you have a task in words and no name to ask about yet: the files and callables that task touches, from the problem statement alone. Deterministic — task terms scored against the graph's vocabulary by inverse document frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop. in_path accepts SEVERAL paths, comma-separated: they are combined rather than intersected, so a change spanning two roots comes back in one call. budget caps the answer size; source=True includes the code. Ends by saying what it could not see."""
+    a = ['context', task, repo] + (['--in', in_path] if in_path else []) + (['--budget', str(budget)] if budget else []) + (['--source'] if source else [])
+    return run(a)
+
+@srv.tool()
 def axiomcode_path(from_: str, to: str, repo: str, every: bool = False, in_path: str = '', depth: int = 0, limit: int = 0) -> str:
-    """A chain of calls from A to B in the graph, each hop verified, or why there is none. START HERE when you only have a concept word and not an exact name: a bare fragment resolves to every declaration containing it, so path('decrypt', '*') answers "what is the decryption code and what does it touch" without knowing a single name first. Endpoints otherwise as written in the code: Owner.method, method, Type, Outer$Inner.m, file.java:123, file.py, @Decoration, a library call as written (new File, Files.readAllBytes). '*' on one side = everything that reaches B / everything A reaches. every=True lists every route; in_path restricts to files containing it; depth bounds a closure."""
+    """A chain of calls from A to B in the graph, each hop verified, or why there is none. When you have ONE concept word you can name, a bare fragment resolves to every declaration containing it, so path('decrypt', '*') answers "what is the decryption code and what does it touch". For a whole task in words, with no name at all, use axiomcode_context first. Endpoints otherwise as written in the code: Owner.method, method, Type, Outer$Inner.m, file.java:123, file.py, @Decoration, a library call as written (new File, Files.readAllBytes). '*' on one side = everything that reaches B / everything A reaches. every=True lists every route; in_path restricts to files containing it; depth bounds a closure."""
     a = ['path', from_, to, repo] + (['--every'] if every else []) + (['--in', in_path] if in_path else []) + (['--depth', str(depth)] if depth else []) + (['--limit', str(limit)] if limit else [])
     return run(a)
 
@@ -35,6 +41,12 @@ def axiomcode_impact(targets: list[str], repo: str, tests: bool = False, depth: 
 def axiomcode_changed(repo: str, files: list[str] = [], range: str = '', staged: bool = False, impact: bool = False) -> str:
     """Which declarations an edit changed and HOW — signature (parameters added / removed / retyped, return type), field (its type, name, initializer), type header, body only, removed, added — the working tree against the commit the graph was built from (default), two commits (range='a..b'), or the index (staged=True); each with the target impact takes. impact=True runs impact on all of them as one change set and returns its answer."""
     a = ['changed', repo, *files] + (['--range', range] if range else []) + (['--staged'] if staged else []) + (['--impact'] if impact else [])
+    return run(a)
+
+@srv.tool()
+def axiomcode_test_impact(repo: str, range: str = '', staged: bool = False, in_path: str = '', limit: int = 0, why: bool = False) -> str:
+    """Which tests actually have to run for the edit in front of you: the test files that reach any changed declaration, with the chain, so the selection can be checked rather than trusted. Working tree by default, or range='a..b', or staged=True. Conservative by design — a test reached only through an edge the graph does not encode (reflection, a service loader, a runtime-built case) will NOT appear, so it is a lower bound. why=True prints the chain for each."""
+    a = ['test-impact', repo] + (['--range', range] if range else []) + (['--staged'] if staged else []) + (['--in', in_path] if in_path else []) + (['--limit', str(limit)] if limit else []) + (['--why'] if why else [])
     return run(a)
 
 @srv.tool()

@@ -1,0 +1,14 @@
+{"lang": "java", "src": "src",
+ "sql": ["CREATE TABLE IF NOT EXISTS entry_points (method_id TEXT, reason TEXT)",
+         "DELETE FROM entry_points",
+         "INSERT INTO entry_points (method_id, reason) SELECT method_id, 'http route' FROM symbols WHERE display LIKE 'Api.%' AND method_id IS NOT NULL AND display <> 'Api.Api'",
+         "INSERT INTO entry_points (method_id, reason) SELECT method_id, 'test' FROM symbols WHERE display LIKE 'ApiTest.%' AND method_id IS NOT NULL AND display <> 'ApiTest.ApiTest'"],
+ "checks": [
+  {"why": "four entry points of one reason are explained ONCE and named, not one full sentence each (#1036)",
+   "run": ["impact", "Api", "--kind", "type"],
+   "want": ["4 http route entry points", "Api.listOrders", "Api.deleteOrder"],
+   "avoid": ["Api.listOrders is a http route entry point"]},
+  {"why": "test entry points are counted apart from the real ones and not explained one by one (#1036)",
+   "run": ["impact", "Api", "--kind", "type"],
+   "want": ["3 test entry point(s)"],
+   "avoid": ["ApiTest.listsOrders is a test entry point"]}]}
