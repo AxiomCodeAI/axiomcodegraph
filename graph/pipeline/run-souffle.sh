@@ -83,6 +83,23 @@ ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG
 # Keeping it here would hardcode Java's entity set into a shared executor.
 [ -f "$TPL/staging.conf" ] || { echo "missing $TPL/staging.conf for --language=$LANG_ARG" >&2; exit 1; }
 . "$TPL/staging.conf"
+# ── Does this rule set HAVE a library frontier to expand? ────────────────────
+# The stage<->solve loop far below is Java's JDK-expansion machinery (Python and C#
+# use it too). TypeScript and JavaScript declare no frontier at all — no rule of
+# theirs writes the frontier CSV — so every variable that loop reads is unset, and an
+# unset column is NOT a harmless no-op: `cut -f""` is rejected outright by BSD cut
+# ("cut: [-bcf] list: illegal list value"), and the count it feeds then printed
+# `reachable_method = 0, forward_call = 0` on a run that had just resolved every edge
+# it was asked for. A log line that reads zero on a successful run is worse than no
+# line — it is the line a consumer greps for to decide the engine failed.
+#
+# So the loop is gated on the CONFIG DECLARING a frontier, not on the variables
+# happening to hold something: a language that adds expansion later opts in by setting
+# these two, and one that never will prints nothing to explain away. Issue #475.
+LIB_FRONTIER_CSV="${LIB_FRONTIER_CSV:-}"
+LIB_FRONTIER_COL="${LIB_FRONTIER_COL:-}"
+HAS_LIB_FRONTIER=0
+[ -n "$LIB_FRONTIER_CSV" ] && [ -n "$LIB_FRONTIER_COL" ] && HAS_LIB_FRONTIER=1
 ENGINE_II_MODE="${ENGINE_II:-${AXIOM_ENGINE_II:-off}}"
 
 # The tools every path below relies on. Checked up front because a missing one does not
@@ -244,8 +261,24 @@ case "$LIBKEY" in
      exit 1;;
 esac
 LIBDIR="$CACHE_ROOT/libfacts-$LIBKEY"
+# How many IR modules the roots actually hold. Cheap (lib_modules is a marker test and a
+# one-level glob, never a find) and worth knowing before the message below: "this is the
+# 2GB read" was printed verbatim for a run whose --library directory was EMPTY, which is
+# the client-only mode every TypeScript case and every client-only consumer uses. Saying
+# a 2GB read is under way when nothing will be read teaches the reader to distrust the
+# progress lines, and it is the first place someone looks when client->lib recall is zero.
+# Issue #475.
+LIB_MODULE_COUNT=0
+for root in ${LIB_ROOTS[@]+"${LIB_ROOTS[@]}"}; do
+  [ -d "$root" ] || continue
+  LIB_MODULE_COUNT=$(( LIB_MODULE_COUNT + $(lib_modules "$root" | grep -c . || true) ))
+done
 if [ ! -d "$LIBDIR" ]; then
-  echo "▶ staging library signatures (cache miss — this is the 2GB read, done once)..."
+  if [ "$LIB_MODULE_COUNT" -eq 0 ]; then
+    echo "▶ no library IR to stage (client-only — every client→library edge will be absent by construction)"
+  else
+    echo "▶ staging library signatures from $LIB_MODULE_COUNT module(s) (cache miss — done once)..."
+  fi
   TMPDIR_L="$LIBDIR.tmp.$$"; rm -rf "$TMPDIR_L"; mkdir -p "$TMPDIR_L"
   while IFS= read -r pair; do
     [ -n "$pair" ] || continue
@@ -474,6 +507,12 @@ while [ "$iter" -lt 50 ]; do
     "$PBIN" -F "$FACTS" -D "$RAW" -p "$AXIOM_SOUFFLE_PROFILE"
   else
     "$BIN" -F "$FACTS" -D "$RAW"
+  fi
+  # No frontier declared for this language: the solve above is the whole answer. Break
+  # BEFORE the count, because the count is what misreported it. See issue #475.
+  if [ "$HAS_LIB_FRONTIER" -eq 0 ]; then
+    [ "$DEBUG_BUNDLE" = "1" ] && echo "   (no library frontier for $LANG_ARG — one solve, nothing to expand)"
+    break
   fi
   REACH="$RAW/$LIB_FRONTIER_CSV"
   # Count DISTINCT methods in the frontier column: with a lib cap, a method can hold >1 Pareto
