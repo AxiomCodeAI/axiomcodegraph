@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Actions are pinned by major tag; this keeps them current and, more to the
+  # point, surfaces the deprecations that otherwise fail CI without warning.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [build, dependencies]
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [build, dependencies]
+    open-pull-requests-limit: 3
+    # The engine's behaviour is pinned to the toolchain that produced the
+    # goldens. A TypeScript major arriving on its own schedule is a change to
+    # what this repo measures, not a routine bump.
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
