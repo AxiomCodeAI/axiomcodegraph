@@ -174,3 +174,152 @@ def is_value_why(why):
 
 def _has(q, t):
     return bool(q("SELECT 1 FROM sqlite_master WHERE name=?", t))
+
+
+# ── the DECORATION path: the key is written at the `@`, and the owner is recorded ────────────────────────────
+# `registrations()` above skips DECORATOR_CALL sites deliberately, because a decoration is not a call that hands a
+# value over. It is the other half of the same idea and it carries BETTER evidence: the index records which
+# declaration a decoration is on, so the registered declaration needs no name matching at all.
+#
+#     @router.post("/orders")          key "/orders"          a route
+#     @cli.command("price")            key "price"            a command name
+#     @receiver("order_created")       key "order_created"    a signal
+#     @exporter("csv")                 key "csv"              a table entry
+#
+# Every one of those is "the framework will dispatch to this declaration when someone writes this string", which is
+# exactly what the join needs. The kind is read from the key rather than from a list of decoration names: a key that
+# begins with `/` is a route, anything else is a key, and no framework is named anywhere in this function.
+def decoration_keys(q, site_file=None):
+    """[(decl, file, line, kind, key, why)] — a declaration registered under a string by its own decoration."""
+    if not _has(q, 'decorations'):
+        return []
+    import re
+    sf = site_file or (lambda x: x)
+    # A DECORATION ON A TEST CARRIES DATA, NOT A REGISTRATION. `@ValueSource(strings = {"/htmltests/large.html"})`,
+    # `@CsvSource`, `@pytest.mark.parametrize`, `@DisplayName` — the strings are the test's inputs, and reading them
+    # as keys let every test that mentions the same string reach that test method. Measured on jsoup: 27 by-key
+    # edges from one `@ValueSource` of resource paths. A route handler, a signal receiver or a CLI command is
+    # production code; nothing is lost by declining to read a test's own decoration as a registration.
+    tests = {r[0] for r in q("SELECT id FROM symbols WHERE is_test = 1")} if _has(q, 'symbols') else set()
+    out = []
+    for owner, name, text, f, l in q("""SELECT owner_id, name, text, file, line FROM decorations
+                                        WHERE text IS NOT NULL AND text <> '' AND owner_id IS NOT NULL"""):
+        if owner in tests:
+            continue
+        short = (name or '').split('.')[-1]
+        for key in sorted(set(re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''))):
+            key = key[0] or key[1]
+            if not key:
+                continue
+            kind = 'route' if key.startswith('/') else 'key'
+            why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
+                   else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')
+            out.append((owner, sf(f) if f else '', l or 0, kind, key, why))
+    return sorted(set(out))
+
+
+# ── a registration written as a CALL that no verb list knows ─────────────────────────────────────────────────
+# Flask's `application.add_url_rule("/quote/<order_id>", view_func=legacy_quote)` is a route registration whose verb
+# is not an HTTP verb, and the same shape appears wherever a framework takes (path, handler) under a name of its own
+# choosing. The evidence is the pair, not the name: one line carrying a PATH-SHAPED literal and a declaration named
+# as a VALUE. That is the discriminator `registrations()` already trusts for the verb list, applied without it.
+#
+# Kept apart from `registrations()` on purpose: that function's rows were measured on a TypeScript application and
+# this leg would change them, so a caller opts in rather than inherits it.
+def value_route_registrations(q, site_file=None):
+    """[(decl, file, line, 'route', key, why)] — a path literal and a handed-over declaration on one line."""
+    if not (_has(q, 'call_sites') and _has(q, 'literals') and _has(q, 'refs')):
+        return []
+    sf = site_file or (lambda x: x)
+    once = {}
+    for n, i, c in q("""SELECT name, min(id), count(*) FROM symbols WHERE method_id IS NOT NULL AND name IS NOT NULL
+                        AND name NOT LIKE '<%' GROUP BY name"""):
+        if c == 1:
+            once[n] = i
+    ek = ','.join('?' * len(CALLABLE_EK))
+    ref_at = {}
+    for n, f, l in q(f"SELECT name, file, line FROM refs WHERE line > 0 AND entity_kind IN ({ek})", *CALLABLE_EK):
+        if n in once:
+            ref_at.setdefault((f, l), once[n])
+    import re
+    out = []
+    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        if not (isinstance(v, str) and v.startswith('/') and len(v) < 160):
+            continue
+        # A RESOURCE IS NOT A ROUTE. Measured on jsoup: the pair fired on
+        # `connect(url).onResponseProgress(progressListener)` — a path-shaped literal and a handed-over callable on
+        # one line, but the path is the file being fetched, not the key the listener is registered under. That put
+        # 27 by-key edges into the closure from every test that mentions `/htmltests/large.html`. A registered route
+        # names a resource by STRUCTURE; a fetched file ends in an extension and may carry a query, so both are out.
+        last = v.split('?')[0].split('#')[0].rstrip('/').rsplit('/', 1)[-1]
+        if '?' in v or re.search(r'\.[A-Za-z0-9]{1,6}$', last):
+            continue
+        d = ref_at.get((f, l))
+        if d:
+            out.append((d, sf(f) if f else '', l or 0, 'route', v,
+                        f'registered at "{v}" here — the framework calls it, no call site does'))
+    return sorted(set(out))
+
+
+# ── the two spellings of one path ────────────────────────────────────────────────────────────────────────────
+# A test asks for `/orders/o-1/price`; the handler is registered at `/orders/{order_id}/price`. Neither string
+# contains the other and no call site joins them — the router does, at run time, by matching the path. A path
+# parameter is whatever the framework spells it (`{id}` FastAPI, `<int:id>` Flask, `:id` Express, `*` a wildcard),
+# so a registered segment in any of those forms matches any written segment and NEITHER side is normalised.
+_PATH_PARAM = None
+
+
+def route_matches(written, registered):
+    """True when a URL written at a call site is the route registered under `registered`."""
+    global _PATH_PARAM
+    if _PATH_PARAM is None:
+        import re as _re
+        _PATH_PARAM = _re.compile(r'\{.*\}|<.*>|:.+|\*.*')
+    if not (written.startswith('/') and registered.startswith('/')):
+        return False
+    segs = lambda p: p.split('?')[0].split('#')[0].rstrip('/').split('/')
+    w, r = segs(written), segs(registered)
+    return len(w) == len(r) and all(a == b or _PATH_PARAM.fullmatch(b) for a, b in zip(w, r))
+
+
+def all_registrations(q, site_file=None):
+    """Every (decl, file, line, kind, key, why) this module can derive, from all three sources."""
+    return sorted(set(registrations(q, site_file) + decoration_keys(q, site_file) + value_route_registrations(q, site_file)))
+
+
+# ── the same join the rules make, for a caller that has no Datalog ───────────────────────────────────────────
+# dl/impact.dl derives `fw_edge` from `literal`, `reg_key` and the two caps. A caller without a solver — the SQL
+# port, or anything deciding whether the rules would find something it cannot — needs the same answer, so the join
+# lives here once rather than twice. The caps are the rules' defaults and the same environment variables override
+# them, because a difference between the two engines that comes from a default is the hardest kind to notice.
+def key_edges(q, at, site_file=None, cap=None, use_cap=None):
+    """[(caller, registered_declaration, key)] — a callable writes a key, and that key registers a declaration.
+
+    `at(file, line) -> callable id` is the caller's own line map; nothing here can build it. A key that more than
+    `cap` declarations register, or that more than `use_cap` callables write, identifies nothing and is refused —
+    Flask's own suite registers "/" from 236 places and jsoup's surviving keys are HTML tag names.
+    """
+    import collections, os
+    cap = int(os.environ.get('AXIOMCODE_KEY_CAP', '4')) if cap is None else cap
+    use_cap = int(os.environ.get('AXIOMCODE_KEY_USE_CAP', '4')) if use_cap is None else use_cap
+    if not _has(q, 'literals'):
+        return []
+    reg = collections.defaultdict(set)
+    for decl, _f, _l, _kind, key, _why in all_registrations(q, site_file):
+        if decl and key: reg[key].add(decl)
+    if not reg:
+        return []
+    writes = collections.defaultdict(set)
+    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        if not isinstance(v, str) or len(v) > 160: continue
+        c = at(f, l)
+        if c: writes[v].add(c)
+    capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items() if len(cs) > use_cap}
+    out = set()
+    for v, callers in writes.items():
+        for key, decls in reg.items():
+            if key in capped or not (v == key or route_matches(v, key)): continue
+            for c in callers:
+                for d in decls:
+                    if c != d: out.add((c, d, key))
+    return sorted(out)
