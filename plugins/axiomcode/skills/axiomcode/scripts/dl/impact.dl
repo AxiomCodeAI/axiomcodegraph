@@ -182,6 +182,20 @@ contract(q, o, "overrides it") :- target(q, "method", m, _), override(m, o), !ta
 contract(q, b, "it overrides this") :- target(q, "method", m, _), override(b, m), !target(q, _, b, _).
 // a language whose engine emits no override rows still has the types: a subtype (or supertype) declaring the same
 // member name is bound by the same contract — said as a name match, not as a resolved override
+// A DISPATCH BASE THE ENGINE RECORDS NO OVERRIDE ROW FOR (#1011). `edge(b, m, "dispatch")` says a call typed to b
+// may run m, which is why the closure walks candidate -> base: everything calling the base depends on the
+// candidate. But the base declaration is a WAYPOINT, not something the change breaks — an interface method has no
+// body — and in Java it is already kept out of `reached` by being a contract member through its override row. A
+// structurally typed language has no such row (TypeScript: 91 dispatch pairs on one library, not one of them in
+// `overrides`), so the base landed in `reached` instead, and the hook's fast path counted it too: 1166 against the
+// rules' 1165 on a Java bundle, the over-claiming direction.
+//
+// Making it a contract is what the override case already does: a contract member is a seed, a seed is at depth 0,
+// and the printer keeps only depth > 0 — so it leaves `reached` without a filter anywhere, stays traversable, and
+// the reader is told the thing that is actually true, which is that the declaration implements this.
+.decl implements_pair(b:symbol, m:symbol)                          .input implements_pair
+contract(q, b, "it implements this — the engine records a dispatch candidate here and no override row") :-
+    target(q, "method", m, _), implements_pair(b, m), !override(b, m), !override(m, b), !target(q, _, b, _).
 contract(q, o, "declares the same member in a subtype (a name match: this graph has no override table)") :- flag("no_overrides"),
     target(q, "method", m, _), owner(m, t), member(t, m, n, _), extends(s, t), member(s, o, n, _), o != m.
 contract(q, o, "declares the same member in a supertype (a name match: this graph has no override table)") :- flag("no_overrides"),
