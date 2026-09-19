@@ -100,7 +100,7 @@ MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}         
 # the fixtures a test framework runs before a test, own or inherited: a language-neutral convention table, printed as such
 FIXTURE_DECOR = re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', re.I)
 FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}   # `init` / `before` alone are ordinary helper names: they count as a fixture only with the decoration
-TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|it|test)$')
+TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|Fact|Theory|it|test)$')
 # a URL path as a router accepts it: path-absolute (RFC 3986 §3.3) with no whitespace and no quote in it. A path
 # parameter — `{id}`, `<int:id>`, `:id`, `*` — is left exactly as written: its spelling is per framework, and the
 # join matches the two spellings against each other rather than normalising either into the other

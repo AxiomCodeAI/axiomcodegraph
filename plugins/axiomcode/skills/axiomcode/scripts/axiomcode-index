@@ -134,6 +134,11 @@ A = {
     comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
     # type references carry no module link of their own; the owner hash resolves through the bundle's types
     typeRefs=dict(file='all-csharp-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'ownerLinkHash')),
+    # [Attribute] on a method or type. Arguments live in a second file, which is empty on every fixture
+    # available here, so it is not mapped rather than guessed: a decoration with no argument text is
+    # still the decoration, and a wrong `args` mapping would be silently empty in the same way
+    decorations=dict(file='all-csharp-attributes.csv', name='attributeName', owner='ownerHash', line='startLine',
+                     fileVia=('modules', 'csModuleLinkHash'), id='csAttributeUniqueHash'),
     # fields carry no ownerQualifiedName (potentialQualifiedName is the field's TYPE), so the owner comes
     # from the file the way javascript's does; a property is a member that reads as a field at its sites
     decls=[dict(file='all-csharp-fields.csv', id='csFieldUniqueHash', kind=lambda r: 'const' if r.get('isConst') == 'true' else 'field',
