@@ -540,13 +540,19 @@ class Impact:
         # in a file makes every type declared in that file a holder of T
         ftypes = []
         for rid, f in self.fields.items():
+            # THE SAME ID THE `field` FACT USED. This built `f:<rowid>` unconditionally while `field` used the graph's
+            # own id where there is one, so on any bundle whose fields carry ids the two relations never joined: every
+            # field's declared type was unreadable, `file_field_typed` stayed empty, and the FILE-SCOPED fallback made
+            # every type declared in a file a holder of every field type in it — `Sibling`, which has no fields at all,
+            # was reported as producing a value of `Payload` because a sibling class in the same file declares one.
+            fid = f['id'] or f"f:{rid}"
             if not f.get('file') or not f.get('line'): continue
             L = self.lines(f['file']); line = L[f['line'] - 1] if f['line'] <= len(L) else ''
             m = re.search(rf'([A-Za-z_$][\w$.]*)\s*(?:<[^;=]*>)?\s*(?:\[\s*\])*\s+{re.escape(f["name"])}\s*[;=,)]', line)
-            if m: ftypes.append((f"f:{rid}", m.group(1).split('.')[-1]))
+            if m: ftypes.append((fid, m.group(1).split('.')[-1]))
             else:
                 m = re.search(rf'{re.escape(f["name"])}\s*:\s*([A-Za-z_$][\w$.]*)', line)        # name: Type
-                if m: ftypes.append((f"f:{rid}", m.group(1).split('.')[-1]))
+                if m: ftypes.append((fid, m.group(1).split('.')[-1]))
         W('field_type', ftypes)
         W('extends', [(r[0], r[1]) for r in g.q("SELECT type_id, ancestor_type_id FROM type_ancestors")])
         W('nested', [(r[0], r[1]) for r in g.q("SELECT type_id, outer_type_id FROM nesting")] if g.has('nesting') else [])

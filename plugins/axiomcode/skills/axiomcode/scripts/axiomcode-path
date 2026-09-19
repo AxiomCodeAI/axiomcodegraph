@@ -299,7 +299,10 @@ class G:
         stamp = os.path.join(self.facts, 'stamp'); want = str(os.path.getmtime(self.db))
         if os.path.exists(stamp) and open(stamp).read() == want: return
         os.makedirs(self.facts, exist_ok=True)
-        edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance = 'client'")]
+        # `generated` is a client declaration too: a Lombok accessor, a record member, a C# auto-property. The engine
+        # synthesises it and RESOLVES the call sites that name it, so filtering the edge out lost every call into a
+        # generated member — which, on a project whose models are all @Data, is most of what touches the models.
+        edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance IN ('client', 'generated')")]
         # calls into libraries: an edge to a terminal node (a library method has no out-edges here — nothing is inferred about its
         # body), so `path '*' java.nio.file.Files.readAllBytes` can ask who reaches that library call
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]

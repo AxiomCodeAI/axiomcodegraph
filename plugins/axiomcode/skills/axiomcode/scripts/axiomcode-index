@@ -245,6 +245,29 @@ for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type
     fp = rel(m['file_path'])
     sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
 
+# ── members an annotation processor DECLARES, which no source line spells ─────────────────────────
+# Java (Lombok, a record) and C# (an auto-property) synthesise members in the engine: `methods` carries them with
+# provenance `generated`, no owner_type_id, no file, line 0 — and `call_edges` RESOLVES the sites that write their
+# name to them. Building `symbols` from client rows only meant the callee of a resolved edge had no row at all: the
+# edge was dropped as non-client, and because the site is no longer unresolved the by-name convention layer could not
+# name it either. `impact User.name` on a Lombok class then named NEITHER caller of its accessors — a silent loss.
+# The id carries what the row does not: Java `generated:<owner qualified name>#<name>/<arity>`, C#
+# `generated:<owner qualified name>.<name>`. A row whose owner cannot be found is skipped, never guessed.
+by_qname = {}
+for t in types.values():
+    if t['qualified_name']: by_qname.setdefault(t['qualified_name'], t)
+for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, file_path, start_line, end_line FROM methods WHERE provenance='generated'"):
+    t = types.get(m['owner_type_id']) if m['owner_type_id'] else None
+    if t is None and (m['id'] or '').startswith('generated:'):
+        body = m['id'].split(':', 1)[1]
+        q = body.split('#')[0] if '#' in body else body.rsplit('.', 1)[0]
+        t = by_qname.get(q)
+    if t is None: continue
+    od = tdisplay(t['id']); fp = rel(t['file_path']); nm = m['name'] or ''
+    if not nm: continue
+    sym.append((m['id'], nm, (od + '.' if od else '') + nm, 'method', m['qualified_name'], m['signature'],
+                fp, t['start_line'], t['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+
 # ── other declarations from the IR: fields, constants, enum members ───────────────────────────────
 modules = {}
 if A['modules']:
