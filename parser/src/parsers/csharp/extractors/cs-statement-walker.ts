@@ -389,9 +389,13 @@ function collectDeclarators(
   // for the discriminator and why it is exact rather than heuristic.
   const misparsed = refReturningAssignmentOf(declaration);
   if (misparsed !== undefined) {
-    if (misparsed.valueNode !== undefined) {
-      pushInitializer(misparsed.valueNode);
-    }
+    // THE DECLARATION NODE ITSELF, not just the value. The expression extractor
+    // reads this shape as the INVOCATION it is, so pushing the declaration is
+    // what puts the call site back: pushing only the value, as this did before,
+    // walked the right-hand side and left the call with no row at all, and the
+    // one- and two-argument forms produced no parse gap either. The value is
+    // still reached -- it is a child of this node in childrenWithRoles.
+    pushInitializer(declaration);
     return;
   }
   for (const declarator of namedChildren(declaration)) {
