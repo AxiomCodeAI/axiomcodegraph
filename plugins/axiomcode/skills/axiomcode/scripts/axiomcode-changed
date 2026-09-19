@@ -81,7 +81,10 @@ class Changed:
             base = self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD'
             out = sh('git', 'diff', '--name-only', base, cwd=self.repo)
             if out is None: out = sh('git', 'diff', '--name-only', 'HEAD', cwd=self.repo)
-        return [l for l in (out or '').split('\n') if re.search(r'\.(java|ts|tsx|js|mjs|cjs|py)$', l)]
+        # the extension list is the ONLY gate on what a diff can contain, so a language missing from it is
+        # not degraded here, it is absent: `changed` answers [] for every edit and test-impact, which is
+        # `changed` plus impact --tests, can never select anything from it (#1083)
+        return [l for l in (out or '').split('\n') if re.search(r'\.(java|ts|tsx|js|mjs|cjs|py|cs)$', l)]
 
     # ── the text-level structure of a declaration ─────────────────────────────────────────────────────────────
     @staticmethod
