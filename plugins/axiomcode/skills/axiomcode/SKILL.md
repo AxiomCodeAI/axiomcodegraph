@@ -33,7 +33,8 @@ axiomcode install [<repo>] [--remove]                                     write 
 
 | the question in front of you | the call |
 |---|---|
-| no graph yet | `axiomcode index` |
+| **`.axiomcode/out/graph.sqlite` already exists** | **use it — do NOT run `index`** (see below) |
+| no graph at all | `axiomcode index` |
 | "who calls X" / "what breaks if X changes" | `axiomcode impact X` |
 | "where is the decryption code" — a concept, no name yet | `axiomcode path decrypt '*'` |
 | "how does A reach B" | `axiomcode path A B` |
@@ -42,6 +43,15 @@ axiomcode install [<repo>] [--remove]                                     write 
 | "what did my edit actually touch" | `axiomcode changed --impact` |
 | "is it safe to delete X" | `axiomcode impact X --delete` |
 | this repo should prefer the graph over grep, once | `axiomcode install` |
+
+**Before anything else: if `.axiomcode/out/graph.sqlite` exists, the graph is built — query it.** Do not run
+`index` to "make sure", and do not re-run it after your own edit. A build costs minutes on a large tree, and
+`index` with flags that differ from the ones the graph was built with is a cache MISS, not a no-op: it rebuilds
+from scratch and the graph you end up with is the one YOUR flags describe. Calling it bare on a repo indexed
+with `--library` therefore spends the full build to arrive at a client-only graph — every call into a
+dependency `ambiguous_unknown`, resolution understated — which is strictly worse than the graph you destroyed.
+Run `index` only when there is no `graph.sqlite`, or when you intend to change what it covers and are passing
+the flags to say so.
 
 Four rules that decide whether the answer means anything:
 

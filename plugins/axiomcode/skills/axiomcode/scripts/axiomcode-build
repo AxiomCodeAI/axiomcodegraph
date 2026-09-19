@@ -29,6 +29,24 @@ OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
 STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
+# ASKING FOR LESS IS NOT A CACHE MISS. The stamp includes the library roots, so a bare `index` on a repo whose
+# graph was built WITH roots does not match, and the rebuild that follows spends the full build cost to arrive
+# at a client-only graph: every call into a dependency ambiguous_unknown, the resolution rate understated,
+# strictly worse than the graph it replaced. Measured once at 624 s, by an agent that only wanted to be sure
+# the graph was current. So when the existing graph differs from what was asked for ONLY by having libraries
+# the request omits, keep it and say so; a caller that means to narrow coverage passes AXIOMCODE_REINDEX=1.
+# The library field is a list of PATHS, and paths contain hyphens (`other-lib`), so the stamp cannot be split
+# on its last hyphen -- that cuts inside the path and no two stamps ever compare equal. Split on the known
+# prefix instead: everything before the library field is fixed-format and built right here.
+PREFIX="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-"
+if [ -z "${AXIOMCODE_LIBRARY:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ] && [ -f "$OUT/stamp" ] && [ -f "$OUT/graph.sqlite" ]; then
+  PREV="$(cat "$OUT/stamp")"
+  if [ "${PREV#"$PREFIX"}" != "$PREV" ] && [ "${PREV#"$PREFIX"}" != nolib ]; then
+    echo "graph already built for this commit WITH library roots (${PREV##*-}); keeping it — a bare index would"
+    echo "  rebuild it client-only, which resolves less. AXIOMCODE_REINDEX=1 to force, or pass --library to change them."
+    STAMP="$PREV"
+  fi
+fi
 if [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
   python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
