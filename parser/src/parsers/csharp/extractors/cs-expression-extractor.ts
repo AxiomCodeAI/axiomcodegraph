@@ -13,6 +13,7 @@ import {
   misparsedCollectionExpressionOf,
   relationalPatternSwallowOf,
   misparsedGenericCreationArgumentsOf,
+  misparsedGenericCreationRunOf,
   misparsedNullConditionalUnder,
   misparsedTupleGenericCreationOf,
   nullConditionalMisparseInPrimaryChainOf,
@@ -1479,6 +1480,36 @@ interface ExpressionShape {
  * A `#if` holding a whole argument with no comma is still the expression
  * path, inside an `argument` node, and is not this list's business.
  */
+/**
+ * The count every caller takes is `argumentsOf(list).filter(argument).length`,
+ * so the ONE place a misparsed generic creation has to be collapsed is here.
+ *
+ * `Take(new D<K, V>(args) { ... })` is split across sibling `argument` nodes by
+ * the `<` ambiguity, and counting them gives the call two arguments where the
+ * source writes one. Collapsing the run to its first member leaves the count
+ * right for every caller at once -- an invocation, a constructor initializer
+ * and a primary base all read this function -- rather than correcting each.
+ */
+function collapseMisparsedCreationRun(
+  list: Parser.SyntaxNode,
+  args: Parser.SyntaxNode[]
+): Parser.SyntaxNode[] {
+  const run = misparsedGenericCreationRunOf(list);
+  if (run === undefined) {
+    return args;
+  }
+  const argumentIndexes: number[] = [];
+  args.forEach((a, i) => {
+    if (a.type === 'argument') {
+      argumentIndexes.push(i);
+    }
+  });
+  const drop = new Set(
+    argumentIndexes.slice(run.start + 1, run.start + run.length)
+  );
+  return args.filter((_, i) => !drop.has(i));
+}
+
 function argumentsOf(
   list: Parser.SyntaxNode,
   activeSymbols: ReadonlySet<string>
@@ -1501,7 +1532,7 @@ function argumentsOf(
       }
     }
   }
-  return out;
+  return collapseMisparsedCreationRun(list, out);
 }
 
 function describeExpression(

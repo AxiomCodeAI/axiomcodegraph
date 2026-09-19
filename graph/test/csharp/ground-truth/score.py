@@ -370,10 +370,13 @@ def main():
         # "wrongly resolved" edges across the holdout set, every one of them a pairing
         # this function invented.
         synth = name.startswith(("get_", "set_", "add_", "remove_", "op_"))
-        only = next(iter(names)) if len(names) == 1 else None
+        # `, None` is redundant under the len() == 1 guard and the lint cannot see the
+        # guard. Written the safe way so the gate stays mechanical rather than teaching it
+        # to reason about control flow.
+        only = next(iter(names), None) if len(names) == 1 else None
         only_synth = bool(only) and only.startswith(("get_", "set_", "add_", "remove_", "op_"))
         if len(names) == 1 and group_size == 1 and not (synth or only_synth):
-            return pos + (next(iter(names)),)
+            return pos + (next(iter(names), None),)
         # A NULL-CONDITIONAL CALL IS ANCHORED DIFFERENTLY ON THE TWO SIDES.
         # `Changed?.Invoke(this, e)` -- the parser anchors the site at the start of the
         # conditional access (`Changed`) and Roslyn at the invocation (`Invoke`), so

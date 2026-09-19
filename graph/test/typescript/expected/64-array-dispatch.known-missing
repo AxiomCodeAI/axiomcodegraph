@@ -1,0 +1,16 @@
+# Accepted gaps for 64-array-dispatch. Each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# All three are the same family: a callable registered as DATA and reached through
+# the collection holding it, rather than named at the call site. They are pinned
+# here rather than left silent because an absent edge and an unmodelled one are
+# indistinguishable to a consumer, and an empty impact answer reads as "nothing
+# depends on this", which is the most costly thing to say incorrectly.
+#
+# Measured against the TypeScript compiler's own answer (checker.getResolvedSignature,
+# via tools/tsc_oracle_case.mjs): oracle=7 engine=4 agree=4 extra=0. runDirect, and
+# each step's own call to measure, resolve and are the controls.
+pipeline#runIterated(Node) -> steps#widenRange(Node)
+pipeline#runIndexed(Node) -> steps#widenRange(Node)
+pipeline#runByName(Node) -> steps#squareRange(Node)

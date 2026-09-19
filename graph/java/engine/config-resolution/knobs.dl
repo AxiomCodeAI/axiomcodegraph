@@ -206,7 +206,15 @@ cfg_route_verb("PatchMapping", "PATCH").
 cfg_route_verb("GetExchange", "GET").      cfg_route_verb("PostExchange", "POST").
 cfg_route_verb("PutExchange", "PUT").      cfg_route_verb("DeleteExchange", "DELETE").
 cfg_route_verb("PatchExchange", "PATCH").
-// @RequestMapping, @Path and @HttpExchange name no verb on their own — they stay "any".
+// @RequestMapping and @HttpExchange name no verb on their own, so they stay "any".
+// @Path does not either, but JAX-RS declares the verb in a SIBLING annotation on the
+// same method, so the verb is present and simply lives somewhere else. A verb-only
+// annotation contributes the verb and NO path of its own: the handler's path is the
+// one it inherits from its resource class.
+cfg_route_verb_ann("GET", "GET").         cfg_route_verb_ann("POST", "POST").
+cfg_route_verb_ann("PUT", "PUT").         cfg_route_verb_ann("DELETE", "DELETE").
+cfg_route_verb_ann("PATCH", "PATCH").     cfg_route_verb_ann("HEAD", "HEAD").
+cfg_route_verb_ann("OPTIONS", "OPTIONS").
 
 cfg_sends_verb("getForObject", "GET").     cfg_sends_verb("getForEntity", "GET").
 cfg_sends_verb("postForObject", "POST").   cfg_sends_verb("postForEntity", "POST").

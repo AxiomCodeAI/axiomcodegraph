@@ -1,0 +1,4 @@
+known_edge	METHOD_PARAM	0	pipeline [METHOD_PARAM] -> Node
+known_edge	METHOD_PARAM	0	steps [METHOD_PARAM] -> Node
+known_edge	METHOD_RETURN	0	pipeline [METHOD] -> Node
+known_edge	METHOD_RETURN	0	steps [METHOD] -> Node
