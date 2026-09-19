@@ -14,6 +14,7 @@ import {
   relationalPatternSwallowOf,
   misparsedGenericCreationArgumentsOf,
   misparsedGenericCreationRunOf,
+  misparsedGenericCreationRunAtCreationOf,
   refReturningAssignmentOf,
   misparsedNullConditionalUnder,
   misparsedTupleGenericCreationOf,
@@ -895,6 +896,13 @@ function spanEndOf(node: Parser.SyntaxNode): Parser.Point {
   if (creationArguments !== undefined) {
     return creationArguments.argumentsNode.endPosition;
   }
+  // The run form ends at the LAST argument of the run, which is where the
+  // initializer closes. A creation row ending on its type name is the signature
+  // of this misparse just as it is of the one above.
+  const runPieces = misparsedGenericCreationRunAtCreationOf(node);
+  if (runPieces !== undefined) {
+    return runPieces.end.endPosition;
+  }
   // A CALL THE GRAMMAR READ AS A LAMBDA ends where that lambda does. Its row is
   // built from the callee IDENTIFIER, whose own span is just the name — so
   // without this the arguments and the lambda, which are its children, would
@@ -1016,6 +1024,31 @@ function emitOne(
   // end of its arguments — so the comparison is replaced by it, and the tuple
   // that stood for the type arguments is never walked. It is a TYPE, and a type
   // gets no expression rows.
+  // `Take(new D<K, V>(args) { ... })` is split across sibling arguments by the
+  // `<` ambiguity, and the leading `<` binary is not a comparison at all: the
+  // row that belongs at this position is the CREATION. Redirecting here is what
+  // stops the two fabricated BINARY rows and the fabricated CAST from being
+  // emitted, and stops the type arguments becoming NAME_REFERENCE values -- a
+  // resolver was looking for values named after the types.
+  if (node.type === 'binary_expression' && node.parent?.type === 'argument') {
+    const creation = node.childForFieldName('left');
+    if (
+      creation !== null &&
+      creation.type === 'object_creation_expression' &&
+      misparsedGenericCreationRunAtCreationOf(creation) !== undefined
+    ) {
+      queue.push({
+        node: creation,
+        parentHash: pending.parentHash,
+        role: pending.role,
+        position: pending.position,
+        depth,
+        localNames: pending.localNames,
+      });
+      return;
+    }
+  }
+
   if (misparsedTupleGenericCreationOf(node) !== undefined) {
     const creation = misparsedTupleGenericCreationOf(node)!.creation;
     queue.push({
@@ -3138,6 +3171,20 @@ function childrenWithRoles(
       // here so the subtree survives: the comparison they hung off is not
       // emitted, and a tree rooted at a non-emitting node dies before its
       // children are enqueued — `(src)` would have taken `src` with it.
+      // The run form: the constructor arguments and the initializer were filed
+      // inside a fabricated cast two arguments along, so they are grafted back
+      // here. Without this the creation emits with no children at all and the
+      // arguments the source wrote are lost with the comparison they hung off.
+      const runPieces = misparsedGenericCreationRunAtCreationOf(node);
+      if (runPieces !== undefined) {
+        if (runPieces.constructorArguments !== undefined) {
+          push(runPieces.constructorArguments, CsEdgeRole.ARGUMENT);
+        }
+        if (runPieces.initializer !== undefined) {
+          push(runPieces.initializer, CsEdgeRole.INITIALIZER_VALUE);
+        }
+        break;
+      }
       const repaired = misparsedGenericCreationArgumentsOf(node);
       if (repaired !== undefined) {
         if (repaired.argumentsNode.type === 'initializer_expression') {
