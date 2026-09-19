@@ -1,0 +1,15 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a TypeScript decoration is recorded as a DECORATOR_CALL and nowhere else, so @Get had to be answered from the call sites — an empty decorations table read as 'this repository has no handler'",
+   "run": ["path", "@Get", "*"],
+   "want": ["CatalogService.lookup", "CatalogService.priceOf"],
+   "avoid": ["no method carries"]},
+  {"why": "a decoration on the TYPE is carried by every method it declares, or the class-level form of every framework (@Controller, @RestController, @Injectable, @Component) answers nothing",
+   "run": ["path", "@Controller", "CatalogService.lookup"],
+   "want": ["CatalogController.findOne", "→ CatalogService.lookup"],
+   "avoid": ["no method carries"]},
+  {"why": "a decoration that nothing carries still names the ones that exist, so the reader asks the next question with a real name",
+   "run": ["path", "@Post", "*"],
+   "want": ["no method carries @Post", "@Get"],
+   "expect_error": true}
+ ]}

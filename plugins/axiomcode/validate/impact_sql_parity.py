@@ -41,6 +41,7 @@ targets = random.sample(pool, min(N, len(pool)))
 def run(t, dl, dump):
     env = dict(os.environ)
     env['AXIOMCODE_DATALOG'] = '1' if dl else ''      # SQL is the default now; the rules are the opt-out
+    env['AXIOMCODE_SQL'] = '' if dl else '1'          # ...and impact now takes AXIOMCODE_SQL=1 to select it
     env['AXIOMCODE_DUMP_SOLVE'] = dump; env['AXIOMCODE_BACKEND'] = '1'
     t0 = time.time()
     r = subprocess.run(['python3', os.path.join(S, 'axiomcode-impact'), t, repo, '--json', '--depth', '12'],

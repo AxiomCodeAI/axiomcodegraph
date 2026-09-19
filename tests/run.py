@@ -28,6 +28,7 @@ for l in sorted(os.listdir(os.path.join(HERE, 'cases'))):
         if os.path.isfile(os.path.join(d, c, 'case.json')) and (not only or c in only or l in only): cases.append((l, c, os.path.join(d, c)))
 fail = tot = 0
 for l, name, path in cases:
+    print(f"… {l}/{name}", flush=True)
     spec = json.load(open(os.path.join(path, 'case.json')))
     build = ['bash', AX, 'index', path, '--lang', spec.get('lang', l)] + (['--src', spec['src']] if spec.get('src') else [])
     r = subprocess.run(build, capture_output=True, text=True)
@@ -47,7 +48,7 @@ for l, name, path in cases:
             except Exception as e: bad.append(f"stdout is not one JSON document ({e})")
         if out.returncode and not ch.get('expect_error'): bad.append(f"(exit {out.returncode})")
         if bad:
-            fail += 1; print(f"FAIL {l}/{name}: {ch['why']}")
+            fail += 1; print(f"FAIL {l}/{name}: {ch['why']}", flush=True)
             for b in bad: print(f"     missing/unwanted: {b}")
             print('     ' + '\n     '.join(text.strip().split('\n')[:14]))
         elif verbose: print(f"ok   {l}/{name}: {ch['why']}")

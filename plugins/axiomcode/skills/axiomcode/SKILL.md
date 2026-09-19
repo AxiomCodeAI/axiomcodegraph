@@ -77,6 +77,24 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 - **what the container injects** — a type registered as a bean, or a method that defines one, lists the callables the
   container hands it to (`ctor_param`, a field injection): `receives it by dependency injection — the container hands it
   over, no call site`. Swapping a `@Bean` implementation reaches its consumers this way.
+- **a handler nothing calls is still used** — a declaration handed over as a *value* (`app.get('/orders/:id', getOrder)`,
+  `background.add_task(send_receipt, id)`, `setTimeout(flush, 1000)`, `handlers = {"x": handle_x}`) has no call site
+  anywhere: the call happens inside the framework, or later, or never. Every other rule here is about call sites, so this
+  used to answer *"the declaration is used only where it is declared"* — and `--delete` said **no dependent at any
+  certainty** — for a live HTTP handler. The reference the parser recorded is read instead, and the site says what will do
+  the calling: `registered as a GET route "/orders/:id" here — the router calls it, no call site does` when the call is a
+  route registration (a router verb *and* a string argument that begins with `/` — `get`/`set`/`delete` alone are Map, Set,
+  Headers and every cache in this ecosystem, so the verb is never matched by itself), otherwise `handed to add_task(…) as a
+  callback`. It is `[by name]`: the parser says the identifier binds to a callable, not that it binds to *this* one.
+  Where the engine already resolved the registration to an edge — a JavaScript `app.get('/pads', listPads)` is a resolved
+  call in that engine — the row stays `[resolved]` and only the sentence changes, so the reader learns that what they are
+  changing is `GET /pads` rather than that some module calls it. **JavaScript gets the wording and no name-matched rows:**
+  its `refs` carry the access mode (`IDENTIFIER|READ`) and no entity kind, so nothing there distinguishes a reference to the
+  declaration from a parameter of the same name. A site-keyed version was written for it and measured on a 124-file Express
+  application: eleven rows over 30 sampled targets, and all eleven were wrong (seven a parameter named `callback` inside
+  `forEach(function (callback) {…})`, four a `settle` being *called* inside the `.then(…)` span it sits in). It is not
+  shipped. The rule needs the parser to say that an identifier binds to a callable, which TypeScript, Python and Java do
+  and JavaScript does not.
 - **must change with it** — declarations bound to the target by a contract the engine resolved: the overrides of a method (and what
   it overrides), the subtypes of a type. A signature change reaches these first.
 - **produces or writes it** — the blast radius read top-down starts where a value of the new shape has to be *made*: setter and
@@ -315,8 +333,17 @@ absent, never wrong, and the `? n` count says how many.
   as one target: `new File` at unresolved sites, the library methods of `java.io.File` when staged,
   and the methods whose body references the name where the parser gives a line. The answer says which of those it
   matched (Java type references carry no line, so there it is the constructor calls and identifier uses).
-- **A decoration is an endpoint**: `path '@GetMapping' 'new File'`, `path '@*Mapping' Files.readAllBytes`, `path '@Test' X` —
-  every method carrying it (from the index's decorations table), so "from any method with this decoration to X" is one call.
+- **A decoration is an endpoint**: `path '@GetMapping' 'new File'`, `path '@*Mapping' Files.readAllBytes`, `path '@Test' X`,
+  `path '@Get' '*'`, `path '@Controller' Svc.load` — every method carrying it, so "from any method with this decoration to X"
+  is one call. A decoration on the **type** is carried by every method that type declares, which is what the class-level form
+  of every framework needs (`@RestController`, `@Controller`, `@Injectable`, `@Component`, `@Entity`); on Spring Cloud Config
+  Server that is 78 methods for `@*Mapping` where the method-level rows alone are 29. The decorations come from the index's
+  decorations table **or, where a front end records a decorator as a call and not as a decoration, from those call sites** —
+  a TypeScript or JavaScript graph has an empty decorations table and its `@Get(':sku')` sitting in `call_sites` as a
+  `DECORATOR_CALL`, so Nest, Angular and TypeORM used to answer `no method carries @Get` with an empty list of decorations,
+  which reads as "this repository has no such handler". The owner is the narrowest declaration whose span holds the decorator
+  line, so `@Get` lands on the method and `@Controller`, which the call site charges to the module, lands on the class.
+  A graph that records no decoration at all now says so, instead of printing an empty list.
 - **End to end, any shape:** `path Type1 method4` asks whether *any* method of Type1 reaches *any* declaration named
   method4 — a type on either end is all its methods, a bare name is every declaration under any owner (a free function
   in Python/TS/JS has its file as owner). The same rule in every language; nothing is forced to be typed.
