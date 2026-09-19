@@ -28,8 +28,8 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, budgeted, BOUND,
-                         dirs_with_counts, offer, task_text, task_terms, winnow, headline, is_synthetic)
+from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, best_scope, budgeted, BOUND,
+                         dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, die = P.G, P.die
@@ -242,6 +242,27 @@ def main(argv):
         # package reads as an answer about the whole repository.
         scope = sole_scope(g) or ''
         if scope: print(f"scope: {scope} (the only package this graph indexes; --in overrides)\n")
+        elif rank:
+            # Several candidates, and a caller holding an issue and no symbol — which is the caller this
+            # verb was written for, and by construction the one who cannot name the scope. Refusing here
+            # returned NOTHING while holding the answer: on a conventional two-root Java layout the bare
+            # call named 0 gold files on 30 of 30 tasks and the same call with a scope named 0.96 of them,
+            # and the two offered roots agreed to within 0.006 recall — so the choice being demanded was
+            # not what decided the answer. Take the top row instead and SAY it was taken.
+            #
+            # It is taken as OFFERED, not as knowledge: rule 2 says a scope this program guessed does not
+            # filter, so this cannot discard the answer the way an explicit --in on a wrong package would.
+            # What it buys is an answer at all, plus the line naming what was assumed and what else was on
+            # the menu, which is the repair instruction the refusal used to be.
+            picked = best_scope(rank)
+            if picked:
+                scope, n = picked
+                scope_offered = True   # a guess by rule 2: it neither filters the answer nor weights it
+                menu = ', '.join(r[0] for r in drop_ancestors(list(rank))[:4])
+                print(f"where this task's words land: {scope} (of {n} scope(s) this graph offers: {menu}"
+                      + ("…" if n > 4 else "") + ")")
+                print("  no --in was given, so NOTHING below is narrowed to it — "
+                      "pass --in <path> to narrow.\n")
     bad = require_scope(g, scope, terms, rank=rank, flag=' --in-offered')
     if bad is not None: return bad
 
