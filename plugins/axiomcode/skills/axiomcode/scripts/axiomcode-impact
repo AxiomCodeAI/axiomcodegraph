@@ -67,7 +67,7 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 # it obtained itself, so an added proxied annotation does not apply") — the differential test caught that immediately.
 # `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
 # not, for EVERY target kind. What is left is the layer only a field or type target can reach.
-_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'gen_table',
+_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
               'base_name', 'field_type', 'reexport', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
 # `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
@@ -214,7 +214,46 @@ class Impact:
         others = sorted(written - {s})
         return [('config', f"configuration key {s}" + (f" ({n} method(s) bound to it)" if n else " (bound, but no method reads it in this graph)")
                  + (f", also written {', '.join(others)}" if others else ''), want)]
+    def prefix_note(self, typed, out):
+        """The leading segments the caller typed that nothing resolved accounts for.
+
+        Resolution matches a declaration by its TRAILING segments, so `zzzz.qqqq.Owner.member`
+        and the true fully-qualified spelling are indistinguishable once matched: both come back
+        as `Owner.member`. Comparing the typed string against every qualified_name and display a
+        candidate carries is what tells a real package apart from one that is not in the graph."""
+        typed = re.sub(r'\(.*\)$', '', typed).replace('#', '.').strip('.')
+        if typed.count('.') < 2: return ''          # Owner.member carries no prefix to validate
+        names = []
+        for _k, _lab, ids in out:
+            for i in (ids if isinstance(ids, (list, tuple, set)) else [ids]):
+                if isinstance(i, dict): names += [i.get('qualified_name'), i.get('display')]
+                elif isinstance(i, str) and i in self.g.sym:
+                    names += [self.g.sym[i].get('qualified_name'), self.g.sym[i].get('display')]
+        low = typed.lower()
+        for n in names:
+            if not n: continue
+            n = str(n).replace('#', '.').lower()
+            if n == low or n.endswith('.' + low): return ''      # the prefix IS part of the name
+        return typed.rsplit('.', 2)[0]
+
     def resolve(self, sel, kind=None):
+        out = self._resolve(sel, kind)
+        # a target whose leading segments match nothing is not the declaration it happens to end with
+        pre = self.prefix_note(sel, out) if out else ''
+        if pre:
+            tail = re.sub(r'\(.*\)$', '', sel).replace('#', '.').strip('.').rsplit('.', 2)[-2:]
+            short = '.'.join(tail)
+            if self.CONFIG_RE.match(re.sub(r'\(.*\)$', '', sel).strip()):
+                # a lowercase dotted key reaching a declaration only by its tail is the key, not the code
+                return self.config_target(re.sub(r'\(.*\)$', '', sel).strip())
+            die(f"'{pre}' matches no package, type or declaration in this graph; '{sel}' was matched only by its\n"
+                f"  trailing segments, which would answer for '{short}' as if the prefix had been checked. If that is\n"
+                f"  the declaration you mean, ask for it as '{short}'; if the prefix is real, re-index the tree that\n"
+                f"  declares it — a fabricated or mistyped prefix and the true qualified name are otherwise the same\n"
+                f"  question here.")
+        return out
+
+    def _resolve(self, sel, kind=None):
         """-> list of (kind, label, payload). payload: method ids (method), field row (field), type symbol (type),
         (method id, name) (param / var), (owner symbol, name) (typeparam). Several when the name is declared as several kinds."""
         raw = sel.strip()
@@ -555,7 +594,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '19'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '20'          # 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -610,6 +649,15 @@ class Impact:
             acc += [(fid, 'get' + cap, 'read'), (fid, 'is' + cap, 'read'), (fid, 'set' + cap, 'write'), (fid, f['name'], 'read')]
             if f['name'].startswith('_') and len(f['name']) > 1: acc.append((fid, f['name'].lstrip('_'), 'read'))
         W('member', members); W('owner', owners); W('field', fields); W('accessor', acc)
+        # the accesses the ENGINE resolved, joined on the same id the `field` fact uses: symbols.id for a
+        # field IS the bundle's fields.id. #1071 — the relation shipped populated and no rule read it, so a
+        # resolved access was answered as a name match, with its read/write direction discarded.
+        fa = [(r['caller_id'], r['field_id'], r['access'] or '', r['tier'] or '', r['f'] or '', r['start_line'] or 0)
+              for r in g.q("""SELECT fa.caller_id, fa.field_id, fa.access, fa.tier, fa.start_line,
+                                     COALESCE(p.rel, fa.file_path) AS f
+                              FROM field_access fa LEFT JOIN paths p ON p.raw = fa.file_path
+                              WHERE fa.field_id IS NOT NULL AND fa.caller_id IS NOT NULL""")] if g.has('field_access') else []
+        W('faccess', fa)
         self.module_owners = modules_used
         # the type written on the field's own declaration line. Without it `holds` is file scoped: one field of type T
         # in a file makes every type declared in that file a holder of T

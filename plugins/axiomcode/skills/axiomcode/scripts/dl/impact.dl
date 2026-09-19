@@ -22,6 +22,8 @@
 //   literal(c, v, f, l)               a string literal v inside c
 //   field(F, T, n, f, l)              field F named n declared in type T at f:l
 //   accessor(F, n, rw)                the bean accessor name for field F (getX / setX / isX / x) and whether it reads or writes
+//   faccess(C, F, acc, tier, f, l)    a field access the ENGINE resolved: callable C touches field F at f:l,
+//                                     acc read|write|readwrite, tier as in call_edges
 //   gen_table(d, what)                what decoration d generates: get | set | is | ctor | builder | fluent | with
 //   base_name(t, n)                   type t is declared with a supertype WRITTEN n — the base may be a library type the
 //                                     graph never resolved (the Python validation library's BaseModel), which is exactly the case `extends` misses
@@ -67,6 +69,7 @@
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
+.decl faccess(c:symbol, fl:symbol, acc:symbol, tier:symbol, f:symbol, l:number) .input faccess
 .decl gen_table(d:symbol, what:symbol)                            .input gen_table
 .decl base_name(t:symbol, n:symbol)                               .input base_name
 //   throws_(m, e) / catches(m, e)     a callable declares / catches the checked exception e (read from its own text: Java
@@ -312,16 +315,32 @@ fref(q, c, rk, f, l) :- enum_member_target(q, fl), field(fl, t, n, ff, fll), ref
     typ(t, tn, _), typeref(_, tn, _, f, _).
 .decl frole(rk:symbol, role:symbol, why:symbol)
 frole("qualified", "uses", "writes/reads it"). frole("bare", "reads", "reads it").
+
+// A field access the ENGINE resolved. The site is bound to THIS declaration, so it is not a name
+// match against every field of that name, and its direction is known. Sites the engine could not
+// bind (tier ambiguous_unknown) are left to the name rules below, which is where they belong.
+.decl fa_bound(c:symbol, fl:symbol, acc:symbol, f:symbol, l:number)
+fa_bound(c, fl, acc, f, l) :- faccess(c, fl, acc, tier, f, l), tier != "ambiguous_unknown".
+direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "write", f, l).
+direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
+direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "read", f, l).
+direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
+// a caller the engine bound — to this field, or to a DIFFERENT field of the same name. Either way its
+// name matches say nothing further: the first is already reported above with its direction, and the
+// second touches another declaration entirely and was previously printed as touching this one.
+.decl fa_known(q:symbol, c:symbol)
+fa_known(q, c) :- target(q, "field", fl, _), fa_bound(c, fl, _, _, _).
+fa_known(q, c) :- target(q, "field", fl, _), field(fl, _, n, _, _), fa_bound(c, fl2, _, _, _), fl2 != fl, field(fl2, _, n, _, _).
 // in scope: inside the owner, a subtype, or a nested type — or the type node itself (a field initializer)
-direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s).
-direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), scope(t, c).
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s), !fa_known(q, c).
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), scope(t, c), !fa_known(q, c).
 // qualified elsewhere: the qualifier written on the line decides — the owner's own name confirms, another type's name excludes
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), qualifier(f, l, n, tn).
+    owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn).
+    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _).
+    owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c).
 // THE SAME, IN A CALLABLE THAT HAS NO OWNER TYPE. Every rule above starts at `owner(c, s)`, which in Java and
 // TypeScript is always there — and in Python and JavaScript a module-level function has no owner at all, so a
 // qualified read of a field from one was matched by no rule and vanished from the answer. `price_order` reading
@@ -329,11 +348,11 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
 // own class touched it. The qualifier decides here exactly as it does above: the owner's own name confirms,
 // another TYPE's name excludes, and a variable (which is what a Python qualifier usually is) is `by name`.
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, tn).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    !owner(c, _), !scope(t, c), !qualifier(f, l, n, _).
+    !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n).

@@ -124,6 +124,24 @@ A = {
     boundNames=dict(file='all-javascript-variables.csv', name='name', only=lambda r: r.get('initializerKind') == 'FUNCTION',
                     via=dict(key='initializerExpressionLinkHash', file='all-javascript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash')),
     skipped='skipped-javascript-files.csv'),
+ 'csharp': dict(
+    modules=dict(file='all-csharp-modules.csv', id='csModuleUniqueHash', filePath='filePath'),
+    # a member's name (`obj.Count`, `this.value`) is in potentialQualifiedName; a bare name is in literalValue
+    expr=dict(file='all-csharp-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'csModuleLinkHash'),
+              refKinds={'NAME_REFERENCE', 'MEMBER_ACCESS'}, entityKind='referencedEntityKind',
+              # the literal TYPE column is literalKind here, not literalType as in java/typescript/python
+              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
+    # type references carry no module link of their own; the owner hash resolves through the bundle's types
+    typeRefs=dict(file='all-csharp-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'ownerLinkHash')),
+    # fields carry no ownerQualifiedName (potentialQualifiedName is the field's TYPE), so the owner comes
+    # from the file the way javascript's does; a property is a member that reads as a field at its sites
+    decls=[dict(file='all-csharp-fields.csv', id='csFieldUniqueHash', kind=lambda r: 'const' if r.get('isConst') == 'true' else 'field',
+                name='name', owner=None, fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine'),
+           dict(file='all-csharp-properties.csv', id='csPropertyUniqueHash', kind=lambda r: 'field',
+                name='name', owner=None, fileVia=('types', 'csTypeLinkHash'), line='startLine', end='endLine'),
+           dict(file='all-csharp-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner=None, fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine')],
+    boundNames=None, skipped='skipped-csharp-files.csv'),
 }[LANG]
 
 # ── the fixed kind vocabulary, from the parser's methodKind / typeCategory ─────────────────────────
