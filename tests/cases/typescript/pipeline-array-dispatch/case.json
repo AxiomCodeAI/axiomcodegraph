@@ -1,10 +1,37 @@
-{"lang": "typescript", "src": "src",
+{
+ "lang": "typescript",
+ "src": "src",
  "checks": [
-  {"why": "a step registered in an array and invoked by iteration is reached from the function that iterates, so a test driving the pipeline reaches the step (#967)",
-   "run": ["impact", "measure", "--tests"],
-   "want": ["src/pipeline.test.ts"],
-   "avoid": ["0 of 1 test method(s)"]},
-  {"why": "the same silence, one hop earlier: the pipeline's own caller is the iterating function",
-   "run": ["path", "run", "widenRange"],
-   "want": ["widenRange"],
-   "avoid": ["no chain of resolved calls"]}]}
+  {
+   "why": "a step registered in an array and invoked by iteration is reached from the function that iterates, so a test driving the pipeline reaches the step (#967)",
+   "run": [
+    "impact",
+    "measure",
+    "--tests"
+   ],
+   "want": [
+    "src/pipeline.test.ts"
+   ],
+   "avoid": [
+    "0 of 1 test method(s)"
+   ],
+   "pending": "#967 \u2014 a callable registered as DATA (an array element) has no edge from whoever iterates it; PEND is decided from want/avoid only, so a crash here is still a failure"
+  },
+  {
+   "why": "the same silence, one hop earlier: the pipeline's own caller is the iterating function",
+   "run": [
+    "path",
+    "run",
+    "widenRange"
+   ],
+   "want": [
+    "widenRange"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ],
+   "pending": "#967 \u2014 a callable registered as DATA (an array element) has no edge from whoever iterates it; PEND is decided from want/avoid only, so a crash here is still a failure",
+   "expect_error": true
+  }
+ ]
+}

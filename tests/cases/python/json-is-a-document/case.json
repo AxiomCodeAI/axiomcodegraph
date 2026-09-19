@@ -3,7 +3,7 @@
  "src": ".",
  "checks": [
   {
-   "why": "--json is a document: a name that is both a field and a method still answers, and the note about it goes to stderr rather than into the JSON a consumer parses",
+   "why": "--json is a document: a name that is both a field and a method still answers, and the note about it goes to stderr rather than into the JSON a consumer parses. This must stay an stdout_json assertion \u2014 want/avoid scan stdout and stderr concatenated, so a substring check cannot tell which stream a line is on",
    "run": [
     "impact",
     "limit",
