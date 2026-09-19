@@ -94,7 +94,10 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   listed as reading or writing the field through it. A **generating decoration** — Lombok `@Data` / `@Getter` / `@Setter` /
   `@Value` / `@Builder` / `@AllArgsConstructor` / `@With`, a record, a dataclass — declares members the source never spells, so a
   call to `getZipCode()` or `new Address(…)` is an unresolved site; the unresolved sites written with the generated name are listed
-  as calling the generated getter / setter / constructor `[by name]`, with the decoration that generates it. A string literal
+  as calling the generated getter / setter / constructor `[by name]`, with the decoration that generates it. Where the ENGINE
+  synthesises the member instead of leaving the site unresolved (Java's Lombok and records, C#'s auto-properties: a `methods`
+  row with provenance `generated`), the call site resolves to it and the caller is named `[resolved]` — *reads it through
+  getName()* — which is the same answer with a stronger claim behind it. A string literal
   equal to the field's name (a map key, a serialized name, a request parameter) is listed `[text]`.
 - **the upstream answer is measured against behaviour, not against itself** — `validate/upstream.py <repo>` takes a tree with
   `.axiomcode/mutation.json` (a method broken, the test files that then failed), asks `impact <m> --tests` which test files
@@ -110,6 +113,21 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   `it(…)` — 6,661 of hono's 7,723 callables in test files are `<arrow>` and two carried a name the old rule accepted,
   so the test universe was empty and every answer named no test file at all. A callable registered by `it` / `test` /
   `bench` on its own line is a test, and a helper declared beside them carries them.
+  A library is not a service, and the number differs by population: on a Python SERVICE driven through its frameworks
+  (FastAPI + Flask + click routes, a pytest suite with conftest fixtures, a decorator registry, a signal loop, 53
+  functions broken one at a time, 95 (method, test file) pairs) recall was **0.216** — 26 of 40 answers named no test
+  file at all — because the suite reaches the code the way the outside world does: through the framework. The
+  registration-key hop and the injected-fixture rules take it to **0.695** at precision 0.930, and what is still
+  missing is named rather than guessed: a function reached only through a table or list of functions dispatched by
+  index (`TRANSFORMS = [strip, upper]`, `EXPORTERS[kind](x)`), a decorator that wraps a callable in an object whose
+  method calls it (`@shared_task` … `.delay()`), and a closure defined in one method and returned to another.
+  Held out, on a subject nothing was tuned against (Flask's own 491-test suite, 40 functions broken, 172 pairs):
+  0.564 → **0.727**, precision 0.527 → 0.310. Both halves of that trade are real and neither is free — the recall is
+  routes and fixtures the answer could not see before; the precision is the fan-in of a framework whose every test
+  builds an app. A key that identifies MANY declarations identifies none: Flask's own suite registers `"/"` from 236
+  places and asks for it from 200 more, so a key registering more than `AXIOMCODE_KEY_CAP` (4) declarations is
+  REFUSED rather than joined — the engine's `fan_capped` judgement one layer up. Uncapped that subject reads 0.791
+  recall at 0.248 precision; the cap is indifferent between 2 and 8 on both subjects.
 - **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
   (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
   single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override
@@ -126,7 +144,21 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   field is where the change is observed from, though nothing resolved calls it); `--tests` lists the tests, each with its
   shortest chain to the change. A test counts when
   its own body reaches the change **or a fixture its framework runs first does** (a constructor, a static initializer, `@Before*`,
-  `setUp` — a convention table, printed as such). `--in <path>` and `--depth N` bound it; `--json` is the same answer as data.
+  `setUp` — a convention table, printed as such), **or it names the key the change is registered under** (below).
+  `--in <path>` and `--depth N` bound it; `--json` is the same answer as data.
+- **a registration key is a hop** — a route handler, a signal receiver, a CLI command and a table entry are one shape: the
+  declaration is registered under a STRING and whoever wants it writes that string, not its name. `@router.post("/orders")`
+  and `client.post("/orders")`; `@receiver("order_created")` and `emit("order_created", …)`; `@cli.command("price")` and
+  `invoke(cli, ["price", "4"])`; `@exporter("csv")` and `export(order, "csv")`; a Flask `add_url_rule("/quote/<id>",
+  view_func=legacy_quote)`, where the declaration is handed over as a value and no call site names it at all. Both ends are
+  in the graph and nothing joined them, so a test that drove the app through its framework reached nothing — which is most
+  of what a service's suite does. The two spellings of a path are matched segment by segment (`/orders/o-1/price` against
+  `/orders/{order_id}/price`, `<int:id>`, `:id`), never normalised. It is **not** an edge the engine resolved and is never
+  shown as one: the hop is `[by key]`, and a literal can be a same-valued other thing.
+- **a fixture the framework injects** — pytest matches a test's PARAMETER NAME against the fixtures visible from its file:
+  those beside it and those in a `conftest.py` of any ancestor directory, which is not the test's file and is imported by
+  nothing. A `@pytest.mark.usefixtures` marker names one instead, and an `autouse=True` fixture runs before every test in
+  its scope without being named anywhere. A fixture may request another fixture, and then both run. None of that is a call.
 - **verified** — every printed edge looked up again in graph.sqlite; **bound** counts the unresolved calls inside the impacted
   set, so the set is a lower bound on the real one; a **note** counts the entries matched by name or text.
 

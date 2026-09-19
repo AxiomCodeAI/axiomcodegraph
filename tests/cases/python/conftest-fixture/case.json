@@ -1,0 +1,9 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a fixture in conftest.py is injected by PARAMETER NAME into the tests of its directory subtree, and is in no test's file",
+   "run": ["impact", "make_widget", "--tests"],
+   "want": ["test_widget.py"],
+   "avoid": ["test_other.py"]},
+  {"why": "an autouse fixture runs before every test in its scope, named by nothing at all",
+   "run": ["impact", "reset", "--tests"],
+   "want": ["test_widget.py", "test_other.py"]}]}

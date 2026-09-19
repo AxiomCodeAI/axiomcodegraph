@@ -1,8 +1,8 @@
 {"lang": "java", "src": "src",
  "checks": [
-  {"why": "a generated getter and setter have no declaration, so their callers are found by the convention list and not by an edge",
+  {"why": "a Lombok accessor is synthesised by the engine, not declared in the source: the call site that writes its name RESOLVES to it, and the field's answer names the caller through the accessor",
    "run": ["impact", "User.name", "--kind", "field", "--limit", "50"],
-   "want": ["generated getter getName()", "Greeter.greet", "generated setter setName()", "Greeter.rename"]},
-  {"why": "asking about the TYPE finds the same generated accessors, through its fields",
+   "want": ["reads it through getName()", "Greeter.greet", "writes it through setName()", "Greeter.rename"]},
+  {"why": "asking about the TYPE finds the same generated accessors, as calls to them",
    "run": ["impact", "User", "--kind", "type", "--limit", "50"],
-   "want": ["generated getter getName()", "generated setter setName()"]}]}
+   "want": ["calls getName", "calls setName", "Greeter.greet", "Greeter.rename"]}]}

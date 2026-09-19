@@ -53,6 +53,12 @@
 .decl type_in_file(t:symbol, f:symbol)                            .input type_in_file
 .decl literal(c:symbol, v:symbol, f:symbol, l:number)             .input literal
 .decl dec_literal(c:symbol, d:symbol, v:symbol, f:symbol, l:number) .input dec_literal
+//   regsite(m, "registered", key, f, l)  m handed over as a VALUE on a line that also writes a route (add_url_rule)
+//   route_alias(written, registered)  two spellings of one path: /orders/o-1/price and /orders/{order_id}/price
+.decl regsite(m:symbol, d:symbol, v:symbol, f:symbol, l:number)   .input regsite
+//   key_cap(n)                        how many declarations one key may register before the set is refused
+.decl key_cap(n:number)                                           .input key_cap
+.decl route_alias(w:symbol, r:symbol)                             .input route_alias
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
@@ -66,6 +72,14 @@
 .decl switch_over(m:symbol, t:symbol, arms:symbol)                .input switch_over
 .decl test_method(m:symbol)                                       .input test_method
 .decl fixture(m:symbol)                                           .input fixture
+//   takes_param(m, n)                 callable m declares a parameter called n
+//   fixture_scope(fx, n, p)           fixture fx is named n and serves every file under the path prefix p
+//   file_scope(f, p)                  file f lies under prefix p (itself and every ancestor directory)
+//   autouse_fixture(fx)               fx runs before every test in its scope, named by nothing
+.decl takes_param(m:symbol, n:symbol)                             .input takes_param
+.decl fixture_scope(fx:symbol, n:symbol, p:symbol)                .input fixture_scope
+.decl file_scope(f:symbol, p:symbol)                              .input file_scope
+.decl autouse_fixture(fx:symbol)                                  .input autouse_fixture
 .decl kind(s:symbol, k:symbol)                                    .input kind
 .decl decl_file(s:symbol, f:symbol)                               .input decl_file
 .decl flag(n:symbol)                                              .input flag
@@ -413,11 +427,13 @@ seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, _,
 up(q, m, 0) :- seed(q, m).
 up(q, c, 1) :- seed_byname(q, c).
 up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40.
+up(q, a, d+1) :- up(q, b, d), fw_edge(a, b, _), d < 40.
 .decl reach(q:symbol, m:symbol, d:number)
 reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
 // the chain read-back: a is one hop further from the change than b, through edge a → b
 .decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
+parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_edge(a, b, t).
 .output reach
 .output parent_up
 
@@ -437,6 +453,34 @@ up_sure(q, a, d+1) :- up_sure(q, b, d), edge(a, b, _), d < 40.
 reach_sure(q, m) :- up_sure(q, m, _).
 .output reach_sure
 
+// ── a REGISTRATION KEY: the hop a framework makes and no call site records ────────────────────────────────────
+// A route handler, a signal receiver, a CLI command and a table entry are all the same shape: the declaration is
+// registered under a STRING, and whoever wants it writes that string rather than its name. `@router.post("/orders")`
+// and `client.post("/orders")`; `@receiver("order_created")` and `emit("order_created", …)`; `@cli.command("price")`
+// and `invoke(cli, ["price", "4"])`; `@exporter("csv")` and `export(order, "csv")`. The graph has both ends — the
+// key is in the decoration and in the body — and nothing joined them, so every test that drives the app through
+// its framework reached nothing, which is most of what a test suite does to a service.
+//
+// It is NOT an edge the engine resolved and is never reported as one: a literal can be a same-valued other thing.
+// It enters the closure marked `by key`, the weakest hop there is after `by name`, and the answer says so.
+.decl reg_key(m:symbol, d:symbol, k:symbol)
+reg_key(m, d, k) :- dec_literal(m, d, k, _, _).
+reg_key(m, d, k) :- regsite(m, d, k, _, _).
+// A KEY THAT IDENTIFIES MANY DECLARATIONS IDENTIFIES NONE. `@app.route("/")` inside a test is written by every
+// test file that needs an app, so on Flask's own suite the key "/" registers 236 declarations and is written by
+// 200 more: the join is a complete graph between them and says nothing. This is the engine's own `fan_capped`
+// judgement one layer up — over the cap the SET IS REFUSED rather than emitted, and the answer says how many.
+.decl reg_key_fan(k:symbol, n:number)
+reg_key_fan(k, n) :- reg_key(_, _, k), n = count : { reg_key(_, _, k) }.
+.decl key_capped(k:symbol)
+key_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
+.output key_capped
+.decl fw_edge(a:symbol, b:symbol, how:symbol)
+fw_edge(a, b, "by key") :- literal(a, k, _, _), reg_key(b, _, k), a != b, !key_capped(k).
+// the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
+fw_edge(a, b, "by key") :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b, !key_capped(r).
+.output fw_edge
+
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
 .decl test_hit(q:symbol, m:symbol, d:number, via:symbol)
 test_hit(q, m, d, "") :- reach(q, m, d), test_method(m).
@@ -450,6 +494,20 @@ test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_m
 test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), is_test_file(f).
 .decl is_test_file(f:symbol)
 is_test_file(f) :- test_method(m), decl_file(m, f).
+// ── a fixture a framework INJECTS, which no call site records ────────────────────────────────────────────────
+// pytest matches a test's PARAMETER NAME against the fixtures visible from the test's file: those declared beside it,
+// and those in a `conftest.py` of any ancestor directory. A marker can name one instead (`@pytest.mark.usefixtures`),
+// and an `autouse=True` fixture runs before every test in its scope without being named anywhere at all. None of the
+// three is a call, so what a fixture reaches was reported as reaching no test.
+.decl uses_fixture(m:symbol, fx:symbol)
+uses_fixture(m, fx) :- takes_param(m, n), fixture_scope(fx, n, p), decl_file(m, f), file_scope(f, p), m != fx,
+                       (test_method(m) ; fixture(m)).
+uses_fixture(m, fx) :- dec_literal(m, "usefixtures", n, _, _), fixture_scope(fx, n, p), decl_file(m, f), file_scope(f, p), m != fx.
+uses_fixture(m, fx) :- autouse_fixture(fx), fixture_scope(fx, _, p), decl_file(m, f), file_scope(f, p), test_method(m), m != fx.
+// a fixture may request another fixture, and then both run before the test
+uses_fixture(m, g) :- uses_fixture(m, fx), uses_fixture(fx, g), m != g.
+test_hit(q, m, d, fx) :- reach(q, fx, d), uses_fixture(m, fx), test_method(m).
+
 // a class that extends a test class runs that class's tests as its own — the subclass declares nothing, and a
 // change reaching the base's test breaks the subclass's run of it too (jsoup's java11 HttpClient*Test)
 .decl inherited_test(q:symbol, s:symbol, m:symbol, d:number)
