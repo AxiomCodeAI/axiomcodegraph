@@ -121,6 +121,13 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   missing is named rather than guessed: a function reached only through a table or list of functions dispatched by
   index (`TRANSFORMS = [strip, upper]`, `EXPORTERS[kind](x)`), a decorator that wraps a callable in an object whose
   method calls it (`@shared_task` … `.delay()`), and a closure defined in one method and returned to another.
+  Held out, on a subject nothing was tuned against (Flask's own 491-test suite, 40 functions broken, 172 pairs):
+  0.564 → **0.727**, precision 0.527 → 0.310. Both halves of that trade are real and neither is free — the recall is
+  routes and fixtures the answer could not see before; the precision is the fan-in of a framework whose every test
+  builds an app. A key that identifies MANY declarations identifies none: Flask's own suite registers `"/"` from 236
+  places and asks for it from 200 more, so a key registering more than `AXIOMCODE_KEY_CAP` (4) declarations is
+  REFUSED rather than joined — the engine's `fan_capped` judgement one layer up. Uncapped that subject reads 0.791
+  recall at 0.248 precision; the cap is indifferent between 2 and 8 on both subjects.
 - **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
   (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
   single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override

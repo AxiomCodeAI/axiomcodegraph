@@ -56,6 +56,8 @@
 //   regsite(m, "registered", key, f, l)  m handed over as a VALUE on a line that also writes a route (add_url_rule)
 //   route_alias(written, registered)  two spellings of one path: /orders/o-1/price and /orders/{order_id}/price
 .decl regsite(m:symbol, d:symbol, v:symbol, f:symbol, l:number)   .input regsite
+//   key_cap(n)                        how many declarations one key may register before the set is refused
+.decl key_cap(n:number)                                           .input key_cap
 .decl route_alias(w:symbol, r:symbol)                             .input route_alias
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
@@ -464,10 +466,19 @@ reach_sure(q, m) :- up_sure(q, m, _).
 .decl reg_key(m:symbol, d:symbol, k:symbol)
 reg_key(m, d, k) :- dec_literal(m, d, k, _, _).
 reg_key(m, d, k) :- regsite(m, d, k, _, _).
+// A KEY THAT IDENTIFIES MANY DECLARATIONS IDENTIFIES NONE. `@app.route("/")` inside a test is written by every
+// test file that needs an app, so on Flask's own suite the key "/" registers 236 declarations and is written by
+// 200 more: the join is a complete graph between them and says nothing. This is the engine's own `fan_capped`
+// judgement one layer up — over the cap the SET IS REFUSED rather than emitted, and the answer says how many.
+.decl reg_key_fan(k:symbol, n:number)
+reg_key_fan(k, n) :- reg_key(_, _, k), n = count : { reg_key(_, _, k) }.
+.decl key_capped(k:symbol)
+key_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
+.output key_capped
 .decl fw_edge(a:symbol, b:symbol, how:symbol)
-fw_edge(a, b, "by key") :- literal(a, k, _, _), reg_key(b, _, k), a != b.
+fw_edge(a, b, "by key") :- literal(a, k, _, _), reg_key(b, _, k), a != b, !key_capped(k).
 // the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
-fw_edge(a, b, "by key") :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b.
+fw_edge(a, b, "by key") :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b, !key_capped(r).
 .output fw_edge
 
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
