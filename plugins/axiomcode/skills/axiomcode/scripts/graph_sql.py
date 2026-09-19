@@ -392,10 +392,11 @@ FIXTURE_DECOR = _re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixtu
 FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}
 
 
-TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<]')
+TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
+EACH_TABLE = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
 
 
-def _test_sets(q, lines=None):
+def _test_sets(q, lines=None, rel=None):
     """test_method and fixture, the same two sets the exporter builds — the distinction the whole test layer rests on.
 
     A TEST is is_test, a method or function, and either carries a @Test-shaped decoration or is named test*/it*.
@@ -421,11 +422,21 @@ def _test_sets(q, lines=None):
             fx.add(sid)
     # …and the anonymous ones, named as tests by the registrar written on their own declaration line
     if lines is not None:
+        # the parameterised form (`test.each` + a template table) writes the arrow after the closing backtick, on a
+        # line naming no registrar, so it needs the call site's span rather than the line — same rule as the
+        # exporter's, including reading the span's first line to confirm the receiver the call site does not carry
+        tables = []
+        for fp, a, b in (q("""SELECT file_path, start_line, end_line FROM call_sites
+                              WHERE kind = 'TAGGED_TEMPLATE_CALL' AND callee_name = 'each' AND start_line > 0""")
+                         if _has(q, 'call_sites') else []):
+            f = rel(fp) if rel else fp; L = lines(f)
+            if a - 1 < len(L) and EACH_TABLE.search(L[a - 1]): tables.append((f, a, b or a))
         for sid, name, f, ln in q("""SELECT id, name, file, line FROM symbols
                                      WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0"""):
             if not (name or '').startswith('<'): continue
             L = lines(f)
             if ln - 1 < len(L) and TEST_REGISTRAR.search(L[ln - 1]): tm.add(sid)
+            elif any(tf == f and a <= ln <= b for tf, a, b in tables): tm.add(sid)
     return tm, fx
 
 
@@ -2143,7 +2154,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
                            'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines)
+    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines, rel)
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
