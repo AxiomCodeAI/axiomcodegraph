@@ -96,6 +96,9 @@ route_base(t, b) :- ann_on_type(_, a, n, t), cfg_route_ann(n), cfg_route_arg(arg
 // A type with a route-annotated method but no route annotation of its own contributes
 // no prefix; without this clause such a method would have no route at all.
 route_base(t, "") :- ann_on_method(_, _, n, _, t), cfg_route_ann(n), !route_base_declared(t).
+// … and the same when the methods carry only a verb annotation, so a resource class
+// with no @Path of its own still gives its handlers a (empty) base to inherit.
+route_base(t, "") :- ann_on_method(_, _, n, _, t), cfg_route_verb_ann(n, _), !route_base_declared(t).
 route_base_declared(t) :- ann_on_type(_, a, n, t), cfg_route_ann(n), cfg_route_arg(arg),
     ann_arg(_, a, arg, _, _, _).
 
@@ -119,6 +122,20 @@ route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, 
     cfg_route_ann(n), !cfg_route_server_ann(n), route_base(owner, base), path = cat(base, tail).
 route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
     cfg_route_ann(n), route_type_is_client(owner), route_base(owner, base), path = cat(base, tail).
+// A handler that names only its VERB still has a path: its resource class's. The
+// verb annotation contributes no remainder of its own, so the route is the base and
+// nothing more, which is what JAX-RS means by @GET on a method under @Path("/orders").
+// Guarded by !method_route_ann: a method carrying BOTH @GET and @Path("/{id}") takes
+// its remainder from the @Path, and without the guard it would ALSO produce a second,
+// shorter route at the bare class path.
+method_route_ann(m) :- ann_on_method(_, _, n, m, _), cfg_route_ann(n).
+route_raw_of_method(m, base, "server") :- ann_on_method(_, _, n, m, owner),
+    cfg_route_verb_ann(n, _), !method_route_ann(m),
+    !route_type_is_client(owner), route_base(owner, base).
+// … and the same shape on a declarative client interface (MicroProfile @RegisterRestClient).
+route_raw_of_method(m, base, "client") :- ann_on_method(_, _, n, m, owner),
+    cfg_route_verb_ann(n, _), !method_route_ann(m),
+    route_type_is_client(owner), route_base(owner, base).
 route_declared(raw) :- route_raw_of_method(_, raw, _).
 // A declared route goes through the same normalisation as a client's URL, so
 // @GetMapping("pets/visits") and a client's "…/pets/visits?petId={id}" meet.
@@ -396,10 +413,18 @@ verb_compatible(a, "any") :- http_verb_known(a).
 verb_compatible("any", b) :- http_verb_known(b).
 http_verb_known("any"). http_verb_known("GET"). http_verb_known("POST").
 http_verb_known("PUT"). http_verb_known("DELETE"). http_verb_known("PATCH").
+http_verb_known("HEAD"). http_verb_known("OPTIONS").
 
 // the server's verb comes from which mapping annotation it used …
 method_verb(m, v) :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), cfg_route_verb(n, v).
-method_verb(m, "any") :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), !cfg_route_verb_known(n).
+// A sibling verb annotation names the verb, so a method carrying @Path AND @GET must
+// NOT also fall back to "any": "any" is compatible with every client verb, so leaving
+// it in place would keep the collision this narrows. The verb stays a FILTER on the
+// join rather than part of the path, so a client whose verb cannot be determined still
+// matches the path.
+method_verb(m, v) :- ann_on_method(_, _, n, m, _), cfg_route_verb_ann(n, v).
+method_verb_declared(m) :- ann_on_method(_, _, n, m, _), cfg_route_verb_ann(n, _).
+method_verb(m, "any") :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), !cfg_route_verb_known(n), !method_verb_declared(m).
 cfg_route_verb_known(n) :- cfg_route_verb(n, _).
 // … the client's from the call it made, or from its own exchange annotation.
 call_verb(call, v) :- call_site(call, name, _), cfg_sends_verb(name, v).
