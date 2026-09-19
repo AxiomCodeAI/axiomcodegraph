@@ -4,7 +4,7 @@
 # symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
 #   AXIOMCODE_ENGINE  checkout of axiom-code-graph (default: the one this skill lives in)
 #   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
-#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript (default: the language with the most files)
+#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp (default: the language with the most files)
 #   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
 #                     dependencies are declared unknown rather than guessed
 set -euo pipefail
@@ -16,13 +16,14 @@ ENGINE="$AXIOMCODE_ENGINE"
 [ -x "$ENGINE/bin/axiomcode" ] || { echo "no bin/axiomcode under $ENGINE (set AXIOMCODE_ENGINE)"; exit 1; }
 # no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently
 count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
-py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx')
+py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx'); cs=$(count -name '*.cs')
 LANG_ARG="${AXIOMCODE_LANG:-}"
 if [ -z "$LANG_ARG" ]; then
   LANG_ARG=java; best=$ja
   [ "$ts" -gt "$best" ] && { LANG_ARG=typescript; best=$ts; }
   [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
   [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
+  [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
 fi
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
@@ -36,7 +37,7 @@ python3 "$H/dl_program.py" || true   # compile the query rules once, here where 
 # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
-echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js files)"
+echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
 rm -rf "$OUT/$LANG_ARG" "$OUT/graph.sqlite"
 LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
 "$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { echo "build failed — see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
