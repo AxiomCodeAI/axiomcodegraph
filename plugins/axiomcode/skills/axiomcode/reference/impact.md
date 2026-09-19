@@ -49,6 +49,20 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   and JavaScript does not.
 - **must change with it** — declarations bound to the target by a contract the engine resolved: the overrides of a method (and what
   it overrides), the subtypes of a type. A signature change reaches these first.
+### What breaks a build, and what does not
+
+The sections are relations, not severities, and reading them top-down as "most to least urgent" is wrong.
+Nothing under `produces or writes it` necessarily fails a build: those rows are dataflow — who makes a value of
+this shape, including deserialization that writes it reflectively. A `[text]` row under `bound from outside the
+source` can never fail a build; the compiler does not read that file at all, which is exactly why it is printed
+last and says so.
+
+For a field, the rows that stop a build are usually in neither list. Changing a field's TYPE changes the
+signature of whatever is generated from it — an all-args constructor, a setter, a copy/`with` — and it is the
+callers of THOSE that break, at the argument they pass. They touch the generated member, not the field, so no
+rule puts them under the field's own relations. The answer now says this directly under the generated-members
+line and names the constructor query to run; take that suggestion before acting on the first list.
+
 - **produces or writes it** — the blast radius read top-down starts where a value of the new shape has to be *made*: setter and
   builder calls, constructor calls (declared or generated), and the **holders** — a type with a field of the target's type, where
   that holder is constructed or deserialized (`Holder.class` handed to a deserializer or a framework: reflection produces the

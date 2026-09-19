@@ -1418,6 +1418,35 @@ def main(argv):
     if fired:
         print("generated members assumed from a fixed convention list (Lombok, records, dataclasses, attrs, the Python validation library): "
               + ', '.join(f"{d} ({why})" for d, why in fired[:6]) + (f" … +{len(fired) - 6}" if len(fired) > 6 else ''))
+        # A RENAME AND A RETYPE HAVE DIFFERENT BLAST RADII, AND ONLY ONE OF THEM IS BELOW.
+        # Every list in this answer is about the FIELD: who writes it, who reads it, who names it. Changing the
+        # field's TYPE changes something else -- the signature of the members generated from it (an all-args
+        # constructor, a setter, a copy/`with`), and it is THEIR callers that stop compiling, at the argument they
+        # pass. Those callers touch the constructor, not the field, so no rule here puts them in `produces or
+        # writes it`, and a reader who takes the first list as "what breaks" gets the one set of rows that does
+        # not. Say so, and name the query that does answer it. Language-agnostic: the same holds for a record, a
+        # dataclass, attrs or a validation model -- whatever put the members on the convention list above.
+        if any(k == 'field' for k, _, _ in targets):
+            # g.disp() prefixes the kind for a field ("field Address.zipCode"); the owner is the dotted name only
+            owner = sorted({g.disp(c).split()[-1].rsplit('.', 1)[0] for k, c, _ in targets if k == 'field'} or {''})[0]
+            # A constructor is spelled differently in every language the engine reads -- <init>, __init__,
+            # <constructor> -- so the name is looked up rather than guessed. A hard-coded Java spelling printed at
+            # a Python or TypeScript caller is a command that does not run, which is worse than no suggestion.
+            ctor = ''
+            if owner:
+                try:
+                    rows = g.q("SELECT display FROM symbols WHERE display LIKE ? AND ("
+                               "display LIKE '%.<init>' OR display LIKE '%.__init__' OR display LIKE '%.<constructor>')",
+                               owner + '.%')
+                    ctor = sorted({r['display'] for r in rows})[0] if rows else ''
+                except Exception:
+                    ctor = ''
+            # "compile time" is not a thing in every language this runs on: say where it breaks, not when.
+            print("    ^ changing this field's TYPE (not its name) changes THEIR signatures, and the callers that pass"
+                  " that argument break where they construct it — at build time in a checked language, at the call"
+                  " itself in one that is not.")
+            print("      Those callers are NOT in the lists below — they touch the generated member, not the field."
+                  + (f" Ask for them: `impact '{ctor}'`." if ctor else ''))
     if any(x[3] == 'alongside' for x in D):
         if dropped_alongside: print(f"({dropped_alongside} further `alongside` row(s) not shown — AXIOMCODE_ALONGSIDE_CAP={ALONG_CAP}; those kept share a field with the target or sit in its file)")
         print("(`alongside` = no call, no reference, no contract — only that a fix touching one of these often touches the other;\n"
@@ -1440,12 +1469,6 @@ def main(argv):
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
     ext = sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])}, key=lambda x: (x[0], x[1]))
-    if ext:
-        byfile = collections.Counter(f for f, *_ in ext)
-        print(f"bound from outside the source ({len(ext)} site(s) in {len(byfile)} file(s): a name matched in a file the index does"
-              " not read as source, so the compiler is silent and a rename breaks it at run time):")
-        for f, l, n, how in ext[:limit]: print(f"    [text] {f}:{l}   — {how} ({n})")
-        if len(ext) > limit: print(f"    … +{len(ext) - limit} (--limit N)")
     print(f"reaches those through resolved calls: {len(reached)} more callable(s) in {nfiles} file(s)" + (f" within {depth} hop(s)" if depth < 40 else '') + (f" under *{IN}*" if IN else ''))
     weak = [m for m in reached if m not in sure_set]
     if weak: print(f"    {len(weak)} of those {len(reached)} are reached ONLY through a dependent that is not an exact edge ([by name], [text], [one of a set]): they stand or fall with it")
@@ -1458,6 +1481,12 @@ def main(argv):
         for m, d in ent[:limit]:
             decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []
             print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}")
+    if ext:
+        byfile = collections.Counter(f for f, *_ in ext)
+        print(f"bound from outside the source ({len(ext)} site(s) in {len(byfile)} file(s): a name matched in a file the index does"
+              " not read as source, so the compiler is silent — nothing here fails a build; a rename or a retype breaks it at RUN time):")
+        for f, l, n, how in ext[:limit]: print(f"    [text] {f}:{l}   — {how} ({n})")
+        if len(ext) > limit: print(f"    … +{len(ext) - limit} (--limit N)")
         if len(ent) > limit: print(f"      … +{len(ent) - limit} (--limit N)")
     if inh: print(f"    inherited by {len(inh)} test class(es) that extend a reached one — they run those tests too: " + ', '.join(f"{g.disp(s_)} ({len(ms)}) {g.loc(s_)}" for s_, ms in sorted(inh.items(), key=lambda x: (-len(x[1]), g.disp(x[0])))[:6]))
     tfiles = {g.sym[m]['file'] for m in tests} | {g.sym[s_]['file'] for s_ in inh if s_ in g.sym}
