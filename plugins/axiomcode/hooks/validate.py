@@ -14,17 +14,21 @@ Every fact a hook block states is checked again, against graph.sqlite and the so
 Events are generated on the repo (Reads of whole files and ranges, Greps of declared identifiers, edits that change a body,
 a signature, a field's type) or replayed from .axiomcode/hooks.jsonl (--replay: entries that recorded their input and text).
 Prints facts checked / facts wrong, and every wrong fact."""
-import json, os, random, re, sqlite3, subprocess, sys, tempfile, shutil
+import atexit, json, os, random, re, sqlite3, subprocess, sys, tempfile, shutil, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 'skills', 'axiomcode', 'scripts'))
 from ax_contract import subtokens        # the annotation's own tokeniser, so this checks its claim
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-def hook(script, event, tool, inp, cwd, session='validate'):
+def hook(script, event, tool, inp, cwd, session='validate', extra=None):
     ev = {'hook_event_name': event, 'tool_name': tool, 'tool_input': inp, 'cwd': cwd, 'session_id': session}
+    if extra: ev.update(extra)
     r = subprocess.run([sys.executable, os.path.join(HERE, script)], input=json.dumps(ev), capture_output=True, text=True, timeout=60)
+    # a UserPromptSubmit hook writes its context to STDOUT as plain text; the tool hooks wrap theirs in JSON. Falling
+    # back to the raw text rather than to '' is what lets the orientation block be checked at all — read as JSON it
+    # is simply empty, and an empty block passes every assertion by saying nothing.
     try: return json.loads(r.stdout)['hookSpecificOutput']['additionalContext']
-    except Exception: return ''
+    except Exception: return (r.stdout or '').strip()
 
 class V:
     def __init__(self, repo):
@@ -176,10 +180,17 @@ class V:
             if m4: self.fact(int(m4.group(1)) == len(j.get('reached', [])) and int(m4.group(2)) == len(j.get('tests', [])), f"change {cur['symbol']}: reach/tests {m4.group(1)}/{m4.group(2)} vs {len(j.get('reached', []))}/{len(j.get('tests', []))}")
 
 def main(argv):
+    # one run per repository at a time: the edits are made IN PLACE, so two runs interleaving is not slow, it is
+    # a corrupted subject (see the restore note below).
     a = list(argv); n_reads = 30; n_greps = 30; n_edits = 12; replay = '--replay' in a; a = [x for x in a if x != '--replay']
     for flag in ('--reads', '--greps', '--edits'):
         if flag in a: i = a.index(flag); v = int(a[i + 1]); del a[i:i + 2]; n_reads, n_greps, n_edits = (v, n_greps, n_edits) if flag == '--reads' else (n_reads, v, n_edits) if flag == '--greps' else (n_reads, n_greps, v)
     repo = a[0] if a else '.'; V_ = V(repo); rnd = random.Random(7)
+    lk = os.path.join(V_.repo, '.axiomcode', 'validate.lock')          # the lock the note above asks for
+    if os.path.exists(lk) and time.time() - os.path.getmtime(lk) < 3600:
+        print(f"another validate.py is already running on {V_.repo} — remove {lk} if it is not"); return 2
+    os.makedirs(os.path.dirname(lk), exist_ok=True); open(lk, 'w').write(str(os.getpid()))
+    atexit.register(lambda: os.path.exists(lk) and os.remove(lk))
     if replay:
         for l in open(os.path.join(V_.repo, '.axiomcode', 'hooks.jsonl')):
             e = json.loads(l)
@@ -242,12 +253,17 @@ def main(argv):
             else: V_.fact(not blk, f"PreToolUse: a block for a body-only edit of {s['display']} ({where})")
             if blk: V_.check_change(blk, s['file'], '\n'.join(L), new_text)
             # after the edit lands: write the copy in place, run the PostToolUse block, restore
-            shutil.copy(fp, fp + '.bak'); open(fp, 'w').write(new_text)
+            # RESTORE FROM MEMORY, NOT FROM A .bak ON DISK. Two runs of this harness on one repository interleaved
+            # their copy/move pairs, one restore consumed the other's backup, and the last writer left `# __edited`
+            # sitting in the subject's source — where the next measurement would have taken it for the code. A
+            # harness that edits a repository in place must be able to put it back without depending on a file.
+            original = '\n'.join(L)
+            open(fp, 'w').write(new_text)
             try:
                 blk2 = hook('enrich.py', 'PostToolUse', 'Edit', {'file_path': fp, 'old_string': old_s, 'new_string': new_s}, V_.repo, session=f'w{done}')
                 V_.fact(bool(blk2), f"PostToolUse: no block for a {kind} edit of {s['display']} ({s['file']}:{i + 1 if kind == 'body' else s['line']}: {old_s.strip()[:60]!r})")
                 if blk2: V_.check_change(blk2, s['file'], '\n'.join(L), new_text)
-            finally: shutil.move(fp + '.bak', fp)
+            finally: open(fp, 'w').write(original)
             done += 1
         for f_ in fields[:max(2, n_edits // 3)]:
             fp = os.path.join(V_.repo, f_['file'])
@@ -260,6 +276,38 @@ def main(argv):
             blk = hook('changes.py', 'PreToolUse', 'Edit', {'file_path': fp, 'old_string': ln, 'new_string': new_ln}, V_.repo, session='vf')
             V_.fact(bool(blk), f"PreToolUse: no block for a field-type edit of {f_['display']}")
             if blk: V_.check_change(blk, f_['file'], '\n'.join(L), '\n'.join(L).replace(ln, new_ln, 1))
+    # ── the orientation block: the one hook surface nothing checked ──────────────────────────────────────────
+    # orient.py fires on the FIRST PROMPT of a session and states where the task's own words land — "app <- order,
+    # line, discount". Every part of that is checkable (the path is a directory the graph has declarations under,
+    # and each word it carries occurs in a declaration's name there), and none of it was checked, on a block that
+    # is in every agent's context before it opens a single file. Its once-per-session contract is checkable too.
+    names = [r['name'] for r in V_.q("SELECT DISTINCT name FROM symbols WHERE method_id IS NOT NULL AND name NOT LIKE '<%' AND length(name) > 5 LIMIT 300")]
+    words = []
+    for n in names:                                                   # the graph's own words, not invented ones
+        for w in re.findall(r'[a-z]{5,}', re.sub(r'([a-z])([A-Z])', r'\1 \2', n).lower()):
+            if w not in words: words.append(w)
+        if len(words) >= 3: break
+    if len(words) >= 2:
+        stamp = os.path.join(V_.repo, '.axiomcode', '.oriented')
+        try: os.remove(stamp)
+        except OSError: pass
+        prompt = f"the {words[0]} is wrong when the {words[1]} is set, please look at it"
+        blk = hook('orient.py', 'UserPromptSubmit', '', {}, V_.repo, session='orient', extra={'prompt': prompt})
+        for ln in (blk or '').splitlines():
+            m = re.match(r"\s+([\w./-]+)\s+<- (.+)$", ln)
+            if not m: continue
+            path, terms = m.group(1), [t.strip() for t in m.group(2).split(',') if t.strip()]
+            under = [r['name'] for r in V_.q("SELECT name FROM symbols WHERE file LIKE ? AND name IS NOT NULL", path.rstrip('/') + '/%')]
+            V_.fact(bool(under), f"orient: {path} has no declaration in the graph")
+            for t in terms:
+                V_.fact(any(t.lower() in (n or '').lower() for n in under),
+                        f"orient: {path} <- {t!r}, but no declaration under it has that in its name")
+        if blk:
+            again = hook('orient.py', 'UserPromptSubmit', '', {}, V_.repo, session='orient', extra={'prompt': prompt})
+            V_.fact(not again, "orient: a second prompt in the same session was oriented again (it is once per session)")
+        try: os.remove(stamp)
+        except OSError: pass
+
     print(f"{V_.checked} facts checked, {len(V_.wrong)} wrong")
     for w in V_.wrong[:40]: print("  ✗ " + w)
     return 1 if V_.wrong else 0
