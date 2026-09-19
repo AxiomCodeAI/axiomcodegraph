@@ -134,9 +134,38 @@ def engine_keys(ir_dir):
     with open(os.path.join(ir_dir, "all-csharp-modules.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
             mods[r["csModuleUniqueHash"]] = r["filePath"]
+    # AN EXPLICIT INTERFACE IMPLEMENTATION IS KEYED WITH ITS INTERFACE, because
+    # that is part of its identity and because the compiler spells it that way.
+    # Roslyn writes `Probe.Explicit.Probe.IWorker.Work/1`; the parser records the
+    # member's own name (`Probe.Explicit.Work`) with the interface in a separate
+    # column, so the two keys never met and EVERY explicit implementation scored
+    # as a target the engine had lost -- 259 of them across five projects,
+    # whether or not the engine had it.
+    #
+    # The interface is resolved to its QUALIFIED name, which is what the oracle
+    # writes, from the types the IR declares. Collapsing it to the simple name
+    # instead would merge a type's two explicit implementations of two interfaces
+    # that both declare `Work(int)` into one key, and `Probe.Both.Work` is exactly
+    # that shape.
+    iface_qn = {}
+    types_csv = os.path.join(ir_dir, "all-csharp-types.csv")
+    if os.path.exists(types_csv):
+        with open(types_csv, newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh, delimiter="\t"):
+                if r.get("typeCategory") == "INTERFACE":
+                    iface_qn.setdefault(r["name"], r["qualifiedName"])
+                    iface_qn.setdefault(r["qualifiedName"], r["qualifiedName"])
+
     with open(os.path.join(ir_dir, "all-csharp-methods.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
             qn, pc = r["qualifiedName"], r["parameterCount"]
+            explicit = (r.get("explicitInterfaceName") or "").strip()
+            if explicit:
+                owner, _, name = qn.rpartition(".")
+                # An interface the IR does not declare (a staged or unstaged one)
+                # keeps the written spelling: closer than dropping it, and the
+                # only thing in hand.
+                qn = f"{owner}.{iface_qn.get(explicit, explicit)}.{name}" if owner else qn
             meth[r["csMethodUniqueHash"]] = f"{qn}/{pc}"
     with open(os.path.join(ir_dir, "all-csharp-expressions.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
