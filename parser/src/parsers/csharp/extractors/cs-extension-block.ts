@@ -204,6 +204,142 @@ function receiverOf(block: Parser.SyntaxNode): CsExtensionReceiver | undefined {
 }
 
 /**
+ * Every `extension(` header the TEXT has, as the offset of its `e`.
+ *
+ * The same anchor EXTENSION_HEADER_LINE uses, but returning positions rather
+ * than a count, because a header the tree did not present has to be located
+ * before it can be blanked.
+ */
+function extensionHeaderOffsets(text: string): number[] {
+  const re = new RegExp(EXTENSION_HEADER_LINE.source, 'gm');
+  const out: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    out.push(m.index + m[0].indexOf('extension'));
+  }
+  return out;
+}
+
+/**
+ * Walk `text` from `i`, returning the index just past whatever non-code run
+ * starts there, or `i` when code starts there.
+ *
+ * A brace counter that does not know these will match a `{` inside a string or
+ * a comment, and blank from the wrong place. Every C# string form is handled:
+ * raw (`"""`), verbatim (`@"`), ordinary, and character literals, plus both
+ * comment forms. Interpolation holes are NOT tracked -- a `{` inside one is a
+ * brace the counter would see, but it is balanced within the literal, so the
+ * count returns to where it started.
+ */
+function skipNonCode(text: string, i: number): number {
+  if (text.startsWith('//', i)) {
+    const nl = text.indexOf('\n', i);
+    return nl === -1 ? text.length : nl;
+  }
+  if (text.startsWith('/*', i)) {
+    const end = text.indexOf('*/', i + 2);
+    return end === -1 ? text.length : end + 2;
+  }
+  // Raw string: three or more quotes, closed by the same number.
+  const raw = /^"{3,}/.exec(text.slice(i, i + 32));
+  if (raw !== null) {
+    const fence = raw[0];
+    const end = text.indexOf(fence, i + fence.length);
+    return end === -1 ? text.length : end + fence.length;
+  }
+  if (text.startsWith('@"', i)) {
+    let j = i + 2;
+    while (j < text.length) {
+      if (text[j] === '"') {
+        if (text[j + 1] === '"') {
+          j += 2;      // "" is an escaped quote inside a verbatim string
+          continue;
+        }
+        return j + 1;
+      }
+      j += 1;
+    }
+    return text.length;
+  }
+  if (text[i] === '"' || text[i] === "'") {
+    const quote = text[i];
+    let j = i + 1;
+    while (j < text.length) {
+      if (text[j] === '\\') {
+        j += 2;
+        continue;
+      }
+      if (text[j] === quote) {
+        return j + 1;
+      }
+      if (text[j] === '\n') {
+        return j;      // unterminated: do not run past the line
+      }
+      j += 1;
+    }
+    return text.length;
+  }
+  return i;
+}
+
+/**
+ * The spans to blank for a header the TREE did not present: the header itself
+ * and its body's two braces, found by scanning the text.
+ *
+ * WHY THIS EXISTS. `extension(double)` -- a static extension block on a
+ * PREDEFINED TYPE -- is not a `constructor_declaration` in the tree at all. It
+ * recovers as an ERROR holding a `variable_declaration`, so no filter over
+ * `found` can reach it, and the all-or-nothing guard below then refuses the
+ * WHOLE file: measured, a two-block file where one receiver is a keyword
+ * emitted one of its two methods and no gap row at the lost one.
+ *
+ * Blanking is a text operation already, so a header the tree missed can still
+ * be blanked as long as its extent is known. That is what this finds.
+ */
+function textualBlockSpan(
+  text: string,
+  headerStart: number
+): { headerEnd: number; open: number; close: number } | undefined {
+  // `extension` then an optional generic list then the receiver parens.
+  let i = headerStart + 'extension'.length;
+  while (i < text.length && /\s/.test(text[i]!)) i += 1;
+  if (text[i] === '<') {
+    let depth = 0;
+    while (i < text.length) {
+      const skipped = skipNonCode(text, i);
+      if (skipped !== i) { i = skipped; continue; }
+      if (text[i] === '<') depth += 1;
+      else if (text[i] === '>') { depth -= 1; if (depth === 0) { i += 1; break; } }
+      i += 1;
+    }
+    while (i < text.length && /\s/.test(text[i]!)) i += 1;
+  }
+  if (text[i] !== '(') return undefined;
+  let depth = 0;
+  while (i < text.length) {
+    const skipped = skipNonCode(text, i);
+    if (skipped !== i) { i = skipped; continue; }
+    if (text[i] === '(') depth += 1;
+    else if (text[i] === ')') { depth -= 1; if (depth === 0) { i += 1; break; } }
+    i += 1;
+  }
+  if (depth !== 0) return undefined;
+  const headerEnd = i;
+  while (i < text.length && /\s/.test(text[i]!)) i += 1;
+  if (text[i] !== '{') return undefined;
+  const open = i;
+  depth = 0;
+  while (i < text.length) {
+    const skipped = skipNonCode(text, i);
+    if (skipped !== i) { i = skipped; continue; }
+    if (text[i] === '{') depth += 1;
+    else if (text[i] === '}') { depth -= 1; if (depth === 0) return { headerEnd, open, close: i }; }
+    i += 1;
+  }
+  return undefined;
+}
+
+/**
  * Flattens every extension block in the text, and says where each one's members
  * now live.
  *
@@ -236,9 +372,12 @@ export function flattenExtensionBlocks(
       }
     }
   }
-  if (found.length === 0) {
-    return { text, blocks: [] };
-  }
+  // NOT an early return on `found.length === 0`. When EVERY block in the file
+  // has a receiver the grammar cannot present -- a file of `extension(double)`
+  // and `extension(int)`, which is exactly the primitive-polyfill shape -- the
+  // tree holds no `constructor_declaration` at all, and returning here would
+  // skip the textual path below that is the only thing able to read them.
+  // EXTENSION_PROBE has already established the text contains a header.
 
   // ALL OF A FILE'S BLOCKS, OR NONE OF IT.
   //
@@ -263,20 +402,65 @@ export function flattenExtensionBlocks(
   // therefore does nothing at all, the file behaves exactly as it does without
   // it, and cs_parse_gap still reports it as incomplete. A partial answer that
   // trades one member for another is the one outcome worth refusing.
-  const headersInText = (text.match(EXTENSION_HEADER_LINE) ?? []).length;
+  const headerOffsets = extensionHeaderOffsets(text);
+  const headersInText = headerOffsets.length;
   const clean = found.filter(
     (node) =>
       childOfType(node, 'block') !== undefined &&
       childOfType(node, 'parameter_list') !== undefined &&
       node.childForFieldName('name') !== null
   );
-  if (clean.length !== headersInText || clean.length === 0) {
+
+  // A HEADER THE TREE NEVER PRESENTED IS STILL BLANKABLE.
+  //
+  // `extension(double)` -- the static form on a PREDEFINED TYPE -- does not
+  // recover as a `constructor_declaration`; it becomes an ERROR holding a
+  // `variable_declaration`, so it is not in `found` and no filter over `found`
+  // can reach it. Before this, one such block anywhere in a file drove
+  // clean.length < headersInText and the guard below refused the whole file:
+  // measured on the two-block reduction, the IR held B and not A, with the two
+  // gap rows at lines 10-11 and 14 and NOTHING at line 7.
+  //
+  // The pass is a text-to-text blanking already, so a header the tree missed
+  // can still be blanked once its extent is known. textualBlockSpan finds that
+  // by scanning, skipping every string and comment form so a brace inside one
+  // cannot be miscounted. Headers a clean node already covers are left to the
+  // tree, which is the more precise source.
+  const textual: Array<{ headerStart: number; headerEnd: number; open: number; close: number }> = [];
+  for (const headerStart of headerOffsets) {
+    if (clean.some((node) => node.startIndex <= headerStart && headerStart < node.endIndex)) {
+      continue;
+    }
+    const span = textualBlockSpan(text, headerStart);
+    if (span !== undefined) {
+      textual.push({ headerStart, ...span });
+    }
+  }
+
+  // The guard is unchanged in meaning: unless EVERY header the text has is
+  // accounted for, the pass does nothing. Only the set of ways a header can be
+  // accounted for has grown.
+  if (clean.length + textual.length !== headersInText || headersInText === 0) {
     return { text, blocks: [] };
   }
 
   // Collected before any blanking, because blanking is what removes them.
   const blocks: CsExtensionBlock[] = [];
   const ranges: Array<{ start: number; end: number }> = [];
+  for (const span of textual) {
+    blocks.push({
+      bodyStartIndex: span.open + 1,
+      bodyEndIndex: span.close,
+      // A textually-located header is one the grammar could not present, which
+      // in practice is the TYPE-ONLY static form. receiverOf answers `undefined`
+      // for that shape from a clean node too, so this agrees with the tree path
+      // rather than inventing a receiver the parameter list does not name.
+      receiver: undefined,
+    });
+    ranges.push({ start: span.headerStart, end: span.headerEnd });
+    ranges.push({ start: span.open, end: span.open + 1 });
+    ranges.push({ start: span.close, end: span.close + 1 });
+  }
   for (const node of clean) {
     // Non-null by the guard above, which is what `clean` means.
     const body = childOfType(node, 'block')!;

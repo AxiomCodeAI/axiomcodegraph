@@ -1247,8 +1247,17 @@ run_break "never flatten an extension block" \
 run_break "flatten a file whose blocks are not all accounted for" \
   src/parsers/csharp/extractors/cs-extension-block.ts \
   "an unreadable extension block leaves the file alone" \
-  "s = s.replace('  if (clean.length !== headersInText || clean.length === 0) {', '  if (clean.length === 0) {')" \
+  "s = s.replace('  if (clean.length + textual.length !== headersInText || headersInText === 0) {', '  if (headersInText === 0) {')" \
   "isExtension"
+# The TEXTUAL path is what reads a predefined-type receiver, and nothing else can:
+# disabling it must lose the members of such a block, which is the defect the
+# path was added for. Without this control the path could be deleted and the
+# check above would still pass on its generic-block half alone.
+run_break "never locate a header the tree did not present" \
+  src/parsers/csharp/extractors/cs-extension-block.ts \
+  "an unreadable extension block leaves the file alone" \
+  "s = s.replace('    const span = textualBlockSpan(text, headerStart);', '    const span = undefined;')" \
+  "Zero"
 run_break "give a flattened receiver VALUE mode instead of THIS" \
   src/parsers/csharp/extractors/cs-member-extractor.ts \
   "C# 14 extension members are emitted" \
