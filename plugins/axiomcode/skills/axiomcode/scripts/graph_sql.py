@@ -2106,6 +2106,30 @@ def _throws_catches(code, f, ln, en):
     return thr, cat
 
 
+
+def _has_framework_hops(q, at=None, site_file=None):
+    """True when this graph carries a hop the rules traverse and this port does not.
+
+    Asked precisely rather than broadly, with the SAME join the rules make (ax_registration.key_edges, which
+    applies both caps): a graph where every key is capped away has nothing for this to miss, and declining there
+    would retire the SQL arm on every repository that contains an annotation with a string in it. The other two
+    are cheap existence checks — a fixture injected by parameter name needs a conftest, and a rebinding decorator
+    is a relation the engine fills or leaves empty.
+    """
+    try:
+        import ax_registration
+        if at is not None and ax_registration.key_edges(q, at, site_file): return True
+    except Exception:
+        return True                               # cannot tell: decline, because answering smaller is the failure
+    try:
+        if _has(q, 'ext_decorated_name_target') and q("SELECT 1 FROM ext_decorated_name_target WHERE c0 <> c1 LIMIT 1"):
+            return True
+        if _has(q, 'symbols') and q("SELECT 1 FROM symbols WHERE file LIKE '%conftest.py' AND method_id IS NOT NULL LIMIT 1"):
+            return True
+    except Exception:
+        return True
+    return False
+
 def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=None,
                        inside=(), textuse=(), importuse=(), lines=None):
     """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
@@ -2137,6 +2161,14 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         # declines on exactly the same tests — `gen(t,"get")` is what turns a field into its generated accessors.
         owners = {r[0] for r in (field_rec(q, f_) for f_ in flds) if r and r[0]}
         if not owners or _declines_type(q, sorted(owners)): return None
+    # TWO HOPS THE RULES HAVE AND THIS PORT DOES NOT, so it declines rather than answers differently. `fw_edge`
+    # (a declaration registered under a string the caller writes, and a decorator that rebinds a name) and
+    # `uses_fixture` (pytest injecting a conftest fixture by parameter name) both enter the upward closure in
+    # dl/impact.dl, so on a graph that has either of them this side would return a SMALLER answer that looks like
+    # an answer. Declining is not a bug being hidden: the rules are the default for `impact`, this arm is opt-in
+    # (AXIOMCODE_SQL=1), and AXIOMCODE_SQL_STRICT=1 now reports the decline rather than a silent difference.
+    # Porting both is the follow-up; the parity harness will show it as "not ported" until then.
+    if _has_framework_hops(q, at, site_file): return None
     # a call site's file as the REPO sees it: Java bundles store absolute paths and the index's `paths` table maps
     # them. Without this the answer prints the machine's absolute path where the rules print src/main/java/…
     rel = site_file or (lambda x: x)
