@@ -503,8 +503,10 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '16'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key 16: regsite folded into ax_registration's reg_key_fact
-    #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this guards)
+    IMPACT_VERSION = '18'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
+    #    guards); 16: regsite folded into ax_registration's reg_key_fact; 17/18: the tagged-template test registrar
+    #    (it.each`…`) and its table span
     #  — bump this whenever a fact this writes changes shape, or an already-indexed repository reuses the old file
     #    against the new program and every query dies with "cannot parse fact file <name>.facts".
     def export(self):
@@ -725,12 +727,24 @@ class Impact:
         # a vitest / jest / mocha test is an ANONYMOUS callable handed to it(…) / test(…) / bench(…): on one TypeScript
         # project 6,661 of the 7,723 callables in test files are <arrow> and exactly 2 carried a name the rule above
         # accepts, so the whole test layer was empty. The registrar on the declaration's own line names it as a test.
-        REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<]')
+        REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
+        # the PARAMETERISED form puts the registrar nowhere near the callback. `test.each` + a template table spans
+        # several lines, and the arrow is written after the closing backtick, on a line that names no registrar at
+        # all — so a line-by-line rule misses every one of them (18 in one TypeScript library). The graph has the
+        # shape: a TAGGED_TEMPLATE_CALL to `each`, whose span ends at the line the arrow is declared on. The receiver
+        # (`test` / `it` / `describe`) is not in the call site, so the span's first line is read to confirm it.
+        EACH = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
+        tables = []
+        for r in (g.q("SELECT file_path, start_line, end_line FROM call_sites WHERE kind = 'TAGGED_TEMPLATE_CALL' AND callee_name = 'each' AND start_line > 0") if g.has('call_sites') else []):
+            f = g.site_file(r['file_path']); L = self.lines(f)
+            if r['start_line'] - 1 < len(L) and EACH.search(L[r['start_line'] - 1]):
+                tables.append((f, r['start_line'], r['end_line'] or r['start_line']))
         for i, sy in g.sym.items():
             if not (sy['is_test'] and sy.get('method_id') and (sy['name'] or '').startswith('<')): continue
             if not sy.get('file') or not sy.get('line'): continue
             L = self.lines(sy['file'])
             if sy['line'] - 1 < len(L) and REGISTRAR.search(L[sy['line'] - 1]): tm.append(i)
+            elif any(f == sy['file'] and a <= sy['line'] <= b for f, a, b in tables): tm.append(i)
         fx = [i for i, s in g.sym.items() if s['is_test'] and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
         # ── which fixture runs before which test, when nothing calls it ────────────────────────────────────────
