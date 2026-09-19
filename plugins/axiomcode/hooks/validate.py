@@ -185,8 +185,15 @@ class V:
                 rows = [x for x in j.get('direct', []) if x['role'] in roles]
                 self.fact(int(m3.group(2)) == len(rows), f"change {cur['symbol']}: {m3.group(1)} count {m3.group(2)} vs {len(rows)}")
                 for nm in re.findall(r'(\S+) \S+:\d+', m3.group(3)): self.fact(any(x['display'] == nm for x in rows), f"change {cur['symbol']}: {nm} is not a {m3.group(1)} entry in impact")
-            m4 = re.match(r'    reaches (\d+) more callable\(s\) through resolved calls; (\d+) test\(s\)', l)
+            # the hop clause is optional because the line has carried one since the shim's depth was fixed — and
+            # that is exactly how this check DIED: the wording gained "within 12 hops", the pattern did not, m4
+            # stopped matching, and the one assertion about how many callables and tests the hook claims went
+            # silent. A check that fails loudly is a check; a check that stops matching is nothing at all, and it
+            # looks identical in the output. So an unmatched `reaches` line is now a FAILURE naming the line.
+            m4 = re.match(r'    reaches (\d+) more callable\(s\) through resolved calls(?: within \d+ hops)?; (\d+) test\(s\)', l)
             if m4: self.fact(int(m4.group(1)) == len(j.get('reached', [])) and int(m4.group(2)) == len(j.get('tests', [])), f"change {cur['symbol']}: reach/tests {m4.group(1)}/{m4.group(2)} vs {len(j.get('reached', []))}/{len(j.get('tests', []))}")
+            elif l.startswith('    reaches '):
+                self.fact(False, f"change {cur['symbol']}: the reach/tests line changed shape and this check stopped reading it — {l.strip()[:90]}")
 
 def main(argv):
     # one run per repository at a time: the edits are made IN PLACE, so two runs interleaving is not slow, it is
