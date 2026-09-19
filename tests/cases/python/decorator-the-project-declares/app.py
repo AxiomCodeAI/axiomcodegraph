@@ -18,10 +18,5 @@ def export_csv(order):
     return ",".join(order)
 
 
-def plain(order):
-    """Decorated by nothing: a change to `exporter` cannot reach it."""
-    return list(order)
-
-
 def export(order, kind):
     return EXPORTERS[kind](order)

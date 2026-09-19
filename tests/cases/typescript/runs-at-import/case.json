@@ -1,0 +1,10 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a helper called at MODULE LEVEL to build a lookup table is run by the import statement, so breaking it breaks importing that module and every module that imports it. The shape is not Python's: TypeScript has no collection error to make it visible, and the answer was simply zero tests",
+   "run": ["impact", "makeMap", "--tests"],
+   "want": ["tags.spec.ts", "at import"],
+   "avoid": ["plain.spec.ts"]},
+  {"why": "a module that does no work at import propagates nothing, in this language too",
+   "run": ["impact", "double", "--tests"],
+   "want": ["plain.spec.ts"],
+   "avoid": ["tags.spec.ts"]}]}
