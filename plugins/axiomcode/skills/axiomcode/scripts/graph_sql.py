@@ -113,12 +113,36 @@ def impact(repo, target, depth=DEPTH):
                JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=?""", (short,))} - set(reads))
         # the two counts. Each edge table joins in its OWN recursive branch so SQLite drives them by index; building
         # one combined edge CTE first scans all 608k edges per call (1.89 s against 0.02 s for the same answer).
+        # THE DISPATCH HOP IS NARROWED, the same way the RULES narrow it. `edge.facts` is written by
+        # axiomcode-path, which keeps a base -> candidate pair only when the candidate is client code, is not
+        # the base itself, and its owner type is instantiated somewhere in the repo. impact.dl reads that file
+        # (`.input edge`) and never sees the rest. Walking the RAW table here therefore reached declarations
+        # the rules do not, which is the over-claiming direction and the one that cannot be explained away as
+        # a missing layer. Measured against impact.dl on a Java bundle, over-claimed declarations per target:
+        # 34, 81, 59, 10 before, and 0 after, on all four.
+        # Built once into a temp table rather than joined inline: the recursive branch runs per hop, and the
+        # `type_instantiated` subquery inside it is the shape the comment above this block warns about. The
+        # build is one scan (0.011 s median of five, 9,014 pairs down to 6,614) and the index keeps the hop indexed.
         dispatch = 'dispatch_candidates' in _tables(con)
+        if dispatch and 'methods' in _tables(con):
+            inst = ("AND (m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)"
+                    " OR NOT EXISTS (SELECT 1 FROM type_instantiated))") if 'type_instantiated' in _tables(con) else ""
+            con.execute(f"""CREATE TEMP TABLE _disp AS
+                SELECT DISTINCT dc.base_method_id b, dc.candidate_method_id c
+                FROM dispatch_candidates dc JOIN methods m ON m.id=dc.candidate_method_id
+                WHERE m.provenance='client' AND dc.base_method_id<>dc.candidate_method_id {inst}""")
+            con.execute("CREATE INDEX _disp_c ON _disp(c)")
+        elif dispatch:
+            # no `methods` table: the narrowing cannot be applied, so fall back to the raw pairs rather than
+            # dropping the hop altogether. Under-reporting the closure is the worse failure of the two.
+            con.execute("""CREATE TEMP TABLE _disp AS
+                SELECT DISTINCT base_method_id b, candidate_method_id c FROM dispatch_candidates""")
+            con.execute("CREATE INDEX _disp_c ON _disp(c)")
         rec = ("SELECT value, 0 FROM json_each(?)\n"
                "  UNION SELECT ce.caller_id, r.d+1 FROM call_edges ce JOIN r ON ce.callee_method_id=r.id WHERE r.d<?")
         args = [json.dumps(ids), depth]
         if dispatch:
-            rec += "\n  UNION SELECT dc.base_method_id, r.d+1 FROM dispatch_candidates dc JOIN r ON dc.candidate_method_id=r.id WHERE r.d<?"
+            rec += "\n  UNION SELECT d.b, r.d+1 FROM _disp d JOIN r ON d.c=r.id WHERE r.d<?"
             args.append(depth)
         # ONE walk of the closure; the count, the test count and the few test names the summary line shows are
         # all read off the same rows. Running it twice (once to count, once to name) doubled the cost of the call.
