@@ -291,6 +291,15 @@ method_accepts_argc(prov, m, acs) :-
     method_arity_min(prov, m, lo), method_arity_max(prov, m, hi),
     call_argc_value(acs, ac),
     ac >= lo, ac <= hi.
+// The same boundary for ARITY. A client call site asks whether the method it
+// resolved accepts its argument count, and for a library method the parameter
+// facts that answer that are under "lib". Without this the candidate is found and
+// then rejected for an arity nobody could compute, which reads exactly like a
+// receiver typed wrong.
+method_accepts_argc("client", m, acs) :-
+    method_arity_min("lib", m, lo), method_arity_max("lib", m, hi),
+    call_argc_value(acs, ac),
+    ac >= lo, ac <= hi.
 ctor_accepts_argc(prov, ctor, ac) :- method_is_ctor(prov, ctor), method_accepts_argc(prov, ctor, ac).
 
 // The argument counts that actually occur, so the join above is over real values

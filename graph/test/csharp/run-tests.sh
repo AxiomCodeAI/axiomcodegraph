@@ -125,4 +125,12 @@ done
 echo
 echo "cases: $PASS passed, $FAIL failed"
 [ "$FAIL" = "0" ] || { echo "failing:$FAILED"; exit 1; }
+
+# AND THE STAGING PATH, which no case above can reach: the per-case runner uses
+# devrun.sh, which stages every lib_* relation EMPTY by design. A C# library
+# could be staged and nothing it declared could ever be named, with every case
+# here green. staging-test.sh runs the real executor, which is the only thing
+# that stages.
+echo
+bash "$HERE/staging-test.sh" "$WORK/staging" || exit 1
 exit 0

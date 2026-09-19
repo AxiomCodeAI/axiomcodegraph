@@ -58,6 +58,24 @@ type_implements(prov, gk, igk) :-
     heritage_resolves(prov, gk, _, igk),
     type_group(prov, it, igk), type_is_interface(prov, it).
 
+// AND THE SAME SPLIT WHEN THE NAMED TYPE IS A STAGED LIBRARY'S. The category is
+// the only thing that can decide base-or-interface, and for a library type that
+// category lives under "lib" -- so the two clauses above, which read it under the
+// CHILD's provenance, both fail and a client type extending a library type is
+// placed in no hierarchy at all.
+//
+// MEASURED: with the name resolution fixed but not this, a client class deriving
+// from a staged library class had an empty resolution-type-base-unresolved (the
+// name DID resolve) and still zero rows in resolution-type-ancestor, and its
+// calls went from a labelled `external:` boundary row to ambiguous_unknown. The
+// name resolving is necessary and not sufficient.
+type_extends("client", gk, bgk) :-
+    heritage_resolves("client", gk, _, bgk),
+    type_group("lib", bt, bgk), type_is_class("lib", bt).
+type_implements("client", gk, igk) :-
+    heritage_resolves("client", gk, _, igk),
+    type_group("lib", it, igk), type_is_interface("lib", it).
+
 // An interface's OWN heritage list is all interfaces: `interface I : J, K`. Covered
 // by type_implements above, since J and K resolve to interfaces. Named separately
 // because "what interfaces does this interface extend" reads better at the use site
