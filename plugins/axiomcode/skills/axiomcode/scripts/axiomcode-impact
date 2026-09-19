@@ -55,7 +55,7 @@ G, run_dl, die = P.G, P.run_dl, P.die
 # written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
 # export re-ran on EVERY query — the cache never hit once.
-PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named', 'key_cap'}
+PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named', 'key_cap', 'key_use_cap'}
 
 # WHICH FACTS A QUESTION ACTUALLY NEEDS. Soufflé loads and joins every .input relation of the program, so a query about a
 # METHOD was reading the 4 MB reference layer that only a field or type target can use — and computing `gen`, `holds` and
@@ -905,6 +905,7 @@ class Impact:
         cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
         prof('  per-query: targets walked'); _nonsource = sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))); g.write('nonsource', _nonsource, F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
         g.write('key_cap', [(int(os.environ.get('AXIOMCODE_KEY_CAP', '4')),)], F)
+        g.write('key_use_cap', [(int(os.environ.get('AXIOMCODE_KEY_USE_CAP', '4')),)], F)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
         # Answered from graph.sqlite. Same dict, so everything below — the grouping, the
         # wording, the `verified:` check — is untouched. Returns None for a target kind it does not cover, and the
@@ -1174,10 +1175,17 @@ def main(argv):
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
     CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key'}
-    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by key': 4, 'by name': 5}
+    # ORDERED BY HOW OFTEN EACH RUNG IS RIGHT, measured against behavioural truth rather than assumed. On Flask's own
+    # suite (held out, 351 (target, test file) pairs): sound 0.645, one of a set 0.414, by key 0.396, FIXTURE 0.233,
+    # by name 0.133. On a Python service where a fixture is the ONLY route to the code, the same rung is 30 of 30.
+    # A fixture route is a weak rung for a reason worth stating: the framework does run the fixture and the fixture
+    # does reach the change, but the test's own body may never touch it — "reaching is not failing" in its purest
+    # form — so it sits below `by key` rather than beside `sound`, where it used to be reported.
+    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by key': 4, 'fixture': 5, 'by name': 6}
     def cert_of(m):
         ch = chains.get(m) or []
         worst = 'by name' if (ch and ch[-1] in byname_seeds) or (not ch and m in byname_seeds) else 'sound'
+        if tests.get(m, (0, None))[1]: worst = 'fixture'      # the route the answer prints for it runs a fixture first
         for a, b in zip(ch, ch[1:]):
             # the WORST tier this hop carries, not the first one listed. The same (a, b) can appear as both a
             # known_edge and a multi_inferred dispatch; `next()` then reports whichever the engine happened to

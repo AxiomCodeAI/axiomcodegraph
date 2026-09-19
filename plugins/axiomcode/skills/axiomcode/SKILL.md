@@ -127,7 +127,11 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   builds an app. A key that identifies MANY declarations identifies none: Flask's own suite registers `"/"` from 236
   places and asks for it from 200 more, so a key registering more than `AXIOMCODE_KEY_CAP` (4) declarations is
   REFUSED rather than joined — the engine's `fan_capped` judgement one layer up. Uncapped that subject reads 0.791
-  recall at 0.248 precision; the cap is indifferent between 2 and 8 on both subjects.
+  recall at 0.248 precision. The same cap applies to the other side (`AXIOMCODE_KEY_USE_CAP`, 4): on jsoup the keys
+  that survive the registration cap are `p`, `b`, `table`, `em` — HTML tag names, written by 356 callables and
+  "registered" by two, because a decoration argument is not always a registration (`@ValueSource(strings = {"p"})`
+  is test DATA). One Java method went from naming 1 test file to naming 61 until that cap was added, and 6 after it.
+  Neither cap needs a catalogue of which decorations register and which do not, which is the point of them.
 - **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
   (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
   single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override
@@ -159,6 +163,10 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   those beside it and those in a `conftest.py` of any ancestor directory, which is not the test's file and is imported by
   nothing. A `@pytest.mark.usefixtures` marker names one instead, and an `autouse=True` fixture runs before every test in
   its scope without being named anywhere. A fixture may request another fixture, and then both run. None of that is a call.
+  A route that runs a fixture first is reported as `[fixture]`, and it is the weakest rung above `[by name]`: the
+  framework does run it and it does reach the change, but the test's own body may never touch it. Measured on Flask's
+  own suite, held out: `[sound]` is right 0.645 of the time, `[one of a set]` 0.414, `[by key]` 0.396, `[fixture]`
+  0.233, `[by name]` 0.133 — so the ladder the answer prints is ordered by evidence, not by assumption.
 - **verified** — every printed edge looked up again in graph.sqlite; **bound** counts the unresolved calls inside the impacted
   set, so the set is a lower bound on the real one; a **note** counts the entries matched by name or text.
 
