@@ -362,6 +362,14 @@ absent, never wrong, and the `? n` count says how many.
   (the platform methods where the client graph ends), listed but never traversed. `--in src/main` keeps only the part
   under that path; `--depth N` bounds the hops. Each closure is cross-checked against a plain BFS (the `verified:` line)
   and bounded by the unresolved calls inside it.
+- **An empty answer names the framework that owns it.** `path '*' <handler>` for a live route used to print "0
+  method(s)", which is true of calls and false of the program. When the upstream closure is empty the registration is
+  named instead — *create_order is registered as a route "/orders" by @post (app/api.py:43)* — and when two endpoints
+  have no chain, a key that connects them is reported with the line that writes it, including the two spellings of one
+  path (`/orders/o-1/price` written against `/orders/{order_id}/price` registered). It is reported, never walked: a
+  chain here means control reaches B from A *through these calls*, and a registration is not a call. `impact` is the
+  verb that follows the hop, and the answer says so rather than ending at a dead end. The conventions come from the
+  one module both tools read (`scripts/ax_registration.py`).
 - **What it cannot find, by construction** — say so instead of guessing: a call whose receiver the engine could not type
   (DI-injected, unbound generic, a parameter in a dynamic language) stops the chain and is counted in `bound:`; callbacks
   handed to a library (`executor.submit(task)`, `list.forEach(fn)`) are reached from their definer (`[defines]`) but never
