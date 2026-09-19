@@ -75,7 +75,12 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
             lines.append(f"    reads / uses it ({len(reads)}): " + names(reads) if not j.get('_sql')
                          else f"    reads / uses it — resolved callers: " + names(reads)
                               + f" (the fast path; `axiomcode impact {d['target']}` adds the by-name, in-scope and text layers)")
-        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls within 12 hops; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
+        # WHICH SIDE ANSWERED, in one word. The two paths give different answers by design — the fast path reads
+        # call_edges and the rules add the by-name, in-scope and text layers — so a count nobody can attribute is a
+        # count nobody can check. This cost a whole re-derivation once: three declarations reported 0 reached and
+        # 0 tests where the rules report ~1800 and ~1470, and there was no way to tell from the block whether that
+        # was the fast path answering, the rules answering, or the CLI having given up.
+        lines.append(f"    [{'fast path' if j.get('_sql') else 'rules'}] reaches {len(rc)} more callable(s) through resolved calls within 12 hops; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more: axiomcode changed --impact")
     return lines
 
