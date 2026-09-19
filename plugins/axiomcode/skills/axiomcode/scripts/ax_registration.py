@@ -74,6 +74,13 @@ def registrations(q, site_file=None):
         ek = ','.join('?' * len(CALLABLE_EK))
         for n, f, l in q(f"SELECT name, file, line FROM refs WHERE line > 0 AND entity_kind IN ({ek})", *CALLABLE_EK):
             if n in once: ref_at.setdefault((f, l), once[n])
+    # a route mounted INSIDE A TEST is a fixture, not the application's dispatch table, and its key must not be
+    # joinable. Measured on a TypeScript router library: all 6,128 of its route registration lines are in test
+    # files, and the keys repeat — `/` 1,403 times, `/:id` 415, `/test` 248. The caps refuse a key that is too WIDE,
+    # so they catch those three; a fixture route mounted once, at a path another test happens to mention, survives
+    # the cap and joins two unrelated tests. The DEPENDENT row is still true and still printed — a test that mounts a
+    # handler does depend on it — so only the key is withheld.
+    tf = {f for (f,) in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")} if _has(q, 'symbols') else set()
     out = {}
     for name, site_kind, fp, a, b in q("""SELECT callee_name, kind, file_path, start_line, end_line FROM call_sites
                                       WHERE callee_name IS NOT NULL AND start_line > 0"""):
@@ -85,7 +92,7 @@ def registrations(q, site_file=None):
         short = (name or '').split('.')[-1]
         paths = [v for l in range(a, b + 1) for v in lits.get((f, l), ()) if isinstance(v, str) and v.startswith('/')]
         if short.lower() in ROUTE_VERB and paths:
-            kind, key = 'route', paths[0]
+            kind, key = 'route', ('' if f in tf else paths[0])
             why = f'registered as a {short.upper()} route "{paths[0]}" here — the router calls it, no call site does'
         elif short.lower() in CALLBACK_TAKER:
             kind, key = 'callback', ''
