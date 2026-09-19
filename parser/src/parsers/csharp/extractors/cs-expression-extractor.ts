@@ -14,6 +14,7 @@ import {
   relationalPatternSwallowOf,
   misparsedGenericCreationArgumentsOf,
   misparsedGenericCreationRunOf,
+  refReturningAssignmentOf,
   misparsedNullConditionalUnder,
   misparsedTupleGenericCreationOf,
   nullConditionalMisparseInPrimaryChainOf,
@@ -646,6 +647,16 @@ function unwrapForRoot(
   if (current === undefined) {
     return undefined;
   }
+  // A RECOGNISED REF-RETURNING ASSIGNMENT IS A ROOT, though its node is a
+  // `variable_declaration` and so not an expression node. `Store.One(k) = v;`
+  // is an assignment through a ref-returning call that the published grammar
+  // files under the declaration rule; refusing it here is what left the call
+  // with no row at all, and for the one- and two-argument forms no
+  // cs_parse_gap either. The discriminator is cs-misparse.ts's, which is exact
+  // rather than heuristic, so this admits that shape and nothing else.
+  if (refReturningAssignmentOf(current) !== undefined) {
+    return current;
+  }
   return isExpressionNode(current) ? current : undefined;
 }
 
@@ -976,7 +987,14 @@ function emitOne(
     ? CsExpressionKind.LITERAL
     : isPrimaryBaseArgumentList(node)
       ? CsExpressionKind.INVOCATION
-      : EXPRESSION_NODE_KINDS.get(node.type);
+      // `Store.One(k) = v;` reaches here as a `variable_declaration`, which is
+      // not an expression node and so has no entry in EXPRESSION_NODE_KINDS --
+      // the reason the call had no row at all. It IS an invocation; the grammar
+      // filed it under the wrong rule. Same shape as the primary-base case
+      // above, which is also a non-expression node carrying a call.
+      : refReturningAssignmentOf(node) !== undefined
+        ? CsExpressionKind.INVOCATION
+        : EXPRESSION_NODE_KINDS.get(node.type);
   if (kind === undefined) {
     return;
   }
@@ -1126,7 +1144,7 @@ function emitOne(
     unaryFixity: shape.unaryFixity,
     methodReferenceKind: shape.methodReferenceKind,
     referencedEntityKind,
-    potentialQualifiedName: shape.potentialQualifiedName,
+    potentialQualifiedName: qualifiedNameOrEmpty(shape.potentialQualifiedName),
     // A documented PARITY SLOT, always false — deciding a name is ambiguous
     // needs to know what the using scope contains, which is resolution.
     isAmbiguous: false,
@@ -1535,6 +1553,29 @@ function argumentsOf(
   return collapseMisparsedCreationRun(list, out);
 }
 
+/**
+ * A `potentialQualifiedName` that is not a name at all is dropped.
+ *
+ * The column is what an engine joins names on, so a value that cannot be a name
+ * is worse than an empty one: empty says "no name here", and 48 characters of
+ * source says "look for a member called this". Measured on the ref-returning
+ * assignment `Unsafe.AsRef(in this) = p.Parse(text).Value`, where the grammar
+ * recovers by inserting a `!` the source does not contain and hands the whole
+ * STATEMENT to this column.
+ *
+ * A C# qualified name is identifiers, dots, `::` and generic brackets. It can
+ * hold no whitespace, no `=`, and no parentheses, so those are the test. The
+ * guard is on the column rather than on any one producer, because the issue
+ * that found this pointed out that a content guard here would have caught it
+ * without knowing which misparse produced it.
+ */
+function qualifiedNameOrEmpty(value: string): string {
+  if (value === '' || value === 'await') {
+    return value;
+  }
+  return /[\s=(){}\[\];,]/.test(value) ? '' : value;
+}
+
 function describeExpression(
   node: Parser.SyntaxNode,
   kind: CsExpressionKind,
@@ -1555,6 +1596,29 @@ function describeExpression(
   };
 
   switch (node.type) {
+    // `Store.One(k) = v;` is an ASSIGNMENT to a REF-RETURNING call, and the
+    // published grammar reads it as a `variable_declaration` whose "declarator"
+    // is a tuple pattern holding the call's arguments. cs-misparse.ts already
+    // recognises it exactly and the walkers already refuse to mint phantom
+    // locals from it -- but nothing put the CALL back, so the invocation had no
+    // row and, for the one- and two-argument shapes, no cs_parse_gap either: a
+    // call in the source, absent from the fact base, with nothing saying so.
+    //
+    // The pieces of an invocation are all present, just not assembled: the
+    // "type" is the callee and the tuple pattern is the argument list.
+    case 'variable_declaration': {
+      const refAssignment = refReturningAssignmentOf(node);
+      if (refAssignment === undefined) {
+        break;
+      }
+      shape.kind = CsExpressionKind.INVOCATION;
+      shape.argumentCount = namedChildren(refAssignment.argumentsNode).length;
+      shape.callSite = {
+        callKind: callKindOf(refAssignment.calleeNode, context, localNames),
+        calleeName: calleeNameOf(refAssignment.calleeNode),
+      };
+      break;
+    }
     case 'with_initializer': {
       shape.operatorString = '=';
       break;
@@ -2181,8 +2245,15 @@ function buildCallSite(
   // looks for an `argument_list` and the callee identifier has none.
   const asyncCall = misparsedAsyncCallAtCalleeOf(node);
   const repairedCreation = misparsedGenericCreationArgumentsOf(node);
+  // The REF-RETURNING ASSIGNMENT's arguments are the tuple pattern's elements.
+  // The call site builds its own argument list rather than taking the shape's
+  // count, so a misparse repaired only in describeExpression reports zero
+  // arguments here: `Store.One(k) = v` had its call back and said it took none.
+  const refAssignment = refReturningAssignmentOf(node);
   const argumentNodes =
-    asyncCall !== undefined
+    refAssignment !== undefined
+      ? namedChildren(refAssignment.argumentsNode)
+      : asyncCall !== undefined
       ? [...asyncCall.argumentNodes, asyncCall.callee.parent!]
       : repairedCreation !== undefined
       ? misparsedCreationArgumentNodes(repairedCreation.argumentsNode).filter(
@@ -2604,6 +2675,20 @@ function childrenWithRoles(
     }
     push(child, role);
   };
+
+  // THE REF-RETURNING ASSIGNMENT'S CALL. The tuple pattern the grammar built is
+  // the ARGUMENT LIST, so its elements are arguments and get argument rows; the
+  // assigned value is still walked, as it was before this shape emitted a call.
+  const refAssignment = refReturningAssignmentOf(node);
+  if (refAssignment !== undefined) {
+    for (const argument of namedChildren(refAssignment.argumentsNode)) {
+      out.push({ node: argument, role: CsEdgeRole.ARGUMENT });
+    }
+    if (refAssignment.valueNode !== undefined) {
+      out.push({ node: refAssignment.valueNode, role: CsEdgeRole.ASSIGNMENT_VALUE });
+    }
+    return out;
+  }
 
   // THE INVENTED LAMBDA'S CALL, from the callee identifier: the earlier
   // parameters are the earlier ARGUMENTS and the lambda itself is the last one.

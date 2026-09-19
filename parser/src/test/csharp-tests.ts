@@ -9175,9 +9175,10 @@ function expressionSpine(outputDir: string): number {
     callSites.rows.filter(
       (r) => r[c('calleeName')] === name && r[c('csModuleLinkHash')] === spineHash
     );
-  // PatRight is a REPAIRED misparse; RefTarget is a known absence. One shape
-  // each, and the difference is whether the misparse left a node to build the
-  // row from.
+  // PatRight and RefTarget are both REPAIRED misparses now. RefTarget was a
+  // known absence for as long as there was no node to build its row from; the
+  // declaration node the grammar filed it under is that node, and the tuple
+  // pattern beside it is the argument list.
   //
   //   `s is not null && PatRight(s)`   the pattern swallows the right operand,
   //   `s is null || PatRight(s)`       so the call sat inside a PATTERN — and a
@@ -9241,10 +9242,38 @@ function expressionSpine(outputDir: string): number {
         'its operand by position, and `this` is not a named child, so position 0 is the PATTERN'
     );
   }
-  if (spineCalls('RefTarget').length !== 0) {
+  // THE REF-RETURNING ASSIGNMENT NOW YIELDS ITS CALL, which is what this check
+  // asked for while it was still asserting zero. `RefTarget(v) = PatValue()` is
+  // an assignment through a ref-returning call that the published grammar files
+  // as a `variable_declaration`; the call had no row at all and, for the one-
+  // and two-argument forms, no parse gap either.
+  const refTargetCalls = spineCalls('RefTarget');
+  if (refTargetCalls.length !== 1) {
     failures += fail(
-      `RefTarget is now called ${spineCalls('RefTarget').length} time(s). The ref-returning ` +
-        'assignment misparse now yields a call — assert its ASSIGNMENT_TARGET structure.'
+      `RefTarget is called ${refTargetCalls.length} time(s), expected 1 — the ref-returning ` +
+        'assignment misparse lost its call site, which is the silent half of the defect'
+    );
+  } else if (refTargetCalls[0]![c('argumentCount')] !== '1') {
+    // The ARITY is the half a bare presence check would miss: the arguments live
+    // in the tuple pattern the grammar built, and reading them from an
+    // `argument_list` that does not exist reports zero.
+    failures += fail(
+      `RefTarget's call site reports argumentCount ` +
+        `${refTargetCalls[0]![c('argumentCount')]}, expected 1 — the tuple pattern the ` +
+        'grammar built IS the argument list'
+    );
+  }
+  // AND THE ASSIGNED VALUE IS STILL REACHED. Emitting the call must not cost the
+  // right-hand side, which is what the walk pushed before this shape had a call.
+  const refAssignedValue = expressions.rows.some(
+    (r) =>
+      r[e('edgeRole')] === 'ASSIGNMENT_VALUE' &&
+      r[e('csModuleLinkHash')] === spineHash
+  );
+  if (!refAssignedValue) {
+    failures += fail(
+      'the ref-returning assignment emitted its call but no ASSIGNMENT_VALUE child — the ' +
+        'value was dropped when the declaration node became the expression root'
     );
   }
   if (spineCalls('PatValue').length !== 1) {
