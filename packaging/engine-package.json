@@ -1,7 +1,7 @@
 {
   "name": "@@SCOPE@@/engine-@@PLATFORM@@",
   "version": "@@VERSION@@",
-  "description": "AxiomCode code-graph engines (@@LANGS@@) compiled for @@OS@@/@@CPU@@ with Soufflé @@SOUFFLE@@. Installed as an optional dependency of the code-graph package; npm selects this package by os/cpu.",
+  "description": "AxiomCode code-graph engines (@@LANGS@@) compiled for @@OS@@/@@CPU@@. Installed as an optional dependency of the code-graph package; npm selects this package by os/cpu.",
   "license": "FSL-1.1-Apache-2.0",
   "os": ["@@OS@@"],
   "cpu": ["@@CPU@@"],
