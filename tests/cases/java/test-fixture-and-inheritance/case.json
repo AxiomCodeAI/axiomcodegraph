@@ -1,0 +1,9 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a fixture that runs before a test reaches the change on that test's behalf, so the test inheriting the fixture is selected",
+   "run": ["impact", "Service.touch", "--tests"],
+   "want": ["ChildTest::usesWhatTheFixturePrepared"],
+   "avoid": ["0 of 1 test method(s)"]},
+  {"why": "the selection names the subclass's test and not the abstract base that holds the fixture — a runner told to run BaseTest runs nothing",
+   "run": ["impact", "Service.touch", "--tests"],
+   "want": ["via BaseTest.setUp"]}]}
