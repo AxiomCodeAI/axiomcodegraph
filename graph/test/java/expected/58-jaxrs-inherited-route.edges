@@ -1,0 +1,5 @@
+boundary_lib	method	testcases.jaxrs.OrderClient#find(String) -> external:org.springframework.web.client.RestTemplate.getForObject
+boundary_lib	method	testcases.jaxrs.OrderClient#list() -> external:org.springframework.web.client.RestTemplate.getForObject
+boundary_lib	method	testcases.jaxrs.OrderClient#replaceAll(String) -> external:org.springframework.web.client.RestTemplate.put
+boundary_lib	method	testcases.jaxrs.WidgetClient#list() -> external:org.springframework.web.client.RestTemplate.getForObject
+boundary_lib	method	testcases.jaxrs.WidgetClient#replaceAll(String) -> external:org.springframework.web.client.RestTemplate.put
