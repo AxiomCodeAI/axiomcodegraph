@@ -160,6 +160,12 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   of what a service's suite does. The two spellings of a path are matched segment by segment (`/orders/o-1/price` against
   `/orders/{order_id}/price`, `<int:id>`, `:id`), never normalised. It is **not** an edge the engine resolved and is never
   shown as one: the hop is `[by key]`, and a literal can be a same-valued other thing.
+- **a decorator that rebinds the name is a hop** — `@audited def summarise(…)` leaves `summarise` denoting what
+  `audited(summarise)` RETURNED, so every caller written with that name runs the wrapper. That is the engine's own
+  resolution (`ext_decorated_name_target`), not a name match, so the hop is `[sound]`; without it a `functools.wraps`
+  wrapper — retry, cache, login_required, a task — has no caller at all and a change to it reaches nothing. What the
+  graph still cannot say is the OTHER decorator shape, where the decorator returns an object rather than a function
+  (`@shared_task` … `.delay()`): there the name denotes an instance, and the engine says so rather than guessing.
 - **a fixture the framework injects** — pytest matches a test's PARAMETER NAME against the fixtures visible from its file:
   those beside it and those in a `conftest.py` of any ancestor directory, which is not the test's file and is imported by
   nothing. A `@pytest.mark.usefixtures` marker names one instead, and an `autouse=True` fixture runs before every test in
