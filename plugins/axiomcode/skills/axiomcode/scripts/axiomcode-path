@@ -45,6 +45,46 @@ class G:
             self.sym.setdefault(r['id'], {'id': r['id'], 'display': r['q'], 'file': '<library>', 'line': None, 'end_line': None, 'kind': 'library', 'owner': r['q'].rsplit('.', 1)[0], 'is_test': 0, 'name': r['q'].rsplit('.', 1)[-1], 'method_id': r['id']})
         self.facts = os.path.join(gdir, 'out', 'dl')
         self.callers_ids = {r['caller_id'] for r in self.q("SELECT DISTINCT caller_id FROM call_edges")}   # a type whose field initializers call: a node too
+        self.decorations_from_sites()
+
+    # ── decorations the front end records as calls, not as decorations ───────────────────────────────────────
+    # A TypeScript or JavaScript graph has a `decorations` table with NOTHING IN IT, and the same decorators sitting
+    # in `call_sites` as DECORATOR_CALL rows — the parser records `@Get(':id')` as a call to `Get`, and no projection
+    # turns it into a decoration. Every consumer here reads `decorations`, so on those graphs `path '@Get' '*'`
+    # answered "no method carries @Get. Decorations in this graph: " — an empty list that reads as "this repository
+    # has no such handler", when what is true is that the language's decorations were never put where the tools look.
+    # Nest, Angular, TypeORM and every other decorator framework were invisible for that reason alone.
+    #
+    # So: when the table is empty and the call sites are there, fill a TEMPORARY table of the same shape (SQLite
+    # resolves a temp name before the schema's, so every existing query sees it and none had to change). The owner is
+    # the NARROWEST declaration whose span contains the decorator's line — the parser puts the decorator line inside
+    # the span of what it decorates, so `@Get` lands on the method and `@Controller`, which the call site charges to
+    # the module, lands on the class. `text` is rebuilt from the string literals on that line, which is what the
+    # config-key queries match against (`text LIKE '%"key"%'`).
+    #
+    # A graph whose decorations table already has rows (Java, Python) is left exactly as it is.
+    def decorations_from_sites(self):
+        if not self.has('call_sites'): return
+        if self.has('decorations') and self.q("SELECT 1 FROM decorations LIMIT 1"): return
+        rows = self.q("SELECT callee_name, file_path, start_line FROM call_sites WHERE kind = 'DECORATOR_CALL' AND callee_name IS NOT NULL AND start_line > 0")
+        if not rows: return
+        spans = collections.defaultdict(list)
+        for r in self.sym.values():
+            if r.get('file') and r.get('line') and r.get('end_line'): spans[r['file']].append((r['line'], r['end_line'], r['id'], r.get('kind')))
+        lits = collections.defaultdict(list)
+        if self.has('literals'):
+            for v, f, l in self.q("SELECT value, file, line FROM literals WHERE line > 0"): lits[(f, l)].append(v)
+        self.con.execute("CREATE TEMP TABLE decorations (owner_id TEXT, name TEXT, text TEXT, file TEXT, line INT)")
+        out = []
+        for name, fp, line in rows:
+            f = self.site_file(fp) if hasattr(self, 'site_file') else fp
+            best = None
+            for a, b, i, k in spans.get(f, ()):
+                if a <= line <= b and (best is None or (b - a) < best[0]): best = (b - a, i)
+            args = ', '.join('"%s"' % v for v in lits.get((f, line), ()))
+            out.append((best[1] if best else None, name, f"@{name}({args})" if args else f"@{name}", f, line))
+        self.con.executemany("INSERT INTO decorations VALUES (?,?,?,?,?)", out)
+        self.decorations_synthesised = len(out)
     def q(self, s, *p): return self.con.execute(s, p).fetchall()
     def has(self, t): return bool(self.q("SELECT 1 FROM sqlite_master WHERE name=?", t))
     def loc(self, i):
@@ -78,9 +118,20 @@ class G:
             die(f"no callable spans {s}")
         if s.startswith('@') and self.has('decorations'):                                # @GetMapping / @*Mapping / @Test → every method carrying it
             pat = s[1:].replace('*', '%')
-            r = self.q("SELECT DISTINCT d.owner_id AS id FROM decorations d JOIN symbols x ON x.id = d.owner_id WHERE x.method_id IS NOT NULL AND (d.name LIKE ? OR d.name LIKE ?)", pat, f"%.{pat}")
-            if r: return f"{s} ({len(r)} methods)", [x['id'] for x in r]
+            ids = [x['id'] for x in self.q("SELECT DISTINCT d.owner_id AS id FROM decorations d JOIN symbols x ON x.id = d.owner_id WHERE x.method_id IS NOT NULL AND (d.name LIKE ? OR d.name LIKE ?)", pat, f"%.{pat}")]
+            # a decoration on the TYPE — @RestController, @Controller, @Injectable, @Component, @Entity — is carried by
+            # every method the type declares: that is what "from any method with this decoration" has to mean, or the
+            # class-level form of every framework answers nothing at all. Methods are taken by span, not by owner name,
+            # so a nested type's methods belong to the nested type and two classes of one name do not merge.
+            for t in self.q("SELECT DISTINCT d.owner_id AS id FROM decorations d JOIN symbols x ON x.id = d.owner_id WHERE x.type_id IS NOT NULL AND (d.name LIKE ? OR d.name LIKE ?)", pat, f"%.{pat}"):
+                ty = self.sym.get(t['id']) or {}
+                if not (ty.get('file') and ty.get('line') and ty.get('end_line')): continue
+                ids += [m['id'] for m in self.q("SELECT id FROM symbols WHERE file = ? AND line >= ? AND end_line <= ? AND method_id IS NOT NULL AND kind <> 'module'", ty['file'], ty['line'], ty['end_line'])]
+            ids = list(dict.fromkeys(ids))
+            if ids: return f"{s} ({len(ids)} methods)", ids
             near = self.q("SELECT name, count(*) n FROM decorations GROUP BY name ORDER BY n DESC LIMIT 8")
+            if not near: die(f"no method carries {s}, and this graph records NO decoration at all — not that the code has none."
+                             " A front end that does not project decorations cannot answer a decoration endpoint; ask by name instead.")
             die(f"no method carries {s}. Decorations in this graph: " + ', '.join(f"@{x['name']} ({x['n']})" for x in near))
         if re.search(r'\.(ts|tsx|js|mjs|cjs|py|java)$', s):                             # a file → every method in it
             r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module'", s.lstrip('/'), f"%/{s.lstrip('/')}")
