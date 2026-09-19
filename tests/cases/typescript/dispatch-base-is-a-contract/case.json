@@ -1,0 +1,15 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a bodiless interface method is a WAYPOINT the closure walks through, not a callable the change breaks (#1011). In Java its override row already puts it under the contract; TypeScript is structural and has no override row, so it landed in `reaches those` instead — and the hook's fast path counted it too",
+   "run": ["impact", "LinearRouter.add"],
+   "want": ["must change with it", "Router.add", "it implements this"],
+   "avoid": []},
+  {"why": "and the candidate's caller and its test are still reached THROUGH the base, so the fix withheld the row without breaking the traversal",
+   "run": ["impact", "LinearRouter.add", "--tests"],
+   "want": ["App.mount", "1 of 1 test method(s)"],
+   "avoid": []},
+  {"why": "the contract holds whether or not anything constructs the implementation: TrieRouter is never instantiated, so the closure's RTA filter drops its dispatch edge, and reading the implements relation through that filter made the rules and the fast path disagree",
+   "run": ["impact", "TrieRouter.add"],
+   "want": ["Router.add", "it implements this"],
+   "avoid": []}
+ ]}
