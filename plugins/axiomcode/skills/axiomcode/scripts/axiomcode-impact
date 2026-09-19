@@ -557,7 +557,7 @@ class Impact:
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
     IMPACT_VERSION = '19'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
-    #    guards); 16: regsite folded into ax_registration's reg_key_fact; 17/18: the tagged-template test registrar
+    #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
     #  — bump this whenever a fact this writes changes shape, or an already-indexed repository reuses the old file
     #    against the new program and every query dies with "cannot parse fact file <name>.facts".
@@ -633,6 +633,15 @@ class Impact:
         W('nested', [(r[0], r[1]) for r in g.q("SELECT type_id, outer_type_id FROM nesting")] if g.has('nesting') else [])
         W('decorated', [(r[0], r[1].split('.')[-1]) for r in g.q("SELECT owner_id, name FROM decorations")] if g.has('decorations') else [])
         W('override', [(r[0], r[1]) for r in g.q("SELECT method_id, overriding_method_id FROM overrides")] if g.has('overrides') else [])
+        # the implements relation, UNFILTERED. The `edge(_, _, "dispatch")` facts are RTA-filtered — a candidate whose
+        # owner is never instantiated is not a place control can go, so it is rightly absent from the closure. But
+        # whether a declaration IMPLEMENTS an interface method is not a question about reachability: `TrieRouter.add`
+        # implements `Router.add` whether or not anything constructs a TrieRouter, and a signature change breaks it
+        # either way. Read straight from dispatch_candidates so the contract rule does not inherit the closure's
+        # filter — which is what made the rules and the hook's fast path disagree on exactly those candidates.
+        W('implements_pair', sorted({(r[0], r[1]) for r in g.q(
+            "SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE base_method_id <> candidate_method_id")})
+            if g.has('dispatch_candidates') else [])
         # a project's own decorator that wraps a generating one (`def frozen(cls): return dataclass(frozen=True)(cls)`,
         # `Accessors = ...`): if the declaration's own source names a generator, it generates the same members
         gen_table = {d: set(ws) for d, ws in GENERATED.items()}

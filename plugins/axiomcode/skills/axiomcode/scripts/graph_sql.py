@@ -97,7 +97,14 @@ def impact(repo, target, depth=DEPTH):
                 WHERE o.method_id IN ({ph}) AND s.id NOT IN ({ph})""", ids + ids)} |
             {r[0] for r in q(
             f"""SELECT DISTINCT s.display FROM overrides o JOIN symbols s ON s.id=o.method_id
-                WHERE o.overriding_method_id IN ({ph}) AND s.id NOT IN ({ph})""", ids + ids)})
+                WHERE o.overriding_method_id IN ({ph}) AND s.id NOT IN ({ph})""", ids + ids)} |
+            # …and the dispatch base with no override row, which the rules report as "it implements this" (#1011)
+            ({r[0] for r in q(
+            f"""SELECT DISTINCT s.display FROM dispatch_candidates dc JOIN symbols s ON s.method_id = dc.base_method_id
+                WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id AND s.id NOT IN ({ph})
+                  AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
+                                                               OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""",
+            ids + ids)} if 'dispatch_candidates' in _tables(con) else set()))
         # reads / uses it, resolved: an edge the engine typed
         # NO self-exclusion here: a method that calls itself, or one overload that calls another, IS a caller and
         # impact.dl lists it (LDAPOperationManager.modifyAttributes does exactly this, as a known_edge). Excluding
@@ -132,6 +139,15 @@ def impact(repo, target, depth=DEPTH):
         # layer. The walk still goes THROUGH them: the tests that reach the change via an override stay.
         contract_ids = {r[0] for r in q(f"SELECT DISTINCT overriding_method_id FROM overrides WHERE method_id IN ({ph})", ids)} \
                      | {r[0] for r in q(f"SELECT DISTINCT method_id FROM overrides WHERE overriding_method_id IN ({ph})", ids)}
+        # …and the DISPATCH BASE the engine records no override row for (#1011). A bodiless interface method is a
+        # waypoint the walk passes through, not a callable the change breaks, and in a structurally typed language
+        # there is no override row to put it under the contract the way Java's is. Same treatment either way:
+        # traversed, so its callers are still found, and reported as a contract rather than as reached.
+        if dispatch:
+            contract_ids |= {r[0] for r in q(f"""SELECT DISTINCT dc.base_method_id FROM dispatch_candidates dc
+                WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                  AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
+                                                               OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", ids)}
         seen_ids -= contract_ids
         n = len(seen_ids)
         tset = {x[0] for x in rows if x[1] == 1} - contract_ids
@@ -940,6 +956,15 @@ def contract_for_method(q, ids):
     # flag("no_overrides") :- the bundle has no `overrides` rows at all. The types are still there, so a same-named
     # member of a sub- or supertype is bound by the same contract, said as a name match rather than as an override.
     if not q("SELECT 1 FROM overrides LIMIT 1"): out += _name_match_contract(q, ids)
+    # the dispatch base the engine records no override row for (#1011): read from dispatch_candidates UNFILTERED,
+    # because whether a declaration implements an interface method is not a question about reachability — the rules
+    # read `implements_pair`, which is the same table without the closure's RTA filter.
+    if q("SELECT 1 FROM sqlite_master WHERE name='dispatch_candidates'"):
+        for (b,) in q(f"""SELECT DISTINCT dc.base_method_id FROM dispatch_candidates dc
+                          WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                            AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
+                                                                         OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", *ids):
+            if b not in ids: out.append((b, 'it implements this — the engine records a dispatch candidate here and no override row'))
     return sorted(set(out))                       # a set, for the same reason
 
 
