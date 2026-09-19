@@ -30,12 +30,12 @@
 // NARROWED BY ARITY, AND THIS IS NOT OPTIONAL. `member_method` returns every
 // overload of the name; a site calls exactly one of them. Without the arity test:
 //
-//   * a 2-argument call matched a 1-parameter member, which on FluentValidation
+//   * a 2-argument call matched a 1-parameter member, which on one corpus member
 //     resolved `validator.Validate(instance, options => ...)` to
 //     `AbstractValidator.Validate/1` -- an edge the compiler does not make, and the
 //     kind of wrong answer that is worse than a missing one.
 //   * every overload entered the candidate set, so each one's dispatch fan was
-//     unioned into the site's targets. On Humanizer one site reported 43 targets
+//     unioned into the site's targets. On another one site reported 43 targets
 //     spanning two different arities.
 //
 // ARITY IS A RANGE, NOT A NUMBER (method_accepts_argc): optional parameters and a

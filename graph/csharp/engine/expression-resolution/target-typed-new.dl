@@ -14,10 +14,10 @@
 // arity narrowing, extension methods and accessor calls were in place, the failure
 // buckets were:
 //
-//     777  humanizer         implicit_object_creation
-//      35  polly             implicit_object_creation
-//      28  serilog           implicit_object_creation
-//      98  humanizer         invocation (everything else)
+//     777  member A          implicit_object_creation
+//      35  member B          implicit_object_creation
+//      28  member C          implicit_object_creation
+//      98  member A          invocation (everything else)
 //
 // One construct, more than five times the size of every other cause combined. It is
 // also the construct most likely to be under-counted by intuition, because it reads

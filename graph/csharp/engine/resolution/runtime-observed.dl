@@ -9,7 +9,7 @@
 //
 // A workload is a LOWER BOUND on behaviour. Everything in the trace happened, so
 // every observed edge is real and may be asserted. Nothing that is ABSENT from the
-// trace is thereby shown not to happen: FluentValidation's suite reaches 554 of its
+// trace is thereby shown not to happen: one member's suite reaches 554 of its
 // 604 methods, and the other 50 are untested, not unreachable. An engine that
 // narrowed a dispatch fan to "what the tests took" would produce a graph that is
 // wrong for every code path the tests do not cover, and would look BETTER by every

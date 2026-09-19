@@ -8,8 +8,8 @@
 // directive somewhere above.
 //
 // WHY THIS FILE IS THE BIGGEST SINGLE RECALL ITEM. Measured on the dev corpus
-// before it existed: 912 of Humanizer's 3,203 in-source call sites resolved to
-// nothing, and Humanizer is a library of extension methods. LINQ means every
+// before it existed: on a corpus member that is a library of extension methods,
+// 912 of its 3,203 in-source call sites resolved to nothing. LINQ means every
 // project has them. Without this, an engine reports a library's own public surface
 // as unreachable.
 //
@@ -67,7 +67,7 @@ extension_recv_type(prov, m, gk) :- extension_method(prov, m, p), param_type(pro
 // `this IRuleBuilderOptions<T, TProperty>` owns THREE type references: the
 // constructed one and its two arguments, and the arguments ARE type parameters.
 // Matching on "owns a type-parameter reference" therefore made every generic
-// extension method match every receiver -- FluentValidation's
+// extension method match every receiver -- one corpus member's
 // `DefaultValidatorOptions.Where` was offered for `assemblies.Where(...)` on an
 // IEnumerable and won, producing six edges the compiler does not make. The root is
 // the reference with no parent.
@@ -165,7 +165,7 @@ call_instance_lookup_failed(prov, e) :-
 // So the MATCH is positive and ungated, and the GATE is applied afterwards:
 //
 //   extension_match      POSITIVE. Every in-scope extension whose name, arity and
-//                        receiver fit. Feeds typing, so `x.Humanize().Trim()` can
+//                        receiver fit. Feeds typing, so `x.Titlecase().Trim()` can
 //                        type its receiver through the extension's return type.
 //   extension_candidate  GATED. Only where instance lookup found nothing, which is
 //                        the language's own rule. Feeds the edge layer.

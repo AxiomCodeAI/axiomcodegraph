@@ -23,6 +23,8 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TESTDIR="$(cd "$HERE/.." && pwd)"          # graph/test/csharp
+. "$HERE/manifest.sh"
+resolve_corpus_manifest "$HERE" || exit 2
 REPO="$(cd "$HERE/../../../.." && pwd)"    # repository root
 CORPUS="${CS_CORPUS:-$HOME/.cache/axiom-cs-corpus}"
 ORACLE="$TESTDIR/ground-truth/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle"
@@ -139,7 +141,7 @@ while IFS=$'\t' read -r name pset path repo commit note; do
   esac
   if [ -n "$ONLY" ]; then case ",$ONLY," in *,"$name",*) ;; *) continue ;; esac; fi
   run_one "$name" "$pset" "$path" "$commit" || { [ $? -eq 77 ] || RC=1; }
-done < "$HERE/corpus.tsv"
+done < "$CORPUS_MANIFEST"
 
 echo
 echo "=============================================================="

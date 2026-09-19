@@ -27,7 +27,7 @@ buckets below are written so that no bucket silently claims it is:
                 absorbed into MISSED.
 
 WHY NOT_EXECUTED IS NOT A PRECISION NUMBER. It is tempting to read "the engine
-named 900 edges and the run took 300" as 33% precision. It is not: FluentValidation's
+named 900 edges and the run took 300" as 33% precision. It is not: one member's
 suite covers 554 of 604 methods, and the uncovered ones are uncovered, not
 unreachable. A trace is a LOWER BOUND on behaviour and this file never treats it as
 an upper one.
