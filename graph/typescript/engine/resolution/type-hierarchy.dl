@@ -197,10 +197,16 @@ method_is_constructor(m) :- method_kind(_, k, _, m), method_kind_is_constructor(
 // different member, and dispatching a virtual call into it would be a fabricated edge.
 //
 // Two bases, kept apart because they are not equally good evidence. `nominal` follows a
-// written extends/implements. `structural` follows a shape match, and
-// structural_implementor already restricts itself to targets with no nominal
-// implementor at all (see structural-satisfaction.dl) — so the two never both fire for
-// one supertype, and a consumer that trusts only declarations can filter on the basis.
+// written extends/implements. `structural` follows a shape match, and a consumer that
+// trusts only declarations can filter on the basis.
+//
+// THE BASES STILL PARTITION PER (base, candidate) PAIR, and that is deliberate rather
+// than incidental. structural_implementor excludes a pair that `implements` already
+// states (#428), so no candidate is ever reported twice; what changed is that ONE
+// SUPERTYPE may now report a nominal candidate and a structural one, because a declared
+// implementor no longer suppresses an undeclared conformer of the same interface. A
+// consumer that trusts only declarations filters on the basis and gets exactly what it
+// got before.
 //
 // A CONSTRUCTOR IS NOT DISPATCHED. `new Shape()` runs Shape's constructor and never
 // Circle's, however Circle extends Shape — the constructed type is written at the site.
