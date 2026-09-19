@@ -1088,13 +1088,15 @@ def main(argv):
         gg = G(repo); gg.IN = IN; II = Impact(gg)
         ranked = rank_targets(II, gg, text, top=max(take_top, 5))
         if not ranked: die("no identifier in that text resolves to a declaration in this graph — name one, or pass a file:line from a stack frame")
-        print(f"candidate targets from the text ({len(ranked)} shown, best first — where it was written, how specific it is, how central):")
-        for sc, label, kind, cand, src in ranked: print(f"  {sc:>4}  {label}   [{kind}]   — `{cand}` in {src}")
+        # the same rule as the note below: under --json every one of these banners would sit inside the document
+        out = sys.stderr if as_json else sys.stdout
+        print(f"candidate targets from the text ({len(ranked)} shown, best first — where it was written, how specific it is, how central):", file=out)
+        for sc, label, kind, cand, src in ranked: print(f"  {sc:>4}  {label}   [{kind}]   — `{cand}` in {src}", file=out)
         if not take_top:
-            print("\n(run the impact of the best one with --top 1, or of the best few as one change set with --top N)")
+            print("\n(run the impact of the best one with --top 1, or of the best few as one change set with --top N)", file=out)
             return 0
         chosen = ranked[:take_top]
-        print(f"\nimpact of the top {len(chosen)} as one change set: " + ', '.join(c[3] for c in chosen) + "\n")
+        print(f"\nimpact of the top {len(chosen)} as one change set: " + ', '.join(c[3] for c in chosen) + "\n", file=out)
         args = [c[3] for c in chosen]
     if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k] [--delete]\n"
                      "       axiomcode impact --from-text <file|-> [<repo>] [--top N]   — an issue report in, the candidate declarations out\n"
@@ -1107,7 +1109,11 @@ def main(argv):
         if kinds == {'field', 'method'} and not kind:
             # a fluent accessor, a record component, a Python @property: one concept written one way. Answering for
             # either half alone drops the other half's dependents, so both are the change set
-            print(f"note: {a} is a field and a method of that name — both are the change (--kind field | method for one)")
+            # to stderr under --json: a diagnostic on stdout is INSIDE the document a consumer parses, and this one
+            # fires on the commonest shape there is (a Python attribute beside a same-named function, a fluent
+            # accessor, a record component), so every such target came back as a JSONDecodeError rather than an answer
+            print(f"note: {a} is a field and a method of that name — both are the change (--kind field | method for one)",
+                  file=sys.stderr if as_json else sys.stdout)
         elif len(rs) > 1 and not kind:
             die(f"{a} is declared as more than one kind: " + ' · '.join(f"{k} ({lab})" for k, lab, _ in rs) + " — say which with --kind " + '|'.join(k for k, _, _ in rs))
         targets += rs
