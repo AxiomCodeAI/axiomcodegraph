@@ -586,6 +586,43 @@ export function misparsedGenericCreationRunOf(
   return undefined;
 }
 
+/**
+ * The misparsed run read from the CREATION, the node that carries the row.
+ *
+ * The walk arrives at the creation, not at the argument list, so the pieces it
+ * needs -- the real constructor arguments and the initializer, both of which the
+ * grammar filed inside a fabricated cast two arguments later -- have to be
+ * reachable from it. The climb is creation to `<` binary to `argument` to
+ * `argument_list`, and the run is then matched to confirm THIS creation heads it.
+ */
+export function misparsedGenericCreationRunAtCreationOf(
+  creation: Parser.SyntaxNode
+): | {
+      readonly constructorArguments: Parser.SyntaxNode | undefined;
+      readonly initializer: Parser.SyntaxNode | undefined;
+      readonly typeArguments: readonly Parser.SyntaxNode[];
+      readonly end: Parser.SyntaxNode;
+    }
+  | undefined {
+  const list = creation.parent?.parent?.parent;
+  if (list === undefined || list === null) {
+    return undefined;
+  }
+  const run = misparsedGenericCreationRunOf(list);
+  if (run === undefined || run.creation.id !== creation.id) {
+    return undefined;
+  }
+  const args = namedChildrenOfType(list, 'argument');
+  return {
+    constructorArguments: run.constructorArguments,
+    initializer: run.initializer,
+    typeArguments: run.typeArguments,
+    // The LAST argument of the run, which is where the expression the source
+    // wrote actually ends. The creation node itself stops at its type name.
+    end: args[run.start + run.length - 1] ?? creation,
+  };
+}
+
 /** Named children of one type, in order. */
 function namedChildrenOfType(node: Parser.SyntaxNode, type: string): Parser.SyntaxNode[] {
   const out: Parser.SyntaxNode[] = [];

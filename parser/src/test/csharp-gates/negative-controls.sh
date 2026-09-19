@@ -1253,6 +1253,22 @@ run_break "flatten a file whose blocks are not all accounted for" \
 # disabling it must lose the members of such a block, which is the defect the
 # path was added for. Without this control the path could be deleted and the
 # check above would still pass on its generic-block half alone.
+# The REDIRECT is what stops the fabricated comparisons: without it the `<` binary
+# emits as itself, the type arguments become value references and the call counts
+# the run. Controls the repair rather than the detector, because the detector can
+# be present and unused.
+run_break "emit the fabricated comparison instead of the creation" \
+  src/parsers/csharp/extractors/cs-expression-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('  if (node.type === \'binary_expression\' && node.parent?.type === \'argument\') {', '  if (false) {')" \
+  "BINARY"
+# And the GRAFT: with the redirect alone the creation emits with no children, so
+# the arguments and initializer the source wrote are lost with the comparison.
+run_break "drop the arguments the misparse filed inside the cast" \
+  src/parsers/csharp/extractors/cs-expression-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('      const runPieces = misparsedGenericCreationRunAtCreationOf(node);', '      const runPieces = undefined;')" \
+  "initializer"
 run_break "never locate a header the tree did not present" \
   src/parsers/csharp/extractors/cs-extension-block.ts \
   "an unreadable extension block leaves the file alone" \

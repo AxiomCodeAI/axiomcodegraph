@@ -5305,6 +5305,123 @@ public static class Ext14Generic
   });
 }
 
+async function aGenericCreationInArgumentPositionIsOneArgument(): Promise<number> {
+  return withTempDir(async (dir) => {
+    // `Take(new D<K, V>(args) { ... })` is read as `a < b, c > d`: the `<`
+    // ambiguity the language resolves with type information the grammar does
+    // not have. The expression is split across SIBLING `argument` nodes, which
+    // fabricated two comparisons and a cast, turned the type arguments into
+    // VALUE references a resolver would look up, and made the call report two
+    // arguments where the source writes one.
+    //
+    // The four controls are the ones the report named: a genuine comparison,
+    // the same creation with no initializer, with predefined type arguments,
+    // and bound to a local. All four parsed correctly before and must keep to it.
+    const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-generic-creation-'));
+    await fsp.writeFile(
+      path.join(corpus, 'GenericCreation.cs'),
+      `using System.Collections.Generic;
+namespace Acme.App;
+
+public sealed class Key { }
+public sealed class Val { }
+
+public static class GenericCreation
+{
+    static void Two(bool p, bool q) { }
+    static void One(Dictionary<Key, Val> d) { }
+    static void OneInt(Dictionary<int, string> d) { }
+
+    public static void Go(Dictionary<Key, Val> snap, Key k, Val v, int a, int b, int c, int e)
+    {
+        Two(a < b, c > e);
+        One(new Dictionary<Key, Val>(snap));
+        One(new Dictionary<Key, Val>(snap) { { k, v } });
+        One(new Dictionary<Key, Val>() { [k] = v });
+        One(new Dictionary<Key, Val>(snap) { [k] = v });
+        OneInt(new Dictionary<int, string>(2) { { 1, "x" } });
+        var z = new Dictionary<Key, Val>(snap) { [k] = v };
+    }
+}
+`,
+      'utf-8'
+    );
+    await runAnalyzer(corpus, dir);
+    const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
+    const expressions = relations.get('all-csharp-expressions.csv');
+    const callSites = relations.get('all-csharp-call-sites.csv');
+    if (expressions === undefined || callSites === undefined) {
+      return fail('a relation this check reads is missing');
+    }
+    const e = (n: string): number => expressions.header.indexOf(n);
+    const c = (n: string): number => callSites.header.indexOf(n);
+    let bad = 0;
+
+    // EVERY `One` CALL TAKES ONE ARGUMENT, because the declaration does. This is
+    // the effect the report said would be acted on: the misparsed spellings
+    // reported two.
+    const oneCalls = callSites.rows.filter((r) => r[c('calleeName')] === 'One');
+    if (oneCalls.length !== 4) {
+      bad += fail(`expected 4 calls to One, found ${oneCalls.length}`);
+    }
+    for (const row of oneCalls) {
+      if (row[c('argumentCount')] !== '1') {
+        bad += fail(
+          `a One(...) call reports argumentCount ${row[c('argumentCount')]}, expected 1 — the ` +
+            'generic creation was counted as two arguments'
+        );
+      }
+    }
+
+    // NOTHING IS FABRICATED. The two comparisons and the cast are not in the
+    // source, and a row for a construct nobody wrote is worse than a missing
+    // one: an engine can see an absence and cannot see an invention.
+    const fabricated = expressions.rows.filter(
+      (r) => r[e('kind')] === 'BINARY' || r[e('kind')] === 'CAST'
+    );
+    if (fabricated.length !== 0) {
+      bad += fail(
+        `${fabricated.length} BINARY/CAST row(s) in a file whose only comparison is the ` +
+          'control — the misparse fabricated operators the source does not contain'
+      );
+    }
+
+    // AND THE TYPE ARGUMENTS ARE NOT VALUES. `Key` and `Val` are types; emitted
+    // as NAME_REFERENCE rows with a qualified name, a resolver looks for values
+    // of those names and finds the classes, which is a wrong edge rather than a
+    // missing one.
+    const typeArgsAsValues = expressions.rows.filter(
+      (r) =>
+        r[e('kind')] === 'NAME_REFERENCE' &&
+        (r[e('potentialQualifiedName')] === 'Key' || r[e('potentialQualifiedName')] === 'Val')
+    );
+    if (typeArgsAsValues.length !== 0) {
+      bad += fail(
+        `${typeArgsAsValues.length} NAME_REFERENCE row(s) name Key or Val — a TYPE ARGUMENT ` +
+          'was emitted as a value reference'
+      );
+    }
+
+    // THE CREATIONS SURVIVE WHOLE. Six are written; a rebuild that dropped one,
+    // or dropped its arguments with the comparison they hung off, would pass
+    // every check above.
+    const creations = expressions.rows.filter((r) => r[e('kind')] === 'OBJECT_CREATION');
+    if (creations.length !== 6) {
+      bad += fail(`expected 6 OBJECT_CREATION rows, found ${creations.length}`);
+    }
+    const initializers = expressions.rows.filter(
+      (r) => r[e('edgeRole')] === 'INITIALIZER_VALUE' && r[e('kind')] === 'INITIALIZER'
+    );
+    if (initializers.length < 4) {
+      bad += fail(
+        `only ${initializers.length} initializer(s) attached to a creation, expected at least 4 ` +
+          '— the initializer was filed inside the fabricated cast and has to be grafted back'
+      );
+    }
+    return bad;
+  });
+}
+
 function delegatesAreNamedByTheirNameField(outputDir: string): number {
   const relations = new Map(readRelations(outputDir).map((r) => [r.name, r]));
   const modules = relations.get('all-csharp-modules.csv');
@@ -13639,6 +13756,14 @@ async function main(): Promise<number> {
           'nominal receiver keeps EVERY member — and a block the pass still cannot account ' +
           'for leaves the file entirely alone, with the gap relation reporting it',
         run: () => anUnreadableExtensionBlockLeavesTheFileAlone(),
+      },
+      {
+        name: 'a generic creation in argument position is one argument',
+        proves:
+          'the `<` ambiguity no longer splits `Take(new D<K, V>(args) { … })` into two ' +
+          'comparisons and a cast: the call takes one argument, nothing is fabricated, and ' +
+          'the type arguments are not emitted as values a resolver would look up',
+        run: () => aGenericCreationInArgumentPositionIsOneArgument(),
       },
       {
         name: 'a delegate is named by its name field',
