@@ -353,6 +353,40 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
         );
         this.extractedTypeReferences.push(...permitsRefs);
         
+        // Enum constants FIRST: a method declared in a constant's body links to the
+        // constant, so the constant must already have been emitted and its hash known.
+        // Extract enum constants if this is an enum declaration
+        if (node.type === 'enum_declaration') {
+          const enumConstants = this.enumConstantExtractor.extractFromEnum(
+            node,
+            filePath,
+            typeRegistry.getHash(),
+            typeRegistry.getName(),
+            typeRegistry.getQualifiedName(),
+            serviceVersionHash,
+            packageName,
+            importMap,
+            hasStarImports
+          );
+          this.extractedEnumConstants.push(...enumConstants);
+          
+          // Collect annotations from enum constants
+          const enumConstantAnnotations = this.enumConstantExtractor.getExtractedAnnotations();
+          this.extractedAnnotations.push(...enumConstantAnnotations);
+          
+          // Collect annotation arguments from enum constant annotations
+          const enumConstantAnnotationArgs = this.enumConstantExtractor.getExtractedAnnotationArguments();
+          this.extractedAnnotationArguments.push(...enumConstantAnnotationArgs);
+          
+          // Collect expressions from enum constant arguments
+          const enumConstantExpressions = this.enumConstantExtractor.getExtractedExpressions();
+          this.extractedExpressions.push(...enumConstantExpressions);
+          
+          // Collect type references from enum constant argument expressions
+          const enumConstantTypeRefs = this.enumConstantExtractor.getExtractedTypeReferences();
+          this.extractedTypeReferences.push(...enumConstantTypeRefs);
+        }
+
         // Extract methods from this type
         const methods = this.methodExtractor.extractFromType(
           node,
@@ -363,7 +397,8 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
           serviceVersionHash,
           packageName,
           importMap,
-          hasStarImports
+          hasStarImports,
+          this.enumConstantExtractor.getConstantHashByNodeRange()
         );
         this.extractedMethods.push(...methods);
         
@@ -402,37 +437,6 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
         // Collect anonymous classes from method body expressions
         const methodBodyAnonymousClasses = this.methodExtractor.getExtractedAnonymousClasses();
         
-        // Extract enum constants if this is an enum declaration
-        if (node.type === 'enum_declaration') {
-          const enumConstants = this.enumConstantExtractor.extractFromEnum(
-            node,
-            filePath,
-            typeRegistry.getHash(),
-            typeRegistry.getName(),
-            typeRegistry.getQualifiedName(),
-            serviceVersionHash,
-            packageName,
-            importMap,
-            hasStarImports
-          );
-          this.extractedEnumConstants.push(...enumConstants);
-          
-          // Collect annotations from enum constants
-          const enumConstantAnnotations = this.enumConstantExtractor.getExtractedAnnotations();
-          this.extractedAnnotations.push(...enumConstantAnnotations);
-          
-          // Collect annotation arguments from enum constant annotations
-          const enumConstantAnnotationArgs = this.enumConstantExtractor.getExtractedAnnotationArguments();
-          this.extractedAnnotationArguments.push(...enumConstantAnnotationArgs);
-          
-          // Collect expressions from enum constant arguments
-          const enumConstantExpressions = this.enumConstantExtractor.getExtractedExpressions();
-          this.extractedExpressions.push(...enumConstantExpressions);
-          
-          // Collect type references from enum constant argument expressions
-          const enumConstantTypeRefs = this.enumConstantExtractor.getExtractedTypeReferences();
-          this.extractedTypeReferences.push(...enumConstantTypeRefs);
-        }
         
         // Extract fields from the type body
         const bodyNode = this.findTypeBody(node);
