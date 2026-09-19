@@ -21,6 +21,9 @@
 #       which declarations an edit changed and HOW (signature: params added / removed / retyped, return type; field: its type,
 #       name, initializer; type header; body only; removed; added) — the working tree against the commit the graph was built
 #       from, or two commits — each with the target `impact` takes; --impact runs impact on all of them as one change set.
+#   axiomcode install [<repo>] [--remove] [--print]
+#       write the preference into the repository's CLAUDE.md as one marked block: for a question about how code connects,
+#       prefer this over grep/Glob. States a preference, blocks nothing; re-running replaces, --remove takes it out.
 #
 # --lang picks the language when the repo mixes several (auto-detection counts files, so a TypeScript project with many
 # .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
@@ -43,6 +46,7 @@ case "$cmd" in
   changed) exec python3 "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   test-impact|tests) exec python3 "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
+  install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
   ""|-h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, context, graph, path, impact, changed, test-impact" >&2; exit 2 ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, context, graph, path, impact, changed, test-impact, install" >&2; exit 2 ;;
 esac

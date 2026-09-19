@@ -24,6 +24,7 @@ axiomcode path <word> '*'                                                 no exa
 axiomcode impact <target>… [<repo>] [--tests] [--depth N] [--in <path>]  what a change to a method / field / type / parameter / type parameter / local reaches, and how sure
 axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact]  which declarations an edit changed and HOW (signature, field type, body …) — then impact on all of them
 axiomcode test-impact [<repo>] [--range a..b | --staged] [--json] [--why]  which tests the edit in front of you reaches, and the command that runs them
+axiomcode install [<repo>] [--remove]                                     write the preference into the repo's CLAUDE.md as one marked block (states it; blocks nothing)
 ```
 
 `<repo>` defaults to the current directory.
@@ -40,6 +41,7 @@ axiomcode test-impact [<repo>] [--range a..b | --staged] [--json] [--why]  which
 | "which tests do I run for this edit" | `axiomcode test-impact` |
 | "what did my edit actually touch" | `axiomcode changed --impact` |
 | "is it safe to delete X" | `axiomcode impact X --delete` |
+| this repo should prefer the graph over grep, once | `axiomcode install` |
 
 Four rules that decide whether the answer means anything:
 
