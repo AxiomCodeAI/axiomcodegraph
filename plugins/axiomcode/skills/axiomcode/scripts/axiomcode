@@ -3,6 +3,11 @@
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
+#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>] [--budget N] [--source]
+#       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name
+#       to ask about yet. Deterministic: task terms scored against the graph's vocabulary by inverse document
+#       frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop.
+#       Ends by saying what it could not see. Every other verb needs a name you already have; this one does not.
 #   axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]
 #       the graph as one page. Runs the pipeline only when the repo has no up-to-date graph (~1 s otherwise). <repo>
 #       defaults to the current directory; the page goes to <repo>/.axiomcode/graph/graph.html, or to --out: a folder
@@ -21,6 +26,10 @@
 #       which declarations an edit changed and HOW (signature: params added / removed / retyped, return type; field: its type,
 #       name, initializer; type header; body only; removed; added) — the working tree against the commit the graph was built
 #       from, or two commits — each with the target `impact` takes; --impact runs impact on all of them as one change set.
+#   axiomcode test-impact [<repo>] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why]
+#       which tests actually have to run for this edit: the test files that reach any changed declaration, with the
+#       chain, so a selection can be checked rather than trusted. Conservative by design — a test reached only
+#       through an edge the graph does not encode (reflection, a service loader) will NOT appear.
 #   axiomcode install [<repo>] [--remove] [--print]
 #       write the preference into the repository's CLAUDE.md as one marked block: for a question about how code connects,
 #       prefer this over grep/Glob. States a preference, blocks nothing; re-running replaces, --remove takes it out.
@@ -47,6 +56,8 @@ case "$cmd" in
   test-impact|tests) exec python3 "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
   install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
-  ""|-h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
+  # the leading comment block IS the help: printed from line 2 to the first non-comment line, never a line
+  # range. A hardcoded range is what let this document 6 verbs while the case below dispatched 8 (#1034).
+  ""|-h|--help|help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0" ;;
   *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, context, graph, path, impact, changed, test-impact, install" >&2; exit 2 ;;
 esac

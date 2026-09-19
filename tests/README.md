@@ -9,6 +9,10 @@ the behaviour it is about, so a failure says what broke rather than which number
     python3 tests/run.py qualified-this-unrelated -v
     python3 tests/run.py --keep          leave the built graph in the case directory to inspect
 
+One check needs no graph and is its own script:
+
+    python3 tests/surfaces.py            every dispatched verb is documented on --help, SKILL.md and MCP
+
 A case is `tests/cases/<language>/<name>/` with its sources and a `case.json`:
 
     {"lang": "java", "src": "src",
