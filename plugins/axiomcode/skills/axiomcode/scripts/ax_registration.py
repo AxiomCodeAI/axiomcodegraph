@@ -167,3 +167,71 @@ def is_value_why(why):
 
 def _has(q, t):
     return bool(q("SELECT 1 FROM sqlite_master WHERE name=?", t))
+
+
+# ── the DECORATION path: the key is written at the `@`, and the owner is recorded ────────────────────────────
+# `registrations()` above skips DECORATOR_CALL sites deliberately, because a decoration is not a call that hands a
+# value over. It is the other half of the same idea and it carries BETTER evidence: the index records which
+# declaration a decoration is on, so the registered declaration needs no name matching at all.
+#
+#     @router.post("/orders")          key "/orders"          a route
+#     @cli.command("price")            key "price"            a command name
+#     @receiver("order_created")       key "order_created"    a signal
+#     @exporter("csv")                 key "csv"              a table entry
+#
+# Every one of those is "the framework will dispatch to this declaration when someone writes this string", which is
+# exactly what the join needs. The kind is read from the key rather than from a list of decoration names: a key that
+# begins with `/` is a route, anything else is a key, and no framework is named anywhere in this function.
+def decoration_keys(q, site_file=None):
+    """[(decl, file, line, kind, key, why)] — a declaration registered under a string by its own decoration."""
+    if not _has(q, 'decorations'):
+        return []
+    import re
+    sf = site_file or (lambda x: x)
+    out = []
+    for owner, name, text, f, l in q("""SELECT owner_id, name, text, file, line FROM decorations
+                                        WHERE text IS NOT NULL AND text <> '' AND owner_id IS NOT NULL"""):
+        short = (name or '').split('.')[-1]
+        for key in sorted(set(re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''))):
+            key = key[0] or key[1]
+            if not key:
+                continue
+            kind = 'route' if key.startswith('/') else 'key'
+            why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
+                   else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')
+            out.append((owner, sf(f) if f else '', l or 0, kind, key, why))
+    return sorted(set(out))
+
+
+# ── a registration written as a CALL that no verb list knows ─────────────────────────────────────────────────
+# Flask's `application.add_url_rule("/quote/<order_id>", view_func=legacy_quote)` is a route registration whose verb
+# is not an HTTP verb, and the same shape appears wherever a framework takes (path, handler) under a name of its own
+# choosing. The evidence is the pair, not the name: one line carrying a PATH-SHAPED literal and a declaration named
+# as a VALUE. That is the discriminator `registrations()` already trusts for the verb list, applied without it.
+#
+# Kept apart from `registrations()` on purpose: that function's rows were measured on a TypeScript application and
+# this leg would change them, so a caller opts in rather than inherits it.
+def value_route_registrations(q, site_file=None):
+    """[(decl, file, line, 'route', key, why)] — a path literal and a handed-over declaration on one line."""
+    if not (_has(q, 'call_sites') and _has(q, 'literals') and _has(q, 'refs')):
+        return []
+    sf = site_file or (lambda x: x)
+    once = {}
+    for n, i, c in q("""SELECT name, min(id), count(*) FROM symbols WHERE method_id IS NOT NULL AND name IS NOT NULL
+                        AND name NOT LIKE '<%' GROUP BY name"""):
+        if c == 1:
+            once[n] = i
+    ek = ','.join('?' * len(CALLABLE_EK))
+    ref_at = {}
+    for n, f, l in q(f"SELECT name, file, line FROM refs WHERE line > 0 AND entity_kind IN ({ek})", *CALLABLE_EK):
+        if n in once:
+            ref_at.setdefault((f, l), once[n])
+    out = []
+    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        if not (isinstance(v, str) and v.startswith('/') and len(v) < 160):
+            continue
+        d = ref_at.get((f, l))
+        if d:
+            out.append((d, sf(f) if f else '', l or 0, 'route', v,
+                        f'registered at "{v}" here — the framework calls it, no call site does'))
+    return sorted(set(out))
