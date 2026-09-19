@@ -471,6 +471,133 @@ export function misparsedTupleGenericCreationOf(node: Parser.SyntaxNode):
   return { creation, typeTuple, argumentsNode };
 }
 
+/**
+ * `Take(new D<K, V>(args) { ... })` -- a generic creation WITH constructor
+ * arguments AND an initializer, in ARGUMENT POSITION -- read as two comparisons.
+ *
+ * The `<` ambiguity again, but a different shape from the one above and not
+ * reachable by it: that one requires the creation to have NEITHER arguments nor
+ * an initializer, and this one requires BOTH. The grammar splits the expression
+ * across SIBLING `argument` nodes of one `argument_list`, so there is no single
+ * node to test; the run is what has to be recognised.
+ *
+ * Measured tree for `Take(new Dictionary<Key, Val>(snap) { { k, v } })`:
+ *
+ *     argument_list
+ *       argument -> binary_expression `<`
+ *                     left  = object_creation_expression   (type only, no args)
+ *                     right = identifier `Key`             <- a TYPE ARGUMENT
+ *       argument -> binary_expression `>`
+ *                     left  = identifier `Val`             <- a TYPE ARGUMENT
+ *                     right = cast_expression
+ *                               type  = `snap`             <- the REAL arguments
+ *                               value = initializer_expression
+ *
+ * Three things are wrong and all three come from this one run: two fabricated
+ * comparisons and a fabricated cast; the type arguments emitted as VALUE
+ * references, so a resolver looks for values named `Key` and `Val`; and the
+ * call's argumentCount, which counts the run rather than the one argument the
+ * source writes.
+ *
+ * A creation with more than two type arguments puts plain identifiers between
+ * the two binaries -- `new D<A, B, C>(x) { }` is three arguments -- so the
+ * middle of the run is required to be exactly that and nothing else.
+ *
+ * THE DISCRIMINATOR is that the `<` operand is an `object_creation_expression`
+ * whose own `new` sits inside the supposed comparison, which no comparison a
+ * programmer writes can produce. `a < b, c > d` as genuine arguments has no
+ * creation in it and is not matched.
+ */
+export function misparsedGenericCreationRunOf(
+  list: Parser.SyntaxNode
+): | {
+      readonly start: number;
+      readonly length: number;
+      readonly creation: Parser.SyntaxNode;
+      readonly typeArguments: readonly Parser.SyntaxNode[];
+      readonly constructorArguments: Parser.SyntaxNode | undefined;
+      readonly initializer: Parser.SyntaxNode | undefined;
+    }
+  | undefined {
+  if (list.type !== 'argument_list') {
+    return undefined;
+  }
+  const args = namedChildrenOfType(list, 'argument');
+  for (let i = 0; i < args.length; i += 1) {
+    const open = onlyExpressionOf(args[i]!);
+    if (
+      open === undefined ||
+      open.type !== 'binary_expression' ||
+      operatorTextOf(open) !== '<'
+    ) {
+      continue;
+    }
+    const creation = open.childForFieldName('left');
+    const firstTypeArgument = open.childForFieldName('right');
+    if (
+      creation === null ||
+      firstTypeArgument === null ||
+      creation.type !== 'object_creation_expression' ||
+      // The creation the grammar stopped at its type name: the `(args)` and the
+      // `{ ... }` are downstream, inside the closing argument's cast.
+      childOfType(creation, 'argument_list') !== undefined ||
+      childOfType(creation, 'initializer_expression') !== undefined
+    ) {
+      continue;
+    }
+    for (let j = i + 1; j < args.length; j += 1) {
+      const close = onlyExpressionOf(args[j]!);
+      if (close === undefined) {
+        break;
+      }
+      // Between the two binaries every argument is a bare type-argument name.
+      if (close.type === 'identifier') {
+        continue;
+      }
+      if (close.type !== 'binary_expression' || operatorTextOf(close) !== '>') {
+        break;
+      }
+      const lastTypeArgument = close.childForFieldName('left');
+      const tail = close.childForFieldName('right');
+      if (lastTypeArgument === null || tail === null) {
+        break;
+      }
+      const middle = args
+        .slice(i + 1, j)
+        .map((a) => onlyExpressionOf(a))
+        .filter((n): n is Parser.SyntaxNode => n !== undefined);
+      // The tail is the creation's own `(args) { ... }`, which the grammar read
+      // as a cast whose TYPE is the parenthesised arguments. A creation with an
+      // initializer and no arguments does not reach here -- it parses correctly,
+      // which is one of the issue's controls.
+      if (tail.type !== 'cast_expression') {
+        break;
+      }
+      return {
+        start: i,
+        length: j - i + 1,
+        creation,
+        typeArguments: [firstTypeArgument, ...middle, lastTypeArgument],
+        constructorArguments: tail.childForFieldName('type') ?? undefined,
+        initializer: tail.childForFieldName('value') ?? undefined,
+      };
+    }
+  }
+  return undefined;
+}
+
+/** Named children of one type, in order. */
+function namedChildrenOfType(node: Parser.SyntaxNode, type: string): Parser.SyntaxNode[] {
+  const out: Parser.SyntaxNode[] = [];
+  for (let i = 0; i < node.namedChildCount; i += 1) {
+    const child = node.namedChild(i);
+    if (child !== null && child.type === type) {
+      out.push(child);
+    }
+  }
+  return out;
+}
+
 /** The misparse read from the CREATION, the node that carries its row. */
 export function misparsedGenericCreationArgumentsOf(
   creation: Parser.SyntaxNode

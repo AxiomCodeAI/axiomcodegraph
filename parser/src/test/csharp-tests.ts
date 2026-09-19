@@ -5178,10 +5178,20 @@ public static class Ext14
  */
 async function anUnreadableExtensionBlockLeavesTheFileAlone(): Promise<number> {
   return withTempDir(async (dir) => {
-    const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-mixed-'));
-    // ONE readable block and ONE unreadable one. The second has a single
-    // member, which is the shape the recovery does not present cleanly.
-    const source = `namespace Acme.App;
+    let bad = 0;
+
+    // ── PART ONE: A PREDEFINED-TYPE RECEIVER IS READ, NOT DECLINED ──────────
+    // `extension(int)` is not a `constructor_declaration` in the tree at all --
+    // it recovers as an ERROR holding a `variable_declaration` -- so it used to
+    // drive the all-or-nothing guard and take the WHOLE file down with it: the
+    // readable block's members went missing too, with no gap row at the lost
+    // declaration. cs-extension-block.ts now locates such a header in the TEXT,
+    // so this file flattens completely. This check was previously the inverse,
+    // and its own failure message named this outcome as the reason to invert it.
+    const mixed = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-mixed-'));
+    await fsp.writeFile(
+      path.join(mixed, 'Ext14Mixed.cs'),
+      `namespace Acme.App;
 
 public static class Ext14Mixed
 {
@@ -5197,39 +5207,100 @@ public static class Ext14Mixed
         public static int Zero => 0;
     }
 }
-`;
-    await fsp.writeFile(path.join(corpus, 'Ext14Mixed.cs'), source, 'utf-8');
-    await runAnalyzer(corpus, dir);
-    const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
-    const methods = relations.get('all-csharp-methods.csv');
-    const properties = relations.get('all-csharp-properties.csv');
-    const gaps = relations.get('all-csharp-parse-gaps.csv');
-    if (methods === undefined || properties === undefined || gaps === undefined) {
-      return fail('a relation this check reads is missing');
+`,
+      'utf-8'
+    );
+    await runAnalyzer(mixed, dir);
+    {
+      const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
+      const methods = relations.get('all-csharp-methods.csv');
+      const properties = relations.get('all-csharp-properties.csv');
+      const gaps = relations.get('all-csharp-parse-gaps.csv');
+      if (methods === undefined || properties === undefined || gaps === undefined) {
+        return fail('a relation this check reads is missing');
+      }
+      // EVERY DECLARATION SURVIVES. The member counts are the point: a partial
+      // rewrite is what used to lose one, and a count is what notices.
+      const names = new Set([
+        ...methods.rows.map((r) => r[methods.header.indexOf('name')]!),
+        ...properties.rows.map((r) => r[properties.header.indexOf('name')]!),
+      ]);
+      for (const want of ['Slug', 'IsBlank', 'Zero']) {
+        if (!names.has(want)) {
+          bad += fail(
+            `\`${want}\` is declared in a file mixing a nominal and a predefined-type ` +
+              'extension receiver, and has no row. The flattening pass declined the file ' +
+              'rather than reading the predefined-type header from the text.'
+          );
+        }
+      }
+      // AND NOTHING IS LEFT UNREAD. A gap here would mean the file flattened
+      // and still failed to parse, which is a different defect from the old one.
+      if (gaps.rows.length !== 0) {
+        bad += fail(
+          `a fully flattened extension file still produced ${gaps.rows.length} parse gap(s)`
+        );
+      }
     }
-    let bad = 0;
-    const pExt = properties.header.indexOf('isExtension');
-    const mExt = methods.header.indexOf('isExtension');
-    const claimed =
-      properties.rows.filter((r) => r[pExt] === 'true').length +
-      methods.rows.filter((r) => r[mExt] === 'true').length;
-    if (claimed !== 0) {
-      bad += fail(
-        `${claimed} row(s) claim isExtension in a file whose blocks the pass cannot all ` +
-          'read. The pass rewrote PART of the file: either the all-or-nothing guard in ' +
-          'cs-extension-block.ts was weakened, or the recovery improved and this check ' +
-          'should be inverted to require the rows.'
-      );
+
+    // ── PART TWO: A HEADER THE PASS STILL CANNOT ACCOUNT FOR DECLINES ───────
+    // The all-or-nothing policy is unchanged and still has to be asserted, so
+    // this uses a shape the pass genuinely cannot present: a GENERIC block,
+    // `extension<T>(...)`, which neither the grammar nor the textual locator
+    // reads. The file must be left ENTIRELY alone -- a partial rewrite loses a
+    // member the file declares -- and the gap relation must still report it,
+    // because declining is only defensible when the absence is RECORDED.
+    const generic = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-generic-'));
+    await fsp.writeFile(
+      path.join(generic, 'Ext14Generic.cs'),
+      `namespace Acme.App;
+
+public static class Ext14Generic
+{
+    extension(string source)
+    {
+        public string Slug() => source.Trim();
     }
-    // AND THE FILE IS STILL REPORTED AS INCOMPLETE. Declining is only defensible
-    // because the absence is RECORDED — a silent absence is the property that
-    // made this shape worth fixing in the first place.
-    if (gaps.rows.length === 0) {
-      bad += fail(
-        'a file whose extension blocks were left unflattened produced NO parse gap — its ' +
-          'members are absent and nothing says the text was not fully read.'
-      );
+
+    extension<T>(T value) where T : struct
+    {
+        public bool IsDefault() => value.Equals(default(T));
     }
+}
+`,
+      'utf-8'
+    );
+    const genericOut = path.join(dir, 'generic-out');
+    await fsp.mkdir(genericOut, { recursive: true });
+    await runAnalyzer(generic, genericOut);
+    {
+      const relations = new Map(readRelations(genericOut).map((r) => [r.name, r]));
+      const methods = relations.get('all-csharp-methods.csv');
+      const properties = relations.get('all-csharp-properties.csv');
+      const gaps = relations.get('all-csharp-parse-gaps.csv');
+      if (methods === undefined || properties === undefined || gaps === undefined) {
+        return fail('a relation this check reads is missing');
+      }
+      const pExt = properties.header.indexOf('isExtension');
+      const mExt = methods.header.indexOf('isExtension');
+      const claimed =
+        properties.rows.filter((r) => r[pExt] === 'true').length +
+        methods.rows.filter((r) => r[mExt] === 'true').length;
+      if (claimed !== 0) {
+        bad += fail(
+          `${claimed} row(s) claim isExtension in a file whose blocks the pass cannot all ` +
+            'read. The pass rewrote PART of the file: the all-or-nothing guard in ' +
+            'cs-extension-block.ts was weakened.'
+        );
+      }
+      if (gaps.rows.length === 0) {
+        bad += fail(
+          'a file whose extension blocks were left unflattened produced NO parse gap — its ' +
+            'members are absent and nothing says the text was not fully read.'
+        );
+      }
+    }
+
     return bad;
   });
 }
@@ -13535,9 +13606,9 @@ async function main(): Promise<number> {
       {
         name: 'an unreadable extension block leaves the file alone',
         proves:
-          'a file with one readable block and one the recovery does not present cleanly is ' +
-          'left ENTIRELY alone rather than partly rewritten — a partial rewrite loses a ' +
-          'member the file declares, and the gap relation still reports the file',
+          'a predefined-type receiver is read from the text, so a file mixing it with a ' +
+          'nominal receiver keeps EVERY member — and a block the pass still cannot account ' +
+          'for leaves the file entirely alone, with the gap relation reporting it',
         run: () => anUnreadableExtensionBlockLeavesTheFileAlone(),
       },
       {
