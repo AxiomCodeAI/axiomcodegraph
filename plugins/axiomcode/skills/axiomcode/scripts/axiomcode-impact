@@ -214,7 +214,46 @@ class Impact:
         others = sorted(written - {s})
         return [('config', f"configuration key {s}" + (f" ({n} method(s) bound to it)" if n else " (bound, but no method reads it in this graph)")
                  + (f", also written {', '.join(others)}" if others else ''), want)]
+    def prefix_note(self, typed, out):
+        """The leading segments the caller typed that nothing resolved accounts for.
+
+        Resolution matches a declaration by its TRAILING segments, so `zzzz.qqqq.Owner.member`
+        and the true fully-qualified spelling are indistinguishable once matched: both come back
+        as `Owner.member`. Comparing the typed string against every qualified_name and display a
+        candidate carries is what tells a real package apart from one that is not in the graph."""
+        typed = re.sub(r'\(.*\)$', '', typed).replace('#', '.').strip('.')
+        if typed.count('.') < 2: return ''          # Owner.member carries no prefix to validate
+        names = []
+        for _k, _lab, ids in out:
+            for i in (ids if isinstance(ids, (list, tuple, set)) else [ids]):
+                if isinstance(i, dict): names += [i.get('qualified_name'), i.get('display')]
+                elif isinstance(i, str) and i in self.g.sym:
+                    names += [self.g.sym[i].get('qualified_name'), self.g.sym[i].get('display')]
+        low = typed.lower()
+        for n in names:
+            if not n: continue
+            n = str(n).replace('#', '.').lower()
+            if n == low or n.endswith('.' + low): return ''      # the prefix IS part of the name
+        return typed.rsplit('.', 2)[0]
+
     def resolve(self, sel, kind=None):
+        out = self._resolve(sel, kind)
+        # a target whose leading segments match nothing is not the declaration it happens to end with
+        pre = self.prefix_note(sel, out) if out else ''
+        if pre:
+            tail = re.sub(r'\(.*\)$', '', sel).replace('#', '.').strip('.').rsplit('.', 2)[-2:]
+            short = '.'.join(tail)
+            if self.CONFIG_RE.match(re.sub(r'\(.*\)$', '', sel).strip()):
+                # a lowercase dotted key reaching a declaration only by its tail is the key, not the code
+                return self.config_target(re.sub(r'\(.*\)$', '', sel).strip())
+            die(f"'{pre}' matches no package, type or declaration in this graph; '{sel}' was matched only by its\n"
+                f"  trailing segments, which would answer for '{short}' as if the prefix had been checked. If that is\n"
+                f"  the declaration you mean, ask for it as '{short}'; if the prefix is real, re-index the tree that\n"
+                f"  declares it — a fabricated or mistyped prefix and the true qualified name are otherwise the same\n"
+                f"  question here.")
+        return out
+
+    def _resolve(self, sel, kind=None):
         """-> list of (kind, label, payload). payload: method ids (method), field row (field), type symbol (type),
         (method id, name) (param / var), (owner symbol, name) (typeparam). Several when the name is declared as several kinds."""
         raw = sel.strip()
