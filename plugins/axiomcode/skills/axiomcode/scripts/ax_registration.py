@@ -235,3 +235,29 @@ def value_route_registrations(q, site_file=None):
             out.append((d, sf(f) if f else '', l or 0, 'route', v,
                         f'registered at "{v}" here — the framework calls it, no call site does'))
     return sorted(set(out))
+
+
+# ── the two spellings of one path ────────────────────────────────────────────────────────────────────────────
+# A test asks for `/orders/o-1/price`; the handler is registered at `/orders/{order_id}/price`. Neither string
+# contains the other and no call site joins them — the router does, at run time, by matching the path. A path
+# parameter is whatever the framework spells it (`{id}` FastAPI, `<int:id>` Flask, `:id` Express, `*` a wildcard),
+# so a registered segment in any of those forms matches any written segment and NEITHER side is normalised.
+_PATH_PARAM = None
+
+
+def route_matches(written, registered):
+    """True when a URL written at a call site is the route registered under `registered`."""
+    global _PATH_PARAM
+    if _PATH_PARAM is None:
+        import re as _re
+        _PATH_PARAM = _re.compile(r'\{.*\}|<.*>|:.+|\*.*')
+    if not (written.startswith('/') and registered.startswith('/')):
+        return False
+    segs = lambda p: p.split('?')[0].split('#')[0].rstrip('/').split('/')
+    w, r = segs(written), segs(registered)
+    return len(w) == len(r) and all(a == b or _PATH_PARAM.fullmatch(b) for a, b in zip(w, r))
+
+
+def all_registrations(q, site_file=None):
+    """Every (decl, file, line, kind, key, why) this module can derive, from all three sources."""
+    return sorted(set(registrations(q, site_file) + decoration_keys(q, site_file) + value_route_registrations(q, site_file)))

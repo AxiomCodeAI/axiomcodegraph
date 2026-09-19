@@ -13,6 +13,22 @@ tests/cases/<language>/<name>/ holding a tiny synthetic project and a case.json:
 The case is indexed once (into its own .axiomcode, removed afterwards unless --keep) and every check is run against
 it. A check fails loudly with the line that was wrong, so a regression names itself. No corpus, no network, nothing
 outside the case directory.
+
+Three other keys a check may carry:
+
+  "stdout_json": true    STDOUT ALONE must parse as one JSON document. `want` and `avoid` read stdout and stderr
+                         CONCATENATED, so no substring can express "this must not be inside the document" — which is
+                         how a `note:` line sat in --json for every name declared as both a field and a method.
+  "expect_error": true   a non-zero exit is the answer, not a fault (`path` exits 1 when it finds no chain).
+  "pending": "<issue>"   the check states behaviour the tool does NOT have yet. It still RUNS. Failing prints PEND and
+                         is not a suite failure; PASSING is a failure reading "remove the marker", so a gap that
+                         closes cannot keep a marker claiming it is open.
+
+  PENDING IS DECIDED FROM want / avoid MISMATCHES ONLY, NEVER FROM THE EXIT CODE, and that is the property that makes
+  it safe rather than dangerous. A marker that absorbed an unexpected non-zero exit would be a hiding place for real
+  breakage: both of the defects this suite surfaced on 2026-09-18 were a silent empty answer and an unreadable one,
+  and neither announces itself as a want/avoid mismatch. If anyone ever "simplifies" `pending` into a skip, that is
+  the property they will have removed.
 """
 import json, os, re, shutil, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
