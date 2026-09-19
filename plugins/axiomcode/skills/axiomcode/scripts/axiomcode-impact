@@ -1578,7 +1578,11 @@ def main(argv):
         byhop = collections.Counter(reached.values()); print("    by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
         byfile = collections.Counter(g.sym[m]['file'] for m in reached); print("    files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(8)) + (f" … +{len(byfile) - 8}" if len(byfile) > 8 else ''))
     if ent:
-        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display']))
+        # (hop, display) is NOT a total order: several distinct declarations share both — a `cli` test command
+        # defined once per test file is the common shape — and the ties then fell back to the order `ent` was
+        # built in, which comes from a SET and is a function of hashing rather than of the answer. The location
+        # makes it total, so the same graph prints the same list twice running.
+        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], g.loc(x[0]), x[0]))
         print(f"    entry points ({len(ent)}: nothing resolved calls them — a framework, a runner, reflection — or a test; 0 hops = touches it directly), nearest first:")
         for m, d in ent[:limit]:
             decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []
