@@ -26,7 +26,7 @@ the rest is a decision about risk that this tool cannot make for you.
 HOW GOOD THE SELECTION IS, measured rather than asserted. 55 single-function edits on a Python service
 driven through its frameworks, truth being which test FILES newly fail when that function is broken:
 
-    the call-graph answer alone      recall 0.861   precision 0.963    8 edits selected nothing
+    the call-graph answer alone      recall 0.902   precision 0.965    3 edits selected nothing
     what the command actually shows  recall 0.926   precision 0.966    0 edits shown nothing
 
 The second row is the first plus the name tier that prints when the graph is silent. It is the honest one,
@@ -36,8 +36,15 @@ not fall when the fallback fires, because that tier names about one file: the co
 roughly one extra test file per edit the graph could not reach.
 
 These numbers move as the rules do, and they are re-derived rather than adjusted: the same 55 edits gave
-0.738 / 0.852 before the registration-key, import-time and protocol hops landed. A figure in a docstring
-that nobody re-measures is the same defect as a certainty table that no longer matches what is printed.
+0.738 / 0.852 before the registration-key, import-time, protocol and value-reference hops landed. A figure
+in a docstring that nobody re-measures is the same defect as a certainty table that no longer matches what
+is printed.
+
+The two rows moving APART is the interesting part of the last one. The value-reference hop took the graph
+answer from 0.861 to 0.902 and left the second row where it was, because the name tier was already naming
+those five files. Nothing a reader is shown got better; what got better is WHY they are shown it — a call
+the graph can follow rather than a file named after the changed module. A recall number that does not move
+is not the same as a change that does nothing, and the rung on each row is where the difference is.
 """
 import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections
 
