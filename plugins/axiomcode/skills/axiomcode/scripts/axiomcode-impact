@@ -1485,8 +1485,28 @@ def main(argv):
         eps = g.q("SELECT method_id, reason FROM entry_points WHERE method_id IN (%s)" % ','.join('?' * len(seeds)), *sorted(seeds)) if seeds else []
     except Exception:
         eps = []          # a bundle built before entry_points existed — say nothing rather than fail the query
-    for r in eps:
-        print(f"entry point: {g.disp(r['method_id'])} is a {r['reason']} entry point — a framework invokes it, so no client call site reaches it. Changing it changes what the outside world can call.")
+    # ONE FULL SENTENCE PER ENTRY POINT made this section grow with the size of the test suite and not with the size
+    # of the answer. A configuration key's closure reaches every test that loads the context, so on a 1,400-file
+    # Spring application 200 of 264 output lines began `entry point:`, 180 of them the identical test sentence, and
+    # the first line of the actual answer was line 229 of a 54 KB reply (#1036). The reason is what a reader needs
+    # and it is the same for every member of a group, so it is said ONCE per reason with the names behind --limit,
+    # as the direct-dependent sections already do. Tests are counted apart and not explained: a test entry point is
+    # not a place the outside world calls, and the tests section below is what names them.
+    ep_rows = sorted({(r['method_id'], r['reason']) for r in eps})
+    _is_t = lambda m: m in g.sym and g.sym[m]['is_test']
+    ep_by_reason = collections.defaultdict(list)
+    for m, why in ep_rows:
+        if not _is_t(m): ep_by_reason[why].append(m)
+    for why in sorted(ep_by_reason):
+        ms = sorted(ep_by_reason[why], key=g.disp)
+        if len(ms) == 1:
+            print(f"entry point: {g.disp(ms[0])} is a {why} entry point — a framework invokes it, so no client call site reaches it. Changing it changes what the outside world can call.")
+        else:
+            print(f"entry point: {len(ms)} {why} entry points — a framework invokes them, so no client call site reaches them. Changing one changes what the outside world can call: "
+                  + ', '.join(g.disp(m) for m in ms[:limit]) + (f" … +{len(ms) - limit} (--limit N)" if len(ms) > limit else ''))
+    n_ep_test = len({m for m, _ in ep_rows if _is_t(m)})
+    if n_ep_test:
+        print(f"entry point: {n_ep_test} test entry point(s) — a runner invokes them, so no client call site reaches them either; they are not a surface the outside world calls. The tests section below is what names them.")
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
     # a throws clause is a contract: say what adding one to this method would cost, and who already handles the ones it has
     n_callers = len({c for c, role, why, cert, loc, n in D if cert == 'resolved' and 'calls it' in why})
