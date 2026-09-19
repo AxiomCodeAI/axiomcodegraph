@@ -62,10 +62,29 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         if not j: lines.append(hd + "  (impact unavailable)"); continue
         con = j.get('contract', []); dr = sorted(j.get('direct', []), key=lambda x: (rank.get(x['certainty'], 9), x['display'])); rc = j.get('reached', []); ts = j.get('tests', [])
         prod = [x for x in dr if x['role'] in ('produces', 'writes')]; reads = [x for x in dr if x['role'] in ('reads', 'uses')]
-        names = lambda xs, k=4: ', '.join(f"{x['display']} {x['at'].split('/')[-1]}" for x in xs[:k]) + (f" … +{len(xs) - k}" if len(xs) > k else '')
+        # THE TIER TRAVELS WITH THE ROW OR IT IS NOT READ. The printed command labels every row [resolved] /
+        # [by name] / [text]; this line dropped the label, so four rows of dataflow -- two of them reflective
+        # deserialization -- arrived looking exactly like resolved call sites, and were reported as compile
+        # errors. The label costs a dozen characters and is the difference between a fact and a guess.
+        names = lambda xs, k=4: ', '.join(f"[{x['certainty']}] {x['display']} {x['at'].split('/')[-1]}" for x in xs[:k]) + (f" … +{len(xs) - k}" if len(xs) > k else '')
         lines.append(hd)
         if con and d['kind'] in contract_kinds: lines.append(f"    must change with it ({len(con)}): " + ', '.join(f"{x['display']} ({x['why']})" for x in con[:4]) + (' …' if len(con) > 4 else ''))
         if prod: lines.append(f"    produces / writes it ({len(prod)}): " + names(prod))
+        # A RETYPE AND A RENAME DO NOT BREAK THE SAME THINGS, AND NEITHER IS THE LIST ABOVE.
+        # `produces / writes it` is dataflow: who makes a value of this shape, including a deserializer that
+        # writes it reflectively and never fails a build. What stops a build when a field's TYPE changes is the
+        # callers of whatever is generated from it -- the all-args constructor, the setter -- at the argument
+        # they pass; those touch the generated member, not the field, so they are in no list here. Left unsaid,
+        # a reader takes the first list as "what breaks" and gets the one set of rows that cannot.
+        if prod and d['kind'] == 'field' and str(d.get('detail', '')).startswith('type '):
+            owner = d['symbol'].rsplit('.', 1)[0] if '.' in d['symbol'] else d['symbol']
+            lines.append("    ^ TYPE change: those rows are dataflow, not compile errors — a deserializer writes the"
+                         " value without any build failing.")
+            lines.append(f"      What breaks the build is the callers of {owner}'s generated constructor / setter, at the"
+                         f" argument they pass. They are in no list here: `axiomcode impact '{owner}'` names them.")
+        # `bound from outside the source` never fails a build either, and it is the layer most likely to be
+        # mistaken for one because it is the longest: say what it is where it is counted.
+
         # THE FAST PATH COUNTS LESS THAN IT SOUNDS LIKE. graph_sql answers from call_edges: resolved callers,
         # and the by-name sites it can see. The rules add the [in scope], [text] and reference layers, which on
         # a field or a wide method is most of the answer — measured on the JVM parser, 1 against 93 for a field and 5
