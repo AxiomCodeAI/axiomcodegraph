@@ -1,0 +1,50 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "`for line in a` runs __iter__ and writes no name, so the method has no call site at all and every test that drives it looks unrelated. The one thing the graph does see is the construction: you do not build a context manager without entering it, so whoever constructs the type is who runs its protocol",
+   "run": [
+    "impact",
+    "Audit.__iter__",
+    "--tests"
+   ],
+   "want": [
+    "test_audit.py",
+    "protocol"
+   ],
+   "avoid": [
+    "test_plain.py"
+   ]
+  },
+  {
+   "why": "and __eq__, which `==` runs. Not __exit__: the engine already resolves a `with` statement to the context-manager pair, so a check on __exit__ passes with this rule and without it — it would look like evidence and be none",
+   "run": [
+    "impact",
+    "Audit.__eq__",
+    "--tests"
+   ],
+   "want": [
+    "test_audit.py",
+    "protocol"
+   ],
+   "avoid": [
+    "test_plain.py"
+   ]
+  },
+  {
+   "why": "the hop is taken only where the CHANGE ITSELF is a protocol member. As an edge drawn wherever one turned up in the closure it cost 115 false pairs for 46 true across three subjects, because constructing a type does not mean exercising every protocol member it has",
+   "run": [
+    "impact",
+    "record",
+    "--tests"
+   ],
+   "want": [
+    "test_audit.py"
+   ],
+   "avoid": [
+    "test_plain.py"
+   ]
+  }
+ ]
+}
