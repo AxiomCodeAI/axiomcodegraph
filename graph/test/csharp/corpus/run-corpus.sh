@@ -110,12 +110,19 @@ run_one(){
   # fewer ground-truth rows, and a recall number computed against a partial oracle
   # is not comparable with one computed against a complete one -- so it is printed
   # next to the score rather than buried in a log.
-  local cerr cfiles
+  #
+  # SPLIT BY POPULATION, because only one of the two changes what is scored. A
+  # subject compiled against reference assemblies only has unresolved-type errors
+  # by design and the rows it still produces are sound; a file the parser could not
+  # READ produces rows naming declarations that are not in the source at all, and
+  # score.py drops those rather than charging the engine with disagreeing.
+  local cerr cfiles serr
   cerr=$(sed -n 's/^compileErrors\t//p' "$w/oracle.manifest.tsv")
   cfiles=$(sed -n 's/^filesWithCompileErrors\t//p' "$w/oracle.manifest.tsv")
+  serr=$(sed -n 's/^filesWithSyntaxErrors\t//p' "$w/oracle.manifest.tsv")
 
-  printf '   parse %ss · solve %ss · oracle %ss · oracle compile errors %s in %s files\n' \
-    "$parse_s" "$solve_s" "$oracle_s" "${cerr:-?}" "${cfiles:-?}"
+  printf '   parse %ss · solve %ss · oracle %ss · oracle compile errors %s in %s files (%s unparsable)\n' \
+    "$parse_s" "$solve_s" "$oracle_s" "${cerr:-?}" "${cfiles:-?}" "${serr:-?}"
 
   local vflag=0
   if [ "$pset" = "dev" ] || [ "${AXIOM_CS_HOLDOUT_INSPECT:-0}" = "1" ]; then vflag="$VERBOSE"; fi

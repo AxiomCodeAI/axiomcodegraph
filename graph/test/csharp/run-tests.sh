@@ -62,6 +62,16 @@ command -v souffle >/dev/null || { echo "souffle is not installed (brew install 
 [ -x "$ORACLE" ] || {
   echo "the oracle is not built:  dotnet build -c Release $HERE/ground-truth/AxiomCsOracle" >&2; exit 77; }
 
+# THE SCORER IS SCORED FIRST. Every case below is read through score.py, so a defect
+# in its JOIN moves every number in this file and is indistinguishable from an engine
+# change -- and two of its verdicts are gates rather than measurements. The self-test
+# needs python3 and nothing else, so it runs before the toolchain is touched.
+if ! python3 "$HERE/ground-truth/score-selftest.py"; then
+  echo "the scorer's own self-test fails -- every number below would be unreadable" >&2
+  exit 1
+fi
+echo
+
 PASS=0; FAIL=0; FAILED=""
 for dir in "$HERE"/cases/*/; do
   name="$(basename "$dir")"

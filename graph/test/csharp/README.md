@@ -23,6 +23,42 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `04-accessors-and-indexers` | property read and write, a virtual property's fan, a compound assignment that is both, an indexer, an event subscription, and the control that a plain field access is not a call |
 | `05-partial-and-records` | a positional record's primary constructor, a primary constructor's base invocation written in the heritage clause, and a private member of another part of a partial type |
 
+### The scorer's own self-test
+
+```
+ground-truth/score-selftest.py [-v]
+```
+
+Runs first, from inside `run-tests.sh`, and needs python3 and nothing else.
+
+Every number in this directory is read through `score.py`, so a defect in its JOIN
+moves all of them at once and is indistinguishable from an engine change. Two of its
+verdicts are worse than a number: a dropped site and a wrongly resolved external
+target each FAIL the run and the corpus aggregate, and a gate that fires on a name
+collision cannot guard a real regression.
+
+The cases are synthetic IR and synthetic oracle rows rather than C# source, because
+the shapes that break the join are shapes the engine cannot currently produce -- so a
+case under `cases/` would go red for the engine's reason and prove nothing about the
+scorer. The column headers are the real ones, copied from a real run, so a fixture
+cannot drift into a shape the parser never writes.
+
+**Each case carries its control**, same as the cases do: a test that only shows the
+bad pairing gone would pass equally well if the join stopped pairing anything, so
+every one of them also asserts the legitimate pairing at that position still scores.
+
+**A file the oracle could not PARSE is not scored.** The oracle is pinned to one
+compiler package and one `LanguageVersion` on purpose, and a subject on a newer
+language version does not fail against that pin -- Roslyn recovers, and recovery
+invents structure. A member-declaration form the pin cannot read closes its
+containing class early and the rest of the file is re-read as top-level statements,
+whose synthesised container is `Program`, a type the subject does not declare. The
+oracle lists those files as `recoveredFile` in its manifest (Roslyn's own parse/bind
+split) and `score.py` drops their rows and reports the count. A file that merely did
+not BIND is a different population and is still scored: compiling against reference
+assemblies only produces unresolved-type errors by design, and the rows it still
+produces are sound -- that is what the external bucket is for.
+
 **The golden is the compiler.** Each case is scored against the Roslyn oracle
 exactly as a corpus project is, and the bar is 100% on coverage, agreement and fan
 soundness with zero dropped and zero wrongly resolved. A blessed `.expected` file

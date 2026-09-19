@@ -233,6 +233,9 @@ def main():
     ap.add_argument("--engine-ir", required=True)
     ap.add_argument("--oracle", required=True)
     ap.add_argument("--oracle-dispatch")
+    ap.add_argument("--oracle-manifest",
+                    help="the oracle's manifest; defaults to <oracle>.manifest.tsv, "
+                         "which is where the oracle writes it")
     ap.add_argument("--json")
     ap.add_argument("--label", default="")
     ap.add_argument("--verbose", type=int, default=0, help="print N examples per failure class")
@@ -349,7 +352,41 @@ def main():
     dropped = len(read_raw(os.path.join(a.engine_raw, "call-site-dropped.csv")))
 
     # ── the oracle ───────────────────────────────────────────────────────────
-    oracle = read_tsv(a.oracle)
+    # A FILE THE ORACLE COULD NOT PARSE IS NOT EVIDENCE ABOUT THE ENGINE IN EITHER
+    # DIRECTION. The oracle is pinned to one compiler package and one LanguageVersion
+    # deliberately, so a parser figure and an engine figure from this repository stay
+    # comparable. A subject on a newer language version does not fail against that
+    # pin -- Roslyn recovers, and recovery INVENTS structure. A member-declaration
+    # form the pinned version cannot read closes its containing class early and the
+    # rest of the file is re-read as top-level statements, whose synthesised
+    # container is `Program`; every row under it names a declaration the source does
+    # not contain, and the engine naming the real containing type is scored as a
+    # disagreement.
+    #
+    # THE COUNT ALONE DID NOT COVER THIS. run-corpus.sh prints the compile errors so
+    # that "a pin that drifts into that problem is visible instead of quietly
+    # lowering recall" -- but recall is not what moves. Agreement moves, in the
+    # direction that blames the engine, and a reader comparing two runs cannot tell a
+    # rule regression from a subject that moved to a newer language version.
+    #
+    # THIS IS NOT THE SAME AS A BINDING ERROR, and the distinction is the whole
+    # point. A subject compiled against reference assemblies only has thousands of
+    # unresolved-type errors by design and its rows are still sound -- that is what
+    # the external bucket is for. Only a SYNTAX error fabricates structure, and the
+    # oracle reports those separately as `recoveredFile` (Roslyn's own parse/bind
+    # split, not a guess from error-code prefixes).
+    manifest_path = a.oracle_manifest or (os.path.splitext(a.oracle)[0] + ".manifest.tsv")
+    unparsable = set()
+    manifest_seen = os.path.exists(manifest_path)
+    if manifest_seen:
+        with open(manifest_path, newline="", encoding="utf-8") as fh:
+            for row in csv.reader(fh, delimiter="\t"):
+                if len(row) >= 2 and row[0] == "recoveredFile":
+                    unparsable.add(row[1])
+
+    oracle_all = read_tsv(a.oracle)
+    oracle = [r for r in oracle_all if r["filePath"] not in unparsable]
+    unparsable_rows = len(oracle_all) - len(oracle)
 
     # Engine sites indexed by (file, line), for the null-conditional fallback above.
     by_line = defaultdict(list)
@@ -534,6 +571,10 @@ def main():
     # sites the ENGINE emitted that the oracle has no row for
     oracle_keys = set(by_call)
     for k in set(tier) | set(cand):
+        # An unparsable file has no ground truth to be "only" against: its oracle rows
+        # were dropped above, so every engine site in it would read as unmatched.
+        if k[0] in unparsable:
+            continue
         if (k[:3], k[3]) not in oracle_keys and k[:3] not in {p for p, _ in oracle_keys}:
             stats["engine_only_sites"] += 1
             fails["engine_only"].append((k, tier.get(k, "-"), sorted(cand.get(k, ()))))
@@ -614,6 +655,12 @@ def main():
           f"{s['field_like_event_accessor']} field-like event accessors")
     print(f"  property accessors        {s['property_sites']} sites, {s['property_sites_seen']} seen by the engine")
     print(f"  engine-only sites         {s['engine_only_sites']}")
+    if unparsable:
+        print(f"  UNSCORED (oracle could not parse the file)  "
+              f"{unparsable_rows} rows in {len(unparsable)} files")
+    elif not manifest_seen:
+        # Silence here would be indistinguishable from "nothing to exclude".
+        print(f"  no oracle manifest at {manifest_path}; no file was excluded")
 
     if a.verbose:
         for cls, items in sorted(fails.items()):
@@ -627,6 +674,7 @@ def main():
         os.makedirs(os.path.dirname(os.path.abspath(a.json)), exist_ok=True)
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump({"label": a.label, "stats": dict(s), "dropped": dropped,
+                       "unparsable_files": len(unparsable), "unparsable_rows": unparsable_rows,
                        "fan": fan, "per_kind": {k: dict(v) for k, v in per_kind.items()}},
                       fh, indent=1, sort_keys=True)
 

@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""
+Self-test for score.py: THE JOIN, NOT THE ENGINE.
+
+score.py is the only thing standing between a rule change and a number, and two of
+its verdicts are GATES rather than measurements -- a dropped site and a wrongly
+resolved external target each fail the run and the corpus aggregate. A gate that
+fires on an artefact of the join cannot guard a real regression, and every artefact
+found so far was found by reading a failure listing rather than by a test.
+
+The cases here are the join's own edges. They are written as SYNTHETIC IR and
+synthetic oracle rows because the shapes that break the join are shapes the engine
+cannot currently produce -- an explicit interface implementation is not a dispatch
+target yet, and an element access on an unstaged receiver emits nothing -- so a
+case under cases/ would fail for the engine's reason and prove nothing about the
+scorer. The column headers below are the real ones, copied from a real run, so a
+fixture cannot drift into a shape the parser never writes.
+
+EVERY CASE CARRIES ITS CONTROL. A test that only shows the bad pairing gone would
+pass just as well if the join stopped pairing anything, so each one asserts the
+legitimate pairing at the same position still scores.
+
+    ./score-selftest.py [-v]
+
+Exit status: 0 if every case passes, 1 otherwise. Needs python3 and nothing else.
+"""
+import csv
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SCORE = os.path.join(HERE, "score.py")
+
+# The real headers, from a real parser run. Only a few columns are read, but the
+# fixture is written with the full header so a reader can see it is the same file
+# the engine consumes and not a reduced invention.
+IR = {
+    "all-csharp-modules.csv": (
+        "name qualifiedName fileName filePath baseMservPath namespaceStyle namespaceCount "
+        "targetFramework defineConstantsKey langVersion nullableContextDefault "
+        "hasTopLevelStatements implicitUsingsEnabled projectPath assemblyName emissionRegime "
+        "grammarRegime startLine endLine parseErrorCount parseErrorBytes isGeneratedOutput "
+        "csModuleInitMethodLinkHash isExternal serviceVersionLinkHash csModuleUniqueHash"
+    ).split(),
+    "all-csharp-methods.csv": (
+        "name qualifiedName arity signature methodKind returnTypeName methodAccess "
+        "methodModifiers isStatic isAbstract isVirtual isOverride isSealed isAsync isIterator "
+        "isExtension isPartialDefinition isPartialImplementation explicitInterfaceName "
+        "operatorToken conversionKind csModuleLinkHash csTypeLinkHash isAccessor "
+        "ownerMemberLinkHash ownerMemberKind parameterCount startLine endLine startColumn "
+        "bodyKind attributeCount isExternal serviceVersionLinkHash csMethodUniqueHash"
+    ).split(),
+    "all-csharp-expressions.csv": (
+        "kind edgeRole rootContext expressionOwnerKind expressionOwnerHash parentExpressionHash "
+        "position depth csTypeLinkHash csModuleLinkHash literalKind literalValue operatorString "
+        "unaryFixity methodReferenceKind referencedEntityKind referencedEntityHash "
+        "anonymousDeclarationHash potentialQualifiedName isAmbiguous argumentCount "
+        "typeArgumentCount isSpread isNullConditional isNullForgiving castTypeReferenceLinkHash "
+        "isCheckedContext returnStatementIndex startLine startColumn endLine endColumn isExternal "
+        "serviceVersionLinkHash csExpressionUniqueHash"
+    ).split(),
+    "all-csharp-call-sites.csv": (
+        "callKind calleeName receiverKind receiverExpressionLinkHash receiverTypeName "
+        "csExpressionLinkHash csModuleLinkHash callerMethodLinkHash callerTypeLinkHash "
+        "argumentCount namedArgumentCount typeArgumentCount refArgumentCount outArgumentCount "
+        "isConditional isQueryDesugarCandidate startLine startColumn isExternal "
+        "serviceVersionLinkHash"
+    ).split(),
+}
+
+ORACLE_COLS = (
+    "filePath line column siteKind targetWhere targetKey targetContainingType targetName "
+    "targetParamCount targetDispatch targetStatic targetExtension callerKey"
+).split()
+
+DISPATCH_COLS = "declaredKey runtimeType runtimeKey runtimeWhere how".split()
+
+
+class Fixture:
+    """One synthetic run: an IR directory, a raw engine directory and an oracle."""
+
+    def __init__(self, root):
+        self.root = root
+        self.ir = os.path.join(root, "ir")
+        self.raw = os.path.join(root, "raw")
+        os.makedirs(self.ir)
+        os.makedirs(self.raw)
+        self.rows = {name: [] for name in IR}
+        self.raw_rows = {}
+        self.oracle = []
+        self.dispatch = []
+        self.manifest = None
+
+    # ── the IR the engine reads ──────────────────────────────────────────────
+    def module(self, h, path):
+        self.rows["all-csharp-modules.csv"].append(
+            {"csModuleUniqueHash": h, "filePath": path, "fileName": os.path.basename(path)})
+        return h
+
+    def method(self, h, qualified_name, param_count, **extra):
+        row = {"csMethodUniqueHash": h, "qualifiedName": qualified_name,
+               "parameterCount": str(param_count)}
+        row.update(extra)
+        self.rows["all-csharp-methods.csv"].append(row)
+        return h
+
+    def expression(self, h, module, line, column, kind="INVOCATION"):
+        # score.py turns the parser's 0-based column into Roslyn's 1-based one, so a
+        # fixture writes the PARSER's column and the oracle row is written at +1.
+        self.rows["all-csharp-expressions.csv"].append(
+            {"csExpressionUniqueHash": h, "csModuleLinkHash": module, "kind": kind,
+             "startLine": str(line), "startColumn": str(column)})
+        return h
+
+    def call_site(self, expr, callee_name, call_kind="METHOD_CALL"):
+        self.rows["all-csharp-call-sites.csv"].append(
+            {"csExpressionLinkHash": expr, "calleeName": callee_name, "callKind": call_kind})
+
+    # ── the engine's answers ─────────────────────────────────────────────────
+    def raw_row(self, relation, *cols):
+        self.raw_rows.setdefault(relation, []).append([str(c) for c in cols])
+
+    def candidate(self, expr, method):
+        self.raw_row("expression-call-candidate.csv", "client", expr, method)
+
+    def resolves(self, expr, method):
+        self.raw_row("expression-resolves-to-method.csv", "client", expr, method)
+
+    def classify(self, expr, tier):
+        self.raw_row("call-class.csv", "client", expr, tier)
+
+    # ── the ground truth ─────────────────────────────────────────────────────
+    def oracle_row(self, path, line, column, site_kind, where, target_key, **extra):
+        row = {"filePath": path, "line": str(line), "column": str(column),
+               "siteKind": site_kind, "targetWhere": where, "targetKey": target_key,
+               "targetName": target_key.rsplit("/", 1)[0].rsplit(".", 1)[-1],
+               "targetContainingType": target_key.rsplit("/", 1)[0].rsplit(".", 1)[0],
+               "targetParamCount": target_key.rsplit("/", 1)[-1],
+               "targetDispatch": "static_bound", "targetStatic": "instance",
+               "targetExtension": "", "callerKey": ""}
+        row.update(extra)
+        self.oracle.append(row)
+
+    def dispatch_row(self, declared_key, runtime_type, runtime_key,
+                     where="in_source", how="virtual"):
+        self.dispatch.append({"declaredKey": declared_key, "runtimeType": runtime_type,
+                              "runtimeKey": runtime_key, "runtimeWhere": where, "how": how})
+
+    def manifest_lines(self, lines):
+        self.manifest = lines
+
+    # ── run ──────────────────────────────────────────────────────────────────
+    def score(self, extra_args=()):
+        for name, cols in IR.items():
+            with open(os.path.join(self.ir, name), "w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t",
+                                   restval="", extrasaction="raise")
+                w.writeheader()
+                for row in self.rows[name]:
+                    w.writerow(row)
+        for name, rows in self.raw_rows.items():
+            with open(os.path.join(self.raw, name), "w", newline="", encoding="utf-8") as fh:
+                csv.writer(fh, delimiter="\t", lineterminator="\n").writerows(rows)
+
+        oracle_path = os.path.join(self.root, "oracle.tsv")
+        with open(oracle_path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=ORACLE_COLS, delimiter="\t", restval="")
+            w.writeheader()
+            for row in self.oracle:
+                w.writerow(row)
+        dispatch_path = os.path.join(self.root, "oracle.dispatch.tsv")
+        with open(dispatch_path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=DISPATCH_COLS, delimiter="\t", restval="")
+            w.writeheader()
+            for row in self.dispatch:
+                w.writerow(row)
+        if self.manifest is not None:
+            with open(os.path.join(self.root, "oracle.manifest.tsv"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("".join(f"{line}\n" for line in self.manifest))
+
+        out_json = os.path.join(self.root, "score.json")
+        proc = subprocess.run(
+            [sys.executable, SCORE, "--engine-raw", self.raw, "--engine-ir", self.ir,
+             "--oracle", oracle_path, "--oracle-dispatch", dispatch_path,
+             "--json", out_json, *extra_args],
+            capture_output=True, text=True)
+        with open(out_json, encoding="utf-8") as fh:
+            result = json.load(fh)
+        result["_rc"] = proc.returncode
+        result["_stdout"] = proc.stdout + proc.stderr
+        return result
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# THE CASES
+# ═════════════════════════════════════════════════════════════════════════════
+
+def case_unparsable_file_is_not_scored(fx):
+    """
+    #1063. A ground-truth row from a file the oracle could NOT PARSE is not evidence
+    about the engine, and scoring it charges the engine with disagreeing.
+
+    Recovery from a syntax error invents structure: a member-declaration form past
+    the pinned LanguageVersion closes its containing class early and the rest of the
+    file is re-read as top-level statements, whose synthesised container is
+    `Program`. The engine names the real containing type and is scored as wrong.
+
+    CONTROL, in the same run: `Clean.cs` parses, and its row must still be scored
+    and must still agree -- so a test that passes because the scorer stopped scoring
+    anything fails here.
+    """
+    m_bad = fx.module("modBad", "Recovered.cs")
+    m_ok = fx.module("modOk", "Clean.cs")
+    fx.method("mBad", "Tools.Helper", 1)
+    fx.method("mOk", "Probe.Control.Inner", 1)
+
+    e_bad = fx.expression("eBad", m_bad, 10, 36)
+    fx.call_site(e_bad, "Helper")
+    fx.candidate(e_bad, "mBad")
+    fx.classify(e_bad, "client_calls_client")
+
+    e_ok = fx.expression("eOk", m_ok, 6, 44)
+    fx.call_site(e_ok, "Inner")
+    fx.candidate(e_ok, "mOk")
+    fx.classify(e_ok, "client_calls_client")
+
+    # What Roslyn writes: the fabricated `Program` container in the unparsable file,
+    # the true one in the clean file.
+    fx.oracle_row("Recovered.cs", 10, 37, "invocation", "in_source", "Program.Helper/1")
+    fx.oracle_row("Clean.cs", 6, 45, "invocation", "in_source", "Probe.Control.Inner/1")
+    fx.manifest_lines(["compileErrors\t10", "filesWithCompileErrors\t1",
+                       "filesWithSyntaxErrors\t1", "errorFile\tRecovered.cs",
+                       "recoveredFile\tRecovered.cs"])
+
+    r = fx.score()
+    s = r["stats"]
+    yield "the unparsable file's row is not scored", s["held_sites"] == 1, s
+    yield "the clean file's row still is", s["in_source_sites"] == 1, s
+    yield "and still agrees", s["declared_agree"] == 1, s
+    yield "nothing is charged as a disagreement", s.get("declared_differs", 0) == 0, s
+    yield "the exclusion is reported, not silent", r["unparsable_rows"] == 1, r["unparsable_rows"]
+    yield "and named in the report", "UNSCORED" in r["_stdout"], r["_stdout"]
+
+
+def case_binding_errors_are_still_scored(fx):
+    """
+    #1063, the OTHER HALF. A subject compiled against reference assemblies only has
+    thousands of unresolved-type errors BY DESIGN, and the rows it still produces are
+    sound -- that is what the external bucket is for. Only a syntax error fabricates
+    structure.
+
+    Here the file is in `errorFile` (it did not bind) but NOT in `recoveredFile` (it
+    parsed). Its row must still be scored. Without this case the fix could exclude
+    every file with any diagnostic and still look correct.
+    """
+    m = fx.module("mod", "Binding.cs")
+    fx.method("m1", "Probe.Binder.Inner", 1)
+    e = fx.expression("e1", m, 7, 55)
+    fx.call_site(e, "Inner")
+    fx.candidate(e, "m1")
+    fx.classify(e, "client_calls_client")
+    fx.oracle_row("Binding.cs", 7, 56, "invocation", "in_source", "Probe.Binder.Inner/1")
+    fx.manifest_lines(["compileErrors\t1", "filesWithCompileErrors\t1",
+                       "filesWithSyntaxErrors\t0", "topErrorCodes\tCS0246:1",
+                       "errorFile\tBinding.cs"])
+
+    r = fx.score()
+    s = r["stats"]
+    yield "a file that did not BIND is still scored", s["held_sites"] == 1, s
+    yield "and agrees", s["declared_agree"] == 1, s
+    yield "nothing was excluded", r["unparsable_rows"] == 0, r["unparsable_rows"]
+
+
+def case_missing_manifest_says_so(fx):
+    """
+    #1063. An older oracle build writes no manifest. Scoring everything is the right
+    fallback -- it is what the scorer did before -- but silence about it is not:
+    "no file was excluded" and "there was nothing to exclude" would read the same.
+    """
+    m = fx.module("mod", "A.cs")
+    fx.method("m1", "N.T.M", 0)
+    e = fx.expression("e1", m, 3, 10)
+    fx.call_site(e, "M")
+    fx.candidate(e, "m1")
+    fx.classify(e, "client_calls_client")
+    fx.oracle_row("A.cs", 3, 11, "invocation", "in_source", "N.T.M/0")
+    # no manifest written at all
+
+    r = fx.score()
+    yield "everything is still scored", r["stats"]["held_sites"] == 1, r["stats"]
+    yield "and the absence is printed", "no oracle manifest" in r["_stdout"], r["_stdout"]
+
+
+CASES = [
+    case_unparsable_file_is_not_scored,
+    case_binding_errors_are_still_scored,
+    case_missing_manifest_says_so,
+]
+
+
+def main():
+    verbose = "-v" in sys.argv
+    passed = failed = 0
+    for case in CASES:
+        with tempfile.TemporaryDirectory(prefix="cs-score-selftest-") as tmp:
+            fx = Fixture(tmp)
+            title = case.__name__.replace("case_", "").replace("_", " ")
+            # Drained one check at a time, so a later check that RAISES (a stat the
+            # scorer does not emit yet) does not discard the earlier ones. Run against
+            # the pre-fix scorer this file first reported only a KeyError, which hid
+            # the substantive disagreement underneath it -- and a red test whose
+            # reason is wrong is only marginally better than a green one.
+            checks, gen = [], case(fx)
+            while True:
+                try:
+                    checks.append(next(gen))
+                except StopIteration:
+                    break
+                except Exception as ex:
+                    checks.append((f"raised {type(ex).__name__}: {ex}", False, "-"))
+                    break
+            bad = [(what, got) for what, ok, got in checks if not ok]
+            if bad:
+                failed += 1
+                print(f"  ✗ {title}")
+                for what, got in bad:
+                    print(f"      {what}\n        got {got}")
+            else:
+                passed += 1
+                if verbose:
+                    print(f"  ✓ {title}  ({len(checks)} checks)")
+                else:
+                    print(f"  ✓ {title}")
+
+    print(f"\nscore.py self-test: {passed} passed, {failed} failed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
