@@ -3,10 +3,12 @@
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
-#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>] [--budget N] [--source]
+#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source]
 #       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name
 #       to ask about yet. Deterministic: task terms scored against the graph's vocabulary by inverse document
 #       frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop.
+#       --in is repeatable and takes a list, and several are COMBINED, not intersected, so a change that
+#       spans two roots is answerable in one call.
 #       Ends by saying what it could not see. Every other verb needs a name you already have; this one does not.
 #   axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]
 #       the graph as one page. Runs the pipeline only when the repo has no up-to-date graph (~1 s otherwise). <repo>

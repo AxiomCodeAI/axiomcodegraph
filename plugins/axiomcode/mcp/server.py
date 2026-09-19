@@ -21,7 +21,7 @@ def axiomcode_index(repo: str, lang: str = '', src: str = '', library: str = '')
 
 @srv.tool()
 def axiomcode_context(task: str, repo: str, in_path: str = '', budget: int = 0, source: bool = False) -> str:
-    """START HERE when you have a task in words and no name to ask about yet: the files and callables that task touches, from the problem statement alone. Deterministic — task terms scored against the graph's vocabulary by inverse document frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop. in_path RANKS a path up, it does not filter: a change spanning two roots still comes back in one call. budget caps the answer size; source=True includes the code. Ends by saying what it could not see."""
+    """START HERE when you have a task in words and no name to ask about yet: the files and callables that task touches, from the problem statement alone. Deterministic — task terms scored against the graph's vocabulary by inverse document frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop. in_path accepts SEVERAL paths, comma-separated: they are combined rather than intersected, so a change spanning two roots comes back in one call. budget caps the answer size; source=True includes the code. Ends by saying what it could not see."""
     a = ['context', task, repo] + (['--in', in_path] if in_path else []) + (['--budget', str(budget)] if budget else []) + (['--source'] if source else [])
     return run(a)
 

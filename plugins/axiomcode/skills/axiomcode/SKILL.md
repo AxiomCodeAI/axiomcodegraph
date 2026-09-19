@@ -100,8 +100,11 @@ dropped. The best seed per term is kept, so a multi-concept task gets several en
 is walked from those seeds and ranked by nearest hop, then by how many of the task's terms the file
 matches — not by how many methods it happens to contain.
 
-`--in` **ranks, it does not filter**: naming a path weights it up, and files outside it can still be
-returned. A change that spans two roots is answerable in one call.
+`--in` is **repeatable and takes a list**: `--in a --in b` or `--in a,b`. A path you supply is knowledge —
+a stack frame, the file you just read, the package named in the issue — so it does restrict the answer;
+several are **combined, not intersected**, which is what makes a change spanning two roots answerable in
+one call. A scope this program offered comes back marked `--in-offered` and does not restrict at all,
+because that one is its guess and not your knowledge.
 
 It ends by saying what it could not see. A partial list that reads as complete is what turns a five-file
 change into a one-file patch.

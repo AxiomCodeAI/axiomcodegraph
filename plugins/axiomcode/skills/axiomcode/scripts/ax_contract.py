@@ -222,6 +222,10 @@ def offer(header, ranked, terms=(), hint=None, flag=''):
         mark = ('   <- ' + ', '.join(hits[:3])) if hits else ''
         print(f"    --in {path:38.38}{flag} {n:6} symbol(s){mark}")
     print("\n  " + (hint or "a stack frame, the file you just read, or the package named in the issue is enough."))
+    if not hint and len(drop_ancestors(list(ranked))) > 1:
+        # a change that spans two of these is answerable in ONE call, so say so here rather than letting the
+        # reader assume the rows are alternatives (#1029)
+        print("  more than one is allowed: --in a --in b, or --in a,b — they are combined, not intersected.")
     return 2
 
 
@@ -249,11 +253,17 @@ def require_scope(g, scope, terms=(), rank=None, flag=''):
 
     Three ways a scope fails, and each gets its own answer rather than one generic error: absent, spelled
     for a path the graph does not have, or real but holding nothing that matches the question.
+
+    `scope` is one path or SEVERAL (#1029). A caller holding two roots — a change that spans them, or the
+    two best rows of the menu this module prints — had no way to say so: `--in` took one path and applied
+    it as a filter, so the second root was excluded by construction and no single call could answer. Each
+    path is validated on its own, and a misspelling names ITSELF rather than failing the whole call.
     """
+    scopes = [x for x in (scope if isinstance(scope, (list, tuple)) else [scope]) if x]
     dirs = dirs_with_counts(g)
     def by_terms(item):
         return -(len(set(terms) & set(subtokens(item[0]))) * 100000 + item[1])
-    if not scope:
+    if not scopes:
         # `rank` is the content-derived ordering when the caller could compute one (it needs the scored
         # symbols). Matching the task's words against the DIRECTORY NAME is circular in a monorepo: the
         # package named after the repository matches every issue that states its version, and the packages
@@ -261,7 +271,8 @@ def require_scope(g, scope, terms=(), rank=None, flag=''):
         # when no ranking was supplied.
         return offer("this needs to know WHERE to look: --in <path> is required.",
                      rank or sorted(dirs.items(), key=by_terms), terms, flag=flag)
-    if not g.q("SELECT COUNT(*) n FROM symbols WHERE file LIKE ?", f'%{scope}%')[0]['n']:
+    missing = [x for x in scopes if not g.q("SELECT COUNT(*) n FROM symbols WHERE file LIKE ?", f'%{x}%')[0]['n']]
+    for scope in missing[:1]:
         # A path that is not in the graph is usually a TYPO, and a typo is a character-level miss, not a
         # token-level one: `complier-core` shares exactly the same two tokens with `compiler-core` as with
         # `runtime-core`, so token overlap ties them and the tiebreak by symbol count then answered with
