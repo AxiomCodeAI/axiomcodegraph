@@ -301,6 +301,40 @@ cs_predefined_alias("nuint").
 cs_predefined_alias("dynamic").
 cs_predefined_alias("var").
 
+// ── WHICH FRAMEWORK TYPE A KEYWORD SPELLS ───────────────────────────────────
+// cs_predefined_alias records that a name IS a keyword and nothing recorded WHAT
+// it names, so a library declaring System.String was useless to source writing
+// `string` -- and `string` and `object` head the list of receiver types that
+// block resolution. The aliases are a closed set fixed by the language, so this
+// is a table and not an inference.
+//
+// `var` and `dynamic` are deliberately absent: neither names a type. `void` is
+// absent because it is never a receiver.
+cs_alias_framework_type("object", "System.Object").
+cs_alias_framework_type("string", "System.String").
+cs_alias_framework_type("bool", "System.Boolean").
+cs_alias_framework_type("byte", "System.Byte").
+cs_alias_framework_type("sbyte", "System.SByte").
+cs_alias_framework_type("char", "System.Char").
+cs_alias_framework_type("decimal", "System.Decimal").
+cs_alias_framework_type("double", "System.Double").
+cs_alias_framework_type("float", "System.Single").
+cs_alias_framework_type("int", "System.Int32").
+cs_alias_framework_type("uint", "System.UInt32").
+cs_alias_framework_type("long", "System.Int64").
+cs_alias_framework_type("ulong", "System.UInt64").
+cs_alias_framework_type("short", "System.Int16").
+cs_alias_framework_type("ushort", "System.UInt16").
+cs_alias_framework_type("nint", "System.IntPtr").
+cs_alias_framework_type("nuint", "System.UIntPtr").
+
+// A keyword names the staged framework type it spells. Rank 1, because a keyword
+// cannot be shadowed by anything a project declares.
+type_name_cand("client", mod, alias, "0", gk, 1) :-
+    module_decl("client", _, _, _, mod),
+    cs_alias_framework_type(alias, qn),
+    lib_type_named(qn, gk).
+
 // A predefined name that did not resolve is PREDEFINED-UNSTAGED, not unresolved.
 type_name_predefined_unstaged(prov, mod, n) :-
     type_name_unresolved(prov, mod, n, "0"), cs_predefined_alias(n).

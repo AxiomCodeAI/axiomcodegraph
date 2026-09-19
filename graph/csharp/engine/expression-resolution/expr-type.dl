@@ -89,6 +89,24 @@ expr_element_type(prov, e, gk) :-
     type_ref_module(prov, tr, mod),
     name_to_type(prov, mod, n, gk).
 
+// (d) THE RETURN OF A STAGED METHOD. `h.Items()[0]` where Items returns `Item[]`
+// from a library: the rank and the element name are on the library's own type
+// reference, so the clauses above -- which read the reference under the caller's
+// provenance -- find nothing and the chain stops at the indexing.
+expr_element_type("client", e, gk) :-
+    expr_target_any("client", e, m),
+    method_return_type_ref("lib", m, tr),
+    type_ref_array_rank("lib", tr, _),
+    type_ref_name("lib", tr, n),
+    type_ref_module("lib", tr, mod),
+    name_to_type("lib", mod, n, gk).
+expr_element_type("client", e, gk) :-
+    expr_target_any("client", e, m),
+    method_return_type_ref("lib", m, tr),
+    type_ref_argc("lib", tr, "1"),
+    type_ref_arg("lib", tr, "0", argRef),
+    type_ref_resolves("lib", argRef, gk).
+
 // (b) A GENERIC COLLECTION. `IEnumerable<IShape>` yields IShape: the single type
 // ARGUMENT of a one-argument generic. This is where the nested argument tree pays
 // for itself -- the alternative is parsing `Dictionary<string, List<IShape>>` out of
