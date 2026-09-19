@@ -275,6 +275,12 @@ class Impact:
             ids, note = self.sig_narrow(self.methods(msig.group(1)), msig.group(2), s)
             return [('method', f"{msig.group(1)}{note}" + (f" ({len(ids)} declarations)" if len(ids) > 1 else ''), ids)]
         out = []
+        # the same rule as the path resolver: `#` is Java's member separator AND TypeScript's private marker, so a name
+        # written with one is looked up as written before `#` is rewritten to `.`
+        verb = re.sub(r'\(.*\)$', '', s).strip()
+        if '#' in verb:
+            hit = self.g.q("SELECT id FROM symbols WHERE (display = ? OR qualified_name = ?) AND method_id IS NOT NULL", verb, verb)
+            if hit: return [('method', verb + (f" ({len(hit)} declarations)" if len(hit) > 1 else ''), [x['id'] for x in hit])]
         base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
         m0 = re.match(r'^(.+)\.<new>$', base)
