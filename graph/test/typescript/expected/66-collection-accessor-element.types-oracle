@@ -1,0 +1,7 @@
+66-collection-accessor-element [types]
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 the compiler resolved)
+  sites 23   resolved 14 (60.9%)
+  tiers ambiguous_unknown=9  known_edge=14
+  contexts METHOD_PARAM=9  TYPE_ARGUMENT=14
+  not scored: 9 rows whose target is not a client declaration

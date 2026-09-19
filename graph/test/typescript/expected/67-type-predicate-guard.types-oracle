@@ -1,0 +1,7 @@
+67-type-predicate-guard [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 23   resolved 20 (87.0%)
+  tiers ambiguous_unknown=3  known_edge=20
+  contexts INSTANCEOF_TYPE=3  METHOD_PARAM=13  OBJECT_CREATION_TYPE=1  SUPER_TYPE=1  TYPE_ARGUMENT=3  TYPE_PREDICATE_TARGET=2
+  not scored: 3 rows whose target is not a client declaration

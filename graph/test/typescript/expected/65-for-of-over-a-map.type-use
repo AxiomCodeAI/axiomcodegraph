@@ -1,0 +1,6 @@
+ambiguous_unknown	METHOD_PARAM	0	repro [METHOD_PARAM] -> -
+known_edge	TYPE_ARGUMENT	1	repro [METHOD_PARAM] -> Key
+known_edge	TYPE_ARGUMENT	1	repro [METHOD_PARAM] -> Val
+known_edge	TYPE_ELEMENT	1	repro [METHOD_PARAM] -> Val
+known_edge	TYPE_ELEMENT	2	repro [METHOD_PARAM] -> Key
+known_edge	TYPE_ELEMENT	2	repro [METHOD_PARAM] -> Val
