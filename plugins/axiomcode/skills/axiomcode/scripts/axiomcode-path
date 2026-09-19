@@ -40,7 +40,12 @@ class G:
         if not os.path.exists(self.db): die(f"no graph at {self.db} — run `axiomcode index {self.repo}` first")
         self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
         if not self.has('symbols'): die(f"{self.db} has no index — run `axiomcode index {self.repo}`")
-        self.sym = {r['id']: dict(r) for r in self.q("SELECT * FROM symbols WHERE method_id IS NOT NULL OR type_id IS NOT NULL")}
+        # `sym` is the CALLABLE/type layer: it is what an endpoint may resolve to, so a field must stay out of it.
+        # `all_sym` is every declaration the index holds, fields, constants and enum members included. A consumer that
+        # needs to NAME a declaration (a decoration's owner, a row's display) reads all_sym; one that needs a call
+        # graph node reads sym. Conflating the two made a @Value on a field fail its own recorded-owner test.
+        self.all_sym = {r['id']: dict(r) for r in self.q("SELECT * FROM symbols")}
+        self.sym = {i: r for i, r in self.all_sym.items() if r.get('method_id') is not None or r.get('type_id') is not None}
         for r in self.q("SELECT DISTINCT m.id, m.qualified_name q FROM call_edges e JOIN methods m ON m.id = e.callee_method_id WHERE e.tier = 'boundary_lib' AND m.provenance <> 'client'"):
             self.sym.setdefault(r['id'], {'id': r['id'], 'display': r['q'], 'file': '<library>', 'line': None, 'end_line': None, 'kind': 'library', 'owner': r['q'].rsplit('.', 1)[0], 'is_test': 0, 'name': r['q'].rsplit('.', 1)[-1], 'method_id': r['id']})
         self.facts = os.path.join(gdir, 'out', 'dl')
@@ -88,10 +93,10 @@ class G:
     def q(self, s, *p): return self.con.execute(s, p).fetchall()
     def has(self, t): return bool(self.q("SELECT 1 FROM sqlite_master WHERE name=?", t))
     def loc(self, i):
-        r = self.sym.get(i)
+        r = self.sym.get(i) or self.all_sym.get(i)
         return f"{r['file']}:{r['line']}" if r and r['line'] else (({'<library>': 'library', '<written>': 'as written, unresolved'}.get(r['file'], r['file'])) if r else '?')
     def disp(self, i):
-        r = self.sym.get(i); return r['display'] if r else i
+        r = self.sym.get(i) or self.all_sym.get(i); return r['display'] if r else i
 
     # ── endpoints: exact, or a short list of what is close ───────────────────────────────────────────────────
     IN = None

@@ -25,7 +25,7 @@ if [ -z "$LANG_ARG" ]; then
   [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
 fi
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
-GD="$(cd "$REPO" && git rev-parse --git-common-dir 2>/dev/null || true)"
+GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
 STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
 if [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
