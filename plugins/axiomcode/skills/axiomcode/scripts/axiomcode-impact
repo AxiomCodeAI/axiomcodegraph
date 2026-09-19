@@ -1256,6 +1256,33 @@ def main(argv):
     # order — leaving it as the solver emitted it made the same answer come out shuffled between engines.
     contract = sorted((k for k in contract_of if k[0] in g.sym), key=lambda cw: (g.disp(cw[0]), g.loc(cw[0]), cw[1]))
     seeds = {x[0] for x in res['seed']}
+    # `direct` is a SET of (q, c, role, why, cert, f, l) tuples, so two calls to the target on ONE LINE derive one
+    # row and the counter below saw one site: `shape.getCenter().getX() + "," + shape.getCenter().getY()` read as
+    # one. `call_sites` holds an id and a start_column per site, so the per-site identity exists upstream and was
+    # dropped by an export that carries only file and line (#1039). Ask the graph for the sites of THIS target,
+    # grouped, and give the counter the real number. `IN (mids)` is what keeps this from being a second export: the
+    # grouping covers the call sites of the target alone, never the graph's.
+    tgt_methods = {lab: [m for m in pay if isinstance(m, str)] for k, lab, pay in targets if k == 'method' and isinstance(pay, list)}
+    site_mult = {}
+    _ms = sorted({m for v in tgt_methods.values() for m in v})
+    if _ms:
+        try:
+            for r in g.q("SELECT e.caller_id c, e.callee_method_id m, s.file_path f, s.start_line l, COUNT(DISTINCT s.id) n "
+                         "FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id "
+                         "WHERE e.callee_provenance = 'client' AND s.start_line > 0 AND e.callee_method_id IN (%s) "
+                         "GROUP BY 1, 2, 3, 4" % ','.join('?' * len(_ms)), *_ms):
+                site_mult[(r['c'], r['m'], g.site_file(r['f']) if r['f'] else '', str(r['l']))] = int(r['n'])
+        except Exception:
+            site_mult = {}        # a bundle without one of these columns: count as before rather than fail the answer
+    # the number of sites THIS row stands for. SUMMED over the query's target methods, because `direct` is keyed on
+    # the QUERY and not on the method: a name that resolves to two overloads derives ONE row, and a caller that calls
+    # each of them on one line is three sites behind a single tuple. A `by name` row comes from `unresolved`, a
+    # different relation with its own keying, so the resolved-edge multiplicity is not evidence about it and it stays
+    # at one. The default is 0, not 1: a row that is not a call site at all (a configuration binding, an injected
+    # type — both carry f='' and l=0) must fall through to one, not to the number of target methods.
+    def _nsite(c, cert, f, l, q_):
+        if not site_mult or cert == 'by name': return 1
+        return sum(site_mult.get((c, m, f, str(l)), 0) for m in tgt_methods.get(LAB[q_], ())) or 1
     # one row per (callable, reason): the surest certainty, the first location, the number of sites
     best = {}
     from_target = collections.defaultdict(set)
@@ -1270,12 +1297,13 @@ def main(argv):
                 p_, _, n_ = v.rpartition(':')
                 return (p_ or v, int(n_) if n_.isdigit() else 10 ** 9)
             return x if key(x) <= key(y) else y
+        ns = _nsite(c, cert, f, l, q_)
         if k not in best or CERT[cert] < CERT[best[k][1]]:
-            best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)          # a better certainty: its own line
+            best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + ns)         # a better certainty: its own line
         elif CERT[cert] == CERT[best[k][1]]:
-            best[k] = (best[k][0], best[k][1], _lower(best[k][2], loc), best[k][3] + 1)   # same certainty: the lowest line
+            best[k] = (best[k][0], best[k][1], _lower(best[k][2], loc), best[k][3] + ns)  # same certainty: the lowest line
         else:
-            best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + 1)         # a worse one: counted, not located
+            best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + ns)        # a worse one: counted, not located
     D = [(c, role, why, cert, loc, n) for (c, why), (role, cert, loc, n) in best.items()]
     # `alongside` is unbounded by nature — a 200-member type would bury the rest of the answer. Keep the ones that share a
     # field with the target first, then the nearest by file, and say how many were left out (#762).
@@ -1457,8 +1485,28 @@ def main(argv):
         eps = g.q("SELECT method_id, reason FROM entry_points WHERE method_id IN (%s)" % ','.join('?' * len(seeds)), *sorted(seeds)) if seeds else []
     except Exception:
         eps = []          # a bundle built before entry_points existed — say nothing rather than fail the query
-    for r in eps:
-        print(f"entry point: {g.disp(r['method_id'])} is a {r['reason']} entry point — a framework invokes it, so no client call site reaches it. Changing it changes what the outside world can call.")
+    # ONE FULL SENTENCE PER ENTRY POINT made this section grow with the size of the test suite and not with the size
+    # of the answer. A configuration key's closure reaches every test that loads the context, so on a 1,400-file
+    # Spring application 200 of 264 output lines began `entry point:`, 180 of them the identical test sentence, and
+    # the first line of the actual answer was line 229 of a 54 KB reply (#1036). The reason is what a reader needs
+    # and it is the same for every member of a group, so it is said ONCE per reason with the names behind --limit,
+    # as the direct-dependent sections already do. Tests are counted apart and not explained: a test entry point is
+    # not a place the outside world calls, and the tests section below is what names them.
+    ep_rows = sorted({(r['method_id'], r['reason']) for r in eps})
+    _is_t = lambda m: m in g.sym and g.sym[m]['is_test']
+    ep_by_reason = collections.defaultdict(list)
+    for m, why in ep_rows:
+        if not _is_t(m): ep_by_reason[why].append(m)
+    for why in sorted(ep_by_reason):
+        ms = sorted(ep_by_reason[why], key=g.disp)
+        if len(ms) == 1:
+            print(f"entry point: {g.disp(ms[0])} is a {why} entry point — a framework invokes it, so no client call site reaches it. Changing it changes what the outside world can call.")
+        else:
+            print(f"entry point: {len(ms)} {why} entry points — a framework invokes them, so no client call site reaches them. Changing one changes what the outside world can call: "
+                  + ', '.join(g.disp(m) for m in ms[:limit]) + (f" … +{len(ms) - limit} (--limit N)" if len(ms) > limit else ''))
+    n_ep_test = len({m for m, _ in ep_rows if _is_t(m)})
+    if n_ep_test:
+        print(f"entry point: {n_ep_test} test entry point(s) — a runner invokes them, so no client call site reaches them either; they are not a surface the outside world calls. The tests section below is what names them.")
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
     # a throws clause is a contract: say what adding one to this method would cost, and who already handles the ones it has
     n_callers = len({c for c, role, why, cert, loc, n in D if cert == 'resolved' and 'calls it' in why})
@@ -1530,7 +1578,11 @@ def main(argv):
         byhop = collections.Counter(reached.values()); print("    by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
         byfile = collections.Counter(g.sym[m]['file'] for m in reached); print("    files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(8)) + (f" … +{len(byfile) - 8}" if len(byfile) > 8 else ''))
     if ent:
-        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display']))
+        # (hop, display) is NOT a total order: several distinct declarations share both — a `cli` test command
+        # defined once per test file is the common shape — and the ties then fell back to the order `ent` was
+        # built in, which comes from a SET and is a function of hashing rather than of the answer. The location
+        # makes it total, so the same graph prints the same list twice running.
+        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], g.loc(x[0]), x[0]))
         print(f"    entry points ({len(ent)}: nothing resolved calls them — a framework, a runner, reflection — or a test; 0 hops = touches it directly), nearest first:")
         for m, d in ent[:limit]:
             decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []

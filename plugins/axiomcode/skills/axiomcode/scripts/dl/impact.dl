@@ -357,9 +357,16 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n).
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, _, _, _), !owner(c, _), !scope(t, c).
-// a declared accessor is the field's door
-direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, _, f, l).
-direct(q, c, "writes", cat("writes it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, _, f, l).
+// a declared accessor is the field's door. The door is a CALL, so it carries the call's tier like every other
+// call-derived rule here: a site the engine could not narrow to one declaration is `one of a set`, not `resolved`.
+// Binding the tier as a wildcard and hardcoding "resolved" made the accessor door the one place in this file that
+// claimed certainty the bundle does not record -- on a single-module library, 10 of 57 sampled accessor rows stood
+// on a call whose only tier was multi_inferred. The row itself is right either way (the caller does reach the field
+// through that accessor), so nothing is dropped; only the certainty stops being overstated.
+direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, ti, f, l), ti != "multi_inferred".
+direct(q, c, "reads", cat("reads it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, "multi_inferred", f, l).
+direct(q, c, "writes", cat("writes it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, ti, f, l), ti != "multi_inferred".
+direct(q, c, "writes", cat("writes it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, "multi_inferred", f, l).
 // a GENERATED accessor: the unresolved sites written with its name (the decoration says it exists)
 direct(q, c, "reads", cat("calls the generated getter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "get"), accessor(fl, an, "read"), named_site(c, an, k, f, l), !ctor_kind(k).
 direct(q, c, "writes", cat("calls the generated setter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "set"), accessor(fl, an, "write"), named_site(c, an, k, f, l), !ctor_kind(k).
