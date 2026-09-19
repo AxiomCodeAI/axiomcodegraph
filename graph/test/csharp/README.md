@@ -26,6 +26,31 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `07-dynamic-boundary` | a call and a property read through `dynamic`, from a parameter, a local, a field and a property, with the same member names on a static receiver, a real unstaged framework receiver and a `dynamic` value never called through as controls |
 | `08-operators-and-conversions` | `a + b`, `a == b`, `-a` and `(Money)d` on a type that declares them, with built-in operators on the same tokens, the `operator -(Money)` / `operator -(Money, Money)` arity pair, the non-overloadable `&&`/`||`/`??`, and `as` as controls |
 
+### The acceptance bar's own self-test
+
+```
+corpus/aggregate-selftest.py [-v]
+```
+
+Runs from `run-tests.sh` beside the scorer's, and needs no corpus: its cases are
+synthetic `score.json` trees.
+
+`aggregate.py` is the acceptance bar applied mechanically, and it exists because a
+human reviewer reliably forgets to ask whether a change fitted the dev set. Six
+cases, and **three of them exist only to fail**: a real regression on a fixed
+population, a population that grew while agreement fell, and newly visible sites
+that are mostly wrong. A bar that stops failing is indistinguishable from one that
+passes on everything.
+
+**A fallen agreement RATE is not always a regression.** `in_source_sites` is exactly
+`declared_agree + declared_differs + declared_none`, so it counts the in-source sites
+the engine SAW. A change that makes a construct visible for the first time enlarges
+the denominator, and the rate can fall while every previously scored site keeps its
+verdict. That is reported as a WARN with the counts and an instruction to re-score
+both runs with the construct excluded from `HELD`, which is the only comparison that
+puts the two runs on one population. It is still a WARN, and a WARN still has to be
+read.
+
 ### The invariants the score cannot see
 
 ```

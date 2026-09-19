@@ -72,6 +72,15 @@ if ! python3 "$HERE/ground-truth/score-selftest.py"; then
 fi
 echo
 
+# AND THE ACCEPTANCE BAR. aggregate.py decides whether a change generalised or fitted
+# the dev set, which is the check a human reviewer reliably forgets, and it had no
+# test either. It needs no corpus: its cases are synthetic score.json trees.
+if ! python3 "$HERE/corpus/aggregate-selftest.py"; then
+  echo "the corpus aggregator's self-test fails -- its verdict cannot be trusted" >&2
+  exit 1
+fi
+echo
+
 PASS=0; FAIL=0; FAILED=""
 for dir in "$HERE"/cases/*/; do
   name="$(basename "$dir")"
