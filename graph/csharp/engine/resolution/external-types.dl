@@ -129,7 +129,9 @@ external_target(prov, e, label) :-
     expr_predefined_recv_name(prov, r, tn),
     call_callee_name(prov, e, m),
     !call_recv_type(prov, e, _),
-    !extension_candidate(prov, e, _),
+    // A FIRM candidate suppresses the label; a guess does not, so a site the
+    // engine cannot decide carries both and reads as multi_inferred.
+    !extension_candidate_firm(prov, e, _),
     label = cat("external:", cat(tn, cat(".", m))).
 
 expr_predefined_recv_name(prov, e, n) :-
@@ -236,6 +238,51 @@ external_property_read(prov, acc, label) :-
     expr_written_name(prov, nameExpr, n),
     external_recv_name(prov, q, tn),
     label = cat("external:", cat(tn, cat(".get_", n))).
+
+// ── AN ELEMENT ACCESS ON AN EXTERNAL RECEIVER ───────────────────────────────
+// `xs[0]` where `xs` is an IList the run was not given. `a[i]` is a call to
+// get_Item, and the receiver is a platform or dependency collection far more
+// often than it is a project type.
+//
+// MEASURED: such a site reached the output as NO ROW AT ALL -- not resolved, not
+// labelled, not declared ambiguous -- while the two sibling constructs on the
+// same receiver, a property read and an ordinary invocation, were both labelled.
+// 747 of 1,184 indexer sites were missing, 96.6% on the member whose indexers
+// are mostly external. A silent omission is the one answer shape the design says
+// never to produce, and it was invisible to the conservation check, which keys on
+// cs_call_site and an element access has no call-site row.
+//
+// properties.dl resolves the in-source case by joining the receiver's group to a
+// declared indexer, so a receiver whose type is in no group drops out with
+// nothing emitted. This is the boundary counterpart, beside the property-read one
+// it mirrors. An ARRAY receiver is deliberately NOT covered: indexing an array is
+// not a call, which is the same ruling properties.dl makes by joining on the
+// indexer member.
+external_element_access(prov, e, label) :-
+    expr_kind(prov, e, "ELEMENT_ACCESS"),
+    !indexer_access(prov, e, _),
+    expr_child(prov, e, "RECEIVER", _, q),
+    !expr_element_type(prov, q, _),
+    !expr_recv_is_array(prov, q),
+    external_recv_name(prov, q, tn),
+    !expr_is_write_target(prov, e),
+    label = cat("external:", cat(tn, ".get_Item")).
+external_element_access(prov, e, label) :-
+    expr_kind(prov, e, "ELEMENT_ACCESS"),
+    !indexer_access(prov, e, _),
+    expr_child(prov, e, "RECEIVER", _, q),
+    !expr_element_type(prov, q, _),
+    !expr_recv_is_array(prov, q),
+    external_recv_name(prov, q, tn),
+    expr_is_write_target(prov, e),
+    label = cat("external:", cat(tn, ".set_Item")).
+
+// INDEXING AN ARRAY IS NOT A CALL. `a[0]` on `int[] a` has no get_Item to name,
+// and properties.dl makes the same ruling by joining on the indexer member. Here
+// the element type is external too, so the join cannot make it: the array has to
+// be recognised from the reference's own rank.
+expr_recv_is_array(prov, e) :-
+    expr_type_via_ref(prov, e, tr), type_ref_array_rank(prov, tr, _).
 
 // The receiver's type name, where that type is not staged. Both spellings: a C#
 // keyword alias, and a named type the project does not declare.

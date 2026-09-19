@@ -28,3 +28,4 @@ generated_accessor_read	generated-accessor-read.csv
 generated_property	generated-property.csv
 external_property_read	external-property-read.csv
 client_calls_lib	call-edges-lib.csv
+external_element_access	external-element-access.csv
