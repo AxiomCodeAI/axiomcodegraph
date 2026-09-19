@@ -1259,7 +1259,7 @@ def main(argv):
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import'}
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import', 'protocol': 'protocol'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -1296,7 +1296,7 @@ def main(argv):
     # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
     # the word that means one.
     CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'by key': 5,
-                 'decorator by name': 6, 'fixture': 7, 'by name': 8}
+                 'decorator by name': 6, 'protocol': 7, 'fixture': 8, 'by name': 9}
     # `decorator by name` is the @-line hop: the decoration carries a simple NAME, so the declaration it denotes
     # is matched by that name, not resolved. It is a real dependency when the match is right — a decorator that
     # changes changes everything it wraps — and nothing at all when the name happens to be shared, which is why
