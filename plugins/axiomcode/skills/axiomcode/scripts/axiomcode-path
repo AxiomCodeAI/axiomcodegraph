@@ -95,16 +95,21 @@ class G:
 
     # ── endpoints: exact, or a short list of what is close ───────────────────────────────────────────────────
     IN = None
-    def resolve(self, sel):
-        """-> (label, [method symbol ids]) or dies with the near misses. Same rules for every language."""
-        label, ids = self._resolve(sel)
+    def resolve(self, sel, fragment=False):
+        """-> (label, [method symbol ids]) or dies with the near misses. Same rules for every language.
+
+        `fragment` is the no-name-yet form: with `'*'` at the other end, a word that names nothing exactly is read as
+        a FRAGMENT and every declaration containing it is the endpoint. That is what this tool tells a reader to do
+        when a name misses — and until now the advice was circular, because the same lookup rejected the fragment too.
+        """
+        label, ids = self._resolve(sel, fragment)
         if self.IN and not all(self.sym[i]['kind'] in ('library', 'written') for i in ids):        # a library endpoint has no file; --in applies to the other end
             kept = [i for i in ids if self.IN in (self.sym[i]['file'] or '')]
             if not kept: die(f"{label}: none of its {len(ids)} declaration(s) is under *{self.IN}*")
             if len(kept) < len(ids): label += f" [{len(kept)} under *{self.IN}*]"
             ids = kept
         return label, ids
-    def _resolve(self, sel):
+    def _resolve(self, sel, fragment=False):
         s = sel.strip().strip('`"\'')
         m = re.match(r'^(.+?):(\d+)$', s)
         if m and ('/' in m.group(1) or '.' in m.group(1)):                            # file:line → the method containing it
@@ -209,12 +214,29 @@ class G:
         if w: return w
         t = self.type_use(s)                                                              # a type the code USES but does not declare: File, Path, Socket
         if t: return t
+        # THE NO-NAME-YET FORM. `path decrypt '*'` — every declaration whose name CONTAINS the word, which is how a
+        # reader gets from a word in an issue to the exact names this tool otherwise insists on. Only with `'*'` at
+        # the other end (a chain between two fragments would be a guess about both ends), only for a word long enough
+        # to mean something, and the count is printed so a wide word is visibly wide rather than silently capped.
+        if fragment and len(s) >= 3 and re.fullmatch(r'[A-Za-z_][\w]*', s):
+            hits = self.q("""SELECT id, display FROM symbols WHERE method_id IS NOT NULL AND kind NOT IN ('library', 'written', 'module')
+                              AND lower(name) LIKE lower(?) ORDER BY length(display), display LIMIT 200""", f"%{s}%")
+            if hits:
+                ids = [r['id'] for r in hits]
+                shown = ', '.join(r['display'] for r in hits[:4]) + (' …' if len(hits) > 4 else '')
+                return f"{len(ids)} declaration(s) containing '{s}' ({shown})", ids
         near = self.q("SELECT DISTINCT display FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL) AND (lower(display) = lower(?) OR lower(name) = lower(?) OR display LIKE ?) LIMIT 6", s, s.split('.')[-1], f"%{s.split('.')[-1]}%")
         # with candidates the advice is "pick one"; with none it has to be something else, or the line reads
         # "use one of them" pointing at an empty list
         if near:
             die(f"nothing named '{s}' in the graph. Exact names that are close: "
                 + ', '.join(r['display'] for r in near) + "\n  use one of them as written, or file:line")
+        # the advice has to differ once the fragment form has ALREADY been tried, or it names the command just run
+        if fragment:
+            die(f"no declaration in the graph contains '{s}'.\n"
+                f"  a SHORTER fragment is the way in — `path {s[:max(3, len(s) - 2)]} '*'` — or a file:line from a\n"
+                f"  stack trace or an issue; and `axiomcode index` prints how many declarations the graph has at all.\n"
+                )
         die(f"nothing named '{s}' in the graph, and nothing close to it.\n"
             f"  a SHORTER fragment is the way in — `path {s.split('.')[-1][:6] or 'name'} '*'` matches every\n"
             f"  declaration containing it — or a file:line from a stack trace or an issue.")
@@ -586,7 +608,7 @@ def framework_note(g, ids, writers=()):
 
 
 def closure(g, sel, upstream, limit=40, depth=40):
-    g.export(); label, ids = g.resolve(sel)
+    g.export(); label, ids = g.resolve(sel, fragment=True)
     res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
     rows = [(m, int(d)) for m, d in (res['dist_up'] if upstream else res['dist'])['c'] if 0 < int(d) <= depth and m in g.sym]
     if g.IN: rows = [(m, d) for m, d in rows if g.IN in (g.sym[m]['file'] or '')]        # --in: only the part of the closure under that path
