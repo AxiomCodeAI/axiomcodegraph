@@ -13,6 +13,22 @@ tests/cases/<language>/<name>/ holding a tiny synthetic project and a case.json:
 The case is indexed once (into its own .axiomcode, removed afterwards unless --keep) and every check is run against
 it. A check fails loudly with the line that was wrong, so a regression names itself. No corpus, no network, nothing
 outside the case directory.
+
+Three other keys a check may carry:
+
+  "stdout_json": true    STDOUT ALONE must parse as one JSON document. `want` and `avoid` read stdout and stderr
+                         CONCATENATED, so no substring can express "this must not be inside the document" — which is
+                         how a `note:` line sat in --json for every name declared as both a field and a method.
+  "expect_error": true   a non-zero exit is the answer, not a fault (`path` exits 1 when it finds no chain).
+  "pending": "<issue>"   the check states behaviour the tool does NOT have yet. It still RUNS. Failing prints PEND and
+                         is not a suite failure; PASSING is a failure reading "remove the marker", so a gap that
+                         closes cannot keep a marker claiming it is open.
+
+  PENDING IS DECIDED FROM want / avoid MISMATCHES ONLY, NEVER FROM THE EXIT CODE, and that is the property that makes
+  it safe rather than dangerous. A marker that absorbed an unexpected non-zero exit would be a hiding place for real
+  breakage: both of the defects this suite surfaced on 2026-09-18 were a silent empty answer and an unreadable one,
+  and neither announces itself as a want/avoid mismatch. If anyone ever "simplifies" `pending` into a skip, that is
+  the property they will have removed.
 """
 import json, os, re, shutil, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
@@ -26,7 +42,7 @@ for l in sorted(os.listdir(os.path.join(HERE, 'cases'))):
     d = os.path.join(HERE, 'cases', l)
     for c in sorted(os.listdir(d)):
         if os.path.isfile(os.path.join(d, c, 'case.json')) and (not only or c in only or l in only): cases.append((l, c, os.path.join(d, c)))
-fail = tot = 0
+fail = tot = pend = 0
 for l, name, path in cases:
     print(f"… {l}/{name}", flush=True)
     spec = json.load(open(os.path.join(path, 'case.json')))
@@ -46,12 +62,26 @@ for l, name, path in cases:
         if ch.get('stdout_json'):
             try: json.loads(out.stdout)
             except Exception as e: bad.append(f"stdout is not one JSON document ({e})")
-        if out.returncode and not ch.get('expect_error'): bad.append(f"(exit {out.returncode})")
+        # an unexpected non-zero exit is a HARD failure, before `pending` is considered: a marker says "the tool does
+        # not do this yet", not "anything may happen here". A crash, a missing fixture or an unreadable answer under
+        # a marker would otherwise be indistinguishable from the gap it names, and the marker becomes the hiding
+        # place this mechanism exists to remove.
+        crashed = bool(out.returncode) and not ch.get('expect_error')
+        if crashed: bad.append(f"(exit {out.returncode})")
+        # "pending": "<issue>" — a case that states behaviour the tool does NOT have yet. It still RUNS, and the two
+        # outcomes are reported differently on purpose: failing is expected and is not a suite failure, while PASSING
+        # is one, because a gap that has closed must not keep a marker saying it is open. Without this a permanently
+        # red case becomes furniture — which is how two real defects survived in this suite today, each read past
+        # twice as "that one is known".
+        if bad and ch.get('pending') and not crashed:
+            pend += 1; print(f"PEND {l}/{name} ({ch['pending']}): {ch['why']}", flush=True); continue
+        if not bad and ch.get('pending'):
+            fail += 1; print(f"FAIL {l}/{name}: marked pending ({ch['pending']}) but it PASSES — remove the marker", flush=True); continue
         if bad:
             fail += 1; print(f"FAIL {l}/{name}: {ch['why']}", flush=True)
             for b in bad: print(f"     missing/unwanted: {b}")
             print('     ' + '\n     '.join(text.strip().split('\n')[:14]))
         elif verbose: print(f"ok   {l}/{name}: {ch['why']}")
     if not keep: shutil.rmtree(os.path.join(path, '.axiomcode'), ignore_errors=True)
-print(f"\n{tot - fail} of {tot} check(s) passed in {len(cases)} case(s)" + ('' if not fail else f" - {fail} FAILED"))
+print(f"\n{tot - fail - pend} of {tot} check(s) passed in {len(cases)} case(s)" + (f" - {pend} PENDING" if pend else '') + ('' if not fail else f" - {fail} FAILED"))
 sys.exit(1 if fail else 0)

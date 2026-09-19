@@ -504,7 +504,9 @@ class Impact:
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
     IMPACT_VERSION = '18'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key
-    #    layer; 15: the registration facts; 17/18: the tagged-template test registrar (it.each`…`) and its table span (two 14s landed independently, which is exactly the collision this guards)
+    #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
+    #    guards); 16: regsite folded into ax_registration's reg_key_fact; 17/18: the tagged-template test registrar
+    #    (it.each`…`) and its table span
     #  — bump this whenever a fact this writes changes shape, or an already-indexed repository reuses the old file
     #    against the new program and every query dies with "cannot parse fact file <name>.facts".
     def export(self):
@@ -652,37 +654,19 @@ class Impact:
             for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', r['text'] or '')):
                 if c: decl.append((c, r['name'].split('.')[-1], v, r['file'] or '', r['line'] or 0))
         W('dec_literal', sorted(set(decl)))
-        # a registration written as a CALL, not a decoration: `app.add_url_rule("/quote/<order_id>", view_func=legacy_quote)`,
-        # `router.get("/x", handler)`. The declaration is handed over as a VALUE, so no call site names it at all; what
-        # says so is one line carrying a route-shaped literal AND the declaration's name as a VALUE.
-        #
-        # "as a value" is the whole guard, and it has to be exact. `flask_client.get("/orders/o-1/export")` in a test
-        # puts a route literal and the name `get` on one line too, and `get` is declared by three classes here — taking
-        # any name on the line registered every one of them at the test's URL and made the join meaningless. The refs
-        # table separates them: a handed-over declaration is a NAME_REFERENCE whose entity is a METHOD or FUNCTION
-        # (`legacy_quote`), while the call is an ATTRIBUTE_ACCESS with an UNKNOWN entity and the receiver is a
-        # PARAMETER. The declaration must also be one the file can name — declared in it, or imported into it.
-        regsite = []
-        if g.has('literals') and g.has('refs'):
-            byline = collections.defaultdict(set)
-            for r in g.q("SELECT name, file, line FROM refs WHERE name IS NOT NULL AND line > 0"
-                         " AND kind = 'NAME_REFERENCE' AND entity_kind IN ('METHOD', 'FUNCTION')"):
-                byline[(r['file'], r['line'])].add(r['name'])
-            in_file = collections.defaultdict(set)
-            for i, sy in g.sym.items():
-                if sy.get('method_id') and sy['kind'] != 'module' and sy['name'] and sy.get('file'):
-                    in_file[(sy['file'], sy['name'])].add(i)
-            uniq = collections.defaultdict(set)          # a handler imported from another module, registered here
-            for i, sy in g.sym.items():
-                if sy.get('method_id') and sy['kind'] != 'module' and sy['name']: uniq[sy['name']].add(i)
-            for r in g.q("SELECT value, file, line FROM literals WHERE value GLOB '/*' AND length(value) < 160"):
-                if not ROUTEISH.fullmatch(r['value']): continue
-                for n in byline.get((r['file'], r['line']), ()):
-                    # the file's own declaration of that name, or — only when the graph declares it exactly once,
-                    # so the name cannot be a different module's same-named callable — the one elsewhere
-                    for m in in_file.get((r['file'], n)) or (uniq[n] if len(uniq.get(n, ())) == 1 else ()):
-                        regsite.append((m, 'registered', r['value'], r['file'] or '', r['line'] or 0))
-        W('regsite', sorted(set(regsite)))
+        # ── WHAT REGISTERS A DECLARATION, from the one module that decides it ───────────────────────────────
+        # `ax_registration` owns the conventions for both backends (scripts/ax_registration.py). Three sources, all
+        # of it (declaration, key) pairs: a decoration that writes a key (`@router.post("/orders")`,
+        # `@cli.command("price")`, `@receiver("order_created")`), a registration written as a call whose verb no
+        # list knows but whose evidence is a path literal beside a handed-over declaration (Flask's
+        # `add_url_rule("/quote/<id>", view_func=legacy_quote)`), and the route rows of `registrations()` itself.
+        # This replaces a second derivation that lived here; the module is where a convention belongs.
+        regk = []                                        # `rd` and not `decl`: `decl` is the dec_literal list above
+        for rd, _f, _l, kind, key, _why in (ax_registration.decoration_keys(g.q, g.site_file)
+                                            + ax_registration.value_route_registrations(g.q, g.site_file)
+                                            + ax_registration.registrations(g.q, g.site_file)):
+            if rd in g.sym and key: regk.append((rd, kind, key))
+        W('reg_key_fact', sorted(set(regk)))
         # THE NAME A DECORATOR REBINDS. `@audited def summarise(...)` leaves the name `summarise` denoting what
         # `audited(summarise)` RETURNED — the wrapper — and the engine resolves that (ext_decorated_name_target).
         # Every caller written `summarise(...)` therefore runs the wrapper, and a change to the wrapper reaches
@@ -708,7 +692,7 @@ class Impact:
             if v.startswith('/'): written[len(segs(v))].add(v)
         for c, d, v, f, l in decl:
             if v.startswith('/'): regd[len(segs(v))].add(v)
-        for c, k, v, f, l in regsite:
+        for _d, _k, v in regk:
             if v.startswith('/'): regd[len(segs(v))].add(v)
         alias = set()
         for n, ws in written.items():                      # bucketed by segment count: a mismatch there is no match

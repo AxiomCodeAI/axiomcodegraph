@@ -534,6 +534,57 @@ def print_chain(g, chain):
     return '\n'.join(lines)
 
 # ── one endpoint: everything upstream of X (who can reach it) or downstream (what it can reach) ──────────────────
+def framework_note(g, ids, writers=()):
+    """Why nothing calls it: something outside the graph does, and here is the line that says so.
+
+    `path` answers in chains of resolved calls and does not traverse a framework hop — a chain means control can
+    reach B from A through THESE CALLS, and a registration is not a call. But "0 methods reach it" is the most
+    misleading sentence this command can print about a live route handler, so when the closure is empty the
+    registration is named: the decoration or the call that hands the declaration over, with its file and line.
+    `impact` is the verb that follows the hop, and the note says so rather than leaving the reader at a dead end.
+
+    With `writers`, the callables the query started from, it also reports when one of them WRITES the key the
+    target is registered under — a test asking for the URL its handler is mounted at — including the two spellings
+    of one path (`/orders/o-1/price` against `/orders/{order_id}/price`).
+    """
+    try:
+        import ax_registration
+    except Exception:
+        return []
+    out = []
+    try:
+        regs = [r for r in ax_registration.all_registrations(g.q, g.site_file) if r[0] in ids]
+    except Exception:
+        return []
+    keys = {}
+    for decl, f, l, kind, key, why in regs[:4]:
+        out.append(f"  {g.disp(decl)} is {why} ({f}:{l})")
+        if key: keys.setdefault(key, decl)
+    if keys and writers and g.has('literals'):
+        # which callable a line belongs to: the narrowest declaration whose span contains it, built once here
+        # because this tool has no `at()` of its own — it asks about declarations, not about lines
+        spans = sorted((sy['file'], sy['line'], sy['end_line'] or sy['line'], i) for i, sy in g.sym.items()
+                       if sy.get('method_id') and sy.get('file') and sy.get('line'))
+        def at(f, l):
+            best = None
+            for ff, a, b, i in spans:
+                if ff == f and a <= l <= b and (best is None or (b - a) < best[0]): best = (b - a, i)
+            return best[1] if best else None
+        hit = []
+        for v, f, l in g.q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+            if not isinstance(v, str): continue
+            for key, decl in keys.items():
+                if v == key or ax_registration.route_matches(v, key):
+                    c = at(f, l)
+                    if c in writers: hit.append((g.disp(c), v, key, g.site_file(f) if f else f, l))
+        for c, v, key, f, l in sorted(set(hit))[:3]:
+            out.append(f"  {c} writes \"{v}\" at {f}:{l}, which is the key it is registered under" + (f' ("{key}")' if v != key else '')
+                       + " — the framework connects them, no call does")
+    if out:
+        out.append("  `impact " + g.disp(ids[0] if isinstance(ids, list) else sorted(ids)[0]) + " --tests` follows that hop; this command does not, by construction")
+    return out
+
+
 def closure(g, sel, upstream, limit=40, depth=40):
     g.export(); label, ids = g.resolve(sel)
     res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
@@ -560,6 +611,10 @@ def closure(g, sel, upstream, limit=40, depth=40):
     if not rows:
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(ids))})", *ids)[0]['n'] if not upstream else 0
         print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ") + "an unresolved site elsewhere may still " + ("call it" if upstream else "be it")))
+        # AN EMPTY UPSTREAM CLOSURE IS THE MOST MISLEADING LINE THIS COMMAND CAN PRINT. For a live route handler,
+        # a signal receiver or a CLI command the answer "0 methods reach it" is true of calls and false of the
+        # program: the framework reaches it. Name the registration rather than leave the reader at a dead end.
+        for line in (framework_note(g, ids) if upstream else []): print(line)
         # A word that resolves to a TYPE has no outbound calls by construction — a type declares members, it does
         # not call anything — so `path <type> '*'` is empty for every type, declared or not. That is the form the
         # guide gives someone who has no name yet, and a large share of the words they will try are type-valued
@@ -674,6 +729,9 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             print(f"    `{g.sym[m2]['name']}` called in {g.disp(c)} at " + ', '.join(f"{g.site_file(s['f'])}:{s['ln']}" for s in sites[:4]) + f" — receiver not typed; if it is {g.disp(m2)}, the chain is real")
         return 1
     print("  and no unresolved site would connect them by name either: the two are independent in this graph")
+    # …but a framework may still connect them, and the graph holds the evidence for it: the target is registered
+    # under a key, and the source writes that key. That is not a chain of calls, so it is reported and not walked.
+    for line in framework_note(g, B_, set(A_)) + framework_note(g, A_, set(B_)): print(line)
     return 1
 
 # ── self-test: the engine's expected edges, through the whole tool ───────────────────────────────────────────────

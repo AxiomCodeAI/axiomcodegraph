@@ -166,6 +166,14 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   "registered" by two, because a decoration argument is not always a registration (`@ValueSource(strings = {"p"})`
   is test DATA). One Java method went from naming 1 test file to naming 61 until that cap was added, and 6 after it.
   Neither cap needs a catalogue of which decorations register and which do not, which is the point of them.
+  **A cap and a kind guard answer different questions, and the second is invisible to the first.** A cap says *this
+  key is too wide to mean anything*; it cannot say *this was never a dispatch key at all*. A test's own decoration
+  carries its INPUTS — `@ValueSource(strings = {"/htmltests/large.html"})`, `@CsvSource`, `@pytest.mark.parametrize`
+  — one declaration, a handful of writers, under every cap, and entirely meaningless as a key; and a route mounted
+  inside a test file is a fixture, not the application's dispatch table (on one TypeScript router library **every**
+  route registration line, 6,128 of 6,128, is in a test file). So a decoration on a test declaration is not read as
+  a registration at all, and a route registered in a test file keeps its dependent row and its sentence but is given
+  no joinable key.
 - **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
   (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
   single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override
@@ -401,6 +409,14 @@ you: a test reached only through reflection, a service loader, or a case built a
   (the platform methods where the client graph ends), listed but never traversed. `--in src/main` keeps only the part
   under that path; `--depth N` bounds the hops. Each closure is cross-checked against a plain BFS (the `verified:` line)
   and bounded by the unresolved calls inside it.
+- **An empty answer names the framework that owns it.** `path '*' <handler>` for a live route used to print "0
+  method(s)", which is true of calls and false of the program. When the upstream closure is empty the registration is
+  named instead — *create_order is registered as a route "/orders" by @post (app/api.py:43)* — and when two endpoints
+  have no chain, a key that connects them is reported with the line that writes it, including the two spellings of one
+  path (`/orders/o-1/price` written against `/orders/{order_id}/price` registered). It is reported, never walked: a
+  chain here means control reaches B from A *through these calls*, and a registration is not a call. `impact` is the
+  verb that follows the hop, and the answer says so rather than ending at a dead end. The conventions come from the
+  one module both tools read (`scripts/ax_registration.py`).
 - **What it cannot find, by construction** — say so instead of guessing: a call whose receiver the engine could not type
   (DI-injected, unbound generic, a parameter in a dynamic language) stops the chain and is counted in `bound:`; callbacks
   handed to a library (`executor.submit(task)`, `list.forEach(fn)`) are reached from their definer (`[defines]`) but never
