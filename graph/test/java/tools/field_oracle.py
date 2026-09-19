@@ -116,8 +116,13 @@ COMPILER_FIELD = re.compile(r'^(this\$\d+|val\$.+|\$assertionsDisabled|\$VALUES|
 
 
 def javap(classes, names):
-    return subprocess.run(['javap', '-p', '-v', '-cp', classes] + names,
-                          capture_output=True, text=True).stdout.splitlines()
+    # javap does not encode its output in Python's locale encoding -- it writes through the
+    # JVM's stdout.encoding, which on a non-UTF-8 console is the console code page. Nothing
+    # couples the two, so `text=True` with no `encoding=` decodes with whatever locale this
+    # process happens to have, and disagreement crashes the reader thread (issue #962). Pin
+    # both sides to UTF-8 rather than relying on them to coincide.
+    return subprocess.run(['javap', '-J-Dstdout.encoding=UTF-8', '-p', '-v', '-cp', classes] + names,
+                          capture_output=True, text=True, encoding='utf-8').stdout.splitlines()
 
 
 def parse(out, names):
