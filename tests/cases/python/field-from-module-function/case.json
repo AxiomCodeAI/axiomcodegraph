@@ -1,0 +1,6 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a module-level function has no owner type, and a qualified read from one is still a use of the field",
+   "run": ["impact", "Conf.limit", "--kind", "field"],
+   "want": ["price", "writes/reads it"],
+   "avoid": ["Other.show"]}]}

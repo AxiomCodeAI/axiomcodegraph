@@ -87,7 +87,8 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   names it in a signature, uses a member imported from it, …) and by *how sure*: `[resolved]` an edge the engine resolved (a call
   — `[one of a set]` when it is a multi_inferred target set —, an override, a subtype, a constructor); `[in scope]` a reference by
   that name inside the owner type, a subtype or a nested type; `[by name]` a reference by that name elsewhere — the receiver was
-  not typed, so it may be a same-named other thing; `[text]` the name found in the source where the parser records no line (Java
+  not typed, so it may be a same-named other thing — including a read written through a variable from a callable with no
+  owner type at all, which is what a module-level function in Python or JavaScript is; `[text]` the name found in the source where the parser records no line (Java
   type references in signatures), comments and strings stripped. A bare name inside a type that declares its own member of that
   name is that member, not the target; a qualified `X.name` is confirmed when `X` is the owner and dropped when `X` is another
   type. For a field, a **declared accessor** in the owner (`getF` / `setF` / `isF` / `f()`) is its door: the accessor's callers are
