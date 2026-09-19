@@ -14,7 +14,7 @@ Every fact a hook block states is checked again, against graph.sqlite and the so
 Events are generated on the repo (Reads of whole files and ranges, Greps of declared identifiers, edits that change a body,
 a signature, a field's type) or replayed from .axiomcode/hooks.jsonl (--replay: entries that recorded their input and text).
 Prints facts checked / facts wrong, and every wrong fact."""
-import atexit, json, os, random, re, sqlite3, subprocess, sys, tempfile, shutil, time
+import collections, atexit, json, os, random, re, sqlite3, subprocess, sys, tempfile, shutil, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 'skills', 'axiomcode', 'scripts'))
 from ax_contract import subtokens, is_synthetic        # the annotation's own tokeniser, so this checks its claim
@@ -202,8 +202,19 @@ class V:
             # stopped matching, and the one assertion about how many callables and tests the hook claims went
             # silent. A check that fails loudly is a check; a check that stops matching is nothing at all, and it
             # looks identical in the output. So an unmatched `reaches` line is now a FAILURE naming the line.
-            m4 = re.match(r'    reaches (\d+) more callable\(s\) through resolved calls(?: within \d+ hops)?; (\d+) test\(s\)', l)
-            if m4: self.fact(int(m4.group(1)) == len(j.get('reached', [])) and int(m4.group(2)) == len(j.get('tests', [])), f"change {cur['symbol']}: reach/tests {m4.group(1)}/{m4.group(2)} vs {len(j.get('reached', []))}/{len(j.get('tests', []))}")
+            m4 = re.match(r'    (?:\[(fast path|rules)\] )?reaches (\d+) more callable\(s\) through resolved calls(?: within \d+ hops)?; (\d+) test\(s\)', l)
+            if m4:
+                # WHICH SIDE IS WRONG, not just that they differ. This assertion treats the CLI as truth, and on a
+                # common method name that premise is false: a peer measured a target whose direct layer was
+                # resolved=2, by-name=226, text=26 — the by-name tier matching 226 call sites with an untyped
+                # receiver, none of which calls the target, and the whole transitive closure walked out of those.
+                # There the fast path's smaller number is the better answer. So the mismatch carries the tier mix
+                # and says which side answered, and leaves the judgement to a reader. Counts, not a verdict: a
+                # verdict decides it for them and will be wrong somewhere.
+                mix = collections.Counter((x.get('certainty') or '?') for x in j.get('direct', []))
+                self.fact(int(m4.group(2)) == len(j.get('reached', [])) and int(m4.group(3)) == len(j.get('tests', [])),
+                          f"change {cur['symbol']}: reach/tests {m4.group(2)}/{m4.group(3)} vs {len(j.get('reached', []))}/{len(j.get('tests', []))}"
+                          f" [{m4.group(1) or 'unmarked'} answered; CLI direct layer " + ', '.join(f"{k}={v}" for k, v in sorted(mix.items())) + "]")
             # …and the same guard for every other claim in the block, because they are the same construction and
             # would die the same silent way. A line that OPENS with one of these prefixes is a claim this check is
             # supposed to read; if none of the patterns took it, the wording moved and the assertion is gone.
