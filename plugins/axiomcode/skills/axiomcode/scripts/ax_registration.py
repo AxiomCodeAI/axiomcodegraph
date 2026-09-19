@@ -188,9 +188,17 @@ def decoration_keys(q, site_file=None):
         return []
     import re
     sf = site_file or (lambda x: x)
+    # A DECORATION ON A TEST CARRIES DATA, NOT A REGISTRATION. `@ValueSource(strings = {"/htmltests/large.html"})`,
+    # `@CsvSource`, `@pytest.mark.parametrize`, `@DisplayName` — the strings are the test's inputs, and reading them
+    # as keys let every test that mentions the same string reach that test method. Measured on jsoup: 27 by-key
+    # edges from one `@ValueSource` of resource paths. A route handler, a signal receiver or a CLI command is
+    # production code; nothing is lost by declining to read a test's own decoration as a registration.
+    tests = {r[0] for r in q("SELECT id FROM symbols WHERE is_test = 1")} if _has(q, 'symbols') else set()
     out = []
     for owner, name, text, f, l in q("""SELECT owner_id, name, text, file, line FROM decorations
                                         WHERE text IS NOT NULL AND text <> '' AND owner_id IS NOT NULL"""):
+        if owner in tests:
+            continue
         short = (name or '').split('.')[-1]
         for key in sorted(set(re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''))):
             key = key[0] or key[1]
@@ -226,9 +234,18 @@ def value_route_registrations(q, site_file=None):
     for n, f, l in q(f"SELECT name, file, line FROM refs WHERE line > 0 AND entity_kind IN ({ek})", *CALLABLE_EK):
         if n in once:
             ref_at.setdefault((f, l), once[n])
+    import re
     out = []
     for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
         if not (isinstance(v, str) and v.startswith('/') and len(v) < 160):
+            continue
+        # A RESOURCE IS NOT A ROUTE. Measured on jsoup: the pair fired on
+        # `connect(url).onResponseProgress(progressListener)` — a path-shaped literal and a handed-over callable on
+        # one line, but the path is the file being fetched, not the key the listener is registered under. That put
+        # 27 by-key edges into the closure from every test that mentions `/htmltests/large.html`. A registered route
+        # names a resource by STRUCTURE; a fetched file ends in an extension and may carry a query, so both are out.
+        last = v.split('?')[0].split('#')[0].rstrip('/').rsplit('/', 1)[-1]
+        if '?' in v or re.search(r'\.[A-Za-z0-9]{1,6}$', last):
             continue
         d = ref_at.get((f, l))
         if d:
@@ -261,3 +278,41 @@ def route_matches(written, registered):
 def all_registrations(q, site_file=None):
     """Every (decl, file, line, kind, key, why) this module can derive, from all three sources."""
     return sorted(set(registrations(q, site_file) + decoration_keys(q, site_file) + value_route_registrations(q, site_file)))
+
+
+# ── the same join the rules make, for a caller that has no Datalog ───────────────────────────────────────────
+# dl/impact.dl derives `fw_edge` from `literal`, `reg_key` and the two caps. A caller without a solver — the SQL
+# port, or anything deciding whether the rules would find something it cannot — needs the same answer, so the join
+# lives here once rather than twice. The caps are the rules' defaults and the same environment variables override
+# them, because a difference between the two engines that comes from a default is the hardest kind to notice.
+def key_edges(q, at, site_file=None, cap=None, use_cap=None):
+    """[(caller, registered_declaration, key)] — a callable writes a key, and that key registers a declaration.
+
+    `at(file, line) -> callable id` is the caller's own line map; nothing here can build it. A key that more than
+    `cap` declarations register, or that more than `use_cap` callables write, identifies nothing and is refused —
+    Flask's own suite registers "/" from 236 places and jsoup's surviving keys are HTML tag names.
+    """
+    import collections, os
+    cap = int(os.environ.get('AXIOMCODE_KEY_CAP', '4')) if cap is None else cap
+    use_cap = int(os.environ.get('AXIOMCODE_KEY_USE_CAP', '4')) if use_cap is None else use_cap
+    if not _has(q, 'literals'):
+        return []
+    reg = collections.defaultdict(set)
+    for decl, _f, _l, _kind, key, _why in all_registrations(q, site_file):
+        if decl and key: reg[key].add(decl)
+    if not reg:
+        return []
+    writes = collections.defaultdict(set)
+    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        if not isinstance(v, str) or len(v) > 160: continue
+        c = at(f, l)
+        if c: writes[v].add(c)
+    capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items() if len(cs) > use_cap}
+    out = set()
+    for v, callers in writes.items():
+        for key, decls in reg.items():
+            if key in capped or not (v == key or route_matches(v, key)): continue
+            for c in callers:
+                for d in decls:
+                    if c != d: out.add((c, d, key))
+    return sorted(out)
