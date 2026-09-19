@@ -181,7 +181,7 @@ def norm_key(k):
     # `<constructor>` is a NAME here, not a generic argument list. Stripping angle
     # brackets naively removed it and turned `Type.<constructor>/1` into `Type./1`,
     # so every constructor comparison read as a disagreement -- 33 of them on
-    # humanizer alone, all spurious. Parked behind a sentinel, stripped, restored.
+    # one member alone, all spurious. Parked behind a sentinel, stripped, restored.
     k = k.replace("<constructor>", "\x00ctor\x00")
     out, depth = [], 0
     for ch in k:

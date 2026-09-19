@@ -153,9 +153,9 @@ dispatch_is_exact(prov, e) :- call_is_base(prov, e).
 // project's fan soundness.
 //
 // A receiver may have SEVERAL types -- a name that resolves to both a value and a
-// type, a field assigned two concrete types, a conditional. Serilog's `Logger`
+// type, a field assigned two concrete types, a conditional. One member's `Logger`
 // resolves to both the static property (typed `ILogger`) and the sealed class
-// `Serilog.Core.Logger`, and an existential test made the site exact because ONE of
+// a sealed `Core.Logger`, and an existential test made the site exact because ONE of
 // the two is sealed. The fan was then skipped and every implementor of ILogger
 // disappeared from it: 39 unsound fans, 38.10% soundness on that project, while the
 // dispatch relation underneath held the right answer all along.

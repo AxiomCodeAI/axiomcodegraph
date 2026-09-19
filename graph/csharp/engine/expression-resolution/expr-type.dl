@@ -114,13 +114,13 @@ expr_element_type(prov, e, gk) :-
     member_lookup(prov, enumGk, "Current", "property", cur),
     property_type(prov, cur, gk).
 
-// ── INDEXING IS A RECEIVER: `words[0].Humanize()` ───────────────────────────
+// ── INDEXING IS A RECEIVER: `words[0].Titlecase()` ──────────────────────────
 // An ELEMENT_ACCESS is one of the commonest receiver shapes there is, and without a
 // type for it every call chained onto an indexed value starts from nothing.
 //
-// MEASURED, and the reason this is not a nicety: on a string-extension library
-// `words[0].Humanize()` picked the wrong overload -- `EnumHumanizeExtensions`
-// (`this Enum`) rather than `StringHumanizeExtensions` (`this string`). Not because
+// MEASURED, and the reason this is not a nicety: on a corpus member that is a
+// library of string extensions, `words[0].Titlecase()` picked the wrong overload --
+// the `this Enum` one rather than the `this string` one. Not because
 // the engine preferred it, but because `words[0]` had NO type and NO type name, so
 // the by-name extension match in extensions.dl had nothing to discriminate on and
 // the generic match took whatever was in scope. An untyped receiver does not merely

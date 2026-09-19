@@ -1,5 +1,7 @@
 #!/bin/bash
-# Clone the C# corpus defined by corpus.tsv, at the PINNED commits.
+# Clone the C# corpus defined by the manifest, at the PINNED commits.
+#
+# The manifest is NOT in this repository; see corpus/manifest.sh.
 #
 # Nothing here is scored and nothing is installed into this repository. A C#
 # subject needs no dependency install to be measured: the engine is run
@@ -19,6 +21,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/manifest.sh"
+resolve_corpus_manifest "$HERE" || exit 2
 ROOT="${CS_CORPUS:-$HOME/.cache/axiom-cs-corpus}"
 mkdir -p "$ROOT"
 
@@ -66,14 +70,14 @@ while IFS=$'\t' read -r name set path repo commit note; do
   fi
   n=$(find "$d/$path" -name '*.cs' -not -path '*/obj/*' -not -path '*/bin/*' | wc -l | tr -d ' ')
   echo "  $name [$set] $path -- $n .cs files at ${commit:0:8}"
-done < "$HERE/corpus.tsv"
+done < "$CORPUS_MANIFEST"
 
 if [ -s "$FAILED" ]; then
   echo
   echo "!! $(wc -l < "$FAILED" | tr -d ' ') corpus member(s) did not provision:"
   cat "$FAILED"
   echo "A member that cannot be provisioned is BLOCKED, not absent: fix it or mark it"
-  echo "in corpus.tsv with the reason. A manifest that silently drops what it cannot"
+  echo "in the manifest with the reason. A manifest that silently drops what it cannot"
   echo "measure is how a held-out set comes to be three projects none of which work."
   exit 1
 fi

@@ -18,13 +18,15 @@
 # engine rules that read a trace only ever ADD, never subtract.
 #
 # Usage: trace-subject.sh <name> <work-dir>
-#   <name> is a corpus.tsv entry. The TEST project is discovered from the
+#   <name> is a manifest entry. The TEST project is discovered from the
 #   repository rather than configured, because a per-project test command is one
 #   more thing that silently goes stale.
 # =============================================================================
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TESTDIR="$(cd "$HERE/.." && pwd)"
+. "$TESTDIR/corpus/manifest.sh"
+resolve_corpus_manifest "$TESTDIR/corpus" || exit 2
 CORPUS="${CS_CORPUS:-$HOME/.cache/axiom-cs-corpus}"
 INSTRUMENT="$HERE/AxiomCsInstrument/bin/Release/net8.0/axiom-cs-instrument"
 
@@ -40,8 +42,8 @@ command -v dotnet >/dev/null || { echo "dotnet is not on PATH" >&2; exit 77; }
 
 # The corpus entry: its path is the library subtree, and the REPOSITORY root is
 # what has to be mirrored, because the test project lives outside it.
-LINE="$(awk -F'\t' -v n="$NAME" '$1==n {print; exit}' "$TESTDIR/corpus/corpus.tsv")"
-[ -n "$LINE" ] || { echo "$NAME is not in corpus.tsv" >&2; exit 2; }
+LINE="$(awk -F'\t' -v n="$NAME" '$1==n {print; exit}' "$CORPUS_MANIFEST")"
+[ -n "$LINE" ] || { echo "$NAME is not in $CORPUS_MANIFEST" >&2; exit 2; }
 SUBPATH="$(printf '%s' "$LINE" | cut -f3)"
 REPO_SRC="$CORPUS/$NAME"
 [ -d "$REPO_SRC/.git" ] || { echo "$NAME is not provisioned; run corpus/fetch.sh" >&2; exit 77; }
@@ -68,8 +70,8 @@ cp "$HERE/AxiomCsTrace.cs" "$MIRROR/$SUBPATH/AxiomCsTrace.cs"
 # ── the test project ────────────────────────────────────────────────────────
 # Discovered, not configured: a per-project test command is one more thing that goes
 # stale silently. But discovery has to be more than "the first csproj that mentions
-# xunit", which picked `Serilog.ApprovalTests`, `Snippets` and
-# `Humanizer.SourceGenerators.Tests` -- none of them the suite that exercises the
+# xunit", which picked approval-test, snippet and source-generator test
+# projects -- none of them the suite that exercises the
 # library.
 #
 # Two filters, in this order:
