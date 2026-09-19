@@ -22,6 +22,18 @@ test too many, it is missing one:
 So the output is a lower bound, and it says so. A pipeline may use it to run the named tests FIRST and the
 rest after, which costs nothing if it is wrong and pays on every run where it is right; using it to skip
 the rest is a decision about risk that this tool cannot make for you.
+
+HOW GOOD THE SELECTION IS, measured rather than asserted. 55 single-function edits on a Python service
+driven through its frameworks, truth being which test FILES newly fail when that function is broken:
+
+    the call-graph answer alone      recall 0.738   precision 0.957   14 edits selected nothing
+    what the command actually shows  recall 0.852   precision 0.963    0 edits shown nothing
+
+The second row is the first plus the name tier that prints when the graph is silent. It is the honest one,
+because it is what a reader sees. Two things follow. Recall is 0.85, not 1.0, on a subject BUILT to be
+hostile — so "run these first" is the supported use and "skip the rest" is still not. And precision does
+not fall when the fallback fires, because that tier names about one file: the cost of the safety net is
+roughly one extra test file per edit the graph could not reach.
 """
 import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections
 
