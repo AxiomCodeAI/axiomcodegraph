@@ -39,6 +39,12 @@ for l, name, path in cases:
         out = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['run']] + ([path] if ch['run'][0] != 'index' else []), capture_output=True, text=True)
         text = out.stdout + out.stderr
         bad = [w for w in ch.get('want', []) if w not in text] + [f"(present) {w}" for w in ch.get('avoid', []) if w in text]
+        # "stdout_json": true — STDOUT alone must parse as one JSON document. A diagnostic printed beside the answer
+        # is invisible to a substring check (want/avoid read both streams together) and fatal to a consumer, which is
+        # how a `note:` line sat inside --json for every name declared as both a field and a method.
+        if ch.get('stdout_json'):
+            try: json.loads(out.stdout)
+            except Exception as e: bad.append(f"stdout is not one JSON document ({e})")
         if out.returncode and not ch.get('expect_error'): bad.append(f"(exit {out.returncode})")
         if bad:
             fail += 1; print(f"FAIL {l}/{name}: {ch['why']}")
