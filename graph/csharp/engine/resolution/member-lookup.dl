@@ -54,6 +54,18 @@ member_cand("client", gk, n, kind, mem, d) :-
 member_cand("client", gk, n, kind, mem, 0) :-
     type_member_name("lib", gk, n, kind, mem).
 
+// AND THE LIBRARY TYPE'S OWN BASE CHAIN. The clause above is distance 0 only, so
+// a client site saw a staged type's own members and none it inherits -- and the
+// chain for a library type is derived under "lib", because `type_base_chain`
+// crosses provenance only for a CLIENT type with a library base.
+//
+// `input.GetType()` is the shape: `GetType` is declared on System.Object and the
+// receiver is a System.String, so every member a framework type inherits was
+// invisible. That is most of `object`: ToString, Equals, GetHashCode, GetType.
+member_cand("client", gk, n, kind, mem, d) :-
+    type_base_chain("lib", gk, bgk, d),
+    type_member_name("lib", bgk, n, kind, mem).
+
 // ── AN EXPLICIT INTERFACE IMPLEMENTATION IS EXCLUDED ────────────────────────
 // It is not a member of the declaring type. Removed from the candidate set rather
 // than filtered at the use site, so every consumer inherits the rule.

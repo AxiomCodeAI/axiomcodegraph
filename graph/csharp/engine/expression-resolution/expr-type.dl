@@ -262,6 +262,16 @@ expr_new_type(prov, e, gk) :-
 expr_type(prov, e, gk) :-
     expr_target_any(prov, e, m), method_return_type_group(prov, e2gk, gk), e2gk = m.
 
+// A LIBRARY METHOD'S RETURN TYPE, READ FROM A CLIENT SITE. Resolved in the
+// LIBRARY's scope and then mirrored, rather than resolved in the client's:
+// `string` inside a library file means what that file's scope says it means, and
+// asking the client's scope is asking the wrong file.
+//
+// Without it a chain died one hop in -- `sb.ToString().Trim()` resolved the
+// first call into the staged library and then had no receiver type for the
+// second, while `sb.Append(...)` on the same receiver was fine.
+method_return_type_group("client", m, gk) :- method_return_type_group("lib", m, gk).
+
 method_return_type_group(prov, m, gk) :-
     method_return_type_ref(prov, m, tr), type_ref_resolves(prov, tr, gk).
 method_return_type_group(prov, m, gk) :-

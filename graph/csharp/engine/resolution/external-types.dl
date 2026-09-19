@@ -221,6 +221,48 @@ external_target(prov, e, label) :-
     type_base_unresolved(prov, gk, _, bn, _),
     label = cat("external:", cat(bn, cat(".", n))).
 
+// ── A MEMBER THE STAGED LIBRARY DOES NOT CARRY IS STILL NAMED ───────────────
+// The same subset argument, on the call paths. Staging a library that covers a
+// type incompletely turned a NAMED boundary into a blind spot: measured on a
+// dev-set project, ten sites moved that way, among them `string.Substring`,
+// where the stub carries the one-argument overload and the source calls the
+// two-argument one, and `string.Any`, an extension method on no version of the
+// type. The type IS known, so the site is still named.
+external_target(prov, e, label) :-
+    call_recv_type(prov, e, gk),
+    type_group("lib", _, gk),
+    call_callee_name(prov, e, n),
+    !member_method(prov, gk, n, _),
+    type_decl("lib", bn, _, _, _, t), type_group("lib", t, gk),
+    label = cat("external:", cat(bn, cat(".", n))).
+
+external_target(prov, e, label) :-
+    call_recv_type(prov, e, gk),
+    type_group("lib", _, gk),
+    call_callee_name(prov, e, n),
+    call_arity_no_member(prov, e),
+    type_decl("lib", bn, _, _, _, t), type_group("lib", t, gk),
+    label = cat("external:", cat(bn, cat(".", n))).
+
+// And a `new` on a staged type whose constructor is not carried. The external
+// constructor clause above needs the type to be UNSTAGED, so once a library
+// declares the type the site had neither a constructor to resolve nor a name to
+// carry. Refusing the implicit-constructor claim alone leaves it a blind spot.
+external_target(prov, e, label) :-
+    call_needs_ctor_lookup(prov, e),
+    expr_new_type(prov, e, gk),
+    type_group("lib", _, gk),
+    call_argc(prov, e, ac),
+    !call_ctor_target_accepts(prov, e, ac),
+    type_decl("lib", n, _, _, _, t), type_group("lib", t, gk),
+    label = cat("external:", cat(n, ".<constructor>")).
+
+// Whether any constructor of the created type accepts this site's argument
+// count. Named rather than inlined because the rule above needs its NEGATION,
+// and a negated conjunction over three relations is where a cross-product hides.
+call_ctor_target_accepts(prov, e, ac) :-
+    call_ctor_target(prov, e, ctor), ctor_accepts_argc(prov, ctor, ac).
+
 // ── A PROPERTY READ ON AN EXTERNAL RECEIVER ─────────────────────────────────
 // `someString.Length`, `dict.Count`, `ex.Message`. Reading a property IS a call, and
 // on a receiver whose type is not staged there is nothing to resolve -- but there is
@@ -302,6 +344,26 @@ expr_recv_is_array(prov, e) :-
 external_recv_name(prov, e, tn) :- expr_predefined_recv_name(prov, e, tn).
 external_recv_name(prov, e, tn) :-
     expr_external_type_name(prov, e, tn).
+
+// AND A TYPE THAT IS STAGED, WHOSE MEMBER IS NOT. A library IR is a signature
+// SUBSET, so a property it does not carry is one the engine was not told about.
+// Without this the site did not become a blind spot -- it CEASED TO EXIST:
+// `property_access` needs the member, `external_property_read` fired only where
+// the receiver's type was UNSTAGED, and a staged receiver satisfies neither.
+//
+// MEASURED on a dev-set project against a stub library: 32 property-read sites
+// present without the library were ABSENT with it, `task.Status` among them,
+// where the stub declares Task and not its Status. `call_site_dropped` stayed 0
+// throughout, because the site was never built rather than built and discarded,
+// so nothing reported it and only a bare count of call_sites found it.
+//
+// Safe because `external_property_read` is gated on `!member_access_resolved`:
+// where the property IS carried, `property_access` fires and this never reaches
+// the label.
+external_recv_name(prov, e, tn) :-
+    expr_type(prov, e, gk),
+    type_group("lib", _, gk),
+    type_decl("lib", tn, _, _, _, t), type_group("lib", t, gk).
 
 // ── THE EXTERNAL EDGE ───────────────────────────────────────────────────────
 // client_calls_external(SiteExpr, Label). Kept separate from the client and lib

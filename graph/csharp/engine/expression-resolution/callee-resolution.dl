@@ -251,6 +251,14 @@ call_ctor_implicit(prov, e, gk) :-
     expr_new_type(prov, e, gk),
     !type_ctor(prov, gk, _),
     !type_ctor_staged(prov, gk),
+    // AND NOT FOR A STAGED TYPE AT ALL. `type_ctor_staged` only covers a library
+    // type whose constructor IS carried. A library IR is a signature SUBSET, so
+    // one that carries no constructor for a type says nothing about whether the
+    // type declares any, and this class asserts exactly that: "the type declares
+    // no constructor, so there is no user code to call". A producer that omits
+    // constructors would have every `new` on every staged type reported as a
+    // known structural case.
+    !type_group("lib", _, gk),
     call_argc(prov, e, "0").
 
 // "This type declares no constructor" is only true if nobody declares one. A

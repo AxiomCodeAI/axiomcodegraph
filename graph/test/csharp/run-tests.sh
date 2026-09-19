@@ -133,4 +133,13 @@ echo "cases: $PASS passed, $FAIL failed"
 # that stages.
 echo
 bash "$HERE/staging-test.sh" "$WORK/staging" || exit 1
+
+# The tools gates, for the same reason and one step further out: staging-test.sh
+# asserts that the boundary is CROSSED, and these assert what the fact base looks
+# like on the far side of it, including the shapes a staged library covers only
+# partially. Kept as a directory so a new one is picked up without editing this.
+for t in "$HERE"/tools/*-test.sh; do
+  [ -f "$t" ] || continue
+  bash "$t" || exit 1
+done
 exit 0

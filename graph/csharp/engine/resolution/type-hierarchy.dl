@@ -104,6 +104,52 @@ type_implements("client", gk, igk) :-
     heritage_resolves("client", gk, _, igk),
     type_group("lib", it, igk), type_is_interface("lib", it).
 
+// ── THE IMPLICIT BASE, WHERE THE IR THAT DECLARES IT IS STAGED ──────────────
+// The header above says a struct's, an enum's and a record's implicit bases are
+// LIBRARY types that "only appear when a library IR is staged, and the engine
+// does not invent them". Nothing derived them, so a class reached no base at all
+// and `GetType`, `ToString`, `Equals` and `GetHashCode` -- a call on almost every
+// type in a real codebase -- found nothing even with System.Object staged.
+//
+// This invents nothing: each rule fires only where a staged IR actually declares
+// the type, and the base IS that declaration. Client-only, nothing declares them
+// and nothing fires.
+//
+// THE GUARD IS THE DECLARED BASE, not `!type_extends`: type_extends is what
+// these rules write, and a negation over a relation in its own head does not
+// stratify. type_has_declared_base reads heritage_resolves instead, one step
+// earlier, so the order is heritage_resolves, the guard, then type_extends.
+type_has_declared_base(prov, gk) :-
+    heritage_resolves(prov, gk, _, bgk),
+    type_group(prov, bt, bgk), type_is_class(prov, bt).
+
+implicit_base_group(qn, bgk) :-
+    type_decl(_, _, qn, "0", _, bt), type_group(_, bt, bgk),
+    implicit_base_name(qn).
+implicit_base_name("System.Object").
+implicit_base_name("System.ValueType").
+implicit_base_name("System.Enum").
+
+// A CLASS, and a record, which type_is_class covers, with no base class written.
+type_extends(prov, gk, ogk) :-
+    type_group(prov, t, gk), type_is_class(prov, t),
+    !type_has_declared_base(prov, gk),
+    implicit_base_group("System.Object", ogk),
+    ogk != gk.
+
+// A STRUCT cannot derive, so its base is always ValueType.
+type_extends(prov, gk, vgk) :-
+    type_group(prov, t, gk), type_is_struct(prov, t),
+    implicit_base_group("System.ValueType", vgk),
+    vgk != gk.
+
+// AN ENUM's base is Enum. Its `: int` entry is the underlying TYPE and not a base
+// class, and heritage_resolves does not make it one: int is not a class.
+type_extends(prov, gk, egk) :-
+    type_group(prov, t, gk), type_is_enum(prov, t),
+    implicit_base_group("System.Enum", egk),
+    egk != gk.
+
 // An interface's OWN heritage list is all interfaces: `interface I : J, K`. Covered
 // by type_implements above, since J and K resolve to interfaces. Named separately
 // because "what interfaces does this interface extend" reads better at the use site
