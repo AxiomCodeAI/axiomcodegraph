@@ -329,6 +329,13 @@ class Changed:
                         ty2, nm2 = self.field_parts(st2)
                         if nm2 and ty2 and st2.endswith(';') and '(' not in st2.split('=')[0]: out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{nm2}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new field', target=None))
             if not names and is_add: adds.append((rel, f"{j2 - j1 + 1} new line(s) at {rel}:{j1}" + (f" inside {t[4]}" if t else ''), None))
+        # A DECLARATION WHOSE SIGNATURE CHANGED IS NOT A NEW ONE. `added` is decided by whether the OLD text has a
+        # header that matches, so editing the header itself — `def f(a)` to `def f(a, *, cap=0)`, or `def` to
+        # `async def` — fails that test and the same declaration was reported twice: once as `signature`, and once as
+        # `added` carrying the line "no declaration of that name existed before", which the graph itself contradicts.
+        # An added OVERLOAD keeps its row: the old declaration is untouched there, so no signature row names it.
+        sigged = {(e['file'], e['symbol']) for e in out if e['kind'] in ('signature', 'field', 'type')}
+        out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in sigged)]
         return out, adds
     @staticmethod
     def target(kind, d, k, n):
