@@ -322,6 +322,13 @@ if tr:
         c.executemany("INSERT INTO type_refs VALUES (?,?,?,?,?)", ((r.get(tr['name'], '').split('.')[-1].split('<')[0], file_of(r, tr), int(r.get(tr['line']) or 0), r.get(tr['context'], ''), r.get(tr['ownerKind'], '')) for r in rows(tr['file']) if r.get(tr['name'])))
     except (KeyError, ValueError): pass
 # decorations: @Annotation(args) / @decorator(args) on a method or type — a route, a bean name, a validator, a marker
+def unquoted(v):
+    """The IR is tab-separated, but the writer still RFC4180-quotes a field that contains a double quote and the
+    reader is QUOTE_NONE, so `@router.post("/orders")` arrives as `"@router.post(""/orders"")"`. Every decoration
+    whose argument is a double-quoted string is in that shape — which is exactly the decorations that carry a KEY
+    (a route path, a command name, a topic, a validated field), so everything downstream that reads a key out of
+    the text read the quoting instead: `@exporter("csv")` yielded `@exporter(` and `)` and never `csv`."""
+    return v[1:-1].replace('""', '"') if len(v) > 1 and v[0] == '"' == v[-1] and '""' in v else v
 dec = A.get('decorations')
 if dec:
     args = collections.defaultdict(list)
@@ -332,7 +339,7 @@ if dec:
     for r in rows(dec['file']):
         nm = r.get(dec['name'], '')
         if not nm: continue
-        text = r.get(dec['text'], '') if dec.get('text') else ('@' + nm + ('(' + ', '.join(args.get(r.get(dec['id'], ''), [])) + ')' if args.get(r.get(dec['id'], '')) else ''))
+        text = unquoted(r.get(dec['text'], '')) if dec.get('text') else ('@' + nm + ('(' + ', '.join(args.get(r.get(dec['id'], ''), [])) + ')' if args.get(r.get(dec['id'], '')) else ''))
         try: drows.append((r.get(dec['owner'], ''), nm, text[:200], file_of(r, dec), int(r.get(dec['line']) or 0)))
         except ValueError: pass
     c.executemany("INSERT INTO decorations VALUES (?,?,?,?,?)", drows)
