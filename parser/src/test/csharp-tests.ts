@@ -5342,6 +5342,32 @@ public static class GenericCreation
         OneInt(new Dictionary<int, string>(2) { { 1, "x" } });
         var z = new Dictionary<Key, Val>(snap) { [k] = v };
     }
+
+    // ONE type argument, so there is no comma: the misparse never has to split
+    // across sibling arguments, stays inside one expression, and reaches every
+    // position an expression may take rather than only an argument list.
+    public static object Arrow(Key x) => new Box<Key>(x) { Tag = 1 };
+
+    public static object Nested(Key x)
+    {
+        Boxed(new Box<Key>(x) { Tag = 1 });
+        var held = new Box<Key>(x) { Tag = 1 };
+        return held;
+    }
+
+    static void Boxed(Box<Key> b) { }
+
+    // A REAL chain of comparisons, which produces the very tree the
+    // one-type-argument repair recognises: a binary > over a binary <. dynamic
+    // is what makes it legal C# rather than merely parseable.
+    public static object Chained(dynamic a, dynamic b, dynamic c) => a < b > c;
+}
+
+public sealed class Box<T>
+{
+    public Box(T value) { }
+
+    public int Tag { get; set; }
 }
 `,
       'utf-8'
@@ -5376,13 +5402,39 @@ public static class GenericCreation
     // NOTHING IS FABRICATED. The two comparisons and the cast are not in the
     // source, and a row for a construct nobody wrote is worse than a missing
     // one: an engine can see an absence and cannot see an invention.
+    //
+    // `a < b > c` in `Chained` is a genuine chain and produces exactly the tree
+    // the one-type-argument repair recognises, so the fixture makes both halves
+    // visible at once: that line is the ONLY one allowed to hold comparison
+    // rows, and it is REQUIRED to hold two. A repair keyed on the shape alone
+    // would eat it, and a check that merely forbade comparison rows would call
+    // that a pass.
+    const chainedLine = Number(
+      expressions.rows.find(
+        (r) => r[e('kind')] === 'NAME_REFERENCE' && r[e('potentialQualifiedName')] === 'c'
+      )?.[e('startLine')] ?? '0'
+    );
     const fabricated = expressions.rows.filter(
-      (r) => r[e('kind')] === 'BINARY' || r[e('kind')] === 'CAST'
+      (r) =>
+        (r[e('kind')] === 'BINARY' || r[e('kind')] === 'CAST') &&
+        Number(r[e('startLine')]) !== chainedLine
     );
     if (fabricated.length !== 0) {
       bad += fail(
-        `${fabricated.length} BINARY/CAST row(s) in a file whose only comparison is the ` +
-          'control — the misparse fabricated operators the source does not contain'
+        `${fabricated.length} BINARY/CAST row(s) on lines that hold no comparison — the ` +
+          'misparse fabricated operators the source does not contain'
+      );
+    }
+    const realComparisons = expressions.rows
+      .filter((r) => Number(r[e('startLine')]) === chainedLine && r[e('kind')] === 'BINARY')
+      .map((r) => r[e('operatorString')])
+      .sort()
+      .join('');
+    if (realComparisons !== '<>') {
+      bad += fail(
+        `\`a < b > c\` yields comparison operators [${realComparisons}], expected < and >. It is a ` +
+          'REAL chain with the same tree the one-type-argument repair recognises, and a repair ' +
+          'that rewrites it has invented a creation the source does not contain'
       );
     }
 
@@ -5402,21 +5454,103 @@ public static class GenericCreation
       );
     }
 
-    // THE CREATIONS SURVIVE WHOLE. Six are written; a rebuild that dropped one,
+    // THE CREATIONS SURVIVE WHOLE. Nine are written; a rebuild that dropped one,
     // or dropped its arguments with the comparison they hung off, would pass
     // every check above.
     const creations = expressions.rows.filter((r) => r[e('kind')] === 'OBJECT_CREATION');
-    if (creations.length !== 6) {
-      bad += fail(`expected 6 OBJECT_CREATION rows, found ${creations.length}`);
+    if (creations.length !== 9) {
+      bad += fail(`expected 9 OBJECT_CREATION rows, found ${creations.length}`);
     }
     const initializers = expressions.rows.filter(
       (r) => r[e('edgeRole')] === 'INITIALIZER_VALUE' && r[e('kind')] === 'INITIALIZER'
     );
-    if (initializers.length < 4) {
+    if (initializers.length < 7) {
       bad += fail(
-        `only ${initializers.length} initializer(s) attached to a creation, expected at least 4 ` +
+        `only ${initializers.length} initializer(s) attached to a creation, expected at least 7 ` +
           '— the initializer was filed inside the fabricated cast and has to be grafted back'
       );
+    }
+
+    // ONE CREATION, ONE COUNT. The expression row and the call site are a 1:1
+    // chain over the same creation and each builds its OWN argument list, so a
+    // repair applied to one and not the other leaves them disagreeing.
+    //
+    // Before this they agreed AT ZERO while the creation carried its argument as
+    // a child row, so a check that only compared the two columns would have
+    // passed on a creation recorded as parameterless. The count against the
+    // parameterless total below is what catches that; this loop is what stops
+    // the fix being applied to one column and not the other.
+    //
+    // Every creation in this fixture passes exactly one constructor argument
+    // except `new Dictionary<Key, Val>() { [k] = v }`, which passes none — so
+    // the expected count is read from the source rather than asserted flat.
+    const pk = expressions.header.length - 1;
+    let creationsChecked = 0;
+    for (const creation of creations) {
+      const site = callSites.rows.find((r) => r[c('csExpressionLinkHash')] === creation[pk]);
+      if (site === undefined) {
+        bad += fail(
+          `the OBJECT_CREATION on line ${creation[e('startLine')]} has no CONSTRUCTOR_CALL — a ` +
+            'creation the source writes is not recorded as a call at all'
+        );
+        continue;
+      }
+      creationsChecked += 1;
+      if (site[c('argumentCount')] !== creation[e('argumentCount')]) {
+        bad += fail(
+          `the creation on line ${creation[e('startLine')]} reports ${creation[e('argumentCount')]} argument(s) ` +
+            `on its expression row and ${site[c('argumentCount')]} on its call site. Two columns describing ` +
+            'one creation and disagreeing is worse than either answer alone'
+        );
+      }
+    }
+    if (creationsChecked === 0) {
+      bad += fail('NEGATIVE CONTROL FAILED: no creation was paired with its call site, so that comparison asserted nothing');
+    }
+    const parameterless = callSites.rows.filter(
+      (r) => r[c('callKind')] === 'CONSTRUCTOR_CALL' && r[c('argumentCount')] === '0'
+    );
+    if (parameterless.length !== 1) {
+      bad += fail(
+        `${parameterless.length} constructor call(s) report no arguments, expected exactly 1 — the ` +
+          'fixture writes one parameterless creation, and a constructor recorded as taking none ' +
+          'reads as an overload that may not exist'
+      );
+    }
+
+    // AND THE CREATED TYPE KEEPS ITS ARITY. The type arguments are comparison
+    // OPERANDS under this misparse, not children of the type node, so the
+    // reference came out as the bare name with arity 0 — and C# generics are
+    // REIFIED, so `Dictionary` and `Dictionary<Key, Val>` are different runtime
+    // types with different method tables. A wrong row, not a thin one.
+    const typeReferences = relations.get('all-csharp-type-references.csv');
+    if (typeReferences === undefined) {
+      return bad + fail('the type-reference relation is missing');
+    }
+    const t = (n: string): number => typeReferences.header.indexOf(n);
+    let typesChecked = 0;
+    for (const creation of creations) {
+      const head = typeReferences.rows.find(
+        (r) => r[t('ownerLinkHash')] === creation[pk] && r[t('depth')] === '0'
+      );
+      if (head === undefined) {
+        bad += fail(`the creation on line ${creation[e('startLine')]} has no type reference`);
+        continue;
+      }
+      typesChecked += 1;
+      // Every created type in this fixture is generic, and its arity is in the
+      // name: Dictionary takes two, Box takes one.
+      const expected = head[t('typeName')] === 'Box' ? '1' : '2';
+      if (head[t('kind')] !== 'CONSTRUCTED' || head[t('typeArgumentCount')] !== expected) {
+        bad += fail(
+          `the type created on line ${creation[e('startLine')]} is ${head[t('completeTypeName')]} — ` +
+            `${head[t('kind')]} with ${head[t('typeArgumentCount')]} type argument(s), expected CONSTRUCTED ` +
+            `with ${expected}. Reified generics: an arity of 0 is a different type, not a missing detail`
+        );
+      }
+    }
+    if (typesChecked === 0) {
+      bad += fail('NEGATIVE CONTROL FAILED: no created type was checked, so that comparison asserted nothing');
     }
     return bad;
   });
@@ -13761,8 +13895,11 @@ async function main(): Promise<number> {
         name: 'a generic creation in argument position is one argument',
         proves:
           'the `<` ambiguity no longer splits `Take(new D<K, V>(args) { … })` into two ' +
-          'comparisons and a cast: the call takes one argument, nothing is fabricated, and ' +
-          'the type arguments are not emitted as values a resolver would look up',
+          'comparisons and a cast, and neither spelling of it survives: the one-type-argument ' +
+          '`new Box<T>(x) { … }` has no comma to split on and occurs anywhere an expression ' +
+          'may. The call takes one argument, nothing is fabricated, the type arguments are ' +
+          'neither values nor lost from the created type`s arity, the expression row and the ' +
+          'call site agree on the constructor`s arguments, and a REAL `a < b > c` is untouched',
         run: () => aGenericCreationInArgumentPositionIsOneArgument(),
       },
       {

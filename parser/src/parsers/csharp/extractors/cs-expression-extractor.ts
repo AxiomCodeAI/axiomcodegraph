@@ -14,7 +14,9 @@ import {
   relationalPatternSwallowOf,
   misparsedGenericCreationArgumentsOf,
   misparsedGenericCreationRunOf,
+  misparsedGenericCreationAtCreationOf,
   misparsedGenericCreationRunAtCreationOf,
+  misparsedNestedGenericCreationOf,
   refReturningAssignmentOf,
   misparsedNullConditionalUnder,
   misparsedTupleGenericCreationOf,
@@ -897,11 +899,12 @@ function spanEndOf(node: Parser.SyntaxNode): Parser.Point {
     return creationArguments.argumentsNode.endPosition;
   }
   // The run form ends at the LAST argument of the run, which is where the
-  // initializer closes. A creation row ending on its type name is the signature
-  // of this misparse just as it is of the one above.
-  const runPieces = misparsedGenericCreationRunAtCreationOf(node);
-  if (runPieces !== undefined) {
-    return runPieces.end.endPosition;
+  // initializer closes; the one-type-argument form ends at the fabricated cast,
+  // for the same reason. A creation row ending on its type name is the
+  // signature of this misparse just as it is of the one above.
+  const creationPieces = misparsedGenericCreationAtCreationOf(node);
+  if (creationPieces !== undefined) {
+    return creationPieces.end.endPosition;
   }
   // A CALL THE GRAMMAR READ AS A LAMBDA ends where that lambda does. Its row is
   // built from the callee IDENTIFIER, whose own span is just the name — so
@@ -1047,6 +1050,26 @@ function emitOne(
       });
       return;
     }
+  }
+
+  // THE SAME REDIRECT for the one-type-argument spelling. With no comma the
+  // misparse stays inside ONE expression, so the node standing where the
+  // creation belongs is the outer `>` rather than a run's leading `<` -- and it
+  // is reached everywhere an expression may appear, not only in an argument
+  // list. `new Foo<T>(x) { P = 1 }` as an arrow body was emitted as two
+  // comparisons, a cast, and `T` as a value, with the constructor reporting no
+  // arguments; none of that is in the source.
+  const nested = misparsedNestedGenericCreationOf(node);
+  if (nested !== undefined) {
+    queue.push({
+      node: nested.creation,
+      parentHash: pending.parentHash,
+      role: pending.role,
+      position: pending.position,
+      depth,
+      localNames: pending.localNames,
+    });
+    return;
   }
 
   if (misparsedTupleGenericCreationOf(node) !== undefined) {
@@ -1851,7 +1874,14 @@ function describeExpression(
       // or it comes out zero, and a constructor call reporting no arguments
       // reads as a parameterless constructor that may not exist.
       const repaired = misparsedGenericCreationArgumentsOf(node);
-      shape.argumentCount = repaired !== undefined
+      // And for the `<` ambiguity the argument is inside the fabricated cast.
+      // The creation's CHILD row was grafted back without this, so the argument
+      // was present as a row and the count above it said zero -- two columns
+      // describing one creation and disagreeing, which is worse than either.
+      const creationPieces = misparsedGenericCreationAtCreationOf(node);
+      shape.argumentCount = creationPieces !== undefined
+        ? repairedCreationArgumentNodes(creationPieces).length
+        : repaired !== undefined
         ? misparsedCreationArgumentNodes(repaired.argumentsNode).length
         : argumentList === undefined
           ? 0
@@ -2283,9 +2313,16 @@ function buildCallSite(
   // count, so a misparse repaired only in describeExpression reports zero
   // arguments here: `Store.One(k) = v` had its call back and said it took none.
   const refAssignment = refReturningAssignmentOf(node);
+  // The `<` ambiguity, for the same reason: the creation's row was corrected
+  // and the call site builds its own list, so `new D<K, V>(snap) { … }` had its
+  // argument back on the expression and still reported a PARAMETERLESS
+  // constructor here -- which is the overload an engine would then select.
+  const creationPieces = misparsedGenericCreationAtCreationOf(node);
   const argumentNodes =
     refAssignment !== undefined
       ? namedChildren(refAssignment.argumentsNode)
+      : creationPieces !== undefined
+      ? repairedCreationArgumentNodes(creationPieces)
       : asyncCall !== undefined
       ? [...asyncCall.argumentNodes, asyncCall.callee.parent!]
       : repairedCreation !== undefined
@@ -2509,7 +2546,12 @@ function emitExpressionTypeReferences(
   if (sink === undefined) {
     return;
   }
-  const emit = (typeNode: Parser.SyntaxNode | null | undefined, refContext: CsTypeRefContext, position = 0): CsTypeReferenceRegistry | undefined => {
+  const emit = (
+    typeNode: Parser.SyntaxNode | null | undefined,
+    refContext: CsTypeRefContext,
+    position = 0,
+    splitTypeArguments?: readonly Parser.SyntaxNode[]
+  ): CsTypeReferenceRegistry | undefined => {
     const rows = extractTypeReferences({
       typeNode,
       ownerLinkHash: row.getHash(),
@@ -2518,6 +2560,7 @@ function emitExpressionTypeReferences(
       serviceVersionLinkHash: context.serviceVersionLinkHash,
       rootPosition: position,
       typeParametersInScope: context.typeParametersInScope,
+      splitTypeArguments,
     });
     sink.push(...rows);
     return rows[0];
@@ -2533,9 +2576,21 @@ function emitExpressionTypeReferences(
     case 'as_expression':
       emit(node.childForFieldName('right'), CsTypeRefContext.AS_TYPE);
       break;
-    case 'object_creation_expression':
-      emit(node.childForFieldName('type'), CsTypeRefContext.OBJECT_CREATION);
+    case 'object_creation_expression': {
+      // Under the `<` ambiguity the type arguments are comparison OPERANDS
+      // rather than children of the type node, so they are handed in. Without
+      // them the reference is to `D` with arity 0 — and C# generics are
+      // REIFIED, so `D` and `D<K, V>` are different runtime types with
+      // different method tables. That is a wrong row, not a thin one.
+      const pieces = misparsedGenericCreationAtCreationOf(node);
+      emit(
+        node.childForFieldName('type'),
+        CsTypeRefContext.OBJECT_CREATION,
+        0,
+        pieces?.typeArguments
+      );
       break;
+    }
     case 'array_creation_expression':
       emit(node.childForFieldName('type'), CsTypeRefContext.ARRAY_CREATION);
       break;
@@ -2665,6 +2720,23 @@ const LINKABLE_REFERENCE_KINDS: ReadonlySet<CsReferencedEntityKind> = new Set([
  * and the children agree — a count taken from one shape and children from the
  * other is how a two-argument call came out with one argument row.
  */
+/**
+ * The constructor arguments of a creation caught in the `<` ambiguity.
+ *
+ * The grammar read `(snap)` as the TYPE of a cast, so there is exactly one and
+ * it arrives as a TYPE node -- an `identifier` or a `qualified_name` -- whose
+ * text is the argument the source wrote. That is also why there is never more
+ * than one: `(a, b)` is not a type, so a two-argument creation parses correctly
+ * and never reaches here, and neither does `(F(x))`, `(1)` or `(this.n)`. All
+ * four were checked against the grammar, because "exactly one" is an assumption
+ * a list would hide.
+ */
+function repairedCreationArgumentNodes(pieces: {
+  readonly constructorArguments: Parser.SyntaxNode | undefined;
+}): Parser.SyntaxNode[] {
+  return pieces.constructorArguments === undefined ? [] : [pieces.constructorArguments];
+}
+
 function misparsedCreationArgumentNodes(
   argumentsNode: Parser.SyntaxNode
 ): Parser.SyntaxNode[] {
@@ -3175,7 +3247,7 @@ function childrenWithRoles(
       // inside a fabricated cast two arguments along, so they are grafted back
       // here. Without this the creation emits with no children at all and the
       // arguments the source wrote are lost with the comparison they hung off.
-      const runPieces = misparsedGenericCreationRunAtCreationOf(node);
+      const runPieces = misparsedGenericCreationAtCreationOf(node);
       if (runPieces !== undefined) {
         if (runPieces.constructorArguments !== undefined) {
           push(runPieces.constructorArguments, CsEdgeRole.ARGUMENT);
