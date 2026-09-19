@@ -1,0 +1,11 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "a field read through a variable from a MODULE-LEVEL function matched no rule, because every qualified-reference rule starts at owner(c, s) and a module-level function has no owner — the same shape in JavaScript as in Python",
+   "run": ["impact", "Session.token", "--kind", "field"],
+   "want": ["describeSession"],
+   "avoid": []},
+  {"why": "and the method that writes it is still found, so the new rule did not displace the owner-scoped one",
+   "run": ["impact", "Session.token", "--kind", "field"],
+   "want": ["Session.refresh"],
+   "avoid": []}
+ ]}
