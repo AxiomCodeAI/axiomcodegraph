@@ -41,6 +41,27 @@ indexer_setter(prov, p, acc) :- method_accessor_of(prov, acc, p, "INDEXER"), met
 event_adder(prov, ev, acc) :- method_accessor_of(prov, acc, ev, "EVENT"), method_kind(prov, acc, "EVENT_ADD").
 event_remover(prov, ev, acc) :- method_accessor_of(prov, acc, ev, "EVENT"), method_kind(prov, acc, "EVENT_REMOVE").
 
+// ── A MEMBER REACHED ACROSS THE PROVENANCE BOUNDARY ─────────────────────────
+// member_lookup now answers a CLIENT question with a LIBRARY property, but every
+// fact ABOUT that property -- which accessors it has, whether it is an indexer,
+// which type declares it, and what the accessor dispatches to -- is under "lib".
+// Without these the lookup succeeds and the accessor path stops dead: measured on
+// a staged type with a property, a get-only property and an indexer, all five
+// read and write sites produced NO EDGE AT ALL.
+//
+// This is the accessor half of the same single-provenance bug the rest of the
+// layer has, and it is the larger half by volume: accessor sites outnumber
+// ordinary in-source invocation sites on a corpus member, 3,943 against 3,203.
+property_getter("client", p, acc) :- property_getter("lib", p, acc).
+property_setter("client", p, acc) :- property_setter("lib", p, acc).
+indexer_getter("client", p, acc) :- indexer_getter("lib", p, acc).
+indexer_setter("client", p, acc) :- indexer_setter("lib", p, acc).
+property_in_type("client", gk, p) :- property_in_type("lib", gk, p).
+property_is_indexer("client", p) :- property_is_indexer("lib", p).
+// The accessor goes through the dispatch fan like any other method, and a library
+// accessor's fan is computed under the library's own provenance.
+dispatch_concrete_target("client", decl, acc) :- dispatch_concrete_target("lib", decl, acc).
+
 // ── A MEMBER ACCESS THAT NAMES A PROPERTY ───────────────────────────────────
 // `x.Name`: a MEMBER_ACCESS whose qualifier types to something and whose member
 // name resolves to a property on it.
