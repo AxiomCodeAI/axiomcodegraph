@@ -1,0 +1,6 @@
+known_edge	FIELD_TYPE	0	Holder [FIELD] -> TwoArgs
+known_edge	METHOD_PARAM	0	fewer [METHOD_PARAM] -> Holder
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	VARIABLE_TYPE	0	fewer [VARIABLE] -> Siblings
+known_edge	VARIABLE_TYPE	0	fewer [VARIABLE] -> TwoArgs

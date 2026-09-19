@@ -1,0 +1,8 @@
+65-annotated-callable-fewer-parameters [fields]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 1 the compiler resolved)
+  sites 0   resolved 0 
+  tiers 
+  access 
+  not scored: 0 rows whose target is not a client declaration
+    MISSING fewer#callHolderRun(Holder) READ Holder#run
