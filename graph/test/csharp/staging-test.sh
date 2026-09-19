@@ -91,8 +91,72 @@ elif [ ! -s "$RAW/call-edges-lib.csv" ]; then
   fail "the library frontier is empty although the client calls into the library"
 fi
 
+# ── A CHAIN THROUGH A STAGED TYPE, WHICH IS THE POINT OF STAGING ────────────
+# `new T()`, a call on it, and a call on what that call RETURNS. Each was its own
+# layer of the same single-provenance bug, and each is reachable only once the one
+# before it works, so they are asserted together.
+mkdir -p "$WORK/chain-lib" "$WORK/chain-cli"
+cat > "$WORK/chain-lib/Sb.cs" <<'EOF2'
+namespace System.Text;
+
+public sealed class StringBuilder
+{
+    public StringBuilder() { }
+    public StringBuilder Append(string value) => throw null!;
+    public override string ToString() => throw null!;
+}
+EOF2
+cat > "$WORK/chain-cli/App.cs" <<'EOF2'
+using System.Text;
+
+public static class App
+{
+    public static void Go(string input)
+    {
+        var sb = new StringBuilder();
+        sb.Append(input);
+        sb.ToString().Trim();
+    }
+}
+EOF2
+node "$REPO/parser/dist/index.js" "$WORK/chain-lib" chain-lib false "$WORK/chain-libir" --per-language > "$WORK/chain-parse.log" 2>&1
+bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/chain-cli" --out "$WORK/chain-out"   --library "$WORK/chain-libir" --version pinned --debug > "$WORK/chain.log" 2>&1
+CHAIN="$WORK/chain-out/csharp/raw/call-chain-edges.csv"
+if grep -q "ambiguous_unknown" "$CHAIN" 2>/dev/null; then
+  fail "a chain through a staged type still has a blind spot: the call resolves and its RESULT does not"
+fi
+if grep -q "known_implicit_ctor" "$CHAIN" 2>/dev/null; then
+  fail "\`new T()\` on a staged type claimed the type declares no constructor, which the staged IR contradicts"
+fi
+grep -q "external:string.Trim" "$CHAIN" 2>/dev/null ||   fail "the call on a staged method's RETURN value is not named; the chain dies one hop in"
+
+# ── STAGING NOTHING CHANGES NOTHING ─────────────────────────────────────────
+# The cross-provenance clauses must be inert on a client-only run. Compared
+# relation by relation, and then the SAME comparison is run against the staged
+# output to show it is capable of failing -- a diff that cannot fail is not
+# evidence.
+bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/chain-cli" --out "$WORK/chain-nolib"   --version pinned --debug > "$WORK/chain-nolib.log" 2>&1
+mkdir -p "$WORK/empty-lib"
+bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/chain-cli" --out "$WORK/chain-emptylib"   --library "$WORK/empty-lib" --version pinned --debug > "$WORK/chain-emptylib.log" 2>&1
+A="$WORK/chain-nolib/csharp/raw"; B="$WORK/chain-emptylib/csharp/raw"
+if [ -d "$B" ]; then
+  differing=0
+  for f in "$A"/*.csv; do
+    n="$(basename "$f")"
+    cmp -s <(sort "$f") <(sort "$B/$n" 2>/dev/null) || differing=$((differing+1))
+  done
+  [ "$differing" -eq 0 ] || fail "staging an EMPTY library changed $differing relation(s); the cross-provenance rules are not inert"
+  # the control: the same comparison against the STAGED run must find differences
+  moved=0
+  for f in "$A"/*.csv; do
+    n="$(basename "$f")"
+    cmp -s <(sort "$f") <(sort "$WORK/chain-out/csharp/raw/$n" 2>/dev/null) || moved=$((moved+1))
+  done
+  [ "$moved" -gt 0 ] || fail "the relation-by-relation comparison found no difference even WITH a library staged, so it cannot fail and proves nothing"
+fi
+
 if [ "$bad" -eq 0 ]; then
-  echo "staging: PASS (name resolution, hierarchy, member lookup and the frontier all cross provenance)"
+  echo "staging: PASS (names, hierarchy, lookup, constructors, return types and the frontier cross provenance; inert when nothing is staged)"
   exit 0
 fi
 echo "staging: FAIL ($bad check(s))"

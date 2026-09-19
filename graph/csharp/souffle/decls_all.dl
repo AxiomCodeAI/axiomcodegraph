@@ -399,6 +399,7 @@
 .decl type_concrete_subclass(c0:symbol,c1:symbol,c2:symbol)
 .decl type_containing(c0:symbol,c1:symbol,c2:symbol)
 .decl type_ctor(c0:symbol,c1:symbol,c2:symbol)
+.decl type_ctor_staged(c0:symbol,c1:symbol)
 .decl type_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl type_extends(c0:symbol,c1:symbol,c2:symbol)
 .decl type_group(c0:symbol,c1:symbol,c2:symbol)

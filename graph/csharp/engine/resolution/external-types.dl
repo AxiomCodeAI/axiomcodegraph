@@ -143,6 +143,19 @@ expr_predefined_recv_name(prov, e, n) :-
 expr_predefined_recv_name(prov, e, n) :-
     ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, n, _), cs_predefined_alias(n).
 // A LITERAL receiver: `"text".Trim()`.
+// A RECEIVER THAT IS ITSELF A CALL, returning a predefined type. `sb.ToString()`
+// on a staged StringBuilder resolves, and its declared return type is `string`,
+// which no client-only run has a group for. Without this the chain dies one hop
+// in: the call resolves and the member access on its result is a blind spot,
+// which is the shape a staged library makes common rather than rare.
+//
+// The return type is read under the TARGET's own provenance, because the method
+// reached may be the library's.
+expr_predefined_recv_name(prov, e, n) :-
+    expr_target_any(prov, e, m), method_return_type_name(prov, m, n), cs_predefined_alias(n).
+expr_predefined_recv_name("client", e, n) :-
+    expr_target_any("client", e, m), method_return_type_name("lib", m, n), cs_predefined_alias(n).
+
 expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "STRING", _).
 expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "VERBATIM_STRING", _).
 
