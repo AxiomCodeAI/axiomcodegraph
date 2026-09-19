@@ -161,6 +161,14 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   "registered" by two, because a decoration argument is not always a registration (`@ValueSource(strings = {"p"})`
   is test DATA). One Java method went from naming 1 test file to naming 61 until that cap was added, and 6 after it.
   Neither cap needs a catalogue of which decorations register and which do not, which is the point of them.
+  **A cap and a kind guard answer different questions, and the second is invisible to the first.** A cap says *this
+  key is too wide to mean anything*; it cannot say *this was never a dispatch key at all*. A test's own decoration
+  carries its INPUTS — `@ValueSource(strings = {"/htmltests/large.html"})`, `@CsvSource`, `@pytest.mark.parametrize`
+  — one declaration, a handful of writers, under every cap, and entirely meaningless as a key; and a route mounted
+  inside a test file is a fixture, not the application's dispatch table (on one TypeScript router library **every**
+  route registration line, 6,128 of 6,128, is in a test file). So a decoration on a test declaration is not read as
+  a registration at all, and a route registered in a test file keeps its dependent row and its sentence but is given
+  no joinable key.
 - **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
   (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
   single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override
