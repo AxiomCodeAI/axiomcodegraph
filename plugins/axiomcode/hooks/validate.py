@@ -192,8 +192,15 @@ class V:
             # looks identical in the output. So an unmatched `reaches` line is now a FAILURE naming the line.
             m4 = re.match(r'    reaches (\d+) more callable\(s\) through resolved calls(?: within \d+ hops)?; (\d+) test\(s\)', l)
             if m4: self.fact(int(m4.group(1)) == len(j.get('reached', [])) and int(m4.group(2)) == len(j.get('tests', [])), f"change {cur['symbol']}: reach/tests {m4.group(1)}/{m4.group(2)} vs {len(j.get('reached', []))}/{len(j.get('tests', []))}")
-            elif l.startswith('    reaches '):
-                self.fact(False, f"change {cur['symbol']}: the reach/tests line changed shape and this check stopped reading it — {l.strip()[:90]}")
+            # …and the same guard for every other claim in the block, because they are the same construction and
+            # would die the same silent way. A line that OPENS with one of these prefixes is a claim this check is
+            # supposed to read; if none of the patterns took it, the wording moved and the assertion is gone.
+            # The one legitimate non-match is the fast path's `reads / uses` line, which deliberately makes no
+            # count claim (graph_sql answers from call_edges and cannot say what the rules would add), so it is
+            # named here rather than swallowed by a looser pattern.
+            claims = ('    must change with it', '    produces / writes it', '    reads / uses it', '    reaches ')
+            if l.startswith(claims) and not (m2 or m3 or m4) and not l.startswith('    reads / uses it — resolved callers'):
+                self.fact(False, f"change {cur['symbol']}: a claim line changed shape and this check stopped reading it — {l.strip()[:90]}")
 
 def main(argv):
     # one run per repository at a time: the edits are made IN PLACE, so two runs interleaving is not slow, it is
