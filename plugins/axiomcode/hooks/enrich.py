@@ -11,7 +11,7 @@ Short on purpose (≤ 10 lines, names not bodies): the transcripts showed pasted
 what a graph knows and a file does not — the edges. Nothing when the repo has no graph, or the read is not source."""
 import collections, json, os, re, sqlite3, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
-import graph_sql
+import graph_sql, ax_contract as _ax
 
 ev = json.load(sys.stdin); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 def rel_of(fp):
@@ -35,8 +35,10 @@ if not q("SELECT 1 FROM sqlite_master WHERE name='symbols'"): sys.exit(0)
 # in the fix at all, because those two had more edges.
 TASK = []
 try:
+    # _ax is imported at module level beside graph_sql, NOT here: it is used on the main output path
+    # (is_synthetic) and task.txt is optional, so binding it inside this try made every enrichment depend
+    # on an optional file being present -- absent, the open() raised and the name was never bound (#1035).
     _t = open(os.path.join(cwd, '.axiomcode', 'task.txt')).read()
-    import ax_contract as _ax
     TASK = _ax.task_terms(_ax.task_text(_t))[:40]
 except Exception:
     TASK = []
