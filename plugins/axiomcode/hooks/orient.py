@@ -31,10 +31,36 @@ cwd = ev.get('cwd') or os.getcwd()
 prompt = (ev.get('prompt') or '').strip()
 if len(prompt) < 25:                                   # too short to carry a task
     sys.exit(0)
-if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
-    sys.exit(0)
 stamp = os.path.join(cwd, MARK)
 if os.path.exists(stamp):
+    sys.exit(0)
+
+if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
+    # The SILENT rule below is about having no ANSWER -- no index entry matches, nothing ranked. This is the
+    # other case: there is no graph at all, so the caller cannot discover from any surface that one is available.
+    # It is the only moment where saying nothing guarantees the skill is never used, so it says one thing and
+    # takes the same once-per-repo stamp. Still bounded, still never repeated, and still silent where it would
+    # be noise: a tree with no source in a supported language has nothing to offer and says nothing.
+    EXT = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs')
+    SKIP = {'node_modules', '.git', 'dist', 'build', 'target', 'venv', '.venv', '__pycache__'}
+    found = 0
+    for root, dirs, files in os.walk(cwd):
+        dirs[:] = [d for d in dirs if d not in SKIP and not d.startswith('.')]
+        found += sum(1 for f in files if f.endswith(EXT))
+        if found >= 25:                                    # enough to be a codebase rather than a script
+            break
+    if found < 25:
+        sys.exit(0)
+    try:
+        os.makedirs(os.path.dirname(stamp), exist_ok=True)
+        open(stamp, 'w').write('1')
+    except Exception:
+        pass
+    entry = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          '..', 'skills', 'axiomcode', 'scripts', 'axiomcode'))
+    print("graph: this repository has no call graph yet, so callers, change impact and test selection are "
+          "unavailable until one is built.")
+    print(f"  `{entry} index` builds it (minutes on a large tree, once per commit); every other verb needs it.")
     sys.exit(0)
 
 here = os.path.dirname(os.path.abspath(__file__))
