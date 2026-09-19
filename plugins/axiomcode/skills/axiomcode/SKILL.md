@@ -26,6 +26,7 @@ axiomcode path '*' <X>  ·  path <X> '*'                                   every
 axiomcode path <word> '*'                                                 no exact name yet? a bare word matches every declaration containing it
 axiomcode impact <target>… [<repo>] [--tests] [--depth N] [--in <path>]  what a change to a method / field / type / parameter / type parameter / local reaches, and how sure
 axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact]  which declarations an edit changed and HOW (signature, field type, body …) — then impact on all of them
+axiomcode test-impact [<repo>] [--range a..b | --staged] [--json] [--why]  which tests the edit in front of you reaches, and the command that runs them
 ```
 
 `<repo>` defaults to the current directory. The page goes to `<repo>/.axiomcode/graph/graph.html`; `--out <folder>`
@@ -305,6 +306,30 @@ that role. On the Lombok system 1,036 facts, 0 wrong; on jsoup 2,693 facts, 0 wr
 enum's synthesised `values()` / `valueOf()` listed as callables "at L3", and a field named like its fluent accessor handed to
 `impact` without its kind. What the hook cannot vouch for is what the graph cannot: an edge the engine did not resolve is
 absent, never wrong, and the `? n` count says how many.
+
+## test-impact — which tests this edit reaches
+
+`axiomcode test-impact` takes the edit (the working tree by default, `--range a..b` or `--staged`), maps it onto the
+declarations through `changed`, asks `impact` which tests reach any of them, and prints the test files with the
+runner command that runs exactly those. It is `changed` + `impact --tests` with the answer shaped for a pipeline
+rather than for a reader.
+
+**What it costs and what it saves, measured end to end** on a TypeScript library of 311 source files whose suite is
+130 files and 5,193 tests: a one-line body edit to one function → the answer in **0.74 s**, naming 8 files / 503
+tests, and running exactly those took **2.2 s against 17.3 s for the whole suite — 7.9× faster**. Against the
+behavioural truth for that method (break it, run the suite, record which files newly fail) the selection contained
+**every failing file**, with 2 extra. Over 16 such methods: recall 0.778, precision 0.636, mean 4.1 files of 130.
+
+**It is a lower bound and the wording says so, because the two questions want opposite things.** For "what must be
+looked at again", recall is the product and a wide answer is safe. For "what can CI skip", precision is the product
+and a wide answer is worthless — and the same answer cannot be tuned for both: on a Python web framework the
+registration-key hop takes recall 0.564 → 0.727 and precision 0.527 → 0.310 at the same time. So the rungs are
+reported separately and `--json` carries `certainty` per test, and a pipeline can price them: on the TypeScript
+library a `[sound]` route (every hop a single resolved target) was right **29 times in 30**, `[one of a set]` 1 in 8,
+`[by name]` 0 in 1; a `[fixture]` route is right 30 times in 30 on a service where a fixture is the only way in and
+about 1 in 4 on a framework where every test builds an app. Run the sound rung first, and decide about the rest with
+the number in front of you. Skipping what it does not name is a decision about risk that this tool cannot make for
+you: a test reached only through reflection, a service loader, or a case built at runtime does not appear here.
 
 ## path — asking the graph
 
