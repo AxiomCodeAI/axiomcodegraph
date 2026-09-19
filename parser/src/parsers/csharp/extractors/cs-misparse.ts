@@ -623,6 +623,120 @@ export function misparsedGenericCreationRunAtCreationOf(
   };
 }
 
+/**
+ * `new Foo<T>(x) { ... }` — the SAME `<` ambiguity with ONE type argument, so
+ * there is no comma and the misparse never has to leave the expression.
+ *
+ *     binary `>`
+ *       left  = binary `<`
+ *                 left  = object_creation_expression   (type only, no args)
+ *                 right = identifier `T`               <- a TYPE ARGUMENT
+ *       right = cast_expression
+ *                 type  = `x`                          <- the REAL argument
+ *                 value = initializer_expression
+ *
+ * A COMMA IS WHAT FORCES THE SPLIT across sibling `argument` nodes, so this
+ * form and {@link misparsedGenericCreationRunOf} are one defect in two places.
+ * Without a comma the misparse stays inside one expression and occurs ANYWHERE
+ * an expression may — an arrow body, an assignment, a return — as well as in an
+ * argument list, which is why `Take(new Foo<T>(x) { … })` is not reached by the
+ * run detector at all: it is a single argument, not a run over two.
+ *
+ * The torture corpus pins this shape as a grammar limitation. That pin stays
+ * true: the tree tree-sitter produces is unchanged, and only the rows read from
+ * it are repaired.
+ *
+ * TWO INDEPENDENT DISCRIMINATORS, because one shape here IS a real expression:
+ * `a < b > c` is a legal chain of comparisons and produces the same two
+ * binaries.
+ *
+ *   1. The `<` operand is an `object_creation_expression` with NEITHER an
+ *      argument list NOR an initializer. `new T` alone is not an expression C#
+ *      accepts, so no comparison a programmer writes can put one there — there
+ *      is no object yet to compare.
+ *   2. The `>` operand is a `cast_expression` whose VALUE is an
+ *      `initializer_expression`. `(T) { ... }` is not an expression either.
+ *
+ * Either alone excludes `a < b > c`; both are required so that a shape
+ * satisfying one by accident still cannot be rewritten into a creation the
+ * source does not contain.
+ */
+export function misparsedNestedGenericCreationOf(
+  node: Parser.SyntaxNode
+): MisparsedGenericCreation | undefined {
+  if (node.type !== 'binary_expression' || operatorTextOf(node) !== '>') {
+    return undefined;
+  }
+  const inner = node.childForFieldName('left');
+  const tail = node.childForFieldName('right');
+  if (
+    inner === null ||
+    tail === null ||
+    inner.type !== 'binary_expression' ||
+    operatorTextOf(inner) !== '<' ||
+    tail.type !== 'cast_expression'
+  ) {
+    return undefined;
+  }
+  const creation = inner.childForFieldName('left');
+  const typeArgument = inner.childForFieldName('right');
+  if (
+    creation === null ||
+    typeArgument === null ||
+    creation.type !== 'object_creation_expression' ||
+    childOfType(creation, 'argument_list') !== undefined ||
+    childOfType(creation, 'initializer_expression') !== undefined
+  ) {
+    return undefined;
+  }
+  const initializer = tail.childForFieldName('value');
+  if (initializer === null || initializer.type !== 'initializer_expression') {
+    return undefined;
+  }
+  return {
+    creation,
+    constructorArguments: tail.childForFieldName('type') ?? undefined,
+    initializer,
+    typeArguments: [typeArgument],
+    // The fabricated cast is where the expression the source wrote ends: the
+    // creation node itself stops at its type name.
+    end: tail,
+  };
+}
+
+/** The pieces a creation caught in the `<` ambiguity is rebuilt from. */
+export interface MisparsedGenericCreation {
+  readonly creation: Parser.SyntaxNode;
+  readonly constructorArguments: Parser.SyntaxNode | undefined;
+  readonly initializer: Parser.SyntaxNode | undefined;
+  readonly typeArguments: readonly Parser.SyntaxNode[];
+  readonly end: Parser.SyntaxNode;
+}
+
+/**
+ * The misparse read from the CREATION, in EITHER spelling.
+ *
+ * Every consumer wants the same four things — the constructor arguments, the
+ * initializer, the type arguments and where the expression really ends — and
+ * which of the two shapes produced them is the grammar's business, not theirs.
+ * A consumer that asked only the run form silently did nothing for the
+ * one-type-argument spelling, which is how that half went unrepaired.
+ */
+export function misparsedGenericCreationAtCreationOf(
+  creation: Parser.SyntaxNode
+): MisparsedGenericCreation | undefined {
+  if (creation.type !== 'object_creation_expression') {
+    return undefined;
+  }
+  const outer = creation.parent?.parent;
+  const nested = outer == null ? undefined : misparsedNestedGenericCreationOf(outer);
+  if (nested !== undefined && nested.creation.id === creation.id) {
+    return nested;
+  }
+  const run = misparsedGenericCreationRunAtCreationOf(creation);
+  return run === undefined ? undefined : { creation, ...run };
+}
+
 /** Named children of one type, in order. */
 function namedChildrenOfType(node: Parser.SyntaxNode, type: string): Parser.SyntaxNode[] {
   const out: Parser.SyntaxNode[] = [];

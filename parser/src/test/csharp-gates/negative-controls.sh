@@ -1267,8 +1267,23 @@ run_break "emit the fabricated comparison instead of the creation" \
 run_break "drop the arguments the misparse filed inside the cast" \
   src/parsers/csharp/extractors/cs-expression-extractor.ts \
   "a generic creation in argument position is one argument" \
-  "s = s.replace('      const runPieces = misparsedGenericCreationRunAtCreationOf(node);', '      const runPieces = undefined;')" \
+  "s = s.replace('      const runPieces = misparsedGenericCreationAtCreationOf(node);', '      const runPieces = undefined;')" \
   "initializer"
+run_break "read a one-type-argument generic creation as the comparison chain it looks like" \
+  src/parsers/csharp/extractors/cs-misparse.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace(\"  const initializer = tail.childForFieldName('value');\\n  if (initializer === null || initializer.type !== 'initializer_expression') {\", \"  const initializer = tail.childForFieldName('value');\\n  if (initializer !== null || initializer === null) {\")" \
+  "BINARY/CAST row"
+run_break "drop the type arguments the grammar detached from a creation's type" \
+  src/parsers/csharp/extractors/cs-type-reference-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('input.splitTypeArguments ?? []', '[]')" \
+  "Reified generics"
+run_break "correct a misparsed creation's arguments on its expression row and not on its call site" \
+  src/parsers/csharp/extractors/cs-expression-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('      ? repairedCreationArgumentNodes(creationPieces)\\n', '      ? []\\n')" \
+  "on its call site"
 run_break "never locate a header the tree did not present" \
   src/parsers/csharp/extractors/cs-extension-block.ts \
   "an unreadable extension block leaves the file alone" \
