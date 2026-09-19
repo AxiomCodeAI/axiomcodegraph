@@ -1,0 +1,24 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a callable handed over as a VALUE — Depends(provider) — is called by the framework and by no call site the graph can see. The row naming the callable that hands it over already existed; what did not was the closure continuing from there, so the answer named create_order and then said the closure could not start, and the test that drives create_order was never reached",
+   "run": ["impact", "provider", "--tests"],
+   "want": ["test_api.py", "names it as a value"],
+   "avoid": ["test_helper.py"]
+  },
+  {
+   "why": "the same when the value is an argument to a queue rather than a default",
+   "run": ["impact", "receipt", "--tests"],
+   "want": ["test_api.py"],
+   "avoid": ["test_helper.py"]
+  },
+  {
+   "why": "a declaration handed to nobody reaches only its own test: the seed is the VALUE REFERENCE, not the name",
+   "run": ["impact", "unused_helper", "--tests"],
+   "want": ["test_helper.py"],
+   "avoid": ["test_api.py"]
+  }
+ ]
+}
