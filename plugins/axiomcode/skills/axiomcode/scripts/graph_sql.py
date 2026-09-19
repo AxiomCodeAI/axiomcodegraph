@@ -26,7 +26,7 @@ import ax_registration
 NEEDED = ('symbols', 'call_edges', 'overrides', 'call_sites', 'unresolved_sites')
 # 12, NOT 6, AND THE CAP SAVED NOTHING. This is the depth the hooks' own CLI fallback asks for (`--depth 12`), so a
 # lower one here made the same hook line mean two different things depending on which engine served it — and the
-# shim serves it first. Measured on jsoup: `QueryParser.parsePseudoSelector` at depth 6 reaches 10 callables and 0
+# shim serves it first. Measured on the JVM parser: `QueryParser.parsePseudoSelector` at depth 6 reaches 10 callables and 0
 # TESTS; at 12 it reaches 893 and 811. "0 test(s) reach the change" for a method 811 tests reach is the most
 # misleading line this plugin can put in an agent's context. The cost of the cap, on the same target: 1.58 s at 6
 # against 1.56 s at 12 — it bought nothing. (Depth 40, the CLI's own default, is 1.90 s and reaches 1,929 / 1,498;
@@ -66,7 +66,7 @@ def impact(repo, target, depth=DEPTH):
         # walking call_edges for a field id finds nothing and this returned a dict of zeros rather than None. The
         # hook prints a dict of zeros as "reaches 0 more callable(s) ...; 0 test(s) reach the change", which is not
         # "I cannot answer this", it is a confident claim that the edit is contained, on the plugin's most-used
-        # line. Measured on a Java bundle: `Tokeniser.isEmitPending` and `TreeBuilder.baseUri` are fields, and both
+        # line. Measured on a Java bundle: `Lexer.isEmitPending` and `TreeBuilder.baseUri` are fields, and both
         # answered 0/0 where the rules answer 1838/1468 and 1896/1522.
         if all(not m for _, _, m in rows): return None
         # A CONSTRUCTOR is declined, not guessed. impact.dl counts who instantiates the type — edges that are not

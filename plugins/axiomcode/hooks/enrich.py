@@ -147,7 +147,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         if prod: lines.append(f"    produces / writes it ({len(prod)}): " + names(prod))
         # THE FAST PATH COUNTS LESS THAN IT SOUNDS LIKE. graph_sql answers from call_edges: resolved callers,
         # and the by-name sites it can see. The rules add the [in scope], [text] and reference layers, which on
-        # a field or a wide method is most of the answer — measured on jsoup, 1 against 93 for a field and 5
+        # a field or a wide method is most of the answer — measured on the JVM parser, 1 against 93 for a field and 5
         # against 137 for a tokeniser method. A COUNT is a claim about completeness, so the fast path does not
         # make one: it names what it has and says where the rest is.
         if reads:

@@ -133,7 +133,7 @@ Detail, the edit hooks, and the numbers: **`reference/changed-and-tests.md`**.
 
 ```
 axiomcode path decrypt '*'               # a concept word, no exact name yet — START HERE in an unfamiliar repo
-axiomcode path Jsoup.parse Tokeniser.emit
+axiomcode path Parser.parse Lexer.emit
 axiomcode path '*' Owner.method          # everything that reaches it, with entry points
 axiomcode path '*' 'new File'            # a library call is an endpoint
 axiomcode path '@GetMapping' '*'         # a decoration is an endpoint

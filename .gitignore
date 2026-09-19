@@ -302,3 +302,6 @@ __pycache__/
 # C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
 .cs-case-work/
 .cs-dev-cache/
+
+# evaluation graders: run locally, never shipped in the plugin
+plugins/axiomcode/validate/

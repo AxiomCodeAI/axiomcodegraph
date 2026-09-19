@@ -17,7 +17,7 @@
   JavaScript works but the engine's JavaScript output is still moving.
 - **By default the answer is ONE SHORTEST chain per reached target** — it says so on its last line. Other routes exist
   and are not listed. `--every` adds all of them: first the complete set of methods and calls that lie on *any* chain
-  from a source to a target (from Datalog, polynomial — `301 methods and 935 calls` for `Jsoup.parse → Tokeniser.emit`),
+  from a source to a target (from Datalog, polynomial — `301 methods and 935 calls` for `Parser.parse → Lexer.emit`),
   by file, then the simple paths through it, shortest first, up to `--paths N` (default 20; the count is exponential,
   so the set is the complete answer and the list is a sample of it). Each hop is marked: unmarked = a resolved call, `[multi_inferred]` =
   one of a sound target set, `[dispatch]` = an instantiated override reached through its base, `[defines]` = a closure
@@ -39,8 +39,7 @@
 - **A decoration is an endpoint**: `path '@GetMapping' 'new File'`, `path '@*Mapping' Files.readAllBytes`, `path '@Test' X`,
   `path '@Get' '*'`, `path '@Controller' Svc.load` — every method carrying it, so "from any method with this decoration to X"
   is one call. A decoration on the **type** is carried by every method that type declares, which is what the class-level form
-  of every framework needs (`@RestController`, `@Controller`, `@Injectable`, `@Component`, `@Entity`); on Spring Cloud Config
-  Server that is 78 methods for `@*Mapping` where the method-level rows alone are 29. The decorations come from the index's
+  of every framework needs (`@RestController`, `@Controller`, `@Injectable`, `@Component`, `@Entity`); on one Spring service that is 78 methods for `@*Mapping` where the method-level rows alone are 29. The decorations come from the index's
   decorations table **or, where a front end records a decorator as a call and not as a decoration, from those call sites** —
   a TypeScript or JavaScript graph has an empty decorations table and its `@Get(':sku')` sitting in `call_sites` as a
   `DECORATOR_CALL`, so Nest, Angular and TypeORM used to answer `no method carries @Get` with an empty list of decorations,
@@ -55,8 +54,7 @@
   then the nearest chains. Narrow with `Owner.close`, `--in <path fragment>` (both endpoints restricted to files
   containing it), `--limit N`, or `--all` for every chain.
 - `Outer$Inner.m` and `Outer$1.m` are looked up through the nesting table, not by string: Inner at any depth inside
-  Outer; `$N` the N-th anonymous class in source order (javac's numbering — checked against `javap` on jsoup's
-  TraversorTest, 10/10) or, for an enum, the N-th constant with a body. A miss says which part is wrong: no such
+  Outer; `$N` the N-th anonymous class in source order (javac's numbering — checked against `javap` on a JVM parser's traversal tests, 10/10) or, for an enum, the N-th constant with a body. A miss says which part is wrong: no such
   outer / no nested type X (lists them) / only k anonymous classes (with lines) / no method m (lists the methods).
 - **One endpoint = a closure, not a chain.** `path '*' X` is everything that can reach X — by hop, by file, and the
   *entry points* among them, nearest first. An entry point is decided by one language-neutral fact — nothing resolved

@@ -151,9 +151,9 @@ class G:
         # Outer.Inner.m. Java's parser names a nested type without its outer (#667) and the index recovers most of them, so the
         # same name is tried with leading segments dropped — Outer.Inner.m, then Inner.m — against display AND qualified name,
         # exact first, then as a dotted suffix. The label says which form matched when it was not the one written.
-        # `#` is Java's member separator (Outer.Inner#m) and TypeScript's PRIVATE marker (`Hono.#handleError`), and the
-        # rewrite below turned the second into `Hono..handleError` — a name the graph does not hold. The tool then
-        # printed the near miss `Hono.#handleError`, which is what had just been asked for: a private method could not
+        # `#` is Java's member separator (Outer.Inner#m) and TypeScript's PRIVATE marker (`Router.#handleError`), and the
+        # rewrite below turned the second into `Router..handleError` — a name the graph does not hold. The tool then
+        # printed the near miss `Router.#handleError`, which is what had just been asked for: a private method could not
         # be asked about at all, in the language where private methods are written that way. So the spelling as
         # written is tried against the index BEFORE any separator is rewritten.
         verbatim = re.sub(r'\(.*\)$', '', s).strip()

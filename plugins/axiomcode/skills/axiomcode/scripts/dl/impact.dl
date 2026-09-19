@@ -24,7 +24,7 @@
 //   accessor(F, n, rw)                the bean accessor name for field F (getX / setX / isX / x) and whether it reads or writes
 //   gen_table(d, what)                what decoration d generates: get | set | is | ctor | builder | fluent | with
 //   base_name(t, n)                   type t is declared with a supertype WRITTEN n — the base may be a library type the
-//                                     graph never resolved (pydantic's BaseModel), which is exactly the case `extends` misses
+//                                     graph never resolved (the Python validation library's BaseModel), which is exactly the case `extends` misses
 //   test_method(m) / fixture(m)       a test; a callable a test framework runs before the tests of its type
 //   kind(s, k)                        the symbol's kind (method | constructor | module | class | …)
 // Facts written per query:
@@ -585,12 +585,12 @@ reach_sure(q, m) :- up_sure(q, m, _).
 .decl reg_key(m:symbol, d:symbol, k:symbol)
 reg_key(m, d, k) :- reg_key_fact(m, d, k).
 // A KEY THAT IDENTIFIES MANY DECLARATIONS IDENTIFIES NONE. `@app.route("/")` inside a test is written by every
-// test file that needs an app, so on Flask's own suite the key "/" registers 236 declarations and is written by
+// test file that needs an app, so on the Python web framework's own suite the key "/" registers 236 declarations and is written by
 // 200 more: the join is a complete graph between them and says nothing. This is the engine's own `fan_capped`
 // judgement one layer up — over the cap the SET IS REFUSED rather than emitted, and the answer says how many.
 .decl reg_key_fan(k:symbol, n:number)
 reg_key_fan(k, n) :- reg_key(_, _, k), n = count : { reg_key(_, _, k) }.
-// and the same on the OTHER side, for the same reason. On jsoup the keys that survive the registration cap are
+// and the same on the OTHER side, for the same reason. On the JVM parser the keys that survive the registration cap are
 // `p`, `b`, `table`, `em` — HTML tag names, written by 356 callables and "registered" by two, because a
 // decoration argument is not always a registration (`@ValueSource(strings = {"p"})` is test DATA). A key written
 // everywhere identifies nothing either, whichever side the fan is on, and this needs no catalogue of which
@@ -662,7 +662,7 @@ test_hit(q, m, d, "") :- reach(q, m, d), test_method(m).
 test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
 test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), typ(fx, _, _), member(fx, m, _, _), test_method(m).
 // a test file is imported as a whole: a class body or a fixture at its top level runs before every test in it — pytest
-// injects a fixture by parameter name and a pydantic model class is built at import, and neither is a call edge
+// injects a fixture by parameter name and a the Python validation library model class is built at import, and neither is a call edge
 test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), (kind(c, "class") ; kind(c, "module") ; fixture(c)).
 // and a helper declared in a test file: a callable in that file that is not itself a test is written for the tests
 // beside it (a builder, a describe callback, a fixture arrow), so what it reaches, those tests reach
@@ -684,7 +684,7 @@ uses_fixture(m, g) :- uses_fixture(m, fx), uses_fixture(fx, g), m != g.
 test_hit(q, m, d, fx) :- reach(q, fx, d), uses_fixture(m, fx), test_method(m).
 
 // a class that extends a test class runs that class's tests as its own — the subclass declares nothing, and a
-// change reaching the base's test breaks the subclass's run of it too (jsoup's java11 HttpClient*Test)
+// change reaching the base's test breaks the subclass's run of it too (the JVM parser's java11 HttpClient*Test)
 .decl inherited_test(q:symbol, s:symbol, m:symbol, d:number)
 inherited_test(q, s, m, d) :- test_hit(q, m, d, _), owner(m, t), extends(s, t), typ(s, _, _), s != t.
 .output inherited_test

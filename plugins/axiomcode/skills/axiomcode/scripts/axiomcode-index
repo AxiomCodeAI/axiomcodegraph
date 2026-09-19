@@ -220,7 +220,7 @@ if A['boundNames']:
         for r in rows(b['file']):
             if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
 # Java: a method declared in an enum CONSTANT's body (`Initial { boolean process(...) {…} }`) is registered per constant with the
-# same qualified_name and the enum as owner — 23 `HtmlTreeBuilderState.process` rows in jsoup. The constant's span names it.
+# same qualified_name and the enum as owner — 23 `HtmlTreeBuilderState.process` rows in the JVM parser. The constant's span names it.
 econst = collections.defaultdict(list)
 for d in A['decls']:
     if 'enum-constants' in d['file']:

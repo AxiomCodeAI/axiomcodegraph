@@ -11,7 +11,7 @@ commits (when the graph is at the newer side, the declarations are the new text'
 `--staged` the index, `--old/--new/--file` two texts of one file. Each line ends with the target `impact` takes for it — a
 signature with one parameter changed is `Owner.m(param)` — and `--impact` runs impact on all of them as one change set.
 
-Measured against 270 real fixes (the Defects4J arena: the fix applied to the buggy files, the declarations it reports
+Measured against 270 real fixes (a Java defect-benchmark arena: the fix applied to the buggy files, the declarations it reports
 against the benchmark's own scanner's reading of the same hunks, its class-level state expansion taken out): exact
 agreement on 255, 465 declarations reported for the scanner's 473 — recall 0.968, precision 0.985. Every remaining
 disagreement was read in the diff: the scanner charges an `@Override` line above an *added* method to `<init>` where this
@@ -48,7 +48,7 @@ ones (every hook block is logged in full with its input in `.axiomcode/hooks.jso
 `graph.sqlite` and the source: each callable named is declared at that line in that file (or the block says the file changed
 since the graph was built — the Read block now says so), each caller / callee named has an edge, each count is the table's,
 each changed declaration spans a changed line, each name under must-change / produces / reads is in `impact`'s answer with
-that role. On the Lombok system 1,036 facts, 0 wrong; on jsoup 2,693 facts, 0 wrong — after it found two real errors: an
+that role. On a multi-module Java system 1,036 facts, 0 wrong; on a JVM parser 2,693 facts, 0 wrong — after it found two real errors: an
 enum's synthesised `values()` / `valueOf()` listed as callables "at L3", and a field named like its fluent accessor handed to
 `impact` without its kind. What the hook cannot vouch for is what the graph cannot: an edge the engine did not resolve is
 absent, never wrong, and the `? n` count says how many.

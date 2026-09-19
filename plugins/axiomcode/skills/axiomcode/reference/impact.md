@@ -72,16 +72,16 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   equal to the field's name (a map key, a serialized name, a request parameter) is listed `[text]`.
 - **the upstream answer is measured against behaviour, not against itself** — `validate/upstream.py <repo>` takes a tree with
   `.axiomcode/mutation.json` (a method broken, the test files that then failed), asks `impact <m> --tests` which test files
-  reach it, and classifies every miss from the graph. jsoup, 24 methods, 244 (method, test file) pairs: recall 0.795 → **0.988**,
+  reach it, and classifies every miss from the graph. a JVM HTML parser, 24 methods, 244 (method, test file) pairs: recall 0.795 → **0.988**,
   precision 0.328 → 0.338, after the three rules the misses named — a test class that *extends* a reached one runs its tests
-  (jsoup's java11 `HttpClient*Test` declare almost nothing: 20 of the 27 misses), a call site written with the target's name
+  (its HTTP-client test classes declare almost nothing: 20 of the 27 misses), a call site written with the target's name
   that the engine could not resolve (`import static Outer.Inner` left `res.prepareResponse(…)` untyped: 8 more), and a test
-  file's import-time code (a class body, a fixture). pydantic (Python), 14 methods, 180 pairs: 0.678 → 0.717 — what remains
+  file's import-time code (a class body, a fixture). a Python validation library, 14 methods, 180 pairs: 0.678 → 0.717 — what remains
   is dispatch a static graph cannot see (`__eq__` and the other protocol methods the interpreter calls, a method reached
-  through `getattr(self, f"_{kind}_schema")`), and the answer now says that instead of printing nothing. hono
-  (TypeScript, 16 methods, 96 pairs, `validate/mutants.py` builds the truth: break a method, run the suite, record
+  through `getattr(self, f"_{kind}_schema")`), and the answer now says that instead of printing nothing. A TypeScript web framework
+  (16 methods, 96 pairs, `validate/mutants.py` builds the truth: break a method, run the suite, record
   which test FILES newly fail): 0.000 → 0.790. It was zero because a vitest test is an anonymous callback handed to
-  `it(…)` — 6,661 of hono's 7,723 callables in test files are `<arrow>` and two carried a name the old rule accepted,
+  `it(…)` — 6,661 of its 7,723 callables in test files are `<arrow>` and two carried a name the old rule accepted,
   so the test universe was empty and every answer named no test file at all. A callable registered by `it` / `test` /
   `bench` on its own line is a test, and a helper declared beside them carries them. The PARAMETERISED form needs the
   call site rather than the line: `test.each` + a template table writes the arrow after the closing backtick, on a
@@ -99,20 +99,20 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   separately rather than blended. Every remaining miss is `no-edge` — a handler the graph has no resolved caller for
   (an adapter, a JSX intrinsic element) — not a rule this tool could tighten.
   A library is not a service, and the number differs by population: on a Python SERVICE driven through its frameworks
-  (FastAPI + Flask + click routes, a pytest suite with conftest fixtures, a decorator registry, a signal loop, 53
+  (two Python web frameworks + CLI routes, a pytest suite with conftest fixtures, a decorator registry, a signal loop, 53
   functions broken one at a time, 95 (method, test file) pairs) recall was **0.216** — 26 of 40 answers named no test
   file at all — because the suite reaches the code the way the outside world does: through the framework. The
   registration-key hop and the injected-fixture rules take it to **0.695** at precision 0.930, and what is still
   missing is named rather than guessed: a function reached only through a table or list of functions dispatched by
   index (`TRANSFORMS = [strip, upper]`, `EXPORTERS[kind](x)`), a decorator that wraps a callable in an object whose
   method calls it (`@shared_task` … `.delay()`), and a closure defined in one method and returned to another.
-  Held out, on a subject nothing was tuned against (Flask's own 491-test suite, 40 functions broken, 172 pairs):
+  Held out, on a subject nothing was tuned against (the Python web framework's own 491-test suite, 40 functions broken, 172 pairs):
   0.564 → **0.727**, precision 0.527 → 0.310. Both halves of that trade are real and neither is free — the recall is
   routes and fixtures the answer could not see before; the precision is the fan-in of a framework whose every test
-  builds an app. A key that identifies MANY declarations identifies none: Flask's own suite registers `"/"` from 236
+  builds an app. A key that identifies MANY declarations identifies none: the Python web framework's own suite registers `"/"` from 236
   places and asks for it from 200 more, so a key registering more than `AXIOMCODE_KEY_CAP` (4) declarations is
   REFUSED rather than joined — the engine's `fan_capped` judgement one layer up. Uncapped that subject reads 0.791
-  recall at 0.248 precision. The same cap applies to the other side (`AXIOMCODE_KEY_USE_CAP`, 4): on jsoup the keys
+  recall at 0.248 precision. The same cap applies to the other side (`AXIOMCODE_KEY_USE_CAP`, 4): on the JVM parser the keys
   that survive the registration cap are `p`, `b`, `table`, `em` — HTML tag names, written by 356 callables and
   "registered" by two, because a decoration argument is not always a registration (`@ValueSource(strings = {"p"})`
   is test DATA). One Java method went from naming 1 test file to naming 61 until that cap was added, and 6 after it.
@@ -126,11 +126,11 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   a registration at all, and a route registered in a test file keeps its dependent row and its sentence but is given
   no joinable key.
 - **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
-  (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
+  (method, test file) pair by the worst hop on its best route and by distance, against the same truth. On the JVM parser: a route of
   single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override
   reached from its base 0.170; within 3 hops 0.70, beyond 5 hops 0.24; a sound route within 3 hops 0.889 — but that keeps
   only 48 of 219 true pairs. The split that explains the 0.34 overall is fan-in, not error: 10 of the 24 methods are hubs
-  every test reaches (jsoup parses HTML in every suite) — those answers are 60 of 98 test files at precision 0.285 with
+  every test reaches (it parses HTML in every suite) — those answers are 60 of 98 test files at precision 0.285 with
   recall 1.000, while the 14 narrow methods score 0.642 with 7 of them exactly right. A test that *reaches* a change and
   does not fail is not a wrong edge: it runs the code and does not observe the change. So `--tests` answers "which tests
   CAN observe this" and says how sure each route is (`[sound]`, `[one of a set]`, `[dispatch]`, `[by name]`, nearest and
@@ -146,7 +146,7 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 - **a registration key is a hop** — a route handler, a signal receiver, a CLI command and a table entry are one shape: the
   declaration is registered under a STRING and whoever wants it writes that string, not its name. `@router.post("/orders")`
   and `client.post("/orders")`; `@receiver("order_created")` and `emit("order_created", …)`; `@cli.command("price")` and
-  `invoke(cli, ["price", "4"])`; `@exporter("csv")` and `export(order, "csv")`; a Flask `add_url_rule("/quote/<id>",
+  `invoke(cli, ["price", "4"])`; `@exporter("csv")` and `export(order, "csv")`; a a Python web framework `add_url_rule("/quote/<id>",
   view_func=legacy_quote)`, where the declaration is handed over as a value and no call site names it at all. Both ends are
   in the graph and nothing joined them, so a test that drove the app through its framework reached nothing — which is most
   of what a service's suite does. The two spellings of a path are matched segment by segment (`/orders/o-1/price` against
@@ -167,7 +167,7 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   is right, measured against mutation truth on three Python subjects (`n` is the pairs the rung named, and a rung with
   a handful of pairs says nothing — it is printed so you can discount it, not so you can rank on it):
 
-  | rung | small framework service | flask | click |
+  | rung | small framework service | web framework | CLI library |
   |---|---|---|---|
   | `[sound]` | 1.000 (n=19) | 0.895 (n=86) | 0.561 (n=132) |
   | `[at import]` | 1.000 (n=17) | — | — |
@@ -179,7 +179,7 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   | `[fixture]` | 1.000 (n=27) | 0.382 (n=102) | 0.536 (n=112) |
   | `[by name]` | 0.333 (n=3) | 0.531 (n=32) | 0.475 (n=61) |
 
-  `[protocol]` is the newest row and the one to read carefully: its only substantial sample, 17 pairs on flask,
+  `[protocol]` is the newest row and the one to read carefully: its only substantial sample, 17 pairs on the web framework,
   puts it at 0.882 — second to `[sound]` on that subject and well above the two rungs printed ABOVE it. That is not
   enough to re-rank a ladder on, for the reason the rest of this paragraph gives, but it is enough that a reader
   should not discount a `[protocol]` route for its position.
@@ -194,15 +194,15 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   `[by key]` is the best rung on one subject (0.926) and the worst on another (0.342), and `[by name]` is printed
   last while measuring above `[by key]` on both of the two large subjects. An answer's label is still the WORST rung
   on its route, so it remains a floor — but a `[by name]` route on a library-shaped codebase is not the near-worthless
-  thing its position suggests. And `[sound]` at 0.561 on click is the plainest statement of the whole limit: reaching
+  thing its position suggests. And `[sound]` at 0.561 on the CLI library is the plainest statement of the whole limit: reaching
   is not failing, and on a codebase whose tests drive one hub, a resolved call within three hops is right barely more
   than half the time. A test
   reached BOTH by its own body and through a fixture is reported as the body: the same distance, the stronger claim,
-  and it moves 37 of click's pairs off the fixture rung. And what the rules add is a POPULATION effect, not a general
-  one — on a third held-out subject (click, a CLI library, 2,058 tests, 40 functions, 293 pairs) they move four
+  and it moves 37 of the CLI library's pairs off the fixture rung. And what the rules add is a POPULATION effect, not a general
+  one — on a third held-out subject (a CLI library, 2,058 tests, 40 functions, 293 pairs) they move four
   targets and carry 0.802 recall at 0.566 precision, against 0.792 / 0.569 with every framework hop turned off,
   because its tests reach its code by CALLING it. The framework hops pay where a framework is in between and very
-  nearly cancel where it is not: on click the decorator hop alone adds 3 true pairs and 4 false ones.
+  nearly cancel where it is not: on the CLI library the decorator hop alone adds 3 true pairs and 4 false ones.
 - **verified** — every printed edge looked up again in graph.sqlite; **bound** counts the unresolved calls inside the impacted
   set, so the set is a lower bound on the real one; a **note** counts the entries matched by name or text.
 
@@ -235,8 +235,8 @@ an added overload rebinds (no argument types per call site), and what a dependen
 Test selection from a body change is sound but wide — 41–87 % of a suite on a hub graph — because every path through the hub
 is real; narrowing it is ranking, not reachability, and is not attempted here.
 
-Measured two ways, Java first. (1) Defects4J: the methods each fix changed as the change set, `--tests` against the tests
-Defects4J observed failing on the buggy tree — 273 bugs of 17 projects, every triggering test found in 266, trigger recall 0.929,
+Measured two ways, Java first. (1) A Java defect benchmark: the methods each fix changed as the change set, `--tests` against the tests
+it observed failing on the buggy tree — 273 bugs of 17 projects, every triggering test found in 266, trigger recall 0.929,
 mean selection 50 % of the suite, and the same verdict as the benchmark's own independent reading of the same graphs in 252 of
 256 bugs (better in 3, worse in 1 — a method the fix *added*, absent from the buggy tree); every remaining miss is an engine gap
 (an overload set, a callback through `Function.apply`), not a tool loss. (2) The compiler: on five of those projects, 412 sampled

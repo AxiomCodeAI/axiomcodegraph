@@ -197,7 +197,7 @@ def decoration_keys(q, site_file=None):
     sf = site_file or (lambda x: x)
     # A DECORATION ON A TEST CARRIES DATA, NOT A REGISTRATION. `@ValueSource(strings = {"/htmltests/large.html"})`,
     # `@CsvSource`, `@pytest.mark.parametrize`, `@DisplayName` — the strings are the test's inputs, and reading them
-    # as keys let every test that mentions the same string reach that test method. Measured on jsoup: 27 by-key
+    # as keys let every test that mentions the same string reach that test method. Measured on the JVM parser: 27 by-key
     # edges from one `@ValueSource` of resource paths. A route handler, a signal receiver or a CLI command is
     # production code; nothing is lost by declining to read a test's own decoration as a registration.
     tests = {r[0] for r in q("SELECT id FROM symbols WHERE is_test = 1")} if _has(q, 'symbols') else set()
@@ -219,7 +219,7 @@ def decoration_keys(q, site_file=None):
 
 
 # ── a registration written as a CALL that no verb list knows ─────────────────────────────────────────────────
-# Flask's `application.add_url_rule("/quote/<order_id>", view_func=legacy_quote)` is a route registration whose verb
+# the Python web framework's `application.add_url_rule("/quote/<order_id>", view_func=legacy_quote)` is a route registration whose verb
 # is not an HTTP verb, and the same shape appears wherever a framework takes (path, handler) under a name of its own
 # choosing. The evidence is the pair, not the name: one line carrying a PATH-SHAPED literal and a declaration named
 # as a VALUE. That is the discriminator `registrations()` already trusts for the verb list, applied without it.
@@ -246,7 +246,7 @@ def value_route_registrations(q, site_file=None):
     for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
         if not (isinstance(v, str) and v.startswith('/') and len(v) < 160):
             continue
-        # A RESOURCE IS NOT A ROUTE. Measured on jsoup: the pair fired on
+        # A RESOURCE IS NOT A ROUTE. Measured on the JVM parser: the pair fired on
         # `connect(url).onResponseProgress(progressListener)` — a path-shaped literal and a handed-over callable on
         # one line, but the path is the file being fetched, not the key the listener is registered under. That put
         # 27 by-key edges into the closure from every test that mentions `/htmltests/large.html`. A registered route
@@ -264,7 +264,7 @@ def value_route_registrations(q, site_file=None):
 # ── the two spellings of one path ────────────────────────────────────────────────────────────────────────────
 # A test asks for `/orders/o-1/price`; the handler is registered at `/orders/{order_id}/price`. Neither string
 # contains the other and no call site joins them — the router does, at run time, by matching the path. A path
-# parameter is whatever the framework spells it (`{id}` FastAPI, `<int:id>` Flask, `:id` Express, `*` a wildcard),
+# parameter is whatever the framework spells it (`{id}` FastAPI, `<int:id>` a Python web framework, `:id` Express, `*` a wildcard),
 # so a registered segment in any of those forms matches any written segment and NEITHER side is normalised.
 _PATH_PARAM = None
 
@@ -297,7 +297,7 @@ def key_edges(q, at, site_file=None, cap=None, use_cap=None):
 
     `at(file, line) -> callable id` is the caller's own line map; nothing here can build it. A key that more than
     `cap` declarations register, or that more than `use_cap` callables write, identifies nothing and is refused —
-    Flask's own suite registers "/" from 236 places and jsoup's surviving keys are HTML tag names.
+    one Python web framework's own suite registers "/" from 236 places and the JVM parser's surviving keys are HTML tag names.
     """
     import collections, os
     cap = int(os.environ.get('AXIOMCODE_KEY_CAP', '4')) if cap is None else cap
