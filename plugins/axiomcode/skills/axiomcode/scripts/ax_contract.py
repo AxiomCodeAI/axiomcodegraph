@@ -199,13 +199,19 @@ def drop_ancestors(ranked):
     return out or rows
 
 
-def offer(header, ranked, terms=(), hint=None):
+def offer(header, ranked, terms=(), hint=None, flag=''):
     """Rule 2. Print a refusal that can be acted on, and return the exit code.
 
     `ranked` is (path, count) or (path, count, score, matched terms). The mark names WHICH of the task's
     words were found under the path, because "matches what you asked" was being printed for a directory
     whose only connection to the task was that the repository is named after it — the reader could not
     tell an informative match from a tautological one.
+
+    `flag` is appended to every printed re-run line. A path the CALLER supplies is knowledge — a stack
+    frame, the file it just read — and a verb may treat it as certain. A path offered HERE is this
+    program's guess, and the two used to arrive at the verb as the same `--in` argument with no way to
+    tell them apart, so a guess was being applied with the authority of knowledge. The flag is how the
+    provenance travels with the value.
     """
     tset = set(terms)
     print(header + "\n")
@@ -214,12 +220,12 @@ def offer(header, ranked, terms=(), hint=None):
         path, n = row[0], row[1]
         hits = row[3] if len(row) > 3 else sorted(tset & set(subtokens(path)))
         mark = ('   <- ' + ', '.join(hits[:3])) if hits else ''
-        print(f"    --in {path:44.44} {n:6} symbol(s){mark}")
+        print(f"    --in {path:38.38}{flag} {n:6} symbol(s){mark}")
     print("\n  " + (hint or "a stack frame, the file you just read, or the package named in the issue is enough."))
     return 2
 
 
-def require_scope(g, scope, terms=(), rank=None):
+def require_scope(g, scope, terms=(), rank=None, flag=''):
     """Rule 1. Returns None when the scope is usable, or an exit code after printing the correction.
 
     Three ways a scope fails, and each gets its own answer rather than one generic error: absent, spelled
@@ -235,7 +241,7 @@ def require_scope(g, scope, terms=(), rank=None):
         # holding the answer match nothing. Falling back to the name match is still better than nothing
         # when no ranking was supplied.
         return offer("this needs to know WHERE to look: --in <path> is required.",
-                     rank or sorted(dirs.items(), key=by_terms), terms)
+                     rank or sorted(dirs.items(), key=by_terms), terms, flag=flag)
     if not g.q("SELECT COUNT(*) n FROM symbols WHERE file LIKE ?", f'%{scope}%')[0]['n']:
         # A path that is not in the graph is usually a TYPO, and a typo is a character-level miss, not a
         # token-level one: `complier-core` shares exactly the same two tokens with `compiler-core` as with
@@ -247,7 +253,7 @@ def require_scope(g, scope, terms=(), rank=None):
             return -(len(want & set(subtokens(d[0]))) + ratio)
         near = sorted(dirs.items(), key=near_key)
         return offer(f"no indexed file has '{scope}' in its path.", near, terms,
-                     hint="check the spelling against these, or widen to the package above it.")
+                     hint="check the spelling against these, or widen to the package above it.", flag=flag)
     return None
 
 
