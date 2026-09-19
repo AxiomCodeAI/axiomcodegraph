@@ -305,3 +305,12 @@ __pycache__/
 
 # evaluation graders: run locally, never shipped in the plugin
 plugins/axiomcode/validate/
+
+# agent working notes: local only, never in the repo
+CLAUDE.md
+AGENTS.md
+.claude/
+.cursor/
+.codex/
+.copilot/
+.agents/
