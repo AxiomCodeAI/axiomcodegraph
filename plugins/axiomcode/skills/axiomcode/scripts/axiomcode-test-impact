@@ -42,6 +42,12 @@ def run(script, args):
 def command_for(lang, files, classes):
     if lang == 'java' and classes:
         return "mvn test -Dtest=" + ",".join(sorted({c.split('.')[-1] for c in classes})[:40])
+    if lang == 'java' and files:
+        # A selected test whose row carries no owner would otherwise vanish from -Dtest= and the command
+        # would run a SHORTER suite than the answer named, silently. A Java test class is its file's
+        # basename, so the file is enough to name it, and one class too many is the safe direction here.
+        return "mvn test -Dtest=" + ",".join(sorted({os.path.splitext(os.path.basename(f))[0]
+                                                     for f in files})[:40])
     if lang == 'python':
         return "pytest " + " ".join(sorted(files)[:40])
     if lang in ('typescript', 'javascript'):
@@ -184,6 +190,10 @@ def main(argv):
     changed_files = [e.get('file') for e in entries if e.get('file')]
     pkg_hits, pkgs = package_tier(repo, changed_files) if not files else ({}, set())
     classes = sorted({r.get('owner') for r in tests.values() if r.get('owner')})
+    # A row the answer named that carries no owner still has to reach the reader. Dropping it for being
+    # malformed is how a selection gets quietly shorter, which is the one failure this command exists to
+    # prevent — the same shape as a dropped edge or an answer that could not be parsed.
+    ownerless = [r for r in tests.values() if not r.get('owner') and r.get('at')]
     lang = (changed.get('lang') or '').lower() or _guess_lang(files)
 
     if as_json:
@@ -229,6 +239,11 @@ def main(argv):
         cmd = command_for(lang, files, classes)
         if cmd:
             print(f"\n  {cmd}")
+    if ownerless:
+        print(f"\n  {len(ownerless)} selected test(s) declare no owning class — listed by file above, and"
+              f" named by file in the command, since no class name is available for them:")
+        for r in ownerless[:6]:
+            print(f"     {r.get('display') or '(unnamed)'}   {r.get('at')}")
     if unseen:
         print(f"\n  {len(unseen)} changed declaration(s) could not be resolved to a graph symbol: "
               + ", ".join(unseen[:6]))
