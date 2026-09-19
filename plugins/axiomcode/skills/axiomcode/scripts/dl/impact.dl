@@ -61,6 +61,8 @@
 //   key_use_cap(n)                    and how many callables may WRITE one before it stops identifying anything
 .decl key_use_cap(n:number)                                       .input key_use_cap
 .decl route_alias(w:symbol, r:symbol)                             .input route_alias
+//   decorated_name(m, w)              the name m denotes what its decorator returned: calling m runs w
+.decl decorated_name(m:symbol, w:symbol)                          .input decorated_name
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
@@ -503,6 +505,9 @@ key_capped(k) :- key_use_fan(k, n), key_use_cap(c), n > c.
 fw_edge(a, b, "by key") :- literal(a, k, _, _), reg_key(b, _, k), a != b, !key_capped(k).
 // the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
 fw_edge(a, b, "by key") :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b, !key_capped(r).
+// a decorator that REBINDS THE NAME: `@audited def summarise` leaves `summarise` denoting the wrapper, so every
+// caller written with that name runs the wrapper. This one is the engine's own resolution, not a name match.
+fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b.
 .output fw_edge
 
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
