@@ -58,13 +58,21 @@ def impact(repo, target, depth=DEPTH):
     try:
         if not set(NEEDED) <= _tables(con): return None
         q = con.execute
-        rows = q("SELECT id, kind FROM symbols WHERE display=? AND method_id IS NOT NULL", (target,)).fetchall()
-        if not rows: rows = q("SELECT id, kind FROM symbols WHERE display=?", (target,)).fetchall()
+        rows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (target,)).fetchall()
+        if not rows: rows = q("SELECT id, kind, method_id FROM symbols WHERE display=?", (target,)).fetchall()
         if not rows: return None
+        # A FIELD is declined for the same reason a constructor is, and the failure it caused was worse. What
+        # depends on a field is a READ or a WRITE — rows in `refs` and `field_access`, not in `call_edges` — so
+        # walking call_edges for a field id finds nothing and this returned a dict of zeros rather than None. The
+        # hook prints a dict of zeros as "reaches 0 more callable(s) ...; 0 test(s) reach the change", which is not
+        # "I cannot answer this", it is a confident claim that the edit is contained, on the plugin's most-used
+        # line. Measured on a Java bundle: `Tokeniser.isEmitPending` and `TreeBuilder.baseUri` are fields, and both
+        # answered 0/0 where the rules answer 1838/1468 and 1896/1522.
+        if all(not m for _, _, m in rows): return None
         # A CONSTRUCTOR is declined, not guessed. impact.dl counts who instantiates the type — edges that are not
         # call_edges — so answering one from call_edges alone under-reports silently (4 callers reported as 2, and
         # the by-name tier empty). Returning None sends the caller to impact.dl, which is right for this kind.
-        if any((k or '') == 'constructor' for _, k in rows): return None
+        if any((k or '') == 'constructor' for _, k, _ in rows): return None
         # AND DECLINED FOR THE SAME REASON WHEN THE GRAPH HAS A FRAMEWORK HOP. `fw_edge` and `uses_fixture` enter the
         # closure in impact.dl and are absent here, so on a graph carrying them this answers a SMALLER set — and this
         # entry point is what the HOOKS call first, which means an under-reported blast radius in an agent's context
@@ -81,7 +89,7 @@ def impact(repo, target, depth=DEPTH):
             if _has_framework_hops(lambda sql, *p_: q(sql, p_).fetchall(), _at): return None
         except Exception:
             return None
-        ids = [i for i, _ in rows]
+        ids = [i for i, _, _ in rows]
         ph = ','.join('?' * len(ids))
         # what must change with it: the overrides of this method and what it overrides, itself never listed
         contract = sorted({r[0] for r in q(
