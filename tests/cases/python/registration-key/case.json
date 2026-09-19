@@ -1,0 +1,10 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a test that asks for the URL reaches the handler registered at it: the path is written one way in the test and another in the route, and no call site joins them",
+   "run": ["impact", "brief", "--tests"],
+   "want": ["test_export.py", "by key"],
+   "avoid": ["test_health.py"]},
+  {"why": "the route is the join, not the decoration's name: a handler at another path is not reached",
+   "run": ["impact", "health", "--tests"],
+   "want": ["test_health.py"],
+   "avoid": ["test_export.py"]}]}
