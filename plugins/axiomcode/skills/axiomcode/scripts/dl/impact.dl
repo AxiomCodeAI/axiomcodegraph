@@ -250,6 +250,18 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
     owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _).
+// THE SAME, IN A CALLABLE THAT HAS NO OWNER TYPE. Every rule above starts at `owner(c, s)`, which in Java and
+// TypeScript is always there — and in Python and JavaScript a module-level function has no owner at all, so a
+// qualified read of a field from one was matched by no rule and vanished from the answer. `price_order` reading
+// `settings.order_limit` in the file next door was not listed, at any certainty; the field looked as if only its
+// own class touched it. The qualifier decides here exactly as it does above: the owner's own name confirms,
+// another TYPE's name excludes, and a variable (which is what a Python qualifier usually is) is `by name`.
+direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, tn).
+direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn).
+direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
+    !owner(c, _), !scope(t, c), !qualifier(f, l, n, _).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n).
