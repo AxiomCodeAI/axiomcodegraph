@@ -294,8 +294,14 @@ class Impact:
                 if self.refs_in(mid, m.group(2), LOCAL_KINDS): found.append(mid)
             if found: return [('var', f"local {m.group(2)} in {self.g.disp(found[0])}" + (f" (+{len(found)-1} declarations)" if len(found) > 1 else ''), (found, m.group(2)))]
             die(f"no local named {m.group(2)} is used in {m.group(1)} — locals the parser recorded there: " + ', '.join(sorted({r['name'] for mid in mids for r in self.refs_in(mid, None, LOCAL_KINDS)})[:12]))
-        m = re.match(r'^(.+?)<(\w+)>$', s)
-        if m and m.group(2) not in ('init', 'clinit', 'new'):                                 # Type<T> / Owner.m<T>
+        # A `<` THAT FOLLOWS A DOT OPENS A MEMBER NAME, NOT A TYPE PARAMETER (#1078). Owner.<lambda>,
+        # Owner.<constructor>, Owner.<module> — every compiler-generated member is spelled that way.
+        # Read as Type<T> the owner keeps its trailing dot, matches nothing, and the refusal quotes a
+        # name the caller never typed. A type parameter is written against the name itself, with no
+        # dot between: Type<T>, Owner.m<T>. That test decides it, so the <init>/<clinit> allowlist
+        # this line used to carry is gone: it named two spellings and lost every other one.
+        m = re.match(r'^(.+?)(?<!\.)<(\w+)>$', s)
+        if m:                                                                                 # Type<T> / Owner.m<T>
             owner, tp = m.group(1), m.group(2)
             ids = self.types(owner, soft=True) or self.methods(owner, soft=True)
             if not ids: die(f"nothing named {owner} in the graph")
