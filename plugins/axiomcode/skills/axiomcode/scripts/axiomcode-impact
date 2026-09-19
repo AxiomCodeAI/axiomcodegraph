@@ -671,6 +671,18 @@ class Impact:
                     for m in in_file.get((r['file'], n)) or (uniq[n] if len(uniq.get(n, ())) == 1 else ()):
                         regsite.append((m, 'registered', r['value'], r['file'] or '', r['line'] or 0))
         W('regsite', sorted(set(regsite)))
+        # THE NAME A DECORATOR REBINDS. `@audited def summarise(...)` leaves the name `summarise` denoting what
+        # `audited(summarise)` RETURNED — the wrapper — and the engine resolves that (ext_decorated_name_target).
+        # Every caller written `summarise(...)` therefore runs the wrapper, and a change to the wrapper reaches
+        # them; without this the wrapper had no caller at all, which is how `functools.wraps` decorators (retry,
+        # cache, task, login_required) lose their callers.
+        deconame = []
+        if g.has('ext_decorated_name_target'):
+            bym = {sy['method_id']: i for i, sy in g.sym.items() if sy.get('method_id')}
+            for r in g.q("SELECT c0, c1 FROM ext_decorated_name_target WHERE c0 <> c1"):
+                a, b = bym.get(r[0]), bym.get(r[1])
+                if a and b and a != b: deconame.append((a, b))
+        W('decorated_name', sorted(set(deconame)))
         # ── the two spellings of one route ──────────────────────────────────────────────────────────────────────
         # A test asks for `/orders/o-1/price`; the handler is registered as `/orders/{order_id}/price`. Neither
         # string contains the other, and no call site joins them — the router does, at run time, by matching the
@@ -1174,7 +1186,7 @@ def main(argv):
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key'}
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound'}
     # ORDERED BY HOW OFTEN EACH RUNG IS RIGHT, measured against behavioural truth rather than assumed. On Flask's own
     # suite (held out, 351 (target, test file) pairs): sound 0.645, one of a set 0.414, by key 0.396, FIXTURE 0.233,
     # by name 0.133. On a Python service where a fixture is the ONLY route to the code, the same rung is 30 of 30.
@@ -1204,7 +1216,7 @@ def main(argv):
             hops += 1
             # a `by key` hop is not in call_edges BY CONSTRUCTION — it is the hop the framework makes and the engine
             # never resolved — so it is verified the same way `dispatch` and `defines` are: the rules asserted it
-            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key') for x, t in parent.get(a, [])): bad += 1
+            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator') for x, t in parent.get(a, [])): bad += 1
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
