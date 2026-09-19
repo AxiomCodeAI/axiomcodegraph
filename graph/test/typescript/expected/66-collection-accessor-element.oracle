@@ -1,0 +1,5 @@
+oracle=10 engine=6 agree=6 missing=4 (known 4, NEW 0) extra=0
+  known    flow#viaArrayIterator(Slots) -> Val#use()
+  known    flow#viaKeys(Registry) -> Key#id()
+  known    flow#viaSetIterator(Bag) -> Val#use()
+  known    flow#viaValues(Registry) -> Val#use()

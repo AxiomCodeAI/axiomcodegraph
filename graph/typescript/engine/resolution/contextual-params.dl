@@ -373,6 +373,42 @@ assertion_narrowed_param(p, prov, t) :- expr_call_candidate(ce, am),
     expr_child("client", sub, "ARGUMENT", ppos, pae),
     expr_referenced("client", "PARAMETER", p, pae).
 
+// ── A TYPE PREDICATE USED DIRECTLY AS A GUARD — `if (isItem(x)) x.run()` ───
+// `predicate_subject_pos` and `predicate_target` above already read a plain `x is T`
+// signature, but the ONLY thing that consumed them was the bare-`asserts` route — a
+// predicate called inside an `if` narrowed nothing. So the single commonest narrowing
+// form in TypeScript, the user-defined type guard, was unmodelled, and the standard
+// library's own guards with it: `Array.isArray(arg): arg is any[]`.
+//
+// That was a WRONG answer rather than a missing one. On a `readonly T[]` receiver the
+// compiler narrows through `Array.isArray` to the MUTABLE array and names `Array`'s
+// declaration; the engine kept the declared type and committed a single confident
+// `known_edge` to `ReadonlyArray`'s. Issue #427, confirmed at two call shapes.
+//
+// FLOW-INSENSITIVE, AND IT ONLY ADDS. The predicate's target is given to the subject
+// throughout the enclosing function, never subtracted from it, so a guarded site
+// becomes a `multi_inferred` set CONTAINING the compiler's answer where it was a
+// committed wrong one, and an unguarded site in the same function keeps the exact
+// answer it had alongside a second candidate. This engine has no statement order to
+// narrow with, so a sound superset is the best available answer and the labelling says
+// so — which is the tradeoff the assertion rules above already make and document.
+//
+// THE SUBJECT IS MATCHED BY NAME through `predicate_subject_pos`, so a predicate that
+// narrows its second argument needs no index arithmetic, and a LIBRARY predicate
+// resolves exactly as a client one does.
+predicate_narrowed_param(p, prov, t) :- expr_call_candidate(ce, pm),
+    predicate_subject_pos(pm, pos),
+    predicate_target(pm, prov, t),
+    expr_child("client", ce, "ARGUMENT", pos, ae),
+    expr_referenced("client", "PARAMETER", p, ae).
+predicate_narrowed_var(v, prov, t) :- expr_call_candidate(ce, pm),
+    predicate_subject_pos(pm, pos),
+    predicate_target(pm, prov, t),
+    expr_child("client", ce, "ARGUMENT", pos, ae),
+    expr_referenced("client", "VARIABLE", v, ae).
+param_type(p, prov, t) :- predicate_narrowed_param(p, prov, t).
+var_type(v, prov, t) :- predicate_narrowed_var(v, prov, t).
+
 // ── AN `instanceof` TEST TYPES A TOP-TYPED SUBJECT — `o instanceof C` ───────
 // `function f(o: unknown) { if (o instanceof Node) return o.outerHtml(); }`. Measured
 // before writing this: the call inside the branch produced NOTHING when the subject

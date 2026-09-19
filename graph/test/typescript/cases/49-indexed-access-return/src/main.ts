@@ -3,8 +3,10 @@
 // inference to read: the reference's children ARE the object type and the index.
 //
 // The two forms return DIFFERENT classes on purpose. Scoring compares (caller, callee)
-// pairs, so if both returned `Dog` the still-open generic form would deduplicate against
-// the fixed literal one and the remaining gap could not be stated at all.
+// pairs, so if both returned `Dog` the generic form would deduplicate against the literal
+// one and neither the gap nor its closing could be stated at all. Both now resolve (#432);
+// the discriminator is what makes `Cat#purr` evidence that the ARGUMENT was read rather
+// than a member picked.
 export class Dog { fetch(): void {} }
 export class Cat { purr(): void {} }
 export interface Zoo { dog: Dog; cat: Cat }
@@ -20,5 +22,5 @@ export function use(): void {
 }
 
 export function useGeneric(): void {
-  pick("cat").purr();      // still open: a TYPE VARIABLE index, see known-missing
+  pick("cat").purr();      // the GENERIC form: K is narrowed to "cat" by the argument
 }

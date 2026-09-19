@@ -1,0 +1,8 @@
+ambiguous_unknown	METHOD_PARAM	0	flow [METHOD_PARAM] -> -
+known_edge	INSTANCEOF_TYPE	0	flow [EXPRESSION] -> Special
+known_edge	METHOD_PARAM	0	flow [METHOD_PARAM] -> Item
+known_edge	METHOD_PARAM	0	flow [METHOD_PARAM] -> Special
+known_edge	OBJECT_CREATION_TYPE	0	flow [EXPRESSION] -> Item
+known_edge	SUPER_TYPE	0	Special [HERITAGE] -> Item
+known_edge	TYPE_ARGUMENT	1	flow [METHOD_PARAM] -> Item
+known_edge	TYPE_PREDICATE_TARGET	1	flow [METHOD] -> Special

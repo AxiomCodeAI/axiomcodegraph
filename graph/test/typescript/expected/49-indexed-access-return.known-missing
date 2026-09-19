@@ -1,7 +1,9 @@
-# Accepted gap, and a DIFFERENT question from the one this case fixes. `Zoo[K]` where
-# `K extends keyof Zoo` denotes a union over EVERY member of Zoo; the compiler narrows K
-# to `"cat"` from the argument at the call, which is generic instantiation from an
-# argument rather than reading an index off a declaration. Left unresolved rather than
-# guessed at one member.
-# It cannot rot: if the generic form starts resolving, this line reports NOW-FIXED.
-main#useGeneric() -> Cat#purr()
+# EMPTY, and kept as a file on purpose: this case's debt is discharged.
+#
+# It used to hold `main#useGeneric() -> Cat#purr()` — `Zoo[K]` where `K extends keyof Zoo`
+# — with the note that the compiler narrows K to `"cat"` from the argument at the call,
+# which is generic instantiation from an argument rather than reading an index off a
+# declaration, and that guessing one member would be a wrong answer rather than a missing
+# one. That is still the right description of the mechanism; it is now implemented
+# (generics.dl, #432) rather than declined, and the line reported NOW-FIXED, which is the
+# signal this list exists to give.

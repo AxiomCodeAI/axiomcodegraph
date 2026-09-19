@@ -269,6 +269,35 @@ var_type(v, prov, t) :- for_binding_iterable(v, e),
     type_ref_parent(_, tr, i, mr),
     ref_type_target(mr, prov, t).
 
+// ── `for (const [k, v] of map)` — A MAP ITERATES AS ITS OWN TYPE ARGUMENTS ──
+// `Map<K, V>` is `Iterable<[K, V]>`, so destructuring a for-of over one binds K at
+// index 0 and V at index 1. The rule above cannot reach it: there is no TUPLE
+// reference anywhere to walk. The tuple exists only inside the library's own
+// `[Symbol.iterator](): IterableIterator<[K, V]>`, and what the client writes is
+// `Map<string, Handler>` — whose own type ARGUMENTS are positionally that tuple. So
+// this reads the position instead of walking to it, and needs no library IR staged to
+// do it, which is why it is separable from `map.values()` (generics.dl).
+//
+// THE NAME LIST IS DELIBERATELY NOT `ref_name_is_container`. That list is for
+// containers that iterate as ONE element, and Map is excluded from it for exactly this
+// reason — type-resolution.dl records that its argument 0 is the KEY, so admitting it
+// there would type a loop binding as the key and answer calls on it with the wrong
+// declaration. This is the tuple half that note points at.
+//
+// An index past the last type argument binds nothing, which is the correct answer:
+// `[a, b, c]` over a two-argument Map has no third member to name.
+ref_name_iterates_as_tuple("Map").
+ref_name_iterates_as_tuple("ReadonlyMap").
+
+var_type(v, prov, t) :- for_binding_iterable(v, e),
+    !var_has_declared_type(v),
+    var_binding("client", _, "INDEX", i, _, v),
+    expr_decl_ref(e, mref),
+    type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, mref),
+    ref_name_iterates_as_tuple(tn),
+    type_ref_parent(rp, mref, i, aref),
+    ref_type_target(aref, prov, t).
+
 // ── var_is_function(VarHash, MethodHash) ────────────────────────────────────
 // `const f = () => {}`. THE link that makes a const callable — 161 measured resolved
 // call targets are arrow functions reached only this way. The parser's binder made

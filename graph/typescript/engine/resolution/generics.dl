@@ -93,6 +93,28 @@ return_element_type_variable(m, pname) :- method_return_ref(_, r, m),
     type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, child),
     pname != "".
 
+// (4) `IterableIterator<T>` — the return is a named ITERATION CONTAINER over the
+// variable. `map.values()` is declared `values(): IterableIterator<V>` and
+// `map.keys()` / `set.values()` / a generator method are all the same shape, so
+// without this a `for…of` over any of them bound nothing and every call on the loop
+// variable was unresolved — while the same loop over a `T[]`-returning method
+// resolved, because (3) covers an array and nothing covered a container.
+//
+// Same contract as (3): the call's own type is already the container, and what this
+// adds is its ELEMENT, so `for_binding_iterable` reaches the substituted type.
+//
+// The container names come from `ref_name_is_container`, the list
+// `ref_element_target` reads, so a container is admitted in ONE place and the
+// iteration protocol cannot drift between the two. Argument 0 for every name on it —
+// which is exactly why Map is NOT on it (its argument 0 is the key); iterating a Map
+// DIRECTLY is the tuple rule in reference-types.dl.
+return_element_type_variable(m, pname) :- method_return_ref(_, r, m),
+    type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, r),
+    ref_name_is_container(tn),
+    type_ref_parent(rp, r, "0", child),
+    type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, child),
+    pname != "".
+
 // ── the substituted type of a call ──────────────────────────────────────────
 // The type variable is resolved on the method's DECLARING type, and the binding is
 // taken from the receiver's own reference. `owner_declares_param` requires the
@@ -119,6 +141,44 @@ expr_element_type(ce, prov, t) :- ts_call_site(_, _, _, recv, _, ce, _, _, _, _,
     owner_declares_param(callee, pname),
     type_arg_binding(rref, pname, argRef),
     ref_type_target(argRef, prov, t).
+
+// ── `Zoo[K]` — AN INDEXED ACCESS WHOSE INDEX IS BOUND AT THE CALL ──────────
+// `get<K extends keyof Zoo>(k: K): Zoo[K]` then `get("dog").fetch()`. The literal form
+// `Zoo["dog"]` is read straight off the declaration (type-resolution.dl); this is the
+// generic one, and it is a different mechanism rather than a harder version of the same
+// one: `Zoo[K]` denotes a union over EVERY member of Zoo, and what picks one is the
+// compiler narrowing K to the ARGUMENT's literal type at the call. So it cannot live in
+// `ref_type_target`, which has no call to look at — it belongs here, beside the other
+// substitution that reads an argument.
+//
+// Sound because it does not GUESS a member: the index type variable and the value
+// parameter must be THE SAME type-parameter declaration (matched on the parser's
+// typeParameterLinkHash, not on the name `K`), that declaration must belong to the
+// callee, and the argument at that parameter's position must be a string literal. Where
+// the argument is a variable, a union or a computed key, nothing binds and the site
+// stays unresolved — which is the honest answer, not a narrowed one.
+//
+// Reaches the member the same way the literal rule does — `declared_field` plus the
+// field's own type REFERENCE — because `field_in_scope`/`field_type` sit inside the
+// member-lookup fixpoint behind a negation and drag the whole component into one
+// Souffle refuses to stratify.
+expr_type(ce, prov, t) :- expr_call_candidate(ce, m),
+    method_return_ref(_, r, m),
+    type_ref(rp, "INDEXED_ACCESS", _, _, _, _, _, r),
+    type_ref_parent(rp, r, "0", oref),
+    ref_type_target(oref, _, obj),
+    type_ref_parent(rp, r, "1", iref),
+    type_ref_type_param(_, tp, iref),
+    type_param(_, _, _, _, m, tp),
+    param_decl(_, _, k, _, m, p),
+    param_type_ref(_, pr, p),
+    type_ref_type_param(_, tp, pr),
+    expr_child("client", ce, "ARGUMENT", k, arg),
+    expr_literal_type("client", "STRING", arg),
+    expr_literal_value("client", n, arg),
+    declared_field(obj, n, _, f),
+    field_type_ref(_, fr, f),
+    ref_type_target(fr, prov, t).
 
 // ── an ELEMENT ACCESS on a generic container — `map.get(k)!`, `xs[0]` ───────
 // The element of `X<A>` where X's element parameter is bound: this is what makes

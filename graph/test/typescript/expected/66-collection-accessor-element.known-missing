@@ -1,0 +1,19 @@
+# ACCEPTED CLIENT-ONLY GAPS, and every one of them is the case working as designed.
+#
+# This case's subject — `for (const v of registry.values())` — is an accessor DECLARED IN
+# THE LIBRARY. The client-only solve stages no library IR at all, so `Registry`, `Bag`,
+# `Slots` and the iterator helpers they return do not exist in that run and there is
+# nothing for the element rule to substitute into. A client-only miss here is therefore
+# the correct answer, not a gap: it is the delta that the suite's two-solve design exists
+# to make visible (see the header of run-tests.sh).
+#
+# THE WITH-LIBRARY SOLVE IS THE MEASUREMENT, and it agrees with the TypeScript compiler
+# on every edge: oracle=16 engine=16 agree=16 missing=0 extra=0.
+#
+# If one of these four STARTS resolving client-only, that is not a fix — it means
+# something is answering a library accessor without the library, and this list will fail
+# and say so.
+flow#viaValues(Registry) -> Val#use()
+flow#viaKeys(Registry) -> Key#id()
+flow#viaSetIterator(Bag) -> Val#use()
+flow#viaArrayIterator(Slots) -> Val#use()
