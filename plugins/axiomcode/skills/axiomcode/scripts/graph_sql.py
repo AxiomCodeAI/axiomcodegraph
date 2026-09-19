@@ -24,7 +24,14 @@ import os, re, sqlite3, json, collections
 import ax_registration
 
 NEEDED = ('symbols', 'call_edges', 'overrides', 'call_sites', 'unresolved_sites')
-DEPTH = 6                     # the counts are a summary line; the cap is what keeps a hub target flat
+# 12, NOT 6, AND THE CAP SAVED NOTHING. This is the depth the hooks' own CLI fallback asks for (`--depth 12`), so a
+# lower one here made the same hook line mean two different things depending on which engine served it — and the
+# shim serves it first. Measured on jsoup: `QueryParser.parsePseudoSelector` at depth 6 reaches 10 callables and 0
+# TESTS; at 12 it reaches 893 and 811. "0 test(s) reach the change" for a method 811 tests reach is the most
+# misleading line this plugin can put in an agent's context. The cost of the cap, on the same target: 1.58 s at 6
+# against 1.56 s at 12 — it bought nothing. (Depth 40, the CLI's own default, is 1.90 s and reaches 1,929 / 1,498;
+# the hooks bound it at 12 deliberately, and now both sides bound it there.)
+DEPTH = 12
 
 
 def _tables(con):
