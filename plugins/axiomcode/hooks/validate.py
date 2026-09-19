@@ -164,6 +164,18 @@ class V:
         tset = {(d['kind'], d['symbol']) for d in truth.get('changed', [])}
         cur = None
         for l in text.split('\n')[1:]:
+            # "(impact unavailable)" is the hook giving up — the CLI raised or blew its timeout. It is a legitimate
+            # thing for the hook to print, and it is NOT a legitimate thing for this check to pass over in silence:
+            # every assertion about that declaration then vanishes, and a fix that turns wrong numbers into no
+            # numbers reads exactly like a fix that turns wrong numbers into right ones. This runs the CLI itself,
+            # without the hook's timeout, so the question it asks is answerable: did the hook give up on something
+            # the tool can answer?
+            mu = re.match(r'  (signature|body|field|type|removed|added) (\S+).*\(impact unavailable\)$', l)
+            if mu:
+                cur = None
+                self.fact(False, f"change {rel}: the hook gave up on {mu.group(1)} {mu.group(2)} — the block carries"
+                                 f" no claim about it at all, while this check answers it from the same CLI")
+                continue
             mm = re.match(r'  (signature|body|field|type|removed|added) (\S+)(?: — (.*))?$', l)
             if mm:
                 cur = next((d for d in truth.get('changed', []) if d['symbol'] == mm.group(2) and d['kind'] == mm.group(1)), None)
