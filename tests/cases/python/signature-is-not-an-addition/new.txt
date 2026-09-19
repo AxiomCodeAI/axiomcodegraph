@@ -1,0 +1,6 @@
+def price(total, pct, *, cap=0):
+    return min(total - pct, cap) if cap else total - pct
+
+
+def use(total):
+    return price(total, 10)
