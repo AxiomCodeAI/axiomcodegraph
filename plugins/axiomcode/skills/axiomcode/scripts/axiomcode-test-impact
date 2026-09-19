@@ -87,6 +87,33 @@ def package_tier(repo, changed_files, limit=6000):
     return dict(out), pkgs
 
 
+def read_answer(out):
+    """impact's JSON document, even when a diagnostic was printed in front of it.
+
+    A note on stdout ahead of the document makes it unparseable while leaving it COMPLETE. That happened
+    (a name that is both a field and a method printed one), and it is fixed at the source now, but the
+    hazard is structural: any banner added later corrupts a consumer the same way, and this command is
+    also run against older builds.
+
+    A consumer that catches the parse error and moves on turns a complete answer into a SHORTER SELECTION,
+    silently — the tool's silence and the consumer's silence compose into a list of tests quietly missing
+    entries, which is the one failure this command exists to prevent. So: parse; failing that, parse from
+    the first brace and keep what the note said; failing that, return nothing AND say so loudly, because a
+    short list presented as complete is worse than an error.
+    """
+    try:
+        return json.loads(out), None
+    except Exception:
+        pass
+    i = out.find('{')
+    if i > 0:
+        try:
+            return json.loads(out[i:]), out[:i].strip()
+        except Exception:
+            pass
+    return None, None
+
+
 def main(argv):
     as_json = '--json' in argv
     why = '--why' in argv
@@ -128,16 +155,19 @@ def main(argv):
         i = passthru.index('--in'); scope = ['--in', passthru[i + 1]]
 
     tests = {}                      # test id -> record
+    unreadable, notes = [], []
     pulled = collections.defaultdict(set)
     unseen = []
     for t in targets:
         rc, o, e = run('axiomcode-impact', [t, repo, '--tests', '--json'] + scope)
         if rc != 0:
             unseen.append(t); continue
-        try:
-            d = json.loads(o)
-        except Exception:
-            unseen.append(t); continue
+        d, note = read_answer(o)
+        if d is None:
+            unreadable.append((t, (o or e or '').strip().splitlines()[:1]))
+            continue
+        if note:
+            notes.append((t, note))
         for rec in d.get('tests') or []:
             tests.setdefault(rec['id'], rec)
             pulled[rec['id']].add(t)
@@ -163,6 +193,7 @@ def main(argv):
                           'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in tests.items()],
                           'command': command_for(lang, files, classes),
                           'not_reached_from': unseen,
+                          'unreadable_answers': [t for t, _ in unreadable],
                           'same_package_only': pkg_hits,
                           'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
                                    'framework instantiating by name, or a case built at runtime is not here'},
@@ -201,6 +232,16 @@ def main(argv):
     if unseen:
         print(f"\n  {len(unseen)} changed declaration(s) could not be resolved to a graph symbol: "
               + ", ".join(unseen[:6]))
+    for t, n in notes:
+        print(f"\n  note, about {t}: {n}")
+    if unreadable:
+        # LOUD on purpose. Every other path here degrades toward naming too many tests; this is the only
+        # one that can name too few, so it must not read like a footnote.
+        print(f"\n  !! {len(unreadable)} changed declaration(s) produced an answer this could not read, so"
+              f" any test reaching them is MISSING from the list above:")
+        for t, first in unreadable:
+            print(f"     {t}   {(first or [''])[0][:100]}")
+        print("     the selection above is incomplete — do not act on it as though it were the whole answer.")
     print("\nbound: this is a LOWER bound. A test that reaches the change only through something the graph "
           "does not encode — reflection, a service loader, a framework that instantiates by name, a case "
           "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")
