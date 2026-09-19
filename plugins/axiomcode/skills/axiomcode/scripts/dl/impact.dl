@@ -561,6 +561,16 @@ fw_edge(a, b, "by key") :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _,
 // a decorator that REBINDS THE NAME: `@audited def summarise` leaves `summarise` denoting the wrapper, so every
 // caller written with that name runs the wrapper. This one is the engine's own resolution, not a name match.
 fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b.
+// a decorator the project DECLARES ITSELF: `@exporter("csv") def export_csv` means export_csv is whatever exporter
+// returned, so a change to the decorator changes what every declaration it wraps does. Nothing links the two but the
+// `@` line: the decorator has no call site, and the registry it writes into is read by a key, not by a name. The
+// decoration is a simple NAME, so the edge is drawn only when that name denotes exactly one declaration in the repo,
+// or the one it denotes is declared in the same file. `@property`, `@pytest.fixture`, `@Override` resolve to nothing
+// here and draw no edge, which is the silence this guard is for.
+.decl dec_decl(d:symbol, w:symbol)
+dec_decl(d, w) :- decorated(_, d), named(d, w), 1 = count : { named(d, _) }.
+dec_decl(d, w) :- decorated(s, d), named(d, w), decl_file(s, f), decl_file(w, f).
+fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
 .output fw_edge
 
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
