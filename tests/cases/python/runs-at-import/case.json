@@ -1,0 +1,24 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "`settings = Settings()` runs while the module is being imported, so breaking what it calls breaks importing that module — and every module that imports it, and every test in those files. The graph records the module body's call and records nothing about imports, so without this the chain stops at the module that owns the object and the test two files away looks unrelated",
+   "run": ["impact", "endpoint", "--tests"],
+   "want": ["test_pricing.py", "at import"],
+   "avoid": ["test_plain.py"]
+  },
+  {
+   "why": "the rung is its own, and it is not `fixture`: a fixture route is weak because the test's BODY may never touch what the fixture reached, and an import route is strong for the opposite reason — a module that raises while being imported takes the whole file down and the test is never collected at all",
+   "run": ["impact", "Settings.__init__", "--tests"],
+   "want": ["at import"],
+   "avoid": ["test_plain.py"]
+  },
+  {
+   "why": "a module that does no work at import propagates nothing: this is what keeps the rule from being a file-level closure over the repository",
+   "run": ["impact", "double", "--tests"],
+   "want": ["test_plain.py"],
+   "avoid": ["test_pricing.py"]
+  }
+ ]
+}

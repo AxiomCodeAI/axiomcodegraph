@@ -1,4 +1,4 @@
-from app import plain
+from plain import plain
 
 
 def test_plain():
