@@ -125,10 +125,18 @@ def impact(repo, target, depth=DEPTH):
         rows = q(f"""WITH RECURSIVE r(id,d) AS ({rec})
                      SELECT DISTINCT r.id, s.is_test, s.display FROM r LEFT JOIN symbols s ON s.id=r.id""", args).fetchall()
         seen_ids = {x[0] for x in rows}
+        # AN OVERRIDE IS ALREADY COUNTED, under `contract`. `Element.removeAttr` calls `super.removeAttr`, so it is
+        # a caller in call_edges and it lands in the closure — while the rules put it under "must change with it"
+        # and keep it OUT of `reached`. Counting it in both roles made this path report 14 reached where the rules
+        # report 12, which is the over-claiming direction and the one that cannot be explained away as a missing
+        # layer. The walk still goes THROUGH them: the tests that reach the change via an override stay.
+        contract_ids = {r[0] for r in q(f"SELECT DISTINCT overriding_method_id FROM overrides WHERE method_id IN ({ph})", ids)} \
+                     | {r[0] for r in q(f"SELECT DISTINCT method_id FROM overrides WHERE overriding_method_id IN ({ph})", ids)}
+        seen_ids -= contract_ids
         n = len(seen_ids)
-        tset = {x[0] for x in rows if x[1] == 1}
+        tset = {x[0] for x in rows if x[1] == 1} - contract_ids
         t = len(tset)
-        test_names = [x[2] for x in rows if x[1] == 1 and x[2]][:3]
+        test_names = [x[2] for x in rows if x[1] == 1 and x[2] and x[0] not in contract_ids][:3]
         return dict(target=target, overloads=len(ids), contract=contract, reads=reads, byname=byname,
                     reached=max(0, n - len(ids)), tests=t, test_names=test_names, depth=depth)
     finally:
