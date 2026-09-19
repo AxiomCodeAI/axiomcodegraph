@@ -1541,7 +1541,16 @@ interface ExpressionShape {
   isSpread: boolean;
   isNullConditional: boolean;
   isNullForgiving: boolean;
-  callSite?: { callKind: CsCallKind; calleeName: string };
+  callSite?: {
+    callKind: CsCallKind;
+    calleeName: string;
+    /**
+     * Set only where the call has no `argument_list` to count — an operator's
+     * operands and a cast's operand. Absent everywhere else so the written
+     * argument list stays the single source for an ordinary call.
+     */
+    argumentCount?: number;
+  };
 }
 
 /**
@@ -1630,6 +1639,111 @@ function qualifiedNameOrEmpty(value: string): string {
     return value;
   }
   return /[\s=(){}\[\];,]/.test(value) ? '' : value;
+}
+
+/**
+ * The method name the compiler gives a user-defined operator.
+ *
+ * `a + b` where the operand type overloads `+` IS a static method call, and the
+ * method is named `op_Addition` in metadata — which is what Roslyn reports at the
+ * site and what the ground-truth comparator joins on. The token alone cannot be
+ * the callee name: `-` is `op_Subtraction` written between two operands and
+ * `op_UnaryNegation` written before one, and a type may declare both.
+ *
+ * ONLY THE OPERATORS THE LANGUAGE ALLOWS TO BE USER-DEFINED are listed. `&&`,
+ * `||` and `??` are deliberately absent: they are not overloadable, and `&&` in
+ * particular is COMPOSED from `op_BitwiseAnd` plus `op_True`/`op_False`, so
+ * naming it `op_LogicalAnd` would invent a method the language has no way to
+ * declare.
+ */
+const BINARY_OPERATOR_METHODS: ReadonlyMap<string, string> = new Map([
+  ['+', 'op_Addition'],
+  ['-', 'op_Subtraction'],
+  ['*', 'op_Multiply'],
+  ['/', 'op_Division'],
+  ['%', 'op_Modulus'],
+  ['&', 'op_BitwiseAnd'],
+  ['|', 'op_BitwiseOr'],
+  ['^', 'op_ExclusiveOr'],
+  ['<<', 'op_LeftShift'],
+  ['>>', 'op_RightShift'],
+  ['>>>', 'op_UnsignedRightShift'],
+  ['==', 'op_Equality'],
+  ['!=', 'op_Inequality'],
+  ['<', 'op_LessThan'],
+  ['>', 'op_GreaterThan'],
+  ['<=', 'op_LessThanOrEqual'],
+  ['>=', 'op_GreaterThanOrEqual'],
+]);
+
+/** The same, for the one-operand forms. `-x` is not `x - y`. */
+const UNARY_OPERATOR_METHODS: ReadonlyMap<string, string> = new Map([
+  ['+', 'op_UnaryPlus'],
+  ['-', 'op_UnaryNegation'],
+  ['!', 'op_LogicalNot'],
+  ['~', 'op_OnesComplement'],
+  ['++', 'op_Increment'],
+  ['--', 'op_Decrement'],
+]);
+
+/**
+ * THE SITE IS EMITTED WHETHER OR NOT A USER-DEFINED OPERATOR EXISTS, and that is
+ * the same ruling an ordinary invocation on an unstaged type gets: the parser
+ * records what is WRITTEN and resolution decides what it hits. Deciding here
+ * would mean knowing the operand's type, which is the engine's question.
+ *
+ * What syntax cannot decide for an operator is WHICH method runs — whether the
+ * operands are the declaring type at all, and which overload. That is a
+ * resolution question, exactly like a receiver's type for `a.M()`. What syntax
+ * CAN see is that `a + b` and `(T)x` are written down, which is the difference
+ * between them and an IMPLICIT conversion: that one runs with no syntax at the
+ * call site at all, and stays reserved.
+ */
+/**
+ * The contexts C# requires to hold a COMPILE-TIME CONSTANT.
+ *
+ * A user-defined operator cannot appear in one: the language permits only the
+ * built-in operators on constants there, and the compiler folds them. `[assembly:
+ * AssemblyDescription("a" + "b")]` runs no code at all, ever, and Roslyn reports no
+ * site for it.
+ *
+ * This is not a convenience filter. A site here has no enclosing method AND no
+ * enclosing type -- an assembly-level attribute is attached to neither -- so
+ * caller attribution has no answer and the site reaches no output row at all,
+ * which the engine's conservation guard counts as a DROPPED site and fails on.
+ * Measured: 10 dropped sites on one corpus member, every one of them a string
+ * concatenation in an assembly attribute.
+ */
+const CONSTANT_EXPRESSION_CONTEXTS: ReadonlySet<CsRootContext> = new Set([
+  CsRootContext.ATTRIBUTE_ARGUMENT,
+  CsRootContext.CASE_LABEL,
+  CsRootContext.PARAMETER_DEFAULT,
+  CsRootContext.ENUM_MEMBER_VALUE,
+]);
+
+function operatorCallSite(
+  shape: ExpressionShape,
+  token: string,
+  operands: number,
+  context: CsExpressionContext
+): void {
+  if (CONSTANT_EXPRESSION_CONTEXTS.has(context.rootContext)) {
+    return;
+  }
+  const name =
+    operands === 1 ? UNARY_OPERATOR_METHODS.get(token) : BINARY_OPERATOR_METHODS.get(token);
+  if (name === undefined) {
+    return;
+  }
+  shape.callSite = {
+    callKind: CsCallKind.OPERATOR_CALL,
+    calleeName: name,
+    // The operands ARE the arguments. buildCallSite reads an `argument_list`,
+    // and an operator has none, so it would report a call that takes nothing —
+    // and arity is how the engine tells `operator -(Money)` from
+    // `operator -(Money, Money)` on one type.
+    argumentCount: operands,
+  };
 }
 
 function describeExpression(
@@ -1747,8 +1861,34 @@ function describeExpression(
       break;
     }
 
+    case 'cast_expression':
+      // `(Money)d` INVOKES `Money.op_Explicit(decimal)` when Money declares one,
+      // and is a reference or numeric conversion when it does not. Which of the
+      // two it is needs the operand's type and the target type's members, so the
+      // site is emitted and resolution decides — the same ruling as an operator.
+      //
+      // `x as Foo` gets NO site, and that is not an omission: `as` cannot run a
+      // user-defined conversion at all, so a site there would name a method the
+      // language forbids being reached that way.
+      //
+      // AN IMPLICIT CONVERSION STAYS RESERVED. `decimal d = money;` runs
+      // `op_Implicit` with no syntax at the call site at all, and there is no
+      // expression to anchor a site to. That reservation is sound and this does
+      // not touch it.
+      // The same constant-expression exclusion: `(int)1` in an attribute argument
+      // is folded and runs nothing, and the site would have no caller to attach to.
+      if (!CONSTANT_EXPRESSION_CONTEXTS.has(context.rootContext)) {
+        shape.callSite = {
+          callKind: CsCallKind.CONVERSION_CALL,
+          calleeName: 'op_Explicit',
+          argumentCount: 1,
+        };
+      }
+      break;
+
     case 'binary_expression':
       shape.operatorString = operatorTokenOf(node);
+      operatorCallSite(shape, shape.operatorString, 2, context);
       break;
 
     case 'preproc_operator_expression': {
@@ -1780,6 +1920,12 @@ function describeExpression(
         // a System.Index, and `a[^1]` is a different access from `a[1]`.
         shape.kind = CsExpressionKind.INDEX;
       }
+      // AFTER the reclassifications above, and gated on the kind still being
+      // UNARY. `&x`, `*p` and `^1` are not operator invocations whatever their
+      // token says, and `&` is in the binary map.
+      if (shape.kind === CsExpressionKind.UNARY) {
+        operatorCallSite(shape, shape.operatorString, 1, context);
+      }
       break;
 
     case 'postfix_unary_expression': {
@@ -1790,6 +1936,10 @@ function describeExpression(
       // Grouping it with `++`/`--` would report a mutation that never happens.
       if (shape.operatorString === '!') {
         shape.isNullForgiving = true;
+      } else {
+        // `x++` and `x--` ARE user-definable, and postfix and prefix call the
+        // SAME method: `op_Increment` is declared once and both forms invoke it.
+        operatorCallSite(shape, shape.operatorString, 1, context);
       }
       break;
     }
@@ -2367,7 +2517,7 @@ function buildCallSite(
     csModuleLinkHash: context.csModuleLinkHash,
     callerMethodLinkHash: context.callerMethodLinkHash,
     callerTypeLinkHash: context.csTypeLinkHash,
-    argumentCount: argumentNodes.length,
+    argumentCount: shape.callSite!.argumentCount ?? argumentNodes.length,
     namedArgumentCount: argumentNodes.filter(
       (a) => a.childForFieldName('name') !== null
     ).length,
@@ -3422,6 +3572,24 @@ function unwrapTransparentChild(
 }
 
 function operatorTokenOf(node: Parser.SyntaxNode): string {
+  // THE `operator` FIELD FIRST, where the grammar declares one. It does for
+  // `binary_expression` (node-types.json: left, operator, right) and not for the
+  // unary forms, which is why the scan below stays.
+  //
+  // The scan alone was wrong whenever the LEFT operand is an anonymous token.
+  // `this == m` inside an `Equals` override reported the operator as `this`,
+  // because `this` is not a named child and the first anonymous child won. That
+  // is the same trap the operand walker already carries a note about: positions
+  // 0 and 1 of the named children are right until the value is `this`.
+  //
+  // Measured on two corpus members: 0 of 1,223 BINARY rows change, so the field
+  // read agrees with the scan everywhere the scan was right.
+  if (node.type === 'binary_expression') {
+    const operator = node.childForFieldName('operator');
+    if (operator !== null) {
+      return operator.type;
+    }
+  }
   for (const child of allChildren(node)) {
     if (!child.isNamed) {
       return child.type;

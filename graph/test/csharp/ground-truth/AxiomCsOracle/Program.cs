@@ -226,6 +226,30 @@ internal static class Program
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
+        // A FILE THE ORACLE COULD NOT PARSE IS NOT EVIDENCE ABOUT THE ENGINE, AND IT
+        // IS NOT THE SAME POPULATION AS A FILE THAT MERELY DID NOT BIND. A subject
+        // compiled against reference assemblies only has thousands of unresolved-type
+        // errors by design, and the rows it still produces are sound -- that is what
+        // the external bucket is for. Recovery from a SYNTAX error is different in
+        // kind: the parser invents structure to keep going, and the declarations it
+        // invents are not in the source. A member-declaration form past the pinned
+        // LanguageVersion closes its containing class early and the remainder of the
+        // file is re-read as top-level statements, whose synthesised container is
+        // `Program` -- a type the subject does not declare. Every site under it names
+        // a declaration that does not exist, and scoring those charges the engine
+        // with disagreeing when the engine's answer is the correct one.
+        //
+        // tree.GetDiagnostics() is exactly the parse half, so the split is Roslyn's
+        // own rather than a guess from error-code prefixes.
+        //
+        // NOT capped, unlike errorFile below: the scorer consumes these rows to
+        // decide what to skip, and a truncated list would silently score the tail.
+        var recoveredFiles = trees
+            .Where(t => t.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error))
+            .Select(t => Rel(root, t.FilePath))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         using (var w = new StreamWriter(outPath, false, new UTF8Encoding(false)))
         {
@@ -328,6 +352,7 @@ internal static class Program
             Kv("sitesExternal", rows.Count(r => r.Split('\t')[4] == "external").ToString());
             Kv("compileErrors", errors.Count.ToString());
             Kv("filesWithCompileErrors", errorFiles.Count.ToString());
+            Kv("filesWithSyntaxErrors", recoveredFiles.Count.ToString());
             Kv("dispatchRows", dispatchRows.Distinct(StringComparer.Ordinal).Count().ToString());
             // The distinct error codes, so "the subject did not build" is a diagnosable
             // statement rather than a number. CS0246 in bulk means missing references;
@@ -336,12 +361,14 @@ internal static class Program
                 .OrderByDescending(g => g.Count()).Take(8).Select(g => $"{g.Key}:{g.Count()}")));
             foreach (var (p, reason) in unreadable) Kv("unreadable", $"{p}\t{reason}");
             foreach (var f in errorFiles.Take(200)) Kv("errorFile", f);
+            foreach (var f in recoveredFiles) Kv("recoveredFile", f);
         }
 
         Console.Error.WriteLine(
             $"oracle: {trees.Count} files, {siteCount} sites, {rows.Count} bound " +
             $"({rows.Count(r => r.Split('\t')[4] == "in_source")} in-source), {unbound.Count} unbound, " +
-            $"{errors.Count} compile errors in {errorFiles.Count} files");
+            $"{errors.Count} compile errors in {errorFiles.Count} files, " +
+            $"{recoveredFiles.Count} of them unparsable");
         return 0;
     }
 

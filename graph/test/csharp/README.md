@@ -22,6 +22,124 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `03-target-typed-new` | `new()` in a field, property, local, return and assignment, with an explicit `new T()` control |
 | `04-accessors-and-indexers` | property read and write, a virtual property's fan, a compound assignment that is both, an indexer, an event subscription, and the control that a plain field access is not a call |
 | `05-partial-and-records` | a positional record's primary constructor, a primary constructor's base invocation written in the heritage clause, and a private member of another part of a partial type |
+| `06-explicit-interface-impl` | an explicit interface implementation reached through the interface and not through the class-typed receiver, and the two-interface shape that makes the key collision real |
+| `07-dynamic-boundary` | a call and a property read through `dynamic`, from a parameter, a local, a field and a property, with the same member names on a static receiver, a real unstaged framework receiver and a `dynamic` value never called through as controls |
+| `08-operators-and-conversions` | `a + b`, `a == b`, `-a` and `(Money)d` on a type that declares them, with built-in operators on the same tokens, the `operator -(Money)` / `operator -(Money, Money)` arity pair, the non-overloadable `&&`/`||`/`??`, and `as` as controls |
+
+### The acceptance bar's own self-test
+
+```
+corpus/aggregate-selftest.py [-v]
+```
+
+Runs from `run-tests.sh` beside the scorer's, and needs no corpus: its cases are
+synthetic `score.json` trees.
+
+`aggregate.py` is the acceptance bar applied mechanically, and it exists because a
+human reviewer reliably forgets to ask whether a change fitted the dev set. Six
+cases, and **three of them exist only to fail**: a real regression on a fixed
+population, a population that grew while agreement fell, and newly visible sites
+that are mostly wrong. A bar that stops failing is indistinguishable from one that
+passes on everything.
+
+**A fallen agreement RATE is not always a regression.** `in_source_sites` is exactly
+`declared_agree + declared_differs + declared_none`, so it counts the in-source sites
+the engine SAW. A change that makes a construct visible for the first time enlarges
+the denominator, and the rate can fall while every previously scored site keeps its
+verdict. That is reported as a WARN with the counts and an instruction to re-score
+both runs with the construct excluded from `HELD`, which is the only comparison that
+puts the two runs on one population. It is still a WARN, and a WARN still has to be
+read.
+
+### The invariants the score cannot see
+
+```
+engine-invariants.py <engine-raw> <engine-ir> [--label NAME]
+```
+
+Runs per case, from inside `run-tests.sh`.
+
+There are true things about the output the oracle has no opinion about. A call
+through `dynamic` is the clearest: Roslyn cannot bind it either, so it writes no
+ground-truth row, and coverage, agreement and fan are all blind to whether the engine
+answered `ambiguous_dynamic`, `ambiguous_unknown` or `boundary_lib` there. All three
+score identically and only one is true.
+
+This is not a blessed golden either. Nothing in it is generated from a run: each
+invariant is a written claim with its reasoning, and changing it means arguing with
+the reasoning.
+
+| | claim |
+|---|---|
+| 1 | no external label names something that is not a type (`external:dynamic.M` asserts a type called `dynamic`, and `boundary_lib` is the tier a consumer follows into a staged dependency) |
+| 2 | every tier is in the vocabulary `call_chain.dl` declares |
+| 3 | a call whose receiver is declared `dynamic` is `ambiguous_dynamic`, not `ambiguous_unknown` (which is where the engine's own blind spots are counted) and not `boundary_lib` (which asserts a target) |
+| 4 | no call site reached the output with no row |
+
+`known_builtin_operator` is in the vocabulary because the parser emits a site for
+every written operator and explicit cast: whether one is user-defined needs the
+operand's type, which is the engine's question and not syntax's. Where no
+user-defined operator is found the site ran no user code -- `System.Int32` declares
+no `op_Addition`, it is an IL instruction -- so it is counted in its own bucket, on
+the same footing as a compiler-synthesised default constructor. Folding it into
+`ambiguous_unknown` would put thousands of correct answers into the one number the
+engine is judged on.
+
+That bucket gives up the distinction between "built-in operator" and "a declared
+operator the engine failed to find". The distinction needs the compiler, and the
+harness HAS the compiler: the oracle emits a ground-truth row for every user-defined
+operator site, so a failure to resolve one is a missed site or a disagreement in the
+score. It is kept in the instrument that can make it.
+
+Invariant 3 is taken from the DECLARATIONS rather than from the parser's call kind:
+`DYNAMIC_CALL` is reserved with zero rows, so a check keyed on it would pass
+vacuously on a file full of `dynamic`.
+
+### The scorer's own self-test
+
+```
+ground-truth/score-selftest.py [-v]
+```
+
+Runs first, from inside `run-tests.sh`, and needs python3 and nothing else.
+
+Every number in this directory is read through `score.py`, so a defect in its JOIN
+moves all of them at once and is indistinguishable from an engine change. Two of its
+verdicts are worse than a number: a dropped site and a wrongly resolved external
+target each FAIL the run and the corpus aggregate, and a gate that fires on a name
+collision cannot guard a real regression.
+
+The cases are synthetic IR and synthetic oracle rows rather than C# source, because
+the shapes that break the join are shapes the engine cannot currently produce -- so a
+case under `cases/` would go red for the engine's reason and prove nothing about the
+scorer. The column headers are the real ones, copied from a real run, so a fixture
+cannot drift into a shape the parser never writes.
+
+**Each case carries its control**, same as the cases do: a test that only shows the
+bad pairing gone would pass equally well if the join stopped pairing anything, so
+every one of them also asserts the legitimate pairing at that position still scores.
+
+**An indexer row never pairs with a property named `Item`.** `get_Item` is the
+compiler's name for both an indexer accessor and the getter of a property called
+`Item`, and `items[i].Item` anchors both at one column. Name equality alone paired
+them and reported the engine as having resolved an external target to an in-source
+method, which is a gate rather than a number. The join tests the engine's own
+accessor edge kind (`indexer` / `property_read` / `property_write`, column 4 of
+`accessor-edges.csv`) rather than the expression kind, because a property read on an
+implicit `this` is a NAME_REFERENCE and an expression-kind rule would refuse every
+bare property read.
+
+**A file the oracle could not PARSE is not scored.** The oracle is pinned to one
+compiler package and one `LanguageVersion` on purpose, and a subject on a newer
+language version does not fail against that pin -- Roslyn recovers, and recovery
+invents structure. A member-declaration form the pin cannot read closes its
+containing class early and the rest of the file is re-read as top-level statements,
+whose synthesised container is `Program`, a type the subject does not declare. The
+oracle lists those files as `recoveredFile` in its manifest (Roslyn's own parse/bind
+split) and `score.py` drops their rows and reports the count. A file that merely did
+not BIND is a different population and is still scored: compiling against reference
+assemblies only produces unresolved-type errors by design, and the rows it still
+produces are sound -- that is what the external bucket is for.
 
 **The golden is the compiler.** Each case is scored against the Roslyn oracle
 exactly as a corpus project is, and the bar is 100% on coverage, agreement and fan

@@ -62,6 +62,25 @@ command -v souffle >/dev/null || { echo "souffle is not installed (brew install 
 [ -x "$ORACLE" ] || {
   echo "the oracle is not built:  dotnet build -c Release $HERE/ground-truth/AxiomCsOracle" >&2; exit 77; }
 
+# THE SCORER IS SCORED FIRST. Every case below is read through score.py, so a defect
+# in its JOIN moves every number in this file and is indistinguishable from an engine
+# change -- and two of its verdicts are gates rather than measurements. The self-test
+# needs python3 and nothing else, so it runs before the toolchain is touched.
+if ! python3 "$HERE/ground-truth/score-selftest.py"; then
+  echo "the scorer's own self-test fails -- every number below would be unreadable" >&2
+  exit 1
+fi
+echo
+
+# AND THE ACCEPTANCE BAR. aggregate.py decides whether a change generalised or fitted
+# the dev set, which is the check a human reviewer reliably forgets, and it had no
+# test either. It needs no corpus: its cases are synthetic score.json trees.
+if ! python3 "$HERE/corpus/aggregate-selftest.py"; then
+  echo "the corpus aggregator's self-test fails -- its verdict cannot be trusted" >&2
+  exit 1
+fi
+echo
+
 PASS=0; FAIL=0; FAILED=""
 for dir in "$HERE"/cases/*/; do
   name="$(basename "$dir")"
@@ -83,6 +102,15 @@ for dir in "$HERE"/cases/*/; do
   if [ "${cerr:-0}" != "0" ]; then
     echo "  $name: THE CASE DOES NOT COMPILE ($cerr errors) -- fix the case, not the engine"
     sed -n 's/^topErrorCodes\t/    /p' "$w/oracle.manifest.tsv"
+    FAIL=$((FAIL+1)); FAILED="$FAILED $name"; continue
+  fi
+
+  # THE INVARIANTS THE SCORE CANNOT SEE. Roslyn writes no ground-truth row for a call
+  # it cannot bind either, so coverage, agreement and fan are all blind to whether
+  # the engine answered `ambiguous_dynamic`, `ambiguous_unknown` or `boundary_lib`
+  # there -- all three score the same and only one is true. These are written claims
+  # about every case's output, not a blessed file.
+  if ! python3 "$HERE/engine-invariants.py" "$w/engine/out" "$w/ir/csharp" --label "$name"; then
     FAIL=$((FAIL+1)); FAILED="$FAILED $name"; continue
   fi
 
