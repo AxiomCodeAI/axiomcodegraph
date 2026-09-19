@@ -351,7 +351,8 @@ you: a test reached only through reflection, a service loader, or a case built a
 
 ## path — asking the graph
 
-- **Start here when you do not have a name yet.** A bare word is every declaration containing it, so
+- **Start here when you do not have a name yet.** A bare word — one that names nothing exactly, with `'*'` at the
+  other end — is every declaration CONTAINING it, listed with the count so a wide word is visibly wide, so
   `path decrypt '*'` answers "where is the decryption code and what does it touch" — 12 declarations, what they
   reach, by hop and by file — without knowing a single exact name first. `path '*' <word>` is the same in reverse.
   This is the way into an unfamiliar repository: get the real names out of the answer, then ask the precise
