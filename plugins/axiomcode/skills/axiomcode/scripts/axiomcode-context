@@ -28,7 +28,7 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, budgeted, BOUND,
+from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, budgeted, BOUND,
                          dirs_with_counts, offer, task_text, task_terms, winnow, headline, is_synthetic)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
@@ -233,8 +233,16 @@ def main(argv):
     # does not filter. It does not weight either: boosting seeds inside it and penalising files outside
     # it was swept over 57 real commits and was worth at most 0.012 recall@10 against not doing it, which
     # is noise at that sample size. The menu is worth printing for the reader; it is not worth ranking on.
-    bad = require_scope(g, scope, terms, rank=(rank_dirs(g, scope_terms(g, task)) if not scope else None),
-                        flag=' --in-offered')
+    rank = rank_dirs(g, scope_terms(g, task)) if not scope else None
+    if not scope:
+        # One candidate is not a choice: take it and SAY SO, rather than refusing and being handed back
+        # the only path there was. This is NOT the offered-scope case above, so it is not marked
+        # `--in-offered` and it does filter -- a filter that removes nothing, since a sole row means
+        # every indexed file already lives under it. Printed, because an answer silently narrowed to one
+        # package reads as an answer about the whole repository.
+        scope = sole_scope(g) or ''
+        if scope: print(f"scope: {scope} (the only package this graph indexes; --in overrides)\n")
+    bad = require_scope(g, scope, terms, rank=rank, flag=' --in-offered')
     if bad is not None: return bad
 
     if not scope_offered:
