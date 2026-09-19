@@ -44,5 +44,5 @@ case "$cmd" in
   test-impact|tests) exec python3 "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
   ""|-h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, context, graph, path, impact, changed" >&2; exit 2 ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, context, graph, path, impact, changed, test-impact" >&2; exit 2 ;;
 esac
