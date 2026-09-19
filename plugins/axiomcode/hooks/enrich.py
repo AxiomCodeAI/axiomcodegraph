@@ -145,14 +145,22 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         lines.append(head)
         if con and d['kind'] in ('signature', 'field', 'type', 'removed'): lines.append(f"    must change with it ({len(con)}): " + ', '.join(f"{x['display']} ({x['why']})" for x in con[:4]) + (' …' if len(con) > 4 else ''))
         if prod: lines.append(f"    produces / writes it ({len(prod)}): " + names(prod))
-        if reads: lines.append(f"    reads / uses it ({len(reads)}): " + names(reads))
+        # THE FAST PATH COUNTS LESS THAN IT SOUNDS LIKE. graph_sql answers from call_edges: resolved callers,
+        # and the by-name sites it can see. The rules add the [in scope], [text] and reference layers, which on
+        # a field or a wide method is most of the answer — measured on jsoup, 1 against 93 for a field and 5
+        # against 137 for a tokeniser method. A COUNT is a claim about completeness, so the fast path does not
+        # make one: it names what it has and says where the rest is.
+        if reads:
+            lines.append(f"    reads / uses it ({len(reads)}): " + names(reads) if not j.get('_sql')
+                         else f"    reads / uses it — resolved callers: " + names(reads)
+                              + f" (the fast path; `axiomcode impact {d['target']}` adds the by-name, in-scope and text layers)")
         # `reached` is a LIST OF PLACEHOLDERS from the SQL shim (graph_sql.impact_shaped fills it with None,
         # deliberately, because both hooks only take len() of it — resolving a location for rows nobody prints cost
         # 5.7 s against 1.7 s on a wide target). Iterating it and calling .get() therefore raised AttributeError and
         # killed this hook, so the PostToolUse block — the blast radius of an edit that just landed, the plugin's
         # most-used output — was never emitted on any graph the shim answers for, silently, because a hook's stderr
         # goes nowhere. The line was dead code: `ent` was never read.
-        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
+        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls within 12 hops; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more changed declaration(s): axiomcode changed --impact")
     for n in ch.get('notes', [])[:2]: lines.append(f"  added: {n}")
 elif tool == 'Read':
