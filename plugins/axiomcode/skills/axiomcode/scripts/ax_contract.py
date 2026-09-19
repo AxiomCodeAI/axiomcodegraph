@@ -225,6 +225,25 @@ def offer(header, ranked, terms=(), hint=None, flag=''):
     return 2
 
 
+def sole_scope(g):
+    """The only directory this graph could be scoped to, or None when there is a real choice.
+
+    `require_scope` refuses without `--in` so the CALLER picks the package, which is right
+    whenever there is something to pick. When the structural menu holds exactly one row there
+    is nothing to pick: the refusal spends a round trip to be told the one path it had already
+    ranked and already term-matched. A flat package leaves one row, and so does a package with
+    a single subpackage; two subpackages leave two, and those still refuse.
+
+    The test is the repository's own structure, never where the task's words landed. A
+    ten-package tree whose words happen to fall in one package is still a choice, and guessing
+    it is exactly what `--in` exists to prevent. That is also why this one is not `--in-offered`:
+    a sole row is not a guess between candidates, and filtering on it removes nothing, because
+    every indexed file is already under it.
+    """
+    rows = drop_ancestors(sorted(dirs_with_counts(g).items()))
+    return rows[0][0] if len(rows) == 1 else None
+
+
 def require_scope(g, scope, terms=(), rank=None, flag=''):
     """Rule 1. Returns None when the scope is usable, or an exit code after printing the correction.
 
