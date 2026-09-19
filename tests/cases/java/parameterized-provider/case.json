@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a parameterized test's argument provider is named by a string in the annotation, so the test it feeds must still be selected when the provider reaches the change",
+   "run": ["impact", "Rates.base", "--tests"],
+   "want": ["RatesTest::everyCase"],
+   "avoid": ["0 of 1 test method(s)"]}]}

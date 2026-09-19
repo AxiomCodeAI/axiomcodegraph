@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a test that reads a field is selected when the field changes, though no method body changed and no call reaches it",
+   "run": ["impact", "Config.retries", "--kind", "field", "--tests"],
+   "want": ["ConfigTest::readsTheField"],
+   "avoid": ["0 of 1 test method(s)"]}]}
