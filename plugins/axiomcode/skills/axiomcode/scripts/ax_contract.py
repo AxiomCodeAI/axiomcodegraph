@@ -74,6 +74,26 @@ def task_text(prompt):
     return '\n'.join(blocks) if blocks else text
 
 
+# A declaration the PARSER names, which the source never does. Two kinds, and only one is noise:
+#
+#   type-level   <function-type>, <call-signature>, <construct-signature>, <constructor-type> — a signature
+#                in a type annotation or an interface. It has no body, nothing calls INTO it, and a reader
+#                told to go and look at "<function-type>" has been told nothing.
+#   container    <module>, <classbody> — the file or the class itself. Every file has one; on Python every
+#                class has one too, so a third of an entry-point list can be these.
+#
+# NOT here, deliberately: <arrow>, <function-expression>, <constructor>. Those are real callables with
+# bodies — an anonymous callback is where a vitest or jest test LIVES, and dropping them would empty the
+# test layer. The line is whether there is code inside, not whether the name is angle-bracketed.
+SYNTHETIC = frozenset({'<function-type>', '<call-signature>', '<construct-signature>',
+                       '<constructor-type>', '<module>', '<classbody>'})
+
+
+def is_synthetic(name):
+    """A name the parser invented for a construct with no body — never a place to send a reader."""
+    return (name or '') in SYNTHETIC
+
+
 def subtokens(s):
     """`onUnmountedHook` -> on unmounted hook; `api_create_app` -> api create app; a path -> its segments."""
     out = []
