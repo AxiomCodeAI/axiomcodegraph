@@ -1,0 +1,11 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "`#` is Java's member separator and TypeScript's PRIVATE marker: rewriting it to '.' turned App.#fail into App..fail, and the tool then offered `App.#fail` as the near miss — the exact name that had just been asked for. A private method could not be asked about at all in the language that spells them that way",
+   "run": ["impact", "App.#fail"],
+   "want": ["App.handle", "calls it"],
+   "avoid": ["nothing named"]},
+  {"why": "and the same spelling resolves as a path endpoint",
+   "run": ["path", "App.handle", "App.#fail"],
+   "want": ["App.#fail"],
+   "avoid": ["no such"]}
+ ]}

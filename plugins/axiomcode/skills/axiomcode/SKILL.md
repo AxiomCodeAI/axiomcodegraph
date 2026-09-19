@@ -132,6 +132,15 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   `it(…)` — 6,661 of hono's 7,723 callables in test files are `<arrow>` and two carried a name the old rule accepted,
   so the test universe was empty and every answer named no test file at all. A callable registered by `it` / `test` /
   `bench` on its own line is a test, and a helper declared beside them carries them.
+  **What a selection costs and buys, on that same TypeScript library, measured again with the rungs separated** (a
+  fresh clone, 311 source files, 130 test files, 5,193 tests in 17 s; 16 methods broken one at a time, 54 (method,
+  test file) pairs of behavioural truth): recall **0.778**, precision 0.636, and the answer names **4.1 test files of
+  130** for a change — 3 % of the suite. Per rung, against that truth: a `[sound]` route (every hop a single resolved
+  target) is right **29 times in 30**; `[one of a set]` is right 1 in 8; `[by name]` 0 in 1. By distance: 1 hop 0.667,
+  2 hops 0.900, 3 or more 1.000 — the far pairs are few and all real. So a pipeline that runs the sound rung first is
+  almost never wasting a run, and the waste is concentrated in exactly one rung, which is why the rungs are reported
+  separately rather than blended. Every remaining miss is `no-edge` — a handler the graph has no resolved caller for
+  (an adapter, a JSX intrinsic element) — not a rule this tool could tighten.
   A library is not a service, and the number differs by population: on a Python SERVICE driven through its frameworks
   (FastAPI + Flask + click routes, a pytest suite with conftest fixtures, a decorator registry, a signal loop, 53
   functions broken one at a time, 95 (method, test file) pairs) recall was **0.216** — 26 of 40 answers named no test
