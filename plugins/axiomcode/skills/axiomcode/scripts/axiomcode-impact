@@ -1166,8 +1166,14 @@ def main(argv):
         if m in g.sym and int(d) <= depth and int(d) < tests.get(m, (10 ** 9,))[0]:
             # the lowest candidate, not the first emitted: a test reached at the same hop count through two
             # fixtures has two rows, and `next()` reported whichever the solver happened to output first.
-            _vias = sorted(x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d) and x[2])
-            tests[m] = (int(d), _vias[0] if _vias else None)
+            # THE TEST'S OWN BODY BEATS A FIXTURE AT THE SAME DISTANCE. A test reached both ways has two rows here,
+            # one with an empty `via`, and taking the first non-empty one reported the weaker claim: the answer said
+            # "via <fixture>" and ranked the route `[fixture]` (right about 1 time in 4) when the test's own body
+            # reaches the change just as directly (right about 2 times in 3). Prefer the body; a fixture route is
+            # what is left when there is no other.
+            at_d = [x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d)]
+            _vias = sorted(v for v in at_d if v)
+            tests[m] = (int(d), None if any(not v for v in at_d) else (_vias[0] if _vias else None))
     # the same test, inherited: the subclass runs the base's test method, in its own file
     inh = {}
     for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
