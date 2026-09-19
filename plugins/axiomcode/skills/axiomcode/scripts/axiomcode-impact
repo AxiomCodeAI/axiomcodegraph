@@ -47,7 +47,7 @@ def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program
+sys.path.insert(0, HERE); import dl_program, ax_registration
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die = P.G, P.run_dl, P.die
@@ -123,6 +123,8 @@ class Impact:
         self.fields = {r['rowid']: dict(r) for r in g.q("SELECT rowid, * FROM symbols WHERE method_id IS NULL AND type_id IS NULL AND kind IN ('field','const','enum_member','variable')")}
         self.cols = {t: {r[1] for r in g.q(f"PRAGMA table_info({t})")} for t in ('refs', 'type_refs', 'symbols')}
         self.src = {}
+
+
     # ── where a line lives ───────────────────────────────────────────────────────────────────────────────────────
     def at(self, file, line, callables_only=True):
         """the narrowest callable spanning (file, line); or the type whose body (a field initializer) holds it"""
@@ -495,7 +497,10 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '14'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key layer
+    IMPACT_VERSION = '15'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this guards)
+    #  — bump this whenever a fact this writes changes shape, or an already-indexed repository reuses the old file
+    #    against the new program and every query dies with "cannot parse fact file <name>.facts".
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
@@ -605,6 +610,7 @@ class Impact:
                     L = self.code(r['file']); text = L[r['line'] - 1] if r['line'] <= len(L) else ''
                     for qn in re.findall(rf'([A-Za-z_$][\w$]*)\s*\.\s*{re.escape(r["name"])}\b', text): quals.append((r['file'], r['line'], r['name'], qn))
         W('ref', refs); W('qualifier', sorted(set(quals)))
+        W('registration', ax_registration.registrations(g.q, g.site_file))
         trs = []; trf = set()
         if g.has('type_refs'):
             for r in g.q("SELECT name, file, line, context FROM type_refs"):
