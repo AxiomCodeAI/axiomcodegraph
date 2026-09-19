@@ -212,14 +212,35 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   nothing. A `@pytest.mark.usefixtures` marker names one instead, and an `autouse=True` fixture runs before every test in
   its scope without being named anywhere. A fixture may request another fixture, and then both run. None of that is a call.
   A route that runs a fixture first is reported as `[fixture]`, and it is the weakest rung above `[by name]`: the
-  framework does run it and it does reach the change, but the test's own body may never touch it. Measured on Flask's
-  own suite, held out: `[sound]` is right 0.645 of the time, `[one of a set]` 0.414, `[by key]` 0.396, `[fixture]`
-  0.153, `[by name]` 0.176 — so the ladder the answer prints is ordered by evidence, not by assumption. A test
+  framework does run it and it does reach the change, but the test's own body may never touch it. How often each rung
+  is right, measured against mutation truth on three Python subjects (`n` is the pairs the rung named, and a rung with
+  a handful of pairs says nothing — it is printed so you can discount it, not so you can rank on it):
+
+  | rung | small framework service | flask | click |
+  |---|---|---|---|
+  | `[sound]` | 1.000 (n=21) | 0.895 (n=86) | 0.561 (n=132) |
+  | `[defines]` | — | 1.000 (n=1) | 0.875 (n=8) |
+  | `[one of a set]` | 1.000 (n=2) | 0.659 (n=44) | 0.657 (n=99) |
+  | `[by key]` | 0.926 (n=27) | 0.342 (n=73) | 0.000 (n=3) |
+  | `[decorator by name]` | 1.000 (n=9) | 0.667 (n=3) | — |
+  | `[fixture]` | 1.000 (n=27) | 0.388 (n=98) | 0.536 (n=112) |
+  | `[by name]` | 0.333 (n=3) | 0.531 (n=32) | 0.475 (n=61) |
+
+  Read that table before trusting the order the answer prints. The TOP of the ladder holds: `[sound]` and
+  `[one of a set]` are the best rungs on the subjects with enough pairs to say. BELOW that the order is not stable
+  across subjects and the printed ranking is a tie-break of what KIND of evidence a hop is, not a measured ordering:
+  `[by key]` is the best rung on one subject (0.926) and the worst on another (0.342), and `[by name]` is printed
+  last while measuring above `[by key]` on both of the two large subjects. An answer's label is still the WORST rung
+  on its route, so it remains a floor — but a `[by name]` route on a library-shaped codebase is not the near-worthless
+  thing its position suggests. And `[sound]` at 0.561 on click is the plainest statement of the whole limit: reaching
+  is not failing, and on a codebase whose tests drive one hub, a resolved call within three hops is right barely more
+  than half the time. A test
   reached BOTH by its own body and through a fixture is reported as the body: the same distance, the stronger claim,
   and it moves 37 of click's pairs off the fixture rung. And what the rules add is a POPULATION effect, not a general
-  one — on a third held-out subject (click, a CLI library, 2,058 tests, 40 functions, 223 pairs) the answers are
-  byte-identical to the ones before any of this, 0.803 recall at 0.450 precision, because its tests reach its code by
-  CALLING it. The framework hops pay where a framework is in between and cost nothing where it is not.
+  one — on a third held-out subject (click, a CLI library, 2,058 tests, 40 functions, 293 pairs) they move four
+  targets and carry 0.802 recall at 0.566 precision, against 0.792 / 0.569 with every framework hop turned off,
+  because its tests reach its code by CALLING it. The framework hops pay where a framework is in between and very
+  nearly cancel where it is not: on click the decorator hop alone adds 3 true pairs and 4 false ones.
 - **verified** — every printed edge looked up again in graph.sqlite; **bound** counts the unresolved calls inside the impacted
   set, so the set is a lower bound on the real one; a **note** counts the entries matched by name or text.
 
