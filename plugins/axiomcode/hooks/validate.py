@@ -195,24 +195,42 @@ def main(argv):
             except OSError: continue
             hdr = L[s['line'] - 1]
             if '(' not in hdr: continue
+            # A REAL `Edit` CALL MATCHES A UNIQUE STRING, and so must the edit this harness fabricates: the text is
+            # applied with `.replace(old, new, 1)`, so a line that occurs twice in the file lands the edit on the
+            # FIRST one and the block that comes back is about another declaration. Python makes that ordinary —
+            # `    def get(self, request):` and `        from app.pricing import price_order` each occur twice in one
+            # 50-line file here — and it produced three "no block for X" failures that were this harness's fault.
+            uniq = lambda line: '\n'.join(L).count(line) == 1
             kind = rnd.choice(['signature', 'body'])
-            if kind == 'signature': new_hdr = hdr.replace('(', '(int __added, ', 1) if not re.search(r'\(\s*\)', hdr) else hdr.replace('()', '(int __added)', 1); old_s, new_s = hdr, new_hdr
+            if kind == 'signature':
+                if not uniq(hdr): continue
+                new_hdr = hdr.replace('(', '(int __added, ', 1) if not re.search(r'\(\s*\)', hdr) else hdr.replace('()', '(int __added)', 1); old_s, new_s = hdr, new_hdr
             else:
                 hend = next((i for i in range(s['line'] - 1, min(s['end_line'], len(L))) if '{' in L[i]), s['line'] - 1)          # the header may span lines
-                body = [i for i in range(hend + 1, min(s['end_line'] - 1, len(L))) if L[i].strip() and not L[i].strip().startswith(('//', '*', '/*', '}', '{', '@'))]
+                # and never a nested `def` / `function` line: editing one is a SIGNATURE change of the inner
+                # declaration, which the hook is right to report and this loop would score as a body-only edit
+                body = [i for i in range(hend + 1, min(s['end_line'] - 1, len(L))) if L[i].strip() and uniq(L[i])
+                        # a comment or a docstring is NOT a body edit: `changed` deliberately reports nothing for
+                        # a comment-only change (nothing depends on a comment), so asserting a block for one
+                        # tests this harness's opinion rather than the tool's contract
+                        and not L[i].strip().startswith(('//', '*', '/*', '}', '{', '@', '#', '"""', "'''"))
+                        and not re.match(r'\s*(def |async def |function |class )', L[i])]
                 if not body: continue
-                i = rnd.choice(body); old_s, new_s = L[i], L[i] + ' // __edited'
+                i = rnd.choice(body); old_s, new_s = L[i], L[i] + ('  # __edited' if s['file'].endswith('.py') else ' // __edited')
             new_text = '\n'.join(L).replace(old_s, new_s, 1)
             if new_text == '\n'.join(L): continue
             blk = hook('changes.py', 'PreToolUse', 'Edit', {'file_path': fp, 'old_string': old_s, 'new_string': new_s}, V_.repo, session=f'v{done}')
-            if kind == 'signature': V_.fact(bool(blk), f"PreToolUse: no block for a signature edit of {s['display']}")
-            else: V_.fact(not blk, f"PreToolUse: a block for a body-only edit of {s['display']}")
+            # a failure that does not say WHICH LINE it edited cannot be reproduced, and this harness exists to be
+            # believed: three of its failures today were its own doing and took a by-hand replay to tell apart
+            where = f"{s['file']}:{i + 1 if kind == 'body' else s['line']}: {old_s.strip()[:60]!r}"
+            if kind == 'signature': V_.fact(bool(blk), f"PreToolUse: no block for a signature edit of {s['display']} ({where})")
+            else: V_.fact(not blk, f"PreToolUse: a block for a body-only edit of {s['display']} ({where})")
             if blk: V_.check_change(blk, s['file'], '\n'.join(L), new_text)
             # after the edit lands: write the copy in place, run the PostToolUse block, restore
             shutil.copy(fp, fp + '.bak'); open(fp, 'w').write(new_text)
             try:
                 blk2 = hook('enrich.py', 'PostToolUse', 'Edit', {'file_path': fp, 'old_string': old_s, 'new_string': new_s}, V_.repo, session=f'w{done}')
-                V_.fact(bool(blk2), f"PostToolUse: no block for a {kind} edit of {s['display']}")
+                V_.fact(bool(blk2), f"PostToolUse: no block for a {kind} edit of {s['display']} ({s['file']}:{i + 1 if kind == 'body' else s['line']}: {old_s.strip()[:60]!r})")
                 if blk2: V_.check_change(blk2, s['file'], '\n'.join(L), new_text)
             finally: shutil.move(fp + '.bak', fp)
             done += 1
