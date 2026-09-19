@@ -169,6 +169,78 @@ done
 accn=$(wc -l < "$ACC" 2>/dev/null | tr -d ' ')
 [ "${accn:-0}" -eq 5 ] || fail "expected 5 accessor edges on the staged type, got ${accn:-0}"
 
+# ── AN ELEMENT TYPE FROM A STAGED RETURN, AND THE IMPLICIT BASES ────────────
+# `h.Items()[0].Use()` needs the rank and element name off the LIBRARY's own type
+# reference. And a struct's and an enum's base are library types the source never
+# writes: the engine still does not invent them, but with System.ValueType and
+# System.Enum staged it must derive them, or `p.ToString()` is a blind spot with
+# the answer sitting in the staged IR.
+mkdir -p "$WORK/rest-lib" "$WORK/rest-cli"
+cat > "$WORK/rest-lib/Sys.cs" <<'EOF2'
+namespace System;
+
+public class Object
+{
+    public virtual string ToString() => "o";
+}
+public class ValueType : Object { }
+public class Enum : ValueType { }
+EOF2
+cat > "$WORK/rest-lib/Coll.cs" <<'EOF2'
+namespace LibNs;
+
+public class Holder { public Item[] Items() => null!; }
+public class Item { public void Use() { } }
+EOF2
+cat > "$WORK/rest-cli/Use.cs" <<'EOF2'
+using LibNs;
+namespace CliNs;
+
+public struct Pt { public int X; }
+public enum Col { Red }
+
+public static class Use
+{
+    public static void Elem(Holder h) { h.Items()[0].Use(); }
+    public static string StructBase(Pt p) => p.ToString();
+    public static string EnumBase(Col c) => c.ToString();
+}
+EOF2
+node "$REPO/parser/dist/index.js" "$WORK/rest-lib" rest-lib false "$WORK/rest-libir" --per-language > "$WORK/rest-parse.log" 2>&1
+bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/rest-cli" --out "$WORK/rest-out"   --library "$WORK/rest-libir" --version pinned --debug > "$WORK/rest.log" 2>&1
+REST="$WORK/rest-out/csharp/raw/call-chain-edges.csv"
+if grep -q "ambiguous_unknown" "$REST" 2>/dev/null; then
+  fail "a staged return's element type or an implicit base is still a blind spot"
+  awk -F'	' '$6=="ambiguous_unknown"{print "        "$4"  "$6"  "$7}' "$REST" | head -3
+fi
+restn=$(awk -F'	' '$6=="boundary_lib"' "$REST" 2>/dev/null | wc -l | tr -d ' ')
+[ "${restn:-0}" -eq 4 ] || fail "expected 4 resolved edges (Items, the element's Use, and two implicit-base ToString), got ${restn:-0}"
+
+# ── A KEYWORD NAMES A STAGED FRAMEWORK TYPE ─────────────────────────────────
+# `string` and `System.String` are the same type, and nothing recorded that, so a
+# staged framework was useless to source written in keywords. `string` and
+# `object` head the list of receiver types that block resolution.
+mkdir -p "$WORK/alias-lib" "$WORK/alias-cli"
+cat > "$WORK/alias-lib/Sys.cs" <<'EOF2'
+namespace System;
+public class Object { public virtual string ToString() => "o"; }
+public class String : Object { public String Trim() => this; public int Length => 0; }
+EOF2
+cat > "$WORK/alias-cli/Use.cs" <<'EOF2'
+namespace CliNs;
+public static class Use
+{
+    public static string Keyword(string s) => s.Trim();
+    public static int Prop(string s) => s.Length;
+}
+EOF2
+node "$REPO/parser/dist/index.js" "$WORK/alias-lib" alias-lib false "$WORK/alias-libir" --per-language > "$WORK/alias-parse.log" 2>&1
+bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/alias-cli" --out "$WORK/alias-out"   --library "$WORK/alias-libir" --version pinned --debug > "$WORK/alias.log" 2>&1
+AL="$WORK/alias-out/csharp/raw/call-chain-edges.csv"
+aln=$(awk -F'	' '$6=="boundary_lib"' "$AL" 2>/dev/null | wc -l | tr -d ' ')
+[ "${aln:-0}" -eq 2 ] || fail "a keyword-typed receiver did not reach the staged framework type: got ${aln:-0} of 2"
+grep -q "external:" "$AL" 2>/dev/null && fail "a keyword-typed receiver was still labelled external although its type is staged"
+
 # ── STAGING NOTHING CHANGES NOTHING ─────────────────────────────────────────
 # The cross-provenance clauses must be inert on a client-only run. Compared
 # relation by relation, and then the SAME comparison is run against the staged

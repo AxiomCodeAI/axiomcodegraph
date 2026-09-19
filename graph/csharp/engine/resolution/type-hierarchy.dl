@@ -33,6 +33,34 @@
 // does not invent them.
 // ============================================================================
 
+// ── THE IMPLICIT BASE, WHERE THE LIBRARY DECLARING IT IS STAGED ─────────────
+// The header above says a struct's, an enum's and a record's implicit bases are
+// library types that "only appear when a library IR is staged, and the engine
+// does not invent them". Nothing derived them even then, so a client struct
+// reached no member of ValueType or object and `p.ToString()` was a blind spot
+// with System.Object staged and sitting there.
+//
+// Still not invented: each clause requires the library to DECLARE the type, by
+// qualified name, so a run with nothing staged derives nothing and a run staging
+// a partial framework gets exactly what it staged.
+lib_type_named(qn, gk) :- type_decl("lib", _, qn, _, _, t), type_group("lib", t, gk).
+
+type_extends("client", gk, bgk) :-
+    type_group("client", t, gk), type_is_struct("client", t),
+    lib_type_named("System.ValueType", bgk).
+type_extends("client", gk, bgk) :-
+    type_group("client", t, gk), type_is_enum("client", t),
+    lib_type_named("System.Enum", bgk).
+// A class or record with no written base derives from object. Guarded on having
+// no base of its own, so a derived type keeps the one it wrote and does not gain
+// a second.
+type_extends("client", gk, bgk) :-
+    type_group("client", t, gk), type_is_class("client", t),
+    !type_has_written_base("client", gk),
+    lib_type_named("System.Object", bgk).
+type_has_written_base(prov, gk) :- heritage_resolves(prov, gk, _, bgk), type_group(prov, bt, bgk), type_is_class(prov, bt).
+type_has_written_base("client", gk) :- heritage_resolves("client", gk, _, bgk), type_group("lib", bt, bgk), type_is_class("lib", bt).
+
 // ── heritage_resolves(Prov, GroupKey, Position, BaseGroup) ──────────────────
 // A heritage entry, resolved to the type it names. Goes through type_ref_resolves
 // where the entry has a reference (the normal case), and falls back to the written
