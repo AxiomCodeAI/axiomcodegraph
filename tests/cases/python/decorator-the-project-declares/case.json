@@ -3,22 +3,47 @@
  "src": ".",
  "checks": [
   {
-   "why": "a decorator the project declares is a dependency of everything it wraps: `@exporter(\"csv\") def export_csv` means export_csv IS what exporter returned, so a test that drives the handler must run when the decorator changes — and nothing but the @ line says so, since the decorator has no call site and the table is read by a key",
-   "run": ["impact", "exporter", "--tests"],
-   "want": ["test_export.py", "decorator by name"],
-   "avoid": ["test_plain.py"]
+   "why": "a decorator the project declares is a dependency of everything it wraps: `@exporter(\"csv\") def export_csv` means export_csv IS what exporter returned, so a test that drives the handler must run when the decorator changes — and nothing but the @ line says so, since the decorator has no call site and the table is read by a key. The control is a module of its OWN: a sibling in the same file is reached whatever the decorator does, because the decoration runs while that file is being imported",
+   "run": [
+    "impact",
+    "exporter",
+    "--tests"
+   ],
+   "want": [
+    "test_export.py",
+    "decorator by name"
+   ],
+   "avoid": [
+    "test_plain.py"
+   ]
   },
   {
    "why": "the inner function the factory returns is reached the same way, one hop further out: it is what actually wraps the handler",
-   "run": ["impact", "register", "--tests"],
-   "want": ["test_export.py"],
-   "avoid": ["test_plain.py"]
+   "run": [
+    "impact",
+    "register",
+    "--tests"
+   ],
+   "want": [
+    "test_export.py"
+   ],
+   "avoid": [
+    "test_plain.py"
+   ]
   },
   {
    "why": "the hop is named for what it is. The decoration carries a simple NAME, so the declaration it denotes is matched by that name and not resolved, and the answer must not sell that as a resolved call",
-   "run": ["impact", "exporter", "--tests"],
-   "want": ["decorator by name"],
-   "avoid": ["how sure each route is: 3 sound"]
+   "run": [
+    "impact",
+    "exporter",
+    "--tests"
+   ],
+   "want": [
+    "decorator by name"
+   ],
+   "avoid": [
+    "how sure each route is: 3 sound"
+   ]
   }
  ]
 }
