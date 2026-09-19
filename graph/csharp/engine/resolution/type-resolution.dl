@@ -335,6 +335,17 @@ type_name_cand("client", mod, alias, "0", gk, 1) :-
     cs_alias_framework_type(alias, qn),
     lib_type_named(qn, gk).
 
+// AND A LIBRARY FILE WRITES `string` TOO. `public string Trim()` in a staged IR
+// has to resolve its OWN return type, or a chain through the library dies one
+// hop in: `sb.ToString().Trim()` resolved the first call into the library and
+// then had no receiver type for the second, while `sb.Append(...)` on the same
+// receiver was fine. The declaring side is still the library, so this adds no
+// direction -- a library file naming a library type is not a cycle.
+type_name_cand("lib", mod, alias, "0", gk, 1) :-
+    module_decl("lib", _, _, _, mod),
+    cs_alias_framework_type(alias, qn),
+    lib_type_named(qn, gk).
+
 // A predefined name that did not resolve is PREDEFINED-UNSTAGED, not unresolved.
 type_name_predefined_unstaged(prov, mod, n) :-
     type_name_unresolved(prov, mod, n, "0"), cs_predefined_alias(n).

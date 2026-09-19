@@ -299,6 +299,11 @@ package-lock.json
 
 # C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
 .cs-case-work/
+# staging-test.sh's default work dir, the same way .cs-case-work/ is the case
+# runner's. Without it a run of the C# suite leaves an untracked directory, and
+# the next `git add -A` in that tree commits a scratch tree full of absolute
+# machine paths.
+.cs-staging-work/
 .cs-dev-cache/
 
 # The C# corpus manifest names the evaluation set and is deliberately NOT committed.
