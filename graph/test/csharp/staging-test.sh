@@ -130,6 +130,45 @@ if grep -q "known_implicit_ctor" "$CHAIN" 2>/dev/null; then
 fi
 grep -q "external:string.Trim" "$CHAIN" 2>/dev/null ||   fail "the call on a staged method's RETURN value is not named; the chain dies one hop in"
 
+# ── THE ACCESSOR PATH, THE LARGER HALF BY VOLUME ────────────────────────────
+# A property read, a property write, a get-only read and both indexer directions
+# on a STAGED type. member_lookup answers with the library's property and every
+# fact about it -- its accessors, whether it is an indexer, what the accessor
+# dispatches to -- is under "lib", so all five used to produce no edge at all.
+mkdir -p "$WORK/acc-lib" "$WORK/acc-cli"
+cat > "$WORK/acc-lib/Lib.cs" <<'EOF2'
+namespace LibNs;
+
+public class Box
+{
+    public int Count { get; set; }
+    public string Name => "n";
+    public int this[int i] { get => i; set { } }
+}
+EOF2
+cat > "$WORK/acc-cli/Use.cs" <<'EOF2'
+using LibNs;
+namespace CliNs;
+
+public static class Use
+{
+    public static int ReadProp(Box b) => b.Count;
+    public static void WriteProp(Box b) { b.Count = 3; }
+    public static string ReadOnly(Box b) => b.Name;
+    public static int ReadIdx(Box b) => b[0];
+    public static void WriteIdx(Box b) { b[1] = 2; }
+}
+EOF2
+node "$REPO/parser/dist/index.js" "$WORK/acc-lib" acc-lib false "$WORK/acc-libir" --per-language > "$WORK/acc-parse.log" 2>&1
+bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/acc-cli" --out "$WORK/acc-out"   --library "$WORK/acc-libir" --version pinned --debug > "$WORK/acc.log" 2>&1
+ACC="$WORK/acc-out/csharp/raw/call-chain-edges.csv"
+for kind in property_read property_write indexer; do
+  n=$(awk -F'	' -v k="$kind" '$7==k' "$ACC" 2>/dev/null | wc -l | tr -d ' ')
+  [ "${n:-0}" -ge 1 ] || fail "no $kind edge on a staged type: the accessor path stops at the boundary"
+done
+accn=$(wc -l < "$ACC" 2>/dev/null | tr -d ' ')
+[ "${accn:-0}" -eq 5 ] || fail "expected 5 accessor edges on the staged type, got ${accn:-0}"
+
 # ── STAGING NOTHING CHANGES NOTHING ─────────────────────────────────────────
 # The cross-provenance clauses must be inert on a client-only run. Compared
 # relation by relation, and then the SAME comparison is run against the staged
