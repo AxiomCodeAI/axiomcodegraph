@@ -58,6 +58,22 @@ def impact(repo, target, depth=DEPTH):
         # call_edges — so answering one from call_edges alone under-reports silently (4 callers reported as 2, and
         # the by-name tier empty). Returning None sends the caller to impact.dl, which is right for this kind.
         if any((k or '') == 'constructor' for _, k in rows): return None
+        # AND DECLINED FOR THE SAME REASON WHEN THE GRAPH HAS A FRAMEWORK HOP. `fw_edge` and `uses_fixture` enter the
+        # closure in impact.dl and are absent here, so on a graph carrying them this answers a SMALLER set — and this
+        # entry point is what the HOOKS call first, which means an under-reported blast radius in an agent's context
+        # on every edit. `_has_framework_hops` runs the rules' own join (ax_registration.key_edges, caps included),
+        # so it declines only where there is something to miss; the caller falls back to axiomcode-impact.
+        try:
+            spans = [(f_, a_, b_ or a_, i_) for i_, f_, a_, b_ in
+                     q("SELECT id, file, line, end_line FROM symbols WHERE method_id IS NOT NULL AND file IS NOT NULL AND line > 0")]
+            def _at(f_, l_):
+                best = None
+                for ff, a_, b_, i_ in spans:
+                    if ff == f_ and a_ <= l_ <= b_ and (best is None or (b_ - a_) < best[0]): best = (b_ - a_, i_)
+                return best[1] if best else None
+            if _has_framework_hops(lambda sql, *p_: q(sql, p_).fetchall(), _at): return None
+        except Exception:
+            return None
         ids = [i for i, _ in rows]
         ph = ','.join('?' * len(ids))
         # what must change with it: the overrides of this method and what it overrides, itself never listed

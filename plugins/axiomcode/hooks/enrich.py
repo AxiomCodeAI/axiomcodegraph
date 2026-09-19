@@ -146,8 +146,13 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         if con and d['kind'] in ('signature', 'field', 'type', 'removed'): lines.append(f"    must change with it ({len(con)}): " + ', '.join(f"{x['display']} ({x['why']})" for x in con[:4]) + (' …' if len(con) > 4 else ''))
         if prod: lines.append(f"    produces / writes it ({len(prod)}): " + names(prod))
         if reads: lines.append(f"    reads / uses it ({len(reads)}): " + names(reads))
-        ent = [x for x in rc if x.get('test')]
-        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner']}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
+        # `reached` is a LIST OF PLACEHOLDERS from the SQL shim (graph_sql.impact_shaped fills it with None,
+        # deliberately, because both hooks only take len() of it — resolving a location for rows nobody prints cost
+        # 5.7 s against 1.7 s on a wide target). Iterating it and calling .get() therefore raised AttributeError and
+        # killed this hook, so the PostToolUse block — the blast radius of an edit that just landed, the plugin's
+        # most-used output — was never emitted on any graph the shim answers for, silently, because a hook's stderr
+        # goes nowhere. The line was dead code: `ent` was never read.
+        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more changed declaration(s): axiomcode changed --impact")
     for n in ch.get('notes', [])[:2]: lines.append(f"  added: {n}")
 elif tool == 'Read':

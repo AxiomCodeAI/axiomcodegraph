@@ -67,7 +67,7 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         if con and d['kind'] in contract_kinds: lines.append(f"    must change with it ({len(con)}): " + ', '.join(f"{x['display']} ({x['why']})" for x in con[:4]) + (' …' if len(con) > 4 else ''))
         if prod: lines.append(f"    produces / writes it ({len(prod)}): " + names(prod))
         if reads: lines.append(f"    reads / uses it ({len(reads)}): " + names(reads))
-        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner']}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
+        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more: axiomcode changed --impact")
     return lines
 
