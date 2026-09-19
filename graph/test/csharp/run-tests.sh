@@ -96,6 +96,15 @@ for dir in "$HERE"/cases/*/; do
     FAIL=$((FAIL+1)); FAILED="$FAILED $name"; continue
   fi
 
+  # THE INVARIANTS THE SCORE CANNOT SEE. Roslyn writes no ground-truth row for a call
+  # it cannot bind either, so coverage, agreement and fan are all blind to whether
+  # the engine answered `ambiguous_dynamic`, `ambiguous_unknown` or `boundary_lib`
+  # there -- all three score the same and only one is true. These are written claims
+  # about every case's output, not a blessed file.
+  if ! python3 "$HERE/engine-invariants.py" "$w/engine/out" "$w/ir/csharp" --label "$name"; then
+    FAIL=$((FAIL+1)); FAILED="$FAILED $name"; continue
+  fi
+
   out=$(python3 "$HERE/ground-truth/score.py" \
         --engine-raw "$w/engine/out" --engine-ir "$w/ir/csharp" \
         --oracle "$w/oracle.tsv" --oracle-dispatch "$w/oracle.dispatch.tsv" \

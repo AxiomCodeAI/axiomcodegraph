@@ -246,6 +246,14 @@ call_chain_edge(e, caller, "-", label, "external", "boundary_lib", "indexer") :-
     external_element_access("client", e, label),
     call_from_expr("client", e, caller).
 
+// A PROPERTY READ THROUGH `dynamic`. The same declared blind spot as a call through
+// `dynamic`, and it reaches the output for the same reason: a site that produced no
+// row is indistinguishable from one the engine never saw. No target, because there
+// is no member to name.
+call_chain_edge(acc, caller, "-", "-", "-", "ambiguous_dynamic", "property_read") :-
+    dynamic_property_read("client", acc),
+    call_from_expr("client", acc, caller).
+
 // ── A GENERATED RECORD PROPERTY READ ────────────────────────────────────────
 // `formatting.UsesInvariantDigits` on a positional record invokes a getter the
 // compiler generated. There is no cs_method row to point at, correctly, because no

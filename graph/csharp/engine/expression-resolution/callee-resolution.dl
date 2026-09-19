@@ -376,3 +376,37 @@ expr_target_any(prov, e, m) :- expr_call_candidate(prov, e, m).
 // is the one place where "unresolved" is the correct and final answer rather than a
 // gap to close.
 call_unresolvable_by_design(prov, e, "dynamic") :- call_is_dynamic(prov, e).
+
+// THE PARSER'S `DYNAMIC_CALL` KIND IS RESERVED WITH ZERO ROWS, so the clause above
+// fires nowhere and the tier it feeds had no rows on any project measured. What the
+// parser DOES record is the receiver's written type, and `dynamic` is written down:
+// on a parameter, on a local, on a field, on a property. That is the same fact the
+// external-labelling path was reading when it fabricated a type named `dynamic`, so
+// it is taken here instead, where the answer is "undecidable" rather than a name.
+//
+// The receiver must not have typed, which is what `!call_recv_type` says: a name
+// that did resolve is not a DLR site whatever it is spelled.
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_name(prov, v, "dynamic", _).
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "PARAMETER", p), param_type_name(prov, p, "dynamic", _).
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "FIELD", f), field_type_name(prov, f, "dynamic", _).
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, "dynamic", _).
+
+call_unresolvable_by_design(prov, e, "dynamic") :-
+    call_receiver_expr(prov, e, r),
+    expr_dynamic_typed(prov, r),
+    !call_recv_type(prov, e, _).
+
+// READING A PROPERTY THROUGH `dynamic` IS THE SAME SITE. `d.Name` invokes a getter
+// the DLR picks at runtime, and it arrived at the external-labelling path by the
+// same route the method call did, so removing `dynamic` from that path without this
+// would turn a false label into silence -- and silence reads as a site the engine
+// never saw, which is the worse of the two.
+dynamic_property_read(prov, acc) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_resolved(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_dynamic_typed(prov, q).

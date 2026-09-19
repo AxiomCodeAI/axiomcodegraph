@@ -22,6 +22,36 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `03-target-typed-new` | `new()` in a field, property, local, return and assignment, with an explicit `new T()` control |
 | `04-accessors-and-indexers` | property read and write, a virtual property's fan, a compound assignment that is both, an indexer, an event subscription, and the control that a plain field access is not a call |
 | `05-partial-and-records` | a positional record's primary constructor, a primary constructor's base invocation written in the heritage clause, and a private member of another part of a partial type |
+| `07-dynamic-boundary` | a call and a property read through `dynamic`, from a parameter, a local, a field and a property, with the same member names on a static receiver, a real unstaged framework receiver and a `dynamic` value never called through as controls |
+
+### The invariants the score cannot see
+
+```
+engine-invariants.py <engine-raw> <engine-ir> [--label NAME]
+```
+
+Runs per case, from inside `run-tests.sh`.
+
+There are true things about the output the oracle has no opinion about. A call
+through `dynamic` is the clearest: Roslyn cannot bind it either, so it writes no
+ground-truth row, and coverage, agreement and fan are all blind to whether the engine
+answered `ambiguous_dynamic`, `ambiguous_unknown` or `boundary_lib` there. All three
+score identically and only one is true.
+
+This is not a blessed golden either. Nothing in it is generated from a run: each
+invariant is a written claim with its reasoning, and changing it means arguing with
+the reasoning.
+
+| | claim |
+|---|---|
+| 1 | no external label names something that is not a type (`external:dynamic.M` asserts a type called `dynamic`, and `boundary_lib` is the tier a consumer follows into a staged dependency) |
+| 2 | every tier is in the vocabulary `call_chain.dl` declares |
+| 3 | a call whose receiver is declared `dynamic` is `ambiguous_dynamic`, not `ambiguous_unknown` (which is where the engine's own blind spots are counted) and not `boundary_lib` (which asserts a target) |
+| 4 | no call site reached the output with no row |
+
+Invariant 3 is taken from the DECLARATIONS rather than from the parser's call kind:
+`DYNAMIC_CALL` is reserved with zero rows, so a check keyed on it would pass
+vacuously on a file full of `dynamic`.
 
 ### The scorer's own self-test
 
