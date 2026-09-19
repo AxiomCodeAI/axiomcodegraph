@@ -67,18 +67,67 @@ def command_for(lang, files, classes):
 # on generated output and never write the helper's name. What does contain them is the PACKAGE -- both the
 # changed file and its tests live under the same one. That is a weak claim and a useful one: in a monorepo
 # it still excludes most of the suite, and it cannot miss a test that sits beside the code it exercises.
+# The directories a build tool puts between the repo root and the package: a source file and its test are siblings
+# in the PACKAGE and strangers in the path, and a package read off the raw path never matches across them.
+SRC_ROOTS = ('src/main/java/', 'src/test/java/', 'src/main/kotlin/', 'src/test/kotlin/', 'src/main/scala/',
+             'src/test/scala/', 'src/main/resources/', 'src/test/resources/', 'src/main/', 'src/test/',
+             'src/', 'tests/', 'test/', 'spec/', '__tests__/')
+
+
 def package_of(rel):
-    """The package a path belongs to: its first two segments, or its first if that is all there is."""
-    parts = [x for x in rel.split('/') if x]
-    return '/'.join(parts[:2]) if len(parts) > 2 else (parts[0] if parts else '')
+    """The package a path belongs to, with the build tool's own directories taken off the front first.
+
+    This used to be "the first two path segments", which is the package only when tests sit BESIDE sources.
+    On Maven it compared `src/main` with `src/test` and on a Python project `app` with `tests`, so it never
+    matched on either — the whole tier returned nothing on two of the three layouts it meets, silently, and a
+    change the graph could not reach printed "there is nothing to run" with no fallback at all behind it.
+    """
+    r = rel
+    for pre in SRC_ROOTS:
+        if r.startswith(pre):
+            r = r[len(pre):]
+            break
+    return os.path.dirname(r)
+
+
+# `test_pricing.py` for `pricing.py`, `ParserTest.java` for `Parser.java`, `cart.test.ts` for `cart.ts`: the
+# convention every one of these ecosystems writes down, and the only thing left when the call graph is silent.
+_STEM_PRE = ('test_', 'spec_', 'Test', 'IT')
+_STEM_SUF = ('_test', '_spec', '.test', '.spec', 'Test', 'Spec', 'IT', 'Tests')
+
+
+def stems_of(rel):
+    """Every name this file could be the test of, or be tested by."""
+    s = os.path.splitext(os.path.basename(rel))[0]
+    out = {s}
+    for pre in _STEM_PRE:
+        if s.startswith(pre) and len(s) > len(pre):
+            out.add(s[len(pre):])
+    for suf in _STEM_SUF:
+        if s.endswith(suf) and len(s) > len(suf):
+            out.add(s[:-len(suf)])
+    return {x for x in out if len(x) > 2}
 
 
 def package_tier(repo, changed_files, limit=6000):
-    """Every test file under the same package as a changed file. Not a call-graph answer, and says so."""
+    """Two tiers of proximity, for when the call graph named nothing. Neither is a call-graph answer.
+
+    They are returned and printed apart because they are not worth the same. A test file NAMED AFTER the
+    changed module is one file and the convention says it is that module's test; a test file in the same
+    package is a directory's worth and says only that someone put them together. Measured on every edit
+    where the graph answered nothing (19 across two Python subjects, against mutation truth): the name
+    tier recovered a test file that really fails 17 times, naming 0.9 files on average. The package tier
+    recovered 0 of the 19 on those layouts, before and after its own fix — Python keeps its tests in a
+    sibling tree, so nothing is ever in the same package. It earns its place on Maven, not here.
+    """
     pkgs = {package_of(f) for f in changed_files if f}
     pkgs.discard('')
-    if not pkgs: return {}, pkgs
-    out = collections.defaultdict(list)
+    want_stems = set()
+    for f in changed_files:
+        if f: want_stems |= stems_of(f)
+    if not pkgs and not want_stems: return {}, {}, pkgs
+    by_pkg = collections.defaultdict(list)
+    by_name = []
     seen = 0
     for root, dirs, fs in os.walk(repo):
         dirs[:] = [d for d in dirs if d not in ('node_modules', '.git', 'dist', 'build', 'target', '.axiomcode')]
@@ -87,10 +136,11 @@ def package_tier(repo, changed_files, limit=6000):
             rel = os.path.relpath(os.path.join(root, f), repo)
             if not TESTY.search(rel): continue
             seen += 1
-            if seen > limit: return dict(out), pkgs
+            if seen > limit: return dict(by_pkg), {'files': sorted(by_name)}, pkgs
+            if stems_of(rel) & want_stems: by_name.append(rel)
             p = package_of(rel)
-            if p in pkgs: out[p].append(rel)
-    return dict(out), pkgs
+            if p in pkgs: by_pkg[p].append(rel)
+    return dict(by_pkg), ({'files': sorted(by_name)} if by_name else {}), pkgs
 
 
 def read_answer(out):
@@ -188,7 +238,7 @@ def main(argv):
     # offered alongside a good call-graph answer is noise, offered instead of silence it is the difference
     # between "run these first" and "there is nothing to run"
     changed_files = [e.get('file') for e in entries if e.get('file')]
-    pkg_hits, pkgs = package_tier(repo, changed_files) if not files else ({}, set())
+    pkg_hits, name_hits, pkgs = package_tier(repo, changed_files) if not files else ({}, {}, set())
     classes = sorted({r.get('owner') for r in tests.values() if r.get('owner')})
     # A row the answer named that carries no owner still has to reach the reader. Dropping it for being
     # malformed is how a selection gets quietly shorter, which is the one failure this command exists to
@@ -205,6 +255,7 @@ def main(argv):
                           'not_reached_from': unseen,
                           'unreadable_answers': [t for t, _ in unreadable],
                           'same_package_only': pkg_hits,
+                          'same_name_only': name_hits.get('files') or [],
                           'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
                                    'framework instantiating by name, or a case built at runtime is not here'},
                          indent=1))
@@ -217,10 +268,23 @@ def main(argv):
         print("\nno test in the graph reaches any of them.")
         print("  that is not the same as 'no test covers this': a function invoked through an array, a")
         print("  table or a plugin list has no resolved caller, so a test that drives it looks unrelated.")
+        nf = name_hits.get('files') or []
+        if nf:
+            print(f"\n  BY NAME ONLY — {len(nf)} test file(s) are NAMED AFTER a changed file")
+            print("  (test_x.py for x.py, XTest.java for X.java). This is the naming convention, not the")
+            print("  call graph — but it is the file that ecosystem expects to hold that module's tests:")
+            for f in nf[:limit]:
+                print(f"    {f}")
+            # `lang` is guessed from the files the graph named, and here it named none — so guess it from
+            # the tier's own files, or the one runnable sentence this block exists to produce is empty.
+            cmd = command_for(lang or _guess_lang(nf), nf[:limit], [])
+            if cmd:
+                print(f"\n  {cmd}")
         if pkg_hits:
             n = sum(len(v) for v in pkg_hits.values())
             print(f"\n  BY PACKAGE ONLY — {n} test file(s) live under the same package as a changed file")
-            print(f"  ({', '.join(sorted(pkgs))}). This is proximity, not the call graph:")
+            print(f"  ({', '.join(sorted(pkgs))}). This is weaker still: it says someone put them in one")
+            print("  directory, nothing more:")
             for p, fs in sorted(pkg_hits.items()):
                 for f in sorted(fs)[:limit]:
                     print(f"    {f}")
