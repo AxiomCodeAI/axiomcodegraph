@@ -490,6 +490,14 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
 seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, _, _, _), !seed(q, c).
+// and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
+// a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
+// registered"), and the closure stopped there: the answer named the callable that hands it over and then said the
+// closure could not start, so the test that drives that callable was never reached. A value handed to a framework
+// is the whole shape this skill exists for, and the row was being printed and then dropped one line later.
+// It enters as a by-name seed, not a seed proper, so the rung stays `by name`: the guards on `valueref` make it a
+// stronger claim than a bare name match, and it is still a name match.
+seed_byname(q, c) :- valueref(q, c, _, _), !seed(q, c).
 .output seed_byname
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
