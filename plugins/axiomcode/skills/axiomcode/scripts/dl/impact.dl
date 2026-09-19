@@ -207,7 +207,14 @@ direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — t
 direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"), "resolved", "", 0) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), injected(ot, c, kind), c != m.
 
 // a METHOD: its callers, and the unresolved sites written with its name
-direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", !bean_call(q, c, m).
+// A RESOLVED call at a route registration says what the code does and not what it means: on JavaScript the engine
+// already resolves `app.get('/pads', listPads)` to an edge, so the answer said "routes.<module> calls it" and the
+// reader never learned that the thing they are changing is GET /pads. Same row, the route's wording, same certainty
+// — the edge is the engine's, only the sentence comes from the registration.
+.decl route_site(f:symbol, l:number)
+route_site(f, l) :- registration(_, f, l, "route", _, _).
+direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", !bean_call(q, c, m), !route_site(f, l).
+direct(q, c, "uses", why, "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", !bean_call(q, c, m), registration(_, f, l, "route", _, why).
 // A call INTO a method of a container-managed bean. Whether the container's proxy is on the path decides whether a
 // behavioural annotation added to the method (a transaction, a cache, an async dispatch, a retry, an authorization
 // check) reaches this caller at all: a call from inside the bean goes through `this` and never through the proxy.
@@ -225,7 +232,51 @@ direct(q, c, "uses", "calls it on the injected bean — the container proxy is o
 direct(q, c, "uses", "calls it on an instance it obtained itself, not from the container — no proxy on the path, so an added proxied annotation does not apply here", "resolved", f, l) :-
     bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, !receives_bean(ot, cot), calls(c, m, _, f, l).
 direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
+// `!is_target_decl`: `this.rows.find(...)` inside `OrdersService.find` is the ARRAY's find, and with the receiver
+// untyped it matched the target by name — printing the declaration as a reader of itself. Worse, that row made the
+// change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
+// reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
+// one self-match. A recursive call needs no row either — the body is what is changing.
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), !is_target_decl(q, c).
+
+// ── a method handed over as a VALUE, never called where it is named ──────────────────────────────────────────
+// `app.get('/orders/:id', getOrder)`, `useEffect(load)`, `items.map(format)`, `handlers = {"x": handle_x}`: the
+// declaration is named, and the call happens inside a library, or later, or never. There is no call site for it, so
+// EVERY method-target rule above misses it and the answer used to be "the declaration is used only where it is
+// declared" — for a live HTTP handler, with `--delete` then reporting no dependent at any certainty. What the graph
+// does hold is the parser's own reference row, whose entity kind says the identifier binds to a method.
+// The two guards are what keep it from doubling an ordinary call: a language that emits a reference row for the
+// callee of `foo()` as well (Python does) is excluded by the call site at that same file and line, resolved or not.
+// the entity kinds a parser gives an identifier that BINDS TO A CALLABLE. IMPORT_BINDING is here because a handler is
+// usually imported from the module that declares it — `import { listOrders }` then `app.get('/orders', listOrders)`,
+// where the reference at the registration is recorded as the import binding, not as a method. An import binding is
+// recorded at the USE, not at the import statement, so this does not turn every import line into a dependent.
+.decl callable_ek(k:symbol)
+callable_ek("METHOD"). callable_ek("FUNCTION"). callable_ek("IMPORT_BINDING").
+// (decl, file, line, kind, key, why): what a site hands a declaration to. `decl` is the declaration handed over,
+// empty when the name does not identify exactly one callable; `key` is the string the framework dispatches on — a
+// route path, verbatim — and is what a test that drives the app through the framework's client is joined to. The
+// join is not in this file yet; the column is here so the two halves of this work agree on one relation, not two.
+.decl registration(decl:symbol, f:symbol, l:number, kind:symbol, key:symbol, why:symbol) .input registration
+.decl valueref(q:symbol, c:symbol, f:symbol, l:number)
+.decl registered(q:symbol, c:symbol, why:symbol, f:symbol, l:number)
+valueref(q, c, f, l) :- target(q, "method", m, _), named(n, m), ref(c, n, _, ek, f, l), callable_ek(ek),
+    !calls(c, m, _, f, l), !unresolved(c, n, _, f, l), !is_target_decl(q, c).
+// There is NO second leg keyed on the site alone, and the reason is measured rather than assumed. A JavaScript
+// graph's refs carry the ACCESS MODE (IDENTIFIER|READ, PROPERTY_ACCESS|WRITE) and no entity kind, so the rule above
+// matches nothing there and a site-evidence version was written to cover it: a bare reference, not the receiver of
+// a call on the line, at a line that registers something. On a 124-file Express application, over 30 sampled
+// targets, it produced eleven rows and ALL ELEVEN were wrong — seven were a parameter named `callback` inside
+// `forEach(function (callback) {…})`, four were `settle` being CALLED inside the span of a `.then(…)` it sits in.
+// Without an entity kind there is nothing to tell a parameter or a local from a reference to the declaration, and
+// a name match at a call line is not evidence. So JavaScript gets the route wording on the edge the engine already
+// resolved (see `route_site` above) and no name-matched rows at all.
+registered(q, c, why, f, l) :- valueref(q, c, f, l), registration(_, f, l, _, _, why).
+direct(q, c, "uses", "names it as a value — passed, stored or registered, and called somewhere the graph cannot see", "by name", f, l) :-
+    valueref(q, c, f, l), !registered(q, c, _, f, l).
+// and when the site says what will do the calling, the answer says that instead: a route registration, an event
+// subscription, a lifecycle hook. `registration` is written by the exporter's convention table, never guessed here.
+direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q, c, why, f, l).
 
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
@@ -458,7 +509,9 @@ parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_
 .decl seed_sure(q:symbol, m:symbol)
 seed_sure(q, m) :- seed(q, m), !weak_seed(q, m).
 .decl weak_seed(q:symbol, m:symbol)
-weak_seed(q, c) :- direct(q, c, _, _, cert, _, _), (cert = "by name" ; cert = "text" ; cert = "one of a set"), !strong_direct(q, c).
+// a seed proper is the change itself (the target, its overrides, the members of a target type): its certainty is not
+// in question, whatever a text-level rule also said about it, so it never makes the closure below it look weak
+weak_seed(q, c) :- direct(q, c, _, _, cert, _, _), (cert = "by name" ; cert = "text" ; cert = "one of a set"), !strong_direct(q, c), !seed_of(q, c).
 .decl strong_direct(q:symbol, c:symbol)
 strong_direct(q, c) :- direct(q, c, _, _, "resolved", _, _).
 strong_direct(q, c) :- direct(q, c, _, _, "in scope", _, _).

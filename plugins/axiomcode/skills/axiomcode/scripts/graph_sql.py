@@ -21,6 +21,7 @@ answering from call_edges alone under-reported (4 callers as 2). impact() return
 back, which is right for that kind.
 """
 import os, re, sqlite3, json, collections
+import ax_registration
 
 NEEDED = ('symbols', 'call_edges', 'overrides', 'call_sites', 'unresolved_sites')
 DEPTH = 6                     # the counts are a summary line; the cap is what keeps a hub target flat
@@ -580,7 +581,7 @@ def _bean_call(q, ids, sites):
     return callers, why
 
 
-def direct_for_method(q, ids, code=None, rel=None):
+def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
     """direct(q,c,role,why,cert,f,l) for a method target — the rows the answer groups by *why* and *how sure*.
 
       calls it                                         resolved      a typed edge, any tier but multi_inferred
@@ -598,12 +599,15 @@ def direct_for_method(q, ids, code=None, rel=None):
                   WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
                   ORDER BY s.start_line""", *ids)
     bean_callers, why_of = _bean_call(q, ids, sites)
+    routes = {(f, l): w for _d, f, l, k, _key, w in ax_registration.registrations(q, rel) if k == 'route'}
     for c, tier, f, l in sites:
         if tier == 'multi_inferred':
             # rule 208 carries no `!bean_call` guard, so a multi_inferred site stays `one of a set` even into a bean
             rows.append((c, 'uses', 'calls it', 'one of a set', f or '', l or 0))
         elif c not in bean_callers:                                          # `… , !bean_call(q, c, m)`
-            rows.append((c, 'uses', 'calls it', 'resolved', f or '', l or 0))
+            # a resolved call AT a route registration is reported as the route (`!route_site` in the rules): the
+            # edge is the engine's, the sentence is the registration's
+            rows.append((c, 'uses', routes.get((rel(f) if rel and f else f, l), 'calls it'), 'resolved', f or '', l or 0))
     # …and for a caller into a container-managed bean, EVERY site of it — the three bean rules end in a bare
     # `calls(c, m, _, f, l)` with no tier test, so a multi_inferred site of a bean caller is a row here too.
     for c, tier, f, l in sites:
@@ -614,7 +618,13 @@ def direct_for_method(q, ids, code=None, rel=None):
         for c, f, l, kind in q("""SELECT s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
+            if c in ids: continue                                            # !is_target_decl(q, c)
             rows.append((c, 'uses', 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+    # the declaration handed over as a VALUE — a route registration, a callback — which has no call site at all
+    # (the valueref / registered rules). The convention table is shared with the rules, in ax_registration.py, so
+    # the two backends cannot disagree about what a registration is.
+    if at is not None:
+        rows += ax_registration.value_ref_rows(q, names, set(ids), rel, at, lines)
     # a method that DEFINES a bean: whoever the container injects the type it returns into (rule 189)
     rows += _bean_definition_consumers(q, ids)
     # a barrel that re-exports it, or the whole module it is declared in (rules 396 and 399)
@@ -2157,13 +2167,13 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             mids = sorted(by_kind['method'])
             mph = ','.join('?' * len(mids))
             con += contract_for_method(q, mids)
-            d = direct_for_method(q, mids, code, rel)
+            d = direct_for_method(q, mids, code, rel, at, lines)
             dr += d
             # seed_of(q,m) for a method target is the target and what the contract binds to it
             seeds |= set(mids) | {c for c, _ in con}
             de += q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                         WHERE callee_method_id IN ({mph}) AND callee_provenance='client'""", *mids)
-            byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name'} - seeds)
+            byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)} - seeds)
 
         if 'type' in by_kind:
             tids = sorted(by_kind['type'])

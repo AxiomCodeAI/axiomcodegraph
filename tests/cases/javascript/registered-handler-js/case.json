@@ -1,0 +1,11 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "the JavaScript engine resolves a handler passed to app.get(…) to an edge, so the answer said only 'calls it' and never that the declaration being changed is GET /pads — the edge is the engine's, the sentence is the registration's",
+   "run": ["impact", "listPads", "--kind", "method"],
+   "want": ["registered as a GET route \"/pads\"", "src/routes.js:13"],
+   "avoid": ["nothing the graph can see"]},
+  {"why": "a callback that is not a route keeps the engine's own wording rather than being relabelled: this rule only renames what it can prove is a route",
+   "run": ["impact", "auditLog", "--kind", "method"],
+   "want": ["routes.<module>", "calls it"],
+   "avoid": ["registered as a"]}
+ ]}
