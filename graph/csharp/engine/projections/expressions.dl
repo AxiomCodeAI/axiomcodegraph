@@ -208,6 +208,18 @@ expr_method_name_child(prov, inv, nameExpr) :- expr_child(prov, inv, "METHOD_NAM
 // Positional arguments, in order.
 expr_argument(prov, inv, pos, arg) :- expr_child(prov, inv, "ARGUMENT", pos, arg).
 // The qualifier of a dotted name: `Math` in `Math.PI`.
+// ── expr_operand_child(Prov, ExprHash, OperandHash) ─────────────────────────
+// An operator's operands, under whichever role the form gives them. An operator
+// site has NO receiver: `a + b` writes no `a.` before the member, so the parser
+// records receiverKind NONE and there is no RECEIVER child to type. The operands
+// are what an operator resolves against, and C# looks on BOTH of them -- the
+// method is a static member of one of the operand types, and which one is not
+// decidable from the syntax.
+expr_operand_child(prov, e, c) :- expr_child(prov, e, "LEFT_OPERAND", _, c).
+expr_operand_child(prov, e, c) :- expr_child(prov, e, "RIGHT_OPERAND", _, c).
+expr_operand_child(prov, e, c) :- expr_child(prov, e, "UNARY_OPERAND", _, c).
+expr_operand_child(prov, e, c) :- expr_child(prov, e, "CAST_OPERAND", _, c).
+
 expr_qualifier_child(prov, acc, q) :- expr_child(prov, acc, "QUALIFIER", _, q).
 expr_member_name_child(prov, acc, n) :- expr_child(prov, acc, "MEMBER_NAME", _, n).
 

@@ -62,7 +62,15 @@ IR = {
         "isCheckedContext returnStatementIndex startLine startColumn endLine endColumn isExternal "
         "serviceVersionLinkHash csExpressionUniqueHash"
     ).split(),
-    "all-csharp-call-sites.csv": (
+    "all-csharp-types.csv": (
+        "name qualifiedName arity typeCategory typeAccess typeModifiers typePlacement "
+        "declarationScopeKey declarationGroupKey isPartial isStatic isAbstract isSealed "
+        "isReadOnly isRefLikeStruct isFileLocal isRecord hasPrimaryConstructor "
+        "primaryConstructorArity nullableContext csModuleLinkHash containingTypeLinkHash "
+        "csNamespaceName startLine endLine startColumn attributeCount isExternal "
+        "serviceVersionLinkHash csTypeUniqueHash"
+    ).split(),
+        "all-csharp-call-sites.csv": (
         "callKind calleeName receiverKind receiverExpressionLinkHash receiverTypeName "
         "csExpressionLinkHash csModuleLinkHash callerMethodLinkHash callerTypeLinkHash "
         "argumentCount namedArgumentCount typeArgumentCount refArgumentCount outArgumentCount "
@@ -113,6 +121,14 @@ class Fixture:
         self.rows["all-csharp-expressions.csv"].append(
             {"csExpressionUniqueHash": h, "csModuleLinkHash": module, "kind": kind,
              "startLine": str(line), "startColumn": str(column)})
+        return h
+
+    def interface_type(self, h, qualified_name):
+        """An interface the IR declares, which is how the key builder resolves an
+        `explicitInterfaceName` to the QUALIFIED spelling the oracle writes."""
+        self.rows["all-csharp-types.csv"].append(
+            {"csTypeUniqueHash": h, "qualifiedName": qualified_name,
+             "name": qualified_name.rsplit(".", 1)[-1], "typeCategory": "INTERFACE"})
         return h
 
     def call_site(self, expr, callee_name, call_kind="METHOD_CALL"):
@@ -389,12 +405,174 @@ def case_a_real_indexer_is_untouched(fx):
     yield "none is missed", s.get("site_missed", 0) == 0, s
 
 
+def case_an_explicit_implementation_is_one_key_on_both_sides(fx):
+    """
+    #1061. Roslyn puts the interface inside the member's own name, fully qualified
+    and with its type arguments:
+
+        declaredKey  Probe.IWorker.Work/1
+        runtimeType  Probe.Explicit
+        runtimeKey   Probe.Explicit.Probe.IWorker.Work/1
+
+    The engine's key is the parser's qualifiedName plus parameterCount, and the
+    parser records the interface in a column of its own, so the qualified name is
+    `Probe.Explicit.Work`. The two never met and `norm_key` had no rule for the
+    difference, so EVERY explicit implementation counted as a target the engine had
+    LOST -- whether or not it had it.
+
+    That matters most at the moment the engine starts producing these targets: the
+    score would not move, and the obvious reading of that is "the fix did not work".
+
+    The key builder resolves the written interface name to its QUALIFIED spelling
+    from the types the IR declares, which is what the oracle writes; this case is
+    what holds it to that, and the next one is why the qualifier is kept at all.
+
+    One site through `IWorker`, two implementing types, and the engine resolves to
+    BOTH -- which is what a sound fan is. The ordinary implementation is the control
+    in the same set: a change that mangled ordinary keys would lose it and the fan
+    would go unsound for the other reason.
+    """
+    m = fx.module("mod", "Explicit.cs")
+    # The interface is DECLARED, which is what lets the key builder resolve the
+    # written `IWorker` to the qualified `Probe.IWorker` the oracle spells.
+    fx.interface_type("tWorker", "Probe.IWorker")
+    fx.method("mIface", "Probe.IWorker.Work", 1)
+    fx.method("mExplicit", "Probe.Explicit.Work", 1, explicitInterfaceName="IWorker")
+    fx.method("mPlain", "Probe.Implicit.Work", 1)
+
+    e = fx.expression("e1", m, 20, 40)
+    fx.call_site(e, "Work")
+    fx.candidate(e, "mIface")
+    fx.resolves(e, "mExplicit")
+    fx.resolves(e, "mPlain")
+    fx.classify(e, "client_calls_client")
+    fx.oracle_row("Explicit.cs", 20, 41, "invocation", "in_source",
+                  "Probe.IWorker.Work/1", targetDispatch="virtual")
+
+    fx.dispatch_row("Probe.IWorker.Work/1", "Probe.Explicit",
+                    "Probe.Explicit.Probe.IWorker.Work/1")
+    fx.dispatch_row("Probe.IWorker.Work/1", "Probe.Implicit", "Probe.Implicit.Work/1")
+
+    r = fx.score()
+    fan = r["fan"]
+    yield "the site reaches the fan check", fan.get("sites", 0) == 1, fan
+    yield "the fan is sound", fan.get("sound", 0) == 1, fan
+    yield "no target reads as lost", fan.get("unsound", 0) == 0, fan
+    yield "and nothing extra is claimed", fan.get("exact", 0) == 1, fan
+
+
+def case_two_explicit_implementations_stay_two_keys(fx):
+    """
+    #1061, the reason the interface qualifier is KEPT rather than dropped.
+
+    A type may explicitly implement two interfaces that both declare `Work(int)`.
+    The parser gives both members the same qualifiedName and the same
+    parameterCount, so reducing the oracle side by deleting the qualifier would make
+    those two methods ONE key -- and a fan that lost one of them would read as sound
+    because its sibling filled the hole.
+
+    Here the engine resolves to the IOther implementation only. The IWorker fan must
+    still report a lost target.
+
+    This one is red against the REJECTED ALTERNATIVE rather than against the pre-fix
+    code: collapsing the qualifier to nothing, or to a simple name shared by two
+    interfaces, makes it report `sound 1, unsound 0` for a fan that lost its only
+    target. It is here so the choice cannot be quietly reversed later on the grounds
+    that it is the simpler of the two.
+    """
+    m = fx.module("mod", "Explicit.cs")
+    fx.interface_type("tWorker", "Probe.IWorker")
+    fx.interface_type("tOther", "Probe.IOther")
+    fx.method("mIWorker", "Probe.IWorker.Work", 1)
+    fx.method("mExWorker", "Probe.Explicit.Work", 1, explicitInterfaceName="IWorker")
+    fx.method("mExOther", "Probe.Explicit.Work", 1, explicitInterfaceName="IOther")
+
+    e = fx.expression("e1", m, 20, 40)
+    fx.call_site(e, "Work")
+    fx.candidate(e, "mIWorker")
+    fx.resolves(e, "mExOther")          # the WRONG one of the two siblings
+    fx.classify(e, "client_calls_client")
+    fx.oracle_row("Explicit.cs", 20, 41, "invocation", "in_source",
+                  "Probe.IWorker.Work/1", targetDispatch="virtual")
+    fx.dispatch_row("Probe.IWorker.Work/1", "Probe.Explicit",
+                    "Probe.Explicit.Probe.IWorker.Work/1")
+
+    r = fx.score()
+    fan = r["fan"]
+    yield "the site reaches the fan check", fan.get("sites", 0) == 1, fan
+    yield "a sibling does not fill the hole", fan.get("unsound", 0) == 1, fan
+    yield "and it is not counted sound", fan.get("sound", 0) == 0, fan
+
+
+def case_an_operator_site_does_not_block_the_shortcut(fx):
+    """
+    #1059. A BINARY EXPRESSION ANCHORS AT ITS LEFT OPERAND, so `handler(x) + 1` puts
+    the delegate invocation and the operator at ONE column.
+
+    The NAME does not go wrong here; the SINGLE-SITE SHORTCUT does. That shortcut is
+    what pairs a position where the parser's calleeName and Roslyn's member name are
+    legitimately different words -- for a delegate invoke the parser writes the
+    delegate's own name and Roslyn reports `Invoke` -- and it requires the position
+    to hold exactly one engine site. A built-in operator site beside the invocation
+    makes it two, and the shortcut silently stops applying. The null-conditional
+    fallback cannot rescue it either: that one requires the NAME to match, and it
+    does not.
+
+    Measured on the run that first emitted operator sites: `site_missed` on the
+    held-out set rose from 232 to 238 over a population that had not changed, every
+    one a pairing the join stopped making rather than an engine that stopped
+    answering. A census of the shapes sharing a column with a new operator site
+    found this one: an `invocation` row, DELEGATE_INVOKE and OPERATOR_CALL at the
+    position, and the oracle's name among neither.
+
+    THE OPERATOR HERE IS BUILT-IN, which is why the oracle has no row for it and the
+    group is still one call. That is the case that bites: a user-defined operator
+    would put a second oracle row at the column and the shortcut would be off
+    anyway.
+
+    CONTROL: the same position without the operator site must pair as it always did,
+    so a fix that simply stopped counting sites would show nothing here.
+    """
+    m = fx.module("mod", "Chain.cs")
+    fx.method("mInvoke", "Probe.Handler.Invoke", 1)
+
+    # `handler(x) + 1` -- the delegate site and the operator site, one column.
+    e_del = fx.expression("eDel", m, 12, 30)
+    fx.call_site(e_del, "handler", call_kind="DELEGATE_INVOKE")
+    fx.candidate(e_del, "mInvoke")
+    fx.classify(e_del, "client_calls_client")
+
+    e_op = fx.expression("eOp", m, 12, 30, kind="BINARY")
+    fx.call_site(e_op, "op_Addition", call_kind="OPERATOR_CALL")
+    fx.classify(e_op, "known_builtin_operator")
+
+    # CONTROL: the same shape one line down, with no operator beside it.
+    e_ctl = fx.expression("eCtl", m, 13, 30)
+    fx.call_site(e_ctl, "handler", call_kind="DELEGATE_INVOKE")
+    fx.candidate(e_ctl, "mInvoke")
+    fx.classify(e_ctl, "client_calls_client")
+
+    # Roslyn names the delegate's method `Invoke`; the parser wrote `handler`. Only
+    # the shortcut can pair these.
+    fx.oracle_row("Chain.cs", 12, 31, "invocation", "in_source", "Probe.Handler.Invoke/1")
+    fx.oracle_row("Chain.cs", 13, 31, "invocation", "in_source", "Probe.Handler.Invoke/1")
+
+    r = fx.score()
+    s = r["stats"]
+    yield "the invocation beside an operator is still seen", s.get("site_seen", 0) == 2, s
+    yield "neither is missed", s.get("site_missed", 0) == 0, s
+    yield "and both agree", s.get("declared_agree", 0) == 2, s
+
+
 CASES = [
     case_unparsable_file_is_not_scored,
     case_binding_errors_are_still_scored,
     case_missing_manifest_says_so,
     case_indexer_row_does_not_pair_with_a_property_named_Item,
     case_a_real_indexer_is_untouched,
+    case_an_explicit_implementation_is_one_key_on_both_sides,
+    case_two_explicit_implementations_stay_two_keys,
+    case_an_operator_site_does_not_block_the_shortcut,
 ]
 
 

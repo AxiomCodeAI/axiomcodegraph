@@ -75,11 +75,19 @@ PREAMBLE = """// ===============================================================
 //     whose regime differs describes a different program-reading.
 //
 //  4. SEVERAL KINDS ARE RESERVED WITH ZERO ROWS, by ruling rather than by omission:
-//     DYNAMIC_CALL, CONVERSION_CALL, OPERATOR_CALL, ELEMENT_ACCESS_CALL and
-//     INSTANCE_METHOD_GROUP among them. Each is a fact syntax cannot decide — an
-//     implicit user-defined conversion runs with no syntax at the call site at all —
-//     and the parser emitting nothing there is the reservation working. Do not read
-//     their absence as coverage.
+//     DYNAMIC_CALL, ELEMENT_ACCESS_CALL and INSTANCE_METHOD_GROUP among them. Each
+//     is a fact syntax cannot decide, and the parser emitting nothing there is the
+//     reservation working. Do not read their absence as coverage.
+//
+//     OPERATOR_CALL AND CONVERSION_CALL ARE NOT AMONG THEM ANY MORE. They were, on
+//     the implicit conversion's reasoning — that one runs with no syntax at the
+//     call site at all, and it is still reserved. That reasoning does not transfer
+//     to `a + b`, `a == b` or `(T)x`, which are written down. What syntax cannot
+//     decide there is WHICH method runs, and that is resolution, exactly as a
+//     receiver's type is for an ordinary invocation. A site is emitted for every
+//     such expression outside a constant-expression context, and the engine
+//     decides; where no user-defined operator exists it is classified
+//     known_builtin_operator, which is the truthful answer, not a blind spot.
 //
 //  5. cs_parse_gap IS PART OF THE ANSWER. Where the grammar could not read the
 //     source, a row says so, with a byte fraction. A consumer that joins the other

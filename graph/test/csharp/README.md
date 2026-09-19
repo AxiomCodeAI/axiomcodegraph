@@ -22,7 +22,9 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `03-target-typed-new` | `new()` in a field, property, local, return and assignment, with an explicit `new T()` control |
 | `04-accessors-and-indexers` | property read and write, a virtual property's fan, a compound assignment that is both, an indexer, an event subscription, and the control that a plain field access is not a call |
 | `05-partial-and-records` | a positional record's primary constructor, a primary constructor's base invocation written in the heritage clause, and a private member of another part of a partial type |
+| `06-explicit-interface-impl` | an explicit interface implementation reached through the interface and not through the class-typed receiver, and the two-interface shape that makes the key collision real |
 | `07-dynamic-boundary` | a call and a property read through `dynamic`, from a parameter, a local, a field and a property, with the same member names on a static receiver, a real unstaged framework receiver and a `dynamic` value never called through as controls |
+| `08-operators-and-conversions` | `a + b`, `a == b`, `-a` and `(Money)d` on a type that declares them, with built-in operators on the same tokens, the `operator -(Money)` / `operator -(Money, Money)` arity pair, the non-overloadable `&&`/`||`/`??`, and `as` as controls |
 
 ### The invariants the score cannot see
 
@@ -48,6 +50,21 @@ the reasoning.
 | 2 | every tier is in the vocabulary `call_chain.dl` declares |
 | 3 | a call whose receiver is declared `dynamic` is `ambiguous_dynamic`, not `ambiguous_unknown` (which is where the engine's own blind spots are counted) and not `boundary_lib` (which asserts a target) |
 | 4 | no call site reached the output with no row |
+
+`known_builtin_operator` is in the vocabulary because the parser emits a site for
+every written operator and explicit cast: whether one is user-defined needs the
+operand's type, which is the engine's question and not syntax's. Where no
+user-defined operator is found the site ran no user code -- `System.Int32` declares
+no `op_Addition`, it is an IL instruction -- so it is counted in its own bucket, on
+the same footing as a compiler-synthesised default constructor. Folding it into
+`ambiguous_unknown` would put thousands of correct answers into the one number the
+engine is judged on.
+
+That bucket gives up the distinction between "built-in operator" and "a declared
+operator the engine failed to find". The distinction needs the compiler, and the
+harness HAS the compiler: the oracle emits a ground-truth row for every user-defined
+operator site, so a failure to resolve one is a missed site or a disagreement in the
+score. It is kept in the instrument that can make it.
 
 Invariant 3 is taken from the DECLARATIONS rather than from the parser's call kind:
 `DYNAMIC_CALL` is reserved with zero rows, so a check keyed on it would pass

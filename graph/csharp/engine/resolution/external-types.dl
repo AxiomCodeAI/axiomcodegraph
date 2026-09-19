@@ -191,6 +191,26 @@ external_target(prov, e, label) :-
     !extension_candidate(prov, e, _),
     label = cat("external:", cat(tn, cat(".", m))).
 
+// ── AN OPERATOR ON AN UNSTAGED OPERAND TYPE ─────────────────────────────────
+// `a - b` on two `DateTime`s is `System.DateTime.op_Subtraction`: a real method in
+// an assembly nobody staged. Naming the boundary is the same service as naming
+// `external:Console.WriteLine` -- the chain ends at a named member instead of
+// stopping -- and the callee name the parser writes is already the metadata one.
+//
+// A PREDEFINED ALIAS IS NOT NAMED HERE, and that exclusion is the point.
+// `System.Int32` declares no `op_Addition`: `i + 1` is an IL instruction, and
+// `external:int.op_Addition` would assert a member that does not exist, which is
+// exactly what `external:dynamic.M` did. Those sites stay known_builtin_operator.
+// It costs the decimal and DateTime-like aliases, whose operators ARE real methods;
+// telling those apart from the intrinsics needs knowledge this engine does not have,
+// and an unlabelled site is honest where a wrong label is not.
+external_target(prov, e, label) :-
+    call_is_operator(prov, e),
+    call_callee_name(prov, e, m),
+    expr_operand_child(prov, e, c),
+    expr_external_type_name(prov, c, tn),
+    label = cat("external:", cat(tn, cat(".", m))).
+
 // ── AN INHERITED MEMBER FROM AN UNSTAGED BASE ───────────────────────────────
 // A client class deriving from a framework base calls an inherited method: the
 // receiver types fine (it is the client class), and the member is not found because

@@ -6002,20 +6002,25 @@ const RESERVED_ENUM_VALUES: ReadonlyMap<string, string> = new Map([
       'stays: it is what found that shape, and the next unlocatable one is not knowable in ' +
       'advance. Reserved, not deleted.',
   ],
-  [
-    'CsCallKind.OPERATOR_CALL',
-    'a user-defined operator invoked by `a + b`. Whether the operand type declares one is ' +
-      'RESOLUTION: the syntax is identical for `int + int` and `Vector + Vector`. INDEX_CALL ' +
-      'in TypeScript is the precedent — a kind syntax cannot decide is reserved with a ' +
-      'zero-row assertion, never guessed. The BINARY expression row carries the operator, ' +
-      'which is the whole hand-off.',
-  ],
-  [
-    'CsCallKind.CONVERSION_CALL',
-    'a cast that invokes a user-defined conversion. The same syntax as a cast that does ' +
-      'not, and only the target and source types decide it. The CAST row and its ' +
-      'castTypeReferenceLinkHash give the engine both halves.',
-  ],
+  // OPERATOR_CALL and CONVERSION_CALL WERE RESERVED HERE and are now emitted.
+  //
+  // The reservation borrowed the implicit conversion's reasoning — a kind syntax
+  // cannot decide is reserved, never guessed — and that reasoning is right for the
+  // implicit conversion, which has no syntax at the call site at all and stays
+  // reserved. It does not transfer: `a + b` and `(T)x` are written down. What
+  // syntax cannot decide is WHICH method runs, and that is resolution, the same
+  // question a receiver's type is for `a.M()` — which is emitted and has always
+  // been.
+  //
+  // The cost of the reservation was 100% of a construct class: every `operator`
+  // site the compiler oracle reports was a site the engine never saw, 445 across
+  // the designed-against set and 3,709 across the held-out one, against 380 missed
+  // of 56,046 ordinary invocations.
+  //
+  // A site is emitted for every written operator and explicit cast EXCEPT in a
+  // constant-expression context (an attribute argument, a case label, a parameter
+  // default, an enum member value), where the language permits only built-in
+  // operators on constants and the compiler folds them.
   [
     'CsCallKind.ELEMENT_ACCESS_CALL',
     '`a[i]` on a type with an indexer is a call to `get_Item`; on an array it is not. The ' +
@@ -9143,14 +9148,51 @@ function expressionSpine(outputDir: string): number {
       break;
     }
   }
+  // COUNTING INVOCATIONS AND CREATIONS WAS A PROXY FOR 1:1, and it stopped being
+  // one when OPERATOR_CALL and CONVERSION_CALL started being emitted: an operator
+  // site rides on a BINARY or a UNARY row and a conversion on a CAST. The equality
+  // it asserted is now false in a way that says nothing about the invariant, so the
+  // invariant is asserted directly instead, in three parts.
+  //
+  // (a) NO TWO SITES SHARE AN EXPRESSION. The key is the expression hash and
+  //     nothing else, so a second site on one expression does not collide, it
+  //     DOUBLES.
+  const seenSiteExpr = new Set<string>();
+  for (const call of callSites.rows) {
+    const hash = call[c('csExpressionLinkHash')]!;
+    if (seenSiteExpr.has(hash)) {
+      failures += fail('two call sites share one expression row; the relation is 1:1');
+      break;
+    }
+    seenSiteExpr.add(hash);
+  }
+
+  // (b) A SITE ONLY EVER RIDES ON A KIND THAT CAN CARRY ONE. This is what catches a
+  //     site minted on the wrong row, which the count could not distinguish from a
+  //     missing one.
+  const CALL_BEARING_KINDS = new Set(['INVOCATION', 'OBJECT_CREATION', 'BINARY', 'UNARY', 'CAST']);
+  for (const call of callSites.rows) {
+    const row = byHash.get(call[c('csExpressionLinkHash')]!);
+    if (row !== undefined && !CALL_BEARING_KINDS.has(row[e('kind')]!)) {
+      failures += fail(
+        `a call site rides on a ${row[e('kind')]} expression, which cannot carry one`
+      );
+      break;
+    }
+  }
+
+  // (c) EVERY INVOCATION AND CREATION STILL HAS ONE. The original direction, kept.
+  //     It does NOT extend to the operator kinds: `p && q` is a BINARY that is not a
+  //     call, because `&&` is not user-definable, and an operator in a
+  //     constant-expression context runs nothing and gets no site either.
   const callable = expressions.rows.filter(
     (r) => r[e('kind')] === 'INVOCATION' || r[e('kind')] === 'OBJECT_CREATION'
   );
-  if (callable.length !== callSites.rows.length) {
+  const withoutSite = callable.filter((r) => !seenSiteExpr.has(r[ePk]!));
+  if (withoutSite.length > 0) {
     failures += fail(
-      `${callable.length} invocation/creation expressions and ${callSites.rows.length} ` +
-        'call sites. The relation is 1:1 by construction — its key is the expression hash ' +
-        'and nothing else.'
+      `${withoutSite.length} of ${callable.length} invocation/creation expressions have no ` +
+        'call site. Every one of them is a call the IR records as an expression and not as a call.'
     );
   }
 

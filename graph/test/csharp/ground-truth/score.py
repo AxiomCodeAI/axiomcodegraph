@@ -119,6 +119,46 @@ def read_raw(path):
         return [r for r in csv.reader(fh, delimiter="\t") if r]
 
 
+# The method name the compiler gives a user-defined operator. The parser names the
+# member as it is WRITTEN (`operator +`) and Roslyn reports the metadata name
+# (`op_Addition`), so both sides are reduced to the metadata spelling -- the same
+# treatment `.ctor` and `get_this[]` already get in norm_key.
+#
+# KEYED ON THE TOKEN AND THE ARITY TOGETHER. `-` is `op_Subtraction` between two
+# operands and `op_UnaryNegation` before one, and a type may declare both; a map on
+# the token alone would give them one name and one key.
+OPERATOR_METHOD_NAMES = {
+    ("+", 2): "op_Addition", ("-", 2): "op_Subtraction", ("*", 2): "op_Multiply",
+    ("/", 2): "op_Division", ("%", 2): "op_Modulus",
+    ("&", 2): "op_BitwiseAnd", ("|", 2): "op_BitwiseOr", ("^", 2): "op_ExclusiveOr",
+    ("<<", 2): "op_LeftShift", (">>", 2): "op_RightShift",
+    (">>>", 2): "op_UnsignedRightShift",
+    ("==", 2): "op_Equality", ("!=", 2): "op_Inequality",
+    ("<", 2): "op_LessThan", (">", 2): "op_GreaterThan",
+    ("<=", 2): "op_LessThanOrEqual", (">=", 2): "op_GreaterThanOrEqual",
+    ("+", 1): "op_UnaryPlus", ("-", 1): "op_UnaryNegation",
+    ("!", 1): "op_LogicalNot", ("~", 1): "op_OnesComplement",
+    ("++", 1): "op_Increment", ("--", 1): "op_Decrement",
+    ("true", 1): "op_True", ("false", 1): "op_False",
+}
+
+
+def operator_member_name(row):
+    """The metadata name for a cs_method row, or None if it is not an operator."""
+    kind = row.get("methodKind") or ""
+    if kind == "CONVERSION_OPERATOR":
+        conv = (row.get("conversionKind") or "").upper()
+        return "op_Implicit" if conv == "IMPLICIT" else "op_Explicit"
+    if kind != "OPERATOR":
+        return None
+    token = row.get("operatorToken") or ""
+    try:
+        arity = int(row.get("parameterCount") or 0)
+    except ValueError:
+        return None
+    return OPERATOR_METHOD_NAMES.get((token, arity))
+
+
 def engine_keys(ir_dir):
     """
     Engine hash -> the oracle's key shape, and expression hash -> (file, line, col).
@@ -166,6 +206,16 @@ def engine_keys(ir_dir):
                 # keeps the written spelling: closer than dropping it, and the
                 # only thing in hand.
                 qn = f"{owner}.{iface_qn.get(explicit, explicit)}.{name}" if owner else qn
+            # AN OPERATOR IS NAMED AS IT IS WRITTEN AND REPORTED AS IT IS
+            # COMPILED. `public static Money operator +(Money, Money)` has
+            # qualifiedName `Probe.Money.operator +`; Roslyn reports
+            # `Probe.Money.op_Addition/2`. Neither spelling is wrong and both
+            # identify the same member, so the written one is reduced to the
+            # metadata one here, next to the explicit-interface reduction above
+            # and for the same reason.
+            opname = operator_member_name(r)
+            if opname:
+                qn = f"{qn.rsplit('.', 1)[0]}.{opname}"
             meth[r["csMethodUniqueHash"]] = f"{qn}/{pc}"
     with open(os.path.join(ir_dir, "all-csharp-expressions.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
@@ -246,11 +296,17 @@ def main():
     # ── the engine's answers, keyed by position ───────────────────────────────
     # Every engine site is keyed by (position, callee name). A chained call puts
     # several at one position, so the name is what tells them apart.
+    # (position, name) -> the parser's callKind, so the join can tell an OPERATOR_CALL
+    # site from an ordinary one sharing a column. See operator_kind_clash.
+    site_call_kind = {}
+
     def site_key(exprhash):
         pos = expr.get(exprhash)
         if not pos:
             return None
-        name, _kind = callee.get(exprhash, ("", ""))
+        name, kind = callee.get(exprhash, ("", ""))
+        if kind:
+            site_call_kind[pos + (name,)] = kind
         return pos + (name,)
 
     cand = defaultdict(set)      # (pos, name) -> {declared key}
@@ -405,9 +461,12 @@ def main():
         The name the ENGINE would write for this oracle row's call site.
 
         They differ for two shapes and matching them is the whole point of the key:
-        a constructor is `.ctor` to Roslyn and the TYPE NAME at a `new Foo(...)`
-        site, and an operator is `op_Addition` to Roslyn and the operator token in
-        the source. Anything else is the member's own name in both.
+        They differ for ONE shape: a constructor is `.ctor` to Roslyn and the TYPE
+        NAME at a `new Foo(...)` site. Anything else is the member's own name in
+        both -- including an operator, whose site the parser now names with the
+        metadata spelling (`op_Addition`) rather than the token, so the join needs
+        no special case for it. The METHOD's own name is still written
+        `operator +`, and engine_keys reduces that.
         """
         n = r["targetName"]
         if n in (".ctor", "<constructor>"):
@@ -416,6 +475,37 @@ def main():
             return t.rsplit(".", 1)[-1]
         return n
 
+
+    OPERATOR_CALL_KINDS = {"OPERATOR_CALL", "CONVERSION_CALL"}
+    OPERATOR_SITE_KINDS = {"operator", "conversion"}
+
+    def operator_kind_clash(key, rows):
+        """
+        True where pairing `key` with these oracle rows would cross an operator site
+        with an ordinary one.
+
+        A BINARY EXPRESSION ANCHORS AT ITS LEFT OPERAND, so `a.M() + b` puts the
+        invocation `M` and the operator `op_Addition` at ONE column -- the same
+        collision `items[i].Item` makes for an indexer and a property read, from a
+        different direction.
+
+        It is not the name that goes wrong here but the SINGLE-SITE SHORTCUT below:
+        that shortcut is what matches a position where the parser's calleeName and
+        Roslyn's member name are legitimately different words, and it requires the
+        position to hold exactly one engine site. An operator site appearing beside
+        the invocation makes it two, and the shortcut silently stops applying.
+        Measured: 6 held-out sites that had matched before went to `site_missed` on
+        the run that first emitted operator sites, every one of them a pairing this
+        function stopped making rather than an engine that stopped answering.
+        """
+        kind = site_call_kind.get(key)
+        if kind is None:
+            return False
+        wants_operator = any(r["siteKind"] in OPERATOR_SITE_KINDS for r in rows)
+        return (kind in OPERATOR_CALL_KINDS) != wants_operator
+
+    def kind_clash(key, rows):
+        return accessor_kind_clash(key, rows) or operator_kind_clash(key, rows)
 
     def accessor_kind_clash(key, rows):
         """
@@ -487,7 +577,7 @@ def main():
         side would invent a miss.
         """
         names = at_pos.get(pos, set())
-        if name in names and not accessor_kind_clash(pos + (name,), rows):
+        if name in names and not kind_clash(pos + (name,), rows):
             return pos + (name,)
         # A TARGET-TYPED `new()` HAS NO WRITTEN NAME. The parser records a
         # CONSTRUCTOR_CALL with an empty calleeName because there is nothing to
@@ -507,6 +597,10 @@ def main():
         # engine as having resolved an external target to an in-source method: 8
         # "wrongly resolved" edges across the holdout set, every one of them a pairing
         # this function invented.
+        # THE SHORTCUT COUNTS ONLY THE SITES THIS ORACLE ROW COULD PAIR WITH. An
+        # operator site sharing the column is not a competing candidate for an
+        # invocation row, so it must not be what makes the position ambiguous.
+        names = {n for n in names if not kind_clash(pos + (n,), rows)}
         synth = name.startswith(("get_", "set_", "add_", "remove_", "op_"))
         # `, None` is redundant under the len() == 1 guard and the lint cannot see the
         # guard. Written the safe way so the gate stays mechanical rather than teaching it
@@ -523,7 +617,7 @@ def main():
         # (file, line, name) and requires the name to be UNIQUE on that line: two
         # calls of one name on one line get no match rather than a guessed one.
         cands = [k for k in by_line.get((pos[0], pos[1]), ())
-                 if k[3] == name and not accessor_kind_clash(k, rows)]
+                 if k[3] == name and not kind_clash(k, rows)]
         if len(cands) == 1:
             return cands[0]
         return None
