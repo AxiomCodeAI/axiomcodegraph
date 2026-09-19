@@ -38,11 +38,22 @@ python3 "$H/dl_program.py" || true   # compile the query rules once, here where 
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
 echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
-rm -rf "$OUT/$LANG_ARG" "$OUT/graph.sqlite"
+# A REBUILD THAT FAILS MUST NOT COST THE GRAPH THAT IS ALREADY THERE (#1077). The engine wants an
+# empty $OUT/$LANG_ARG, but "empty it first" also empties it for the failure path, and the next verb
+# then reports no graph at all although the last good one was complete a second earlier. So the old
+# graph is MOVED ASIDE, not deleted, and $OUT/graph.sqlite is re-pointed at where it went: until the
+# build succeeds every verb keeps answering from it. A graph built for another language is not in the
+# way and is left where it is — which is also what $OUT/graph.sqlite still points at.
+PREV="$OUT/.previous-$LANG_ARG"
+rm -rf "$PREV"
+if [ -d "$OUT/$LANG_ARG" ]; then mv "$OUT/$LANG_ARG" "$PREV"; [ -f "$PREV/graph.sqlite" ] && ln -sfn "$PREV/graph.sqlite" "$OUT/graph.sqlite"; fi
+restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && ln -sfn "$OUT/$LANG_ARG/graph.sqlite" "$OUT/graph.sqlite"; fi; return 0; }
 LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
-"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { echo "build failed — see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
-DB="$(find "$OUT" -name graph.sqlite -path "*/$LANG_ARG/*" | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -name graph.sqlite | head -1)"
-[ -n "$DB" ] || { echo "build produced no graph.sqlite — see $REPO/.axiomcode/build.log"; exit 1; }
+"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
+DB="$(find "$OUT" -name graph.sqlite -path "*/$LANG_ARG/*" | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -name graph.sqlite -not -path "$PREV/*" | head -1)"
+[ -n "$DB" ] || { restore; echo "build produced no graph.sqlite — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; exit 1; }
+# only now, with a graph in hand, is the old one gone and the pointer moved
+rm -rf "$PREV"
 ln -sfn "$DB" "$OUT/graph.sqlite"; echo "$STAMP" > "$OUT/stamp"
 python3 "$H/axiomcode-index" "$REPO"
 sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
