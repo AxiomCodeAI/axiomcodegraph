@@ -1,0 +1,6 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "editing a header is a signature change, not a new declaration: `added` is decided by whether the OLD text has a matching header, so the same declaration used to be reported twice — once as signature and once as added, carrying a sentence the graph itself contradicts",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new.txt", "--file", "lib.py"],
+   "want": ["signature", "price"],
+   "avoid": ["no declaration of that name existed before", "added"]}]}
