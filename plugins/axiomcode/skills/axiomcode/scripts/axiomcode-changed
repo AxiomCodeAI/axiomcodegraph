@@ -19,7 +19,7 @@ The output is one line per changed declaration with the target `axiomcode impact
 of them as one change set (the union) and prints its answer. A method whose only change is its body is a `method` target; a
 signature change with one parameter changed is `Owner.m(param)`; a field is `Owner.field`; a type header is `Type`.
 """
-import difflib, importlib.util, json, os, re, subprocess, sys
+import difflib, importlib.machinery, importlib.util, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
