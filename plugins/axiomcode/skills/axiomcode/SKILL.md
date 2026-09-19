@@ -94,7 +94,10 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   listed as reading or writing the field through it. A **generating decoration** — Lombok `@Data` / `@Getter` / `@Setter` /
   `@Value` / `@Builder` / `@AllArgsConstructor` / `@With`, a record, a dataclass — declares members the source never spells, so a
   call to `getZipCode()` or `new Address(…)` is an unresolved site; the unresolved sites written with the generated name are listed
-  as calling the generated getter / setter / constructor `[by name]`, with the decoration that generates it. A string literal
+  as calling the generated getter / setter / constructor `[by name]`, with the decoration that generates it. Where the ENGINE
+  synthesises the member instead of leaving the site unresolved (Java's Lombok and records, C#'s auto-properties: a `methods`
+  row with provenance `generated`), the call site resolves to it and the caller is named `[resolved]` — *reads it through
+  getName()* — which is the same answer with a stronger claim behind it. A string literal
   equal to the field's name (a map key, a serialized name, a request parameter) is listed `[text]`.
 - **the upstream answer is measured against behaviour, not against itself** — `validate/upstream.py <repo>` takes a tree with
   `.axiomcode/mutation.json` (a method broken, the test files that then failed), asks `impact <m> --tests` which test files
