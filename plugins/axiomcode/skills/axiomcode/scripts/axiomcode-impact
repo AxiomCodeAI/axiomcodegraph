@@ -439,6 +439,58 @@ class Impact:
     SKIP_DIR = {'.git','node_modules','target','build','out','dist','.axiomcode','.idea','.gradle','venv','.venv','__pycache__','.mvn'}
     # prose is not a run-time binding: a name in a changelog does not break when it is renamed
     PROSE_EXT = {'.md','.adoc','.rst','.log','.lock','.txt'}
+    # `import` is not a call and the parser records no edge for it, so what a file imports is read from its own
+    # text. Only files the graph already knows are scanned, and only a target that resolves to a file IN THIS
+    # REPOSITORY is kept: a stdlib or third-party import names no file here and is dropped rather than guessed.
+    IMPORT_RE = {
+        '.py': re.compile(r'^\s*(?:from\s+(\.*[\w.]*)\s+import|import\s+([\w.]+))', re.M),
+        '.ts': re.compile(r"""(?:^\s*import\b[^'"\n]*from\s*|^\s*export\b[^'"\n]*from\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]""", re.M),
+    }
+    IMPORT_RE['.tsx'] = IMPORT_RE['.js'] = IMPORT_RE['.jsx'] = IMPORT_RE['.mjs'] = IMPORT_RE['.cjs'] = IMPORT_RE['.ts']
+
+    def imports(self):
+        """(file, file) for every import one source file makes of another IN THIS REPOSITORY."""
+        g = self.g
+        files = sorted({s['file'] for s in g.sym.values() if s.get('file')})
+        byfile = set(files)
+        # a module path as each language spells it -> the file it names. Both spellings of a Python package are
+        # kept (app/settings.py and app/settings/__init__.py), because the import statement cannot tell them apart.
+        mod = {}
+        for f in files:
+            stem = os.path.splitext(f)[0]
+            mod.setdefault(stem.replace('/', '.'), f)
+            if stem.endswith('/__init__'):
+                mod.setdefault(stem[:-len('/__init__')].replace('/', '.'), f)
+        out = set()
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            rx = self.IMPORT_RE.get(ext)
+            if not rx: continue
+            try: text = '\n'.join(self.lines(f))
+            except Exception: continue
+            for m in rx.finditer(text):
+                raw = next((x for x in m.groups() if x), '')
+                if not raw: continue
+                if ext == '.py':
+                    if raw.startswith('.'):                      # a relative import, resolved against this file's own package
+                        up = len(raw) - len(raw.lstrip('.')); rest = raw.lstrip('.')
+                        base = os.path.dirname(f).split('/') if os.path.dirname(f) else []
+                        base = base[:len(base) - (up - 1)] if up > 1 else base
+                        cand = '.'.join([x for x in base if x] + ([rest] if rest else []))
+                    else:
+                        cand = raw
+                    # `from app.settings import settings` names the module; `import app.settings.x` may name a
+                    # member of it, so every prefix is tried, longest first.
+                    parts = cand.split('.')
+                    tgt = next((mod[p] for p in ('.'.join(parts[:k]) for k in range(len(parts), 0, -1)) if p in mod), None)
+                else:
+                    if not raw.startswith('.'): continue          # a package, not a file in this repository
+                    base = os.path.normpath(os.path.join(os.path.dirname(f), raw))
+                    tgt = next((c for c in (base + e for e in ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+                                                               '/index.ts', '/index.tsx', '/index.js')) if c in byfile), None)
+                if tgt and tgt != f: out.add((f, tgt))
+        return sorted(out)
+
     def nonsource_files(self):
         """every text file in the tree that is NOT source the index read. A name bound from one of these (a mapper XML,
         a services file, a properties file, a build script, a spec) breaks at run time and the compiler is silent."""
@@ -503,7 +555,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '18'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '19'          # 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -526,6 +578,7 @@ class Impact:
                           + [(i, g.sym[i]['file']) for i in sorted(mods)])
         W('kind', [(i, s['kind']) for i, s in g.sym.items()])
         W('decl_file', [(i, s['file']) for i, s in g.sym.items() if s.get('file')])
+        W('imports_fact', self.imports())
         def owner_tid(disp):                                                          # Enum.CONSTANT.m and <anon> bodies: the nearest enclosing type
             while disp:
                 if disp in tid_of: return tid_of[disp]
@@ -1206,7 +1259,7 @@ def main(argv):
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name'}
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -1216,6 +1269,7 @@ def main(argv):
     # on its shape, not on a measurement, and this table cannot say whether that rank is right):
     #                       small service        flask               click
     #   sound               1.000 (n=21)         0.895 (n=86)        0.561 (n=132)
+    #   at import           1.000 (n=17)         —                   —
     #   defines             —                    1.000 (n=1)         0.875 (n=8)
     #   one of a set        1.000 (n=2)          0.659 (n=44)        0.657 (n=99)
     #   by key              0.926 (n=27)         0.342 (n=73)        0.000 (n=3)
@@ -1231,9 +1285,18 @@ def main(argv):
     # A fixture route stays low for a reason worth stating: the framework does run the fixture and the fixture does
     # reach the change, but the test's own body may never touch it — "reaching is not failing" in its purest form.
     # And `sound` at 0.561 on click is the same sentence about the top of the ladder: on a codebase whose tests
-    # drive one hub, a resolved call within three hops is right barely more than half the time.
-    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by key': 4,
-                 'decorator by name': 5, 'fixture': 6, 'by name': 7}
+    # drive one hub, a resolved call within three hops is right barely more than half the time. Which is the other
+    # thing a reader needs about this table: a rung says WHAT KIND OF EVIDENCE there is, not how likely the test is
+    # to fail. `sound` claims a resolved single-target call chain within three hops — a fact about the EDGES — and
+    # nothing more; it does not claim the test exercises the change. Read as the second thing, it is measured
+    # honestly and understood dishonestly, which is the worse of the two failures.
+    # `at import` is the one rung whose claim is about the TEST rather than the edge: the module raised while being
+    # imported, so the file never loaded and the test was never collected. Its body is irrelevant, which is why it
+    # is not the `fixture` rung it used to be labelled as — a fixture route is weak for exactly the reason this one
+    # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
+    # the word that means one.
+    CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'by key': 5,
+                 'decorator by name': 6, 'fixture': 7, 'by name': 8}
     # `decorator by name` is the @-line hop: the decoration carries a simple NAME, so the declaration it denotes
     # is matched by that name, not resolved. It is a real dependency when the match is right — a decorator that
     # changes changes everything it wraps — and nothing at all when the name happens to be shared, which is why
@@ -1241,7 +1304,21 @@ def main(argv):
     def cert_of(m):
         ch = chains.get(m) or []
         worst = 'by name' if (ch and ch[-1] in byname_seeds) or (not ch and m in byname_seeds) else 'sound'
-        if tests.get(m, (0, None))[1]: worst = 'fixture'      # the route the answer prints for it runs a fixture first
+        # A route that arrives through the test's own module symbol because the MODULE BODY runs the change is not
+        # a fixture route, and flooring it at that rung reads it exactly backwards. A fixture route is weak because
+        # the framework runs the fixture and the test's BODY may never touch what it reached. An import route is
+        # strong for the opposite reason: the body is irrelevant, because a module that raises while being imported
+        # takes the whole file down and the test is never collected at all. Same mechanism — a `via` — opposite
+        # certainty, and the floor could not tell them apart because it only looked at whether a via existed.
+        via = tests.get(m, (0, None))[1]
+        # the route to a test reached THROUGH something else is that thing's chain, not the test's own (the test
+        # has none: it is not in `reach`), so the hop that decides this has to be read off the via.
+        def _carries(hops, tier):
+            return any(tier in [t for x, t in parent.get(a, ()) if x == b] for a, b in zip(hops, hops[1:]))
+        at_import = via is not None and (any(t == 'at import' for _, t in parent.get(via, ()))
+                                         or _carries(chains.get(via) or [], 'at import'))
+        if via:
+            worst = 'at import' if at_import else 'fixture'
         for a, b in zip(ch, ch[1:]):
             # the WORST tier this hop carries, not the first one listed. The same (a, b) can appear as both a
             # known_edge and a multi_inferred dispatch; `next()` then reports whichever the engine happened to

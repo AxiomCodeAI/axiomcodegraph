@@ -219,6 +219,7 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   | rung | small framework service | flask | click |
   |---|---|---|---|
   | `[sound]` | 1.000 (n=21) | 0.895 (n=86) | 0.561 (n=132) |
+  | `[at import]` | 1.000 (n=17) | — | — |
   | `[defines]` | — | 1.000 (n=1) | 0.875 (n=8) |
   | `[one of a set]` | 1.000 (n=2) | 0.659 (n=44) | 0.657 (n=99) |
   | `[by key]` | 0.926 (n=27) | 0.342 (n=73) | 0.000 (n=3) |
@@ -226,7 +227,11 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   | `[fixture]` | 1.000 (n=27) | 0.388 (n=98) | 0.536 (n=112) |
   | `[by name]` | 0.333 (n=3) | 0.531 (n=32) | 0.475 (n=61) |
 
-  Read that table before trusting the order the answer prints. The TOP of the ladder holds: `[sound]` and
+  And read what a rung CLAIMS, not only how often it holds: `[sound]` means a resolved single-target call chain
+  within three hops — a fact about the edges — and never that the test exercises the change. `[at import]` is the
+  one rung that is about the test rather than the edge: the module raised while being imported, the file never
+  loaded, and the test was never collected, so its body is irrelevant. Read that table before trusting the order
+  the answer prints. The TOP of the ladder holds: `[sound]` and
   `[one of a set]` are the best rungs on the subjects with enough pairs to say. BELOW that the order is not stable
   across subjects and the printed ranking is a tie-break of what KIND of evidence a hop is, not a measured ordering:
   `[by key]` is the best rung on one subject (0.926) and the worst on another (0.342), and `[by name]` is printed

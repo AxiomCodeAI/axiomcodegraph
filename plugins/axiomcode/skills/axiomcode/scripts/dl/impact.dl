@@ -502,6 +502,21 @@ reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
 .decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_edge(a, b, t).
+// The import hop is taken from a MODULE BODY, and only when that module body is reached by edges which actually
+// RUN. `up` walks `defines` as well, which is right for it — a change to an inner function does concern the
+// function that declares it — but `defines` is not execution: `audited` DEFINES `wrapper` and returns it, and
+// nothing in `wrapper` runs while the module is being imported, so breaking it cannot break the import. Taking
+// this hop off `up` named every test in every importing file for the wrapper of every decorator applied at module
+// level. The case suite caught that; the measurement did not, because no target on the measured subjects had the
+// shape — which is the whole argument for keeping cases beside a corpus.
+.decl up_running(q:symbol, m:symbol, d:number)
+up_running(q, m, 0) :- seed(q, m).
+up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), d < 40.
+.decl import_hop(q:symbol, a:symbol, b:symbol)
+import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), decl_file(mod, g), imports_file(f, g),
+                         decl_file(a, f), kind(a, "module"), a != mod.
+up(q, a, d+1) :- up_running(q, b, d), import_hop(q, a, b), d < 40.
+parent_up(q, a, b, "at import") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, import_hop(q, a, b).
 .output reach
 .output parent_up
 
@@ -571,6 +586,20 @@ fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b
 dec_decl(d, w) :- decorated(_, d), named(d, w), 1 = count : { named(d, _) }.
 dec_decl(d, w) :- decorated(s, d), named(d, w), decl_file(s, f), decl_file(w, f).
 fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
+// WHAT RUNS AT IMPORT. `settings = Settings()` at the top level of a module is executed by the import statement,
+// so breaking Settings.__init__ breaks importing that module, and with it every module that imports it and every
+// test in those files. The graph records the module body's call to the constructor and records nothing at all about
+// imports, so the chain stops at the module that owns the object and the tests seven files away look unrelated.
+//
+// An import is not a call and the parser gives no import edge, so what a file imports is read from its own text
+// (`imports()` in axiomcode-impact, per language). Only a target that resolves to a file IN THIS REPOSITORY is
+// kept: a stdlib or third-party import names no file here and is dropped rather than guessed.
+.decl imports_fact(f:symbol, g:symbol)                            .input imports_fact
+.decl imports_file(f:symbol, g:symbol)
+imports_file(f, g) :- imports_fact(f, g).
+// and transitively: a test file imports the module that imports the settings object. The chain is what makes
+// the rule worth anything — the file that breaks is almost never the file the test names.
+imports_file(f, h) :- imports_file(f, g), imports_file(g, h), f != h.
 .output fw_edge
 
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
