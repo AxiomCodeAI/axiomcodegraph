@@ -466,7 +466,7 @@ def parent_up(edges, depth):
 
 
 import re as _re
-TEST_DECOR = _re.compile(r'(^|\.)(\w*Test\w*|it|test)$')
+TEST_DECOR = _re.compile(r'(^|\.)(\w*Test\w*|Fact|Theory|it|test)$')
 FIXTURE_DECOR = _re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', _re.I)
 FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}
 
@@ -478,7 +478,8 @@ EACH_TABLE = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
 def _test_sets(q, lines=None, rel=None):
     """test_method and fixture, the same two sets the exporter builds — the distinction the whole test layer rests on.
 
-    A TEST is is_test, a method or function, and either carries a @Test-shaped decoration or is named test*/it*.
+    A TEST is is_test, a method or function, and either carries a @Test-shaped decoration (Test, TestMethod,
+    TestCase, and the Fact / Theory this ecosystem marks one with — #1082) or is named test*/it*.
     A helper in a test file (`_assertAsBigInteger`) is neither, so it is not a test: it is a CARRIER, and the tests
     it brings are the ones declared beside it. Counting every is_test callable as a test returned the helpers and
     lost the seven @Test methods they carry.
