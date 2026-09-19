@@ -218,14 +218,20 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 
   | rung | small framework service | flask | click |
   |---|---|---|---|
-  | `[sound]` | 1.000 (n=21) | 0.895 (n=86) | 0.561 (n=132) |
+  | `[sound]` | 1.000 (n=19) | 0.895 (n=86) | 0.561 (n=132) |
   | `[at import]` | 1.000 (n=17) | — | — |
   | `[defines]` | — | 1.000 (n=1) | 0.875 (n=8) |
   | `[one of a set]` | 1.000 (n=2) | 0.659 (n=44) | 0.657 (n=99) |
   | `[by key]` | 0.926 (n=27) | 0.342 (n=73) | 0.000 (n=3) |
-  | `[decorator by name]` | 1.000 (n=9) | 0.667 (n=3) | — |
-  | `[fixture]` | 1.000 (n=27) | 0.388 (n=98) | 0.536 (n=112) |
+  | `[decorator by name]` | 1.000 (n=8) | 0.667 (n=3) | — |
+  | `[protocol]` | 1.000 (n=4) | 0.882 (n=17) | 0.400 (n=5) |
+  | `[fixture]` | 1.000 (n=27) | 0.382 (n=102) | 0.536 (n=112) |
   | `[by name]` | 0.333 (n=3) | 0.531 (n=32) | 0.475 (n=61) |
+
+  `[protocol]` is the newest row and the one to read carefully: its only substantial sample, 17 pairs on flask,
+  puts it at 0.882 — second to `[sound]` on that subject and well above the two rungs printed ABOVE it. That is not
+  enough to re-rank a ladder on, for the reason the rest of this paragraph gives, but it is enough that a reader
+  should not discount a `[protocol]` route for its position.
 
   And read what a rung CLAIMS, not only how often it holds: `[sound]` means a resolved single-target call chain
   within three hops — a fact about the edges — and never that the test exercises the change. `[at import]` is the
