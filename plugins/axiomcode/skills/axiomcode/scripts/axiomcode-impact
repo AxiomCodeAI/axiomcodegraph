@@ -1206,14 +1206,19 @@ def main(argv):
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound'}
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name'}
     # ORDERED BY HOW OFTEN EACH RUNG IS RIGHT, measured against behavioural truth rather than assumed. On Flask's own
     # suite (held out, 351 (target, test file) pairs): sound 0.645, one of a set 0.414, by key 0.396, FIXTURE 0.233,
     # by name 0.133. On a Python service where a fixture is the ONLY route to the code, the same rung is 30 of 30.
     # A fixture route is a weak rung for a reason worth stating: the framework does run the fixture and the fixture
     # does reach the change, but the test's own body may never touch it — "reaching is not failing" in its purest
     # form — so it sits below `by key` rather than beside `sound`, where it used to be reported.
-    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by key': 4, 'fixture': 5, 'by name': 6}
+    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by key': 4,
+                 'decorator by name': 5, 'fixture': 6, 'by name': 7}
+    # `decorator by name` is the @-line hop: the decoration carries a simple NAME, so the declaration it denotes
+    # is matched by that name, not resolved. It is a real dependency when the match is right — a decorator that
+    # changes changes everything it wraps — and nothing at all when the name happens to be shared, which is why
+    # it sits below the key join rather than beside `sound`, where the engine's own `decorator` rung is.
     def cert_of(m):
         ch = chains.get(m) or []
         worst = 'by name' if (ch and ch[-1] in byname_seeds) or (not ch and m in byname_seeds) else 'sound'
