@@ -201,6 +201,11 @@ elif tool == 'Read':
             for e in q(f"SELECT caller_id c, count(*) n FROM unresolved_sites WHERE caller_id IN ({ph}) GROUP BY caller_id", *ids): unres[e['c']] = e['n']
         info = []
         for r in rows:
+            # a type-level synthetic has no body to call into, so naming it here points the reader at
+            # nothing and cannot be checked — its line does not carry its name (ax_contract.SYNTHETIC)
+            # `display`, because that is the column this query selects AND the string that gets printed —
+            # guarding on a column the row does not carry reads as '' and silently never fires
+            if _ax.is_synthetic(r['display']): continue
             u, d = up[r['method_id']], dn[r['id']]
             su, sd = [x for x in u if x['id'] in ctx], [x for x in d if x['id'] in ctx]
             if u or d or ov_in[r['method_id']] or ov_out[r['method_id']] or unres[r['id']]: info.append(dict(r=r, up=u, dn=d, ovi=ov_in[r['method_id']], ovo=ov_out[r['method_id']], un=unres[r['id']], su=su, sd=sd, star=su + sd))

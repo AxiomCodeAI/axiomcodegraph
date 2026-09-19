@@ -29,7 +29,7 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, budgeted, BOUND,
-                         dirs_with_counts, offer, task_text, task_terms, winnow, headline)
+                         dirs_with_counts, offer, task_text, task_terms, winnow, headline, is_synthetic)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, die = P.G, P.die
@@ -234,6 +234,10 @@ def main(argv):
         return offer(f"'{scope}' exists, but none of these words appear under it: {', '.join(terms[:8])}.",
                      inside or ranked, terms)
 
+    # an entry point is somewhere to START. <module> and <classbody> are the file and the class
+    # themselves, and on Python every class has one, so they can be a third of this list while
+    # naming nowhere to go.
+    scored = {sid: v for sid, v in scored.items() if not is_synthetic(g.sym.get(sid, {}).get('name'))}
     seeds = pick_seeds(g, scored, terms, seeds_wanted)
 
     print(f"task terms: {' · '.join(terms[:10])}" + (f" (+{len(terms)-10})" if len(terms) > 10 else ''))

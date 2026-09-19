@@ -17,7 +17,7 @@ Prints facts checked / facts wrong, and every wrong fact."""
 import atexit, json, os, random, re, sqlite3, subprocess, sys, tempfile, shutil, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 'skills', 'axiomcode', 'scripts'))
-from ax_contract import subtokens        # the annotation's own tokeniser, so this checks its claim
+from ax_contract import subtokens, is_synthetic        # the annotation's own tokeniser, so this checks its claim
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 def hook(script, event, tool, inp, cwd, session='validate', extra=None):
@@ -80,7 +80,12 @@ class V:
             if mm and not l.strip().startswith('+'):
                 shown += 1; s = find(mm.group(1), int(mm.group(2)))
                 if not s: continue
-                self.fact(stale or self.line_holds(s['file'], s['line'], s['name']), f"Read {rel}: line {s['line']} of {s['file']} does not hold {s['name']} (no staleness note)")
+                # A name the PARSER invented — <arrow>, <call-signature>, <module> — is never written in the
+                # source, so looking for it there is a check with no evidence available and only one possible
+                # outcome. The declaration's presence at that line is already asserted above; this check is
+                # about the NAME agreeing with the text, and for an invented name there is no text to agree.
+                if not (s['name'] or '').startswith('<'):
+                    self.fact(stale or self.line_holds(s['file'], s['line'], s['name']), f"Read {rel}: line {s['line']} of {s['file']} does not hold {s['name']} (no staleness note)")
                 U, D = up(s), dn(s); oi, oo = ov(s); rest = mm.group(3)
                 for part in [x for x in re.split(r'   ', rest) if x]:
                     if part.startswith('← '):
@@ -114,7 +119,11 @@ class V:
                     else: self.fact(False, f"Read {rel}: {s['display']} has an unparseable part: {part}")
             elif l.strip().startswith('+'):
                 mr = re.match(r'  \+(\d+) more: (.*?)\s+\(grep', l); n = int(mr.group(1))
-                withedges = [r for r in rows if up(r) or dn(r) or any(ov(r)) or self.unresolved(r['id'])]
+                # a type-level synthetic is not a callable the block may name (ax_contract.SYNTHETIC), so it
+                # is not part of the remainder either — counting it here would make the block's own arithmetic
+                # wrong for rows it is right to leave out
+                withedges = [r for r in rows if not is_synthetic(r['display'])
+                             and (up(r) or dn(r) or any(ov(r)) or self.unresolved(r['id']))]
                 self.fact(n == len(withedges) - shown, f"Read {rel}: says +{n} more, graph has {len(withedges)} callables with such edges and {shown} were shown")
                 for t in [x.strip().rstrip(' …') for x in mr.group(2).split(',') if x.strip() and x.strip() != '…']:
                     tm = re.match(r'(\S+) ←(\d+)(?: →(\d+))?(?: \?(\d+))?$', t)
