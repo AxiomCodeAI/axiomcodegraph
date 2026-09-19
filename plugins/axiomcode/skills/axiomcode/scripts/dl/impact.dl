@@ -97,6 +97,7 @@
 //   config(key, m, why)               a configuration key the engine bound to a method (@Value, @ConfigurationProperties, a .yml/.properties key)
 //   config_key_known(key)             every key the engine's configuration extension saw — an unknown key is said to be unknown, never guessed
 //   bean(name, t, kind)               a type registered as a bean (a stereotype, an @Bean factory)
+//   bean_factory(m, t)                the METHOD an @Bean factory is declared on, and the type it produces
 //   injected(t, into, kind)           a value of type t is handed to `into` by the container, not by a call the graph can see
 .decl config_site(k:symbol, c:symbol, d:symbol, f:symbol, l:number) .input config_site
 //   nonsource(n, f, l)                the name n written in a file the index does NOT read as source
@@ -106,6 +107,7 @@
 .decl config(k:symbol, m:symbol, why:symbol)                      .input config
 .decl config_key_known(k:symbol)                                  .input config_key_known
 .decl bean(n:symbol, t:symbol, kind:symbol)                       .input bean
+.decl bean_factory(m:symbol, t:symbol)                            .input bean_factory
 .decl injected(t:symbol, into:symbol, kind:symbol)                .input injected
 
 // ── vocabulary ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -218,8 +220,10 @@ direct(q, c, "produces", cat("BINDS the key here, at the @", dn, " placeholder �
 // a type the container INJECTS: its consumers receive it without a call the graph can see
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "type", t, _), injected(t, c, kind), !inside_target(q, c).
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "clinit", t, _), injected(t, c, kind).
-// a method that DEFINES a bean (@Bean): whoever is injected with the type it returns
-direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"), "resolved", "", 0) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), injected(ot, c, kind), c != m.
+// a method that DEFINES a bean (@Bean): whoever is injected with the type it returns. Keyed on `bean_factory`,
+// which names the METHOD. Keying on `bean(_, owner(m), _)` instead only says the method's OWNER is a bean, so
+// it fired for every method of every injected @Service and never for a factory whose @Configuration is not injected.
+direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"), "resolved", "", 0) :- target(q, "method", m, _), bean_factory(m, bt), injected(bt, c, kind), c != m.
 
 // a METHOD: its callers, and the unresolved sites written with its name
 // A RESOLVED call at a route registration says what the code does and not what it means: on JavaScript the engine

@@ -906,27 +906,28 @@ def _injected(q):
 
 
 def _bean_definition_consumers(q, ids):
-    """Rule 189 — a method that DEFINES a bean (@Bean): whoever the container injects that type into.
+    """A method that DEFINES a bean (@Bean): whoever the container injects that type into.
 
         direct(q,c,"uses",cat("is injected with the bean this defines (",kind,")"),"resolved","",0) :-
-            target(q,"method",m,_), owner(m,ot), bean(_,ot,_), injected(ot,c,kind), c != m
+            target(q,"method",m,_), bean_factory(m,bt), injected(bt,c,kind), c != m
 
     There is no call site anywhere on this path — the container is the caller — so nothing else in `direct`
     finds these rows.
     """
     if not (_has(q, 'ext_bean_def') and _has(q, 'ext_inject_point')): return []
-    _idx, owner_disp, _tf, tid_of, _bt = _members(q)
-    beans = {r[0] for r in q("SELECT c1 FROM ext_bean_def")}
     inj = _injected(q)
+    # c3 is the METHOD the @Bean factory is declared on. Matching on the method's OWNER being a bean instead
+    # (`ext_bean_def.c1`) is every method of every @Service, which is what this used to emit; see impact.dl.
+    factory_of = {}
+    for mid, t in q("SELECT c3, c1 FROM ext_bean_def WHERE c2 = 'factory_method' AND c3 IS NOT NULL AND c3 <> ''"):
+        factory_of.setdefault(mid, set()).add(t)
+    if not factory_of: return []
     out = set()
-    ph = ','.join('?' * len(ids))
-    for m, o in q(f"SELECT id, owner FROM symbols WHERE id IN ({ph})", *ids):
-        d = owner_disp(o) if o else None
-        ot = tid_of.get(d) if d else None
-        if not ot or ot not in beans: continue
-        for c, kind in inj.get(ot, ()):
-            if c != m:
-                out.add((c, 'uses', f'is injected with the bean this defines ({kind})', 'resolved', '', 0))
+    for m in ids:
+        for bt in factory_of.get(m, ()):
+            for c, kind in inj.get(bt, ()):
+                if c != m:
+                    out.add((c, 'uses', f'is injected with the bean this defines ({kind})', 'resolved', '', 0))
     return sorted(out)
 
 

@@ -712,7 +712,7 @@ class Impact:
         # `export_csv`. Take the recorded owner when the index knows it; fall back to the line only when it does not.
         decl = []
         for r in (g.q("SELECT owner_id, name, text, file, line FROM decorations WHERE text IS NOT NULL AND text <> ''") if g.has('decorations') else []):
-            c = (r['owner_id'] if r['owner_id'] in g.sym else None) or self.at(r['file'], r['line']) or r['owner_id']
+            c = (r['owner_id'] if r['owner_id'] in g.all_sym else None) or self.at(r['file'], r['line']) or r['owner_id']
             for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', r['text'] or '')):
                 if c: decl.append((c, r['name'].split('.')[-1], v, r['file'] or '', r['line'] or 0))
         W('dec_literal', sorted(set(decl)))
@@ -847,13 +847,18 @@ class Impact:
         W('file_scope', sorted(fsc))
         # the engine's framework extension, when it ran: what a configuration key is bound into, and what the container injects.
         # These are edges no call site carries — without them a change to a key or a bean has no visible consumer at all.
-        cfg = []; keys = set(); beans = []; inj = []
+        cfg = []; keys = set(); beans = []; inj = []; factories = []
         if g.has('ext_config_affects_method'):
             for r in g.q("SELECT a.c0, a.c1, a.c2 FROM ext_config_affects_method a JOIN symbols s ON s.method_id = a.c1"): cfg.append((ckey(r[0]), r[1], r[2] or 'bound'))
             keys |= {ckey(r[0]) for r in g.q("SELECT DISTINCT c0 FROM ext_config_affects_method")}
         for t in ('ext_config_binding', 'ext_config_key_ref', 'ext_config_unresolved'):
             if g.has(t): keys |= {ckey(r[0]) for r in g.q(f"SELECT DISTINCT c0 FROM {t}")}
-        if g.has('ext_bean_def'): beans = [(r[0], r[1], r[2] or 'bean') for r in g.q("SELECT c0, c1, c2 FROM ext_bean_def")]
+        if g.has('ext_bean_def'):
+            beans = [(r[0], r[1], r[2] or 'bean') for r in g.q("SELECT c0, c1, c2 FROM ext_bean_def")]
+            # c3 is the METHOD an @Bean factory is declared on; `bean` keys on the TYPE, so a rule that wants
+            # "this method defines a bean" cannot ask `bean` for it and used to settle for "its owner is a bean",
+            # which is every method of every @Service. Kept as its own relation so `bean`'s arity is unchanged.
+            factories = [(r[1], r[0]) for r in g.q("SELECT c1, c3 FROM ext_bean_def WHERE c2 = 'factory_method' AND c3 IS NOT NULL AND c3 <> ''")]
         if g.has('ext_inject_point'):
             # c4 is the method that receives the value and is '-' for a FIELD injection, which is the case with no call
             # site at all: an inner join here dropped about half of every project's injection points. A field injection
@@ -898,6 +903,7 @@ class Impact:
                     if hit: sw.append((i, tid, str(len(hit))))
         W('throws_', sorted(set(thr))); W('catches', sorted(set(cat_))); W('switch_over', sorted(set(sw)))
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
+        W('bean_factory', sorted(set(factories)))
         open(stamp, 'w').write(want); return D
 
     # ── one query: the target facts, the text-level facts, one Soufflé run ──────────────────────────────────────
@@ -1200,7 +1206,7 @@ def main(argv):
     best = {}
     from_target = collections.defaultdict(set)
     for c, role, why, cert, f, l, q_ in res['direct']:
-        if c not in g.sym: continue
+        if c not in g.sym and c not in g.all_sym: continue   # a field subject (a @Value binding site) is nameable too
         loc = f"{f}:{l}" if f and int(l) > 0 else g.loc(c); k = (c, why); from_target[k].add(LAB[q_])
         # the LOWEST location, not the first one the solver emitted. A callable with several sites has several
         # rows and "first" was whichever the engine happened to output first, so the same answer named a
