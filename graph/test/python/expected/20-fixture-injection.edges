@@ -1,0 +1,8 @@
+ambiguous_unknown	DECORATOR_APPLICATION	main.<module> -> -
+boundary_lib	SIMPLE_CALL	main.fixture -> builtin:callable
+boundary_lib	SIMPLE_CALL	main.fixture -> builtin:len
+known_edge	DECORATOR_BARE	main.<module> -> main.fixture
+known_edge	DECORATOR_CALL	main.<module> -> main.fixture
+known_edge	SIMPLE_CALL	main.cart -> main.build_cart
+known_edge	SIMPLE_CALL	main.db -> main.connect
+known_edge	SIMPLE_CALL	main.unused_fixture -> main.build_cart

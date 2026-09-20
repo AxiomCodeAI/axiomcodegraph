@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  di_provider main.get_service   main.py:40
+  di_provider main.get_settings   main.py:36
+  di_provider main.get_user   main.py:45
+  http       main.admin   main.py:69
+  http       main.read_item   main.py:64

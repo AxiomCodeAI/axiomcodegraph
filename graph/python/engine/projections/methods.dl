@@ -197,3 +197,12 @@ param_binding("lib", b, h) :- lib_py_method_parameter(_, _, _, _, _, _, _, _, _,
 // ── param_default(Prov, HasDefault, DefaultValueKind, ParamHash) ─────────────
 param_default("client", hd, dk, h) :- py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, hd, _, dk, _, _, _, _, _, h).
 param_default("lib", hd, dk, h) :- lib_py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, hd, _, dk, _, _, _, _, _, h).
+
+// ── param_default_expr(Prov, DefaultExprHash, ParamHash) ─────────────────────
+// The EXPRESSION a parameter's default evaluates. Column 20 of py_method_parameter,
+// read by nothing until framework-behavior/dispatch.dl needed it: a dependency-injection
+// marker lives in a default value (`svc = Depends(get_service)`), so the provider it
+// names is reachable only through this expression. param_default carries WHETHER there
+// is a default and of what kind; this carries WHICH expression it is.
+param_default_expr("client", e, h) :- py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, h), e != "".
+param_default_expr("lib", e, h) :- lib_py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, h), e != "".

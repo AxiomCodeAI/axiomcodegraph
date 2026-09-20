@@ -1,0 +1,6 @@
+── framework_edge (4) ──
+  di_provider        registered  main.admin -> main.get_user   [Security]
+  di_provider        registered  main.get_service -> main.get_settings   [Depends]
+  di_provider        registered  main.get_user -> main.get_settings   [Depends]
+  di_provider        registered  main.read_item -> main.get_service   [Depends]
+── framework_unjoined (0) ──

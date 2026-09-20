@@ -1,0 +1,5 @@
+── framework_edge (3) ──
+  fixture_injection  by_name     main.db -> main.dsn   [dsn]
+  fixture_injection  by_name     main.test_query -> main.db   [db]
+  fixture_injection  by_name     main.test_total -> main.cart   [cart]
+── framework_unjoined (0) ──

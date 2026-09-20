@@ -609,6 +609,13 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `queue` | java | A message-listener method. |
 | `scheduled` | java | A `@Scheduled` method. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
+| `http` | python | A route handler registered with a decorator naming an HTTP verb and a URL path. |
+| `task` | python | A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it. |
+| `fixture` | python | A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument. |
+| `url` | python | A view named as a value in a module-level route table. The framework calls it on a request. |
+| `signal_receiver` | python | A handler attached to a signal, by decorator or by connect(). It runs when the signal fires, whether or not this tree contains the send. |
+| `di_provider` | python | A provider named in a dependency-injection marker in a parameter default. The framework calls it and passes the result in. |
+| `orm_hook` | python | A lifecycle or validation hook registered by decoration. The data layer calls it; nothing in the client does. |
 
 **Notes**
 

@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  fixture    main.cart   main.py:36
+  fixture    main.db   main.py:41
+  fixture    main.dsn   main.py:47

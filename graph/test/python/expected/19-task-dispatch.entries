@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  task       main.purge_stale   main.py:53
+  task       main.rebuild_index   main.py:48
+  task       main.send_report   main.py:43
