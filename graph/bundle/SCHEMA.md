@@ -601,7 +601,7 @@ Methods the runtime invokes without a client call site — process roots, test m
 |---|---|---|
 | `main` | java | A static `main`. |
 | `test` | java | A JUnit test or lifecycle method. |
-| `http` | java | A JAX-RS / Spring MVC handler. |
+| `http` | java, python | A route handler a web framework invokes on a request: a JAX-RS / Spring MVC handler, or a function registered with a decorator naming an HTTP verb and a URL path. |
 | `cli` | java | A CLI command method (picocli etc.). |
 | `bean_ctor` | java | Constructor of a container-managed bean. |
 | `factory` | java | A `@Bean` factory method. |
@@ -609,7 +609,6 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `queue` | java | A message-listener method. |
 | `scheduled` | java | A `@Scheduled` method. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
-| `http` | python | A route handler registered with a decorator naming an HTTP verb and a URL path. |
 | `task` | python | A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it. |
 | `fixture` | python | A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument. |
 | `url` | python | A view named as a value in a module-level route table. The framework calls it on a request. |

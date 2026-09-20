@@ -635,7 +635,7 @@ export const VOCAB: readonly VocabSpec[] = [
   // entry_points.reason
   { table: 'entry_points', column: 'reason', value: 'main', languages: J, meaning: 'A static `main`.' },
   { table: 'entry_points', column: 'reason', value: 'test', languages: J, meaning: 'A JUnit test or lifecycle method.' },
-  { table: 'entry_points', column: 'reason', value: 'http', languages: J, meaning: 'A JAX-RS / Spring MVC handler.' },
+  { table: 'entry_points', column: 'reason', value: 'http', languages: ['java', 'python'], meaning: 'A route handler a web framework invokes on a request: a JAX-RS / Spring MVC handler, or a function registered with a decorator naming an HTTP verb and a URL path.' },
   { table: 'entry_points', column: 'reason', value: 'cli', languages: J, meaning: 'A CLI command method (picocli etc.).' },
   { table: 'entry_points', column: 'reason', value: 'bean_ctor', languages: J, meaning: 'Constructor of a container-managed bean.' },
   { table: 'entry_points', column: 'reason', value: 'factory', languages: J, meaning: 'A `@Bean` factory method.' },
@@ -643,7 +643,6 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'entry_points', column: 'reason', value: 'queue', languages: J, meaning: 'A message-listener method.' },
   { table: 'entry_points', column: 'reason', value: 'scheduled', languages: J, meaning: 'A `@Scheduled` method.' },
   { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: ['typescript', 'javascript'], meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },
-  { table: 'entry_points', column: 'reason', value: 'http', languages: P, meaning: 'A route handler registered with a decorator naming an HTTP verb and a URL path.' },
   { table: 'entry_points', column: 'reason', value: 'task', languages: P, meaning: 'A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it.' },
   { table: 'entry_points', column: 'reason', value: 'fixture', languages: P, meaning: 'A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument.' },
   { table: 'entry_points', column: 'reason', value: 'url', languages: P, meaning: 'A view named as a value in a module-level route table. The framework calls it on a request.' },
