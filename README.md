@@ -60,15 +60,19 @@ Two stages, two columns: the **parser** turns source into the relational IR; the
 | **Java** | stable | stable | **stable**. First front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved |
 | **C#** | stable | beta | **beta**. The parser is complete and the engine is merged, with 10 regression cases, ground truth and a runtime oracle under `graph/test/csharp`; not yet built into the published engine packages |
 
-Configuration and build files are part of the graph too: a change to a bean definition, a property key or a dependency version has a blast radius into methods, and the Java engine resolves it:
+Configuration and build files are part of the graph too: a change to a property key, a wiring
+declaration or a dependency version has a blast radius into methods.
 
-| format | parser | engine (Java wiring) | what it contributes |
-|---|---|---|---|
-| **XML**: Spring beans, `web.xml`, `pom.xml` | stable | stable | bean definitions and injection points → `di_edge`, `bean_def`; entry points from servlet/handler declarations |
-| **`.properties`** | stable | stable | keys and typed value segments → `config_binding`, `config_affects_method` |
-| **YAML**: application configuration | beta | stable | the same bindings from YAML documents, anchors and aliases followed |
-| **Gradle**: Groovy and Kotlin DSL | beta | not yet | project graph, dependency coordinates and version catalogs, resolved; used for library discovery, not yet for edges |
-| **`META-INF/services`** | stable | stable | provider-configuration files → service entry points |
+| format | parser | engine |
+|---|---|---|
+| **XML** | stable | stable |
+| **YAML** | beta | stable |
+| **`.properties`** | stable | stable |
+| **Gradle**: Groovy and Kotlin DSL | beta | not yet |
+| **`META-INF/services`** | stable | stable |
+
+Reading a configuration *file* is wired into the Java engine today; the other front ends resolve
+configuration written in code (a decorator, a marker in a parameter default) rather than in a file.
 
 See [`parser/README.md`](parser/README.md) for every relation each format produces.
 
