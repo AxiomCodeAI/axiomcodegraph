@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""The per-case FRAMEWORK EDGE golden — the relation .edges, .tiers and .entries all miss.
+"""The per-case FRAMEWORK EDGE golden — the relations .edges, .tiers and .entries all miss.
+
+Two families live here, for one reason. `framework_edge` is the IN-PROCESS hop a framework
+makes (a task proxy, a fixture, a route table, a signal, a provider, a hook). `remote_edge`
+is the CROSS-PROCESS one — a gRPC client and the servicer that answers it, joined by the
+rpc's full method name — with `remote_unserved` / `remote_unsent` carrying the halves that
+do not join. Neither is a call edge, so every argument below applies to both unchanged.
+The cross-process rows were first reported by extending entry_report.py, which was written
+before this file existed; .entries pins the CONSUMER half only, which is exactly the blind
+spot described below.
 
 WHY IT NEEDS ITS OWN GOLDEN, and this file exists because the gap was real. When the
 five framework cases were first blessed, every one of them passed with `.edges`,
@@ -117,6 +126,37 @@ def main():
     print(f"── framework_unjoined ({total}) ──")
     for (mech, detail), n in sorted(unjoined.items()):
         print(f"  {n:4d}  {mech:18s} {detail}")
+
+    # The CROSS-PROCESS half. remote-edge.csv is (from, to, transport, destination,
+    # confidence); the two unjoined halves are (method, transport, destination). Each row
+    # leads with its DESTINATION, because the destination IS the claim: an edge joined on
+    # the wrong string is the failure mode here, and a reviewer cannot see that from the
+    # endpoints alone. The unjoined halves are listed in full rather than counted — unlike
+    # framework_unjoined they name a method, and WHICH send has no server is the useful
+    # fact in a repository that holds only one side of a conversation.
+    remote = set()
+    rp = os.path.join(out, 'remote-edge.csv')
+    if os.path.exists(rp):
+        with open(rp, newline='') as fh:
+            for r in csv.reader(fh, delimiter='\t'):
+                if len(r) >= 5:
+                    remote.add((r[2], r[3], name.get(r[0], r[0]), name.get(r[1], r[1]), r[4]))
+
+    print(f"── remote_edge ({len(remote)}) ──")
+    for tr, dest, src, dst, conf in sorted(remote):
+        print(f"  {tr:6s} {dest}\n      {src}\n   -> {dst}   [{conf}]")
+
+    for rel in ('remote-unserved', 'remote-unsent'):
+        half = set()
+        rp = os.path.join(out, rel + '.csv')
+        if os.path.exists(rp):
+            with open(rp, newline='') as fh:
+                for r in csv.reader(fh, delimiter='\t'):
+                    if len(r) >= 3:
+                        half.add((r[1], r[2], name.get(r[0], r[0])))
+        print(f"── {rel.replace('-', '_')} ({len(half)}) ──")
+        for tr, dest, who in sorted(half):
+            print(f"  {tr:6s} {dest}   {who}")
     return 0
 
 

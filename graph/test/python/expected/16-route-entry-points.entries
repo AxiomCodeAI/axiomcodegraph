@@ -5,9 +5,3 @@
   http       main.genuine_patch_route   main.py:50
   http       main.route_table_style   main.py:45
   http       main.socket_style   main.py:56
-
-── remote_edge (0) ──
-
-── remote_unserved (0) ──
-
-── remote_unsent (0) ──
