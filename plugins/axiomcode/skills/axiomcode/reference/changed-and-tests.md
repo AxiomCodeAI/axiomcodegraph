@@ -40,7 +40,7 @@ covers the shapes that used to be answered wrongly: a `this.field` write in an u
 nested type of the same name, an overload written by its parameter type (`Store.get(String)`), a Java text block and a
 JavaScript regex literal, `holds` scoped to the declaring type, a subtype contract where the engine emits no override
 rows, a Python `@property` as a private field's door, a house decorator that wraps `dataclass`, and a local variable
-that must not carry the method's blast radius. Java, Python, TypeScript and JavaScript.
+that must not carry the method's blast radius. Java, Python, TypeScript, JavaScript and C#.
 
 **Is what the hooks put in context true?** `hooks/validate.py <repo>` generates events (Reads of whole files and ranges, Greps of
 declared identifiers, edits that change a body, a signature, a field's type — before and after landing) or replays recorded

@@ -13,8 +13,8 @@
   line, top-level code included), `file.py` (every method in the file). `Outer$Inner.m`, `Outer.Inner#m`, `m(int,String)`
   and package-qualified `pkg.Outer.Inner.m` are the same name; a Java nested type is found whether or not the outer is
   written (the parser drops it, #667). A name that does not exist stops with the exact names that are close — use one
-  of those, or a `file:line` from the issue or a stack trace. Built and self-tested for Java, TypeScript and Python;
-  JavaScript works but the engine's JavaScript output is still moving.
+  of those, or a `file:line` from the issue or a stack trace. Built and self-tested for Java, TypeScript, Python
+  and C#; JavaScript works but the engine's JavaScript output is still moving.
 - **By default the answer is ONE SHORTEST chain per reached target** — it says so on its last line. Other routes exist
   and are not listed. `--every` adds all of them: first the complete set of methods and calls that lie on *any* chain
   from a source to a target (from Datalog, polynomial — `301 methods and 935 calls` for `Parser.parse → Lexer.emit`),
