@@ -109,6 +109,38 @@ InheritanceOverride.main  src/InheritanceOverride.java  40          known_edge  
 
 Requirements: **Node ≥ 22.5** and a POSIX shell (Git Bash on Windows). Until the prebuilt engine packages are published ([#478](https://github.com/AxiomCodeAI/axiom-code-graph/pull/478)), the first solve per language also needs [Soufflé](https://souffle-lang.github.io) 2.5 and a C++ compiler to compile the engine once; after that, `npm install` fetches it prebuilt and neither is needed.
 
+## Using it from Claude Code (the plugin)
+
+The plugin is the query frontend: a skill, an MCP server and hooks, on the `skill/query-frontend` branch.
+It needs an engine to build graphs with, and it cannot find one by itself once installed, so the order
+matters.
+
+```bash
+# 1. build the engine. parser/dist is NOT in git, so a clone has no parser until this runs --
+#    "parser not built" from bin/axiomcode means this step was skipped.
+git clone -b skill/query-frontend https://github.com/AxiomCodeAI/axiom-code-graph.git
+cd axiom-code-graph && npm install && npm run build
+
+# 2. make the engine findable. EITHER install this checkout globally, which the plugin then resolves
+#    on its own, OR name it in the environment.
+npm i -g .                                    # then nothing else is needed
+export AXIOMCODE_ENGINE="$PWD"                # ... or this, per shell
+
+# 3. install the plugin. The short `marketplace add <owner>/<repo>` form reads the DEFAULT branch,
+#    which does not carry the manifest yet, so pin the branch.
+claude plugin marketplace add "https://github.com/AxiomCodeAI/axiom-code-graph.git#skill/query-frontend"
+claude plugin install axiomcode@axiomcode
+```
+
+Start a new Claude Code session afterwards: plugins are loaded at startup, so a session that was already
+running will not see it.
+
+The MCP tools additionally need the Python MCP SDK (`pip install mcp`, or install `uv` and the launcher
+fetches it on demand). Without it the skill's CLI still works and the server explains what is missing --
+it does not fail silently.
+
+Querying an existing graph needs no engine at all; only `axiomcode index` does.
+
 <details>
 <summary>All options</summary>
 
