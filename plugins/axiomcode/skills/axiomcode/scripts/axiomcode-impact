@@ -111,7 +111,15 @@ ROUTEISH = re.compile(r'/[^\s"\'\\]{0,158}')
 # the field; ctor: a constructor taking the fields; builder: Type.builder().field(...); with: withField(...)
 GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Setter': {'set'}, 'Value': {'get', 'is', 'ctor'},
              'Builder': {'builder'}, 'AllArgsConstructor': {'ctor'}, 'RequiredArgsConstructor': {'ctor'}, 'With': {'with'},
-             'Accessors': {'fluent'}, 'dataclass': {'ctor'}, 'attrs': {'ctor'}, 'define': {'ctor'}, 'BaseModel': {'ctor'}}
+             'Accessors': {'fluent'}, 'dataclass': {'ctor'}, 'attrs': {'ctor'}, 'define': {'ctor'}, 'BaseModel': {'ctor'},
+             # Base classes that generate a constructor from the annotated members, the BaseModel shape:
+             # `class Point(NamedTuple): zip_code: str` gets __new__ taking every member positionally, so a retype
+             # breaks each construction site at the argument it passes. TypedDict generates no callable, but its
+             # members are reached by STRING KEY, which is what makes its [text] hits members rather than noise.
+             'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'}}
+# This table is duplicated in graph_sql.py, which the hook's fast path reads; the two must agree or the rules and
+# the fast path answer the same question differently. tests/surfaces.py asserts they do.
+
 
 class Impact:
     def __init__(self, g):

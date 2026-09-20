@@ -1198,7 +1198,15 @@ BASE_REF_SQL = ("SELECT name, line FROM type_refs WHERE file=? AND context IN "
 GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Setter': {'set'},
              'Value': {'get', 'is', 'ctor'}, 'Builder': {'builder'}, 'AllArgsConstructor': {'ctor'},
              'RequiredArgsConstructor': {'ctor'}, 'With': {'with'}, 'Accessors': {'fluent'},
-             'dataclass': {'ctor'}, 'attrs': {'ctor'}, 'define': {'ctor'}, 'BaseModel': {'ctor'}}
+             'dataclass': {'ctor'}, 'attrs': {'ctor'}, 'define': {'ctor'}, 'BaseModel': {'ctor'},
+             # A BASE CLASS that generates a constructor from the annotated members, exactly as BaseModel does.
+             # `class Point(NamedTuple): zip_code: str` gets __new__ taking every member positionally, so a
+             # retype breaks each construction site at the argument it passes -- the Lombok @AllArgsConstructor
+             # shape, in Python. Without the entry no generated-members line fires and the retype warning that
+             # names the constructor stays silent, which is the one line that led to the real break when it did.
+             # TypedDict generates no callable, but its members are reached by STRING KEY (`d["zip_code"]`), so
+             # naming it here is what makes the [text] layer's string hits legible as members rather than noise.
+             'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'}}
 
 _SYM_VIEW = {}
 def _sym_view(q):
