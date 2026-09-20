@@ -96,6 +96,25 @@ local_bind_cand(prov, e, v, 140) :-
     var_method(prov, v, outer),
     var_name(prov, v, n).
 
+// A PRIMARY CONSTRUCTOR PARAMETER. `class Service(IRepo repo)` puts `repo` in scope
+// in every instance member of the type, and this is the constructor-injection idiom
+// in current C# -- so the receiver it names is the one a service tree writes most.
+//
+// FURTHEST OF ALL, at 160. A local, a parameter and a captured one all shadow it,
+// which is the language's rule: a method may declare its own `repo` and that one
+// wins. Putting it nearer would silently retype every such body.
+//
+// It is reached through the TYPE rather than through the method chain, because a
+// lambda inside a member is its own method and is not lexically inside the primary
+// constructor -- `() => repo.Get(id)` has to see it too, and a lexical walk from the
+// lambda never arrives at a constructor it was never nested in.
+local_bind_cand(prov, e, p, 160) :-
+    unbound_ref(prov, e, n, m, _),
+    method_in_type(prov, gk, m),
+    type_ctor(prov, gk, ctor),
+    method_kind(prov, ctor, "PRIMARY_CONSTRUCTOR"),
+    param_decl(prov, ctor, _, n, p).
+
 // ── A DECLARATION MUST PRECEDE ITS USE ──────────────────────────────────────
 // C# locals are scoped to the whole block but cannot be used before their
 // declaration. Without this, a use of `s` in the first line of a method binds to a
@@ -160,6 +179,35 @@ local_binds(prov, e, v) :-
 ref_denotes(prov, e, k, h) :- expr_ref_entity(prov, e, k, h).
 ref_denotes(prov, e, "LOCAL_VARIABLE", v) :- local_binds(prov, e, v), var_decl(prov, _, _, _, v).
 ref_denotes(prov, e, "PARAMETER", p) :- local_binds(prov, e, p), param_decl(prov, _, _, _, p).
+
+// ── A MEMBER THE ENCLOSING TYPE INHERITED ───────────────────────────────────
+// `Timer.Tick()` inside a derived class, where `Timer` is a property declared on the
+// base. The parser binds a name reference to the member it names WHERE SYNTAX
+// SETTLES IT, and from one file it cannot: the declaration is in another file, so
+// the reference arrives here unknown and nothing above offers a member at all.
+//
+// THE WALK ALREADY EXISTS. member_lookup answers "what does the name `Foo` mean on
+// this type" over the class chain and the interface lattice, with `new`-hiding
+// already decided by distance. Unqualified use is the same question against the
+// ENCLOSING type -- the implicit `this` -- so it is asked rather than re-derived.
+//
+// AFTER LOCAL BINDING, NOT BESIDE IT. A local or a parameter of the same name
+// shadows an inherited member, so this only fires where nothing else bound the
+// name. That ordering is also what keeps the program stratified: local_binds is
+// decided without reference to members.
+//
+// A member of the type's OWN declaration does not come through here, because the
+// parser bound it and the reference is not unknown. This is the inherited case only,
+// which is why a positional record's property arrives here too -- it is declared by
+// the record header, not by the body that uses it.
+inherited_member_ref(prov, e, kind, h) :-
+    unbound_ref(prov, e, n, _, _),
+    !local_binds(prov, e, _),
+    expr_ultimate_type_group(prov, e, gk),
+    member_lookup(prov, gk, n, kind, h).
+
+ref_denotes(prov, e, "PROPERTY", p) :- inherited_member_ref(prov, e, "property", p).
+ref_denotes(prov, e, "FIELD", f)    :- inherited_member_ref(prov, e, "field", f).
 
 // ── A NAME THE ENGINE ALSO COULD NOT BIND ───────────────────────────────────
 // Recorded, with the name, so an unresolved receiver has an explanation. Most of

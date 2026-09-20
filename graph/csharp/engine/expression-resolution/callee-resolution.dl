@@ -351,7 +351,20 @@ expr_exact_target(prov, e, m) :-
     expr_operator(prov, e, op),
     expr_operand_child(prov, e, c),
     expr_type(prov, c, gk),
-    method_in_type(prov, gk, m),
+    // ON THE OPERAND'S TYPE OR ANY ANCESTOR OF IT. C# gathers the candidate
+    // user-defined operators from the operand's type AND its base types, so an
+    // `operator ==` declared on a base entity is found for every derived one --
+    // which is the shape a domain model is written in, and `x == null` on a derived
+    // type is written in almost every handler.
+    //
+    // THE MISS WAS INVISIBLE, not merely wrong: a site whose operator is not found
+    // is counted as known_builtin_operator, the bucket for a site that ran no user
+    // code, so it was filed as a correct answer. The arity test below is what keeps
+    // the widened lookup honest -- a type may declare `operator -(Money)` and
+    // `operator -(Money, Money)` and an inherited one of the wrong arity must not
+    // be let in by the ancestor hop.
+    type_self_or_ancestor(prov, gk, ownerGk),
+    method_in_type(prov, ownerGk, m),
     method_operator(prov, m, op),
     call_argc(prov, e, acs),
     method_accepts_argc(prov, m, acs).
