@@ -157,6 +157,14 @@ gen(t, w) :- base_name(t, n), gen_table(n, w).
 gen_alias(d, w) :- named(d, m), ref(m, g, _, _, _, _), gen_table(g, w), d != g.
 gen(t, w) :- decorated(t, d), gen_alias(d, w).
 gen(t, w) :- field(fl, t, _, _, _), decorated(fl, d), gen_alias(d, w).
+// the same alias shape, for a base class built by a FACTORY rather than named directly:
+// `Base = declarative_base()` then `class Customer(Base)`. The written base name is `Base`, which
+// discriminates nothing -- any project may have a class called Base -- so it cannot go in the convention
+// table. What discriminates is that THIS Base's own source calls a generator, which is exactly what
+// gen_alias already asks of a decorator. Without it a declarative model's generated __init__ is invisible
+// and a retype of one of its columns reports no construction site at all.
+gen(t, w) :- base_name(t, n), gen_alias(n, w).
+gen_source(t, n, "a base class built by a generator") :- base_name(t, n), gen_alias(n, _), !gen_table(n, _).
 // which entries fired for THIS query, so the answer can say which convention it assumed rather than leave it implicit
 .decl gen_source(t:symbol, d:symbol, why:symbol)
 gen_source(t, d, "a decoration on the type") :- decorated(t, d), gen_table(d, _).

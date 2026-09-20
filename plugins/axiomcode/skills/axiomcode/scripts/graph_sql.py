@@ -1225,7 +1225,13 @@ GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Set
              # names the constructor stays silent, which is the one line that led to the real break when it did.
              # TypedDict generates no callable, but its members are reached by STRING KEY (`d["zip_code"]`), so
              # naming it here is what makes the [text] layer's string hits legible as members rather than noise.
-             'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'}}
+             'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'},
+             # discriminating names only. SQLAlchemy 2.0 states its base outright; 1.x builds one with
+             # declarative_base(), which the base-alias rule in impact.dl resolves through. Django's
+             # `models.Model` is NOT here: the parser keeps only the last segment, so the key would be
+             # `Model` and would fire on any project's own class of that name.
+             'DeclarativeBase': {'ctor'}, 'declarative_base': {'ctor'}, 'SQLModel': {'ctor'},
+             'BaseSettings': {'ctor'}, 'Struct': {'ctor'}}
 
 _SYM_VIEW = {}
 def _sym_view(q):
@@ -1272,6 +1278,22 @@ def gen_table(q, code):
                 hit = {w for k, ws in GENERATED.items() if re.search(rf'\b{re.escape(k)}\b', body) for w in ws}
                 if hit: tbl[d] = hit
                 break
+    # a base class built by a factory (`Base = declarative_base()`): the written name discriminates nothing and
+    # an assignment has no body for the alias rule, so bind the name from the assignment itself. Mirrors the same
+    # scan in axiomcode-impact -- the rules and this fast path must not disagree about what generates members.
+    if _has(q, 'type_refs'):
+        bases = {r[0] for r in q("SELECT DISTINCT name FROM type_refs WHERE context IN "
+                                 "('BASE_CLASS','SUPER_TYPE','EXTENDS_TYPE')")}
+        for b in sorted(bases - set(tbl)):
+            if not b or not re.fullmatch(r'\w+', b):
+                continue
+            pat = re.compile(rf'^\s*{re.escape(b)}\s*(?::[^=]+)?=\s*(\w+)\s*\(')
+            for (fl,) in q("SELECT DISTINCT file FROM type_refs WHERE name = ? AND file IS NOT NULL", b):
+                for ln in (code(fl) or []):
+                    m = pat.match(ln)
+                    if m and m.group(1) in GENERATED:
+                        tbl[b] = set(GENERATED[m.group(1)]); break
+                if b in tbl: break
     return _GEN_TABLE.setdefault(key, tbl)
 
 

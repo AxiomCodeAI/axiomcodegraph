@@ -116,7 +116,13 @@ GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Set
              # `class Point(NamedTuple): zip_code: str` gets __new__ taking every member positionally, so a retype
              # breaks each construction site at the argument it passes. TypedDict generates no callable, but its
              # members are reached by STRING KEY, which is what makes its [text] hits members rather than noise.
-             'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'}}
+             'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'},
+             # discriminating names only. SQLAlchemy 2.0 states its base outright; 1.x builds one with
+             # declarative_base(), which the base-alias rule in impact.dl resolves through. Django's
+             # `models.Model` is NOT here: the parser keeps only the last segment, so the key would be
+             # `Model` and would fire on any project's own class of that name.
+             'DeclarativeBase': {'ctor'}, 'declarative_base': {'ctor'}, 'SQLModel': {'ctor'},
+             'BaseSettings': {'ctor'}, 'Struct': {'ctor'}}
 # This table is duplicated in graph_sql.py, which the hook's fast path reads; the two must agree or the rules and
 # the fast path answer the same question differently. tests/surfaces.py asserts they do.
 
@@ -715,6 +721,23 @@ class Impact:
                 hit = {w for k, ws in GENERATED.items() if re.search(rf'\b{re.escape(k)}\b', body) for w in ws}
                 if hit: gen_table[d] = hit
                 break
+        # A BASE CLASS BUILT BY A FACTORY: `Base = declarative_base()`, then `class Customer(Base)`. The written
+        # base name is `Base`, which discriminates nothing, and the alias rule cannot help because an assignment
+        # is not a declaration with a body to read. What identifies it is the assignment itself, in the source the
+        # exporter is already reading: bind the name to whatever generator builds it. Scanned only for names that
+        # are actually USED as a base and are not already in the table, so this costs nothing on a tree with none.
+        bases = {r[0] for r in g.q("SELECT DISTINCT name FROM type_refs WHERE context IN "
+                                   "('BASE_CLASS','SUPER_TYPE','EXTENDS_TYPE')")} if g.has('type_refs') else set()
+        for b in sorted(bases - set(gen_table)):
+            if not re.fullmatch(r'\w+', b or ''):
+                continue
+            pat = re.compile(rf'^\s*{re.escape(b)}\s*(?::[^=]+)?=\s*(\w+)\s*\(')
+            for (fl,) in g.q("SELECT DISTINCT file FROM type_refs WHERE name = ? AND file IS NOT NULL", b):
+                for ln in (self.code(fl) or []):
+                    m = pat.match(ln)
+                    if m and m.group(1) in GENERATED:
+                        gen_table[b] = set(GENERATED[m.group(1)]); break
+                if b in gen_table: break
         W('gen_table', [(d, w) for d, ws in gen_table.items() for w in ws])
         W('flag', [('no_overrides',)] if not g.q("SELECT 1 FROM overrides LIMIT 1") else [])
         W('file_dir', sorted({(f, os.path.dirname(f)) for (f,) in g.q("SELECT DISTINCT file FROM symbols WHERE file IS NOT NULL")} |
