@@ -6,3 +6,6 @@
   task_dispatch      registered  producer.enqueue_qualified (producer.py) -> tasks.remote_purge (tasks.py)   [apply_async]
 ── framework_unjoined (3) ──
      3  task_dispatch      delay
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──
