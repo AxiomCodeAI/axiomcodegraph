@@ -700,6 +700,11 @@
 .decl const_string_values(c0:symbol,c1:number)
 .decl const_string_unique(c0:symbol,c1:symbol)
 .decl serves_destination(c0:symbol,c1:symbol,c2:symbol)
+// gRPC (#1108): the generated holder pairs a client stub call with the handler that serves it
+.decl grpc_holder(c0:symbol,c1:symbol)
+.decl grpc_impl_holder(c0:symbol,c1:symbol)
+.decl grpc_serves(c0:symbol,c1:symbol)
+.decl grpc_sends_at(c0:symbol,c1:symbol,c2:symbol)
 .decl sends_destination(c0:symbol,c1:symbol,c2:symbol)
 .decl route_base(c0:symbol,c1:symbol)
 .decl route_base_declared(c0:symbol)

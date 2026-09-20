@@ -93,7 +93,10 @@ def ckey(k):
     so a key is matched on this form and every spelling that shares it is one target."""
     return re.sub(r'[^a-z0-9.]', '', k.lower())
 
-CERT = {'resolved': 0, 'one of a set': 1, 'in scope': 2, 'by name': 3, 'text': 4, 'alongside': 5}
+# 'remote' sits after a resolved call and before a set the engine could not narrow: the two ends were
+# joined by a destination the engine resolved on both sides, which is stronger than a guess among
+# candidates, but it is NOT an invocation -- it crosses a process and may be asynchronous (#1108).
+CERT = {'resolved': 0, 'remote': 1, 'one of a set': 2, 'in scope': 3, 'by name': 4, 'text': 5, 'alongside': 6}
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
@@ -997,6 +1000,20 @@ class Impact:
         W('throws_', sorted(set(thr))); W('catches', sorted(set(cat_))); W('switch_over', sorted(set(sw)))
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
         W('bean_factory', sorted(set(factories)))
+        # A CROSS-PROCESS HOP IS A DEPENDENT, AND IT WAS IN THE DATABASE UNREAD (#1108).
+        # framework-behavior emits remote_edge for a hop no call site expresses -- a queue, a route, a
+        # gRPC stub to the handler it serves. The engine has written those rows since the phase landed;
+        # nothing here ever selected them, so `impact` on a gRPC handler said "no client call site
+        # reaches it" while the client sat one row away in ext_remote_edge. The entry-point line was
+        # true and the answer was still the wrong one.
+        # Kept as its own relation rather than folded into calls: it crosses a process, it may be
+        # asynchronous, and the rules must be able to say so rather than imply an invocation.
+        remote = []
+        if g.has('ext_remote_edge'):
+            remote = sorted({(r[0], r[1], r[2], r[3], r[4]) for r in
+                             g.q("SELECT c0, c1, c2, c3, c4 FROM ext_remote_edge")
+                             if r[0] and r[1] and r[0] != r[1]})
+        W('remote', remote)
         open(stamp, 'w').write(want); return D
 
     # ── one query: the target facts, the text-level facts, one Soufflé run ──────────────────────────────────────

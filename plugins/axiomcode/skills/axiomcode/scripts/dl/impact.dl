@@ -229,6 +229,22 @@ direct(q, m, "reads", cat("reads this configuration key (", why, ")"), "resolved
 direct(q, c, "produces", cat("BINDS the key here, at the @", dn, " placeholder — this is the line a rename must change"), "resolved", f, l) :- target(q, "config", k, _), config_site(k, c, dn, f, l).
 
 // a type the container INJECTS: its consumers receive it without a call the graph can see
+// ── a hop across a process (#1108) ────────────────────────────────────────────────────────────────
+// remote(From, To, Transport, Destination, Confidence) — a queue, a route, a gRPC stub to the handler
+// it serves. No call site expresses it, so no call rule above can see it, and a handler's impact
+// reported nothing outside its own type while its callers sat in the table unread.
+//
+// It is a DEPENDENT and not a call: the reason says which transport carried it and over what key, so a
+// reader can tell an in-process invocation from a message that may never arrive. Certainty is the
+// engine's own confidence for that pairing rather than "resolved", because the two ends were joined by
+// a destination, not by a resolved target.
+.decl remote(f:symbol, t:symbol, tr:symbol, dest:symbol, conf:symbol)                  .input remote
+direct(q, c, "uses", cat("calls it across a process boundary (", cat(tr, cat(") at ", cat(dest, cat(" [", cat(conf, "]")))))), "remote", "", 0)
+    :- target(q, "method", m, _), remote(c, m, tr, dest, conf), c != m.
+// and the other direction: changing the sender changes what the handler receives
+direct(q, c, "uses", cat("serves what this sends across a process boundary (", cat(tr, cat(") at ", cat(dest, cat(" [", cat(conf, "]")))))), "remote", "", 0)
+    :- target(q, "method", m, _), remote(m, c, tr, dest, conf), c != m.
+
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "type", t, _), injected(t, c, kind), !inside_target(q, c).
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "clinit", t, _), injected(t, c, kind).
 // a method that DEFINES a bean (@Bean): whoever is injected with the type it returns. Keyed on `bean_factory`,

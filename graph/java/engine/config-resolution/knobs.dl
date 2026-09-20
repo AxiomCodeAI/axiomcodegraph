@@ -130,6 +130,16 @@ cfg_stub_base_suffix("ImplBase", "grpc_service").      // gRPC (protoc java)
 cfg_stub_base_suffix("Grpc", "grpc_service").          // gRPC outer holder
 cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators
 
+// cfg_stub_client_suffix(Suffix) — the simple-name suffix of a GENERATED CLIENT stub, the other end
+// of the same .proto. protoc java emits <S>BlockingStub, <S>Stub and <S>FutureStub nested in the same
+// <S>Grpc holder as <S>ImplBase, so the holder's qualified name pairs a client call with the handler
+// that serves it without reading the .proto (#1108). Listed rather than matched on "Stub" alone: a
+// hand-written class called RequestStub is not a generated client.
+.decl cfg_stub_client_suffix(c0:symbol)
+cfg_stub_client_suffix("BlockingStub").
+cfg_stub_client_suffix("FutureStub").
+cfg_stub_client_suffix("Stub").
+
 // ── (8) DESTINATIONS: a name that identifies a place a message or request goes ──
 // A producer and the consumer that serves it live in different deployables and never
 // call each other, so the only thing tying them together is this string. These lists

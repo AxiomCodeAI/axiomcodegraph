@@ -411,6 +411,52 @@ send_verb(m, "any") :- sends_destination(m, "http", _), !send_verb_known(m).
 send_verb_known(m) :- sends_via(call, "http"), expr_ultimate_method("client", call, m), call_verb(call, _).
 send_verb(m, v) :- route_of_method(m, _, "client"), method_verb(m, v).
 
+// ── gRPC: the generated stub and the handler it serves (#1108) ──────────────────────────────
+// Unlike a topic or a route, the join key here is not a string a developer wrote: protoc emits
+// <S>ImplBase (server) and <S>BlockingStub / <S>Stub / <S>FutureStub (client) as NESTED types of the
+// same <S>Grpc holder. So the holder's qualified name plus the method name pairs the two ends without
+// reading the .proto, which is never in the source tree anyway.
+//
+// The server end already exists: entry-points.dl marks an ImplBase override as a grpc_service entry
+// point. What was missing is the other half -- the client call -- so `impact` on a handler reported no
+// callers and `path` said the two were independent, which is the honest answer to the wrong question.
+//
+// Keyed on the HOLDER rather than the service's simple name: two protos may both declare Get, and the
+// holder is what distinguishes them. Arity is not part of the key: a blocking stub takes (request) and
+// the async stub takes (request, observer) for the SAME rpc, so requiring equal arity would drop the
+// async shape, which is the one a streaming service uses.
+grpc_holder(t, holder) :- java_type(name, qname, _, _, _, _, _, _, _, _, _, _, _, t),
+    cfg_stub_client_suffix(suffix),
+    strlen(name) >= strlen(suffix),
+    substr(name, max(0, strlen(name) - strlen(suffix)), min(strlen(suffix), strlen(name))) = suffix,
+    strlen(qname) > strlen(name),
+    holder = substr(qname, 0, max(0, strlen(qname) - strlen(name) - 1)).
+
+// the handler's holder, from the ImplBase it extends -- same derivation, the server suffix
+grpc_impl_holder(t, holder) :- type_ancestor(t, base),
+    java_type(bname, bqname, _, _, _, _, _, _, _, _, _, _, _, base),
+    cfg_stub_base_suffix(suffix, "grpc_service"),
+    strlen(bname) >= strlen(suffix),
+    substr(bname, max(0, strlen(bname) - strlen(suffix)), min(strlen(suffix), strlen(bname))) = suffix,
+    strlen(bqname) > strlen(bname),
+    holder = substr(bqname, 0, max(0, strlen(bqname) - strlen(bname) - 1)).
+
+// a handler method: declared on a type whose base is an ImplBase under that holder
+grpc_serves(m, key) :- grpc_impl_holder(t, holder), method_owner("client", t, m),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    name != "", key = cat(holder, cat("/", name)).
+
+// a client call: a call site whose receiver is a generated stub under the same holder
+grpc_sends_at(call, from, key) :- call_site(call, name, recv), name != "",
+    expr_type("client", recv, st), grpc_holder(st, holder),
+    expr_ultimate_method("client", call, from),
+    key = cat(holder, cat("/", name)).
+
+remote_edge_via(call, from, to, "grpc", key, conf) :- grpc_sends_at(call, from, key),
+    grpc_serves(to, key), from != to,
+    // the stub's type resolved, so the pairing rests on a type rather than a name alone
+    conf = "exact".
+
 // (a) exact — a topic, a queue, or a route both ends spell the same way.
 remote_edge_via(call, from, to, tr, d, "exact") :- sends_destination_at(call, from, tr, d),
     serves_destination(to, tr, d), from != to, tr != "http".
