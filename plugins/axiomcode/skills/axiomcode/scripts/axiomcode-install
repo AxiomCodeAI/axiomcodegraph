@@ -20,7 +20,14 @@ side must say so.
 The block is delimited, so re-running replaces rather than appends, and --remove takes it out
 cleanly. Nothing outside the markers is ever touched.
 """
-import os, sys
+import json, os, sys
+
+# The MCP tools this plugin exposes. A permission prompt at the moment of FIRST use is a barrier exactly
+# where the tool has not yet earned trust, and a caller that has to stop and ask is a caller that greps
+# instead. Pre-authorising is a change to the user's settings, so it happens here, in an explicit install
+# step that prints what it did and can undo it -- never silently from a hook or a manifest (a plugin
+# manifest cannot declare permissions at all; nothing in the official marketplace does).
+MCP_GLOB = 'mcp__plugin_axiomcode_axiomcode__*'
 
 BEGIN = '<!-- BEGIN axiomcode -->'
 END = '<!-- END axiomcode -->'
@@ -40,6 +47,38 @@ Text search is still the right tool for a string, a comment, a TODO, or a file y
 `axiomcode index` builds the graph if `.axiomcode/out/graph.sqlite` is absent. An unresolved call in
 an answer means *unknown*, not *absent* — never read it as "no callers".
 <!-- END axiomcode -->"""
+
+
+def allow_mcp(repo, remove=False):
+    """Add (or remove) the plugin's MCP tools in <repo>/.claude/settings.json, merging with what is there.
+
+    Written per repository rather than globally: a benchmark, a colleague's checkout and a sandbox should
+    not inherit a trust decision made once somewhere else. Existing entries are preserved -- this file is
+    the user's, and an installer that rewrites it wholesale is worse than one that does nothing.
+    """
+    path = os.path.join(repo, '.claude', 'settings.json')
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding='utf-8') as fh:
+                data = json.load(fh)
+        except Exception:
+            return f"  {path} is not valid JSON; left alone -- add {MCP_GLOB!r} to permissions.allow by hand"
+    allow = data.setdefault('permissions', {}).setdefault('allow', [])
+    if remove:
+        if MCP_GLOB not in allow:
+            return f"  no axiomcode entry in {path}"
+        allow.remove(MCP_GLOB)
+        if not allow: data['permissions'].pop('allow', None)
+        if not data['permissions']: data.pop('permissions', None)
+    else:
+        if MCP_GLOB in allow:
+            return f"  {path} already allows {MCP_GLOB}"
+        allow.append(MCP_GLOB)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as fh:
+        json.dump(data, fh, indent=2); fh.write('\n')
+    return f"  {'removed' if remove else 'added'} {MCP_GLOB} in {path}"
 
 
 def main(argv):
@@ -82,6 +121,7 @@ def main(argv):
         with open(path, 'w', encoding='utf-8') as fh:
             fh.write(stripped)
         print(f"removed the axiomcode block from {path}")
+        print(allow_mcp(repo, remove=True))
         return 0
 
     body = (stripped.rstrip('\n') + '\n\n' if stripped.strip() else '')
@@ -90,6 +130,9 @@ def main(argv):
     print(f"{'replaced' if BEGIN in old else 'wrote'} the axiomcode block in {path}")
     print("  it states a preference; it blocks nothing. Disclose it when reporting a measurement "
           "taken with it installed.")
+    print(allow_mcp(repo))
+    print("  that pre-authorises this plugin's MCP tools in THIS repository, so the first call does not "
+          "stop for a prompt. `--remove` takes both back out.")
     return 0
 
 
