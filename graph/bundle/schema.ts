@@ -642,6 +642,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'entry_points', column: 'reason', value: 'lifecycle', languages: ['java', 'typescript'], meaning: 'Java: `@PostConstruct` / `@PreDestroy` and similar hooks. TypeScript: a hook the container calls by name on a decorated class (`ngOnInit`, `onModuleInit`), which has no call site anywhere.' },
   { table: 'entry_points', column: 'reason', value: 'queue', languages: J, meaning: 'A message-listener method.' },
   { table: 'entry_points', column: 'reason', value: 'scheduled', languages: J, meaning: 'A `@Scheduled` method.' },
+  { table: 'entry_points', column: 'reason', value: 'grpc', languages: P, meaning: 'A gRPC servicer method: the class derives from a generated `*Servicer` base in a `_pb2_grpc` module and overrides a method that base declares. `add_<Svc>Servicer_to_server` hands the object to grpc, which invokes it on a request — no call site reaches it.' },
   { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: ['typescript', 'javascript'], meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },
   { table: 'entry_points', column: 'reason', value: 'task', languages: P, meaning: 'A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it.' },
   { table: 'entry_points', column: 'reason', value: 'fixture', languages: P, meaning: 'A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument.' },
