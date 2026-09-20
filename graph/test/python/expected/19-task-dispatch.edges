@@ -5,10 +5,16 @@ ambiguous_unknown	METHOD_CALL	main.enqueue_purge -> -
 ambiguous_unknown	METHOD_CALL	main.enqueue_rebuild -> -
 ambiguous_unknown	METHOD_CALL	main.enqueue_report -> -
 ambiguous_unknown	METHOD_CALL	main.not_a_dispatch -> -
+ambiguous_unknown	METHOD_CALL	producer.enqueue_imported -> -
+ambiguous_unknown	METHOD_CALL	producer.enqueue_qualified -> -
+ambiguous_unknown	METHOD_CALL	producer.not_a_dispatch_imported -> -
 boundary_lib	SIMPLE_CALL	main.<module> -> builtin:object.__init__
 known_edge	DECORATOR_BARE	main.<module> -> main.shared_task
+known_edge	DECORATOR_BARE	tasks.<module> -> tasks.shared_task
 known_edge	DECORATOR_CALL	main.<module> -> main._App.task
 known_edge	SIMPLE_CALL	main.called_directly -> main.send_report
 known_edge	SIMPLE_CALL	main.purge_stale -> main._render
 known_edge	SIMPLE_CALL	main.rebuild_index -> main._render
 known_edge	SIMPLE_CALL	main.send_report -> main._render
+known_edge	SIMPLE_CALL	tasks.remote_purge -> tasks._remote_render
+known_edge	SIMPLE_CALL	tasks.remote_report -> tasks._remote_render

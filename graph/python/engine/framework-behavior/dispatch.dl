@@ -113,6 +113,30 @@ py_task_dispatch(site, from, to, meth) :-
     binding_binds_replaced_method("client", b2, to),
     py_task_registered(to).
 
+// (b) THE PRODUCER IMPORTED THE TASK, which is what real code does. A producer and the
+// task it enqueues almost never share a module: the task lives in a tasks module and
+// the caller writes `from tasks import send_report` or `import tasks`. Clause (a) alone
+// resolves only the same-module case, which is the shape a single-file fixture has and
+// almost nothing else. MEASURED on the task queue's own source before this clause
+// existed: 20 dispatches joined against 455 declined.
+py_task_dispatch(site, from, to, meth) :-
+    call_decl("client", _, meth, _, _, site), py_task_dispatch_method(meth),
+    call_receiver("client", "NAME", _, rexpr, site),
+    call_context("client", _, from, _, _, site), from != "",
+    expr_binding("client", b, ctx, rexpr), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    import_binds_method("client", b2, to),
+    py_task_registered(to).
+
+// (c) … and the module-qualified spelling, `tasks.send_report.delay(k)`, whose receiver
+// is an attribute expression rather than a bare name.
+py_task_dispatch(site, from, to, meth) :-
+    call_decl("client", _, meth, _, _, site), py_task_dispatch_method(meth),
+    call_receiver("client", "ATTRIBUTE", _, rexpr, site),
+    call_context("client", _, from, _, _, site), from != "",
+    expr_attr_names_method("client", rexpr, to),
+    py_task_registered(to).
+
 framework_edge(from, to, "task_dispatch", meth, "registered") :-
     py_task_dispatch(_, from, to, meth).
 

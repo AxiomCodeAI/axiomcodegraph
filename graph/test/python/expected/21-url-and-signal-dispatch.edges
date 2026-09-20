@@ -1,9 +1,15 @@
+ambiguous_unknown	DECORATOR_APPLICATION	handlers.<module> -> -
 ambiguous_unknown	DECORATOR_APPLICATION	main.<module> -> -
 ambiguous_unknown	METHOD_CALL	main.not_a_signal_send -> -
+ambiguous_unknown	METHOD_CALL	ship.ship_order -> -
 boundary_lib	SIMPLE_CALL	main.<module> -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	signals.<module> -> builtin:object.__init__
+known_edge	DECORATOR_CALL	handlers.<module> -> handlers.receiver
 known_edge	DECORATOR_CALL	main.<module> -> main.receiver
 known_edge	METHOD_CALL	main.<module> -> main.Signal.connect
 known_edge	METHOD_CALL	main.place_order -> main.Signal.send
+known_edge	SIMPLE_CALL	handlers.on_never_shipped -> handlers._record
+known_edge	SIMPLE_CALL	handlers.on_shipped -> handlers._record
 known_edge	SIMPLE_CALL	main.<module> -> main.path
 known_edge	SIMPLE_CALL	main.<module> -> main.re_path
 known_edge	SIMPLE_CALL	main.detail -> main._load
@@ -13,3 +19,6 @@ known_edge	SIMPLE_CALL	main.not_a_route_table -> main.path
 known_edge	SIMPLE_CALL	main.on_never_sent -> main._audit
 known_edge	SIMPLE_CALL	main.on_order_connected -> main._audit
 known_edge	SIMPLE_CALL	main.on_order_placed -> main._audit
+known_edge	SIMPLE_CALL	urls.<module> -> urls.path
+known_edge	SIMPLE_CALL	views.profile -> views._render_view
+known_edge	SIMPLE_CALL	views.settings_page -> views._render_view

@@ -1,4 +1,6 @@
-── entry_point (3) ──
+── entry_point (5) ──
   task       main.purge_stale   main.py:53
   task       main.rebuild_index   main.py:48
   task       main.send_report   main.py:43
+  task       tasks.remote_purge   tasks.py:19
+  task       tasks.remote_report   tasks.py:14

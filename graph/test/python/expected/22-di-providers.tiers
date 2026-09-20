@@ -1,28 +1,28 @@
-distinct call sites emitted: 15
+distinct call sites emitted: 22
 
 --- by tier: edge ROWS, and the distinct SITES they cover ---
-      3 rows      3 sites  ambiguous_unknown
-      1 rows      1 sites  boundary_lib
-     11 rows     11 sites  known_edge
+      4 rows      4 sites  ambiguous_unknown
+      2 rows      2 sites  boundary_lib
+     16 rows     16 sites  known_edge
 
 --- edge rows by call kind ---
-      2  DECORATOR_APPLICATION
-      2  DECORATOR_CALL
+      3  DECORATOR_APPLICATION
+      3  DECORATOR_CALL
       1  METHOD_CALL
-     10  SIMPLE_CALL
+     15  SIMPLE_CALL
 
 --- unresolved reasons ---
-      2  decorator_factory_result_untyped
+      3  decorator_factory_result_untyped
       1  untyped_receiver:parameter
 
 --- the engine's own conservation ledger ---
-     15  _total_sites
-      3  ambiguous_unknown
-      1  boundary_lib
-     11  known_edge
+     22  _total_sites
+      4  ambiguous_unknown
+      2  boundary_lib
+     16  known_edge
 
 --- reconciling rows against the conserved site count ---
-  edge rows                                  15
+  edge rows                                  22
   minus extra rows from multi-target sites    0
-  = tier/site pairs                          15
-  engine's conserved site total              15
+  = tier/site pairs                          22
+  engine's conserved site total              22

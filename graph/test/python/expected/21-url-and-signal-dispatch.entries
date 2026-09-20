@@ -1,7 +1,11 @@
-── entry_point (6) ──
+── entry_point (10) ──
+  signal_receiver handlers.on_never_shipped   handlers.py:15
+  signal_receiver handlers.on_shipped   handlers.py:10
   signal_receiver main.on_never_sent   main.py:85
   signal_receiver main.on_order_connected   main.py:77
   signal_receiver main.on_order_placed   main.py:73
   url        main.detail   main.py:46
   url        main.index   main.py:50
   url        main.legacy   main.py:54
+  url        views.profile   views.py:4
+  url        views.settings_page   views.py:8

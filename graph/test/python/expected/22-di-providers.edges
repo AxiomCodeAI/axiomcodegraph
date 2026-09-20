@@ -1,10 +1,16 @@
 ambiguous_unknown	DECORATOR_APPLICATION	main.<module> -> -
+ambiguous_unknown	DECORATOR_APPLICATION	routes.<module> -> -
 ambiguous_unknown	METHOD_CALL	main.read_item -> -
 boundary_lib	SIMPLE_CALL	main.<module> -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	routes.<module> -> builtin:object.__init__
 known_edge	DECORATOR_CALL	main.<module> -> main._App.get
 known_edge	DECORATOR_CALL	main.<module> -> main._App.post
+known_edge	DECORATOR_CALL	routes.<module> -> routes._Router.get
+known_edge	SIMPLE_CALL	deps.<module> -> deps.Depends
+known_edge	SIMPLE_CALL	deps.get_repo -> deps.open_repo
 known_edge	SIMPLE_CALL	main.<module> -> main.Depends
 known_edge	SIMPLE_CALL	main.<module> -> main.Security
 known_edge	SIMPLE_CALL	main.<module> -> main.get_settings
 known_edge	SIMPLE_CALL	main.Service.total -> main._compute
 known_edge	SIMPLE_CALL	main.get_service -> main.Service.__init__
+known_edge	SIMPLE_CALL	routes.<module> -> deps.Depends
