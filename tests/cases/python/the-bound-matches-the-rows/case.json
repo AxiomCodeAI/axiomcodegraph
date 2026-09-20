@@ -1,0 +1,12 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "`verified: nothing to check` means no row claims a CALL EDGE, which is not the same as 'no entry is resolved' — the old parenthetical said 'every entry is by name, in scope, text, or one of a target set', a claim about the rows that is false whenever a row is resolved and simply is not a call (#1136)",
+   "run": ["impact", "Ledger.settle", "--kind", "method"],
+   "want": ["no entry in this answer claims a CALL EDGE", "the entries are:"],
+   "avoid": ["no resolved edge is claimed in this answer"]},
+  {"why": "and the explanation of WHY a resolved row can have no call site is printed only where a resolved row is what is there — on an answer made of by-name rows it reads as an excuse for evidence the answer never claimed",
+   "run": ["impact", "Ledger.settle", "--kind", "method"],
+   "avoid": ["A configuration binding, a dependency injection"]},
+  {"why": "a type target seeds the closure with its own direct rows, so an empty closure means nothing calls THOSE — the old line asserted instead that every dependent was reached by something other than a resolved call, printed one line under `verified: … all present` (#1136)",
+   "run": ["impact", "Ledger", "--kind", "type"],
+   "avoid": ["every dependent above is reached by something other than a resolved call"]}]}
