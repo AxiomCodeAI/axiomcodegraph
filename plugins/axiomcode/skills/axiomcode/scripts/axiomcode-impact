@@ -49,7 +49,7 @@ def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, ax_registration
+sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die = P.G, P.run_dl, P.die
@@ -95,7 +95,10 @@ def ckey(k):
     so a key is matched on this form and every spelling that shares it is one target."""
     return re.sub(r'[^a-z0-9.]', '', k.lower())
 
-CERT = {'resolved': 0, 'one of a set': 1, 'in scope': 2, 'by name': 3, 'text': 4, 'alongside': 5}
+# `registered` and `capped set` sit between the resolved edge and the ones the engine never made:
+# both ARE engine edges, so they outrank `in scope` and every name match, and neither is a resolved
+# call to the declaration, so neither may outrank `one of a set`. See ax_edges.DIRECT_CERT.
+CERT = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'in scope': 4, 'by name': 5, 'text': 6, 'alongside': 7}
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
@@ -640,7 +643,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '20'          # 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '21'          # 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -776,6 +779,11 @@ class Impact:
         W('flag', [('no_overrides',)] if not g.q("SELECT 1 FROM overrides LIMIT 1") else [])
         W('file_dir', sorted({(f, os.path.dirname(f)) for (f,) in g.q("SELECT DISTINCT file FROM symbols WHERE file IS NOT NULL")} |
                              {(f, os.path.dirname(f)) for (f,) in (g.q("SELECT DISTINCT file FROM refs WHERE file IS NOT NULL") if g.has('refs') else [])}))
+        # EVERY TIER IN THIS GRAPH GETS A ROW, including one the table has never seen — the call rules join
+        # on cert_tier, and a tier with no row would drop its dependents out of the answer entirely rather
+        # than mislabel them, which is the worse of the two failures. ax_edges.direct_cert has the default.
+        W('cert_tier', sorted({(t, ax_edges.direct_cert(t), ax_edges.DIRECT_WHY.get(ax_edges.direct_cert(t), 'calls it'))
+                               for (t,) in g.q("SELECT DISTINCT tier FROM call_edges")}))
         W('calls', [(r['caller_id'], r['callee_method_id'], r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
                     for r in g.q("SELECT e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
         CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')
@@ -1539,7 +1547,11 @@ def main(argv):
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
-        if cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why):
+        # `registered` and `capped set` come only from a call_edges row, so they claim an edge exactly as a
+        # resolved row does and are verified the same way — the why-wording test cannot speak for them, because
+        # a hand-off's sentence deliberately does not say "calls".
+        if (cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why)) \
+           or cert in ('registered', 'capped set'):
             hops += 1
             if not any((c, t) in real for t in asserted.get(c, ())): bad += 1
     if as_json:
@@ -1731,7 +1743,7 @@ def main(argv):
         seen_d = {}
         for r in out_rows:
             if r['id'] in g.sym and r['id'] not in seen_d:
-                seen_d[r['id']] = ('one of a set' if r['tier'] == 'multi_inferred' else 'resolved', r['f'], r['l'])
+                seen_d[r['id']] = (ax_edges.direct_cert(r['tier']), r['f'], r['l'])
         print(f"\ndepends on (what it calls, so what may have to change with it): {len(seen_d)} callable(s)")
         if not seen_d and not libs:
             print("    nothing resolved" + (f" — but its body has {unres} unresolved call(s), so what it depends on is unknown, not nothing" if unres else ""))
@@ -1745,7 +1757,12 @@ def main(argv):
     if want_delete:
         # is it safe to delete? every reason it is not, and — when there is none — what the graph cannot vouch for
         names = {g.sym[t]['name'] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) if t in g.sym}
-        calls = [x for x in D if x[3] == 'resolved' and ('calls' in x[2] or 'instantiates' in x[2] or 'through' in x[2] or 'inject' in x[2])]
+        # THE MEMBERSHIP HERE IS EXACTLY WHAT IT WAS. Every row now labelled `registered` or `capped set`
+        # was labelled `resolved` before, and a hand-off is a reason NOT to delete — something holds the
+        # reference. Letting the new label fall out of this list would turn "something still uses this" into
+        # "safe to delete", which is the one verdict here that costs anything to get wrong.
+        calls = [x for x in D if (x[3] == 'resolved' and ('calls' in x[2] or 'instantiates' in x[2] or 'through' in x[2] or 'inject' in x[2]))
+                 or x[3] in ('registered', 'capped set')]
         weak = [x for x in D if x[3] in ('one of a set', 'by name', 'text', 'in scope')]
         lits = [r for n_ in names for r in g.q("SELECT file, line FROM literals WHERE value = ?", n_)] if g.has('literals') else []
         decs = sorted({r[0].split('.')[-1] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", t)})
