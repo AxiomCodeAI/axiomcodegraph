@@ -442,6 +442,32 @@ for dir in "$HERE"/cases/*/; do
   check_golden "$w/actual.edges" "$HERE/expected/$name.edges" "edges" || bad=1
   check_golden "$w/actual.fields" "$HERE/expected/$name.fields" "field-access" || bad=1
   check_golden "$w/actual.typeuse" "$HERE/expected/$name.type-use" "type-use" || bad=1
+  # ENTRY POINTS get their own golden because .edges cannot see them: an entry point is
+  # a declaration NOTHING CALLS, so it contributes no edge by construction. Case 68 was
+  # green before this check existed while asserting nothing about the roots it tests.
+  #
+  # OPT-IN PER CASE, unlike the goldens above: the check runs only where a golden is
+  # already present. Every case would otherwise need one at once, and the way to produce
+  # 67 goldens is a mass --bless, which is the act this suite refuses elsewhere for good
+  # reason. A case opts in by being blessed under a filter, which is one reviewable file.
+  entries_golden() {
+    local exp="$HERE/expected/$name.entries" out="$w/actual.entries"
+    python3 "$HERE/tools/entry_report.py" "$w/ir" "$w/plain/out/raw" > "$out" 2>"$w/entries.log" \
+      || { echo "FAIL (entries report — see $w/entries.log)"; return 1; }
+    if [ "$BLESS" = "1" ]; then
+      # Only where the author asked for this case: a filtered bless creates it, a full
+      # bless leaves the cases that never opted in alone.
+      if [ -f "$exp" ] || [ ${#FILTERS[@]} -gt 0 ]; then
+        [ -f "$exp" ] && ! diff -q "$exp" "$out" >/dev/null && { echo "BLESSED entries (changed)"; diff -u "$exp" "$out" | sed 's/^/    /' | head -30; }
+        cp "$out" "$exp"
+      fi
+      return 0
+    fi
+    [ -f "$exp" ] || return 0
+    diff -q "$exp" "$out" >/dev/null && return 0
+    echo "FAIL (entries changed)"; diff -u "$exp" "$out" | sed 's/^/    /' | head -40; return 1
+  }
+  entries_golden || bad=1
   if [ "$HAS_LIB" = "1" ]; then
     check_golden "$w/actual.lib.edges" "$HERE/expected/$name.lib.edges" "lib-edges" || bad=1
   fi

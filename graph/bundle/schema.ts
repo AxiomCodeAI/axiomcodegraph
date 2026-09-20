@@ -634,12 +634,12 @@ export const VOCAB: readonly VocabSpec[] = [
 
   // entry_points.reason
   { table: 'entry_points', column: 'reason', value: 'main', languages: J, meaning: 'A static `main`.' },
-  { table: 'entry_points', column: 'reason', value: 'test', languages: J, meaning: 'A JUnit test or lifecycle method.' },
-  { table: 'entry_points', column: 'reason', value: 'http', languages: ['java', 'python'], meaning: 'A route handler a web framework invokes on a request: a JAX-RS / Spring MVC handler, or a function registered with a decorator naming an HTTP verb and a URL path.' },
+  { table: 'entry_points', column: 'reason', value: 'test', languages: ['java', 'typescript'], meaning: 'Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), inline or named, which the runner invokes.' },
+  { table: 'entry_points', column: 'reason', value: 'http', languages: ['java', 'python', 'typescript'], meaning: 'A route handler a web framework invokes on a request. Java: a JAX-RS / Spring MVC handler. Python: a function registered with a decorator naming an HTTP verb and a URL path. TypeScript: a handler passed to a route registration (`app.get(\'/x\', h)`), inline or named, or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`).' },
   { table: 'entry_points', column: 'reason', value: 'cli', languages: J, meaning: 'A CLI command method (picocli etc.).' },
-  { table: 'entry_points', column: 'reason', value: 'bean_ctor', languages: J, meaning: 'Constructor of a container-managed bean.' },
+  { table: 'entry_points', column: 'reason', value: 'bean_ctor', languages: ['java', 'typescript'], meaning: 'Constructor of a container-managed class. TypeScript: the class carries a framework decorator (`@Injectable`, `@Component`, `@Module`), so the container constructs it and nothing in the repository does.' },
   { table: 'entry_points', column: 'reason', value: 'factory', languages: J, meaning: 'A `@Bean` factory method.' },
-  { table: 'entry_points', column: 'reason', value: 'lifecycle', languages: J, meaning: '`@PostConstruct` / `@PreDestroy` and similar hooks.' },
+  { table: 'entry_points', column: 'reason', value: 'lifecycle', languages: ['java', 'typescript'], meaning: 'Java: `@PostConstruct` / `@PreDestroy` and similar hooks. TypeScript: a hook the container calls by name on a decorated class (`ngOnInit`, `onModuleInit`), which has no call site anywhere.' },
   { table: 'entry_points', column: 'reason', value: 'queue', languages: J, meaning: 'A message-listener method.' },
   { table: 'entry_points', column: 'reason', value: 'scheduled', languages: J, meaning: 'A `@Scheduled` method.' },
   { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: ['typescript', 'javascript'], meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },

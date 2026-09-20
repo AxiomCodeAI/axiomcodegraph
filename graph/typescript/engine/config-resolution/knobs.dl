@@ -68,3 +68,49 @@ ts_test_registrar("beforeEach"). ts_test_registrar("afterEach").
 ts_test_registrar("beforeAll").  ts_test_registrar("afterAll").
 ts_test_registrar("before").     ts_test_registrar("after").
 ts_test_registrar("bench").
+
+// ── ts_route_decorator(Name) — a method decorator that registers a route ────
+// The DECORATOR form of the same fact ts_http_route_verb carries for the call form.
+// Nest spells HTTP's methods capitalised, plus `All` (any verb) and `Sse` (a stream).
+// No path guard is needed or possible here and that is the point: unlike `app.get`,
+// `@Get` cannot collide with Map.get or Headers.get, because a decorator is not a
+// method call on an arbitrary receiver. The name alone is the discriminator.
+.decl ts_route_decorator(c0:symbol)
+ts_route_decorator("Get").     ts_route_decorator("Post").    ts_route_decorator("Put").
+ts_route_decorator("Delete").  ts_route_decorator("Patch").   ts_route_decorator("Head").
+ts_route_decorator("Options"). ts_route_decorator("Search").  ts_route_decorator("All").
+ts_route_decorator("Sse").
+
+// ── ts_framework_class_decorator(Name) — the container OWNS this class ──────
+// A class carrying one of these is constructed by a framework, not by the program:
+// nothing in the repository calls `new OrderService()`, the container does. That is
+// why its constructor is a root and why its dependencies are reachable at all.
+//
+// Nest and Angular are listed together deliberately. They are two DI containers with
+// one shape, and a rule that read them separately would say the same thing twice.
+// `Module` and `NgModule` are included because a module class is itself instantiated
+// and its providers are named in its arguments.
+.decl ts_framework_class_decorator(c0:symbol)
+ts_framework_class_decorator("Injectable").  ts_framework_class_decorator("Controller").
+ts_framework_class_decorator("Component").   ts_framework_class_decorator("Directive").
+ts_framework_class_decorator("Pipe").        ts_framework_class_decorator("NgModule").
+ts_framework_class_decorator("Module").      ts_framework_class_decorator("Catch").
+ts_framework_class_decorator("Resolver").
+
+// ── ts_framework_lifecycle_method(Name) — the container CALLS this by name ──
+// A hook is invoked by the framework through an interface it checks for at runtime,
+// so no call site exists anywhere in the repository. The name is the whole contract,
+// which is what makes it safe to match on: these are reserved names, not ordinary
+// ones — `ngOnInit` means one thing and `onModuleInit` means one thing.
+//
+// GUARDED BY THE CLASS DECORATOR, never by the name alone. A method called
+// `onModuleInit` on a plain class is not a lifecycle hook and must not become a root.
+.decl ts_framework_lifecycle_method(c0:symbol)
+ts_framework_lifecycle_method("ngOnInit").             ts_framework_lifecycle_method("ngOnDestroy").
+ts_framework_lifecycle_method("ngOnChanges").          ts_framework_lifecycle_method("ngDoCheck").
+ts_framework_lifecycle_method("ngAfterViewInit").      ts_framework_lifecycle_method("ngAfterViewChecked").
+ts_framework_lifecycle_method("ngAfterContentInit").   ts_framework_lifecycle_method("ngAfterContentChecked").
+ts_framework_lifecycle_method("onModuleInit").         ts_framework_lifecycle_method("onModuleDestroy").
+ts_framework_lifecycle_method("onApplicationBootstrap").
+ts_framework_lifecycle_method("onApplicationShutdown").
+ts_framework_lifecycle_method("beforeApplicationShutdown").

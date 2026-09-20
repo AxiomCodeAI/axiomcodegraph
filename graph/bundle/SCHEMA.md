@@ -600,12 +600,12 @@ Methods the runtime invokes without a client call site — process roots, test m
 | value | languages | meaning |
 |---|---|---|
 | `main` | java | A static `main`. |
-| `test` | java | A JUnit test or lifecycle method. |
-| `http` | java, python | A route handler a web framework invokes on a request: a JAX-RS / Spring MVC handler, or a function registered with a decorator naming an HTTP verb and a URL path. |
+| `test` | java, typescript | Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), inline or named, which the runner invokes. |
+| `http` | java, python, typescript | A route handler a web framework invokes on a request. Java: a JAX-RS / Spring MVC handler. Python: a function registered with a decorator naming an HTTP verb and a URL path. TypeScript: a handler passed to a route registration (`app.get('/x', h)`), inline or named, or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`). |
 | `cli` | java | A CLI command method (picocli etc.). |
-| `bean_ctor` | java | Constructor of a container-managed bean. |
+| `bean_ctor` | java, typescript | Constructor of a container-managed class. TypeScript: the class carries a framework decorator (`@Injectable`, `@Component`, `@Module`), so the container constructs it and nothing in the repository does. |
 | `factory` | java | A `@Bean` factory method. |
-| `lifecycle` | java | `@PostConstruct` / `@PreDestroy` and similar hooks. |
+| `lifecycle` | java, typescript | Java: `@PostConstruct` / `@PreDestroy` and similar hooks. TypeScript: a hook the container calls by name on a decorated class (`ngOnInit`, `onModuleInit`), which has no call site anywhere. |
 | `queue` | java | A message-listener method. |
 | `scheduled` | java | A `@Scheduled` method. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
