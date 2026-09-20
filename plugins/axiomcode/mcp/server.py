@@ -4,19 +4,16 @@ exactly what the CLI prints (and stays verified there). Descriptions are short o
 import os, subprocess, sys
 try:
     from mcp.server.mcpserver import MCPServer
-except ImportError as e:                      # noqa: F841 -- the message IS the handling
-    # NOTHING DECLARES THIS DEPENDENCY. The plugin is installed by copying files; npm cannot express a
-    # Python requirement, and a machine whose python3 lacks the SDK gets an ImportError before the server
-    # speaks one frame -- which Claude Code reports as a server that would not start, with no hint that a
-    # missing Python package is why. It cost a working install on another machine to find that out.
-    # So say it here, at the import, where it is true however the server was launched.
-    sys.stderr.write(
-        "axiomcode mcp: the Python MCP SDK is missing for this interpreter (%s).\n"
-        "  The skill's CLI is unaffected -- only the MCP tools need it. Fix with ONE of:\n"
-        "    pip install mcp\n"
-        "    install uv, and mcp/launch.sh will fetch it on demand\n"
-        "    AXIOMCODE_PYTHON=/path/to/a/python/that/has/it\n" % sys.executable)
-    raise SystemExit(1)
+except ImportError:
+    # NOTHING INSTALLS THE SDK. The plugin is installed by copying files; npm cannot express a Python
+    # requirement and a plugin install has no step that could satisfy one, so the SDK is present only by
+    # accident of the host's interpreter. Exiting here left the client reporting a failed connection with
+    # no sign that a missing package was the reason (#1105). The server needs three things from the SDK --
+    # a constructor, a tool decorator and a stdio loop -- so it carries its own rather than require one.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from _fallback import MCPServer
+    sys.stderr.write("axiomcode mcp: the Python MCP SDK is not installed for %s; "
+                     "serving with the built-in fallback. `pip install mcp` to use the SDK.\n" % sys.executable)
 
 ROOT = os.environ.get('AXIOMCODE_PLUGIN_ROOT') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX = os.path.join(ROOT, 'skills', 'axiomcode', 'scripts', 'axiomcode')

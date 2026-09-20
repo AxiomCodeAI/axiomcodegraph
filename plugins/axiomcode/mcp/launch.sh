@@ -24,10 +24,14 @@ if command -v uv >/dev/null 2>&1; then
   exec uv run --quiet --with mcp python "$SERVER" "$@"
 fi
 
-echo "axiomcode mcp: the Python MCP SDK is not installed for any interpreter on PATH." >&2
-echo "  The skill's CLI still works (run scripts/axiomcode directly); only the MCP tools need this." >&2
-echo "  Fix with ONE of:" >&2
-echo "    pip install mcp            (into the interpreter python3 resolves to)" >&2
-echo "    uv tool install uv         (then this launcher fetches the SDK on demand)" >&2
-echo "    AXIOMCODE_PYTHON=/path/to/python-with-mcp" >&2
+# NEITHER IS AVAILABLE, AND THAT IS NOT A REASON TO SERVE NOTHING (#1105). server.py carries a
+# dependency-free fallback for the sliver of the protocol it uses, so the right move is to start it with
+# whatever interpreter exists and let it say on stderr which half it is running. Refusing here is what
+# left the client reporting a failed connection with no explanation.
+for PY in python3 python; do
+  command -v "$PY" >/dev/null 2>&1 && exec "$PY" "$SERVER" "$@"
+done
+
+echo "axiomcode mcp: no python3 on PATH, so the server cannot start at all." >&2
+echo "  The skill's CLI needs python3 too; install it, or set AXIOMCODE_PYTHON." >&2
 exit 1
