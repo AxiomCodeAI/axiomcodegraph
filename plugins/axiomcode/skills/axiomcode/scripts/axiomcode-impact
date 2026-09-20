@@ -12,6 +12,8 @@ A target is a declaration, written as it appears in the code. Its kind is read f
     server.error.path                                  a configuration key (@Value / @ConfigurationProperties / a .yml key), from the
                                                        engine's framework facts — an unknown key stops and says so, never a name match
     --kind method|field|type|param|typeparam|var|config  when the same name is declared as more than one kind
+           (the language's own word is accepted too: class / interface / enum / namespace → type, const /
+            enum_member / variable → field, function / constructor → method)
     --delete                                           add a verdict: is it safe to delete, and what the graph cannot vouch for
     --depends                                          the OTHER direction: what this declaration calls, which is what an agent
                                                        editing it usually has to change alongside. Dependents answer "who breaks
@@ -47,7 +49,7 @@ def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, ax_registration
+sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die = P.G, P.run_dl, P.die
@@ -93,10 +95,14 @@ def ckey(k):
     so a key is matched on this form and every spelling that shares it is one target."""
     return re.sub(r'[^a-z0-9.]', '', k.lower())
 
-# 'remote' sits after a resolved call and before a set the engine could not narrow: the two ends were
-# joined by a destination the engine resolved on both sides, which is stronger than a guess among
-# candidates, but it is NOT an invocation -- it crosses a process and may be asynchronous (#1108).
-CERT = {'resolved': 0, 'remote': 1, 'one of a set': 2, 'in scope': 3, 'by name': 4, 'text': 5, 'alongside': 6}
+# `registered` and `capped set` sit between the resolved edge and the ones the engine never made:
+# both ARE engine edges, so they outrank `in scope` and every name match, and neither is a resolved
+# call to the declaration, so neither may outrank `one of a set`. See ax_edges.DIRECT_CERT.
+# `remote` follows the same rule for the same reason (#1108): a cross-process hop is an edge the
+# engine asserted, joined on a destination it resolved at BOTH ends, so it outranks every name match --
+# and it is not a call to the declaration at all, so it cannot outrank a target set.
+CERT = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'remote': 4,
+        'in scope': 5, 'by name': 6, 'text': 7, 'alongside': 8}
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
@@ -253,7 +259,31 @@ class Impact:
             if n == low or n.endswith('.' + low): return ''      # the prefix IS part of the name
         return typed.rsplit('.', 2)[0]
 
+    # `--kind` HAS ITS OWN VOCABULARY, AND IT IS NOT THE INDEX'S. The flag takes the seven words the
+    # rules are written in (method/field/type/param/typeparam/var/config); `symbols.kind` holds what
+    # the language calls it — class, interface, enum, namespace, const, enum_member, variable,
+    # function, constructor. A caller reading the graph, or the language, passes one of those, and
+    # `--kind class` on a class used to die with "nothing of kind class named X in the graph": a
+    # sentence that blames the declaration for a wrong flag value, and one that `--kind wibble` got
+    # word for word. So the language's own names are accepted as synonyms, and a word that is neither
+    # is refused as a bad VALUE, naming the set.
+    KIND_ALIAS = {'class': 'type', 'interface': 'type', 'enum': 'type', 'namespace': 'type',
+                  'struct': 'type', 'record': 'type', 'trait': 'type',
+                  'const': 'field', 'enum_member': 'field', 'variable': 'field', 'property': 'field',
+                  'function': 'method', 'constructor': 'method',
+                  'local': 'var', 'parameter': 'param'}
+    KINDS = ('method', 'field', 'type', 'param', 'typeparam', 'var', 'config')
+
+    def kind_arg(self, kind):
+        if kind is None: return None
+        k = self.KIND_ALIAS.get(kind, kind)
+        if k not in self.KINDS:
+            die(f"--kind {kind} is not a kind this asks about. It takes: " + ' | '.join(self.KINDS) +
+                "\n  (the language's own words are accepted too: " + ', '.join(sorted(self.KIND_ALIAS)) + ")")
+        return k
+
     def resolve(self, sel, kind=None):
+        kind = self.kind_arg(kind)
         out = self._resolve(sel, kind)
         # a target whose leading segments match nothing is not the declaration it happens to end with
         pre = self.prefix_note(sel, out) if out else ''
@@ -617,7 +647,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '20'          # 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '21'          # 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -753,6 +783,11 @@ class Impact:
         W('flag', [('no_overrides',)] if not g.q("SELECT 1 FROM overrides LIMIT 1") else [])
         W('file_dir', sorted({(f, os.path.dirname(f)) for (f,) in g.q("SELECT DISTINCT file FROM symbols WHERE file IS NOT NULL")} |
                              {(f, os.path.dirname(f)) for (f,) in (g.q("SELECT DISTINCT file FROM refs WHERE file IS NOT NULL") if g.has('refs') else [])}))
+        # EVERY TIER IN THIS GRAPH GETS A ROW, including one the table has never seen — the call rules join
+        # on cert_tier, and a tier with no row would drop its dependents out of the answer entirely rather
+        # than mislabel them, which is the worse of the two failures. ax_edges.direct_cert has the default.
+        W('cert_tier', sorted({(t, ax_edges.direct_cert(t), ax_edges.DIRECT_WHY.get(ax_edges.direct_cert(t), 'calls it'))
+                               for (t,) in g.q("SELECT DISTINCT tier FROM call_edges")}))
         W('calls', [(r['caller_id'], r['callee_method_id'], r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
                     for r in g.q("SELECT e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
         CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')
@@ -1412,7 +1447,25 @@ def main(argv):
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import', 'protocol': 'protocol'}
+    # a tier no rung is written for, collected as the routes are labelled so it can be SAID rather than
+    # absorbed: a front end that gains a tier should show up here the first time anyone queries, not go
+    # quietly into the bottom rung forever.
+    UNKNOWN_TIERS = set()
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import', 'protocol': 'protocol',
+               # handed over as a value and invoked by whoever holds it (`callback_registered`), or emitted
+               # here and handled there (`event_dispatch`). Real engine edges, so `by name` understates them;
+               # registrations rather than resolutions, so `one of a set` — which claims a resolved target
+               # SET — overstates them. Both are a JavaScript/TypeScript vocabulary: neither tier can occur
+               # on the three Python subjects the rung precisions below were measured on, so this rung is
+               # ranked on its SHAPE and is UNMEASURED. See `registered` in CERT_RANK.
+               'callback_registered': 'registered', 'event_dispatch': 'registered',
+               # into the platform, into a generated library member, or a callee computed at run time: the
+               # chain ENDS there. It is listed for completeness — such an edge is terminal, so it is rarely
+               # an interior hop on a route — and ranked with the rest of the unresolved evidence.
+               'ambient_terminal': 'registered', 'dynamic_terminal': 'registered',
+               'boundary_generated': 'sound', 'implicit_constructor': 'sound',
+               # the candidate set was too large to enumerate, so what is here is a SAMPLE of it
+               'fan_capped': 'by name'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -1449,8 +1502,13 @@ def main(argv):
     # is not the `fixture` rung it used to be labelled as — a fixture route is weak for exactly the reason this one
     # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
     # the word that means one.
-    CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'by key': 5,
-                 'decorator by name': 6, 'protocol': 7, 'fixture': 8, 'by name': 9}
+    CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'registered': 5,
+                 'by key': 6, 'decorator by name': 7, 'protocol': 8, 'fixture': 9, 'by name': 10}
+    # `registered` is inserted, and nothing above or below it is re-ordered: every rung the precisions were
+    # measured for keeps the neighbours it had. It sits below `one of a set` because it is not a resolved
+    # call, and above `by key` because the ENGINE recorded the hand-off, where a key join is this file's own
+    # rules matching a string. Neither position is measured; the table already says the ordering below
+    # `one of a set` is a tie-break on the kind of evidence, and this is one more such tie-break.
     # `decorator by name` is the @-line hop: the decoration carries a simple NAME, so the declaration it denotes
     # is matched by that name, not resolved. It is a real dependency when the match is right — a decorator that
     # changes changes everything it wraps — and nothing at all when the name happens to be shared, which is why
@@ -1479,7 +1537,19 @@ def main(argv):
             # emit first, so the same graph could call a route sound or `one of a set` depending on row order.
             # If a hop is also a multi-target dispatch, the route is not sound.
             ts = [t for x, t in parent.get(a, ()) if x == b] or ['known_edge']
-            c = max((CERT_UP.get(t, 'one of a set') for t in ts), key=lambda x: CERT_RANK[x])
+            # AN UNKNOWN TIER TAKES THE BOTTOM RUNG. The default used to be `one of a set` — third most
+            # certain of ten, and a specific claim that the engine resolved the call to a sound set of
+            # targets. Every well-founded tier is listed above: the synthesised ones come from this file's
+            # own rules and the resolved ones from the exporter, so nothing legitimate is demoted by this.
+            # What WAS reaching the default is the per-language vocabulary the table was never taught —
+            # `callback_registered` alone is 8,915 of 25,048 traversable edges on one JavaScript project,
+            # every one of them a callable handed over as a value and reported as a resolved target set.
+            # Java and Python emit neither tier, which is why the two languages the rungs were measured on
+            # are exactly the two where the default was never reached. Per this table's own rule, a floor
+            # that is too low is safe and one that is too high is not.
+            for t in ts:
+                if t not in CERT_UP: UNKNOWN_TIERS.add(t)
+            c = max((CERT_UP.get(t, 'by name') for t in ts), key=lambda x: CERT_RANK[x])
             if CERT_RANK[c] > CERT_RANK[worst]: worst = c
         return worst
     test_cert = {m: cert_of(m) for m in tests}
@@ -1495,7 +1565,11 @@ def main(argv):
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
-        if cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why):
+        # `registered` and `capped set` come only from a call_edges row, so they claim an edge exactly as a
+        # resolved row does and are verified the same way — the why-wording test cannot speak for them, because
+        # a hand-off's sentence deliberately does not say "calls".
+        if (cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why)) \
+           or cert in ('registered', 'capped set'):
             hops += 1
             if not any((c, t) in real for t in asserted.get(c, ())): bad += 1
     if as_json:
@@ -1660,6 +1734,9 @@ def main(argv):
     if tests:
         byc = collections.Counter(test_cert.values())
         print("    how sure each route is: " + ', '.join(f"{n} {c}" for c, n in sorted(byc.items(), key=lambda x: CERT_RANK[x[0]])) + f"  —  {len(sure)} reach it through resolved single-target calls within 3 hops")
+        if UNKNOWN_TIERS:
+            print(f"    note: {len(UNKNOWN_TIERS)} edge tier(s) on these routes have no rung in this tool ("
+                  + ', '.join(sorted(UNKNOWN_TIERS)) + ") — they were taken as the LEAST certain, which is a floor, not a measurement")
         if all_tfiles and len(tfiles) >= 0.6 * len(all_tfiles):
             print(f"    fan-in: {len(tfiles)} of {len(all_tfiles)} test file(s) reach this method — at that fan-in reaching says little about failing"
                   " (measured on this repo's own mutation truth: a hub answer is right about 3 test files in 10, a narrow one about 6 in 10, and a sound route within 3 hops about 9 in 10)")
@@ -1684,7 +1761,7 @@ def main(argv):
         seen_d = {}
         for r in out_rows:
             if r['id'] in g.sym and r['id'] not in seen_d:
-                seen_d[r['id']] = ('one of a set' if r['tier'] == 'multi_inferred' else 'resolved', r['f'], r['l'])
+                seen_d[r['id']] = (ax_edges.direct_cert(r['tier']), r['f'], r['l'])
         print(f"\ndepends on (what it calls, so what may have to change with it): {len(seen_d)} callable(s)")
         if not seen_d and not libs:
             print("    nothing resolved" + (f" — but its body has {unres} unresolved call(s), so what it depends on is unknown, not nothing" if unres else ""))
@@ -1698,7 +1775,12 @@ def main(argv):
     if want_delete:
         # is it safe to delete? every reason it is not, and — when there is none — what the graph cannot vouch for
         names = {g.sym[t]['name'] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) if t in g.sym}
-        calls = [x for x in D if x[3] == 'resolved' and ('calls' in x[2] or 'instantiates' in x[2] or 'through' in x[2] or 'inject' in x[2])]
+        # THE MEMBERSHIP HERE IS EXACTLY WHAT IT WAS. Every row now labelled `registered` or `capped set`
+        # was labelled `resolved` before, and a hand-off is a reason NOT to delete — something holds the
+        # reference. Letting the new label fall out of this list would turn "something still uses this" into
+        # "safe to delete", which is the one verdict here that costs anything to get wrong.
+        calls = [x for x in D if (x[3] == 'resolved' and ('calls' in x[2] or 'instantiates' in x[2] or 'through' in x[2] or 'inject' in x[2]))
+                 or x[3] in ('registered', 'capped set')]
         weak = [x for x in D if x[3] in ('one of a set', 'by name', 'text', 'in scope')]
         lits = [r for n_ in names for r in g.q("SELECT file, line FROM literals WHERE value = ?", n_)] if g.has('literals') else []
         decs = sorted({r[0].split('.')[-1] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", t)})
@@ -1765,9 +1847,48 @@ def main(argv):
         for b in bits: print(f"    · {b}")
         if not bits and not calls and not contract and not weak and not ov: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
         if not vis and g.has('methods'): print("    · visibility is not recorded in this graph, so exported surface cannot be told from internal")
-    print("verified: nothing to check — no resolved edge is claimed in this answer (every entry is by name, in scope, text, or one of a target set)" if hops == 0 else
-          f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
-    if not reached and D: print("bound: the closure could not start — every dependent above is reached by something other than a resolved call (by name, in scope, text), so what reaches THEM is not in this answer")
+    # WHAT hops == 0 MEANS IS "NO ROW CLAIMS A CALL EDGE", NOT "NO ROW IS RESOLVED". The old parenthetical —
+    # "every entry is by name, in scope, text, or one of a target set" — is a claim about the rows, and it is
+    # false for a whole family of them: a configuration binding, a dependency injection and a @Value
+    # placeholder are all `resolved` and none is a call, so there is genuinely nothing to look up. On a
+    # config-key target the answer printed three [resolved] rows and then said it contained no resolved
+    # entry, which tells a reader the answer is weaker than it is.
+    if hops == 0:
+        mix = collections.Counter(x[3] for x in D)
+        have = ', '.join(f"{n} {c}" for c, n in mix.most_common()) if mix else 'nothing'
+        # the explanatory half belongs only where it applies: a row that is `resolved` and still not a call is
+        # the surprising case and needs naming; an answer that is all by-name rows does not, and saying it
+        # there reads as an excuse for evidence the answer never claimed.
+        print("verified: nothing to check — no entry in this answer claims a CALL EDGE, so there is none to look up"
+              + (f" (the entries are: {have})" if mix else "")
+              + (". A configuration binding, a dependency injection and a @Value placeholder are each recorded by the"
+                 " engine and resolved, and none of them has a call site." if mix.get('resolved') else ""))
+    else:
+        print(f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
+    # AN EMPTY CLOSURE HAS MORE THAN ONE CAUSE, and this line used to assert one of them. It fires on
+    # "the closure is empty" and then said every dependent was reached by something other than a resolved
+    # call — which, printed one line under `verified: 2 printed edge(s) … all present`, contradicts the
+    # rows it describes. A closure is also empty when the dependents ARE resolved callers and simply have
+    # no callers of their own: an entry point, a handler a framework invokes, a top-level main.
+    if not reached and D:
+        if IN and any(0 < int(d) <= depth for _m, d, _q in res['reach']):
+            print(f"bound: the closure is not empty — every method it reached is outside --in {IN}, so none is listed. Drop --in to see them.")
+        elif seeds & direct_ids:
+            # THE DEPENDENTS THEMSELVES ARE SEEDS (a type, config, decoration or field target seeds with its
+            # own direct rows — see seed_of in dl/impact.dl), so an empty closure means nothing calls THEM.
+            # A type target also seeds with the type node, which nothing ever calls, so the test is
+            # intersection and not difference.
+            print("bound: the closure is empty because nothing in this graph calls the dependent(s) above — they are "
+                  "entry points, or their callers are outside it. What reaches THEM is not in this answer.")
+        elif seeds:
+            # the closure walked back from the TARGET (a method / param / var target seeds with the target
+            # alone), so an empty closure means no dependent above is an edge it can walk. That is what the
+            # old sentence said, and it is right for exactly this case and no other.
+            print("bound: the closure could not start — no dependent above is a resolved call the closure can walk "
+                  "back from, so what reaches THEM is not in this answer")
+        else:
+            print("bound: the closure could not start — no dependent above is an edge it can walk back from, so what "
+                  "reaches THEM is not in this answer")
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
     # an override of a type the graph does not contain is called BY that library / framework: "nothing reaches it" would be a lie
     outside = []
@@ -1778,7 +1899,21 @@ def main(argv):
     if outside and not reached: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so nothing reaching it here does NOT mean nothing does")
     if byname_seeds: print(f"through a call the engine could not resolve: {len(byname_seeds)} caller(s) write this method's name on an untyped receiver — counted in the reach above, so that part of it MAY not be real: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in sorted(byname_seeds)[:4]))
     byname = [x for x in D if x[3] in ('one of a set', 'by name', 'text')]
-    if byname: print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} are not an exact edge — [one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge), [by name] / [text] may be a same-named other thing")
+    # a label the answer USED must be explained here; a label it did not use must not be, or the note
+    # describes evidence the reader cannot find above it. `registered` is new and is the one most
+    # likely to be misread, because on JavaScript it is where a third of the routes go.
+    REGISTERED_NOTE = ("[registered] is a callable handed over as a value — the engine recorded the hand-off, "
+                       "not a call to it, and cannot say the holder ever runs it")
+    used_registered = 'registered' in set(test_cert.values())
+    if byname:
+        legend = "[one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge), [by name] / [text] may be a same-named other thing"
+        if used_registered: legend += ", " + REGISTERED_NOTE
+        print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} are not an exact edge — " + legend)
+    elif used_registered:
+        # the note above is counted in by-name entries, and a `registered` route need not produce one: on a
+        # target reached ONLY through hand-offs there were no by-name entries at all, so the label the whole
+        # answer was written in went unexplained.
+        print("note: " + REGISTERED_NOTE)
     return 0
 
 if __name__ == '__main__':

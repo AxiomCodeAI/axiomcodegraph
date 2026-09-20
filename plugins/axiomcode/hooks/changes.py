@@ -56,7 +56,9 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
     lines = [head]
-    rank = {'resolved': 0, 'in scope': 1, 'by name': 2, 'text': 3}
+    # ordered as ax_edges.DIRECT_ORDER and impact's CERT are: an edge the engine asserted outranks a
+    # name or a text match, and neither a hand-off nor a truncated fan-out outranks a resolved call.
+    rank = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'in scope': 4, 'by name': 5, 'text': 6}
     for d, j in results:
         hd = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(hd + "  (impact unavailable)"); continue

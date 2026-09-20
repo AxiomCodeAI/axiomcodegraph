@@ -4,8 +4,8 @@
    "run": ["impact", "listPads", "--kind", "method"],
    "want": ["registered as a GET route \"/pads\"", "src/routes.js:13"],
    "avoid": ["nothing the graph can see"]},
-  {"why": "a callback that is not a route keeps the engine's own wording rather than being relabelled: this rule only renames what it can prove is a route",
+  {"why": "a callback that is not a route is NOT relabelled as one: this rule renames only what it can prove is a route, and `setTimeout(auditLog, 1000)` is not. It keeps the engine's own reading of the edge — which, since #1131, is the hand-off the tier actually records. It said 'calls it' before, and setTimeout does not call auditLog: it is handed the function and runs it later",
    "run": ["impact", "auditLog", "--kind", "method"],
-   "want": ["routes.<module>", "calls it"],
+   "want": ["routes.<module>", "handed over as a value"],
    "avoid": ["registered as a"]}
  ]}

@@ -23,7 +23,7 @@ Five rules, and every verb obeys all five:
   5. STATE THE BOUND. Say what the answer cannot see — the relations this graph does not encode — so a
      partial list is not read as a complete one.
 """
-import collections, difflib, re, sys
+import collections, difflib, os, re, subprocess, sys
 
 SPLIT = re.compile(r'[^A-Za-z0-9]+')
 CAMEL = re.compile(r'[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+')
@@ -362,3 +362,37 @@ def budgeted(rows, budget, what="row"):
 BOUND = ("bound: this follows call edges and names. Anything related through what the graph does not encode "
          "— a constant, a config key, a string, a framework convention, reflection — will not appear here "
          "however relevant it is.")
+
+
+# ── rule 6: a verb ANSWERS ────────────────────────────────────────────────────────────────────────
+def ensure_graph(repo, db):
+    """The graph a verb needs, built if it is not there yet. Returns True when the graph exists after
+    this call.
+
+    Rule 2 says a refusal always carries a correction. "no graph at …/graph.sqlite — run `axiomcode
+    index` first" carries one, and it is still the wrong answer: the correction is a command the
+    caller can only run by hand, and running it is the whole of what they wanted. It was the last
+    manual step between installing the package and getting an answer out of it.
+
+    It is OFF unless AXIOMCODE_AUTOBUILD is set, and the dispatcher sets it — so the CLI and the MCP
+    server (timeout 900 s) build on demand, while the plugin's hooks, which shell straight to these
+    scripts under timeouts of 10-25 s, do not. A first build takes minutes: under a hook it would be
+    killed every time, cache nothing, and repeat on the next edit forever.
+
+    AXIOMCODE_GRAPH points at a graph someone else built and placed; nothing is built into it."""
+    if os.path.exists(db): return True
+    if not os.environ.get('AXIOMCODE_AUTOBUILD') or os.environ.get('AXIOMCODE_GRAPH'): return False
+    build = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-build')
+    if not os.path.exists(build): return False
+    print(f"no graph for {repo} yet — building one (this is the only slow call; later ones read it) …", file=sys.stderr)
+    r = subprocess.run(['bash', build, repo])
+    return r.returncode == 0 and os.path.exists(db)
+
+
+def no_graph(repo, db):
+    """what to say when there is still no graph after ensure_graph has had its turn."""
+    if os.environ.get('AXIOMCODE_GRAPH'):
+        return f"no graph at {db} (AXIOMCODE_GRAPH is set, so nothing was built into it)"
+    if os.environ.get('AXIOMCODE_AUTOBUILD'):
+        return f"no graph at {db} — the build did not produce one; see {os.path.join(repo, '.axiomcode', 'build.log')}"
+    return f"no graph at {db} — run `axiomcode index {repo}` first"
