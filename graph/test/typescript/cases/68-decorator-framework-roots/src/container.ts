@@ -3,11 +3,14 @@
 // what the decorators attached. Without a rule that reads the decorator NAME, every
 // declaration below is dead code that demonstrably runs.
 
-function Injectable() { return (t: unknown) => t; }
-function Controller(path: string) { return (t: unknown) => t; }
-function Component(meta: { selector: string }) { return (t: unknown) => t; }
-function Get(path: string) { return (t: unknown, k: string, d: unknown) => d; }
-function Post(path: string) { return (t: unknown, k: string, d: unknown) => d; }
+// Legacy ("experimental") decorator factories, the form Nest and Angular are built on.
+// They return void rather than a replacement, so nothing here depends on a decorator
+// rebinding its target -- the rules under test read the NAME, never the return value.
+function Injectable() { return (_t: Function): void => {}; }
+function Controller(_path: string) { return (_t: Function): void => {}; }
+function Component(_meta: { selector: string }) { return (_t: Function): void => {}; }
+function Get(_path: string) { return (_t: object, _k: string, _d: PropertyDescriptor): void => {}; }
+function Post(_path: string) { return (_t: object, _k: string, _d: PropertyDescriptor): void => {}; }
 
 @Injectable()
 export class OrderService {

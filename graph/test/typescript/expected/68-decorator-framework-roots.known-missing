@@ -1,0 +1,18 @@
+# Accepted gaps for 68-decorator-framework-roots — each line is an edge the TypeScript
+# compiler resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# All five are one gap, tracked as #233: a decorator FACTORY is called and gets its
+# edge (call_kind DECORATOR_CALL), but the function that factory RETURNS is then
+# applied to the decorated declaration, and that second hop has no call site. The
+# compiler sees it, so every legacy decorator in this ecosystem loses one edge.
+#
+# This case does not depend on the gap. The roots it exists to test are derived from
+# the decorator's NAME through annotation_on, never from the application edge, which
+# is why they are correct while these five are still absent. When #233 lands, these
+# lines start working and this file must be emptied in the same commit.
+OrderController#add(string) -> container#<arrow@13>(object,string,PropertyDescriptor)
+OrderController#getOne(string) -> container#<arrow@12>(object,string,PropertyDescriptor)
+container#<module-init>() -> container#<arrow@10>(Function)
+container#<module-init>() -> container#<arrow@11>(Function)
+container#<module-init>() -> container#<arrow@9>(Function)
