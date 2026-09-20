@@ -64,7 +64,7 @@ const KNOWN_UNPRODUCED: Record<string, string[]> = {
 
   PythonGrammarUsed: ['UNPARSED'],
   PythonImportKind: ['DYNAMIC'],
-  PythonImportTargetKind: ['AMBIGUOUS', 'PACKAGE', 'VARIABLE'],
+  PythonImportTargetKind: ['AMBIGUOUS', 'PACKAGE'],
   PythonInferredTypeKind: ['USER_CLASS'],
   PythonLiteralType: ['COMPLEX'],
   // A directory with no __init__ contributes no name segment, so a namespace
