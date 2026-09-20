@@ -1,0 +1,14 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "the no-name-yet form: a word that names nothing exactly is read as a FRAGMENT when the other endpoint is '*', which is what this tool tells a reader to do when a name misses",
+   "run": ["path", "discount", "*"],
+   "want": ["containing 'discount'", "apply_discount"],
+   "avoid": ["nothing named"]},
+  {"why": "an exact name still wins over the fragment reading",
+   "run": ["path", "*", "apply_discount"],
+   "want": ["everything that can reach apply_discount"],
+   "avoid": ["declaration(s) containing"]},
+  {"why": "a fragment that matches nothing says so, and does not advise the command that was just run",
+   "run": ["path", "zzzq", "*"],
+   "want": ["no declaration in the graph contains 'zzzq'", "path zzz '*'"],
+   "expect_error": true}]}

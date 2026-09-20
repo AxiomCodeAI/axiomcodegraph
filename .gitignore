@@ -296,6 +296,8 @@ package-lock.json
 # A JavaScript fixture dependency is a real package under node_modules — that is the shape
 # the parser resolves and the shape the library join is written for.
 !graph/test/javascript/cases/*/src/node_modules/
+graph/test/*/.work-skill/
+__pycache__/
 
 # C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
 .cs-case-work/
@@ -305,6 +307,18 @@ package-lock.json
 # machine paths.
 .cs-staging-work/
 .cs-dev-cache/
+
+# evaluation graders: run locally, never shipped in the plugin
+plugins/axiomcode/validate/
+
+# agent working notes: local only, never in the repo
+CLAUDE.md
+AGENTS.md
+.claude/
+.cursor/
+.codex/
+.copilot/
+.agents/
 
 # The C# corpus manifest names the evaluation set and is deliberately NOT committed.
 # corpus.tsv.template documents the format; the filled-in copy lives outside the repo

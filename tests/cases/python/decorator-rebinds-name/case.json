@@ -1,0 +1,6 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a decorator that returns a wrapper rebinds the name: every caller written `greet(...)` runs the wrapper, and a change to the wrapper reaches them",
+   "run": ["impact", "wrapper", "--tests"],
+   "want": ["test_greet.py"],
+   "avoid": ["test_plain.py"]}]}

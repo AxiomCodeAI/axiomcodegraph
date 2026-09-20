@@ -211,6 +211,12 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   }
 
   // ── 3. client entities (all of them — the client is the subject) ──────────
+  // The IR spells visibility differently per entity file (PUBLIC on methods/types, PUBLIC_ACCESS on
+  // fields); normalise to one vocabulary so a rule can match on it. '' when the language has none.
+  const vis = (a: string): string | null => {
+    const v = (a || '').trim().toUpperCase().replace(/_ACCESS$/, '');
+    return v === '' ? null : v;
+  };
   const methods = new Map<string, Row>();
   const types = new Map<string, Row>();
   const modules = new Map<string, string>(); // module hash → file path
@@ -249,13 +255,16 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const cs = M.signature ? h.col(M.signature) : undefined;
     const coq = M.ownerQualifiedName ? h.col(M.ownerQualifiedName) : undefined;
     const cmod = M.moduleId && libPrefix.size > 0 ? h.col(M.moduleId) : undefined;
+    // best effort: an IR that predates the column, or a fixture that does not carry it, still bundles
+    // and the column is NULL, rather than the whole bundle refusing over a fact nothing depends on.
+    const cacc = M.access && h.has(M.access) ? h.col(M.access) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
       if (only && !only.has(id)) continue;
       if (methods.has(id)) continue;
       const owner = nul(r[co!]);
-      methods.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov]);
+      methods.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov, vis(cacc === undefined ? '' : (r[cacc] ?? ''))]);
       if (owner) wantTypes.add(owner);
       n++;
     }
@@ -267,12 +276,13 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const cf = T.filePath ? h.col(T.filePath) : undefined;
     const cfmod = T.filePath ? undefined : (T.moduleId ? h.col(T.moduleId) : undefined);
     const cmod = T.moduleId && libPrefix.size > 0 ? h.col(T.moduleId) : undefined;
+    const cacc = T.access && h.has(T.access) ? h.col(T.access) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
       if (only && !only.has(id)) continue;
       if (types.has(id)) continue;
-      types.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), r[cc!] ?? '', prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov]);
+      types.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), r[cc!] ?? '', prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov, vis(cacc === undefined ? '' : (r[cacc] ?? ''))]);
       n++;
     }
     return n;

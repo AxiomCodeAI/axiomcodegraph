@@ -1,0 +1,6 @@
+{"lang": "csharp",
+ "checks": [
+  {"why": "a test project that is a SIBLING ASSEMBLY (Acme.Tests) is a test tree, so the test universe is not empty and --tests can discriminate",
+   "run": ["impact", "Widgets.Total", "--tests"],
+   "want": ["test method(s) reach"],
+   "avoid": ["0 of 0"]}]}

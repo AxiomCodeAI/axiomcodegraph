@@ -93,13 +93,52 @@ Build: the regression suites and the parser's suites on every merge to `main` (t
 ## Quick start
 
 ```bash
-git clone https://github.com/AxiomCodeAI/axiom-code-graph.git && cd axiom-code-graph
-npm install                                   # builds the parser and the engine
-
-bin/axiomcode <your-project> ./out            # source tree in → ./out/<lang>/graph.sqlite per language found
+npm i -g @axiomcode/code-graph
+cd <your-project>
+axiomcode path main Store.put          # no setup: the graph is built on first use, then reused
 ```
 
-Then ask questions:
+```
+main → Store.put: 1 of 1 target(s) reached through resolved calls; nearest at 2 hop(s)
+  2 call(s):
+    main   src/app.py:17
+      → [known_edge · call @ src/app.py:19] Service.add   src/app.py:12
+      → [known_edge · call @ src/app.py:13] Store.put     src/app.py:4
+  verified: every printed hop is an edge in graph.sqlite and a plain BFS finds the same length
+  what the hops are:
+    [known_edge] resolved to one declaration
+```
+
+Each hop carries **the line the call is written on**, **how certain the edge is**, and **what kind of
+call it is** — an invocation, a construction, a constructor chain, a `super` call, a decorator, a
+property access, a method reference — in one vocabulary that means the same thing in Java, TypeScript,
+Python, JavaScript and C#. A hop that is not a call is marked and is not counted as one. Every printed
+hop is looked up again in the graph before you see it, and the chain length is re-derived by a second,
+independent traversal; the `verified:` line is that check reporting.
+
+### The verbs
+
+| | |
+|---|---|
+| `axiomcode path <A> <B>` | the chain of calls from A to B, and through what. `'*'` as one end gives the whole closure |
+| `axiomcode impact <target>` | what has to be looked at again when a declaration changes — methods, fields, constants, enum members, types, parameters, locals — each labelled with how certain it is |
+| `axiomcode test-impact` | which tests actually have to run for this edit, with the chain, so the selection can be checked rather than trusted |
+| `axiomcode changed` | which declarations an edit changed, and how (signature, type, body, added, removed) |
+| `axiomcode context "<task>"` | where a task's words land, when you have a problem statement and not yet a name |
+| `axiomcode graph` | the whole graph as one self-contained HTML page |
+| `axiomcode index` | build or rebuild the graph explicitly |
+
+`axiomcode help` lists them; `axiomcode help <verb>` prints one verb's own usage. `--json` gives a
+machine-readable answer. None of them need a graph to exist first — the first one you run builds it.
+
+### The pipeline on its own
+
+```bash
+axiomcode <your-project> ./out            # source tree in → ./out/<lang>/graph.sqlite per language found
+```
+
+`graph.sqlite` is an ordinary SQLite database with its schema documented inside it, so anything that
+speaks SQL can read it:
 
 ```sql
 -- who calls this method, from where, and how sure are we?
@@ -112,7 +151,47 @@ caller                    file_path                     start_line  tier        
 InheritanceOverride.main  src/InheritanceOverride.java  40          known_edge  method
 ```
 
+From a clone rather than npm:
+
+```bash
+git clone https://github.com/AxiomCodeAI/axiom-code-graph.git && cd axiom-code-graph
+npm install                                   # builds the parser and the engine
+bin/axiomcode path main Store.put <your-project>
+```
+
 Requirements: **Node ≥ 22.5** and a POSIX shell (Git Bash on Windows). Until the prebuilt engine packages are published ([#478](https://github.com/AxiomCodeAI/axiom-code-graph/pull/478)), the first solve per language also needs [Soufflé](https://souffle-lang.github.io) 2.5 and a C++ compiler to compile the engine once; after that, `npm install` fetches it prebuilt and neither is needed.
+
+## Using it from Claude Code (the plugin)
+
+The plugin is the query frontend: a skill, an MCP server and hooks, on the `skill/query-frontend` branch.
+It needs an engine to build graphs with, and it cannot find one by itself once installed, so the order
+matters.
+
+```bash
+# 1. build the engine. parser/dist is NOT in git, so a clone has no parser until this runs --
+#    "parser not built" from bin/axiomcode means this step was skipped.
+git clone -b skill/query-frontend https://github.com/AxiomCodeAI/axiom-code-graph.git
+cd axiom-code-graph && npm install && npm run build
+
+# 2. make the engine findable. EITHER install this checkout globally, which the plugin then resolves
+#    on its own, OR name it in the environment.
+npm i -g .                                    # then nothing else is needed
+export AXIOMCODE_ENGINE="$PWD"                # ... or this, per shell
+
+# 3. install the plugin. The short `marketplace add <owner>/<repo>` form reads the DEFAULT branch,
+#    which does not carry the manifest yet, so pin the branch.
+claude plugin marketplace add "https://github.com/AxiomCodeAI/axiom-code-graph.git#skill/query-frontend"
+claude plugin install axiomcode@axiomcode
+```
+
+Start a new Claude Code session afterwards: plugins are loaded at startup, so a session that was already
+running will not see it.
+
+The MCP tools additionally need the Python MCP SDK (`pip install mcp`, or install `uv` and the launcher
+fetches it on demand). Without it the skill's CLI still works and the server explains what is missing --
+it does not fail silently.
+
+Querying an existing graph needs no engine at all; only `axiomcode index` does.
 
 <details>
 <summary>All options</summary>

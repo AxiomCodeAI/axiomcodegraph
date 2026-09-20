@@ -1,0 +1,393 @@
+#!/usr/bin/env python3
+"""axiomcode test-impact [<repo>] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why]
+
+WHICH TESTS ACTUALLY HAVE TO RUN for the edit in front of you.
+
+A suite is run in full because nobody can say which part of it is affected, and the cost of that falls on
+every commit and every pipeline. The graph can say: a test reaches a change or it does not. This takes the
+edit (working tree by default, or a range, or the index), maps each changed line onto the declarations the
+graph knows there, and reports the test files that reach any of them — with the chain, so a selection can
+be checked rather than trusted.
+
+It is deliberately CONSERVATIVE about what it claims, because the failure that matters is not naming a
+test too many, it is missing one:
+
+  · a test reached only through an edge the graph does not encode — reflection, a service loader, a
+    framework that instantiates by name, a parameterized case built at runtime — will NOT appear;
+  · a test whose fixture reaches the change is included, since it runs before the test body;
+  · a subclass of a reached test class is included, because it inherits those methods;
+  · when a change is to a TYPE or a FIELD rather than a body, everything that names the type is treated as
+    reaching it.
+
+So the output is a lower bound, and it says so. A pipeline may use it to run the named tests FIRST and the
+rest after, which costs nothing if it is wrong and pays on every run where it is right; using it to skip
+the rest is a decision about risk that this tool cannot make for you.
+
+HOW GOOD THE SELECTION IS, measured rather than asserted. 55 single-function edits on a Python service
+driven through its frameworks, truth being which test FILES newly fail when that function is broken:
+
+    the call-graph answer alone      recall 0.902   precision 0.965    3 edits selected nothing
+    what the command actually shows  recall 0.926   precision 0.966    0 edits shown nothing
+
+The second row is the first plus the name tier that prints when the graph is silent. It is the honest one,
+because it is what a reader sees. Two things follow. Recall is 0.93, not 1.0, on a subject BUILT to be
+hostile — so "run these first" is the supported use and "skip the rest" is still not. And precision does
+not fall when the fallback fires, because that tier names about one file: the cost of the safety net is
+roughly one extra test file per edit the graph could not reach.
+
+These numbers move as the rules do, and they are re-derived rather than adjusted: the same 55 edits gave
+0.738 / 0.852 before the registration-key, import-time, protocol and value-reference hops landed. A figure
+in a docstring that nobody re-measures is the same defect as a certainty table that no longer matches what
+is printed.
+
+The two rows moving APART is the interesting part of the last one. The value-reference hop took the graph
+answer from 0.861 to 0.902 and left the second row where it was, because the name tier was already naming
+those five files. Nothing a reader is shown got better; what got better is WHY they are shown it — a call
+the graph can follow rather than a file named after the changed module. A recall number that does not move
+is not the same as a change that does nothing, and the rung on each row is where the difference is.
+"""
+import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections
+
+TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', re.I)
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+
+def run(script, args):
+    r = subprocess.run([sys.executable, os.path.join(HERE, script)] + args,
+                       capture_output=True, text=True)
+    return r.returncode, r.stdout, r.stderr
+
+
+# How a suite is invoked, per language. Only the shapes this graph is built for; anything else prints the
+# files and lets the reader decide, which is better than inventing a command that does not run.
+def command_for(lang, files, classes):
+    if lang == 'java' and classes:
+        return "mvn test -Dtest=" + ",".join(sorted({c.split('.')[-1] for c in classes})[:40])
+    if lang == 'java' and files:
+        # A selected test whose row carries no owner would otherwise vanish from -Dtest= and the command
+        # would run a SHORTER suite than the answer named, silently. A Java test class is its file's
+        # basename, so the file is enough to name it, and one class too many is the safe direction here.
+        return "mvn test -Dtest=" + ",".join(sorted({os.path.splitext(os.path.basename(f))[0]
+                                                     for f in files})[:40])
+    if lang == 'csharp' and classes:
+        # `dotnet test` selects by filter expression, not by file: a test class is named, never pointed at.
+        # FullyQualifiedName~X is a substring match, so the bare class name selects it in any namespace.
+        return 'dotnet test --filter "' + "|".join(f"FullyQualifiedName~{c.split('.')[-1]}"
+                                                   for c in sorted({c.split('.')[-1] for c in classes})[:40]) + '"'
+    if lang == 'csharp' and files:
+        import os as _os
+        return 'dotnet test --filter "' + "|".join(f"FullyQualifiedName~{n}" for n in sorted(
+            {_os.path.splitext(_os.path.basename(f))[0] for f in files})[:40]) + '"'
+    if lang == 'python':
+        return "pytest " + " ".join(sorted(files)[:40])
+    if lang in ('typescript', 'javascript'):
+        return "npx vitest run " + " ".join(sorted(files)[:40])
+    return None
+
+
+
+# The call graph can be silent for a reason that has nothing to do with coverage. A function placed in an
+# ARRAY or a table and invoked by iteration -- a transform pipeline, a middleware chain, a plugin list, a
+# visitor map -- has no resolved caller, so a test that drives the pipeline reaches everything except the
+# one function the pipeline dispatches to. Measured on a compiler codebase: the test reached `transform`,
+# `transformFor` reached the changed function, and nothing joined the two, so a change with three test
+# files to its name selected one of them.
+#
+# Matching the declaration's NAME in test text does not recover it either: the tests that mattered assert
+# on generated output and never write the helper's name. What does contain them is the PACKAGE -- both the
+# changed file and its tests live under the same one. That is a weak claim and a useful one: in a monorepo
+# it still excludes most of the suite, and it cannot miss a test that sits beside the code it exercises.
+# The directories a build tool puts between the repo root and the package: a source file and its test are siblings
+# in the PACKAGE and strangers in the path, and a package read off the raw path never matches across them.
+SRC_ROOTS = ('src/main/java/', 'src/test/java/', 'src/main/kotlin/', 'src/test/kotlin/', 'src/main/scala/',
+             'src/test/scala/', 'src/main/resources/', 'src/test/resources/', 'src/main/', 'src/test/',
+             'src/', 'tests/', 'test/', 'spec/', '__tests__/')
+
+
+def package_of(rel):
+    """The package a path belongs to, with the build tool's own directories taken off the front first.
+
+    This used to be "the first two path segments", which is the package only when tests sit BESIDE sources.
+    On Maven it compared `src/main` with `src/test` and on a Python project `app` with `tests`, so it never
+    matched on either — the whole tier returned nothing on two of the three layouts it meets, silently, and a
+    change the graph could not reach printed "there is nothing to run" with no fallback at all behind it.
+    """
+    r = rel
+    for pre in SRC_ROOTS:
+        if r.startswith(pre):
+            r = r[len(pre):]
+            break
+    pkg = os.path.dirname(r)
+    # A .NET test project is a SIBLING ASSEMBLY of the one it tests -- `Acme/` is tested by `Acme.Tests/`,
+    # `Acme.Widgets/` by `Acme.Tests.Widgets/` -- so source and test are strangers in the path and no
+    # prefix taken off the front ever makes them equal. What makes them equal is dropping the dotted part
+    # that says "tests": Acme.Tests -> Acme, Acme.Tests.Widgets -> Acme.Widgets. Guarded on the dot,
+    # which is what makes a segment an assembly name rather than a Java package or a Python directory.
+    head = pkg.split('/')[0]
+    if '.' in head:
+        kept = [x for x in head.split('.') if not re.fullmatch(r'\w*Tests?', x)]
+        if kept and len(kept) != len(head.split('.')):
+            pkg = '/'.join([('.'.join(kept))] + pkg.split('/')[1:])
+    return pkg
+
+
+# `test_pricing.py` for `pricing.py`, `ParserTest.java` for `Parser.java`, `cart.test.ts` for `cart.ts`: the
+# convention every one of these ecosystems writes down, and the only thing left when the call graph is silent.
+_STEM_PRE = ('test_', 'spec_', 'Test', 'IT')
+_STEM_SUF = ('_test', '_spec', '.test', '.spec', 'Test', 'Spec', 'IT', 'Tests')
+
+
+def stems_of(rel):
+    """Every name this file could be the test of, or be tested by."""
+    s = os.path.splitext(os.path.basename(rel))[0]
+    out = {s}
+    for pre in _STEM_PRE:
+        if s.startswith(pre) and len(s) > len(pre):
+            out.add(s[len(pre):])
+    for suf in _STEM_SUF:
+        if s.endswith(suf) and len(s) > len(suf):
+            out.add(s[:-len(suf)])
+    return {x for x in out if len(x) > 2}
+
+
+def package_tier(repo, changed_files, limit=6000):
+    """Two tiers of proximity, for when the call graph named nothing. Neither is a call-graph answer.
+
+    They are returned and printed apart because they are not worth the same. A test file NAMED AFTER the
+    changed module is one file and the convention says it is that module's test; a test file in the same
+    package is a directory's worth and says only that someone put them together. Measured on every edit
+    where the graph answered nothing (19 across two Python subjects, against mutation truth): the name
+    tier recovered a test file that really fails 17 times, naming 0.9 files on average. The package tier
+    recovered 0 of the 19 on those layouts, before and after its own fix — Python keeps its tests in a
+    sibling tree, so nothing is ever in the same package. It earns its place on Maven, not here.
+    """
+    pkgs = {package_of(f) for f in changed_files if f}
+    pkgs.discard('')
+    want_stems = set()
+    for f in changed_files:
+        if f: want_stems |= stems_of(f)
+    if not pkgs and not want_stems: return {}, {}, pkgs
+    by_pkg = collections.defaultdict(list)
+    by_name = []
+    seen = 0
+    for root, dirs, fs in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in ('node_modules', '.git', 'dist', 'build', 'target', '.axiomcode')]
+        for f in fs:
+            if not f.endswith(('.ts', '.tsx', '.js', '.mjs', '.java', '.py', '.cs')): continue   # a list that omits an extension makes both tiers below silently inert for that language (#1083's shape)
+            rel = os.path.relpath(os.path.join(root, f), repo)
+            if not TESTY.search(rel): continue
+            seen += 1
+            if seen > limit: return dict(by_pkg), {'files': sorted(by_name)}, pkgs
+            if stems_of(rel) & want_stems: by_name.append(rel)
+            p = package_of(rel)
+            if p in pkgs: by_pkg[p].append(rel)
+    return dict(by_pkg), ({'files': sorted(by_name)} if by_name else {}), pkgs
+
+
+def read_answer(out):
+    """impact's JSON document, even when a diagnostic was printed in front of it.
+
+    A note on stdout ahead of the document makes it unparseable while leaving it COMPLETE. That happened
+    (a name that is both a field and a method printed one), and it is fixed at the source now, but the
+    hazard is structural: any banner added later corrupts a consumer the same way, and this command is
+    also run against older builds.
+
+    A consumer that catches the parse error and moves on turns a complete answer into a SHORTER SELECTION,
+    silently — the tool's silence and the consumer's silence compose into a list of tests quietly missing
+    entries, which is the one failure this command exists to prevent. So: parse; failing that, parse from
+    the first brace and keep what the note said; failing that, return nothing AND say so loudly, because a
+    short list presented as complete is worse than an error.
+    """
+    try:
+        return json.loads(out), None
+    except Exception:
+        pass
+    i = out.find('{')
+    if i > 0:
+        try:
+            return json.loads(out[i:]), out[:i].strip()
+        except Exception:
+            pass
+    return None, None
+
+
+def main(argv):
+    as_json = '--json' in argv
+    why = '--why' in argv
+    limit = 40
+    if '--limit' in argv:
+        i = argv.index('--limit'); limit = int(argv[i + 1])
+    passthru = [a for a in argv if a not in ('--json', '--why')]
+    if '--limit' in passthru:
+        i = passthru.index('--limit'); del passthru[i:i + 2]
+    if '-h' in argv or '--help' in argv:
+        print(__doc__); return 0
+
+    rc, out, err = run('axiomcode-changed', passthru + ['--json'])
+    if rc != 0:
+        sys.stderr.write(err or out); return rc
+    try:
+        changed = json.loads(out)
+    except Exception:
+        sys.stderr.write(out); return 2
+
+    entries = changed.get('changed') or []
+    targets, by_target = [], {}
+    for e in entries:
+        t = e.get('target')
+        if not t: continue
+        if t not in by_target:
+            by_target[t] = e; targets.append(t)
+    if not targets:
+        print("no changed declaration the graph can name, so no test can be selected from it."
+              + ("\n  " + "; ".join(changed.get('notes') or []) if changed.get('notes') else ""))
+        return 0
+
+    # `impact` is asked once per changed declaration rather than once for all of them: a single call
+    # unions the answers and loses which change pulled in which test, and that is exactly what a reader
+    # needs to decide whether a selection is believable.
+    repo = next((a for a in passthru if os.path.isdir(a)), '.')
+    scope = []
+    if '--in' in passthru:
+        i = passthru.index('--in'); scope = ['--in', passthru[i + 1]]
+
+    tests = {}                      # test id -> record
+    unreadable, notes = [], []
+    pulled = collections.defaultdict(set)
+    unseen = []
+    for t in targets:
+        rc, o, e = run('axiomcode-impact', [t, repo, '--tests', '--json'] + scope)
+        if rc != 0:
+            unseen.append(t); continue
+        d, note = read_answer(o)
+        if d is None:
+            unreadable.append((t, (o or e or '').strip().splitlines()[:1]))
+            continue
+        if note:
+            notes.append((t, note))
+        for rec in d.get('tests') or []:
+            tests.setdefault(rec['id'], rec)
+            pulled[rec['id']].add(t)
+        for rec in d.get('inherited_tests') or []:
+            rid = rec.get('id')
+            if rid and rid not in tests:
+                tests[rid] = dict(rec, hops=None, certainty='inherited')
+                pulled[rid].add(t)
+
+    files = sorted({r.get('at', '').split(':')[0] for r in tests.values() if r.get('at')})
+    # A selected test carrying no location drops out of `files`, and `files` is what the command PRINTS and
+    # what the run command is built from — so the answer names it nowhere and the suite runs without it.
+    # This is the third instance of one bug: a row discarded for being malformed in one field. The other two
+    # were an edge dropped for its provenance and a test dropped for its owner; a row that is missing a
+    # location still knows which test it is.
+    unlocated = [r for r in tests.values() if not r.get('at')]
+    # only when the graph found nothing, or found nothing in the changed files' own package: a text tier
+    # offered alongside a good call-graph answer is noise, offered instead of silence it is the difference
+    # between "run these first" and "there is nothing to run"
+    changed_files = [e.get('file') for e in entries if e.get('file')]
+    pkg_hits, name_hits, pkgs = package_tier(repo, changed_files) if not files else ({}, {}, set())
+    classes = sorted({r.get('owner') for r in tests.values() if r.get('owner')})
+    # A row the answer named that carries no owner still has to reach the reader. Dropping it for being
+    # malformed is how a selection gets quietly shorter, which is the one failure this command exists to
+    # prevent — the same shape as a dropped edge or an answer that could not be parsed.
+    ownerless = [r for r in tests.values() if not r.get('owner') and r.get('at')]
+    lang = (changed.get('lang') or '').lower() or _guess_lang(files)
+
+    if as_json:
+        print(json.dumps({'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
+                                       'target': t} for t in targets],
+                          'test_files': files, 'test_classes': classes,
+                          'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in tests.items()],
+                          'command': command_for(lang, files, classes),
+                          'not_reached_from': unseen,
+                          'unreadable_answers': [t for t, _ in unreadable],
+                          'same_package_only': pkg_hits,
+                          'same_name_only': name_hits.get('files') or [],
+                          'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
+                                   'framework instantiating by name, or a case built at runtime is not here'},
+                         indent=1))
+        return 0
+
+    print(f"changed declarations ({len(targets)}): " + ", ".join(
+        f"{by_target[t]['symbol']} [{by_target[t]['kind']}]" for t in targets[:8])
+        + (f" … +{len(targets)-8}" if len(targets) > 8 else ""))
+    if not tests:
+        print("\nno test in the graph reaches any of them.")
+        print("  that is not the same as 'no test covers this': a function invoked through an array, a")
+        print("  table or a plugin list has no resolved caller, so a test that drives it looks unrelated.")
+        nf = name_hits.get('files') or []
+        if nf:
+            print(f"\n  BY NAME ONLY — {len(nf)} test file(s) are NAMED AFTER a changed file")
+            print("  (test_x.py for x.py, XTest.java for X.java). This is the naming convention, not the")
+            print("  call graph — but it is the file that ecosystem expects to hold that module's tests:")
+            for f in nf[:limit]:
+                print(f"    {f}")
+            # `lang` is guessed from the files the graph named, and here it named none — so guess it from
+            # the tier's own files, or the one runnable sentence this block exists to produce is empty.
+            cmd = command_for(lang or _guess_lang(nf), nf[:limit], [])
+            if cmd:
+                print(f"\n  {cmd}")
+        if pkg_hits:
+            n = sum(len(v) for v in pkg_hits.values())
+            print(f"\n  BY PACKAGE ONLY — {n} test file(s) live under the same package as a changed file")
+            print(f"  ({', '.join(sorted(pkgs))}). This is weaker still: it says someone put them in one")
+            print("  directory, nothing more:")
+            for p, fs in sorted(pkg_hits.items()):
+                for f in sorted(fs)[:limit]:
+                    print(f"    {f}")
+    else:
+        print(f"\ntests to run: {len(tests)} test(s) in {len(files)} file(s)")
+        for f in files[:limit]:
+            n = sum(1 for r in tests.values() if r.get('at', '').startswith(f + ':'))
+            print(f"    {f}   ({n} test(s))")
+        if len(files) > limit:
+            print(f"    … +{len(files)-limit} more file(s) (--limit N)")
+        if why:
+            print("\n  why each one is here:")
+            for i, r in sorted(tests.items(), key=lambda kv: (kv[1].get('hops') or 99, kv[1].get('display', '')))[:limit]:
+                chain = " -> ".join(r.get('chain') or []) or "reaches it directly"
+                print(f"    {r.get('display')}  [{r.get('certainty')}]  {chain}")
+        cmd = command_for(lang, files, classes)
+        if cmd:
+            print(f"\n  {cmd}")
+    if unlocated:
+        print(f"\n  {len(unlocated)} selected test(s) carry no location, so they are named here rather than"
+              f" in the list above and cannot appear in the command:")
+        for r in unlocated[:6]:
+            print(f"     {r.get('display') or '(unnamed)'}" + (f"   in {r.get('owner')}" if r.get('owner') else ''))
+    if ownerless:
+        print(f"\n  {len(ownerless)} selected test(s) declare no owning class — listed by file above, and"
+              f" named by file in the command, since no class name is available for them:")
+        for r in ownerless[:6]:
+            print(f"     {r.get('display') or '(unnamed)'}   {r.get('at')}")
+    if unseen:
+        print(f"\n  {len(unseen)} changed declaration(s) could not be resolved to a graph symbol: "
+              + ", ".join(unseen[:6]))
+    for t, n in notes:
+        print(f"\n  note, about {t}: {n}")
+    if unreadable:
+        # LOUD on purpose. Every other path here degrades toward naming too many tests; this is the only
+        # one that can name too few, so it must not read like a footnote.
+        print(f"\n  !! {len(unreadable)} changed declaration(s) produced an answer this could not read, so"
+              f" any test reaching them is MISSING from the list above:")
+        for t, first in unreadable:
+            print(f"     {t}   {(first or [''])[0][:100]}")
+        print("     the selection above is incomplete — do not act on it as though it were the whole answer.")
+    print("\nbound: this is a LOWER bound. A test that reaches the change only through something the graph "
+          "does not encode — reflection, a service loader, a framework that instantiates by name, a case "
+          "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")
+    return 0
+
+
+def _guess_lang(files):
+    ext = collections.Counter(os.path.splitext(f)[1] for f in files)
+    if not ext: return ''
+    top = ext.most_common(1)[0][0]
+    return {'.java': 'java', '.py': 'python', '.ts': 'typescript', '.tsx': 'typescript',
+            '.js': 'javascript', '.mjs': 'javascript'}.get(top, '')
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

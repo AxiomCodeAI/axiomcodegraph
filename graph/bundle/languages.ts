@@ -35,6 +35,8 @@ export interface MethodsIR {
   filePath?: string;
   /** absent where the IR has no such column (JavaScript declares no signatures); the core column is then '' / NULL */
   signature?: string; ownerQualifiedName?: string;
+  /** declared visibility (Java: methodAccess). Absent where the language has no access modifiers. */
+  access?: string;
   /** the column naming the owning module, where a LIBRARY row's names are relative to its own package root and need the package prefixed (see ModulesIR.packageName) */
   moduleId?: string;
 }
@@ -44,6 +46,8 @@ export interface TypesIR {
   /** absent where the row carries no path; resolved through `moduleId` (see MethodsIR). */
   filePath?: string;
   moduleId?: string;
+  /** declared visibility (Java: typeAccess). Absent where the language has no access modifiers. */
+  access?: string;
 }
 /**
  * A modules table, where the language has one: maps a module hash to a file path. Where the
@@ -154,10 +158,12 @@ const JAVA: LanguageAdapter = {
       file: 'all-methods.csv', id: 'methodRegistryUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       signature: 'signature', kind: 'methodKind', ownerTypeId: 'typeRegistryLinkHash',
       ownerQualifiedName: 'ownerQualifiedName', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      access: 'methodAccess',
     },
     types: {
       file: 'all-types.csv', id: 'typeRegistryUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      access: 'typeAccess',
     },
     fields: {
       file: 'all-fields.csv', id: 'fieldRegistryUniqueHash', name: 'name', ownerTypeId: 'typeRegistryLinkHash',

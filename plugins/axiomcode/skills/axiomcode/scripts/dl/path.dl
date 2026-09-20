@@ -1,0 +1,43 @@
+// path.dl — is there a chain of calls from A to B, and through what?
+//
+// Facts come from graph.sqlite (exported by axiomcode-path):
+//   edge(a, b, tier)   a calls b — a resolved client edge (known_edge / multi_inferred), a dispatch step from a
+//                      base to an instantiated override ("dispatch"), or an outer callable to the closure it
+//                      defines ("defines"). Never a name match.
+//   src(q, m) / dst(q, m)   the endpoints of query q — several rows when an endpoint is a type or a bare name
+//   byname(c, n)       an UNRESOLVED site inside c written `n`
+//   named(n, m)        a client method declared with simple name n
+//
+// Two closures. `dist` follows only what the engine resolved: a path it prints is real. `dist_opt` also takes every
+// unresolved site as a call to the client method written there: when the sound closure has no path and this one
+// does, the difference is exactly the site(s) an agent must look at — printed as the bridge, never as a path.
+
+.decl edge(a:symbol, b:symbol, t:symbol)   .input edge
+.decl src(q:symbol, m:symbol)              .input src
+.decl dst(q:symbol, m:symbol)              .input dst
+.decl byname(c:symbol, n:symbol)           .input byname
+.decl named(n:symbol, m:symbol)            .input named
+
+// ── the sound closure, shortest hop count, and the parent relation a path is read back from ──────────────────
+.decl step(q:symbol, m:symbol, d:number)
+step(q, m, 0) :- src(q, m).
+step(q, b, d+1) :- step(q, a, d), edge(a, b, _), d < 40.
+.decl dist(q:symbol, m:symbol, d:number)
+dist(q, m, d) :- step(q, m, d), d = min x : step(q, m, x).
+.decl hit(q:symbol, m:symbol, d:number)
+hit(q, m, d) :- dst(q, m), dist(q, m, d).
+.decl parent(q:symbol, b:symbol, a:symbol, t:symbol)
+parent(q, b, a, t) :- dist(q, b, d), d > 0, dist(q, a, d1), d1 = d - 1, edge(a, b, t).
+.output hit
+.output parent
+
+// ── one endpoint only: everything that reaches the target (upstream, by shortest hop count) or everything a source
+//    reaches (downstream). `path '*' X` reads dist_up; `path X '*'` reads dist (the forward closure above)
+.decl step_up(q:symbol, m:symbol, d:number)
+step_up(q, m, 0) :- dst(q, m).
+step_up(q, a, d+1) :- step_up(q, b, d), edge(a, b, _), d < 40.
+.decl dist_up(q:symbol, m:symbol, d:number)
+dist_up(q, m, d) :- step_up(q, m, d), d = min x : step_up(q, m, x).
+.output dist_up
+.output dist
+

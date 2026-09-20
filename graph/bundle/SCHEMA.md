@@ -233,6 +233,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | 8 | `start_line` | INTEGER |  |  |  | 1-based first line of the declaration. |
 | 9 | `end_line` | INTEGER |  |  |  | 1-based last line of the declaration. |
 | 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR; `generated` — declared by an annotation processor and synthesised here (Java). See vocabulary. |
+| 11 | `visibility` | TEXT |  | yes | yes | Declared access as the parser recorded it, normalised (PUBLIC / PROTECTED / PACKAGE / PRIVATE). NULL where the language has no access modifiers. A public or protected declaration with no dependent in this graph is exported surface, not dead code. |
 
 **`methods.kind` values**
 
@@ -320,6 +321,15 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `STATIC_BLOCK` | javascript | `static {}` block of a class. |
 | `MODULE_INITIALIZER` | javascript | Synthetic method holding a module's top-level code. Every module has one; top-level call sites belong to it. |
 
+**`methods.visibility` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `PUBLIC` | java | Callable from anywhere; exported surface. No in-repo caller does not mean unused. |
+| `PROTECTED` | java | Callable by subclasses outside the package; exported surface for extension. |
+| `PACKAGE` | java | Default access; callable only within the declaring package. |
+| `PRIVATE` | java | Callable only within the declaring type. |
+
 **`methods.provenance` values**
 
 | value | languages | meaning |
@@ -348,6 +358,7 @@ Every class-like declaration the graph refers to: all client types, plus every l
 | 5 | `start_line` | INTEGER |  | yes |  | 1-based first line; NULL for an external type. |
 | 6 | `end_line` | INTEGER |  | yes |  | 1-based last line; NULL for an external type. |
 | 7 | `provenance` | TEXT |  |  |  | `client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary). |
+| 8 | `visibility` | TEXT |  | yes | yes | Declared access as the parser recorded it, normalised (PUBLIC / PROTECTED / PACKAGE / PRIVATE). NULL where the language has no access modifiers. |
 
 **`types.category` values**
 

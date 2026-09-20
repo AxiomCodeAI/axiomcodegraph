@@ -1,0 +1,23 @@
+// path-every.dl — every route between the endpoints: run only with --every (it is the expensive part on a large graph)
+// facts: see path.dl
+.decl edge(a:symbol, b:symbol, t:symbol)   .input edge
+.decl src(q:symbol, m:symbol)              .input src
+.decl dst(q:symbol, m:symbol)              .input dst
+.decl byname(c:symbol, n:symbol)           .input byname
+.decl named(n:symbol, m:symbol)            .input named
+
+// ── every route, not only the shortest: a method lies on SOME chain from a source to a target iff a source reaches it
+//    and it reaches a target. The set of such methods and the edges among them is every path at once, in polynomial
+//    size; the driver enumerates simple paths from it on request
+.decl fwd(q:symbol, m:symbol)
+fwd(q, m) :- src(q, m).
+fwd(q, b) :- fwd(q, a), edge(a, b, _).
+.decl bwd(q:symbol, m:symbol)
+bwd(q, m) :- dst(q, m).
+bwd(q, a) :- bwd(q, b), edge(a, b, _).
+.decl between(q:symbol, m:symbol)
+between(q, m) :- fwd(q, m), bwd(q, m).
+.decl between_edge(q:symbol, a:symbol, b:symbol, t:symbol)
+between_edge(q, a, b, t) :- between(q, a), between(q, b), edge(a, b, t).
+.output between_edge
+

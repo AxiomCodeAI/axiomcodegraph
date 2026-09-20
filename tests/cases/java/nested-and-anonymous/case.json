@@ -1,0 +1,49 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a nested member is addressable as Outer.Inner.member and as Outer$Inner.member",
+   "run": [
+    "impact",
+    "Outer.Inner.label"
+   ],
+   "want": [
+    "Outer.use"
+   ]
+  },
+  {
+   "why": "the dollar spelling resolves through the nesting table, not by string",
+   "run": [
+    "impact",
+    "Outer$Inner.label"
+   ],
+   "want": [
+    "Outer.use"
+   ]
+  },
+  {
+   "why": "the n-th anonymous class is addressable by its ordinal, with no member",
+   "run": [
+    "path",
+    "*",
+    "Outer$1.hasNext"
+   ],
+   "want": [
+    "nested in Outer"
+   ]
+  },
+  {
+   "why": "and an ordinal past the end says how many there are instead of failing blankly",
+   "run": [
+    "path",
+    "Outer$9",
+    "*"
+   ],
+   "want": [
+    "anonymous class"
+   ],
+   "expect_error": true
+  }
+ ]
+}

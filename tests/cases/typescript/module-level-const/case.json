@@ -1,0 +1,10 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a module-level exported const has the modules that import it as dependents, instead of nothing at all",
+   "run": ["impact", "LIMIT", "--kind", "field"],
+   "want": ["topLevelUse", "Holder", "arrowUse"],
+   "avoid": ["nothing the graph can see"]},
+  {"why": "and --delete does not call it safe",
+   "run": ["impact", "LIMIT", "--kind", "field", "--delete"],
+   "want": ["NOT SAFE"],
+   "avoid": ["no dependent at any certainty"]}]}

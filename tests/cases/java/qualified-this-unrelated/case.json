@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a this.url write in an unrelated class is not this field, and the plain-name accessor is the field's door",
+   "run": ["impact", "A.url", "--kind", "field"],
+   "want": ["reads it through url()", "Reader.read"],
+   "avoid": ["B.B", "B.url"]}]}

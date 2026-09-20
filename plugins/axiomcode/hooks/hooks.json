@@ -1,0 +1,68 @@
+{
+ "hooks": {
+  "PostToolUse": [
+   {
+    "matcher": "Read|Grep|Glob|Bash|Edit|Write|MultiEdit",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/enrich.py",
+      "timeout": 20
+     }
+    ]
+   },
+   {
+    "matcher": "Bash",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/changes.py",
+      "timeout": 25
+     }
+    ]
+   }
+  ],
+  "PreToolUse": [
+   {
+    "matcher": "Read|Grep|Glob|Bash",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/direct.py",
+      "timeout": 10
+     }
+    ]
+   },
+   {
+    "matcher": "Edit|Write|MultiEdit",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/changes.py",
+      "timeout": 20
+     }
+    ]
+   }
+  ],
+  "UserPromptSubmit": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/changes.py",
+      "timeout": 25
+     }
+    ]
+   },
+   {
+    "matcher": "*",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/orient.py"
+     }
+    ]
+   }
+  ]
+ }
+}

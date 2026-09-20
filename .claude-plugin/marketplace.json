@@ -1,0 +1,14 @@
+{
+  "name": "axiomcode",
+  "owner": { "name": "AxiomCode", "url": "https://github.com/AxiomCodeAI/axiom-code-graph" },
+  "metadata": {
+    "description": "Ask a repository how its code connects, from a resolved call graph rather than text search."
+  },
+  "plugins": [
+    {
+      "name": "axiomcode",
+      "source": "./plugins/axiomcode",
+      "description": "Ask your repository how its code connects: who calls this, what breaks if I change it, which tests an edit reaches, how A reaches B. Answers come from a resolved call graph and are verified against it; nothing is guessed. Java, TypeScript, Python, JavaScript."
+    }
+  ]
+}

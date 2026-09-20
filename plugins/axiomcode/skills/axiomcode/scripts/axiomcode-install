@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""axiomcode install [<repo>] [--remove] [--print]
+
+Write the preference into the repository's CLAUDE.md, once, as a marked block.
+
+Why this exists. A skill is offered through its own description and nothing else, so whether it is
+used is decided per session by whether that description matched the question in front of the caller.
+A repository that has already decided it wants structural answers should be able to say so once,
+in the file it already keeps for that purpose, instead of relying on the match every time.
+
+What it deliberately does NOT do. It does not block or redirect any tool. A directive is a stated
+preference the caller can weigh against the task; a gate is a decision taken away from it, and the
+one measurement this project has of forcing graph context showed patches touching FEWER files, not
+more. So this writes prose and nothing else.
+
+It is not neutral, and that has to travel with any number measured under it: a repository carrying
+this block is a different condition from one that does not, and a comparison that installs it on one
+side must say so.
+
+The block is delimited, so re-running replaces rather than appends, and --remove takes it out
+cleanly. Nothing outside the markers is ever touched.
+"""
+import json, os, sys
+
+# The MCP tools this plugin exposes. A permission prompt at the moment of FIRST use is a barrier exactly
+# where the tool has not yet earned trust, and a caller that has to stop and ask is a caller that greps
+# instead. Pre-authorising is a change to the user's settings, so it happens here, in an explicit install
+# step that prints what it did and can undo it -- never silently from a hook or a manifest (a plugin
+# manifest cannot declare permissions at all; nothing in the official marketplace does).
+MCP_GLOB = 'mcp__plugin_axiomcode_axiomcode__*'
+
+BEGIN = '<!-- BEGIN axiomcode -->'
+END = '<!-- END axiomcode -->'
+
+BLOCK = """<!-- BEGIN axiomcode -->
+## Finding code in this repository
+
+This repository has a resolved call graph (`axiomcode`). For any question about how code connects
+rather than what it says — who calls a function, what breaks if a declaration changes, where a
+symbol is really used, which tests an edit reaches, whether something is safe to delete — prefer the
+`axiomcode` skill over `grep`/`Glob`. Text search finds names; it misses the caller that never
+spells the name because it goes through an interface, an override, a callback, dependency injection
+or a config key, and it cannot tell you how certain a match is.
+
+Text search is still the right tool for a string, a comment, a TODO, or a file you already know.
+
+`axiomcode index` builds the graph if `.axiomcode/out/graph.sqlite` is absent. An unresolved call in
+an answer means *unknown*, not *absent* — never read it as "no callers".
+<!-- END axiomcode -->"""
+
+
+def allow_mcp(repo, remove=False):
+    """Add (or remove) the plugin's MCP tools in <repo>/.claude/settings.json, merging with what is there.
+
+    Written per repository rather than globally: a benchmark, a colleague's checkout and a sandbox should
+    not inherit a trust decision made once somewhere else. Existing entries are preserved -- this file is
+    the user's, and an installer that rewrites it wholesale is worse than one that does nothing.
+    """
+    path = os.path.join(repo, '.claude', 'settings.json')
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding='utf-8') as fh:
+                data = json.load(fh)
+        except Exception:
+            return f"  {path} is not valid JSON; left alone -- add {MCP_GLOB!r} to permissions.allow by hand"
+    allow = data.setdefault('permissions', {}).setdefault('allow', [])
+    if remove:
+        if MCP_GLOB not in allow:
+            return f"  no axiomcode entry in {path}"
+        allow.remove(MCP_GLOB)
+        if not allow: data['permissions'].pop('allow', None)
+        if not data['permissions']: data.pop('permissions', None)
+    else:
+        if MCP_GLOB in allow:
+            return f"  {path} already allows {MCP_GLOB}"
+        allow.append(MCP_GLOB)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as fh:
+        json.dump(data, fh, indent=2); fh.write('\n')
+    return f"  {'removed' if remove else 'added'} {MCP_GLOB} in {path}"
+
+
+def main(argv):
+    repo, remove, show = os.getcwd(), False, False
+    for a in argv:
+        if a == '--remove':
+            remove = True
+        elif a == '--print':
+            show = True
+        elif a.startswith('-'):
+            sys.exit(f"axiomcode install: unknown option {a}")
+        else:
+            repo = a
+    if show:
+        print(BLOCK)
+        return 0
+    if not os.path.isdir(repo):
+        sys.exit(f"axiomcode install: not a directory: {repo}")
+
+    path = os.path.join(repo, 'CLAUDE.md')
+    old = ''
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as fh:
+            old = fh.read()
+
+    if BEGIN in old and END in old:
+        head, _, rest = old.partition(BEGIN)
+        _, _, tail = rest.partition(END)
+        stripped = head.rstrip('\n') + ('\n' + tail.lstrip('\n') if tail.strip() else '\n')
+    elif BEGIN in old or END in old:
+        sys.exit("axiomcode install: CLAUDE.md has one marker but not the other; fix it by hand "
+                 "rather than let this guess where the block ends")
+    else:
+        stripped = old
+
+    if remove:
+        if BEGIN not in old:
+            print(f"axiomcode install: no block in {path}, nothing to remove")
+            return 0
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(stripped)
+        print(f"removed the axiomcode block from {path}")
+        print(allow_mcp(repo, remove=True))
+        return 0
+
+    body = (stripped.rstrip('\n') + '\n\n' if stripped.strip() else '')
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(body + BLOCK + '\n')
+    print(f"{'replaced' if BEGIN in old else 'wrote'} the axiomcode block in {path}")
+    print("  it states a preference; it blocks nothing. Disclose it when reporting a measurement "
+          "taken with it installed.")
+    print(allow_mcp(repo))
+    print("  that pre-authorises this plugin's MCP tools in THIS repository, so the first call does not "
+          "stop for a prompt. `--remove` takes both back out.")
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

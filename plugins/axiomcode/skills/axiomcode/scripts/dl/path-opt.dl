@@ -1,0 +1,23 @@
+// path-opt.dl — the optimistic closure: run only when the sound program found no chain (by-name edges can be huge)
+// facts: see path.dl
+.decl edge(a:symbol, b:symbol, t:symbol)   .input edge
+.decl src(q:symbol, m:symbol)              .input src
+.decl dst(q:symbol, m:symbol)              .input dst
+.decl byname(c:symbol, n:symbol)           .input byname
+.decl named(n:symbol, m:symbol)            .input named
+
+// ── the optimistic closure: unresolved sites taken by name ─────────────────────────────────────────────────────
+.decl edge_opt(a:symbol, b:symbol, t:symbol)
+edge_opt(a, b, t) :- edge(a, b, t).
+edge_opt(c, m, "by-name") :- byname(c, n), named(n, m).
+.decl step_opt(q:symbol, m:symbol, d:number)
+step_opt(q, m, 0) :- src(q, m).
+step_opt(q, b, d+1) :- step_opt(q, a, d), edge_opt(a, b, _), d < 40.
+.decl dist_opt(q:symbol, m:symbol, d:number)
+dist_opt(q, m, d) :- step_opt(q, m, d), d = min x : step_opt(q, m, x).
+.decl hit_opt(q:symbol, m:symbol, d:number)
+hit_opt(q, m, d) :- dst(q, m), dist_opt(q, m, d).
+.decl parent_opt(q:symbol, b:symbol, a:symbol, t:symbol)
+parent_opt(q, b, a, t) :- dist_opt(q, b, d), d > 0, dist_opt(q, a, d1), d1 = d - 1, edge_opt(a, b, t).
+.output hit_opt
+.output parent_opt

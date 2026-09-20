@@ -1,0 +1,34 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "thirty anonymous callbacks in one test file must not fill the window and hide the file that really breaks",
+   "run": [
+    "impact",
+    "TokenKind"
+   ],
+   "want": [
+    "parser.ts",
+    "more in 1 file(s): src/kind.test.ts"
+   ],
+   "avoid": []
+  },
+  {
+   "why": "the hidden tail is named by file, so the reader knows what was cut and where",
+   "run": [
+    "impact",
+    "TokenKind",
+    "--limit",
+    "500"
+   ],
+   "want": [
+    "blockContent",
+    "blockTag"
+   ],
+   "avoid": [
+    "more in"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,15 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "a method whose only outgoing calls are ambient used to answer '0 methods reached' and stop — a dead end, although the graph holds the word written at both call sites. Java and Python name their boundary (boundary_lib); JavaScript and TypeScript record no callee at all on theirs (ambient_terminal), so it was never listed (#1107)",
+   "run": ["path", "Bag.add", "*"],
+   "want": ["the graph does not follow", "push", "stringify"],
+   "expect_error": true},
+  {"why": "and it is NOT called 'calls into libraries': an ambient_terminal edge means the callee is ambient or the receiver is untyped, which on this language is as often a method of the project as a platform one, so calling it a library would assert a resolution that was never made",
+   "run": ["path", "Bag.add", "*"],
+   "want": ["not resolutions"],
+   "avoid": ["calls into libraries"],
+   "expect_error": true},
+  {"why": "a resolved chain is unaffected: the two client calls still connect and still carry their kind and call site",
+   "run": ["path", "run", "Bag.add"],
+   "want": ["call @ src/app.js:", "Bag.add"],
+   "avoid": ["✗"]}]}

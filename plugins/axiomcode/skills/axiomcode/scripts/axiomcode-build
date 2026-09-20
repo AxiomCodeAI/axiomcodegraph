@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# axiomcode-build [repo-dir] — build the AxiomCode graph for a repository into <repo>/.axiomcode/out/graph.sqlite
+# (parser + engine via bin/axiomcode all, tests INCLUDED), then index it for the query frontend (axiomcode-index:
+# symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
+#   AXIOMCODE_ENGINE  checkout of axiom-code-graph (default: the one this skill lives in)
+#   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
+#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp (default: the language with the most files)
+#   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
+#                     dependencies are declared unknown rather than guessed
+set -euo pipefail
+H="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
+# the engine checkout: walk up from this script until a bin/axiomcode is found (skills/… or plugins/axiomcode/skills/…)
+if [ -z "${AXIOMCODE_ENGINE:-}" ]; then E="$H"; while [ "$E" != "/" ] && [ ! -x "$E/bin/axiomcode" ]; do E="$(dirname "$E")"; done; AXIOMCODE_ENGINE="$E"; fi
+# THE WALK-UP ONLY WORKS FROM A CHECKOUT. Installed from a marketplace the plugin is COPIED under
+# ~/.claude/plugins/cache/..., where nothing above it is an engine, so the walk ends at / and every verb
+# dies -- the install reports success and the first query fails. Fall back to the published engine:
+# an `axiomcode` on PATH (npm global bin, resolved through its symlink) or the global node_modules.
+# Each candidate is CHECKED -- an executable of that name from something else entirely is not our engine,
+# and this machine has exactly that from an older unrelated package.
+engine_ok() { [ -x "$1/bin/axiomcode" ] && [ -d "$1/graph" ] && [ -f "$1/package.json" ]; }
+if ! engine_ok "$AXIOMCODE_ENGINE"; then
+  for cand in \
+    "$(command -v axiomcode 2>/dev/null | while read -r l; do while [ -L "$l" ]; do l="$(cd "$(dirname "$l")" && pwd)/$(readlink "$l")"; done; dirname "$(dirname "$l")"; done)" \
+    "$(npm root -g 2>/dev/null)/@axiomcode/code-graph"; do
+    [ -n "$cand" ] || continue
+    if engine_ok "$cand"; then AXIOMCODE_ENGINE="$cand"; break; fi
+  done
+fi
+ENGINE="$AXIOMCODE_ENGINE"
+[ -x "$ENGINE/bin/axiomcode" ] || {
+  echo "axiomcode: no engine found." >&2
+  echo "  The skill queries a graph; the ENGINE builds it, and it ships separately because it carries" >&2
+  echo "  native solver binaries. Installed from a marketplace the plugin is copied outside any" >&2
+  echo "  checkout, so there is nothing to find above it. Fix with ONE of:" >&2
+  echo "    npm i -g @axiomcode/code-graph        (then this resolves it automatically)" >&2
+  echo "    AXIOMCODE_ENGINE=/path/to/axiom-code-graph" >&2
+  echo "  Looked in: $H upwards, \`command -v axiomcode\`, and \$(npm root -g)/@axiomcode/code-graph" >&2
+  exit 1; }
+# no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently
+count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
+py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx'); cs=$(count -name '*.cs')
+LANG_ARG="${AXIOMCODE_LANG:-}"
+if [ -z "$LANG_ARG" ]; then
+  LANG_ARG=java; best=$ja
+  [ "$ts" -gt "$best" ] && { LANG_ARG=typescript; best=$ts; }
+  [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
+  [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
+  [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
+fi
+OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
+GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+[ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
+STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
+# ASKING FOR LESS IS NOT A CACHE MISS. The stamp includes the library roots, so a bare `index` on a repo whose
+# graph was built WITH roots does not match, and the rebuild that follows spends the full build cost to arrive
+# at a client-only graph: every call into a dependency ambiguous_unknown, the resolution rate understated,
+# strictly worse than the graph it replaced. Measured once at 624 s, by an agent that only wanted to be sure
+# the graph was current. So when the existing graph differs from what was asked for ONLY by having libraries
+# the request omits, keep it and say so; a caller that means to narrow coverage passes AXIOMCODE_REINDEX=1.
+# The library field is a list of PATHS, and paths contain hyphens (`other-lib`), so the stamp cannot be split
+# on its last hyphen -- that cuts inside the path and no two stamps ever compare equal. Split on the known
+# prefix instead: everything before the library field is fixed-format and built right here.
+PREFIX="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-"
+if [ -z "${AXIOMCODE_LIBRARY:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ] && [ -f "$OUT/stamp" ] && [ -f "$OUT/graph.sqlite" ]; then
+  PREV="$(cat "$OUT/stamp")"
+  if [ "${PREV#"$PREFIX"}" != "$PREV" ] && [ "${PREV#"$PREFIX"}" != nolib ]; then
+    echo "graph already built for this commit WITH library roots (${PREV##*-}); keeping it — a bare index would"
+    echo "  rebuild it client-only, which resolves less. AXIOMCODE_REINDEX=1 to force, or pass --library to change them."
+    STAMP="$PREV"
+  fi
+fi
+if [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
+  sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
+  python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
+# query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
+python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
+# a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
+# left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
+  echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
+echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
+# A REBUILD THAT FAILS MUST NOT COST THE GRAPH THAT IS ALREADY THERE (#1077). The engine wants an
+# empty $OUT/$LANG_ARG, but "empty it first" also empties it for the failure path, and the next verb
+# then reports no graph at all although the last good one was complete a second earlier. So the old
+# graph is MOVED ASIDE, not deleted, and $OUT/graph.sqlite is re-pointed at where it went: until the
+# build succeeds every verb keeps answering from it. A graph built for another language is not in the
+# way and is left where it is — which is also what $OUT/graph.sqlite still points at.
+PREV="$OUT/.previous-$LANG_ARG"
+rm -rf "$PREV"
+if [ -d "$OUT/$LANG_ARG" ]; then mv "$OUT/$LANG_ARG" "$PREV"; [ -f "$PREV/graph.sqlite" ] && ln -sfn "$PREV/graph.sqlite" "$OUT/graph.sqlite"; fi
+restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && ln -sfn "$OUT/$LANG_ARG/graph.sqlite" "$OUT/graph.sqlite"; fi; return 0; }
+LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
+"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
+DB="$(find "$OUT" -name graph.sqlite -path "*/$LANG_ARG/*" | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -name graph.sqlite -not -path "$PREV/*" | head -1)"
+[ -n "$DB" ] || { restore; echo "build produced no graph.sqlite — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; exit 1; }
+# only now, with a graph in hand, is the old one gone and the pointer moved
+rm -rf "$PREV"
+ln -sfn "$DB" "$OUT/graph.sqlite"; echo "$STAMP" > "$OUT/stamp"
+python3 "$H/axiomcode-index" "$REPO"
+sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
+python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
+# query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
+python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
+# a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
+# left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
+echo "graph at $OUT/graph.sqlite"

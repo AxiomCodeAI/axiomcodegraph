@@ -1,0 +1,64 @@
+{
+ "lang": "java",
+ "src": "src",
+ "sql": [
+  "CREATE TABLE IF NOT EXISTS ext_config_affects_method (c0 TEXT, c1 TEXT, c2 TEXT)",
+  "INSERT INTO ext_config_affects_method (c0, c1, c2) SELECT 'app.server.prefix-invalid-properties', method_id, 'class_binding' FROM symbols WHERE display='Env.labelled'",
+  "CREATE TABLE IF NOT EXISTS ext_config_binding (c0 TEXT, c1 TEXT, c2 TEXT, c3 TEXT, c4 TEXT)",
+  "INSERT INTO ext_config_binding (c0, c1, c2, c3, c4) VALUES ('app.server.prefixInvalidProperties', '', '', '', '')"
+ ],
+ "checks": [
+  {
+   "why": "the kebab spelling the engine bound answers, as it always did",
+   "run": [
+    "impact",
+    "app.server.prefix-invalid-properties"
+   ],
+   "want": [
+    "Env.labelled"
+   ]
+  },
+  {
+   "why": "the camel spelling of the SAME key is the same key: relaxed binding, not an unknown key",
+   "run": [
+    "impact",
+    "app.server.prefixInvalidProperties"
+   ],
+   "want": [
+    "Env.labelled"
+   ]
+  },
+  {
+   "why": "and the answer says which spellings it unified, so the reader knows why a key they did not write appears",
+   "run": [
+    "impact",
+    "app.server.prefixInvalidProperties"
+   ],
+   "want": [
+    "prefix-invalid-properties"
+   ]
+  },
+  {
+   "why": "the @Value placeholder is the line a rename must change, and it is found from the OTHER spelling of the key",
+   "run": [
+    "impact",
+    "app.server.prefixInvalidProperties"
+   ],
+   "want": [
+    "BINDS the key here",
+    "@Value"
+   ]
+  },
+  {
+   "why": "the properties file that DEFINES the key is named, found from the other spelling, which is what a rename must also edit",
+   "run": [
+    "impact",
+    "app.server.prefixInvalidProperties"
+   ],
+   "want": [
+    "application.properties",
+    "defines or overrides the key"
+   ]
+  }
+ ]
+}

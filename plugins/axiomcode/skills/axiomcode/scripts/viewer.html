@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>axiomcode graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0d14; --panel:#10131b; --ink:#e5e7eb; --mute:#7c8494; --line:#1f2430; --cyan:#22d3ee; --hi:#f59e0b; --imp:#f43f5e; }
+  * { box-sizing:border-box } html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:12.5px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; overflow:hidden }
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--mute) }
+  #top { display:flex; align-items:center; gap:14px; padding:0 14px; border-bottom:1px solid var(--line); background:var(--panel); height:44px }
+  #top h1 { font-size:14px; margin:0; font-weight:600; white-space:nowrap } #top h1 span { color:var(--mute); font-weight:400; font-size:12px }
+  #main { display:flex; height:calc(100% - 44px) }
+  #left { width:210px; border-right:1px solid var(--line); background:var(--panel); overflow:auto; padding:10px 12px; flex:none; display:flex; flex-direction:column }
+  #left.code { width:560px } #code { display:none; flex:none; margin:-4px -12px 0; flex-direction:column; overflow:auto; height:60% } #left.code #code { display:flex }
+  #split { display:none; flex:none; height:8px; margin:0 -12px 6px; cursor:row-resize; background:linear-gradient(var(--line), var(--line)) center / 40px 2px no-repeat, #0b0d14; border-top:1px solid var(--line); border-bottom:1px solid var(--line) } #left.code #split { display:block } #split:hover, #split.on { background-color:#132a33 }
+  #vsplit { width:6px; flex:none; cursor:col-resize; background:var(--panel); border-right:1px solid var(--line) } #vsplit:hover, #vsplit.on { background:#132a33 }
+  .win { border-bottom:1px solid var(--line); flex:none } .win .hd { display:flex; align-items:center; gap:8px; padding:5px 10px; background:#0b0d14; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:1 }
+  .win .hd .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0 } .win .hd .f { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--mute) }
+  .win .hd a, .win .hd .tg { color:var(--cyan); font-size:11px; text-decoration:none; white-space:nowrap; cursor:pointer } .win .hd a:hover, .win .hd .tg:hover { text-decoration:underline } .win .hd .x { cursor:pointer; color:var(--mute); padding-left:4px }
+  .win pre { margin:0; overflow-x:auto; font:11px/1.5 ui-monospace,Menlo,monospace; color:#cbd5e1; tab-size:4 } .win.whole pre { max-height:420px; overflow-y:auto }
+  .ln { display:flex } .ln:hover { background:#141826 } .ln.hi { background:#151f10 } .ln.at { background:#1f3016 } .ln .no { width:44px; flex:none; text-align:right; padding-right:10px; color:#4b5563; user-select:none } .ln .no.mark { color:#fbbf24 } .ln .tx { white-space:pre; padding-right:12px; position:relative }
+  a.cs { text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:2px; cursor:pointer } a.cs.known_edge { color:#e2e8f0 } a.cs.multi_inferred { color:#67e8f9; text-decoration-style:dashed } a.cs.lib { color:#fb923c; text-decoration-style:dotted } a.cs.unres { color:#fbbf24; text-decoration-style:dotted; cursor:help }
+  a.cs:hover { background:#1e293b } #left .togs { overflow:auto }
+  .menu { position:absolute; background:#10131b; border:1px solid var(--line); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.6); z-index:9; max-height:280px; overflow:auto; font-family:ui-sans-serif,system-ui,sans-serif; white-space:normal } .menu div { padding:5px 10px; cursor:pointer; font-size:11.5px; display:flex; gap:10px } .menu div:hover { background:#1c2129 } .menu small { color:var(--mute); margin-left:auto; font-family:ui-monospace,Menlo,monospace; font-size:10px } .codehint { padding:4px 10px; color:var(--mute); font-size:10.5px; background:#0b0d14 }
+  h3 { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); margin:12px 0 6px } h3:first-child { margin-top:2px }
+  .tog { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:6px; cursor:pointer; user-select:none; color:var(--ink) } .tog:hover { background:#171b26 } .tog.off { color:var(--mute); opacity:.55 } .tog.only { background:#132a33; color:var(--cyan) }
+  .tog i { width:9px; height:9px; border-radius:50%; flex:none } .tog .n { margin-left:auto; color:var(--mute); font-size:10.5px; font-family:ui-monospace,Menlo,monospace }
+  .tog.edge i { width:16px; height:0; border-top:2px solid; border-radius:0 }
+  .hops { display:flex; gap:4px } .hops span { padding:2px 8px; border-radius:6px; background:#171b26; cursor:pointer; font-size:11px; color:var(--mute) } .hops span.on { background:var(--cyan); color:#06202a; font-weight:600 }
+  #wrap { flex:1; position:relative; overflow:hidden } canvas { display:block; cursor:grab } canvas.grab { cursor:grabbing }
+  #right { width:380px; border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:10px 14px; flex:none }
+  #search { position:relative } #search input { width:100%; padding:8px 10px 8px 30px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#0b0d14; color:var(--ink) } #search::before { content:'⌕'; position:absolute; left:10px; top:6px; color:var(--mute); font-size:15px }
+  #search .x { position:absolute; right:8px; top:6px; color:var(--mute); cursor:pointer; font-size:14px; display:none } #search.has .x { display:block }
+  #hits div, #right li { padding:4px 4px; border-bottom:1px solid #161a24; display:flex; gap:7px; align-items:baseline; cursor:pointer } #hits div:hover, #right li:hover { background:#171b26 }
+  #hits i, #right li i { width:8px; height:8px; border-radius:50%; flex:none; display:inline-block } .lbl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap } .loc { color:var(--mute); font-family:ui-monospace,Menlo,monospace; font-size:10.5px; max-width:44%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl }
+  #right ul { list-style:none; margin:0; padding:0 } #right h2 { font-size:14px; margin:8px 0 2px; word-break:break-word }
+  .tier { font-size:10px; padding:1px 5px; border-radius:4px; background:#1f2430; color:var(--mute) } .tier.known_edge { background:#252b3a; color:#cbd5e1 } .tier.multi_inferred { background:#0c4a6e; color:#7dd3fc }
+  .tag { font-size:10px; padding:1px 6px; border-radius:4px; background:#1f2430; color:var(--mute); margin-right:4px } .tag.u { background:#3b2a0a; color:#fbbf24 } .tag.e { background:#052e16; color:#4ade80 }
+  .btn { display:inline-block; font-size:11.5px; color:var(--cyan); cursor:pointer; margin:6px 12px 0 0 } .btn:hover { text-decoration:underline } .btn.on { color:var(--hi) }
+  .note { color:var(--mute); font-size:11.5px; margin:6px 0 } .filt { background:#132a33; border:1px solid #164e63; color:#a5f3fc; border-radius:8px; padding:6px 10px; margin:8px 0; font-size:11.5px }
+  #status { position:absolute; left:12px; top:10px; color:var(--mute); font-size:11.5px; background:rgba(16,19,27,.9); padding:4px 8px; border-radius:6px; pointer-events:none }
+  #hint { position:absolute; right:12px; bottom:10px; color:var(--mute); font-size:11px; background:rgba(16,19,27,.9); padding:4px 8px; border-radius:6px }
+  #counts { position:absolute; left:12px; bottom:10px; color:var(--mute); font-size:11px; background:rgba(16,19,27,.9); padding:4px 8px; border-radius:6px }
+</style>
+</head>
+<body>
+<div id="top"><h1>axiomcode graph <span id="ttl"></span></h1></div>
+<div id="main">
+  <div id="left">
+    <div id="code"><div class="codehint">a call in the code is a link: <b>click</b> opens the callee below · <b>⌘/Ctrl-click</b> goes there · grey = one target · cyan = a sound set · orange = library · amber = the engine could not resolve it</div><div id="stack"></div></div>
+    <div id="split" title="drag to give the code or the node types more room"></div>
+    <div class="togs">
+    <h3>node types <span class="mono" style="text-transform:none;letter-spacing:0">· click to hide/show</span></h3><div id="types"></div>
+    <h3>only <span class="mono" style="text-transform:none;letter-spacing:0">· click to narrow</span></h3><div id="flags"></div>
+    <h3>edges</h3><div id="edges"></div>
+    <h3>focus depth <span class="mono" style="text-transform:none;letter-spacing:0">· hops from the selection</span></h3><div class="hops" id="hops"></div>
+    </div>
+  </div>
+  <div id="vsplit" title="drag to widen the left panel"></div>
+  <div id="wrap"><canvas id="c"></canvas><div id="status"></div><div id="counts"></div><div id="hint">scroll to zoom · drag to pan · hover a dot · click to select · double-click to zoom in</div></div>
+  <div id="right"><div id="search" ><input id="q" placeholder="search a method, class, file… (Enter = show only matches)" autocomplete="off"><span class="x" id="qx">✕</span></div><div id="hits"></div><div id="panel"></div></div>
+</div>
+<script>
+const DATA = /*__DATA__*/null;
+const N = new Map(DATA.nodes.map(n => [n.id, n]));
+const KIDS = new Map(); for (const n of DATA.nodes) if (n.p) (KIDS.get(n.p) || KIDS.set(n.p, []).get(n.p)).push(n);
+const OUT = new Map(), IN = new Map(); for (const e of DATA.calls) { (OUT.get(e.s) || OUT.set(e.s, []).get(e.s)).push(e); (IN.get(e.t) || IN.set(e.t, []).get(e.t)).push(e); }
+const LOUT = new Map(), LIN = new Map(); for (const e of (DATA.libcalls || [])) { (LOUT.get(e.s) || LOUT.set(e.s, []).get(e.s)).push(e); (LIN.get(e.t) || LIN.set(e.t, []).get(e.t)).push(e); }
+const XOUT = new Map(), XIN = new Map(); for (const e of DATA.extends) { (XOUT.get(e.s) || XOUT.set(e.s, []).get(e.s)).push(e.t); (XIN.get(e.t) || XIN.set(e.t, []).get(e.t)).push(e.s); }
+const RES = t => t === 'known_edge' || t === 'multi_inferred';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const loc = n => n.f ? `${n.f}${n.a ? ':' + n.a : ''}` : n.l;
+const short = n => n.k === 'file' ? n.l.split('/').pop() : n.k === 'method' ? n.l.split('.').slice(-2).join('.') : n.k === 'lib' ? n.l.split('.').slice(-2).join('.') : n.l;
+const m = DATA.meta; document.getElementById('ttl').textContent = `${m.repo} · ${m.language} · ${m.edges} call edges · client calls ${m.client_rate}% resolved (${m.unresolved} unresolved) · ${m.external_sites} external calls into ${m.boxes} black boxes` + (m.library_roots ? '' : ' · built without --library');
+const KIND = n => n.k === 'method' ? (n.sk === 'method' || n.sk === 'constructor' ? 'method' : 'function') : n.k === 'type' ? (n.sk === 'interface' ? 'interface' : n.sk === 'enum' ? 'enum' : 'class') : n.k;
+const COL = { dir: '#818cf8', file: '#60a5fa', class: '#f59e0b', interface: '#f472b6', enum: '#fb923c', method: '#2dd4bf', function: '#34d399', lib: '#e5e7eb' };
+const LIBC = '#f97316';   // calls that leave the client: their own colour, whether or not the library was analysed
+const colOf = n => COL[KIND(n)];
+const rad = n => n.k === 'dir' ? 7 : n.k === 'file' ? 3.6 : n.k === 'lib' ? 3 + Math.log2(1 + n.sites) * .9 : n.k === 'type' ? 2.6 + Math.log2(1 + (n.d || 0)) * .5 : 1.4 + Math.log2(1 + (n.d || 0)) * .45;
+
+// ── layout: the disc — directories in the centre, files, types, then every method outside, each under its parent ──
+const weight = new Map(); const W = n => { if (weight.has(n.id)) return weight.get(n.id); const w = (n.k === 'method' ? 1 : 0.4) + (KIDS.get(n.id) || []).reduce((a, c) => a + W(c), 0); weight.set(n.id, w); return w; };
+const dirs = DATA.nodes.filter(n => n.k === 'dir').sort((a, b) => a.l.localeCompare(b.l)), files = DATA.nodes.filter(n => n.k === 'file'), types = DATA.nodes.filter(n => n.k === 'type'), methods = DATA.nodes.filter(n => n.k === 'method');
+const total = dirs.reduce((a, d) => a + W(d), 0);
+const R0 = Math.max(60, dirs.length * 40 / (2 * Math.PI)), R1 = Math.max(R0 + 130, files.length * 13 / (2 * Math.PI)), R2 = Math.max(R1 + 120, types.length * 11 / (2 * Math.PI)), R3 = R2 + 60;
+const seed = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 0) % 1000) / 1000; };
+const polar = (n, r, a) => { const j = (seed(n.id) - .5) * (n.k === 'method' ? 5 : n.k === 'file' ? 30 : 12); n.x = (r + j) * Math.cos(a); n.y = (r + j) * Math.sin(a); };   // a little radial jitter: a cloud, not a ruler
+function arcGrid(items, a0, a1, r, gap) { const cols = Math.max(1, Math.floor((a1 - a0) * r / gap)); items.forEach((n, i) => { const row = Math.floor(i / cols), col = i % cols, inRow = Math.min(cols, items.length - row * cols); polar(n, r + row * gap, a0 + (a1 - a0) / inRow * (col + .5)); }); }
+let ang = 0;
+for (const d of dirs) { const span = 2 * Math.PI * W(d) / total; d.span = span; polar(d, R0, ang + span / 2); let a = ang;
+  for (const f of (KIDS.get(d.id) || []).sort((p, q) => p.l.localeCompare(q.l))) { const fspan = span * W(f) / (W(d) - .4 || 1); polar(f, R1, a + fspan / 2); let b = a;
+    const kids = (KIDS.get(f.id) || []).sort((p, q) => (p.k === 'type' ? 0 : 1) - (q.k === 'type' ? 0 : 1) || (p.a || 0) - (q.a || 0)), free = kids.filter(k => k.k === 'method'), tps = kids.filter(k => k.k === 'type'), fw = W(f) - .4 || 1;
+    for (const t of tps) { const tspan = fspan * W(t) / fw; polar(t, R2, b + tspan / 2); const desc = []; (function walk(x) { for (const c of (KIDS.get(x.id) || [])) { desc.push(c); if (c.k === 'type') walk(c); } })(t); arcGrid(desc.sort((p, q) => (p.a || 0) - (q.a || 0)), b, b + tspan, R3, 7); b += tspan; }
+    if (free.length) { const s = fspan * free.length / fw; arcGrid(free, b, b + s, R3, 7); b += s; }
+    a += fspan; }
+  ang += span; }
+// black boxes: an outer ring, each near the methods that call it (circular mean of its callers' angles), spread so they never overlap
+const libs = DATA.nodes.filter(n => n.k === 'lib'); const RMAX = Math.max(R3, ...methods.map(n => Math.hypot(n.x, n.y))), R4 = RMAX + 110;
+for (const b of libs) { let sx = 0, sy = 0; for (const e of (LIN.get(b.id) || [])) { const c = N.get(e.s); const d = Math.hypot(c.x, c.y) || 1; sx += c.x / d * e.w; sy += c.y / d * e.w; } b.ang = Math.atan2(sy, sx); }
+libs.sort((a, b) => a.ang - b.ang); { const gap = Math.max(16 / R4, 2 * Math.PI / Math.max(1, libs.length)); for (let pass = 0; pass < 3; pass++) for (let i = 1; i < libs.length; i++) if (libs[i].ang - libs[i - 1].ang < gap) libs[i].ang = libs[i - 1].ang + gap; }
+for (const b of libs) { b.x = R4 * Math.cos(b.ang); b.y = R4 * Math.sin(b.ang); }
+for (const n of DATA.nodes) { n.dx = n.x; n.dy = n.y; }   // the disc position; a filtered view lays its few nodes out afresh
+const PREFIX = (() => { if (dirs.length < 2) return ''; const parts = dirs.map(d => d.l.split('/')); let i = 0; while (parts.every(p => p.length > i + 1 && p[i] === parts[0][i])) i++; return parts[0].slice(0, i).map(x => x + '/').join(''); })();
+
+// ── what is shown: type toggles · only-flags · edge toggles · focus depth · search filter ──────────────────────
+const show = { dir: true, file: true, class: true, interface: true, enum: true, method: true, function: true, lib: true, test: true }, only = { u: false, e: false, t: false }, edges = { known: true, inf: true, lib: true, ext: true, tree: true };
+let hops = 0, filter = null /* Set of ids from search or focus depth */, sel = null, hover = null, focus = null, layoutSet = null;
+const isEntry = n => n.e && !(n.e.length === 1 && n.e[0] === 'test');
+const passes = n => show[KIND(n)] && (show.test || !n.t) && (!only.u || n.u) && (!only.e || isEntry(n)) && (!only.t || n.t) && (!filter || filter.has(n.id));
+let VIS = DATA.nodes, VISSET = null;
+function recompute() { VIS = DATA.nodes.filter(passes); VISSET = new Set(VIS.map(n => n.id));
+  // a small filtered view is laid out on its own so it reads as a graph, not as leftovers of the disc
+  const small = filter && VIS.length <= 400;
+  if (small) { const key = [...VISSET].sort().join('|'); if (layoutSet !== key) { layoutSet = key; localLayout(VIS); } } else { layoutSet = null; for (const n of DATA.nodes) { n.x = n.dx; n.y = n.dy; } }
+  rebuildGrid(); counts(); mark(); }
+function localLayout(nodes) { const ids = new Set(nodes.map(n => n.id)); const links = [...DATA.calls.filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...(DATA.libcalls || []).filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...DATA.extends.filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...nodes.filter(n => n.p && ids.has(n.p)).map(n => [n.p, n.id])];
+  nodes.forEach((n, i) => { const a = i * 2.4, r = 14 * Math.sqrt(i + 1); n.x = r * Math.cos(a); n.y = r * Math.sin(a); n.vx = n.vy = 0; });
+  const L = links.map(([s, t]) => [N.get(s), N.get(t)]);
+  for (let it = 0; it < 260; it++) { const T = 1 - it / 260;
+    for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) { const a = nodes[i], b = nodes[j]; let dx = b.x - a.x, dy = b.y - a.y; const d2 = dx * dx + dy * dy || 1, d = Math.sqrt(d2); const f = 700 / d2 + (d < 22 ? (22 - d) * .3 : 0); dx /= d; dy /= d; a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f; }
+    for (const [a, b] of L) { const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, f = .03 * (d - 50); a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
+    for (const n of nodes) { n.vx -= n.x * .004; n.vy -= n.y * .004; n.x += n.vx * .5 * T; n.y += n.vy * .5 * T; n.vx *= .55; n.vy *= .55; } } }
+const grid = new Map(), CELL = 20; function rebuildGrid() { grid.clear(); for (const n of VIS) { const k = ((n.x / CELL) | 0) + ',' + ((n.y / CELL) | 0); (grid.get(k) || grid.set(k, []).get(k)).push(n); } }
+function within(start, depth) { const seen = new Set([start.id]); let front = [start.id]; for (let d = 0; d < depth && front.length; d++) { const nxt = []; for (const u of front) { for (const e of (OUT.get(u) || [])) if (!seen.has(e.t)) { seen.add(e.t); nxt.push(e.t); } for (const e of (IN.get(u) || [])) if (!seen.has(e.s)) { seen.add(e.s); nxt.push(e.s); } for (const e of (LOUT.get(u) || [])) if (!seen.has(e.t)) { seen.add(e.t); nxt.push(e.t); } for (const e of (LIN.get(u) || [])) if (!seen.has(e.s)) { seen.add(e.s); nxt.push(e.s); } for (const t of (XOUT.get(u) || [])) if (!seen.has(t)) { seen.add(t); nxt.push(t); } for (const t of (XIN.get(u) || [])) if (!seen.has(t)) { seen.add(t); nxt.push(t); } } front = nxt; } return seen; }
+let search = null;   // { text, matches: Set }
+function applyFilter() { if (search) { const base = search.matches; filter = new Set(base); if (hops) for (const id of base) for (const x of within(N.get(id), hops)) filter.add(x); } else if (sel && hops) filter = within(sel, hops); else filter = null; recompute(); if (filter) fitVisible(); }
+
+// ── canvas ────────────────────────────────────────────────────────────────────────────────────────
+const cv = document.getElementById('c'), wrap = document.getElementById('wrap'), ctx = cv.getContext('2d');
+let view = { x: 0, y: 0, k: 1 }, dpr = window.devicePixelRatio || 1, drag = null, raf = 0;
+const mark = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+function resize() { cv.width = wrap.clientWidth * dpr; cv.height = wrap.clientHeight * dpr; cv.style.width = wrap.clientWidth + 'px'; cv.style.height = wrap.clientHeight + 'px'; mark(); }
+function fitVisible() { const xs = VIS.map(n => n.x), ys = VIS.map(n => n.y); if (!xs.length) return; const x0 = Math.min(...xs) - 40, x1 = Math.max(...xs) + 40, y0 = Math.min(...ys) - 40, y1 = Math.max(...ys) + 40; const w = wrap.clientWidth, h = wrap.clientHeight; view.k = Math.min(4, (w - 40) / (x1 - x0), (h - 40) / (y1 - y0)); view.x = w / 2 - (x0 + x1) / 2 * view.k; view.y = h / 2 - (y0 + y1) / 2 * view.k; mark(); }
+function centre(n, k) { view.k = k || Math.max(view.k, 3); view.x = wrap.clientWidth / 2 - n.x * view.k; view.y = wrap.clientHeight / 2 - n.y * view.k; mark(); }
+function pick(px, py) { const x = (px - view.x) / view.k, y = (py - view.y) / view.k, gx = (x / CELL) | 0, gy = (y / CELL) | 0; let best = null, bd = 1e9; const tol = 7 / view.k; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const n of (grid.get((gx + i) + ',' + (gy + j)) || [])) { const d = Math.hypot(n.x - x, n.y - y) - rad(n); if (d < tol && d < bd) { bd = d; best = n; } } return best; }
+const neighbours = n => { const s = new Set([n.id]); for (const e of (OUT.get(n.id) || [])) s.add(e.t); for (const e of (IN.get(n.id) || [])) s.add(e.s); for (const e of (LOUT.get(n.id) || [])) s.add(e.t); for (const e of (LIN.get(n.id) || [])) s.add(e.s); for (const t of (XOUT.get(n.id) || [])) s.add(t); for (const t of (XIN.get(n.id) || [])) s.add(t); if (n.p) s.add(n.p); for (const c of (KIDS.get(n.id) || [])) s.add(c.id); return s; };
+function chip(n, k, colour, big) { const t = short(n); ctx.font = `${big ? '600 ' : ''}${(big ? 11.5 : 10.5) / k}px ui-monospace, Menlo, monospace`; const w = ctx.measureText(t).width + 12 / k, h = 16 / k, x = n.x - w / 2, y = n.y - rad(n) - 14 / k - h;
+  ctx.strokeStyle = colour; ctx.lineWidth = 1 / k; ctx.beginPath(); ctx.moveTo(n.x, n.y - rad(n)); ctx.lineTo(n.x, y + h); ctx.stroke();
+  ctx.fillStyle = 'rgba(11,13,20,.92)'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4 / k); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = colour; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, n.x, y + h / 2); }
+function draw() { const k = view.k; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#0b0d14'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * view.x, dpr * view.y);
+  const F = focus ? focus.set : null, mode = focus ? focus.mode : null, on = id => VISSET.has(id);
+  if (edges.tree) { ctx.lineWidth = .5 / k; ctx.strokeStyle = F ? 'rgba(99,102,241,.05)' : 'rgba(99,102,241,.13)'; ctx.beginPath(); for (const n of VIS) { if (!n.p || !on(n.p)) continue; const p = N.get(n.p); ctx.moveTo(p.x, p.y); ctx.lineTo(n.x, n.y); } ctx.stroke(); }
+  const pass = (pred, style, w) => { ctx.strokeStyle = style; ctx.lineWidth = w / k; ctx.beginPath(); for (const e of DATA.calls) { if (!on(e.s) || !on(e.t) || !pred(e)) continue; const a = N.get(e.s), b = N.get(e.t); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo((a.x + b.x) / 2 * .6, (a.y + b.y) / 2 * .6, b.x, b.y); } ctx.stroke(); };
+  const lit = e => F && F.has(e.s) && F.has(e.t) && ((mode !== 'hover' && mode !== 'select') || e.s === focus.id || e.t === focus.id);
+  const few = VIS.length < 500;
+  if (edges.known) pass(e => e.tier === 'known_edge' && !lit(e), F ? 'rgba(148,163,184,.03)' : few ? 'rgba(148,163,184,.35)' : 'rgba(148,163,184,.09)', few ? .8 : .5);
+  if (edges.inf) pass(e => e.tier !== 'known_edge' && !lit(e), F ? 'rgba(34,211,238,.04)' : few ? 'rgba(34,211,238,.45)' : 'rgba(34,211,238,.12)', few ? .8 : .5);
+  if (F) { if (edges.known) pass(e => e.tier === 'known_edge' && lit(e), mode === 'impact' ? 'rgba(244,63,94,.8)' : mode === 'chain' ? 'rgba(245,158,11,.9)' : 'rgba(226,232,240,.85)', 1.3); if (edges.inf) pass(e => e.tier !== 'known_edge' && lit(e), mode === 'impact' ? 'rgba(251,113,133,.8)' : 'rgba(34,211,238,.95)', 1.3); }
+  if (edges.lib) { ctx.setLineDash([3 / k, 3 / k]); const lp = (pred, style, w) => { ctx.strokeStyle = style; ctx.lineWidth = w / k; ctx.beginPath(); for (const e of (DATA.libcalls || [])) { if (!on(e.s) || !on(e.t) || !pred(e)) continue; const a = N.get(e.s), b = N.get(e.t); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); } ctx.stroke(); };
+    const lLit = e => F && F.has(e.s) && F.has(e.t) && ((mode !== 'hover' && mode !== 'select') || e.s === focus.id || e.t === focus.id);
+    lp(e => !lLit(e), F ? 'rgba(249,115,22,.04)' : few ? 'rgba(249,115,22,.5)' : 'rgba(249,115,22,.13)', few ? .8 : .5); if (F) lp(lLit, 'rgba(249,115,22,.95)', 1.3); ctx.setLineDash([]); }
+  if (edges.ext) { ctx.strokeStyle = F ? 'rgba(167,139,250,.12)' : 'rgba(167,139,250,.5)'; ctx.lineWidth = .8 / k; ctx.setLineDash([4 / k, 3 / k]); ctx.beginPath(); for (const e of DATA.extends) { if (!on(e.s) || !on(e.t)) continue; if (F && !(F.has(e.s) && F.has(e.t))) continue; const a = N.get(e.s), b = N.get(e.t); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); } ctx.stroke(); ctx.setLineDash([]); }
+  for (const n of VIS) { const r = rad(n) * (few ? 1.8 : 1), dim = F && !F.has(n.id); ctx.globalAlpha = dim ? .12 : n.t ? .55 : .9;
+    if (n.k === 'lib') { ctx.fillStyle = '#0b0d14'; ctx.strokeStyle = COL.lib; ctx.lineWidth = 1.2 / k; ctx.beginPath(); ctx.rect(n.x - r, n.y - r, 2 * r, 2 * r); ctx.fill(); ctx.stroke(); continue; }   // a black box: library code the engine did not analyse
+    ctx.fillStyle = F && F.has(n.id) && mode === 'impact' && n.id !== focus.id ? '#fb7185' : colOf(n); ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
+    if (isEntry(n)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1 / k; ctx.beginPath(); ctx.arc(n.x, n.y, r + 1.8 / k, 0, 7); ctx.stroke(); }
+    if (n.u && (k > 3 || few || (F && F.has(n.id)))) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(n.x + r * .9, n.y - r * .9, Math.max(.9, r * .35), 0, 7); ctx.fill(); } }
+  ctx.globalAlpha = 1;
+  // directory names around the rim of the full disc
+  if (!filter) for (const d of dirs) { if (!on(d.id) || (d.span * (R3 + 80) < 14 && d !== hover && d !== sel)) continue; const a = Math.atan2(d.dy, d.dx), R = (libs.length ? R4 : R3) + 90, right = Math.cos(a) >= 0; ctx.textAlign = right ? 'left' : 'right'; ctx.textBaseline = 'middle'; ctx.font = `600 ${11 / k}px ui-monospace, Menlo, monospace`; ctx.fillStyle = F && !F.has(d.id) ? 'rgba(129,140,248,.3)' : 'rgba(165,180,252,.85)'; ctx.fillText(d.l.slice(PREFIX.length) || d.l, R * Math.cos(a) + (right ? 4 : -4) / k, R * Math.sin(a)); }
+  // chips: only what matters — the selection and its neighbours, matches, hover, and the big things when zoomed in
+  const chips = [];
+  if (hover && on(hover.id)) chips.push([hover, '#e5e7eb', true]);
+  if (sel && on(sel.id) && sel !== hover) chips.push([sel, '#f59e0b', true]);
+  if (F && (mode === 'select' || mode === 'chain' || (mode === 'impact' && F.size <= 60))) for (const id of F) { if (chips.length > 70) break; const n = N.get(id); if (n !== sel && n !== hover && on(id)) chips.push([n, mode === 'impact' ? '#fb7185' : mode === 'chain' ? '#f59e0b' : '#22d3ee', false]); }
+  if (search && !F) for (const id of search.matches) { if (chips.length > 70) break; const n = N.get(id); if (on(id) && n !== hover) chips.push([n, '#22d3ee', false]); }
+  if (!F && !search) for (const n of VIS) { if (chips.length > 90) break; if ((n.k === 'dir' && k > 1.2) || (n.k === 'file' && k > 2.2) || (n.k === 'type' && k > 3.2) || (n.k === 'method' && k > 7) || (n.k === 'lib' && (k > 1.6 || n.sites > 200))) chips.push([n, n.k === 'lib' ? LIBC : colOf(n), false]); }
+  if (few && !F && !search) for (const n of VIS) { if (chips.length > 120) break; if (!chips.some(c => c[0] === n)) chips.push([n, colOf(n), false]); }
+  for (const [n, c, big] of chips) chip(n, k, c, big);
+  status(); }
+function status() { const S = document.getElementById('status'); if (!focus || focus.mode === 'hover' || focus.mode === 'select') { S.textContent = ''; return; } const n = N.get(focus.id); S.textContent = focus.mode === 'impact' ? `impact of ${n.l}: ${focus.set.size - 1} methods in ${focus.files} files can reach it through resolved calls` + (n.u ? ` · ${n.u} unresolved sites in its body make that a lower bound` : '') : `chain from ${n.l}: ${focus.path.length} hops, the heaviest resolved callee at each`; }
+function counts() { const c = {}; for (const n of VIS) { c[KIND(n)] = (c[KIND(n)] || 0) + 1; if (n.t) c.test = (c.test || 0) + 1; } document.getElementById('counts').textContent = `${VIS.length} of ${DATA.nodes.length} nodes shown` + (filter ? ' · filtered' : ''); document.querySelectorAll('#types .tog').forEach(t => t.querySelector('.n').textContent = c[t.dataset.k] || 0); }
+cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, k = Math.min(60, Math.max(.05, view.k * (e.deltaY < 0 ? 1.15 : .87))); view.x = mx - (mx - view.x) * k / view.k; view.y = my - (my - view.y) * k / view.k; view.k = k; mark(); }, { passive: false });
+cv.addEventListener('mousedown', e => { drag = { x: e.clientX - view.x, y: e.clientY - view.y, moved: false }; cv.classList.add('grab'); });
+window.addEventListener('mousemove', e => { if (drag) { drag.moved = true; view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; mark(); return; } const r = cv.getBoundingClientRect(), n = pick(e.clientX - r.left, e.clientY - r.top); if (n !== hover) { hover = n; if (!sel) focus = n ? { id: n.id, set: neighbours(n), mode: 'hover' } : null; mark(); } });
+window.addEventListener('mouseup', e => { if (!drag) return; const moved = drag.moved; drag = null; cv.classList.remove('grab'); if (moved) return; const r = cv.getBoundingClientRect(); select(pick(e.clientX - r.left, e.clientY - r.top)); });
+cv.addEventListener('dblclick', e => { const r = cv.getBoundingClientRect(), n = pick(e.clientX - r.left, e.clientY - r.top); if (n) centre(n, Math.max(view.k * 2.2, 5)); });
+window.addEventListener('resize', resize);
+
+// ── selection · impact · chain · panel ────────────────────────────────────────────────────────────
+function select(n) { sel = n; focus = n ? { id: n.id, set: neighbours(n), mode: 'select' } : null; if (hops && !search) applyFilter(); else mark(); panel(); code(n); }
+// the source on the left, as a stack of windows: each is one method's lines (or its whole file), and every call in the
+// text is a link to what the engine resolved it to — click opens the callee below, ⌘/Ctrl-click goes there instead
+const FILES = DATA.files || {}; let stack = [];
+function code(n) { if (!n || !n.f || !(n.f in FILES)) { if (!n) { stack = []; renderStack(); } return; } stack = [{ n, whole: false }]; renderStack(); }
+function pushWin(n) { if (!n.f || !(n.f in FILES)) return; const i = stack.findIndex(w => w.n === n); if (i >= 0) stack.splice(i, 1); stack.push({ n, whole: false }); renderStack(true); }
+function renderStack(scrollLast) { const L = document.getElementById('left'), S = document.getElementById('stack'); if (!stack.length) { L.classList.remove('code'); S.innerHTML = ''; return; } L.classList.add('code');
+  S.innerHTML = stack.map((w, i) => win(w, i)).join('');
+  S.querySelectorAll('.win').forEach((el, i) => { const w = stack[i]; const pre = el.querySelector('pre'), at = pre.querySelector('.at'); if (w.whole && at) pre.scrollTop = Math.max(0, at.offsetTop - 120);
+    el.querySelector('.x').onclick = () => { stack.splice(i, 1); renderStack(); };
+    el.querySelector('.tg').onclick = () => { w.whole = !w.whole; renderStack(); };
+    el.querySelector('.t').onclick = () => { select(w.n); centre(w.n, Math.max(view.k, 4)); };
+    el.querySelectorAll('a.cs[data-t]').forEach(a => a.onclick = ev => { ev.preventDefault(); const ids = a.dataset.t.split(' ').filter(Boolean); const go = t => { if (ev.metaKey || ev.ctrlKey) { select(t); centre(t, Math.max(view.k, 4)); } else { sel = t; focus = { id: t.id, set: neighbours(t), mode: 'select' }; mark(); panel(); if (t.k === 'lib') { renderStack(); } else pushWin(t); } };
+      if (ids.length === 1) return go(N.get(ids[0]));
+      const menu = document.createElement('div'); menu.className = 'menu'; menu.innerHTML = ids.map(id => { const t = N.get(id); return `<div data-id="${esc(id)}">${esc(t.l)}<small>${esc(t.f ? t.f.split('/').pop() + ':' + t.a : 'library')}</small></div>`; }).join(''); a.after(menu);
+      menu.querySelectorAll('div[data-id]').forEach(d => d.onclick = e => { e.stopPropagation(); menu.remove(); go(N.get(d.dataset.id)); }); setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0); }); });
+  if (scrollLast) { const last = S.lastElementChild; if (last) last.scrollIntoView({ block: 'start' }); } }
+function win(w, i) { const n = w.n, lines = FILES[n.f].split('\n'), a = n.a || 1, b = n.b || a, from = w.whole ? 1 : Math.max(1, a - 2), to = w.whole ? lines.length : Math.min(lines.length, b + 2);
+  const byLine = new Map(); for (const [l, name, t, tier] of (n.cs || [])) (byLine.get(l) || byLine.set(l, []).get(l)).push([name, t, tier]);
+  const abs = (m.repo_path || '') + '/' + n.f;
+  let out = `<div class="win${w.whole ? ' whole' : ''}"><div class="hd"><span class="t" title="select in the graph">${esc(n.k === 'file' ? n.l.split('/').pop() : n.l)}</span><span class="f" title="${esc(n.f)}">${esc(n.f)}:${a}${b > a ? '–' + b : ''}</span><span class="tg">${w.whole ? 'method only' : 'whole file'}</span><a href="vscode://file/${esc(abs)}:${a}" title="open in VS Code">editor ↗</a><span class="x">✕</span></div><pre>`;
+  for (let no = from; no <= to; no++) { const ss = byLine.get(no); let tx = esc(lines[no - 1] ?? '');
+    if (ss) { // one link per written name on the line; several targets (a dispatch set) share it and open a chooser
+      const byName = new Map(); for (const [name, t, tier] of ss) { if (!name) continue; const k = name.split('.').pop(); const g = byName.get(k) || byName.set(k, { targets: [], tier, unres: false }).get(k); if (t) { if (!g.targets.includes(t)) g.targets.push(t); if (tier === 'known_edge') g.tier = tier; } else g.unres = true; }
+      let parts = [tx];   // strings are still scannable; objects are links already made and never scanned again
+      for (const [nm, g] of byName) { const re = new RegExp('(^|[^\\w$])(' + nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?=\\s*\\(|[^\\w$]|$)');
+        for (let i = 0; i < parts.length; i++) { if (typeof parts[i] !== 'string') continue; const mt = re.exec(parts[i]); if (!mt) continue;
+          const pos = mt.index + mt[1].length; const cls = !g.targets.length ? 'unres' : g.targets[0].startsWith('L:') ? 'lib' : g.tier;
+          const title = !g.targets.length ? 'unresolved: the engine could not type the receiver — a blind spot' : g.targets.length > 1 ? `${g.targets.length} possible targets [${g.tier}] — click to choose` : (t => `${t.l}${t.f ? ' · ' + t.f + ':' + t.a : ' · library black box'} [${g.tier}]`)(N.get(g.targets[0]));
+          parts.splice(i, 1, parts[i].slice(0, pos), { html: `<a class="cs ${cls}" data-t="${esc(g.targets.join(' '))}" title="${esc(title)}">${nm}</a>` }, parts[i].slice(pos + nm.length)); break; } }
+      tx = parts.map(x => typeof x === 'string' ? x : x.html).join(''); }
+    out += `<div class="ln${no >= a && no <= b ? (no === a ? ' hi at' : ' hi') : ''}"><span class="no${no === a ? ' mark' : ''}">${no}</span><span class="tx">${tx}</span></div>`; }
+  return out + '</pre></div>'; }
+function doImpact(n) { const seen = new Set([n.id]), dq = [n.id]; while (dq.length) { const u = dq.shift(); for (const e of (IN.get(u) || [])) if (RES(e.tier) && !seen.has(e.s)) { seen.add(e.s); dq.push(e.s); } } focus = { id: n.id, set: seen, mode: 'impact', files: new Set([...seen].map(id => N.get(id).f)).size }; mark(); panel(); }
+function doChain(n) { const p = [n.id], seen = new Set(p); while (p.length <= 12) { const es = (OUT.get(p[p.length - 1]) || []).filter(e => RES(e.tier) && !seen.has(e.t)).sort((a, b) => b.w - a.w || ((OUT.get(b.t) || []).length - (OUT.get(a.t) || []).length)); if (!es.length) break; p.push(es[0].t); seen.add(es[0].t); } focus = { id: n.id, set: seen, mode: 'chain', path: p }; mark(); panel(); }
+const dot = o => `<i style="background:${colOf(o)}"></i>`;
+function panel() { const P = document.getElementById('panel');
+  const filt = search ? `<div class="filt">showing only <b>${search.matches.size}</b> match${search.matches.size === 1 ? '' : 'es'} for “${esc(search.text)}”${hops ? ` and everything within ${hops} hop${hops > 1 ? 's' : ''}` : ''} — ${VIS.length} nodes · <span class="btn" id="clr" style="margin:0">clear ✕</span></div>` : '';
+  if (!sel) { const gods = methods.filter(n => !n.t).sort((a, b) => (b.d || 0) - (a.d || 0)).slice(0, 12);
+    P.innerHTML = filt + `<h2>${esc(m.repo)}</h2><div class="note">${esc(m.language)} · built ${esc(m.built)} · ${m.counts.dir || 0} directories · ${m.counts.file || 0} files · ${m.counts.type || 0} types · ${m.counts.method || 0} methods</div>
+      <div class="note">The disc is the repository: directories in the centre, then files, then the types in them, then every method outside, each under its parent. Lines are calls the engine resolved; an amber dot marks a method with calls it could not resolve.</div>
+      <h3>call sites — ${m.sites}</h3><ul><li><span class="lbl">into client code, resolved</span><span class="loc">${m.client_sites}</span></li><li><span class="lbl" style="color:#fbbf24">into client code or unknown, unresolved</span><span class="loc">${m.unresolved}</span></li><li><span class="lbl" style="color:${LIBC}">external — into ${m.boxes} black boxes</span><span class="loc">${m.external_sites}</span></li><li><span class="lbl">terminal (platform, synthesised, computed)</span><span class="loc">${m.terminal_sites}</span></li></ul>
+      <div class="note"><b>${m.client_rate}%</b> of client calls resolved (external calls excluded; ${m.overall_rate}% of all sites are a known end).</div>
+      ${m.library_roots ? '' : '<div class="filt" style="background:#3b2a0a;border-color:#92400e;color:#fde68a">Built without <span class="mono" style="color:#fde68a">--library</span> — calls into the JDK / dependencies could not resolve and are counted as unresolved. Rebuild with <span class="mono" style="color:#fde68a">axiomcode-graph build . --library &lt;jdk&gt;,&lt;libs&gt;</span> to get them as black boxes.</div>'}
+      <h3>most connected methods</h3><ul>${gods.map(n => `<li data-n="${esc(n.id)}">${dot(n)}<span class="lbl">${esc(n.l)}</span><span class="loc">${n.d}</span></li>`).join('')}</ul>
+      <h3>directories</h3><ul>${dirs.map(d => `<li data-n="${esc(d.id)}">${dot(d)}<span class="lbl">${esc(d.l)}</span><span class="loc">${(KIDS.get(d.id) || []).length} files</span></li>`).join('')}</ul>`; }
+  else if (sel.k === 'lib') { const n = sel, ins = LIN.get(n.id) || [];
+    P.innerHTML = filt + `<h2>${esc(n.l)}</h2><div class="note">black box — library code the engine did not analyse; calls end here</div><div class="note">${n.sites} call sites from ${n.callers} client methods</div>
+      <h3>methods called</h3><div class="mono" style="word-break:break-word">${esc(n.methods.join(' · '))}</div>
+      <div><span class="btn" data-x="zoom">zoom to</span><span class="btn" data-x="clear">deselect</span></div>
+      <h3>called by (${ins.length})</h3><ul>${ins.slice().sort((a, b) => b.w - a.w).slice(0, 80).map(e => { const o = N.get(e.s); return `<li data-n="${esc(o.id)}">${dot(o)}<span class="lbl">${esc(o.l)}</span><span class="loc">${esc(loc(o))}${e.w > 1 ? ' ×' + e.w : ''}</span></li>`; }).join('')}${ins.length > 80 ? `<li class="note">… ${ins.length - 80} more</li>` : ''}</ul>`;
+    P.querySelectorAll('.btn[data-x]').forEach(b => b.onclick = () => { if (b.dataset.x === 'zoom') centre(n, Math.max(view.k, 5)); else select(null); }); }
+  else { const n = sel, outs = OUT.get(n.id) || [], ins = IN.get(n.id) || [], kids = KIDS.get(n.id) || [], louts = LOUT.get(n.id) || [];
+    const li = (e, other) => { const o = N.get(other); return `<li data-n="${esc(o.id)}"><span class="tier ${esc(e.tier)}">${esc(e.tier)}</span><span class="lbl">${esc(o.l)}</span><span class="loc">${esc(loc(o))}${e.w > 1 ? ' ×' + e.w : ''}</span></li>`; };
+    const kid = o => `<li data-n="${esc(o.id)}">${dot(o)}<span class="lbl">${esc(short(o))}</span><span class="loc">${o.k === 'method' ? o.a : (KIDS.get(o.id) || []).length}</span></li>`;
+    P.innerHTML = filt + `<h2>${esc(n.l)}</h2><div class="note">${esc(KIND(n))}${n.t ? ' · test' : ''}</div><div class="mono" style="word-break:break-all">${esc(loc(n))}${n.b > n.a ? '–' + n.b : ''}</div>${n.sig && n.sig !== n.l ? `<div class="mono" style="word-break:break-all">${esc(n.sig)}</div>` : ''}
+      <div style="margin-top:6px">${isEntry(n) ? `<span class="tag e">entry: ${esc(n.e.join(', '))}</span>` : ''}${n.u ? `<span class="tag u" title="call sites in this body the engine could not resolve — each MAY be a call not drawn">? ${n.u} unresolved</span>` : ''}${n.lib ? `<span class="tag" title="${esc(n.lib.join('\n'))}">→ library ×${n.lib.length}</span>` : ''}</div>
+      <div>${n.k === 'method' ? `<span class="btn${focus && focus.mode === 'impact' ? ' on' : ''}" data-x="impact">impact ↑</span><span class="btn${focus && focus.mode === 'chain' ? ' on' : ''}" data-x="chain">chain ⇢</span>` : ''}<span class="btn" data-x="zoom">zoom to</span><span class="btn" data-x="clear">deselect</span></div>
+      ${focus && focus.mode === 'impact' ? `<div class="note" style="color:#fb7185">${focus.set.size - 1} methods in ${focus.files} files can reach this through resolved calls${n.u ? `; ${n.u} unresolved sites in its body make that a lower bound` : ''}.</div>` : ''}
+      ${focus && focus.mode === 'chain' ? `<h3>chain</h3><ul>${focus.path.map((id, i) => `<li data-n="${esc(id)}"><span class="tier">${i}</span><span class="lbl">${esc(N.get(id).l)}</span><span class="loc">${esc(loc(N.get(id)))}</span></li>`).join('')}</ul>` : ''}
+      ${ins.length ? `<h3>called by (${ins.length})</h3><ul>${ins.slice(0, 60).map(e => li(e, e.s)).join('')}${ins.length > 60 ? `<li class="note">… ${ins.length - 60} more</li>` : ''}</ul>` : ''}
+      ${outs.length ? `<h3>calls (${outs.length})</h3><ul>${outs.slice(0, 60).map(e => li(e, e.t)).join('')}${outs.length > 60 ? `<li class="note">… ${outs.length - 60} more</li>` : ''}</ul>` : ''}
+      ${louts.length ? `<h3>calls into libraries (${louts.length} black boxes)</h3><ul>${louts.slice().sort((a, b) => b.w - a.w).map(e => { const o = N.get(e.t); return `<li data-n="${esc(o.id)}"><span class="tier" style="color:${LIBC}">external</span><span class="lbl">${esc(o.l)}</span><span class="loc">${e.w > 1 ? '×' + e.w : ''}</span></li>`; }).join('')}</ul>` : ''}
+      ${(XOUT.get(n.id) || []).length ? `<h3>extends</h3><ul>${XOUT.get(n.id).map(t => kid(N.get(t))).join('')}</ul>` : ''}${(XIN.get(n.id) || []).length ? `<h3>subtypes</h3><ul>${XIN.get(n.id).map(t => kid(N.get(t))).join('')}</ul>` : ''}
+      ${kids.length ? `<h3>contains (${kids.length})</h3><ul>${kids.slice(0, 80).map(kid).join('')}</ul>` : ''}${n.p ? `<h3>in</h3><ul>${kid(N.get(n.p))}</ul>` : ''}`;
+    P.querySelectorAll('.btn[data-x]').forEach(b => b.onclick = () => { const x = b.dataset.x; if (x === 'impact') doImpact(n); else if (x === 'chain') doChain(n); else if (x === 'zoom') centre(n, Math.max(view.k, 5)); else select(null); }); }
+  P.querySelectorAll('li[data-n]').forEach(x => x.onclick = () => { const o = N.get(x.dataset.n); if (!VISSET.has(o.id)) clearSearch(); select(o); centre(o, Math.max(view.k, 4)); });
+  const c = P.querySelector('#clr'); if (c) c.onclick = clearSearch; }
+
+// ── left panel: toggles ───────────────────────────────────────────────────────────────────────────
+const T = document.getElementById('types'); T.innerHTML = Object.keys(COL).map(k => `<div class="tog" data-k="${k}"><i style="${k === 'lib' ? 'background:#0b0d14;border:1.5px solid #e5e7eb;border-radius:1px' : 'background:' + COL[k]}"></i>${k === 'dir' ? 'directory' : k === 'lib' ? 'external (black box)' : k}<span class="n"></span></div>`).join('') + `<div class="tog" data-k="test"><i style="background:#0b0d14;border:1.5px dotted #94a3b8"></i>tests (files, types, methods)<span class="n"></span></div>`;
+T.querySelectorAll('.tog').forEach(t => t.onclick = () => { show[t.dataset.k] = !show[t.dataset.k]; t.classList.toggle('off', !show[t.dataset.k]); recompute(); });
+const FL = document.getElementById('flags'); FL.innerHTML = `<div class="tog" data-f="u"><i style="background:#fbbf24"></i>has unresolved calls</div><div class="tog" data-f="e"><i style="background:#0b0d14;border:1.5px solid #fff"></i>entry point</div><div class="tog" data-f="t"><i style="background:#0b0d14;border:1.5px dotted #94a3b8"></i>test</div>`;
+FL.querySelectorAll('.tog').forEach(t => t.onclick = () => { only[t.dataset.f] = !only[t.dataset.f]; t.classList.toggle('only', only[t.dataset.f]); recompute(); if (only.u || only.e || only.t) fitVisible(); });
+const ED = document.getElementById('edges'); ED.innerHTML = `<div class="tog edge" data-e="known"><i style="border-color:#94a3b8"></i>call, one resolved target</div><div class="tog edge" data-e="inf"><i style="border-color:#22d3ee"></i>call, a sound set of targets</div><div class="tog edge" data-e="lib"><i style="border-color:#f97316;border-top-style:dotted"></i>call into a library (black box)</div><div class="tog edge" data-e="ext"><i style="border-color:#a78bfa;border-top-style:dashed"></i>extends / implements</div><div class="tog edge" data-e="tree"><i style="border-color:#6366f1;opacity:.6"></i>structure (parent → child)</div>`;
+ED.querySelectorAll('.tog').forEach(t => t.onclick = () => { edges[t.dataset.e] = !edges[t.dataset.e]; t.classList.toggle('off', !edges[t.dataset.e]); mark(); });
+const H = document.getElementById('hops'); H.innerHTML = ['all', 1, 2, 3].map(h => `<span data-h="${h === 'all' ? 0 : h}" class="${h === 'all' ? 'on' : ''}">${h === 'all' ? 'all' : h + ' hop' + (h > 1 ? 's' : '')}</span>`).join('');
+H.querySelectorAll('span').forEach(s => s.onclick = () => { hops = +s.dataset.h; H.querySelectorAll('span').forEach(x => x.classList.toggle('on', x === s)); applyFilter(); if (!filter) fitAll(); panel(); });
+function fitAll() { for (const n of DATA.nodes) { n.x = n.dx; n.y = n.dy; } rebuildGrid(); const w = wrap.clientWidth, h = wrap.clientHeight, ext = (libs.length ? R4 : R3) + 200; view.k = Math.min(Math.max(240, w - 260), h) / (2 * ext) * .98; view.x = w / 2; view.y = h / 2; mark(); }
+
+// ── search (right): type to see matches; Enter or a click shows ONLY the matches (and their hops) ─────────────
+const q = document.getElementById('q'), hits = document.getElementById('hits'), sbox = document.getElementById('search'); let cur = [];
+const score = (n, s) => { const l = n.l.toLowerCase(); if (l === s) return 0; if (l.endsWith('.' + s) || l.endsWith('/' + s)) return 1; if (l.split('.').pop() === s) return 2; if (l.startsWith(s)) return 3; if (l.includes(s)) return 4; if (n.f && n.f.toLowerCase().includes(s)) return 6; return 9; };
+q.oninput = () => { const s = q.value.trim().toLowerCase(); sbox.classList.toggle('has', !!s); if (s.length < 2) { hits.innerHTML = ''; cur = []; return; }
+  cur = DATA.nodes.map(n => [score(n, s), n]).filter(x => x[0] < 9).sort((a, b) => a[0] - b[0] || (b[1].d || 0) - (a[1].d || 0)).slice(0, 12).map(x => x[1]);
+  hits.innerHTML = cur.map((n, i) => `<div data-i="${i}">${dot(n)}<span class="lbl">${esc(n.l)}</span><span class="loc">${esc(loc(n))}</span></div>`).join('') + (cur.length ? `<div class="note" style="padding:6px 4px">Enter shows only the matching nodes; a row shows only that one</div>` : '<div class="note">nothing named like that</div>');
+  hits.querySelectorAll('div[data-i]').forEach(d => d.onclick = () => showOnly([cur[+d.dataset.i]], q.value.trim())); };
+q.onkeydown = e => { if (e.key === 'Enter') { const s = q.value.trim().toLowerCase(); if (s.length < 2) return; const all = DATA.nodes.filter(n => score(n, s) < 6); showOnly(all.length ? all : cur, q.value.trim()); } if (e.key === 'Escape') clearSearch(); };
+function showOnly(nodes, text) { if (!nodes.length) return; search = { text, matches: new Set(nodes.map(n => n.id)) }; hits.innerHTML = ''; sel = null; focus = null; applyFilter(); if (nodes.length === 1) select(nodes[0]); else panel(); }
+function clearSearch() { search = null; q.value = ''; sbox.classList.remove('has'); hits.innerHTML = ''; filter = null; recompute(); fitAll(); panel(); }
+document.getElementById('qx').onclick = clearSearch;
+
+// the two splitters: code ↕ node types, and the left panel ↔ the canvas; sizes are remembered per browser
+(() => { const L = document.getElementById('left'), C = document.getElementById('code'), H = document.getElementById('split'), V = document.getElementById('vsplit');
+  try { const h = localStorage.getItem('ax.codeH'), w = localStorage.getItem('ax.leftW'); if (h) C.style.height = h; if (w) L.style.setProperty('--w', w); } catch (e) {}
+  const applyW = () => { const w = L.style.getPropertyValue('--w'); L.style.width = (w && L.classList.contains('code')) ? w : ''; resize(); };
+  new MutationObserver(applyW).observe(L, { attributes: true, attributeFilter: ['class'] });
+  H.onmousedown = e => { e.preventDefault(); H.classList.add('on'); const y0 = e.clientY, h0 = C.getBoundingClientRect().height; const mv = ev => { C.style.height = Math.max(80, Math.min(L.clientHeight - 60, h0 + ev.clientY - y0)) + 'px'; }; const up = () => { H.classList.remove('on'); window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); try { localStorage.setItem('ax.codeH', C.style.height); } catch (e) {} }; window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up); };
+  V.onmousedown = e => { e.preventDefault(); V.classList.add('on'); const x0 = e.clientX, w0 = L.getBoundingClientRect().width; const mv = ev => { const w = Math.max(210, Math.min(window.innerWidth - 600, w0 + ev.clientX - x0)) + 'px'; L.style.width = w; L.style.setProperty('--w', w); resize(); }; const up = () => { V.classList.remove('on'); window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); try { localStorage.setItem('ax.leftW', L.style.getPropertyValue('--w')); } catch (e) {} }; window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up); }; })();
+resize(); recompute(); fitAll(); panel();
+(function route() { const h = new URLSearchParams(location.hash.slice(1)); if (h.get('q')) { q.value = h.get('q'); q.oninput(); q.onkeydown({ key: 'Enter' }); return; } const n = h.get('n') && DATA.nodes.find(x => x.l === h.get('n')); if (!n) return; select(n); centre(n, 5); if (h.get('impact')) doImpact(n); if (h.get('chain')) doChain(n); })();
+</script>
+</body>
+</html>

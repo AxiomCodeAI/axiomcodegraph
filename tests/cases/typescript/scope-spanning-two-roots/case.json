@@ -1,0 +1,88 @@
+{
+ "lang": "typescript",
+ "checks": [
+  {
+   "why": "a bare call with MORE THAN ONE scope on the menu answers from the best-ranked one instead of refusing — the caller holding an issue cannot name the scope (#1080)",
+   "run": [
+    "context",
+    "stop formatting the amount on the subtotal"
+   ],
+   "want": [
+    "where this task's words land: packages/core",
+    "packages/core/src/format.ts"
+   ],
+   "avoid": [
+    "--in <path> is required"
+   ]
+  },
+  {
+   "why": "the scope it picked is a guess, so it does NOT filter: the other root is still returned (#1080)",
+   "run": [
+    "context",
+    "stop formatting the amount on the subtotal"
+   ],
+   "want": [
+    "packages/orders/src/invoice.ts",
+    "NOTHING below is narrowed to it"
+   ]
+  },
+  {
+   "why": "two --in roots are COMBINED, so a change spanning both is returned by one call",
+   "run": [
+    "context",
+    "stop formatting the amount on the subtotal",
+    "--in",
+    "packages/core",
+    "--in",
+    "packages/orders"
+   ],
+   "want": [
+    "packages/core/src/format.ts",
+    "packages/orders/src/invoice.ts"
+   ]
+  },
+  {
+   "why": "the same list written comma-separated is the same call",
+   "run": [
+    "context",
+    "stop formatting the amount on the subtotal",
+    "--in",
+    "packages/core,packages/orders"
+   ],
+   "want": [
+    "packages/core/src/format.ts",
+    "packages/orders/src/invoice.ts"
+   ]
+  },
+  {
+   "why": "ONE --in the caller supplied is knowledge and still restricts: the other root is not returned",
+   "run": [
+    "context",
+    "stop formatting the amount on the subtotal",
+    "--in",
+    "packages/orders"
+   ],
+   "want": [
+    "packages/orders/src/invoice.ts"
+   ],
+   "avoid": [
+    "packages/core/src/format.ts"
+   ]
+  },
+  {
+   "why": "a misspelled root names ITSELF rather than failing the whole call behind a good one",
+   "run": [
+    "context",
+    "stop formatting the amount on the subtotal",
+    "--in",
+    "packages/core",
+    "--in",
+    "packages/ordrs"
+   ],
+   "want": [
+    "no indexed file has 'packages/ordrs' in its path"
+   ],
+   "expect_error": true
+  }
+ ]
+}

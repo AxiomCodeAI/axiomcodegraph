@@ -1,0 +1,61 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a test that asks for the URL reaches the handler registered at it: the path is written one way in the test and another in the route, and no call site joins them",
+   "run": [
+    "impact",
+    "brief",
+    "--tests"
+   ],
+   "want": [
+    "test_export.py",
+    "by key"
+   ],
+   "avoid": [
+    "test_health.py"
+   ]
+  },
+  {
+   "why": "the route is the join, not the decoration's name: a handler at another path is not reached",
+   "run": [
+    "impact",
+    "health",
+    "--tests"
+   ],
+   "want": [
+    "test_health.py"
+   ],
+   "avoid": [
+    "test_export.py"
+   ]
+  },
+  {
+   "why": "path answers in chains of CALLS and a registration is not a call \u2014 but an empty upstream closure for a live route handler is the most misleading line it can print, so it names the registration and the verb that follows it",
+   "run": [
+    "path",
+    "*",
+    "export_order"
+   ],
+   "want": [
+    "registered as a route",
+    "impact export_order --tests"
+   ],
+   "expect_error": true
+  },
+  {
+   "why": "no chain, and the framework is why: the target is registered under a key and the source writes it, including two spellings of one path",
+   "run": [
+    "path",
+    "test_export_order",
+    "export_order"
+   ],
+   "want": [
+    "the framework connects them",
+    "/orders/o-1/export"
+   ],
+   "expect_error": true
+  }
+ ]
+}

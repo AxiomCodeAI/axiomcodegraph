@@ -102,7 +102,7 @@ for lang in java typescript python; do
     [ -f "$G/$t.csv" ] || bad "$lang: csv/$t.csv missing"
   done
   [ "$(header "$G/call_edges.csv")" = "$(printf 'call_site_id\tcaller_id\tcallee_method_id\tcallee_label\tcallee_provenance\ttier\tkind')" ] || bad "$lang: call_edges header is $(header "$G/call_edges.csv")"
-  [ "$(header "$G/methods.csv")" = "$(printf 'id\tname\tqualified_name\tsignature\tkind\towner_type_id\towner_qualified_name\tfile_path\tstart_line\tend_line\tprovenance')" ] || bad "$lang: methods header drifted"
+  [ "$(header "$G/methods.csv")" = "$(printf 'id\tname\tqualified_name\tsignature\tkind\towner_type_id\towner_qualified_name\tfile_path\tstart_line\tend_line\tprovenance\tvisibility')" ] || bad "$lang: methods header drifted"
   # 2. the resolved edge joins to names, file and line
   callee="$(awk -F'\t' '$6=="known_edge"{print $3}' "$G/call_edges.csv")"
   [ -n "$callee" ] || bad "$lang: no known_edge row"

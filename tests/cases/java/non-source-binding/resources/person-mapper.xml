@@ -1,0 +1,5 @@
+<mapper namespace="pkg.PersonMapper">
+  <select id="getPerson" resultType="java.lang.String">
+    select name from person where id = #{id}
+  </select>
+</mapper>

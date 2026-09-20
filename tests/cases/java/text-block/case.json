@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "the name inside a text block is not a use; the real construction is",
+   "run": ["impact", "Widget"],
+   "want": ["Blocks.real"],
+   "avoid": ["Blocks.doc"]}]}

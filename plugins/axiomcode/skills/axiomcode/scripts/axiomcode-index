@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+"""axiomcode-index [<repo-dir>]  — make graph.sqlite answer an agent's questions without the schema.
+
+Adds to <repo>/.axiomcode/out/graph.sqlite, idempotently:
+
+  symbols   every DECLARATION with a language-neutral display name and a fixed kind vocabulary:
+            function | method | constructor | class | interface | enum | enum_member | type |
+            namespace | const | variable | field | module
+  refs      every place an identifier or member is USED (the question grep answers)
+  literals  string literals;  comments  comments and docstrings
+  nesting   (type, outer type) recovered by line containment — Java's qualified_name drops the outer
+  skipped   files the parser skipped (so `find` can say "exists, not indexed" instead of nothing)
+  index_meta what was indexed, from where, and whether the IR was available
+  views     callers, callees, source — the joins written once, so a query cannot mis-join
+
+Every path stored is REPO-RELATIVE (the bundle stores Java paths absolute and Python paths relative
+to --src). The language's IR is read through the ADAPTER table below — header names, never
+positions — mirroring graph/bundle/languages.ts. When the IR is absent the index degrades: symbols
+come from methods/types alone, refs/literals/comments are empty, and index_meta says so.
+"""
+import csv, os, re, sqlite3, sys, time, glob, collections
+csv.field_size_limit(10**9)
+INDEX_VERSION = '4'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function); the query
+                         # frontend re-indexes an older graph when the IR is still there
+
+REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
+GDIR = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(REPO, '.axiomcode')
+DB = os.path.join(GDIR, 'out', 'graph.sqlite')
+if not os.path.exists(DB): sys.exit(f"axiomcode-index: no graph at {DB} — run axiomcode-build first")
+REPO = os.path.realpath(os.path.join(GDIR, '..'))   # the repository root: .axiomcode/ lives directly under it
+
+con = sqlite3.connect(DB); con.row_factory = sqlite3.Row; c = con.cursor()
+run = {r['key']: r['value'] for r in c.execute("SELECT key, value FROM run")}
+LANG = run.get('language', 'java')
+SRC = run.get('source_dir') or REPO
+IR = run.get('client_ir') or ''
+if not os.path.isdir(IR):
+    cands = glob.glob(os.path.join(GDIR, 'out', '.intermediate', 'ir', LANG)) + glob.glob(os.path.join(GDIR, 'ir'))
+    IR = cands[0] if cands else ''
+HAVE_IR = bool(IR and os.path.isdir(IR))
+def rel(p):
+    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src"""
+    if not p: return p
+    a = p if os.path.isabs(p) else os.path.join(SRC, p)
+    a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
+    r = os.path.relpath(a, REPO)
+    return p.lstrip('/') if r.startswith('..') else r
+# never DEGRADE: an index built from the IR must not be rebuilt without it (the intermediates are routinely cleaned
+# to save disk). If only newer tables are missing, add them empty and keep everything else.
+prev = {r[0]: r[1] for r in c.execute("SELECT key, value FROM index_meta")} if c.execute("SELECT 1 FROM sqlite_master WHERE name='index_meta'").fetchone() else {}
+if not HAVE_IR and prev.get('ir_present') == 'true' and '--force' not in sys.argv:
+    for t, ddl in (('type_refs', 'CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind TEXT)'),
+                   ('decorations', 'CREATE TABLE decorations(owner_id TEXT, name TEXT, text TEXT, file TEXT, line INT)'),
+                   ('skipped', 'CREATE TABLE skipped(file TEXT, reason TEXT)'),
+                   ('paths', 'CREATE TABLE paths(raw TEXT PRIMARY KEY, rel TEXT)'),
+                   ('sites', 'CREATE VIEW sites AS SELECT s.*, COALESCE(p.rel, s.file_path) AS file FROM call_sites s LEFT JOIN paths p ON p.raw = s.file_path')):
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone(): c.execute(ddl)
+    if not c.execute("SELECT 1 FROM paths LIMIT 1").fetchone():        # the mapping needs no IR: the bundle's own paths against the repo root
+        raw_paths = {r[0] for t in ('call_sites', 'methods', 'types') for r in c.execute(f"SELECT DISTINCT file_path FROM {t} WHERE file_path IS NOT NULL")}
+        c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in raw_paths))
+    c.execute("DELETE FROM index_meta WHERE key='index_version'"); c.execute("INSERT INTO index_meta VALUES ('index_version', ?)", (INDEX_VERSION,))   # or every query would retry this
+    con.commit(); print(f"index kept: IR is gone but the index was built from it ({prev.get('built_at')}); newer tables added empty. Rebuild the graph to fill them."); sys.exit(0)
+
+# ── the adapter table: which IR file and which HEADER NAMES carry each thing, per language ────────
+# ref:      expression rows that are a use of a name.  kinds -> the expression kinds; name -> the
+#           column holding the simple name (or a dotted path whose last segment is the name);
+#           file -> how to find the file: ('modules', column) joins a modules file, ('types', column)
+#           joins the bundle's types table (Java rows carry no file)
+# literal:  string literal rows;  comment: the comments file;  decls: extra declaration files with a
+#           (kind-or-callable, filter) — a callable filter picks which rows are symbols
+A = {
+ 'java': dict(
+    modules=None,
+    expr=dict(file='all-expressions.csv', kind='kind', name='literalValue', line='startLine', fileVia=('types', 'typeRegistryLinkHash'),
+              refKinds={'IDENTIFIER_REFERENCE', 'FIELD_ACCESS', 'CLASS_LITERAL'}, entityKind='referencedEntityKind',
+              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
+    typeRefs=dict(file='all-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'typeRegistryLinkHash')),
+    # @Annotation(args) on a method or type: the arguments live in a second file keyed by the annotation hash
+    decorations=dict(file='all-annotations.csv', name='annotationName', owner='ownerHash', line='startLine', fileVia=('types', 'typeRegistryHash'), id='typeAnnotationUniqueHash',
+                     args=dict(file='all-annotation-arguments.csv', parent='parentAnnotationHash', value='argumentValue')),
+    decls=[dict(file='all-fields.csv', id='fieldRegistryUniqueHash', kind=lambda r: 'const' if 'STATIC' in r.get('fieldModifier', '') and 'FINAL' in r.get('fieldModifier', '') else 'field',
+                name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
+           dict(file='all-enum-constants.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
+    boundNames=None, skipped='skipped-java-files.csv'),
+ 'typescript': dict(
+    modules=dict(file='all-typescript-modules.csv', id='tsModuleUniqueHash', filePath='filePath'),
+    # a property's name (`this.pending`, `row.setX`) is in literalValue with an empty potentialQualifiedName — 36k of 60k references in the parser repo
+    expr=dict(file='all-typescript-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'tsModuleLinkHash'),
+              refKinds={'IDENTIFIER_REFERENCE', 'PROPERTY_ACCESS'}, entityKind='referencedEntityKind',
+              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
+    typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
+    decls=[dict(file='all-typescript-variables.csv', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
+                kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
+           dict(file='all-typescript-fields.csv', id='tsFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
+           dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
+    # `const foo = () => …` : the method is named <arrow>; its name is the variable's
+    boundNames=dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
+    skipped='skipped-typescript-files.csv'),
+ 'python': dict(
+    modules=dict(file='all-python-modules.csv', id='pyModuleUniqueHash', filePath='filePath'),
+    expr=dict(file='all-python-expressions.csv', kind='kind', name=('NAME_REFERENCE:literalValue', 'ATTRIBUTE_ACCESS:dottedPath'), line='startLine', fileVia=('modules', 'pyModuleLinkHash'),
+              refKinds={'NAME_REFERENCE', 'ATTRIBUTE_ACCESS'}, entityKind='referencedEntityKind',
+              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-python-comments.csv', text='text', kind='kind', line='startLine', filePath='filePath'),
+    typeRefs=dict(file='all-python-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'pyModuleLinkHash')),
+    decorations=dict(file='all-python-decorators.csv', name='decoratorName', owner='ownerHash', line='startLine', fileVia=('modules', 'pyModuleLinkHash'), text='fullText'),
+    decls=[dict(file='all-python-bindings.csv', only=lambda r: r.get('bindingKind') == 'MODULE_LEVEL' and r.get('bindingOrigin') not in ('FUNCTION_DEF', 'CLASS_DEF', 'IMPORT'),
+                kind=lambda r: 'const' if r['name'].isupper() else 'variable', name='name', owner=None, filePath='filePath', line='firstBindingLine', end='lastBindingLine'),
+           dict(file='all-python-fields.csv', id='pyFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
+    boundNames=None, skipped='skipped-python-files.csv'),
+ 'javascript': dict(
+    modules=dict(file='all-javascript-modules.csv', id='jsModuleUniqueHash', filePath='filePath'),
+    expr=dict(file='all-javascript-expressions.csv', kind='expressionKind', name='name', line='startLine', fileVia=('modules', 'ownerModuleLinkHash'),
+              refKinds={'IDENTIFIER', 'PROPERTY_ACCESS'}, entityKind='referenceKind',
+              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='text'),
+    comments=dict(file='all-javascript-comments.csv', text='text', kind='commentKind', line='startLine', fileVia=('modules', 'ownerModuleLinkHash')),
+    decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') != 'IMPORT_BINDING',
+                kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
+           dict(file='all-javascript-fields.csv', kind=lambda r: 'field', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
+    # `const foo = () => …`: the variable's initializerExpressionLinkHash is the FUNCTION_EXPRESSION row whose
+    # introducesDeclarationLinkHash is the method — two hops, where TypeScript has boundFunctionLinkHash in one
+    boundNames=dict(file='all-javascript-variables.csv', name='name', only=lambda r: r.get('initializerKind') == 'FUNCTION',
+                    via=dict(key='initializerExpressionLinkHash', file='all-javascript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash')),
+    skipped='skipped-javascript-files.csv'),
+ 'csharp': dict(
+    modules=dict(file='all-csharp-modules.csv', id='csModuleUniqueHash', filePath='filePath'),
+    # a member's name (`obj.Count`, `this.value`) is in potentialQualifiedName; a bare name is in literalValue
+    expr=dict(file='all-csharp-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'csModuleLinkHash'),
+              refKinds={'NAME_REFERENCE', 'MEMBER_ACCESS'}, entityKind='referencedEntityKind',
+              # the literal TYPE column is literalKind here, not literalType as in java/typescript/python
+              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
+    # type references carry no module link of their own; the owner hash resolves through the bundle's types
+    typeRefs=dict(file='all-csharp-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'ownerLinkHash')),
+    # [Attribute] on a method or type. Arguments live in a second file, which is empty on every fixture
+    # available here, so it is not mapped rather than guessed: a decoration with no argument text is
+    # still the decoration, and a wrong `args` mapping would be silently empty in the same way
+    decorations=dict(file='all-csharp-attributes.csv', name='attributeName', owner='ownerHash', line='startLine',
+                     fileVia=('modules', 'csModuleLinkHash'), id='csAttributeUniqueHash'),
+    # fields carry no ownerQualifiedName (potentialQualifiedName is the field's TYPE), so the owner comes
+    # from the file the way javascript's does; a property is a member that reads as a field at its sites
+    decls=[dict(file='all-csharp-fields.csv', id='csFieldUniqueHash', kind=lambda r: 'const' if r.get('isConst') == 'true' else 'field',
+                name='name', owner=None, fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine'),
+           dict(file='all-csharp-properties.csv', id='csPropertyUniqueHash', kind=lambda r: 'field',
+                name='name', owner=None, fileVia=('types', 'csTypeLinkHash'), line='startLine', end='endLine'),
+           dict(file='all-csharp-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner=None, fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine')],
+    boundNames=None, skipped='skipped-csharp-files.csv'),
+}[LANG]
+
+# ── the fixed kind vocabulary, from the parser's methodKind / typeCategory ─────────────────────────
+def method_kind(k, owner):
+    if k in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR', 'COMPACT_CONSTRUCTOR', 'ALLOCATOR'): return 'constructor'
+    if k in ('MODULE_INITIALIZER', 'CLASS_INITIALIZER'): return 'module'
+    return 'method' if owner else 'function'
+def type_kind(cat):
+    if 'INTERFACE' in cat or cat == 'PROTOCOL_TYPE': return 'interface'
+    if 'ENUM' in cat: return 'enum'
+    if cat == 'NAMESPACE_TYPE': return 'namespace'
+    if cat in ('TYPE_ALIAS_TYPE', 'JSDOC_TYPEDEF', 'JSDOC_CALLBACK'): return 'type'
+    return 'class'
+
+# A .NET test project is a SIBLING ASSEMBLY, not a `tests/` directory: `Acme.Tests/`, `Acme.UnitTests/`,
+# `Acme.Tests.Widgets/`. None of those is a path segment named `test` or `tests`, so every alternative above
+# misses them and is_test stays 0 for the whole tree — the test universe is empty and `--tests` answers
+# "0 of 0" on a repository whose tests the same answer has already listed. Measured over the C# corpus: 4 of
+# 10 projects went from 0 test files to 198 / 264 / 704 / 29, total 3,441 -> 4,663, and not one project in
+# the C#, Python or JavaScript corpora lost a file — this is additive, never a replacement.
+TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$'
+                    r'|(^|/)[^/]*Tests?(\.[^/]+)*(/|$)|(^|/)Tests?\.cs$')
+
+def rows(name):
+    p = os.path.join(IR, name)
+    if not HAVE_IR or not os.path.exists(p): return iter(())
+    f = open(p, newline='', encoding='utf-8', errors='replace')
+    return csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
+
+# an older augment step left `symbols` as a VIEW; a name is dropped as whichever it is
+for name in ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'decorations', 'skipped', 'index_meta', 'paths', 'callers', 'callees', 'source', 'sites'):
+    kind = c.execute("SELECT type FROM sqlite_master WHERE name=?", (name,)).fetchone()
+    if kind: c.execute(f"DROP {kind[0].upper()} IF EXISTS {name}")
+c.executescript('''
+DROP TABLE IF EXISTS symbols; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS literals; DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS type_refs; DROP TABLE IF EXISTS decorations; DROP TABLE IF EXISTS skipped; DROP TABLE IF EXISTS index_meta; DROP TABLE IF EXISTS paths;
+DROP VIEW IF EXISTS callers; DROP VIEW IF EXISTS callees; DROP VIEW IF EXISTS source; DROP VIEW IF EXISTS sites;
+CREATE TABLE symbols(id TEXT, name TEXT, display TEXT, kind TEXT, qualified_name TEXT, signature TEXT, file TEXT, line INT, end_line INT, owner TEXT, is_test INT, method_id TEXT, type_id TEXT);
+CREATE TABLE refs(name TEXT, file TEXT, line INT, kind TEXT, entity_kind TEXT);
+CREATE TABLE literals(value TEXT, file TEXT, line INT);
+CREATE TABLE comments(text TEXT, file TEXT, line INT, kind TEXT);
+CREATE TABLE nesting(type_id TEXT, outer_type_id TEXT);
+CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind TEXT);
+CREATE TABLE decorations(owner_id TEXT, name TEXT, text TEXT, file TEXT, line INT);
+CREATE TABLE skipped(file TEXT, reason TEXT);
+CREATE TABLE index_meta(key TEXT, value TEXT);
+CREATE TABLE paths(raw TEXT PRIMARY KEY, rel TEXT);
+''')
+# every spelling of a file the bundle uses (call_sites and methods carry the path as the parser wrote it — absolute for Java,
+# --src-relative for the others) mapped to the ONE repo-relative spelling the index prints; `sites` below is call_sites in that spelling
+raw_paths = {r[0] for t in ('call_sites', 'methods', 'types') for r in c.execute(f"SELECT DISTINCT file_path FROM {t} WHERE file_path IS NOT NULL")}
+c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in raw_paths))
+
+# ── types: display names with nesting recovered by line containment ───────────────────────────────
+types = {r['id']: dict(r) for r in c.execute("SELECT id, name, qualified_name, category, file_path, start_line, end_line, provenance FROM types")}
+byfile = {}
+for t in types.values():
+    if t['file_path'] and t['start_line'] is not None: byfile.setdefault(t['file_path'], []).append(t)
+outer_of = {}
+for fp, ts in byfile.items():
+    ts.sort(key=lambda t: (t['start_line'], -(t['end_line'] or 0)))
+    for i, t in enumerate(ts):
+        best = None
+        for o in ts[:i]:   # the narrowest earlier type whose range contains t
+            if o['start_line'] < t['start_line'] and (o['end_line'] or 0) >= (t['end_line'] or 0) and (best is None or (o['end_line'] - o['start_line']) < (best['end_line'] - best['start_line'])):
+                best = o
+        if best: outer_of[t['id']] = best['id']
+c.executemany("INSERT INTO nesting VALUES (?,?)", outer_of.items())
+def tname(t):
+    n = t['name'] or ''
+    m = re.match(r'^(.*)\$anon:(.+)$', n)      # Java: Outer$anon:Iface
+    return f"<anon {m.group(2)}>" if m else n
+disp = {}
+def tdisplay(tid, seen=()):
+    if tid in disp: return disp[tid]
+    t = types.get(tid)
+    if not t: return ''
+    o = outer_of.get(tid)
+    d = (tdisplay(o, seen + (tid,)) + '.' if o and o not in seen else '') + tname(t)
+    disp[tid] = d; return d
+sym = []
+for t in types.values():
+    if t['provenance'] != 'client': continue
+    d = tdisplay(t['id']); fp = rel(t['file_path'])
+    sym.append((t['id'], tname(t), d, type_kind(t['category'] or ''), t['qualified_name'], None, fp, t['start_line'], t['end_line'],
+                tdisplay(outer_of[t['id']]) if t['id'] in outer_of else None, 1 if fp and TESTRE.search(fp) else 0, None, t['id']))
+
+# ── methods ───────────────────────────────────────────────────────────────────────────────────────
+bound = {}
+if A['boundNames']:
+    b = A['boundNames']
+    if b.get('via'):                                   # variable -> expression -> method
+        v = b['via']; expr2m = {}
+        for r in rows(v['file']):
+            if r.get(v['method']) and r.get(v['id']): expr2m[r[v['id']]] = r[v['method']]
+        for r in rows(b['file']):
+            if b.get('only') and not b['only'](r): continue
+            m_ = expr2m.get(r.get(v['key'], ''))
+            if m_ and r.get(b['name']): bound.setdefault(m_, r[b['name']])
+    else:
+        for r in rows(b['file']):
+            if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
+# Java: a method declared in an enum CONSTANT's body (`Initial { boolean process(...) {…} }`) is registered per constant with the
+# same qualified_name and the enum as owner — 23 `HtmlTreeBuilderState.process` rows in the JVM parser. The constant's span names it.
+econst = collections.defaultdict(list)
+for d in A['decls']:
+    if 'enum-constants' in d['file']:
+        for r in rows(d['file']):
+            try: econst[rel(r.get('filePath', ''))].append((int(r.get('startLine') or 0), int(r.get('endLine') or 0), r.get('name', '')))
+            except ValueError: pass
+def enum_constant_of(fp, ln):
+    for a, b, n in econst.get(fp, ()):
+        if a <= ln <= b and b > a: return n
+    return None
+bound_at = set()                                     # (file, line, name) of a variable that IS a function: the variable row is not a second symbol
+for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
+    name = m['name'] or ''
+    if name.startswith('<') and m['id'] in bound: name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
+    od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else None
+    if m['kind'] == 'ENUM_CONSTANT_METHOD' and od:
+        k_ = enum_constant_of(rel(m['file_path']), m['start_line'] or 0)
+        if k_: od = f"{od}.{k_}"
+    if m['kind'] == 'MODULE_INITIALIZER':
+        fp = rel(m['file_path']); stem = os.path.splitext(os.path.basename(fp or ''))[0]
+        sym.append((m['id'], '<module>', f"{stem}.<module>", 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if fp and TESTRE.search(fp) else 0, m['id'], None)); continue
+    fp = rel(m['file_path'])
+    sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+
+# ── members an annotation processor DECLARES, which no source line spells ─────────────────────────
+# Java (Lombok, a record) and C# (an auto-property) synthesise members in the engine: `methods` carries them with
+# provenance `generated`, no owner_type_id, no file, line 0 — and `call_edges` RESOLVES the sites that write their
+# name to them. Building `symbols` from client rows only meant the callee of a resolved edge had no row at all: the
+# edge was dropped as non-client, and because the site is no longer unresolved the by-name convention layer could not
+# name it either. `impact User.name` on a Lombok class then named NEITHER caller of its accessors — a silent loss.
+# The id carries what the row does not: Java `generated:<owner qualified name>#<name>/<arity>`, C#
+# `generated:<owner qualified name>.<name>`. A row whose owner cannot be found is skipped, never guessed.
+by_qname = {}
+for t in types.values():
+    if t['qualified_name']: by_qname.setdefault(t['qualified_name'], t)
+for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, file_path, start_line, end_line FROM methods WHERE provenance='generated'"):
+    t = types.get(m['owner_type_id']) if m['owner_type_id'] else None
+    if t is None and (m['id'] or '').startswith('generated:'):
+        body = m['id'].split(':', 1)[1]
+        q = body.split('#')[0] if '#' in body else body.rsplit('.', 1)[0]
+        t = by_qname.get(q)
+    if t is None: continue
+    od = tdisplay(t['id']); fp = rel(t['file_path']); nm = m['name'] or ''
+    if not nm: continue
+    sym.append((m['id'], nm, (od + '.' if od else '') + nm, 'method', m['qualified_name'], m['signature'],
+                fp, t['start_line'], t['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+
+# ── other declarations from the IR: fields, constants, enum members ───────────────────────────────
+modules = {}
+if A['modules']:
+    md = A['modules']
+    modules = {r[md['id']]: r[md['filePath']] for r in rows(md['file'])}
+tq2id = {}
+for t in types.values(): tq2id.setdefault(t['qualified_name'], t['id'])
+def owner_display(qn):
+    tid = tq2id.get(qn)
+    return tdisplay(tid) if tid else (qn.rsplit('.', 1)[-1] if qn else None)
+def file_of(r, d):
+    if d.get('filePath'): return rel(r.get(d['filePath'], ''))
+    via = d.get('fileVia')
+    if via and via[0] == 'modules': return rel(modules.get(r.get(via[1], ''), ''))
+    if via and via[0] == 'types':
+        t = types.get(r.get(via[1], '')); return rel(t['file_path']) if t else ''
+    return ''
+for d in A['decls']:
+    for r in rows(d['file']):
+        if d.get('only') and not d['only'](r): continue
+        name = r.get(d['name'], '');
+        if not name: continue
+        fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else None
+        ln = int(r.get(d['line']) or 0); en = int(r.get(d['end']) or ln)
+        if (fp, ln, name) in bound_at: continue     # `const foo = () => …` is already the function foo
+        sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), (r.get('qualifiedName') or ((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name), None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
+c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
+
+# ── references, literals, comments ───────────────────────────────────────────────────────────────
+e = A['expr']; refs = []; lits = []
+namecol = e['name'] if isinstance(e['name'], str) else dict(x.split(':') for x in e['name'])
+for r in rows(e['file']):
+    k = r.get(e['kind'], '')
+    if k in e['refKinds']:
+        col = namecol if isinstance(namecol, str) else namecol.get(k)
+        n = (r.get(col, '') if col else '') or (r.get(e['nameFallback'], '') if e.get('nameFallback') else '')
+        if not n: continue
+        n = n.rsplit('.', 1)[-1]
+        refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, r.get(e['entityKind'], '')))
+    elif k in e['litKinds'] and r.get(e['litType'][0]) == e['litType'][1]:
+        v = (r.get(e['litValue']) or '')
+        if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
+        if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0)))
+c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?)", lits)
+cm = A['comments']
+c.executemany("INSERT INTO comments VALUES (?,?,?,?)", ((r.get(cm['text'], '')[:400], file_of(r, cm), int(r.get(cm['line']) or 0), r.get(cm['kind'], '')) for r in rows(cm['file']) if r.get(cm['text'])))
+# where a TYPE is used in a declaration or expression — field type, parameter, return, generic argument, `new` —
+# by the parser's type-reference rows. Resolved by NAME at query time (the parser leaves the target hash empty).
+tr = A.get('typeRefs')
+if tr:
+    try:
+        c.executemany("INSERT INTO type_refs VALUES (?,?,?,?,?)", ((r.get(tr['name'], '').split('.')[-1].split('<')[0], file_of(r, tr), int(r.get(tr['line']) or 0), r.get(tr['context'], ''), r.get(tr['ownerKind'], '')) for r in rows(tr['file']) if r.get(tr['name'])))
+    except (KeyError, ValueError): pass
+# decorations: @Annotation(args) / @decorator(args) on a method or type — a route, a bean name, a validator, a marker
+def unquoted(v):
+    """The IR is tab-separated, but the writer still RFC4180-quotes a field that contains a double quote and the
+    reader is QUOTE_NONE, so `@router.post("/orders")` arrives as `"@router.post(""/orders"")"`. Every decoration
+    whose argument is a double-quoted string is in that shape — which is exactly the decorations that carry a KEY
+    (a route path, a command name, a topic, a validated field), so everything downstream that reads a key out of
+    the text read the quoting instead: `@exporter("csv")` yielded `@exporter(` and `)` and never `csv`."""
+    return v[1:-1].replace('""', '"') if len(v) > 1 and v[0] == '"' == v[-1] and '""' in v else v
+dec = A.get('decorations')
+if dec:
+    args = collections.defaultdict(list)
+    if dec.get('args'):
+        for r in rows(dec['args']['file']):
+            if r.get(dec['args']['value']): args[r.get(dec['args']['parent'], '')].append(r[dec['args']['value']])
+    drows = []
+    for r in rows(dec['file']):
+        nm = r.get(dec['name'], '')
+        if not nm: continue
+        text = unquoted(r.get(dec['text'], '')) if dec.get('text') else ('@' + nm + ('(' + ', '.join(args.get(r.get(dec['id'], ''), [])) + ')' if args.get(r.get(dec['id'], '')) else ''))
+        try: drows.append((r.get(dec['owner'], ''), nm, text[:200], file_of(r, dec), int(r.get(dec['line']) or 0)))
+        except ValueError: pass
+    c.executemany("INSERT INTO decorations VALUES (?,?,?,?,?)", drows)
+c.executemany("INSERT INTO skipped VALUES (?,?)", ((rel(r.get('filePath') or r.get('file') or ''), r.get('reason') or r.get('skipReason') or '') for r in rows(A['skipped'])))
+
+# ── views: the joins written once ────────────────────────────────────────────────────────────────
+c.executescript('''
+CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EXISTS symbols_display ON symbols(display);
+CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id); CREATE INDEX IF NOT EXISTS symbols_tid ON symbols(type_id);
+CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS type_refs_name ON type_refs(name); CREATE INDEX IF NOT EXISTS decorations_owner ON decorations(owner_id); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
+CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
+-- who calls a method: one row per (site, target), with the engine's tier. caller_id is symbols.id: a
+-- Java call written in a field initializer has the TYPE as its caller, and that row is kept, not dropped
+CREATE VIEW callers AS
+  SELECT ce.display AS callee, cr.display AS caller, cr.file, s.start_line AS line, e.tier, e.kind, cr.id AS caller_id, ce.method_id AS callee_id
+  FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id JOIN symbols cr ON cr.id = e.caller_id
+  LEFT JOIN call_sites s ON s.id = e.call_site_id;
+-- what a method calls; a LIBRARY target has a methods row but no symbols row (symbols are client declarations), so it
+-- is named from methods; an unresolved site keeps its written name and a NULL callee
+CREATE VIEW callees AS
+  SELECT cr.display AS caller, COALESCE(ce.display, lm.qualified_name, e.callee_label) AS callee, s.callee_name AS written, COALESCE(ce.file, '') AS file,
+         s.start_line AS line, e.tier, e.callee_provenance AS provenance, cr.id AS caller_id, ce.method_id AS callee_id
+  FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id LEFT JOIN symbols ce ON ce.method_id = e.callee_method_id
+  LEFT JOIN methods lm ON lm.id = e.callee_method_id AND lm.provenance <> 'client'
+  LEFT JOIN call_sites s ON s.id = e.call_site_id;
+-- where a body is: what to read
+CREATE VIEW source AS SELECT display, qualified_name, name, kind, file, line, end_line, end_line - line + 1 AS lines FROM symbols WHERE method_id IS NOT NULL;
+-- call sites with the repo-relative file the rest of the index speaks: join on (file, start_line), never on file_path
+CREATE VIEW sites AS SELECT s.*, COALESCE(p.rel, s.file_path) AS file FROM call_sites s LEFT JOIN paths p ON p.raw = s.file_path;
+''')
+n = lambda t: c.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', ir_present=str(HAVE_IR).lower(), built_at=time.strftime('%Y-%m-%dT%H:%M:%S'), index_version=INDEX_VERSION,
+            symbols=n('symbols'), refs=n('refs'), type_refs=n('type_refs'), decorations=n('decorations'), literals=n('literals'), comments=n('comments'), nested_types=n('nesting'), skipped_files=n('skipped'))
+c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
+con.commit()
+con.execute("VACUUM")                 # the tables above are dropped and recreated on every run; without this the file only grows
+print(f"indexed {DB} [{LANG}]: symbols={meta['symbols']} refs={meta['refs']} literals={meta['literals']} comments={meta['comments']} nested_types={meta['nested_types']}" + ("" if HAVE_IR else "  (IR absent: refs/literals/comments empty — `uses` will say so)"))
