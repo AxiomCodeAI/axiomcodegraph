@@ -1,4 +1,14 @@
+ambiguous_unknown	CHAINED_CALL	client.via_stub_streaming -> -
+ambiguous_unknown	METHOD_CALL	client.not_a_send -> -
+ambiguous_unknown	METHOD_CALL	client.via_raw_channel -> -
+ambiguous_unknown	METHOD_CALL	client.via_stub -> -
+ambiguous_unknown	METHOD_CALL	greet_pb2_grpc.GreeterStub.__init__ -> -
+ambiguous_unknown	SIMPLE_CALL	client.via_raw_channel -> -
+boundary_lib	SIMPLE_CALL	client.via_stub_streaming -> builtin:iter
+boundary_lib	SIMPLE_CALL	client.via_stub_streaming -> builtin:list
 boundary_lib	SIMPLE_CALL	main.serve -> builtin:object.__init__
+known_edge	METHOD_CALL	client.via_stub -> greet_pb2_grpc.GreeterStub.__init__
+known_edge	METHOD_CALL	client.via_stub_streaming -> greet_pb2_grpc.GreeterStub.__init__
 known_edge	METHOD_CALL	main.serve -> greet_pb2_grpc.add_GreeterServicer_to_server
 known_edge	SELF_CALL	main.GreeterServicer.Chat -> main.GreeterServicer._render
 known_edge	SELF_CALL	main.GreeterServicer.SayHello -> main.GreeterServicer._render

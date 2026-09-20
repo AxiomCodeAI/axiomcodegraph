@@ -107,7 +107,6 @@ entry_point(m, "http") :- decorator_target("client", _, m, h),
 // ends `_pb2_grpc.py`. substr offsets are clamped with max(): Souffle inlines a guard written as
 // its own relation back into the caller, so an unclamped offset warns once per fact even where
 // the guard would have excluded it.
-.decl grpc_servicer_base(t:symbol)
 grpc_servicer_base(t) :-
     py_grpc_servicer_suffix(suf),
     py_grpc_generated_module_suffix(msuf),

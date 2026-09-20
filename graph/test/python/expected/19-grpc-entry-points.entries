@@ -2,3 +2,18 @@
   grpc       main.GreeterServicer.Chat   main.py:19
   grpc       main.GreeterServicer.SayHello   main.py:13
   grpc       main.GreeterServicer.StreamReplies   main.py:16
+
+── remote_edge (3) ──
+  /greet.Greeter/Chat
+      client.via_stub_streaming   client.py:12
+   -> main.GreeterServicer.Chat   main.py:19   [exact]
+  /greet.Greeter/SayHello
+      client.via_stub   client.py:5
+   -> main.GreeterServicer.SayHello   main.py:13   [exact]
+  /greet.Greeter/StreamReplies
+      client.via_raw_channel   client.py:16
+   -> main.GreeterServicer.StreamReplies   main.py:16   [exact]
+
+── remote_unserved (0) ──
+
+── remote_unsent (0) ──

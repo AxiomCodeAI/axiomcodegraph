@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""The per-case ENTRY POINT golden — the relation .edges and .tiers cannot see.
+"""The per-case FRAMEWORK-BEHAVIOUR golden — the relations .edges and .tiers cannot see.
+
+Two of them now: `entry_point`, and the cross-process `remote_edge` / `remote_unserved` /
+`remote_unsent`. The argument below is the same for both — a cross-process hop is not a
+call edge either, so .edges is blind to it, and a wrong member is a claim no edge can
+contradict.
 
 WHY IT NEEDS ITS OWN GOLDEN. An entry point is a declaration NOTHING CALLS: a route
 handler the framework invokes on a request. It therefore contributes no edge, and
@@ -62,6 +67,27 @@ def main():
     print(f"── entry_point ({len(seen)}) ──")
     for reason, who in sorted(seen):
         print(f"  {reason:10s} {who}")
+
+    # The cross-process relations. remote_edge is (from, to, transport, destination,
+    # confidence); the two unjoined halves are (method, transport, destination). Each is
+    # printed with its destination, because the destination IS the claim: an edge joined on
+    # the wrong string is the failure mode, and a reviewer cannot see it from the endpoints.
+    for rel, cols in (('remote-edge', 5), ('remote-unserved', 3), ('remote-unsent', 3)):
+        rp = os.path.join(out, rel + '.csv')
+        if not os.path.exists(rp):
+            continue
+        got = set()
+        with open(rp, newline='') as fh:
+            for r in csv.reader(fh, delimiter='\t'):
+                if len(r) < cols:
+                    continue
+                if cols == 5:
+                    got.add((r[3], name.get(r[0], r[0]), name.get(r[1], r[1]), r[4]))
+                else:
+                    got.add((r[2], name.get(r[0], r[0]), '', ''))
+        print(f"\n── {rel.replace('-', '_')} ({len(got)}) ──")
+        for dest, a, b, conf in sorted(got):
+            print(f"  {dest}" + (f"\n      {a}\n   -> {b}   [{conf}]" if b else f"\n      {a}"))
     return 0
 
 

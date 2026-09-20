@@ -1,0 +1,181 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · DESTINATIONS  (the cross-process edge)
+//
+// The Python counterpart of java/engine/framework-behavior/destinations.dl, and under the
+// same contract, restated here because a reader of this file should not have to find that
+// one:
+//   - a rule here models a LIBRARY's run-time behaviour, so it may be version-specific,
+//     and every framework name it keys on lives in config-resolution/knobs.dl;
+//   - a rule here may only ADD relations. It never changes call_chain_edge or anything the
+//     resolution phases own — a framework model is weaker knowledge than a resolved call;
+//   - it runs AFTER call-edge-generation because it consumes the resolved graph;
+//   - no compiler can adjudicate it. Its oracle is a running system.
+//
+// ── WHAT IS BEING JOINED ────────────────────────────────────────────────────
+// A gRPC client and the servicer that answers it are in different processes. Neither calls
+// the other, so every rule in call-edge-generation is silent across that boundary and a
+// change-impact question stops at the send. What ties the two ends together is a STRING —
+// the rpc's full method name, `/package.Service/Rpc` — and protoc writes it into the
+// generated module on the client side:
+//
+//     self.SayHello = channel.unary_unary('/greet.Greeter/SayHello', ...)   # <Svc>Stub
+//     class GreeterServicer:  def SayHello(self, request, context): ...     # <Svc>Servicer
+//
+// Both ends were already in the IR. Nothing joined them: measured on a subject driven by a
+// RUNNING server, the full name was NOWHERE in the bundle and 0 of 6 trigger shapes linked.
+// #1111.
+//
+// The result is `remote_edge`, deliberately NOT a call_chain_edge: a cross-process hop is
+// not an invocation, and folding it into the call graph would silently restate every
+// existing consumer in terms of it.
+//
+//   remote_edge(FromMethod, ToMethod, Transport, Destination, Confidence)
+//     Transport    grpc
+//     Confidence   exact — both ends spell the same `/package.Service/Rpc`. There is no
+//                  weaker tier here: protoc writes the string, so either it matches or the
+//                  two ends are not the same rpc.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. THE DESTINATION STRING, WHEREVER IT IS WRITTEN
+// ─────────────────────────────────────────────────────────────────────────────
+// ── grpc_full_name_at(Prov, Method, FullName) ───────────────────────────────
+// The first positional argument of a `channel.<verb>(...)` call, where verb is one of
+// grpc's four multicallable factories, and the method that contains it.
+//
+// TWO CONDITIONS, both load-bearing. The argument must be at POSITION 0 — the later
+// arguments are serializers and flags, and one of them is a bare `True`. And it must begin
+// with "/", which is what an rpc full method name is: `/package.Service/Rpc`. A serializer
+// reference is a dotted name and never starts with a slash.
+//
+// This one rule covers both ends of the client side. Inside a generated module the
+// containing method is `<Svc>Stub.__init__`, which is how the stub's attribute gets its
+// destination. In application code it is whatever function built the multicallable by
+// hand — the shape that has no stub at all, and the sharpest case in #1111, because there
+// the author writes the wire name themselves.
+grpc_full_name_at(p, m, full) :-
+    expr_node(p, "LITERAL", "ARGUMENT", full, lit),
+    strlen(full) > 1,
+    substr(full, 0, 1) = "/",
+    expr_parent(p, call, _, "0", lit),
+    expr_dotted_path(p, dp, call),
+    py_grpc_channel_verb(v),
+    strlen(dp) > strlen(v),
+    substr(dp, max(0, strlen(dp) - strlen(v)), strlen(v)) = v,
+    expr_owner(p, _, m, _, lit).
+
+// ── grpc_service_of_base(BaseType, ServiceName) ─────────────────────────────
+// `GreeterServicer` -> `Greeter`. The prefix protoc took from the .proto service name.
+grpc_service_of_base(base, svc) :-
+    grpc_servicer_base(base),
+    type_decl(_, name, _, _, base),
+    py_grpc_servicer_suffix(suf),
+    strlen(name) > strlen(suf),
+    svc = substr(name, 0, strlen(name) - strlen(suf)).
+
+// ── grpc_rpc_of_base(BaseType, RpcName, FullName) ───────────────────────────
+// Which full name belongs to which generated servicer base, and under which rpc name.
+//
+// WHY THIS IS A JOIN AND NOT A PARSE. Souffle has no "index of the last slash", and
+// writing one would be a parser in Datalog. It is not needed: the base DECLARES the rpc
+// names, so each is a candidate and the test is whether the full name ends with
+// "/" + candidate. Generating the candidate from the graph and testing the string is both
+// simpler and safer than splitting the string and hoping the halves mean something.
+//
+// THE SERVICE SEGMENT IS CHECKED TOO, and it is not redundant. Two services in one .proto
+// may declare the same rpc name — `Greeter.SayHello` and `Admin.SayHello` are different
+// rpcs — and the rpc-name test alone would match both bases to both full names. Requiring
+// `.<Svc>/` or `/<Svc>/` in the full name is what keeps them apart.
+grpc_rpc_of_base(base, n, full) :-
+    grpc_service_of_base(base, svc),
+    method_owner(_, base, bm),
+    method_decl(_, n, _, _, _, bm),
+    method_kind(_, bkind, _, bm),
+    bkind != "MODULE_INITIALIZER", bkind != "CLASS_INITIALIZER",
+    grpc_full_name_at(_, _, full),
+    strlen(full) > strlen(n) + 1,
+    substr(full, max(0, strlen(full) - strlen(n)), strlen(n)) = n,
+    substr(full, max(0, strlen(full) - strlen(n) - 1), 1) = "/",
+    contains(cat(svc, "/"), full).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. WHAT EACH END DECLARES
+// ─────────────────────────────────────────────────────────────────────────────
+// ── serves_destination(Method, Transport, Destination) ──────────────────────
+// A servicer method SERVES its rpc. The owner derives from the generated base (the same
+// provenance test config-resolution/entry-points.dl makes a root on), and the method
+// overrides one the base declares — so a helper beside the rpcs is not a destination.
+serves_destination(m, tr, full) :-
+    py_grpc_transport(tr),
+    type_base_resolved("client", sub, _, base),
+    grpc_rpc_of_base(base, n, full),
+    method_owner("client", sub, m),
+    method_decl("client", n, _, _, _, m),
+    method_kind("client", kind, _, m),
+    kind != "MODULE_INITIALIZER", kind != "CLASS_INITIALIZER".
+
+// ── sends_destination_at(Site, From, Transport, Destination) ────────────────
+// (a) through the generated stub: `stub.SayHello(...)`, where the receiver's type is the
+// `<Svc>Stub` that carries the destination. The attribute itself never resolves — it is
+// assigned in `__init__` from a library multicallable — so the receiver TYPE and the call
+// NAME are what identify the rpc, and the destination comes from the stub's own literal.
+sends_destination_at(site, from, tr, full) :-
+    py_grpc_transport(tr),
+    call_recv_type(site, stubt),
+    type_decl(_, sname, _, _, stubt),
+    py_grpc_stub_suffix(ssuf),
+    strlen(sname) > strlen(ssuf),
+    substr(sname, max(0, strlen(sname) - strlen(ssuf)), strlen(ssuf)) = ssuf,
+    svc = substr(sname, 0, strlen(sname) - strlen(ssuf)),
+    call_name(site, n),
+    grpc_full_name_at(_, _, full),
+    strlen(full) > strlen(n) + 1,
+    substr(full, max(0, strlen(full) - strlen(n)), strlen(n)) = n,
+    substr(full, max(0, strlen(full) - strlen(n) - 1), 1) = "/",
+    contains(cat(svc, "/"), full),
+    expr_owner("client", _, from, _, site).
+
+// (b) no stub at all: the author built the multicallable and wrote the wire name. The
+// destination is the literal, and the sender is the method that wrote it.
+sends_destination_at(lit, from, tr, full) :-
+    py_grpc_transport(tr),
+    grpc_full_name_at("client", from, full),
+    expr_node("client", "LITERAL", "ARGUMENT", full, lit),
+    !grpc_generated_method(from).
+
+// ── grpc_generated_method(Method) ───────────────────────────────────────────
+// A method declared in a generated `_pb2_grpc` module. The stub's `__init__` writes every
+// destination in the service; it is not a caller of any of them, and counting it as one
+// would make every generated module send to itself.
+.decl grpc_generated_method(m:symbol)
+grpc_generated_method(m) :-
+    method_owner("client", t, m),
+    type_module(_, mod, t),
+    module_file(_, path, mod),
+    py_grpc_generated_module_suffix(msuf),
+    strlen(path) > strlen(msuf),
+    substr(path, max(0, strlen(path) - strlen(msuf)), strlen(msuf)) = msuf.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE JOIN, AND THE TWO HALVES IT CANNOT JOIN
+// ─────────────────────────────────────────────────────────────────────────────
+remote_edge(from, to, tr, d, conf) :-
+    py_grpc_transport(tr),
+    py_remote_confidence_exact(conf),
+    sends_destination_at(_, from, tr, d),
+    serves_destination(to, tr, d).
+
+// A send whose destination nothing in this repository serves. Not a defect: a client-only
+// repository is the ordinary case, and saying so is the point — silence would be
+// indistinguishable from "no destination here".
+remote_unserved(m, tr, d) :-
+    py_grpc_transport(tr),
+    sends_destination_at(_, m, tr, d),
+    !serves_destination(_, tr, d).
+
+// A servicer method nothing in this repository calls — a server-only repository, or an rpc
+// the client half has not adopted.
+remote_unsent(m, tr, d) :-
+    py_grpc_transport(tr),
+    serves_destination(m, tr, d),
+    !remote_edge(_, m, tr, d, _).

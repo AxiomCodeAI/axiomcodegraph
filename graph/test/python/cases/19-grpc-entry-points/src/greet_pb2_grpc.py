@@ -20,10 +20,19 @@ class GreeterServicer:
 
 
 class GreeterStub:
-    """A stub is not a servicer: its methods are assigned, and nothing invokes them for us."""
+    """A stub is not a servicer: its methods are assigned, and nothing invokes them for us.
+
+    Each attribute carries the rpc's FULL METHOD NAME — the string the server end spells
+    too, and the only thing that ties the two processes together."""
 
     def __init__(self, channel):
-        self.SayHello = channel
+        self.SayHello = channel.unary_unary(
+            '/greet.Greeter/SayHello', _registered_method=True)
+        self.StreamReplies = channel.unary_stream(
+            '/greet.Greeter/StreamReplies', _registered_method=True)
+        self.Chat = channel.stream_stream(
+            '/greet.Greeter/Chat', _registered_method=True)
+        self._unused = channel
 
 
 class NotAService:
