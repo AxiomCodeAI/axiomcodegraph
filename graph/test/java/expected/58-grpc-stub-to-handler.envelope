@@ -1,0 +1,2 @@
+nominal	probe.GreeterGrpc.GreeterImplBase.sayBye -> probe.GreeterService.sayBye
+nominal	probe.GreeterGrpc.GreeterImplBase.sayHello -> probe.GreeterService.sayHello
