@@ -1,0 +1,13 @@
+{"lang": "javascript", "src": ".",
+ "checks": [
+  {"why": "the test reaches the change only through a callable handed over as a value. That is its own kind of evidence and it used to be reported as `one of a set` — a claim that the engine resolved the call to a sound target set, which is the one thing a hand-off is not. The tier fell through CERT_UP's default, which was the third most certain rung of ten (#1123)",
+   "run": ["impact", "normalise", "--kind", "method", "--tests"],
+   "want": ["1 registered"],
+   "avoid": ["one of a set  —", "1 one of a set"]},
+  {"why": "and the label is explained where it is used, because a reader cannot rank evidence whose name is never defined",
+   "run": ["impact", "normalise", "--kind", "method", "--tests"],
+   "want": ["[registered] is a callable handed over as a value", "not a call to it"]},
+  {"why": "the rung is BELOW `one of a set` and above the name matches: a hand-off is a real engine edge, so `by name` understates it, and it is not a resolution, so `one of a set` overstates it",
+   "run": ["impact", "normalise", "--kind", "method", "--tests"],
+   "want": ["[registered] pipeline.test.js"],
+   "avoid": ["[by name] pipeline.test.js"]}]}

@@ -1421,7 +1421,25 @@ def main(argv):
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import', 'protocol': 'protocol'}
+    # a tier no rung is written for, collected as the routes are labelled so it can be SAID rather than
+    # absorbed: a front end that gains a tier should show up here the first time anyone queries, not go
+    # quietly into the bottom rung forever.
+    UNKNOWN_TIERS = set()
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import', 'protocol': 'protocol',
+               # handed over as a value and invoked by whoever holds it (`callback_registered`), or emitted
+               # here and handled there (`event_dispatch`). Real engine edges, so `by name` understates them;
+               # registrations rather than resolutions, so `one of a set` — which claims a resolved target
+               # SET — overstates them. Both are a JavaScript/TypeScript vocabulary: neither tier can occur
+               # on the three Python subjects the rung precisions below were measured on, so this rung is
+               # ranked on its SHAPE and is UNMEASURED. See `registered` in CERT_RANK.
+               'callback_registered': 'registered', 'event_dispatch': 'registered',
+               # into the platform, into a generated library member, or a callee computed at run time: the
+               # chain ENDS there. It is listed for completeness — such an edge is terminal, so it is rarely
+               # an interior hop on a route — and ranked with the rest of the unresolved evidence.
+               'ambient_terminal': 'registered', 'dynamic_terminal': 'registered',
+               'boundary_generated': 'sound', 'implicit_constructor': 'sound',
+               # the candidate set was too large to enumerate, so what is here is a SAMPLE of it
+               'fan_capped': 'by name'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -1458,8 +1476,13 @@ def main(argv):
     # is not the `fixture` rung it used to be labelled as — a fixture route is weak for exactly the reason this one
     # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
     # the word that means one.
-    CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'by key': 5,
-                 'decorator by name': 6, 'protocol': 7, 'fixture': 8, 'by name': 9}
+    CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'registered': 5,
+                 'by key': 6, 'decorator by name': 7, 'protocol': 8, 'fixture': 9, 'by name': 10}
+    # `registered` is inserted, and nothing above or below it is re-ordered: every rung the precisions were
+    # measured for keeps the neighbours it had. It sits below `one of a set` because it is not a resolved
+    # call, and above `by key` because the ENGINE recorded the hand-off, where a key join is this file's own
+    # rules matching a string. Neither position is measured; the table already says the ordering below
+    # `one of a set` is a tie-break on the kind of evidence, and this is one more such tie-break.
     # `decorator by name` is the @-line hop: the decoration carries a simple NAME, so the declaration it denotes
     # is matched by that name, not resolved. It is a real dependency when the match is right — a decorator that
     # changes changes everything it wraps — and nothing at all when the name happens to be shared, which is why
@@ -1488,7 +1511,19 @@ def main(argv):
             # emit first, so the same graph could call a route sound or `one of a set` depending on row order.
             # If a hop is also a multi-target dispatch, the route is not sound.
             ts = [t for x, t in parent.get(a, ()) if x == b] or ['known_edge']
-            c = max((CERT_UP.get(t, 'one of a set') for t in ts), key=lambda x: CERT_RANK[x])
+            # AN UNKNOWN TIER TAKES THE BOTTOM RUNG. The default used to be `one of a set` — third most
+            # certain of ten, and a specific claim that the engine resolved the call to a sound set of
+            # targets. Every well-founded tier is listed above: the synthesised ones come from this file's
+            # own rules and the resolved ones from the exporter, so nothing legitimate is demoted by this.
+            # What WAS reaching the default is the per-language vocabulary the table was never taught —
+            # `callback_registered` alone is 8,915 of 25,048 traversable edges on one JavaScript project,
+            # every one of them a callable handed over as a value and reported as a resolved target set.
+            # Java and Python emit neither tier, which is why the two languages the rungs were measured on
+            # are exactly the two where the default was never reached. Per this table's own rule, a floor
+            # that is too low is safe and one that is too high is not.
+            for t in ts:
+                if t not in CERT_UP: UNKNOWN_TIERS.add(t)
+            c = max((CERT_UP.get(t, 'by name') for t in ts), key=lambda x: CERT_RANK[x])
             if CERT_RANK[c] > CERT_RANK[worst]: worst = c
         return worst
     test_cert = {m: cert_of(m) for m in tests}
@@ -1669,6 +1704,9 @@ def main(argv):
     if tests:
         byc = collections.Counter(test_cert.values())
         print("    how sure each route is: " + ', '.join(f"{n} {c}" for c, n in sorted(byc.items(), key=lambda x: CERT_RANK[x[0]])) + f"  —  {len(sure)} reach it through resolved single-target calls within 3 hops")
+        if UNKNOWN_TIERS:
+            print(f"    note: {len(UNKNOWN_TIERS)} edge tier(s) on these routes have no rung in this tool ("
+                  + ', '.join(sorted(UNKNOWN_TIERS)) + ") — they were taken as the LEAST certain, which is a floor, not a measurement")
         if all_tfiles and len(tfiles) >= 0.6 * len(all_tfiles):
             print(f"    fan-in: {len(tfiles)} of {len(all_tfiles)} test file(s) reach this method — at that fan-in reaching says little about failing"
                   " (measured on this repo's own mutation truth: a hub answer is right about 3 test files in 10, a narrow one about 6 in 10, and a sound route within 3 hops about 9 in 10)")
@@ -1787,7 +1825,21 @@ def main(argv):
     if outside and not reached: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so nothing reaching it here does NOT mean nothing does")
     if byname_seeds: print(f"through a call the engine could not resolve: {len(byname_seeds)} caller(s) write this method's name on an untyped receiver — counted in the reach above, so that part of it MAY not be real: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in sorted(byname_seeds)[:4]))
     byname = [x for x in D if x[3] in ('one of a set', 'by name', 'text')]
-    if byname: print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} are not an exact edge — [one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge), [by name] / [text] may be a same-named other thing")
+    # a label the answer USED must be explained here; a label it did not use must not be, or the note
+    # describes evidence the reader cannot find above it. `registered` is new and is the one most
+    # likely to be misread, because on JavaScript it is where a third of the routes go.
+    REGISTERED_NOTE = ("[registered] is a callable handed over as a value — the engine recorded the hand-off, "
+                       "not a call to it, and cannot say the holder ever runs it")
+    used_registered = 'registered' in set(test_cert.values())
+    if byname:
+        legend = "[one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge), [by name] / [text] may be a same-named other thing"
+        if used_registered: legend += ", " + REGISTERED_NOTE
+        print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} are not an exact edge — " + legend)
+    elif used_registered:
+        # the note above is counted in by-name entries, and a `registered` route need not produce one: on a
+        # target reached ONLY through hand-offs there were no by-name entries at all, so the label the whole
+        # answer was written in went unexplained.
+        print("note: " + REGISTERED_NOTE)
     return 0
 
 if __name__ == '__main__':
