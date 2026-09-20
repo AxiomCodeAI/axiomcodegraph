@@ -1,0 +1,10 @@
+ambient_terminal	FUNCTION_CALL	routes#<module-init>() @L35 -> routes#it(string,() =)
+ambient_terminal	FUNCTION_CALL	routes#<module-init>() @L50 -> routes#registerAll(Record string)
+ambiguous_unknown	METHOD_CALL	routes#<module-init>() @L40 -> -
+known_edge	FUNCTION_CALL	routes#<arrow@24>() @L24 -> routes#inlineWork()
+known_edge	FUNCTION_CALL	routes#<module-init>() @L40 -> routes#notAHandler()
+known_edge	FUNCTION_CALL	routes#namedHandler() @L28 -> routes#namedWork()
+known_edge	FUNCTION_CALL	routes#namedSpec() @L33 -> routes#specWork()
+known_edge	METHOD_CALL	routes#<module-init>() @L24 -> routes#get(string,unknown)
+known_edge	METHOD_CALL	routes#<module-init>() @L30 -> routes#post(string,unknown)
+known_edge	METHOD_CALL	routes#<module-init>() @L43 -> routes#delete(string)
