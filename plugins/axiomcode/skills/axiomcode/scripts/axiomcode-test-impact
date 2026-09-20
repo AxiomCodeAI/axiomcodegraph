@@ -175,7 +175,7 @@ def package_tier(repo, changed_files, limit=6000):
     for root, dirs, fs in os.walk(repo):
         dirs[:] = [d for d in dirs if d not in ('node_modules', '.git', 'dist', 'build', 'target', '.axiomcode')]
         for f in fs:
-            if not f.endswith(('.ts', '.tsx', '.js', '.mjs', '.java', '.py')): continue
+            if not f.endswith(('.ts', '.tsx', '.js', '.mjs', '.java', '.py', '.cs')): continue   # a list that omits an extension makes both tiers below silently inert for that language (#1083's shape)
             rel = os.path.relpath(os.path.join(root, f), repo)
             if not TESTY.search(rel): continue
             seen += 1
