@@ -84,6 +84,16 @@ def impact(repo, target, depth=DEPTH):
         else:
             rows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (target,)).fetchall()
             if not rows: rows = q("SELECT id, kind, method_id FROM symbols WHERE display=?", (target,)).fetchall()
+            # A FILE and a BARE NAME are the two other shapes an edit produces, and an exact match on
+            # `display` is neither, so both declined here and fell through to the rules — into the hook's
+            # 14 s budget, which on a large graph it does not make (#1033). A file is the callables
+            # declared in it; a bare name is the declarations carrying it. Both seed the same walk the
+            # qualified shape does and both still meet every guard below, so a file whose callables are
+            # all fields or constructors declines exactly as one of them would on its own.
+            if not rows and '(' not in target and ('/' in target or re.search(r'\.[A-Za-z]\w*$', target)):
+                rows = q("SELECT id, kind, method_id FROM symbols WHERE file=? AND method_id IS NOT NULL", (target,)).fetchall()
+            if not rows and '.' not in target and '/' not in target:
+                rows = q("SELECT id, kind, method_id FROM symbols WHERE name=? AND method_id IS NOT NULL", (target,)).fetchall()
         if not rows: return None
         # A FIELD is declined for the same reason a constructor is, and the failure it caused was worse. What
         # depends on a field is a READ or a WRITE — rows in `refs` and `field_access`, not in `call_edges` — so
@@ -103,12 +113,21 @@ def impact(repo, target, depth=DEPTH):
         # on every edit. `_has_framework_hops` runs the rules' own join (ax_registration.key_edges, caps included),
         # so it declines only where there is something to miss; the caller falls back to axiomcode-impact.
         try:
-            spans = [(f_, a_, b_ or a_, i_) for i_, f_, a_, b_ in
-                     q("SELECT id, file, line, end_line FROM symbols WHERE method_id IS NOT NULL AND file IS NOT NULL AND line > 0")]
+            # INDEXED BY FILE. This ran as one flat list scanned in full on every lookup, and the lookup is
+            # not rare: key_edges calls it once per registration site — 23,834 times on a 366-file graph, where
+            # it cost 7.0 s of a 7.6 s query, 93% of the whole call. It is paid BEFORE this path can decide
+            # whether it even covers the target, so the cost lands on every query whatever is asked, does not
+            # move with --depth or --limit, and does not fall on a second run: the flat floor of #1033. The
+            # scan is quadratic in graph size (more spans per lookup AND more lookups), which is why it reads
+            # as a cliff rather than a gradient. A span can only contain a line in its own file, so grouping by
+            # file makes each lookup scan one file's methods instead of the project's.
+            spans = {}
+            for i_, f_, a_, b_ in q("SELECT id, file, line, end_line FROM symbols WHERE method_id IS NOT NULL AND file IS NOT NULL AND line > 0"):
+                spans.setdefault(f_, []).append((a_, b_ or a_, i_))
             def _at(f_, l_):
                 best = None
-                for ff, a_, b_, i_ in spans:
-                    if ff == f_ and a_ <= l_ <= b_ and (best is None or (b_ - a_) < best[0]): best = (b_ - a_, i_)
+                for a_, b_, i_ in spans.get(f_, ()):
+                    if a_ <= l_ <= b_ and (best is None or (b_ - a_) < best[0]): best = (b_ - a_, i_)
                 return best[1] if best else None
             if _has_framework_hops(lambda sql, *p_: q(sql, p_).fetchall(), _at): return None
         except Exception:
