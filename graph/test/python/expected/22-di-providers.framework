@@ -1,9 +1,9 @@
 ── framework_edge (7) ──
-  di_provider        registered  deps.get_page_size@deps.py -> deps.get_repo@deps.py   [Depends]
-  di_provider        registered  main.admin@main.py -> main.get_user@main.py   [Security]
-  di_provider        registered  main.get_service@main.py -> main.get_settings@main.py   [Depends]
-  di_provider        registered  main.get_user@main.py -> main.get_settings@main.py   [Depends]
-  di_provider        registered  main.read_item@main.py -> main.get_service@main.py   [Depends]
-  di_provider        registered  routes.list_pages@routes.py -> deps.get_page_size@deps.py   [Depends]
-  di_provider        registered  routes.list_pages@routes.py -> deps.get_repo@deps.py   [Depends]
+  di_provider        registered  deps.get_page_size (deps.py) -> deps.get_repo (deps.py)   [Depends]
+  di_provider        registered  main.admin (main.py) -> main.get_user (main.py)   [Security]
+  di_provider        registered  main.get_service (main.py) -> main.get_settings (main.py)   [Depends]
+  di_provider        registered  main.get_user (main.py) -> main.get_settings (main.py)   [Depends]
+  di_provider        registered  main.read_item (main.py) -> main.get_service (main.py)   [Depends]
+  di_provider        registered  routes.list_pages (routes.py) -> deps.get_page_size (deps.py)   [Depends]
+  di_provider        registered  routes.list_pages (routes.py) -> deps.get_repo (deps.py)   [Depends]
 ── framework_unjoined (0) ──

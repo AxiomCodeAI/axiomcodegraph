@@ -69,14 +69,16 @@ def main():
         raise SystemExit(f"framework_report: no output directory at {out} "
                          f"-- nothing was read, which is not the same as no rows")
 
-    # The endpoint is rendered as qualifiedName@path, and the PATH IS NOT DECORATION.
+    # The endpoint is rendered as `qualifiedName (path)`, and the PATH IS NOT DECORATION.
     # Two `conftest.py` files in different directories give their fixtures the SAME
     # qualified name, and fixture shadowing -- a nearer conftest overriding a farther
     # one -- is precisely a case where the rule must pick one of two identically named
     # declarations. Without the path the golden renders both choices identically, so
     # picking the WRONG one would not move this file, which is the one thing the case
     # exists to catch. Paths are repo-relative, so the golden survives a rebuild
-    # elsewhere.
+    # elsewhere. The path is parenthesised rather than joined with an `@`, which would
+    # make every endpoint look like an e-mail address: the publishing gate's rule 6 reads
+    # `name@module.py` as one, so a PR or an issue quoting a golden would be refused.
     name = {}
     for m in rows(os.path.join(ir, 'all-python-methods.csv')):
         h = m.get('pyMethodUniqueHash')
@@ -84,7 +86,7 @@ def main():
             continue
         q = m.get('qualifiedName') or m.get('name') or h
         f = (m.get('filePath') or '').replace(os.sep, '/')
-        name[h] = f"{q}@{f}" if f else q
+        name[h] = f"{q} ({f})" if f else q
 
     # framework-edge.csv is (from, to, mechanism, detail, confidence), no header:
     # it is a Souffle output.

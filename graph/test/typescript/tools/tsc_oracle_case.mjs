@@ -98,9 +98,18 @@ const diags = diagnostics();
 if (diags.length > 0) {
   // A case that does not typecheck has an unreliable oracle: the checker still
   // answers, but it answers about a program the author did not mean to write.
+  // `root` was never bound in this module, so this branch -- the one that says WHY a
+  // case does not typecheck -- threw a ReferenceError instead of printing anything, and
+  // the author saw a stack trace from the oracle rather than the compiler's message.
+  // The branch only runs when a fixture fails to compile, which is why it survived.
+  const caseRoot = path.resolve(process.argv[2] ?? '.');
   for (const d of diags.slice(0, 8)) {
-    const { line } = d.file.getLineAndCharacterOfPosition(d.start ?? 0);
-    process.stderr.write(`  tsc: ${path.relative(root, d.file.fileName)}:${line + 1} `
+    // A diagnostic about the PROGRAM rather than a file -- a bad compiler option, a
+    // missing lib -- carries no `d.file` either.
+    const where = d.file
+      ? `${path.relative(caseRoot, d.file.fileName)}:${d.file.getLineAndCharacterOfPosition(d.start ?? 0).line + 1}`
+      : '<compiler options>';
+    process.stderr.write(`  tsc: ${where} `
       + `${ts.flattenDiagnosticMessageText(d.messageText, ' ')}\n`);
   }
   process.stderr.write(`  ${diags.length} diagnostic(s) — the case does not typecheck\n`);

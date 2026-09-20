@@ -297,6 +297,40 @@ framework_edge(from, to, "url_dispatch", "route_table", "registered") :-
 //   @receiver(sig)      the decorator, whose first argument names the signal
 //   sig.connect(fn)     the imperative call, whose receiver names it
 .decl py_signal_receiver(m:symbol, sigb:symbol)
+// ── THE SIGNAL'S IDENTITY ACROSS MODULES ────────────────────────────────────
+// A publisher and a receiver are rarely in one module, and joining on the local binding
+// resolves only the case where they are. The obvious repair, resolving the imported name
+// to a declaration the way a call does, DOES NOT WORK HERE and the reason is structural:
+// a signal is a module-level INSTANCE, not a def, and the parser resolves a value-shaped
+// import to its MODULE with an empty target hash. Counted on one mid-sized project's
+// imports: 1225 MODULE-kind rows, every one with an empty resolvedTargetHash, against
+// 817 TYPE and 708 FUNCTION rows with none empty. There is no hash to join on, so the
+// join is made on the pair that IS exact -- the resolved module, and the member's own
+// name -- which is the same shape resolution/name-resolution.dl uses for a member import.
+//
+// py_module_level_binding(ModuleHash, Name, BindingHash): a name bound at module scope,
+// which is what a signal declaration is.
+.decl py_module_level_binding(mod:symbol, n:symbol, b:symbol)
+py_module_level_binding(mod, n, b) :- binding_decl("client", n, scope, "MODULE_LEVEL", _, b),
+    n != "", scope_module("client", mod, scope).
+
+// py_import_binds_binding(LocalBinding, RemoteBinding): `from signals import order_placed`
+// binds a local name to a module-level binding in the resolved module. The member's own
+// name is originalName, so an alias (`import x as y`) still joins on the right member.
+.decl py_import_binds_binding(local:symbol, remote:symbol)
+py_import_binds_binding(lb, rb) :-
+    import_binding("client", lb, i),
+    import_resolved_module("client", mod, i),
+    import_alias("client", orig, _, i), orig != "",
+    py_module_level_binding(mod, orig, rb), rb != lb.
+
+// py_signal_identity(Binding, Identity): the binding itself, or the module-level binding
+// it was imported from. Both ends map through this before they meet, so a publisher that
+// imported the signal and a receiver declared beside it agree.
+.decl py_signal_identity(b:symbol, id:symbol)
+py_signal_identity(b, b) :- binding_decl("client", _, _, _, _, b).
+py_signal_identity(b, r) :- py_import_binds_binding(b, r).
+
 // BOTH ENDS ARE NORMALISED THROUGH binding_lookup. The publisher and the receiver
 // each write the signal's NAME, but a name reference carries its own binding hash per
 // occurrence; only the DECLARING binding is shared. Joining the raw hashes silently
@@ -306,12 +340,12 @@ py_signal_receiver(m, sigb) :-
     py_deco_named(h, v), py_signal_receiver_deco(v),
     decorator_expr("client", de, h), call_arg(de, "0", a),
     expr_binding("client", b, ctx, a), ctx != "STORE",
-    binding_lookup("client", b, sigb).
+    binding_lookup("client", b, lb), py_signal_identity(lb, sigb).
 py_signal_receiver(m, sigb) :-
     call_decl("client", _, meth, _, ce, site), py_signal_connect_method(meth),
     call_receiver("client", "NAME", _, rexpr, site),
     expr_binding("client", b, ctx, rexpr), ctx != "STORE",
-    binding_lookup("client", b, sigb),
+    binding_lookup("client", b, lb), py_signal_identity(lb, sigb),
     call_arg(ce, "0", a), expr_denotes_method("client", a, m), m != "".
 
 // A receiver runs when the signal fires, whether or not this tree contains the send.
@@ -323,7 +357,7 @@ py_signal_send(site, from, sigb) :-
     call_decl("client", _, meth, _, _, site), py_signal_send_method(meth),
     call_receiver("client", "NAME", _, rexpr, site),
     expr_binding("client", b, ctx, rexpr), ctx != "STORE",
-    binding_lookup("client", b, sigb),
+    binding_lookup("client", b, lb), py_signal_identity(lb, sigb),
     call_context("client", _, from, _, _, site), from != "".
 
 // The two ends meet ONLY through the same binding. An ordinary `mailer.send(...)` has
@@ -380,8 +414,18 @@ entry_point(m, "orm_hook") :- py_orm_hook(m, _).
 // A dispatch-shaped site whose receiver is not a registered task, and a receiver
 // attached to a signal nothing sends. Both are reported rather than silently dropped,
 // so "the engine saw it and declined" is distinguishable from "the engine never looked".
-framework_unjoined(site, "task_dispatch", meth) :-
-    call_decl("client", _, meth, _, _, site), py_task_dispatch_method(meth),
+// THE SITE COLUMN IS THE CALL EXPRESSION, not the call site's own unique hash, and the
+// two are different key spaces: `PY_EXPRESSION_...` against `PY_CALL_SITE_...`. The bundle
+// keys call_sites.id on the EXPRESSION (expression-resolution's site key is the expression
+// hash, call-site.dl:55), so emitting py_call_site's unique hash here produced a relation
+// that joins to ZERO rows of call_sites and cannot be located to a file or line from the
+// database at all. A diagnostic whose whole purpose is to say WHICH site was declined has
+// to be joinable, so it carries the key the consumer has. call_decl holds both: column 5
+// is the expression, column 6 is the site hash, and the negations below still key on the
+// site hash because that is what py_task_dispatch and py_signal_send carry.
+framework_unjoined(e, "task_dispatch", meth) :-
+    call_decl("client", _, meth, _, e, site), py_task_dispatch_method(meth),
     !py_task_dispatch(site, _, _, _).
-framework_unjoined(site, "signal_dispatch", "no_receiver") :-
-    py_signal_send(site, _, sigb), !py_signal_receiver(_, sigb).
+framework_unjoined(e, "signal_dispatch", "no_receiver") :-
+    py_signal_send(site, _, sigb), !py_signal_receiver(_, sigb),
+    call_decl("client", _, _, _, e, site).

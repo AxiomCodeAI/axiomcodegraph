@@ -4,3 +4,9 @@
   task       main.send_report   main.py:43
   task       tasks.remote_purge   tasks.py:19
   task       tasks.remote_report   tasks.py:14
+
+── remote_edge (0) ──
+
+── remote_unserved (0) ──
+
+── remote_unsent (0) ──
