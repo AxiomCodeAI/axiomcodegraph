@@ -64,7 +64,7 @@
 // config-resolution/entry-points.dl tests a route verb.
 //
 // The receiver half is deliberately unconstrained: the author names it (app, queue,
-// celery, event, v1) and pinning that list would miss the next spelling. What keeps the
+// worker, event, v1) and pinning that list would miss the next spelling. What keeps the
 // match honest is never the name alone -- it is the shape each rule requires around it.
 .decl py_fw_deco_tail(v:symbol)
 py_fw_deco_tail(v) :- py_task_register_deco(v).
