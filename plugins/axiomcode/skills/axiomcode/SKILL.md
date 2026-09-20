@@ -1,6 +1,6 @@
 ---
 name: axiomcode
-description: Use when a question is about how code connects rather than what it says: who calls this function, what breaks if I change this declaration, where is this really used, which tests does this edit reach, how does A reach B, is this safe to delete. Java, TypeScript, Python, JavaScript, C#. Answers come from a resolved call graph, so it finds callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and labels how certain each one is. Prefer it over grep or Glob for callers, callees, references, change impact and test selection.
+description: Use for any question about how a codebase works or what a change to it would do: architecture, execution flow, where something lives, who calls it, what depends on it, what breaks if it changes, which tests cover an edit, whether it is safe to delete. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Is this safe to delete?", "Fix this issue". Especially when .axiomcode/out/graph.sqlite exists, where finding code should start here rather than with grep. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — each labelled with how certain it is. Java, TypeScript, Python, JavaScript, C#.
 ---
 
 # axiomcode
