@@ -71,6 +71,15 @@ def command_for(lang, files, classes):
         # basename, so the file is enough to name it, and one class too many is the safe direction here.
         return "mvn test -Dtest=" + ",".join(sorted({os.path.splitext(os.path.basename(f))[0]
                                                      for f in files})[:40])
+    if lang == 'csharp' and classes:
+        # `dotnet test` selects by filter expression, not by file: a test class is named, never pointed at.
+        # FullyQualifiedName~X is a substring match, so the bare class name selects it in any namespace.
+        return 'dotnet test --filter "' + "|".join(f"FullyQualifiedName~{c.split('.')[-1]}"
+                                                   for c in sorted({c.split('.')[-1] for c in classes})[:40]) + '"'
+    if lang == 'csharp' and files:
+        import os as _os
+        return 'dotnet test --filter "' + "|".join(f"FullyQualifiedName~{n}" for n in sorted(
+            {_os.path.splitext(_os.path.basename(f))[0] for f in files})[:40]) + '"'
     if lang == 'python':
         return "pytest " + " ".join(sorted(files)[:40])
     if lang in ('typescript', 'javascript'):
@@ -110,7 +119,18 @@ def package_of(rel):
         if r.startswith(pre):
             r = r[len(pre):]
             break
-    return os.path.dirname(r)
+    pkg = os.path.dirname(r)
+    # A .NET test project is a SIBLING ASSEMBLY of the one it tests -- `Acme/` is tested by `Acme.Tests/`,
+    # `Acme.Widgets/` by `Acme.Tests.Widgets/` -- so source and test are strangers in the path and no
+    # prefix taken off the front ever makes them equal. What makes them equal is dropping the dotted part
+    # that says "tests": Acme.Tests -> Acme, Acme.Tests.Widgets -> Acme.Widgets. Guarded on the dot,
+    # which is what makes a segment an assembly name rather than a Java package or a Python directory.
+    head = pkg.split('/')[0]
+    if '.' in head:
+        kept = [x for x in head.split('.') if not re.fullmatch(r'\w*Tests?', x)]
+        if kept and len(kept) != len(head.split('.')):
+            pkg = '/'.join([('.'.join(kept))] + pkg.split('/')[1:])
+    return pkg
 
 
 # `test_pricing.py` for `pricing.py`, `ParserTest.java` for `Parser.java`, `cart.test.ts` for `cart.ts`: the

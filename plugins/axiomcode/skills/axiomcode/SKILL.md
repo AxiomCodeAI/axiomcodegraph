@@ -1,6 +1,6 @@
 ---
 name: axiomcode
-description: Use when a question is about how code connects rather than what it says: who calls this function, what breaks if I change this declaration, where is this really used, which tests does this edit reach, how does A reach B, is this safe to delete. Java, TypeScript, Python, JavaScript. Answers come from a resolved call graph, so it finds callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and labels how certain each one is. Prefer it over grep or Glob for callers, callees, references, change impact and test selection.
+description: Use when a question is about how code connects rather than what it says: who calls this function, what breaks if I change this declaration, where is this really used, which tests does this edit reach, how does A reach B, is this safe to delete. Java, TypeScript, Python, JavaScript, C#. Answers come from a resolved call graph, so it finds callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and labels how certain each one is. Prefer it over grep or Glob for callers, callees, references, change impact and test selection.
 ---
 
 # axiomcode
