@@ -172,7 +172,7 @@ if ! bash "$ROOT/graph/test/tools/xml-skip-test.sh"; then
   exit 1
 fi
 
-if ! bash "$HERE/tools/synthetic-callee-test.sh"; thenif ! bash "$HERE/tools/synthetic-callee-test.sh"; then
+if ! bash "$HERE/tools/synthetic-callee-test.sh"; then
   echo "aborting: the class-file oracle emits compiler-generated callees as ground truth"
   exit 1
 fi
@@ -400,6 +400,29 @@ for dir in "$HERE"/cases/*/; do
       fail=$((fail+1)); failed+=("$name"); continue; fi
     cfg_summary="  [config: ${cfg_rows} rows]"
   else cfg_summary=""; fi
+
+  # ── REMOTE-EDGE golden (#1108) ────────────────────────────────────────────
+  # A hop across a process is not in the edge golden: no call site expresses it, so the call rules
+  # are silent and `.edges` cannot record it. It was emitted by the engine and read by nothing, which
+  # is how a gRPC client and the handler it calls stayed independent in every answer. Pinned like the
+  # config golden: written only when a case produces rows, so the 57 cases that do not are unaffected,
+  # and a pairing that starts or stops firing is a diff rather than a silence.
+  # the pipeline writes this relation hyphenated, like every other raw CSV beside it
+  if [ -f "$w/out/raw/remote-edge.csv" ]; then
+    sort "$w/out/raw/remote-edge.csv" > "$w/actual.remote"
+  else : > "$w/actual.remote"; fi
+  rem_rows=$(grep -c . "$w/actual.remote" || true)
+  rexp="$HERE/expected/$name.remote"
+  if [ "$BLESS" = "1" ]; then
+    if [ "${rem_rows:-0}" -gt 0 ]; then cp "$w/actual.remote" "$rexp"; else rm -f "$rexp"; fi
+  elif [ -f "$rexp" ] || [ "${rem_rows:-0}" -gt 0 ]; then
+    if [ ! -f "$rexp" ]; then
+      echo "FAIL (remote edges but no golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+    if ! diff -q "$rexp" "$w/actual.remote" >/dev/null; then
+      echo "FAIL (remote edges changed)"; diff -u "$rexp" "$w/actual.remote" | sed 's/^/    /' | head -30
+      fail=$((fail+1)); failed+=("$name"); continue; fi
+    cfg_summary="$cfg_summary  [remote: ${rem_rows}]"
+  fi
 
 
   # ── FIELD-ACCESS golden (#663) ────────────────────────────────────────────

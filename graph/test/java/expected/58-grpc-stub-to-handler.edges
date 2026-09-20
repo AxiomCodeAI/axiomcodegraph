@@ -1,0 +1,6 @@
+known_edge	method	probe.GreeterService#sayBye(String,Observer) -> probe.Observer#onNext(String)
+known_edge	method	probe.GreeterService#sayHello(String,Observer) -> probe.GreeterService#reply()
+known_edge	method	probe.GreeterService#sayHello(String,Observer) -> probe.Observer#onNext(String)
+known_edge	method	probe.GrpcProbe#async(GreeterStub) -> probe.GreeterGrpc.GreeterStub#sayBye(String,Observer)
+known_edge	method	probe.GrpcProbe#blocking(GreeterBlockingStub) -> probe.GreeterGrpc.GreeterBlockingStub#sayHello(String)
+known_edge	method	probe.GrpcProbe#decoy(RequestStub) -> probe.RequestStub#sayHello(String)
