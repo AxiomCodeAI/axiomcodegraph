@@ -20,7 +20,8 @@ WHAT IT DECLINES. A constructor: impact.dl counts who instantiates the type, whi
 answering from call_edges alone under-reported (4 callers as 2). impact() returns None there and the caller falls
 back, which is right for that kind.
 """
-import os, re, sqlite3, json, collections
+import os, re, sqlite3, json, collections, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_edges
 import ax_registration
 
 NEEDED = ('symbols', 'call_edges', 'overrides', 'call_sites', 'unresolved_sites')
@@ -152,9 +153,16 @@ def impact(repo, target, depth=DEPTH):
         # NO self-exclusion here: a method that calls itself, or one overload that calls another, IS a caller and
         # impact.dl lists it (LDAPOperationManager.modifyAttributes does exactly this, as a known_edge). Excluding
         # the target's own ids dropped it and was a real disagreement the parity harness caught.
-        reads = sorted({r[0] for r in q(
-            f"""SELECT DISTINCT s.display FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
-                WHERE ce.callee_method_id IN ({ph})""", ids)})
+        # the TIER comes back with the caller. Discarding it here is how this path reported a hand-off
+        # (`callback_registered`) and a capped fan-out (`fan_capped`) as `resolved` — the strongest claim
+        # the tool makes — while the rules, which read the same column, now do not (#1131). A caller with
+        # several sites is named once, under the best of them.
+        _reads = collections.defaultdict(set)
+        for d, tier in q(f"""SELECT DISTINCT s.display, ce.tier FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
+                             WHERE ce.callee_method_id IN ({ph})""", ids):
+            _reads[d].add(ax_edges.direct_cert(tier))
+        read_cert = {d: ax_edges.best_cert(cs) for d, cs in _reads.items()}
+        reads = sorted(_reads)
         # reads / uses it, by name: a site naming this method whose receiver the engine could not type. The parser
         # records callee_name and the bundle indexes it, so this is a lookup and not an inference.
         short = target.rsplit('.', 1)[-1]
@@ -226,7 +234,7 @@ def impact(repo, target, depth=DEPTH):
             own = sorted({r[0] for r in q(f"SELECT display FROM symbols WHERE id IN ({ph})", ids) if r[0]})
             reads = sorted(set(reads) | set(own))
             byname = sorted(set(byname) - set(reads))
-        return dict(target=target, overloads=len(ids), contract=contract, reads=reads, byname=byname,
+        return dict(target=target, overloads=len(ids), contract=contract, reads=reads, read_cert=read_cert, byname=byname,
                     reached=max(0, n - len(ids)), tests=t, test_names=test_names, depth=depth)
     finally:
         con.close()
@@ -260,8 +268,12 @@ def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
                 chunk = every[i:i + 400]
                 for d, f, ln in q(f"SELECT display, file, line FROM symbols WHERE display IN ({','.join('?'*len(chunk))})", chunk):
                     if d not in at and f: at[d] = f"{f}:{ln or 0}"
-        mk = lambda d, role, cert: dict(display=d, role=role, certainty=cert, at=at.get(d, ''), why='calls it' if cert == 'resolved' else 'calls a method of this name (receiver not typed)')
-        direct = [mk(d, 'uses', 'resolved') for d in r['reads']] + [mk(d, 'uses', 'by name') for d in r['byname']]
+        def mk(d, role, cert):
+            why = ('calls a method of this name (receiver not typed)' if cert == 'by name'
+                   else ax_edges.DIRECT_WHY.get(cert, 'calls it'))
+            return dict(display=d, role=role, certainty=cert, at=at.get(d, ''), why=why)
+        rc = r.get('read_cert') or {}
+        direct = [mk(d, 'uses', rc.get(d, 'resolved')) for d in r['reads']] + [mk(d, 'uses', 'by name') for d in r['byname']]
         tests = [dict(display=d, owner=d.rsplit('.', 1)[0] if '.' in d else d, name=d.rsplit('.', 1)[-1])
                  for d in r.get('test_names', [])[:tests_shown]]
         tests += [dict(display='', owner='', name='')] * max(0, r['tests'] - len(tests))
@@ -705,7 +717,7 @@ def _bean_call(q, ids, sites):
                        WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL"""):
         if t != ot: continue
         recv.add(tgt if tgt in istype else type_of(tgt))
-    callers = {c for c, tier, _f, _l in sites if tier != 'multi_inferred'}
+    callers = {c for c, tier, _f, _l in sites if tier != 'multi_inferred'}   # a bean call site, any tier but the set
     why = {}
     for c in callers:
         cot = type_of(c)
@@ -724,8 +736,10 @@ def _bean_call(q, ids, sites):
 def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
     """direct(q,c,role,why,cert,f,l) for a method target — the rows the answer groups by *why* and *how sure*.
 
-      calls it                                         resolved      a typed edge, any tier but multi_inferred
+      calls it                                         resolved      a resolved edge
       calls it                                         one of a set  a multi_inferred edge: one member of a set
+      handed over as a value                           registered    the engine recorded a hand-off, not a call site
+      calls it, one of a candidate set too large …     capped set    the fan-out was truncated; this is a sample
       calls a method of this name (receiver not typed) by name       an unresolved site naming it (not a ctor)
       a sibling of the same type / same file           alongside     no call, no reference: only that a fix touching
                                                                      one often touches the other. Never a seed.
@@ -741,13 +755,17 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
     bean_callers, why_of = _bean_call(q, ids, sites)
     routes = {(f, l): w for _d, f, l, k, _key, w in ax_registration.registrations(q, rel) if k == 'route'}
     for c, tier, f, l in sites:
+        cert = ax_edges.direct_cert(tier)
         if tier == 'multi_inferred':
             # rule 208 carries no `!bean_call` guard, so a multi_inferred site stays `one of a set` even into a bean
             rows.append((c, 'uses', 'calls it', 'one of a set', f or '', l or 0))
         elif c not in bean_callers:                                          # `… , !bean_call(q, c, m)`
             # a resolved call AT a route registration is reported as the route (`!route_site` in the rules): the
-            # edge is the engine's, the sentence is the registration's
-            rows.append((c, 'uses', routes.get((rel(f) if rel and f else f, l), 'calls it'), 'resolved', f or '', l or 0))
+            # edge is the engine's, the sentence is the registration's. A registration the ROUTE rules named keeps
+            # their sentence whatever the tier — it is a more specific true thing than either default.
+            why = routes.get((rel(f) if rel and f else f, l))
+            if why is None: why = ax_edges.DIRECT_WHY.get(cert, 'calls it')
+            rows.append((c, 'uses', why, cert, f or '', l or 0))
     # …and for a caller into a container-managed bean, EVERY site of it — the three bean rules end in a bare
     # `calls(c, m, _, f, l)` with no tier test, so a multi_inferred site of a bean caller is a row here too.
     for c, tier, f, l in sites:

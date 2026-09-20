@@ -124,3 +124,53 @@ def legend(tiers):
         note = TIER_NOTE.get(t) or ('this tier is not in the frontend\'s table — treated as least certain')
         out.append(f"    [{t}] {note}")
     return out
+
+
+# ── the direct-dependents layer: tier → how sure, and what to call it ─────────────────────────────
+# The layer a reader sees FIRST used to decide this with one expression, in three places:
+#
+#     'one of a set' if tier == 'multi_inferred' else 'resolved'
+#
+# — a binary test standing in for an eleven-value vocabulary, so every other tier became `resolved`,
+# the strongest claim this tool makes, printed as "[resolved] … — calls it". Surveyed over 226
+# graphs: 13,189 javascript `callback_registered`, 696 javascript `event_dispatch`, 953 typescript
+# `ambient_terminal` and 116 java `fan_capped` edges were labelled that way. None of them is a
+# resolved call to the declaration: a hand-off is the engine recording that the callable was passed
+# as a value, and a capped fan-out exists precisely BECAUSE the candidate set was too large to
+# enumerate, so what is in the graph is a sample of it.
+DIRECT_CERT = {
+    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved',
+    'implicit_constructor': 'resolved', 'written': 'resolved',
+    'multi_inferred': 'one of a set',
+    'callback_registered': 'registered', 'event_dispatch': 'registered',
+    'ambient_terminal': 'registered', 'dynamic_terminal': 'registered',
+    'fan_capped': 'capped set',
+}
+DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and this table cannot name — never `resolved`
+
+# what the row SAYS, where "calls it" would be false or misleading
+DIRECT_WHY = {
+    'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
+    'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
+}
+
+# certainties that are backed by an edge the ENGINE asserted, as opposed to a name or a text match.
+# Consumers that used to test `cert == 'resolved'` to mean "this row claims an edge" test this
+# instead: the membership is exactly what it was before this table existed, so no row leaves any
+# set — only the label it is printed under changes. It matters most for the --delete verdict, where
+# dropping a hand-off would turn "something still holds this" into "safe to delete".
+EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'capped set'})
+
+# most certain first. A caller with several call sites to the same callee can hold sites of different
+# tiers; a summary that names the caller once takes the best of them, which is the honest reading of
+# "at least one resolved call exists here".
+DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set')
+
+
+def best_cert(certs):
+    return min(certs, key=lambda c: DIRECT_ORDER.index(c) if c in DIRECT_ORDER else len(DIRECT_ORDER))
+
+
+def direct_cert(tier):
+    """how sure a DIRECT dependent row is, from the edge's tier."""
+    return DIRECT_CERT.get(tier, DIRECT_CERT_DEFAULT)

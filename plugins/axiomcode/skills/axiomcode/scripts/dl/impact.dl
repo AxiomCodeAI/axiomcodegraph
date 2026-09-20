@@ -243,8 +243,23 @@ direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"),
 // — the edge is the engine's, only the sentence comes from the registration.
 .decl route_site(f:symbol, l:number)
 route_site(f, l) :- registration(_, f, l, "route", _, _).
-direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", !bean_call(q, c, m), !route_site(f, l).
-direct(q, c, "uses", why, "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", !bean_call(q, c, m), registration(_, f, l, "route", _, why).
+
+// HOW SURE A CALL ROW IS COMES FROM THE TIER, AND THE TIER VOCABULARY IS PER LANGUAGE. These two rules
+// used to read `t != "multi_inferred"` and hardcode "resolved", which is a binary test standing in for
+// an eleven-value vocabulary: every other tier became the strongest claim this tool makes. Surveyed
+// over 226 graphs that was 13,189 `callback_registered`, 696 `event_dispatch`, 953 `ambient_terminal`
+// and 116 `fan_capped` edges printed as "[resolved] … — calls it". A hand-off is the engine recording
+// that the callable was passed as a VALUE; a capped fan-out exists because the candidate set was too
+// large to enumerate, so what is here is a sample of it. Neither is a resolved call.
+//
+// `cert_tier` is written from ONE table (scripts/ax_edges.py, DIRECT_CERT / DIRECT_WHY) and the SQL
+// fast path reads the same one, so the rules and the fast path cannot disagree about a tier — which
+// is how the two copies of the binary test drifted apart from the rest of the vocabulary to begin with.
+.decl cert_tier(tier:symbol, cert:symbol, why:symbol)             .input cert_tier
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", cert_tier(t, cert, why), !bean_call(q, c, m), !route_site(f, l).
+// a registration names the row: the edge is the engine's, the sentence is the registration's, and the
+// certainty stays the tier's — a route handed over as a value is still handed over as a value.
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", cert_tier(t, cert, _), !bean_call(q, c, m), registration(_, f, l, "route", _, why).
 // A call INTO a method of a container-managed bean. Whether the container's proxy is on the path decides whether a
 // behavioural annotation added to the method (a transaction, a cache, an async dispatch, a retry, an authorization
 // check) reaches this caller at all: a call from inside the bean goes through `this` and never through the proxy.

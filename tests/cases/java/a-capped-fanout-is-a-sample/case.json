@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a call the engine emitted BECAUSE the candidate set was too large to enumerate is not a resolved call: it was labelled [resolved] and 'calls it' by `'one of a set' if tier == 'multi_inferred' else 'resolved'`, which is a binary test standing in for an eleven-value vocabulary (#1131)",
+   "run": ["impact", "Step.run"],
+   "want": ["1 capped set", "[capped set] Fanout.drive", "too large to enumerate", "sample of that set"],
+   "avoid": ["1 resolved", "[resolved] Fanout.drive"]},
+  {"why": "and the row is still THERE: relabelling must not drop a dependent, which for --delete would turn 'something still calls this' into 'safe to delete'",
+   "run": ["impact", "Step.run", "--delete"],
+   "want": ["Fanout.drive"],
+   "avoid": ["no resolved caller"]}]}
