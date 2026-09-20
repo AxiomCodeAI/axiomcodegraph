@@ -26,6 +26,7 @@ import {
 } from '@/enums/python/expressions';
 import { PythonImportTargetKind } from '@/enums/python/imports';
 import { PythonMethodKind } from '@/enums/python/methods';
+import { PythonScopeKind } from '@/enums/python/scopes';
 
 /** One module's facts, for the project-level pass. */
 export interface ProjectModuleFacts extends ResolutionInput {
@@ -208,6 +209,29 @@ export class PythonResolutionLinker {
       exportsByModule.set(module.qualifiedName, exported);
     }
 
+    // Module-level VARIABLES, per module, for import target lookup (#1140). A value
+    // assigned at module scope -- `order_placed = Signal()` -- is neither a class nor a
+    // function, so it is absent from exportsByModule above, and a `from mod import
+    // order_placed` fell all the way through to the MODULE fallback with an empty hash:
+    // the import named a member and the parser reported the module it came from instead.
+    // py_binding's PK is (scope, name), collision-free by construction, so the module
+    // scope's own binding row for this name is already a durable identity for the value --
+    // the same kind of identity a library-linking join uses today -- with no evaluation
+    // of module-level code required.
+    const moduleVariablesByModule = new Map<string, Map<string, PyBindingRegistry>>();
+    for (const module of modules) {
+      const moduleScope = module.scopes.find(s => s.getScopeKind() === PythonScopeKind.MODULE);
+      const byName = new Map<string, PyBindingRegistry>();
+      if (moduleScope) {
+        for (const binding of module.bindings) {
+          if (binding.getPyScopeLinkHash() === moduleScope.getHash() && binding.getIsAssigned()) {
+            byName.set(binding.getName(), binding);
+          }
+        }
+      }
+      moduleVariablesByModule.set(module.qualifiedName, byName);
+    }
+
     this.buildModuleSuffixIndex(modules);
 
     // ---- step 1: imports
@@ -279,8 +303,18 @@ export class PythonResolutionLinker {
           exportsByModule.get(targetModule.qualifiedName)?.get(member) ??
           this.followReExport(member, targetModule, exportsByModule, moduleByQualifiedName);
         if (!entity) {
-          // The module resolved but the member did not — it may be a variable, a
-          // re-export, or genuinely absent. Module link only.
+          // The module resolved but the member is not a class or a function. It may be a
+          // module-level VARIABLE (#1140), a re-export, or genuinely absent -- in that
+          // order, matching the interpreter: a name assigned at module scope shadows
+          // nothing here to fall back to.
+          const variable = moduleVariablesByModule.get(targetModule.qualifiedName)?.get(member);
+          if (variable) {
+            record.setResolution(targetModule.moduleHash, PythonImportTargetKind.VARIABLE, variable.getHash());
+            stats.importsResolved += 1;
+            continue;
+          }
+          // Module link only: a re-export chain this module doesn't own the tail of, or
+          // genuinely absent.
           record.setResolution(targetModule.moduleHash, PythonImportTargetKind.MODULE, '');
           stats.importsResolved += 1;
           continue;

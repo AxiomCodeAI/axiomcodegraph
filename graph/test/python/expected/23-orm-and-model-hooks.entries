@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  orm_hook   main.UserModel.check_all   main.py:61
+  orm_hook   main.UserModel.check_email   main.py:53
+  orm_hook   main.UserModel.check_name   main.py:57
+  orm_hook   main.audit_change   main.py:47
+  orm_hook   main.stamp_created   main.py:42
