@@ -196,10 +196,26 @@ FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
 # earlier run and be mistaken for this one's output.
 RAW="$OUT/raw"; rm -rf "$RAW"; mkdir -p "$RAW"
 # Shared, machine-scoped cache root. Holds BOTH project-independent artefacts: the
-# compiled engine binary, and the staged library signature facts. Default in-repo so a
-# checkout is self-contained (.souffle-cache/ is gitignored); point AXIOM_SOUFFLE_CACHE
-# at a shared dir to amortise it across clones.
-CACHE_ROOT="${AXIOM_SOUFFLE_CACHE:-$SRC/../.souffle-cache}"; mkdir -p "$CACHE_ROOT"
+# compiled engine binary, and the staged library signature facts.
+#
+# PER USER, NOT PER CHECKOUT. The key is already checkout-independent: engine_id() hashes the
+# pinned souffle version and the generated program text, whose include lines are written
+# relative to $SRC, and engine-id-test.sh asserts no absolute path reaches the program at all.
+# So a binary one clone compiled IS the right binary for every other clone of the same rules,
+# and defaulting in-repo made each clone and each worktree pay a full compile — minutes — for a
+# binary already on the machine (#1042).
+#
+# Under the user's cache dir rather than a world-writable one: a shared cache is a place to
+# drop a binary that someone else's run will execute. Falls back in-repo when there is no
+# writable HOME (a container, a sandboxed build), so a checkout is still self-contained there.
+# AXIOM_SOUFFLE_CACHE overrides both.
+if [ -n "${AXIOM_SOUFFLE_CACHE:-}" ]; then CACHE_ROOT="$AXIOM_SOUFFLE_CACHE"
+else
+  CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:-}/.cache}/axiomcode/souffle"
+  { [ -n "${XDG_CACHE_HOME:-}${HOME:-}" ] && mkdir -p "$CACHE_ROOT" 2>/dev/null && [ -w "$CACHE_ROOT" ]; } \
+    || CACHE_ROOT="$SRC/../.souffle-cache"
+fi
+mkdir -p "$CACHE_ROOT"
 START_EPOCH=$(date +%s); START_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Library roots: --library is a comma-separated list of IR roots (each with jdk-style
