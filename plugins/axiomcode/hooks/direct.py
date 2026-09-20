@@ -37,36 +37,55 @@ FULL = (
 ONE = ("graph: `axiomcode impact <name>` resolves callers this search will miss "
        "(interface, override, callback, DI, config key).")
 
-try:
+def main():
     ev = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
+    tool = ev.get('tool_name') or ''
+    inp = ev.get('tool_input') or {}
+    cwd = ev.get('cwd') or os.getcwd()
 
-tool = ev.get('tool_name') or ''
-inp = ev.get('tool_input') or {}
-cwd = ev.get('cwd') or os.getcwd()
-
-if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
-    sys.exit(0)
-
-# the agent is already reaching for the graph -- saying it again is the nag this is trying not to be
-if tool == 'Bash' and 'axiomcode' in (inp.get('command') or ''):
-    sys.exit(0)
-
-# a Read of something that is not source is not the decision this is about (a log, a lockfile, a README)
-if tool == 'Read':
-    fp = inp.get('file_path') or ''
-    if not fp.endswith(SRC):
+    if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
         sys.exit(0)
 
-stamp = os.path.join(cwd, MARK)
-first = not os.path.exists(stamp)
-if first:
+    # the agent is already reaching for the graph -- saying it again is the nag this is trying not to be
+    if tool == 'Bash' and 'axiomcode' in (inp.get('command') or ''):
+        sys.exit(0)
+
+    # a Read of something that is not source is not the decision this is about (a log, a lockfile, a README)
+    if tool == 'Read':
+        fp = inp.get('file_path') or ''
+        if not fp.endswith(SRC):
+            sys.exit(0)
+
+    stamp = os.path.join(cwd, MARK)
+    first = not os.path.exists(stamp)
+    if first:
+        try:
+            os.makedirs(os.path.dirname(stamp), exist_ok=True)
+            open(stamp, 'w').close()
+        except Exception:
+            pass
+
+    text = FULL if first else ONE
+    # stream-json does not carry additionalContext, so a run cannot show from its transcript that this
+    # fired or what it said -- and #1100 is a question about exactly that. enrich.py already logs itself
+    # next to the graph for the same reason; this writes the same file, so one reader sees both halves.
     try:
-        os.makedirs(os.path.dirname(stamp), exist_ok=True)
-        open(stamp, 'w').close()
+        with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f:
+            f.write(json.dumps({'hook': 'direct', 'tool': tool, 'first': first, 'chars': len(text),
+                                'input': {k: v for k, v in inp.items()
+                                          if k in ('file_path', 'pattern', 'command')}}) + '\n')
+    except OSError:
+        pass
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                                             'additionalContext': text}}))
+
+
+# THIS HOOK RUNS BEFORE EVERY Read, Grep, Glob AND Bash THE AGENT MAKES. A hook that raises on one of them
+# costs that agent the turn, in a repository whose only fault is having a graph. Nothing it does is worth a
+# failed tool call, so every path out of it is exit 0: a directive is an optional courtesy, not a dependency.
+if __name__ == '__main__':
+    try:
+        main()
     except Exception:
         pass
-
-print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
-                                         'additionalContext': FULL if first else ONE}}))
+    sys.exit(0)
