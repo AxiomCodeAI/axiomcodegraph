@@ -49,6 +49,13 @@ def dsn():
 
 
 @fixture
+def client():
+    """A `client` here, and another in other/test_sibling.py. Neither is visible to the
+    other's module, and neither is visible to pkg/test_nested.py."""
+    return build_cart([])
+
+
+@fixture
 def unused_fixture():
     """Declared and never requested. No test may be wired to it."""
     return build_cart([])

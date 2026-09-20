@@ -128,3 +128,20 @@ py_orm_hook_deco("listens_for").
 py_orm_hook_deco("validates").
 py_orm_hook_deco("field_validator").
 py_orm_hook_deco("model_validator").
+
+// ── py_fixture_scope_file(Basename) — the file whose fixtures are inherited ──
+// A fixture is NOT visible by name alone. The runner resolves it at the TEST'S
+// LOCATION: the test's own module first, then this file in the test's directory and in
+// every ancestor directory. Nothing else is in scope, and two unrelated test modules
+// each declaring a fixture of the same name is ordinary.
+//
+// MEASURED before the visibility condition existed, on a public ASGI framework's test
+// suite: 601 fixture_injection edges, of which 405 had the fixture in a conftest and 82
+// were same-file, both correct, while 114 were cross-file and not a conftest. That is
+// 19% of the relation fabricated, driven by four separate modules each declaring
+// `@fixture def client(...)`, so every test taking `client` got four edges.
+//
+// The basename is a CATALOGUE fact rather than a literal in a rule body, both because
+// the literal gate requires it and because it is exactly the kind of name a reviewer
+// should be able to find in one file.
+py_fixture_scope_file("conftest.py").

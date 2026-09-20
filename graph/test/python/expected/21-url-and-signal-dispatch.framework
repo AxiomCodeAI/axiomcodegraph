@@ -1,8 +1,8 @@
 ── framework_edge (5) ──
-  signal_dispatch    registered  main.place_order -> main.on_order_connected   [signal]
-  signal_dispatch    registered  main.place_order -> main.on_order_placed   [signal]
-  url_dispatch       registered  main.<module> -> main.detail   [route_table]
-  url_dispatch       registered  main.<module> -> main.index   [route_table]
-  url_dispatch       registered  main.<module> -> main.legacy   [route_table]
+  signal_dispatch    registered  main.place_order@main.py -> main.on_order_connected@main.py   [signal]
+  signal_dispatch    registered  main.place_order@main.py -> main.on_order_placed@main.py   [signal]
+  url_dispatch       registered  main.<module>@main.py -> main.detail@main.py   [route_table]
+  url_dispatch       registered  main.<module>@main.py -> main.index@main.py   [route_table]
+  url_dispatch       registered  main.<module>@main.py -> main.legacy@main.py   [route_table]
 ── framework_unjoined (1) ──
      1  signal_dispatch    no_receiver

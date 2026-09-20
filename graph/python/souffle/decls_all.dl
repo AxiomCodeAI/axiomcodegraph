@@ -27,6 +27,7 @@
 .decl py_task_register_deco(v:symbol)
 .decl py_task_dispatch_method(v:symbol)
 .decl py_fixture_deco(v:symbol)
+.decl py_fixture_scope_file(v:symbol)
 .decl py_test_name_prefix(v:symbol)
 .decl py_route_table(v:symbol)
 .decl py_route_entry_fn(v:symbol)

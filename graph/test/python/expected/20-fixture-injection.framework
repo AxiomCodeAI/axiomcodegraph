@@ -1,5 +1,12 @@
-── framework_edge (3) ──
-  fixture_injection  by_name     main.db -> main.dsn   [dsn]
-  fixture_injection  by_name     main.test_query -> main.db   [db]
-  fixture_injection  by_name     main.test_total -> main.cart   [cart]
+── framework_edge (10) ──
+  fixture_injection  by_name     main.db@main.py -> main.dsn@main.py   [dsn]
+  fixture_injection  by_name     main.test_query@main.py -> main.db@main.py   [db]
+  fixture_injection  by_name     main.test_total@main.py -> main.cart@main.py   [cart]
+  fixture_injection  by_name     test_nested.test_local_and_inherited@pkg/test_nested.py -> conftest.shared_db@conftest.py   [shared_db]
+  fixture_injection  by_name     test_nested.test_local_and_inherited@pkg/test_nested.py -> test_nested.local_only@pkg/test_nested.py   [local_only]
+  fixture_injection  by_name     test_nested.test_nested@pkg/test_nested.py -> conftest.shared_db@conftest.py   [shared_db]
+  fixture_injection  by_name     test_nested.test_shadowed@pkg/test_nested.py -> conftest.layered@pkg/conftest.py   [layered]
+  fixture_injection  by_name     test_root_level.test_root_level@test_root_level.py -> conftest.layered@conftest.py   [layered]
+  fixture_injection  by_name     test_root_level.test_root_level@test_root_level.py -> conftest.shared_db@conftest.py   [shared_db]
+  fixture_injection  by_name     test_sibling.test_sibling@other/test_sibling.py -> test_sibling.client@other/test_sibling.py   [client]
 ── framework_unjoined (0) ──

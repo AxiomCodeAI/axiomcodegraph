@@ -1,6 +1,6 @@
 ── framework_edge (3) ──
-  task_dispatch      registered  main.enqueue_purge -> main.purge_stale   [delay]
-  task_dispatch      registered  main.enqueue_rebuild -> main.rebuild_index   [apply_async]
-  task_dispatch      registered  main.enqueue_report -> main.send_report   [delay]
+  task_dispatch      registered  main.enqueue_purge@main.py -> main.purge_stale@main.py   [delay]
+  task_dispatch      registered  main.enqueue_rebuild@main.py -> main.rebuild_index@main.py   [apply_async]
+  task_dispatch      registered  main.enqueue_report@main.py -> main.send_report@main.py   [delay]
 ── framework_unjoined (2) ──
      2  task_dispatch      delay

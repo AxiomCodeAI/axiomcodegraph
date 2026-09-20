@@ -147,13 +147,62 @@ py_fixture_requester(m) :- py_fixture_decl(m, _).
 //                                   caller; the runner injects nothing
 //   the parameter must not be a receiver  `self` is not a fixture request
 //   some fixture must declare the name  an unmatched parameter claims nothing
-.decl py_fixture_injection(from:symbol, to:symbol, name:symbol)
-py_fixture_injection(from, to, name) :-
-    py_fixture_requester(from),
-    param_decl("client", name, _, _, from, ph), name != "",
+// ── VISIBILITY AND SHADOWING, neither of which is optional ──────────────────
+// A fixture is resolved at the test's LOCATION, not globally, and exactly ONE wins.
+// The runner looks in the test's own module first; failing that, in a conftest in its
+// directory and then each ancestor directory, NEAREST first. It does not run the
+// others. So emitting every same-named candidate is not a conservative union over
+// things that might happen, it is a claim that a function runs which demonstrably does
+// not -- the same fabrication measured at 114 of 601 edges on a public subject before
+// this rule existed (see knobs.dl), and the shape resolution/value-flow.dl refuses when
+// it declines "every class with a method called draw".
+//
+// py_fixture_conftest(Fixture, Dir) -- the directory a conftest governs.
+// d KEEPS ITS TRAILING SEPARATOR, and that is load-bearing rather than untidy: for
+// "tests/conftest.py" it is "tests/", so "tests_extra/foo.py" does not match, because it
+// starts with "tests_". Strip the separator to tidy the string and every sibling
+// directory sharing a prefix becomes governed by the wrong conftest.
+//
+// The comparison is >=, NOT >. A repo-root conftest.py has path == basename, so a
+// strict > excludes it and the commonest place a project keeps shared fixtures
+// contributes nothing at all. At the root d is "" and the prefix test admits every
+// requester, which is exactly right.
+.decl py_fixture_conftest(fix:symbol, dir:symbol)
+py_fixture_conftest(fix, d) :- py_fixture_decl(fix, _),
+    method_file("client", p, fix), py_fixture_scope_file(c),
+    strlen(p) >= strlen(c), substr(p, strlen(p) - strlen(c), strlen(c)) = c,
+    d = substr(p, 0, strlen(p) - strlen(c)).
+
+// A requested parameter: no default, not a receiver, on a test or another fixture.
+.decl py_fixture_request(req:symbol, name:symbol)
+py_fixture_request(req, name) :- py_fixture_requester(req),
+    param_decl("client", name, _, _, req, ph), name != "",
     param_default("client", "false", _, ph),
-    param_kind("client", _, _, "false", ph),
-    py_fixture_decl(to, name), to != from.
+    param_kind("client", _, _, "false", ph).
+
+// (a) the test's own module wins outright.
+.decl py_fixture_same_module(req:symbol, name:symbol, fix:symbol)
+py_fixture_same_module(req, name, fix) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req,
+    method_file("client", p, req), method_file("client", p, fix).
+.decl py_fixture_shadowed(req:symbol, name:symbol)
+py_fixture_shadowed(req, name) :- py_fixture_same_module(req, name, _).
+
+// (b) otherwise a conftest at or above the requester, NEAREST first. Depth is the
+//     length of the governed directory, so the longest prefix is the nearest ancestor.
+.decl py_fixture_conftest_cand(req:symbol, name:symbol, fix:symbol, depth:number)
+py_fixture_conftest_cand(req, name, fix, dl) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req,
+    py_fixture_conftest(fix, d), method_file("client", p, req),
+    strlen(p) > strlen(d), substr(p, 0, strlen(d)) = d, dl = strlen(d).
+.decl py_fixture_nearest(req:symbol, name:symbol, depth:number)
+py_fixture_nearest(req, name, m) :- py_fixture_conftest_cand(req, name, _, _),
+    m = max dl : { py_fixture_conftest_cand(req, name, _, dl) }.
+
+.decl py_fixture_injection(from:symbol, to:symbol, name:symbol)
+py_fixture_injection(req, fix, name) :- py_fixture_same_module(req, name, fix).
+py_fixture_injection(req, fix, name) :- py_fixture_conftest_cand(req, name, fix, dl),
+    !py_fixture_shadowed(req, name), py_fixture_nearest(req, name, dl).
 
 .decl py_fixture_requested(m:symbol)
 py_fixture_requested(m) :- py_fixture_injection(_, m, _).

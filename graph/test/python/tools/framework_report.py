@@ -32,8 +32,8 @@ Every case therefore carries a NEGATIVE half -- an ordinary method named `delay`
 `framework_unjoined` line is what proves the engine saw those and declined them, rather
 than never having looked.
 
-Hashes are resolved to qualified names, so the golden is reviewable and survives a
-rebuild on another machine.
+Hashes are resolved to qualified name plus repo-relative path, so the golden is
+reviewable, disambiguates two files of the same name, and survives a rebuild elsewhere.
 
 usage: framework_report.py <IR-dir> <OUT-dir>
 """
@@ -59,12 +59,32 @@ def main():
         raise SystemExit("usage: framework_report.py <IR-dir> <OUT-dir>")
     ir, out = sys.argv[1], sys.argv[2]
 
+    # "framework_edge (0)" IS THE TRUTH for 20 of the 22 pre-existing cases, so it must
+    # not also be what a missing output directory prints. It already cost one wrong
+    # conclusion: a suite run without --keep deletes the per-case work dir, this tool was
+    # pointed at the deleted path, and the resulting (0) read exactly like a rule that
+    # had regressed to emitting nothing. The path is named so the next reader sees which
+    # of the two it is.
+    if not os.path.isdir(out):
+        raise SystemExit(f"framework_report: no output directory at {out} "
+                         f"-- nothing was read, which is not the same as no rows")
+
+    # The endpoint is rendered as qualifiedName@path, and the PATH IS NOT DECORATION.
+    # Two `conftest.py` files in different directories give their fixtures the SAME
+    # qualified name, and fixture shadowing -- a nearer conftest overriding a farther
+    # one -- is precisely a case where the rule must pick one of two identically named
+    # declarations. Without the path the golden renders both choices identically, so
+    # picking the WRONG one would not move this file, which is the one thing the case
+    # exists to catch. Paths are repo-relative, so the golden survives a rebuild
+    # elsewhere.
     name = {}
     for m in rows(os.path.join(ir, 'all-python-methods.csv')):
         h = m.get('pyMethodUniqueHash')
         if not h:
             continue
-        name[h] = m.get('qualifiedName') or m.get('name') or h
+        q = m.get('qualifiedName') or m.get('name') or h
+        f = (m.get('filePath') or '').replace(os.sep, '/')
+        name[h] = f"{q}@{f}" if f else q
 
     # framework-edge.csv is (from, to, mechanism, detail, confidence), no header:
     # it is a Souffle output.
