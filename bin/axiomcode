@@ -55,12 +55,55 @@ ROOT="$(d="$(cd "$(dirname "$self")" && pwd)"; while [ "$d" != / ] && { [ ! -f "
 # later on a path the user cannot interpret.
 [ -d "$ROOT/graph" ] || { echo "axiomcode: cannot locate the package root from $0 (resolved to $self)" >&2; exit 2; }
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
-usage(){ sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; }
+# ─────────────────────────────────────────────────────────────────────────────
+# THE QUERY VERBS. Building a graph is the means; asking it something is the point, and until now
+# only the means was on $PATH. `path`, `impact`, `test-impact`, `context`, `changed`, `graph` and
+# `index` are implemented, tested and shipped in this package under plugins/axiomcode/skills/, and
+# were reachable only from the agent plugin. Worse, this dispatcher's last case is `*) cmd=all`, so
+# `axiomcode path A B` was silently taken for a BUILD of a directory called `path`.
+#
+# They are DELEGATED, never reimplemented. The verb list is asked of the frontend itself
+# (`--verbs`, derived from its own dispatch table) so the two entry points cannot drift: a new
+# capability is a new row in one case statement, not a new copy here.
+QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
+# `tests` is the frontend's alias for test-impact; `test` is THIS command's engine suite. One letter
+# apart, entirely different jobs, and putting both on one command is a trap — so the alias is not
+# routed here, and the name is refused below with both readings spelled out.
+query_verbs(){ [ -f "$QUERY" ] && bash "$QUERY" --verbs 2>/dev/null | grep -vx tests || true; }
+is_query_verb(){ query_verbs | grep -qx -- "$1"; }
+usage(){
+  sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
+  if [ -f "$QUERY" ]; then
+    echo
+    echo 'ASKING THE GRAPH — `axiomcode help <verb>` for any one of them:'
+    bash "$QUERY" --help | sed -n 's/^  \(axiomcode [a-z].*\)$/  \1/p'
+  fi
+}
 die(){ echo "axiomcode: $*" >&2; exit 2; }
 need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
 
 cmd="${1:-}"
-case "$cmd" in parser|engine|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;; *) cmd=all;; esac
+# A query verb goes to the frontend before anything else. `help <verb>` too, so one `help` covers
+# both halves of the command.
+case "$cmd" in
+  -h|--help|help)
+    if [ $# -gt 1 ] && is_query_verb "$2"; then exec bash "$QUERY" help "$2"; fi ;;
+  "") ;;
+  tests) echo "axiomcode: 'tests' is ambiguous here — 'axiomcode test-impact' for the tests an edit needs," >&2
+         echo "           'axiomcode test' for this package's own engine suite." >&2; exit 2 ;;
+  *) if is_query_verb "$cmd"; then shift; exec bash "$QUERY" "$cmd" "$@"; fi ;;
+esac
+# A NAME THAT IS NOT A VERB AND NOT A DIRECTORY IS A TYPO, NOT A BUILD. `*) cmd=all` is convenient
+# for `axiomcode ./src out/` and wrong for everything else: a misspelled verb used to be parsed as a
+# source tree and fail with advice about building the parser.
+case "$cmd" in
+  parser|engine|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;;
+  *) [ -d "$cmd" ] || { echo "axiomcode: '$cmd' is neither a verb nor a directory." >&2
+       echo "  build:  parser  engine  all  test   (or: axiomcode <src-dir> <out-dir>)" >&2
+       echo "  ask:    $(query_verbs | tr '\n' ' ')" >&2
+       echo "  \`axiomcode help\` for what each one does." >&2; exit 2; }
+     cmd=all;;
+esac
 case "$cmd" in
   parser)
     need_parser

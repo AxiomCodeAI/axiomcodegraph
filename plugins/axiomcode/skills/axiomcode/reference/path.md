@@ -19,10 +19,24 @@
   and are not listed. `--every` adds all of them: first the complete set of methods and calls that lie on *any* chain
   from a source to a target (from Datalog, polynomial — `301 methods and 935 calls` for `Parser.parse → Lexer.emit`),
   by file, then the simple paths through it, shortest first, up to `--paths N` (default 20; the count is exponential,
-  so the set is the complete answer and the list is a sample of it). Each hop is marked: unmarked = a resolved call, `[multi_inferred]` =
-  one of a sound target set, `[dispatch]` = an instantiated override reached through its base, `[defines]` = a closure
-  under the callable that defines it. The `verified:` line means every hop was looked up again in graph.sqlite and a
-  plain BFS found the same length; a `✗` means the answer is wrong — report it, do not use it.
+  so the set is the complete answer and the list is a sample of it). The `verified:` line means every hop was looked up
+  again in graph.sqlite and a plain BFS found the same length; a `✗` means the answer is wrong — report it, do not use it.
+- **Every hop reads `[tier · kind @ file:line]`.** The *tier* is how certain the edge is; the *kind* is what sort of
+  call it is, in one vocabulary that means the same thing in all five languages (`call` · `new` · `ctor` · `super` ·
+  `decorator` · `property` · `method-ref` · `with` · `import` · `eval` · `dynamic`); and the *line* is where the call
+  is WRITTEN, which is where you check it — the name after the arrow already tells you the callee, and its own
+  declaration line follows it. The tiers an answer used are legended beneath it, so none of them has to be looked up:
+  `known_edge` resolved to one declaration, `multi_inferred` several fit and each is real, `dispatch` a base method to
+  an override the project instantiates, `callback_registered` handed over as a value and invoked by whoever holds it,
+  `boundary_lib` / `ambient_terminal` into a dependency or the platform, `defines` **not a call at all** — the callee
+  is written inside that body, so it runs only after it. The engine emits eleven tiers and thirty kinds across the
+  five languages and they do not share a vocabulary; `scripts/ax_edges.py` is the single table that normalises them,
+  and an unrecognised tier ranks LAST there rather than being silently treated as certain.
+- **The hop count counts calls.** A chain's header says `7 call(s)` — containment hops (`defines`) are listed
+  separately (`+2 containment hop(s)`) and excluded, because "A reaches B in 11 calls" is false when five of the
+  eleven are a closure sitting inside a body.
+- **`--json`** gives the same answer as one document — every hop with its tier, kind, call site, callee declaration
+  and whether it is a call — with the prose carried alongside it, so nothing is lost by asking for the machine shape.
 - **No chain is an answer with a bound.** "no chain of resolved calls" is followed by whether unresolved sites *would*
   connect the two by name, and at which `file:line` — that is the site to read, not a path to claim. The `bound:` line
   counts unresolved calls on the chain shown: other chains may exist that the graph cannot see.

@@ -3,7 +3,7 @@
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
-#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source]
+#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json]
 #       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name
 #       to ask about yet. Deterministic: task terms scored against the graph's vocabulary by inverse document
 #       frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop.
@@ -14,11 +14,14 @@
 #       the graph as one page. Runs the pipeline only when the repo has no up-to-date graph (~1 s otherwise). <repo>
 #       defaults to the current directory; the page goes to <repo>/.axiomcode/graph/graph.html, or to --out: a folder
 #       gets <folder>/<repo>.html, a .html path is used as given. The page embeds the sources, so a node opens its code.
-#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>]
+#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json]
 #       the shortest chain of calls from A to B per reached target, and with --every all the routes; through what?
 #       '*' as one endpoint: path '*' X = everything that can reach X, with the entry points among them; path X '*' = everything X reaches. Endpoints exactly as written in the code: Owner.method,
 #       method (free function or any owner), Type (all its methods), file.ts:123, file.py. Datalog over the graph; every
 #       printed hop re-checked against graph.sqlite. `axiomcode path --selftest <lang>` replays the engine's expected edges.
+#       Every hop carries the LINE THE CALL IS WRITTEN ON, how certain the edge is, and what kind of call it is —
+#       an invocation, a construction, a constructor chain, a super call, a decorator, a property access, a method
+#       reference — in one vocabulary across all five languages. A hop that is not a call is marked and not counted.
 #   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k]
 #       what has to be looked at again when a declaration changes: a method, a field / constant / enum member, a type, a
 #       parameter (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), Type.<init> / Type.<clinit>. Prints what
@@ -32,6 +35,8 @@
 #       which tests actually have to run for this edit: the test files that reach any changed declaration, with the
 #       chain, so a selection can be checked rather than trusted. Conservative by design — a test reached only
 #       through an edge the graph does not encode (reflection, a service loader) will NOT appear.
+#   axiomcode help [<verb>]
+#       every verb with what it does; with a verb, that verb's own usage, printed from the script that implements it.
 #   axiomcode install [<repo>] [--remove] [--print]
 #       write the preference into the repository's CLAUDE.md as one marked block: for a question about how code connects,
 #       prefer this over grep/Glob. States a preference, blocks nothing; re-running replaces, --remove takes it out.
@@ -39,6 +44,29 @@
 # --lang picks the language when the repo mixes several (auto-detection counts files, so a TypeScript project with many
 # .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
 H="$(cd "$(dirname "$0")" && pwd)"
+
+# A VERB ANSWERS; IT DOES NOT HAND BACK AN INSTRUCTION. Reached through this dispatcher — which is
+# what `axiomcode` on $PATH and the MCP server both go through — a query on a repository with no
+# graph builds one and then answers, instead of exiting with "run `axiomcode index` first". That
+# instruction was the last manual step between installing the package and getting an answer.
+# It is NOT set for the plugin's hooks, which call the verb scripts directly under timeouts of 10-25 s:
+# a first build takes minutes, would be killed every time, and would cache nothing.
+: "${AXIOMCODE_AUTOBUILD:=1}"; export AXIOMCODE_AUTOBUILD
+
+# the leading comment block IS the help, and the verb list IS the case below: both are DERIVED, never
+# a second copy. A hardcoded line range is what let this document 6 verbs while dispatching 8 (#1034);
+# a hardcoded verb list is how `bin/axiomcode` would drift from it next.
+verbs(){ sed -n 's/^  \([a-z|-]*\)) *exec .*/\1/p' "$0" | tr '|' '\n'; }
+helptext(){ awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
+# one verb's own usage, from the script that implements it: a python docstring, or a bash file's
+# leading comment block. The verb documents itself once, where it is implemented.
+verbhelp(){
+  local f="$H/axiomcode-$1"; [ "$1" = index ] && f="$H/axiomcode-build"; [ "$1" = tests ] && f="$H/axiomcode-test-impact"
+  [ -f "$f" ] || { echo "axiomcode: no such verb '$1' — try: $(verbs | tr '\n' ' ')" >&2; return 2; }
+  if head -1 "$f" | grep -q python; then python3 -c 'import ast,sys; print(ast.get_docstring(ast.parse(open(sys.argv[1]).read())) or "")' "$f"
+  else awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$f"; fi
+}
+
 cmd="$1"; shift || true
 ARGS=()
 while [ $# -gt 0 ]; do
@@ -49,6 +77,11 @@ while [ $# -gt 0 ]; do
     *) ARGS+=("$1"); shift ;;
   esac
 done
+# `<verb> --help` is answered HERE, for every verb, from the script that implements it. Three verbs
+# had no --help of their own and silently took it for an argument — `axiomcode index --help` tried to
+# build a repository called `--help`. One branch is cheaper than three, and a verb added tomorrow gets
+# it without anyone remembering to.
+case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; then verbhelp "$cmd"; exit $?; fi ;; esac
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
   context) exec python3 "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
@@ -58,8 +91,8 @@ case "$cmd" in
   test-impact|tests) exec python3 "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
   install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
-  # the leading comment block IS the help: printed from line 2 to the first non-comment line, never a line
-  # range. A hardcoded range is what let this document 6 verbs while the case below dispatched 8 (#1034).
-  ""|-h|--help|help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0" ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, context, graph, path, impact, changed, test-impact, install" >&2; exit 2 ;;
+  --verbs) verbs ;;                      # what this dispatcher answers to; bin/axiomcode asks, so the two cannot drift
+  ""|-h|--help|help) if [ ${#ARGS[@]} -gt 0 ]; then verbhelp "${ARGS[0]}"; else helptext; fi ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: $(verbs | tr '\n' ' ')" >&2
+     echo "           \`axiomcode help\` for what each one does, \`axiomcode help <verb>\` for one of them" >&2; exit 2 ;;
 esac

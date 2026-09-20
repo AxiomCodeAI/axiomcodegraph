@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path>]   is there a chain of calls from A to B, and through what?
+"""axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path>] [--json]   is there a chain of calls from A to B, and through what?
    axiomcode path --selftest <lang>                                 the engine's own expected edges, replayed through this tool
 
 An endpoint is anything that names code, written the way it appears in the code — resolved EXACTLY, never guessed:
@@ -19,17 +19,47 @@ client edges, dispatch steps to instantiated overrides, and closures under the c
 answer is then checked twice before it is printed: each hop is looked up again in graph.sqlite, and a plain BFS over
 the same facts must find the same length. The line `verified …` says so; if either check fails the answer is marked.
 
+Every hop is printed as `[tier · kind @ file:line]`: how certain the edge is, what kind of call it is in one
+vocabulary that means the same thing in all five languages (call · new · ctor · super · decorator · property ·
+method-ref · with · import), and THE LINE THE CALL IS WRITTEN ON — not the callee's declaration, which the
+callee's name already gives you. A hop that is not a call at all (`defines`: the callee is written inside the
+caller's body) is marked as such and left out of the call count, so "A reaches B in 7 calls" is a count of calls.
+The tiers an answer used are legended under it. --json gives the same answer as one document, hops included.
+
 When no resolved chain exists, the optimistic closure — every unresolved site taken as a call to the client method
 written there — says whether one WOULD exist and through which unresolved site(s). That is printed as a bridge to
 look at, never as a path.
 """
-import os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob
+import contextlib, io, json, os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, graph_sql
-TIER_RANK = {'known_edge': 0, 'library': 0, 'written': 0, 'multi_inferred': 1, 'dispatch': 2, 'defines': 3, 'by-name': 9}
+sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract
+# The certainty table used to live here with SEVEN entries and a default of 5 for everything else. The
+# engine emits ELEVEN tiers, and the five it did not list all fell BELOW `defines` — which is not a call
+# at all — so on a JavaScript graph, where 8,916 of 25,048 traversable edges are `callback_registered`,
+# the chain reader preferred a containment hop to a real registered-callback call. ax_edges lists every
+# tier and ranks an unknown one LAST. One table, shared, because two copies is how this drifted.
+TIER_RANK = ax_edges.TIER_RANK
 
 def die(msg, code=2): print(msg); sys.exit(code)
+
+# ── --json: the same answer, for a program ────────────────────────────────────────────────────────
+# Filled as the human output is produced, from the SAME chain objects, so the two cannot disagree:
+# a second traversal for the machine shape is a second implementation to keep in step.
+RESULT = {'query': None, 'answers': [], 'reached': [], 'bound': None, 'verified': None}
+
+
+def chain_json(g, chain):
+    """one chain: its nodes, and for every hop the tier, the kind, and where the call is written."""
+    out = {'hops': [], 'from': g.disp(chain[0][0]), 'to': g.disp(chain[-1][0])}
+    prev = chain[0][0]
+    for n, t in chain[1:]:
+        kind, at = hop_detail(g, prev, n, t)
+        out['hops'].append({'to': g.disp(n), 'declared_at': g.loc(n), 'tier': t, 'kind': kind,
+                            'call_at': at, 'is_call': t not in ax_edges.NOT_A_CALL})
+        prev = n
+    out['calls'], out['containment'] = chain_size(chain)
+    return out
 
 # ── the graph ────────────────────────────────────────────────────────────────────────────────────────────────────
 class G:
@@ -37,9 +67,20 @@ class G:
         self.repo = os.path.realpath(repo or '.')
         gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(self.repo, '.axiomcode')
         self.db = os.path.join(gdir, 'out', 'graph.sqlite')
-        if not os.path.exists(self.db): die(f"no graph at {self.db} — run `axiomcode index {self.repo}` first")
+        # ONE door for every verb. impact, changed, context and test-impact all load this file as a
+        # module and construct this class, so a repository with no graph is handled here, once, for
+        # all of them: under the CLI and the MCP server it is BUILT (ax_contract.ensure_graph), and
+        # under the plugin's hooks — short timeouts, no AXIOMCODE_AUTOBUILD — it still refuses in
+        # words the caller can act on.
+        if not os.path.exists(self.db) and not ax_contract.ensure_graph(self.repo, self.db):
+            die(ax_contract.no_graph(self.repo, self.db))
         self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
-        if not self.has('symbols'): die(f"{self.db} has no index — run `axiomcode index {self.repo}`")
+        if not self.has('symbols'):
+            # a graph that was built but never indexed: the index is this tool's own, and adding it
+            # is seconds, so asking the caller to run one more command buys nothing.
+            subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-index'), self.repo], capture_output=True)
+            self.con.close(); self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
+            if not self.has('symbols'): die(f"{self.db} has no index — run `axiomcode index {self.repo}`")
         # `sym` is the CALLABLE/type layer: it is what an endpoint may resolve to, so a field must stay out of it.
         # `all_sym` is every declaration the index holds, fields, constants and enum members included. A consumer that
         # needs to NAME a declaration (a decoration's owner, a row's display) reads all_sym; one that needs a call
@@ -491,7 +532,7 @@ def read_back(parent, q, end, srcs):
     """one chain src → … → end from the parent relation, preferring the most certain tier at every hop;
     each element is (node, tier of the hop INTO it), the source's tier None"""
     par = collections.defaultdict(list)
-    for b, a, t in parent[q]: par[b].append((TIER_RANK.get(t, 5), a, t))
+    for b, a, t in parent[q]: par[b].append((ax_edges.rank(t), a, t))
     out = []; cur = end; seen = {end}
     while cur not in srcs:
         opts = sorted(x for x in par.get(cur, []) if x[1] not in seen)
@@ -503,9 +544,14 @@ def read_back(parent, q, end, srcs):
 # ── verification: the printed hops against graph.sqlite, and the length against a second implementation ────────
 def verify(g, chain, srcs, dst, adj):
     hops = [(chain[i][0], chain[i + 1][0], chain[i + 1][1]) for i in range(len(chain) - 1)]
-    edge_set = getattr(g, '_edge_set', None)
-    if edge_set is None: edge_set = g._edge_set = {(a, b): t for a, b, t in g.edges()}
-    bad = [h for h in hops if edge_set.get((h[0], h[1])) != h[2]]
+    # A SET OF TRIPLES, not a map keyed on the pair. Two call sites in one body can reach the same
+    # callee under DIFFERENT tiers — an ordinary call at one line, a callback_registered hand-off at
+    # another — and a {(a,b): t} map keeps whichever row the export wrote last. The solver sees every
+    # row, so the chain could legitimately be read back through the tier the map had discarded, and
+    # every such hop was then reported "NOT in graph.sqlite" against a fact file that does contain it.
+    edge_set = getattr(g, '_edge_triples', None)
+    if edge_set is None: edge_set = g._edge_triples = {(a, b, t) for a, b, t in g.edges()}
+    bad = [h for h in hops if h not in edge_set]
     for a, b, t in hops:                                                     # a resolved hop must exist as an engine edge, not only as a fact we wrote
         if t in ('known_edge', 'multi_inferred') and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = ? LIMIT 1", a, b, t): bad.append((a, b, t))
         if t == 'library' and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = 'boundary_lib' LIMIT 1", a, b): bad.append((a, b, t))
@@ -553,12 +599,52 @@ def every_route(g, res, q, srcs, dsts, max_paths, adj):
         bad = [h for h in hops if h not in edge_set]
         print(f"    {len(hops)} hop(s): " + ' → '.join((f"[{edge_set[(pth[i-1], n)]}] " if i and edge_set.get((pth[i-1], n)) not in ('known_edge', None) else '') + g.disp(n) for i, n in enumerate(pth)) + ("   ✗ hop not in graph" if bad else ''))
 
+def hop_detail(g, a, b, t):
+    """What this hop IS and WHERE IT IS WRITTEN: the engine's kind in one cross-language word, and the
+    line of the CALL SITE.
+
+    The chain used to carry one line per hop — the callee's DECLARATION — which is the one line a reader
+    does not need: they have the callee's name. What they cannot get any other way is the line inside the
+    caller that makes the call, which is where the hop is checked, and what kind of call it is. The kind
+    was dropped on export (`SELECT caller_id, callee_method_id, tier`), so `new Foo()`, `super(...)`,
+    `@app.route(...)` and an ordinary invocation all printed identically in every language."""
+    if t in ax_edges.NOT_A_CALL: return '', None
+    rows = g.q("SELECT e.kind k, s.file_path f, s.start_line ln FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id "
+               "WHERE e.caller_id = ? AND e.callee_method_id = ? ORDER BY (s.start_line IS NULL), s.start_line LIMIT 1", a, b)
+    if not rows: return '', None
+    k, f, ln = rows[0]['k'], rows[0]['f'], rows[0]['ln']
+    # THE CALLEE IS ALSO EVIDENCE OF WHAT THE HOP IS, and on two languages it is the only evidence.
+    # Java, TypeScript and JavaScript emit a construction as its own kind (`new`, CONSTRUCTOR_CALL);
+    # Python and C# emit `Store("main")` as an ordinary SIMPLE_CALL and say it by resolving it to the
+    # class's constructor. Reading the callee's own kind back is a restatement of the engine's facts,
+    # not a guess about them, and it is what makes the word `new` mean the same thing in all five.
+    word = ax_edges.kind_word(k)
+    if word == 'call' and (g.sym.get(b) or g.all_sym.get(b) or {}).get('kind') == 'constructor': word = 'new'
+    return word, (f"{g.site_file(f)}:{ln}" if f and ln else None)
+
+
+def hop_label(g, a, b, t):
+    """[tier · kind @ where the call is written] — everything needed to check the hop by hand."""
+    kind, at = hop_detail(g, a, b, t)
+    bits = [t] + ([kind] if kind else []) + (["not a call"] if t in ax_edges.NOT_A_CALL else [])
+    return f"[{' · '.join(bits)}" + (f" @ {at}]" if at else "]")
+
+
 def print_chain(g, chain):
     lines = [f"    {g.disp(chain[0][0])}   {g.loc(chain[0][0])}"]
+    prev = chain[0][0]
     for n, t in chain[1:]:
-        mark = '' if t == 'known_edge' else f" [{t}]"
-        lines.append(f"      →{mark} {g.disp(n)}   {g.loc(n)}")
+        lines.append(f"      → {hop_label(g, prev, n, t)} {g.disp(n)}   {g.loc(n)}")
+        prev = n
     return '\n'.join(lines)
+
+
+def chain_size(chain):
+    """how many of a chain's hops are calls, and how many are not. `A reaches B in 11 calls` is false
+    when five of the eleven are containment."""
+    tiers = [t for _, t in chain[1:]]
+    c = ax_edges.calls_in(tiers)
+    return c, len(tiers) - c
 
 # ── one endpoint: everything upstream of X (who can reach it) or downstream (what it can reach) ──────────────────
 def framework_note(g, ids, writers=()):
@@ -697,6 +783,8 @@ def closure(g, sel, upstream, limit=40, depth=40):
         if len(rows) > limit: print(f"    … +{len(rows) - limit} (--limit N)")
     # bound: unresolved sites on the way
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * (len(rows) + len(ids)))})", *[m for m, _ in rows], *ids)[0]['n']
+    RESULT['reached'] = [{'name': g.disp(m), 'at': g.loc(m), 'hops': int(d)} for m, d in sorted(rows, key=lambda x: (int(x[1]), g.sym[x[0]]['display'], x[0]))]
+    RESULT['verified'] = bool(agree)
     print(f"  verified: a plain BFS over the same facts gives the same {len(rows)} methods at the same depths" if agree else f"  ✗ BFS disagrees with Datalog ({len(bfs)} vs {len(rows)}) — report this")
     if u: print(f"  bound: {u} unresolved call(s) inside these methods — the set is a lower bound; `path <one of them> {sel}` for the chain")
     print(f"  (chain from any one of them: path <that method> {sel}" + (")" if upstream else " — or the reverse)"))
@@ -723,19 +811,24 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             for m, d in hits: own.setdefault(g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'] or '?'), []).append(int(d))
             print(f"  reached under {len(own)} owner(s), nearest first: " + ', '.join(f"{o} ({min(ds)} hop{'s' if min(ds) != 1 else ''})" for o, ds in list(own.items())[:12]) + (f" … +{len(own) - 12}" if len(own) > 12 else ''))
             print(f"  the {limit} nearest chains follow; --all for every one, or narrow the target: Owner.{g.sym[hits[0][0]]['name']} · --in <path>")
-        shown = 0; vbad = 0; vlen = 0
+        shown = 0; vbad = 0; vlen = 0; seen_tiers = set()
         for m, d in hits:
             d = int(d)
             if d == 0: print(f"    {g.disp(m)} is itself an endpoint of both"); continue
             chain = read_back(res['parent'], q, m, srcs)
             if not chain: print(f"    {g.disp(m)} at {d} hops (chain could not be read back)"); continue
             bad, bfs = verify(g, chain, srcs, m, adj); vbad += len(bad); vlen += (bfs != d)
-            print(f"  {d} hop(s):" + (f"   ✗ {len(bad)} hop(s) NOT in graph.sqlite" if bad else '') + (f"   ✗ BFS says {bfs}" if bfs != d else ''))
+            ncall, nother = chain_size(chain); seen_tiers.update(t for _, t in chain[1:])
+            print(f"  {ncall} call(s)" + (f" + {nother} containment hop(s)" if nother else '') +
+                  ":" + (f"   ✗ {len(bad)} hop(s) NOT in graph.sqlite" if bad else '') + (f"   ✗ BFS says {bfs}" if bfs != d else ''))
             print(print_chain(g, chain)); shown += 1
+            RESULT['answers'].append(dict(chain_json(g, chain), direction=q, unverified_hops=len(bad)))
             if shown >= limit and not show_all: print(f"  … +{len(hits) - shown} more targets (--all)"); break
         blind = {n for n, _ in (read_back(res['parent'], q, hits[0][0], srcs) or [])}
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(blind))})", *blind)[0]['n'] if blind else 0
         print(f"  verified: every printed hop is an edge in graph.sqlite and a plain BFS finds the same length" if not (vbad or vlen) else f"  ✗ verification failed on {vbad} hop(s) / {vlen} length(s) — report this")
+        if seen_tiers:
+            print("  what the hops are:"); [print(l) for l in ax_edges.legend(seen_tiers)]
         libs = g.library_calls([m for m, _ in hits[:limit]])
         if libs: print("  the target(s) call into libraries (not traversed — where the client graph ends): " + ', '.join(f"{l} ×{n}" if n > 1 else l for l, n in libs))
         if every: every_route(g, res, q, srcs, dsts, max_paths, adj)
@@ -814,6 +907,7 @@ if __name__ == '__main__':
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'): print(__doc__); sys.exit(0)
     if args[0] == '--selftest': sys.exit(selftest(args[1] if len(args) > 1 else 'typescript'))
+    as_json = '--json' in args; args = [a for a in args if a != '--json']
     show_all = '--all' in args; args = [a for a in args if a != '--all']
     depth = 40
     if '--depth' in args: i = args.index('--depth'); depth = int(args[i + 1]); del args[i:i + 2]
@@ -822,8 +916,20 @@ if __name__ == '__main__':
     if '--limit' in args: i = args.index('--limit'); limit = int(args[i + 1]); del args[i:i + 2]
     if '--in' in args: i = args.index('--in'); IN = args[i + 1]; del args[i:i + 2]
     if len(args) < 2: die("usage: axiomcode path <from> <to> [<repo>] [--all] [--limit N] [--in <path fragment>]")
-    g = G(args[2] if len(args) > 2 else '.'); g.IN = IN
-    if args[0] == '*' and args[1] != '*': sys.exit(closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth))
-    if args[1] == '*' and args[0] != '*': sys.exit(closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth))
     if args[0] == '*' and args[1] == '*': die("one endpoint must be named: path '*' X (everything that reaches X) or path X '*' (everything X reaches)")
-    sys.exit(path(g, args[0], args[1], show_all, limit, every, max_paths))
+
+    def answer():
+        g = G(args[2] if len(args) > 2 else '.'); g.IN = IN
+        RESULT['query'] = {'from': args[0], 'to': args[1], 'repo': g.repo}
+        if args[0] == '*': return closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth)
+        if args[1] == '*': return closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth)
+        return path(g, args[0], args[1], show_all, limit, every, max_paths)
+
+    if not as_json: sys.exit(answer())
+    # the prose goes to a buffer, not to the caller: one code path produces both, and `prose` is
+    # carried in the document so a machine answer is never LESS than the human one.
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf): code = answer()
+    RESULT['prose'] = buf.getvalue().rstrip('\n').split('\n')
+    print(json.dumps(RESULT, indent=2))
+    sys.exit(code)

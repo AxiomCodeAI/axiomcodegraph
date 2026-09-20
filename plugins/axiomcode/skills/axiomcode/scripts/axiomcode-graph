@@ -19,6 +19,7 @@ the caller, never a drawn edge.
 import os, re, sys, json, time, sqlite3, collections, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE); import ax_contract
 TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$')
 METHOD_KINDS = ('function', 'method', 'constructor', 'module')
 TYPE_KINDS = ('class', 'interface', 'enum', 'type', 'namespace')
@@ -28,7 +29,9 @@ def export(repo, page=None):
     repo = os.path.realpath(repo or '.')
     gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode')
     db = os.path.join(gdir, 'out', 'graph.sqlite')
-    if not os.path.exists(db): sys.exit(f"no graph at {db} — run `axiomcode-graph build {repo}` first")
+    # the same door every other verb goes through: built on demand under the CLI, refused in words
+    # that name the one command that helps under anything else.
+    if not os.path.exists(db) and not ax_contract.ensure_graph(repo, db): sys.exit(ax_contract.no_graph(repo, db))
     con = sqlite3.connect(db); con.row_factory = sqlite3.Row
     q = lambda sql: con.execute(sql).fetchall()
     has = lambda t: bool(con.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone())
