@@ -71,7 +71,15 @@ REASON_HEADS = ("call_unresolvable(", "site_reason(", "expr_type_untypable(",
                 # it is an output vocabulary term like the reasons above. The literal that
                 # DOES decide resolution here — the HTTP verb — is a catalogue
                 # (py_http_route_verb in config-resolution/knobs.dl), not a literal in a body.
-                "entry_point(")
+                "entry_point(",
+                # framework_edge's Mechanism/Detail/Confidence columns and
+                # framework_unjoined's Mechanism/Detail are the same category: a
+                # framework-behavior rule WRITES "task_dispatch" / "by_name" into its
+                # output and never matches one in a body. The literals that DO decide a
+                # framework hop -- the registration decorator, the dispatch method, the
+                # route table, the marker -- are catalogues in config-resolution/knobs.dl,
+                # which is the one file a reviewer reads to see every name assumed.
+                "framework_edge(", "framework_unjoined(")
 
 
 GROUND_FACT = re.compile(r'^[a-z_]+\((?:\s*"[^"]*"\s*,?)+\)\.\s*$')

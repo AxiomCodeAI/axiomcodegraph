@@ -40,3 +40,108 @@ py_http_route_verb("patch").
 py_http_route_verb("head").
 py_http_route_verb("options").
 py_http_route_verb("websocket").
+
+// ============================================================================
+// FRAMEWORK-MEDIATED HOPS — the name lists framework-behavior/ joins on.
+//
+// Everything below names a mechanism by which a framework connects two client
+// declarations WITHOUT a call site between them. The rules that consume these live
+// in framework-behavior/ and mention no framework by name, exactly as the Java
+// convention requires.
+//
+// EVERY LIST HERE IS A TAIL, NEVER A WHOLE NAME, and no list is matched alone. A
+// decorator named `task` and a method named `delay` are both ordinary English; what
+// makes them a dispatch is the SHAPE the rule requires around them. The condition
+// that carries each list is written at its rule, and the negative half of the
+// matching fixture is what holds it honest.
+// ============================================================================
+
+// ── py_task_register_deco(Tail) — registers a function as a queue task ───────
+// `@shared_task`, `@app.task(queue=...)`, `@queue.task`. The decorator REPLACES the
+// name with a proxy, which is why the body becomes unreachable: the producer calls a
+// method on the proxy, never the def.
+//
+// NOT MATCHED ALONE. The rule additionally requires the decorated name to be the
+// RECEIVER of a catalogued dispatch method, so a project's own `@task` decorator on a
+// function nobody dispatches produces nothing.
+py_task_register_deco("task").
+py_task_register_deco("shared_task").
+py_task_register_deco("periodic_task").
+
+// ── py_task_dispatch_method(Name) — the proxy method that enqueues ───────────
+// `.delay(...)` is the shorthand; `.apply_async(...)` is the full form. Both return a
+// handle and run the body in another process.
+//
+// `delay` is an ordinary method name — a scheduler and an animation helper both have
+// one — so the rule matches it only where the receiver resolves to a def carrying a
+// registration decorator above.
+py_task_dispatch_method("delay").
+py_task_dispatch_method("apply_async").
+
+// ── py_fixture_deco(Tail) — declares an injectable fixture ───────────────────
+// A test runner matches a test's PARAMETER NAME against these declarations and calls
+// the fixture to produce the argument. The parameter name is the only join.
+py_fixture_deco("fixture").
+
+// ── py_test_name_prefix(Prefix) — how a runner recognises a test ─────────────
+// Injection happens only into a COLLECTED test. Without this, every function whose
+// parameter happens to share a fixture's name would be wired to it.
+py_test_name_prefix("test_").
+
+// ── py_route_table(Name) — the module-level sequence a URL router reads ──────
+// `urlpatterns = [path("items/<key>/", detail), ...]`. The view is passed as a VALUE;
+// the framework calls it on a request. A `path(...)` outside such a table is an
+// ordinary call, which is why the table name is required.
+py_route_table("urlpatterns").
+py_route_table("routes").
+py_route_table("url_patterns").
+
+// ── py_route_entry_fn(Name) — builds one row of that table ───────────────────
+py_route_entry_fn("path").
+py_route_entry_fn("re_path").
+py_route_entry_fn("url").
+
+// ── py_signal_receiver_deco(Tail) — attaches a handler to a signal ───────────
+// `@receiver(order_placed)`. The publisher writes `order_placed.send(sender=...)`;
+// the two ends are joined by the SIGNAL OBJECT and never by a call.
+py_signal_receiver_deco("receiver").
+
+// ── py_signal_connect_method / py_signal_send_method ─────────────────────────
+// The imperative spellings of the same two ends: `sig.connect(fn)` attaches,
+// `sig.send(sender=...)` publishes. Both are ordinary method names, so each is
+// matched only where the OTHER end of the same signal object is also present.
+py_signal_connect_method("connect").
+py_signal_send_method("send").
+py_signal_send_method("send_robust").
+
+// ── py_di_marker(Name) — a default value naming a provider to call ───────────
+// `def handler(svc = Depends(get_service))`. The marker takes the provider as a
+// VALUE; the framework calls it and passes the result in. A provider may itself
+// declare one, so the chain has to carry.
+py_di_marker("Depends").
+py_di_marker("Security").
+
+// ── py_orm_hook_deco(Tail) — a lifecycle or validation hook the library calls ─
+// `@event.listens_for(User, "before_insert")`, `@validates("email")`,
+// `@field_validator("name")`. The library invokes these; no client call site does.
+py_orm_hook_deco("listens_for").
+py_orm_hook_deco("validates").
+py_orm_hook_deco("field_validator").
+py_orm_hook_deco("model_validator").
+
+// ── py_fixture_scope_file(Basename) — the file whose fixtures are inherited ──
+// A fixture is NOT visible by name alone. The runner resolves it at the TEST'S
+// LOCATION: the test's own module first, then this file in the test's directory and in
+// every ancestor directory. Nothing else is in scope, and two unrelated test modules
+// each declaring a fixture of the same name is ordinary.
+//
+// MEASURED before the visibility condition existed, on a public ASGI framework's test
+// suite: 601 fixture_injection edges, of which 405 had the fixture in a conftest and 82
+// were same-file, both correct, while 114 were cross-file and not a conftest. That is
+// 19% of the relation fabricated, driven by four separate modules each declaring
+// `@fixture def client(...)`, so every test taking `client` got four edges.
+//
+// The basename is a CATALOGUE fact rather than a literal in a rule body, both because
+// the literal gate requires it and because it is exactly the kind of name a reviewer
+// should be able to find in one file.
+py_fixture_scope_file("conftest.py").
