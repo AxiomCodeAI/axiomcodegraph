@@ -1,0 +1,9 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "the accessor door carries the tier of the call it is built from: a call the engine could not narrow to one target is `one of a set`, not `resolved` (#1079)",
+   "run": ["impact", "Box.size", "--kind", "field"],
+   "want": ["[one of a set] Caller.use", "reads it through getSize()"],
+   "avoid": ["[resolved] Caller.use"]},
+  {"why": "only the certainty was overstated, so the row itself is still there — the caller does reach the field through that accessor",
+   "run": ["impact", "Box.size", "--kind", "field"],
+   "want": ["Caller.use"]}]}
