@@ -1,0 +1,6 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a statement inserted at the top of a method body is a change to THAT METHOD, though the line it is anchored to is the brace that opens the body — the brace style this ecosystem is written in",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.cs", "--new", "{repo}/new.cs", "--file", "src/Widgets.cs"],
+   "want": ["body", "Widgets.Total"],
+   "avoid": ["no changed declaration"]}]}

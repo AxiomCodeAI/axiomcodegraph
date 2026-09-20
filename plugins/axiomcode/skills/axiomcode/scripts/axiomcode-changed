@@ -256,7 +256,14 @@ class Changed:
             owner = narrowest(after, {'method', 'function', 'constructor', 'module'}) if after else None
             # a blank line between two declarations belongs to neither: an insertion anchored there used to be charged
             # to the preceding one, so the whole answer could be about a declaration whose text did not change
-            if is_add and owner and owner[0] <= after < owner[1] and after <= len(OL) and not noise(OL[after - 1]):   # strictly inside a callable's body: that callable changed
+            # `noise` is the right test for "did this line change", and the WRONG one for "what does an insertion
+            # here belong to". An OPENING brace on its own line is not no-man's-land: it is the callable's own
+            # body opening, and in the brace style .NET is written in it is where every insertion at the top of a
+            # method body anchors. Rejecting it charged the edit to the enclosing TYPE, so a C# edit named a class
+            # and no method, and `test-impact` had no changed declaration to seed from (#1102). The blank line this
+            # guard was written for is still rejected, and so is a closing brace, which can sit outside the body.
+            anchored = after <= len(OL) and (OL[after - 1].strip() == '{' or not noise(OL[after - 1]))
+            if is_add and owner and owner[0] <= after < owner[1] and anchored:   # strictly inside a callable's body: that callable changed
                 if not any(e['id'] == owner[2] for e in out):
                     out.append(dict(kind='body', symbol=owner[4], id=owner[2], file=rel, line=owner[0], end=owner[1], old_lines=[after], target=owner[4], target_kind='method'))
                 # and the inserted lines may still declare something at the type's level (a method extracted from this body)
