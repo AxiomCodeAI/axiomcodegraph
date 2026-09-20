@@ -120,3 +120,45 @@ entry_point(m, "test") :- call_site("client", _, cn, _, _, ce, _),
 // end emits. Until the parser emits them, `entry_module` stays the structural
 // approximation (a module nothing imports), which misses exactly the case that
 // matters: a library whose index.ts is imported by its own tests.
+
+// ── DECORATOR-DRIVEN ROOTS (Nest, Angular) ──────────────────────────────────
+// The gap the section above described, now closed. projections/decorators.dl gives
+// annotation_on the same shape Java and Python already carry, so these three rules
+// are the annotation-driven rules from java/engine/config-resolution, ported.
+//
+// EVERY RULE IS GUARDED BY THE CLASS DECORATOR, and that is the whole soundness
+// argument. A decorator name on its own is a name anyone may use: a project is free
+// to write its own `@Get` or a method called `ngOnInit`. What is not accidental is the
+// PAIR — a route decorator on a method of a class the container owns. Requiring both
+// is what keeps this layer declining rather than guessing, which is the contract
+// stated at the top of this file.
+
+// ── http: a method carrying a route decorator, inside a container-owned class ──
+// `@Controller('/orders') class C { @Get(':id') getOne() {} }`. Nothing calls getOne;
+// the router does, by reading metadata the decorator attached.
+entry_point(m, "http") :- annotation_on("client", dn, _, "METHOD_DECLARATION", m, _),
+    ts_route_decorator(dn),
+    method_owner("client", owner, m),
+    annotation_on("client", cn, _, "CLASS_DECLARATION", owner, _),
+    ts_framework_class_decorator(cn).
+
+// ── bean_ctor: the container constructs the class, so its constructor is a root ──
+// Written as two rules rather than one with a disjunction because a class that
+// declares no constructor gets a DEFAULT_CONSTRUCTOR, and it is the one that must be
+// a root for an injected dependency to be reachable at all. Missing it would leave
+// every no-argument service dead.
+entry_point(m, "bean_ctor") :- annotation_on("client", cn, _, "CLASS_DECLARATION", t, _),
+    ts_framework_class_decorator(cn),
+    method_owner("client", t, m),
+    method_kind("client", "CONSTRUCTOR", _, m).
+entry_point(m, "bean_ctor") :- annotation_on("client", cn, _, "CLASS_DECLARATION", t, _),
+    ts_framework_class_decorator(cn),
+    method_owner("client", t, m),
+    method_kind("client", "DEFAULT_CONSTRUCTOR", _, m).
+
+// ── lifecycle: a hook the container calls by name, with no call site anywhere ──
+entry_point(m, "lifecycle") :- annotation_on("client", cn, _, "CLASS_DECLARATION", t, _),
+    ts_framework_class_decorator(cn),
+    method_owner("client", t, m),
+    method_decl("client", name, _, _, m),
+    ts_framework_lifecycle_method(name).

@@ -79,11 +79,12 @@ A repository with several languages is one command: the parser emits every langu
 <p>
   <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/AxiomCodeAI/axiom-code-graph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/pull/418"><img alt="Nightly: not yet enabled" src="https://img.shields.io/badge/nightly-not%20yet%20enabled-lightgrey"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
 
-Build: the regression suites and the parser's suites on every merge to `main` (the badge reads "no status" until the workflow has run on `main`). Engines: the prebuilt engine packages on npm; the badge switches to the publish workflow's status once the first publish has run.
+Build: the regression suites and the parser's suites on every merge to `main` (the badge reads "no status" until the workflow has run on `main`). Engines: the prebuilt engine packages on npm; the badge switches to the publish workflow's status once the first publish has run. Nightly: once enabled, what the pull-request run cannot afford — the engines built for every platform including darwin-arm64, which needs the self-hosted Apple runner and so is skipped on pull requests, and the release packed the way `publish-npm.yml` packs it without uploading.
 
 ## Quick start
 

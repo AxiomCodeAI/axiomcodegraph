@@ -41,6 +41,47 @@ py_http_route_verb("head").
 py_http_route_verb("options").
 py_http_route_verb("websocket").
 
+// ── py_grpc_servicer_suffix(Suffix) / py_grpc_generated_module_suffix(Suffix) ──
+// The two names protoc chooses, and the only two this ecosystem needs.
+//
+// `grpc_python_plugin` writes one module per `.proto`, named `<stem>_pb2_grpc.py`, and in
+// it one abstract base per service, named `<Service>Servicer`. Both spellings are the
+// plugin's, not a project's: they are produced by the code generator, so a codebase cannot
+// choose them differently and a new gRPC project needs no addition here.
+//
+// NEITHER IS SUFFICIENT ALONE, and config-resolution/entry-points.dl requires both. A class
+// called `OrderServicer` in ordinary hand-written source is not a gRPC servicer, and a
+// module suffix on its own says nothing about which classes in it are service bases. The
+// pair is what makes the match provenance-based rather than name-based.
+py_grpc_servicer_suffix("Servicer").
+py_grpc_generated_module_suffix("_pb2_grpc.py").
+
+// ── py_grpc_stub_suffix(Suffix) / py_grpc_channel_verb(Verb) ──────────────────
+// The client half of what protoc writes, and the four multicallable factories grpc offers.
+//
+// `<Service>Stub` sits beside `<Service>Servicer` in the same generated module, and its
+// `__init__` builds one attribute per rpc from `channel.<verb>('/pkg.Service/Rpc', ...)`.
+// The verb set is grpc's own and is closed by the protocol — an rpc is unary or streaming
+// on each side, so there are exactly four combinations and there will not be a fifth.
+py_grpc_stub_suffix("Stub").
+py_grpc_channel_verb("unary_unary").
+py_grpc_channel_verb("unary_stream").
+py_grpc_channel_verb("stream_unary").
+py_grpc_channel_verb("stream_stream").
+
+// ── py_grpc_transport(Name) — the transport `remote_edge` is tagged with ─────
+// A column value, kept here for the same reason every other framework name is: a rule
+// must not spell it. Java carries its transports as a column of cfg_serves_ann /
+// cfg_sends_method rather than as a literal in destinations.dl, and this is that.
+py_grpc_transport("grpc").
+
+// ── py_remote_confidence_exact(Name) — the one confidence tier gRPC has ──────
+// Java's destinations.dl carries `exact` and `route_shape`, because an HTTP client that
+// concatenates a path has to be matched to a template. gRPC has no such case: protoc
+// writes the full method name on both ends, so either the two strings are equal or the
+// ends are different rpcs. The value is a fact here so no rule spells it, and so that a
+// second tier, if one ever exists, is added beside this one rather than inside a rule.
+py_remote_confidence_exact("exact").
 // ============================================================================
 // FRAMEWORK-MEDIATED HOPS — the name lists framework-behavior/ joins on.
 //

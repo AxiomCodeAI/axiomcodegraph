@@ -69,6 +69,7 @@ def main():
     print(f"── entry_point ({len(seen)}) ──")
     for reason, who in sorted(seen):
         print(f"  {reason:10s} {who}")
+
     return 0
 
 
