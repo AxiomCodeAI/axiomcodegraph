@@ -1829,9 +1829,48 @@ def main(argv):
         for b in bits: print(f"    · {b}")
         if not bits and not calls and not contract and not weak and not ov: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
         if not vis and g.has('methods'): print("    · visibility is not recorded in this graph, so exported surface cannot be told from internal")
-    print("verified: nothing to check — no resolved edge is claimed in this answer (every entry is by name, in scope, text, or one of a target set)" if hops == 0 else
-          f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
-    if not reached and D: print("bound: the closure could not start — every dependent above is reached by something other than a resolved call (by name, in scope, text), so what reaches THEM is not in this answer")
+    # WHAT hops == 0 MEANS IS "NO ROW CLAIMS A CALL EDGE", NOT "NO ROW IS RESOLVED". The old parenthetical —
+    # "every entry is by name, in scope, text, or one of a target set" — is a claim about the rows, and it is
+    # false for a whole family of them: a configuration binding, a dependency injection and a @Value
+    # placeholder are all `resolved` and none is a call, so there is genuinely nothing to look up. On a
+    # config-key target the answer printed three [resolved] rows and then said it contained no resolved
+    # entry, which tells a reader the answer is weaker than it is.
+    if hops == 0:
+        mix = collections.Counter(x[3] for x in D)
+        have = ', '.join(f"{n} {c}" for c, n in mix.most_common()) if mix else 'nothing'
+        # the explanatory half belongs only where it applies: a row that is `resolved` and still not a call is
+        # the surprising case and needs naming; an answer that is all by-name rows does not, and saying it
+        # there reads as an excuse for evidence the answer never claimed.
+        print("verified: nothing to check — no entry in this answer claims a CALL EDGE, so there is none to look up"
+              + (f" (the entries are: {have})" if mix else "")
+              + (". A configuration binding, a dependency injection and a @Value placeholder are each recorded by the"
+                 " engine and resolved, and none of them has a call site." if mix.get('resolved') else ""))
+    else:
+        print(f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
+    # AN EMPTY CLOSURE HAS MORE THAN ONE CAUSE, and this line used to assert one of them. It fires on
+    # "the closure is empty" and then said every dependent was reached by something other than a resolved
+    # call — which, printed one line under `verified: 2 printed edge(s) … all present`, contradicts the
+    # rows it describes. A closure is also empty when the dependents ARE resolved callers and simply have
+    # no callers of their own: an entry point, a handler a framework invokes, a top-level main.
+    if not reached and D:
+        if IN and any(0 < int(d) <= depth for _m, d, _q in res['reach']):
+            print(f"bound: the closure is not empty — every method it reached is outside --in {IN}, so none is listed. Drop --in to see them.")
+        elif seeds & direct_ids:
+            # THE DEPENDENTS THEMSELVES ARE SEEDS (a type, config, decoration or field target seeds with its
+            # own direct rows — see seed_of in dl/impact.dl), so an empty closure means nothing calls THEM.
+            # A type target also seeds with the type node, which nothing ever calls, so the test is
+            # intersection and not difference.
+            print("bound: the closure is empty because nothing in this graph calls the dependent(s) above — they are "
+                  "entry points, or their callers are outside it. What reaches THEM is not in this answer.")
+        elif seeds:
+            # the closure walked back from the TARGET (a method / param / var target seeds with the target
+            # alone), so an empty closure means no dependent above is an edge it can walk. That is what the
+            # old sentence said, and it is right for exactly this case and no other.
+            print("bound: the closure could not start — no dependent above is a resolved call the closure can walk "
+                  "back from, so what reaches THEM is not in this answer")
+        else:
+            print("bound: the closure could not start — no dependent above is an edge it can walk back from, so what "
+                  "reaches THEM is not in this answer")
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
     # an override of a type the graph does not contain is called BY that library / framework: "nothing reaches it" would be a lie
     outside = []
