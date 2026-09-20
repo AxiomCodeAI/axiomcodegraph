@@ -667,6 +667,14 @@ class Impact:
             # the bean names, the fluent name (a record accessor, a plain-name getter), and the same name without a
             # leading underscore (a Python property over a private attribute)
             acc += [(fid, 'get' + cap, 'read'), (fid, 'is' + cap, 'read'), (fid, 'set' + cap, 'write'), (fid, f['name'], 'read')]
+            # C# spells a generated accessor with an underscore -- get_ZipCode / set_ZipCode / init_City -- so the
+            # bean names above match none of them and a property's readers are invisible even though the IR does
+            # record both the backing field and the accessor. (An auto-property's field also has no owner in the
+            # C# IR today, which defeats the join before it gets here; that is a parser defect, filed separately.
+            # These names are what makes the join work once the owner is there, and they cost nothing meanwhile.)
+            acc += [(fid, 'get_' + f['name'], 'read'), (fid, 'set_' + f['name'], 'write'),
+                    (fid, 'init_' + f['name'], 'write'), (fid, 'get_' + cap, 'read'),
+                    (fid, 'set_' + cap, 'write'), (fid, 'init_' + cap, 'write')]
             if f['name'].startswith('_') and len(f['name']) > 1: acc.append((fid, f['name'].lstrip('_'), 'read'))
         W('member', members); W('owner', owners); W('field', fields); W('accessor', acc)
         # the accesses the ENGINE resolved, joined on the same id the `field` fact uses: symbols.id for a
