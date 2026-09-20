@@ -350,6 +350,25 @@ for dir in "$HERE"/cases/*/; do
   fi
 
 
+  # ── the FRAMEWORK-EDGE golden ─────────────────────────────────────────────
+  # A fourth artifact, and for a sharper reason than the third. A framework hop is
+  # emitted as framework_edge and never as a call_chain_edge, so .edges and .tiers
+  # cannot see it; .entries sees only the entry-point half, never which producer
+  # reaches which consumer. Unpinned, every rule in framework-behavior/ could regress
+  # to emitting nothing and every case would still pass, because "no framework edge"
+  # reads exactly like "this case has no framework edge". See tools/framework_report.py.
+  if ! "$PY" "$HERE/tools/framework_report.py" "$w/ir" "$w/out/raw" > "$w/actual.framework" 2>"$w/framework.log"; then
+    echo "FAIL (framework report — see $w/framework.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+  fexp="$HERE/expected/$name.framework"
+  if [ "$BLESS" = "1" ]; then
+    cp "$w/actual.framework" "$fexp"
+  elif [ ! -f "$fexp" ]; then
+    echo "FAIL (no framework golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue
+  elif ! diff -q "$fexp" "$w/actual.framework" >/dev/null; then
+    echo "FAIL (framework edges changed)"; diff -u "$fexp" "$w/actual.framework" | sed 's/^/    /' | head -20
+    fail=$((fail+1)); failed+=("$name"); continue
+  fi
+
   # ── DISPATCH-ENVELOPE golden ──────────────────────────────────────────────
   # The edge golden records what the engine CONCLUDED. dispatch_candidates records what
   # the hierarchy ADMITTED — the set those edges were narrowed from, and the only table

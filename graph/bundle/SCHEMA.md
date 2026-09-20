@@ -600,8 +600,8 @@ Methods the runtime invokes without a client call site — process roots, test m
 | value | languages | meaning |
 |---|---|---|
 | `main` | java | A static `main`. |
-| `test` | java, typescript | Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), which the runner invokes. |
-| `http` | java, typescript | Java: a JAX-RS / Spring MVC handler. TypeScript: a handler passed to a route registration (`app.get('/x', h)`), or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`). |
+| `test` | java, typescript | Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), inline or named, which the runner invokes. |
+| `http` | java, python, typescript | A route handler a web framework invokes on a request. Java: a JAX-RS / Spring MVC handler. Python: a function registered with a decorator naming an HTTP verb and a URL path. TypeScript: a handler passed to a route registration (`app.get('/x', h)`), inline or named, or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`). |
 | `cli` | java | A CLI command method (picocli etc.). |
 | `bean_ctor` | java, typescript | Constructor of a container-managed class. TypeScript: the class carries a framework decorator (`@Injectable`, `@Component`, `@Module`), so the container constructs it and nothing in the repository does. |
 | `factory` | java | A `@Bean` factory method. |
@@ -609,6 +609,12 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `queue` | java | A message-listener method. |
 | `scheduled` | java | A `@Scheduled` method. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
+| `task` | python | A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it. |
+| `fixture` | python | A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument. |
+| `url` | python | A view named as a value in a module-level route table. The framework calls it on a request. |
+| `signal_receiver` | python | A handler attached to a signal, by decorator or by connect(). It runs when the signal fires, whether or not this tree contains the send. |
+| `di_provider` | python | A provider named in a dependency-injection marker in a parameter default. The framework calls it and passes the result in. |
+| `orm_hook` | python | A lifecycle or validation hook registered by decoration. The data layer calls it; nothing in the client does. |
 
 **Notes**
 

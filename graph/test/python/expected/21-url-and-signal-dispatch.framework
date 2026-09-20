@@ -1,0 +1,10 @@
+── framework_edge (7) ──
+  signal_dispatch    registered  main.place_order@main.py -> main.on_order_connected@main.py   [signal]
+  signal_dispatch    registered  main.place_order@main.py -> main.on_order_placed@main.py   [signal]
+  url_dispatch       registered  main.<module>@main.py -> main.detail@main.py   [route_table]
+  url_dispatch       registered  main.<module>@main.py -> main.index@main.py   [route_table]
+  url_dispatch       registered  main.<module>@main.py -> main.legacy@main.py   [route_table]
+  url_dispatch       registered  urls.<module>@urls.py -> views.profile@views.py   [route_table]
+  url_dispatch       registered  urls.<module>@urls.py -> views.settings_page@views.py   [route_table]
+── framework_unjoined (2) ──
+     2  signal_dispatch    no_receiver

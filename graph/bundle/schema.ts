@@ -634,8 +634,8 @@ export const VOCAB: readonly VocabSpec[] = [
 
   // entry_points.reason
   { table: 'entry_points', column: 'reason', value: 'main', languages: J, meaning: 'A static `main`.' },
-  { table: 'entry_points', column: 'reason', value: 'test', languages: ['java', 'typescript'], meaning: 'Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), which the runner invokes.' },
-  { table: 'entry_points', column: 'reason', value: 'http', languages: ['java', 'typescript'], meaning: 'Java: a JAX-RS / Spring MVC handler. TypeScript: a handler passed to a route registration (`app.get(\'/x\', h)`), or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`).' },
+  { table: 'entry_points', column: 'reason', value: 'test', languages: ['java', 'typescript'], meaning: 'Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), inline or named, which the runner invokes.' },
+  { table: 'entry_points', column: 'reason', value: 'http', languages: ['java', 'python', 'typescript'], meaning: 'A route handler a web framework invokes on a request. Java: a JAX-RS / Spring MVC handler. Python: a function registered with a decorator naming an HTTP verb and a URL path. TypeScript: a handler passed to a route registration (`app.get(\'/x\', h)`), inline or named, or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`).' },
   { table: 'entry_points', column: 'reason', value: 'cli', languages: J, meaning: 'A CLI command method (picocli etc.).' },
   { table: 'entry_points', column: 'reason', value: 'bean_ctor', languages: ['java', 'typescript'], meaning: 'Constructor of a container-managed class. TypeScript: the class carries a framework decorator (`@Injectable`, `@Component`, `@Module`), so the container constructs it and nothing in the repository does.' },
   { table: 'entry_points', column: 'reason', value: 'factory', languages: J, meaning: 'A `@Bean` factory method.' },
@@ -643,6 +643,12 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'entry_points', column: 'reason', value: 'queue', languages: J, meaning: 'A message-listener method.' },
   { table: 'entry_points', column: 'reason', value: 'scheduled', languages: J, meaning: 'A `@Scheduled` method.' },
   { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: ['typescript', 'javascript'], meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },
+  { table: 'entry_points', column: 'reason', value: 'task', languages: P, meaning: 'A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it.' },
+  { table: 'entry_points', column: 'reason', value: 'fixture', languages: P, meaning: 'A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument.' },
+  { table: 'entry_points', column: 'reason', value: 'url', languages: P, meaning: 'A view named as a value in a module-level route table. The framework calls it on a request.' },
+  { table: 'entry_points', column: 'reason', value: 'signal_receiver', languages: P, meaning: 'A handler attached to a signal, by decorator or by connect(). It runs when the signal fires, whether or not this tree contains the send.' },
+  { table: 'entry_points', column: 'reason', value: 'di_provider', languages: P, meaning: 'A provider named in a dependency-injection marker in a parameter default. The framework calls it and passes the result in.' },
+  { table: 'entry_points', column: 'reason', value: 'orm_hook', languages: P, meaning: 'A lifecycle or validation hook registered by decoration. The data layer calls it; nothing in the client does.' },
 
   // dispatch_candidates.basis
   { table: 'dispatch_candidates', column: 'basis', value: 'nominal', languages: ['java', 'typescript'], meaning: 'A written extends/implements reaches the candidate\'s owner from the base\'s owner. The strongest evidence there is: the author declared the relationship.' },
