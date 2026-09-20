@@ -233,6 +233,12 @@ fi
 # against a handful of codebases, and a literal copied out of one would score well here
 # and generalise to nothing (issue #91).
 python3 "$HERE/tools/literal_gate.py" || exit 1
+# Refuse a MEASURED SUBJECT's name in a tracked file. The publishing guard is a hook on
+# the text of an issue, a PR or a commit message, so it never sees a file that is already
+# committed; one such name reached main that way (#1144). Repo-wide rather than Python
+# only, because the tree is, and it SKIPS with a message when the subject list is absent,
+# the way the CPython oracle does. See graph/test/tools/name_gate.py and #1145.
+python3 "$ROOT/graph/test/tools/name_gate.py" "$ROOT" || exit 1
 
 mkdir -p "$WORK" "$HERE/expected"
 # Empty library root — see the CLIENT->CLIENT note in the header.
