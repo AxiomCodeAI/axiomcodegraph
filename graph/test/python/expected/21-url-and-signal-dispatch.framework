@@ -1,6 +1,7 @@
-── framework_edge (7) ──
+── framework_edge (8) ──
   signal_dispatch    registered  main.place_order@main.py -> main.on_order_connected@main.py   [signal]
   signal_dispatch    registered  main.place_order@main.py -> main.on_order_placed@main.py   [signal]
+  signal_dispatch    registered  ship.ship_order@ship.py -> handlers.on_shipped@handlers.py   [signal]
   url_dispatch       registered  main.<module>@main.py -> main.detail@main.py   [route_table]
   url_dispatch       registered  main.<module>@main.py -> main.index@main.py   [route_table]
   url_dispatch       registered  main.<module>@main.py -> main.legacy@main.py   [route_table]
