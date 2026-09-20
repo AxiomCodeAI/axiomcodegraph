@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source]
+"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json]
 
 THE FRONT DOOR — the context an agent needs before it can ask anything precise. Every other verb needs a name you already have — a method, a type, a file:line. That is
 the wrong first question on an unfamiliar repository, and it is measurably where an agent gives up: in a
@@ -199,10 +199,15 @@ def neighbourhood(g, seed_ids, cap=3):
     return depth
 
 
+RESULT = {'task': None, 'repo': None, 'scope': None, 'scope_offered': None, 'terms': [],
+          'entry_points': [], 'files': []}
+
+
 def main(argv):
     budget, seeds_wanted, scopes, args = 40, 6, [], []
     scope_offered = False
     show_source = False
+    as_json = False
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -213,12 +218,14 @@ def main(argv):
         elif a == '--in' and i + 1 < len(argv): scopes += [x.strip() for x in argv[i + 1].split(',') if x.strip()]; i += 2
         elif a == '--in-offered': scope_offered = True; i += 1
         elif a == '--source': show_source = True; i += 1
+        elif a == '--json': as_json = True; i += 1
         elif a in ('-h', '--help'): print(__doc__); return 0
         else: args.append(a); i += 1
     if not args: print(__doc__); return 2
     task = args[0]
     repo = args[1] if len(args) > 1 else '.'
     g = G(repo)
+    RESULT['task'], RESULT['repo'] = task, g.repo
 
     body = task_text(task)
     terms = task_terms(body)
@@ -294,6 +301,11 @@ def main(argv):
     scored = {sid: v for sid, v in scored.items() if not is_synthetic(g.sym.get(sid, {}).get('name'))}
     seeds = pick_seeds(g, scored, terms, seeds_wanted)
 
+    RESULT['terms'] = list(terms)
+    RESULT['scope'], RESULT['scope_offered'] = (scopes[0] if scopes else None), bool(scope_offered)
+    RESULT['entry_points'] = [{'name': g.disp(sid), 'at': g.loc(sid),
+                               'why': (f"matches '{term}'" if term else 'best overall match')}
+                              for sid, term, sc in seeds]
     print(f"task terms: {' · '.join(terms[:10])}" + (f" (+{len(terms)-10})" if len(terms) > 10 else ''))
     print(f"\nentry points ({len(seeds)}, best match per term — the graph's own words, not a guess):")
     for sid, term, sc in seeds:
@@ -358,6 +370,11 @@ def main(argv):
         if nm not in cur or sc > cur[nm][0]:
             cur[nm] = (sc, len(matched), nm)
             if sy.get('line'): span_of[(f, nm)] = (sy['line'], sy.get('end_line') or sy['line'])
+    RESULT['files'] = [{'file': f, 'how': ('name only, no call path' if d == 99 else f'hop {d}'),
+                        'symbols': n, 'task_terms_matched': hit,
+                        'declarations': [nm for _sc, _m, nm in
+                                         sorted(best_in_file.get(f, {}).values(), key=lambda x: (-x[0], -x[1], x[2]))[:DECLS_PER_FILE]]}
+                       for f, (d, hit, n) in shown]
     for f, (d, hit, n) in shown:
         mark = f"  [{hit} task term(s)]" if hit else ""
         how = "name only, no call path" if d == 99 else f"hop {d}"
@@ -386,5 +403,18 @@ def main(argv):
     return 0
 
 
+def cli(argv):
+    """--json: the same answer as one document. The prose is produced by the same code path and carried
+    in `prose`, so the machine shape is never LESS than the human one — a second traversal to build it
+    would be a second implementation to keep in step."""
+    if '--json' not in argv: sys.exit(main(argv))
+    import contextlib, io, json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf): code = main(argv)
+    RESULT['prose'] = buf.getvalue().rstrip('\n').split('\n')
+    print(json.dumps(RESULT, indent=2))
+    sys.exit(code)
+
+
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+    cli(sys.argv[1:])

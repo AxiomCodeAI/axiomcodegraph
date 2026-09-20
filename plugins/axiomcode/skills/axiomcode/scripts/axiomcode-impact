@@ -12,6 +12,8 @@ A target is a declaration, written as it appears in the code. Its kind is read f
     server.error.path                                  a configuration key (@Value / @ConfigurationProperties / a .yml key), from the
                                                        engine's framework facts — an unknown key stops and says so, never a name match
     --kind method|field|type|param|typeparam|var|config  when the same name is declared as more than one kind
+           (the language's own word is accepted too: class / interface / enum / namespace → type, const /
+            enum_member / variable → field, function / constructor → method)
     --delete                                           add a verdict: is it safe to delete, and what the graph cannot vouch for
     --depends                                          the OTHER direction: what this declaration calls, which is what an agent
                                                        editing it usually has to change alongside. Dependents answer "who breaks
@@ -250,7 +252,31 @@ class Impact:
             if n == low or n.endswith('.' + low): return ''      # the prefix IS part of the name
         return typed.rsplit('.', 2)[0]
 
+    # `--kind` HAS ITS OWN VOCABULARY, AND IT IS NOT THE INDEX'S. The flag takes the seven words the
+    # rules are written in (method/field/type/param/typeparam/var/config); `symbols.kind` holds what
+    # the language calls it — class, interface, enum, namespace, const, enum_member, variable,
+    # function, constructor. A caller reading the graph, or the language, passes one of those, and
+    # `--kind class` on a class used to die with "nothing of kind class named X in the graph": a
+    # sentence that blames the declaration for a wrong flag value, and one that `--kind wibble` got
+    # word for word. So the language's own names are accepted as synonyms, and a word that is neither
+    # is refused as a bad VALUE, naming the set.
+    KIND_ALIAS = {'class': 'type', 'interface': 'type', 'enum': 'type', 'namespace': 'type',
+                  'struct': 'type', 'record': 'type', 'trait': 'type',
+                  'const': 'field', 'enum_member': 'field', 'variable': 'field', 'property': 'field',
+                  'function': 'method', 'constructor': 'method',
+                  'local': 'var', 'parameter': 'param'}
+    KINDS = ('method', 'field', 'type', 'param', 'typeparam', 'var', 'config')
+
+    def kind_arg(self, kind):
+        if kind is None: return None
+        k = self.KIND_ALIAS.get(kind, kind)
+        if k not in self.KINDS:
+            die(f"--kind {kind} is not a kind this asks about. It takes: " + ' | '.join(self.KINDS) +
+                "\n  (the language's own words are accepted too: " + ', '.join(sorted(self.KIND_ALIAS)) + ")")
+        return k
+
     def resolve(self, sel, kind=None):
+        kind = self.kind_arg(kind)
         out = self._resolve(sel, kind)
         # a target whose leading segments match nothing is not the declaration it happens to end with
         pre = self.prefix_note(sel, out) if out else ''
