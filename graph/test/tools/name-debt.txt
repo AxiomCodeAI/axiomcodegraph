@@ -1,0 +1,22 @@
+# Files that carried a measured subject's name before graph/test/tools/name_gate.py
+# existed. PATHS ONLY, never names: the names themselves live outside this repository.
+#
+# This behaves like the suite's expected/<case>.known-missing files. A name in a file
+# NOT listed here fails the gate, and a file listed here that has become CLEAN also
+# fails, so the list may only shrink and the debt cannot rot.
+#
+# Each of these is a note of the form "measured on <project>: N rows". The note is
+# genuinely useful and the fix is not simply to delete the name: "measured on a
+# 105,457-row IR" keeps the magnitude and drops the attribution. See #1145 for the two
+# entries that need a decision rather than a rewrite.
+
+graph/java/engine/call-edge-generation/type_use.dl
+graph/java/engine/resolution/type-flow.dl
+graph/java/engine/resolution/type-resolution.dl
+graph/pipeline/run-souffle.sh
+graph/test/java/tools/field_oracle.py
+graph/test/java/tools/score_fields.py
+graph/test/python/runtime-oracle/corpus.tsv
+parser/src/parsers/java/extractors/type-registry-extractor.ts
+parser/src/parsers/python/extractors/python-resolution-linker.ts
+parser/src/test-data/java/expressions/LocalScopeShadowing.java

@@ -84,6 +84,8 @@ param_type	resolution-param-type.csv
 param_flow_outside_declaration	assumption-flow-outside-declaration.csv
 method_dispatch_candidate	dispatch-candidates.csv
 entry_point	entry-point.csv
+framework_edge	framework-edge.csv
+framework_unjoined	framework-unjoined.csv
 remote_edge	remote-edge.csv
 remote_unserved	remote-unserved.csv
 remote_unsent	remote-unsent.csv

@@ -1,0 +1,14 @@
+── framework_edge (0) ──
+── framework_unjoined (0) ──
+── remote_edge (3) ──
+  grpc   /greet.Greeter/Chat
+      client.via_stub_streaming (client.py)
+   -> main.GreeterServicer.Chat (main.py)   [exact]
+  grpc   /greet.Greeter/SayHello
+      client.via_stub (client.py)
+   -> main.GreeterServicer.SayHello (main.py)   [exact]
+  grpc   /greet.Greeter/StreamReplies
+      client.via_raw_channel (client.py)
+   -> main.GreeterServicer.StreamReplies (main.py)   [exact]
+── remote_unserved (0) ──
+── remote_unsent (0) ──

@@ -118,7 +118,7 @@ grpc_servicer_base(t) :-
     strlen(path) > strlen(msuf),
     substr(path, max(0, strlen(path) - strlen(msuf)), strlen(msuf)) = msuf.
 
-entry_point(m, "grpc") :-
+entry_point(m, "grpc_service") :-
     type_base_resolved("client", sub, _, base),
     grpc_servicer_base(base),
     method_owner("client", sub, m),
