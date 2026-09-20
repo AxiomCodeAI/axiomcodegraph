@@ -1,0 +1,8 @@
+── framework_edge (5) ──
+  task_dispatch      registered  main.enqueue_purge@main.py -> main.purge_stale@main.py   [delay]
+  task_dispatch      registered  main.enqueue_rebuild@main.py -> main.rebuild_index@main.py   [apply_async]
+  task_dispatch      registered  main.enqueue_report@main.py -> main.send_report@main.py   [delay]
+  task_dispatch      registered  producer.enqueue_imported@producer.py -> tasks.remote_report@tasks.py   [delay]
+  task_dispatch      registered  producer.enqueue_qualified@producer.py -> tasks.remote_purge@tasks.py   [apply_async]
+── framework_unjoined (3) ──
+     3  task_dispatch      delay

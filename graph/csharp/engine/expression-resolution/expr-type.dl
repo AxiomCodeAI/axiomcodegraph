@@ -313,6 +313,162 @@ expr_type(prov, e, gk) :-
     expr_type(prov, q, qgk),
     member_lookup(prov, qgk, n, "field", f), field_type(prov, f, gk).
 
+// ── A GENERIC ARGUMENT, SUBSTITUTED FOR THE PARAMETER IT FILLS ──────────────
+// `IWrap<Settings> w; w.Value.Flag` -- `Value` is declared `T`, and without binding
+// T to Settings the access resolves and the type of the RESULT is the type parameter,
+// so `.Flag` has no receiver and the chain dies one hop in.
+//
+// TWO CLAUSES ALREADY DO THIS FOR ONE POSITION OF ONE SHAPE EACH: the AWAIT clause
+// above takes argument 0 off `Task<T>`, and expr_element_type takes argument 0 off a
+// one-argument collection. Both are hard-coded, which is why `Task<T>` and
+// `IEnumerable<T>` work and nothing else does. This is the same step done by NAME
+// and POSITION instead of by assumption, so a two-parameter generic cannot have its
+// arguments crossed and a non-generic member of a generic type is untouched.
+//
+// THE MEMBER MUST BE DECLARED ON THE TYPE THE REFERENCE NAMES, not merely found on
+// it. A derived type may RENAME its base's parameter -- `class Wrap<U> : IWrap<U>` --
+// and matching a base's parameter name against a derived reference's arguments would
+// then substitute by a coincidence of spelling. Inherited members are left to resolve
+// as they did; the direct case is the one the options, logger and repository shapes
+// are written in.
+type_arg_for(prov, tr, pname, argGk) :-
+    type_ref_resolves(prov, tr, gk),
+    type_group(prov, t, gk),
+    type_ref_arg(prov, tr, pos, argRef),
+    type_param_decl(prov, t, "TYPE", pos, pname, _),
+    type_ref_resolves(prov, argRef, argGk).
+
+// A property or field whose declared type IS the parameter -- not one that merely
+// HAS it as an argument. `List<T> Items` is not substituted here: its type is
+// List<T>, the element handling above already reads its argument, and treating the
+// two alike would type `Items` as the element.
+member_type_substituted(prov, tr, n, "property", argGk) :-
+    type_arg_for(prov, tr, pname, argGk),
+    type_ref_resolves(prov, tr, gk),
+    property_in_type(prov, gk, p), property_decl(prov, n, _, p),
+    property_type_name(prov, p, pname, _).
+member_type_substituted(prov, tr, n, "field", argGk) :-
+    type_arg_for(prov, tr, pname, argGk),
+    type_ref_resolves(prov, tr, gk),
+    field_in_type(prov, gk, f), field_decl(prov, n, _, f),
+    field_type_name(prov, f, pname, _).
+
+// ── ...AND THROUGH A BASE THAT WAS GIVEN THE PARAMETER ──────────────────────
+// A generic base class holding the member is how a repository, a handler and a
+// cache are written -- `class OrderRepo : RepoBase<Order>` and `class Repo<T> :
+// RepoBase<T>` -- so stopping at the declaring type would leave the shape that
+// motivated this unfixed.
+//
+// COMPOSED THROUGH THE HERITAGE REFERENCE, NOT BY NAME. `class D<T> : B<U>` is legal
+// and `class D<T> : B<int>` is commoner still, so a base's parameter name means
+// nothing to a derived reference. What connects them is the reference D WRITES for
+// its base: `B<T>` puts D's own parameter in B's position 0, and only then does a
+// `D<X>` reference supply X for B's parameter 0. A base given a CONCRETE argument
+// binds no parameter of D and correctly contributes nothing here.
+//
+// RECURSIVE, so a two-level hierarchy composes rather than stopping one hop short.
+base_param_fill(prov, derivedT, baseGk, basePname, derivedPname) :-
+    heritage_slot(prov, derivedT, _, _, _, href),
+    type_ref_resolves(prov, href, baseGk),
+    type_group(prov, baseT, baseGk),
+    type_ref_arg(prov, href, pos, argRef),
+    type_ref_type_param(prov, argRef, tp),
+    type_param_name(prov, tp, derivedPname),
+    type_param_decl(prov, baseT, "TYPE", pos, basePname, _).
+base_param_fill(prov, derivedT, deepGk, deepPname, derivedPname) :-
+    base_param_fill(prov, derivedT, midGk, midPname, derivedPname),
+    type_group(prov, midT, midGk),
+    base_param_fill(prov, midT, deepGk, deepPname, midPname).
+
+member_type_substituted(prov, tr, n, "property", argGk) :-
+    type_arg_for(prov, tr, derivedPname, argGk),
+    type_ref_resolves(prov, tr, gk), type_group(prov, derivedT, gk),
+    base_param_fill(prov, derivedT, baseGk, basePname, derivedPname),
+    property_in_type(prov, baseGk, p), property_decl(prov, n, _, p),
+    property_type_name(prov, p, basePname, _).
+member_type_substituted(prov, tr, n, "field", argGk) :-
+    type_arg_for(prov, tr, derivedPname, argGk),
+    type_ref_resolves(prov, tr, gk), type_group(prov, derivedT, gk),
+    base_param_fill(prov, derivedT, baseGk, basePname, derivedPname),
+    field_in_type(prov, baseGk, f), field_decl(prov, n, _, f),
+    field_type_name(prov, f, basePname, _).
+
+// ── ...AND WHEN THE GENERIC TYPE IS STAGED RATHER THAN IN SOURCE ────────────
+// `IOptions<CatalogOptions>` is the shape this whole rule was written for, and every
+// part of it except the ARGUMENT lives under "lib": the interface, its parameter and
+// the `T Value` property are the library's, while the reference that supplies
+// CatalogOptions is the client's. A single-provenance rule therefore fires on an
+// in-source wrapper and never on the one a real application actually uses.
+//
+// Same shape as the method_return_type_group mirror below: the client's reference is
+// resolved against the LIBRARY's declarations, because what `T` means inside the
+// library is the library's own question.
+type_arg_for("client", tr, pname, argGk) :-
+    type_ref_resolves("client", tr, gk),
+    type_group("lib", t, gk),
+    type_ref_arg("client", tr, pos, argRef),
+    type_param_decl("lib", t, "TYPE", pos, pname, _),
+    type_ref_resolves("client", argRef, argGk).
+
+member_type_substituted("client", tr, n, "property", argGk) :-
+    type_arg_for("client", tr, pname, argGk),
+    type_ref_resolves("client", tr, gk),
+    property_in_type("lib", gk, p), property_decl("lib", n, _, p),
+    property_type_name("lib", p, pname, _).
+member_type_substituted("client", tr, n, "field", argGk) :-
+    type_arg_for("client", tr, pname, argGk),
+    type_ref_resolves("client", tr, gk),
+    field_in_type("lib", gk, f), field_decl("lib", n, _, f),
+    field_type_name("lib", f, pname, _).
+
+// ── A BASE CLOSED WITH A CONCRETE ARGUMENT ──────────────────────────────────
+// `class OrderRepo : RepoBase<Order>` is the commonest spelling of all, and it needs
+// no argument at the USE site: every OrderRepo binds RepoBase's parameter to Order
+// once and for all. So this is keyed on the receiver's resolved GROUP rather than on
+// its type reference -- there is nothing on the reference to read.
+//
+// Only where the heritage argument is NOT a type parameter, which is what separates
+// this from the clause above. `class Repo<T> : RepoBase<T>` passes T along and is
+// handled there, where the use site supplies the argument; the two are mutually
+// exclusive on that test and cannot both fire for one position.
+type_arg_fixed(prov, derivedGk, baseGk, basePname, argGk) :-
+    heritage_slot(prov, derivedT, _, _, _, href),
+    type_group(prov, derivedT, derivedGk),
+    type_ref_resolves(prov, href, baseGk),
+    type_group(prov, baseT, baseGk),
+    type_ref_arg(prov, href, pos, argRef),
+    !type_ref_type_param(prov, argRef, _),
+    type_ref_resolves(prov, argRef, argGk),
+    type_param_decl(prov, baseT, "TYPE", pos, basePname, _).
+
+// ...and inherited one more level: `class A : B` where `class B : RepoBase<Order>`.
+type_arg_fixed(prov, derivedGk, baseGk, basePname, argGk) :-
+    type_extends(prov, derivedGk, midGk),
+    type_arg_fixed(prov, midGk, baseGk, basePname, argGk).
+
+group_member_substituted(prov, recvGk, n, argGk) :-
+    type_arg_fixed(prov, recvGk, baseGk, basePname, argGk),
+    property_in_type(prov, baseGk, p), property_decl(prov, n, _, p),
+    property_type_name(prov, p, basePname, _).
+group_member_substituted(prov, recvGk, n, argGk) :-
+    type_arg_fixed(prov, recvGk, baseGk, basePname, argGk),
+    field_in_type(prov, baseGk, f), field_decl(prov, n, _, f),
+    field_type_name(prov, f, basePname, _).
+
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type(prov, q, recvGk),
+    group_member_substituted(prov, recvGk, n, gk).
+
+expr_type(prov, e, gk) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    expr_type_via_ref(prov, q, tr),
+    member_type_substituted(prov, tr, n, _, gk).
+
 // A CONDITIONAL yields either branch's type. Both are kept: the expression genuinely
 // has two possible runtime types, and a call on it can reach either.
 expr_type(prov, e, gk) :- expr_kind(prov, e, "CONDITIONAL"), expr_child(prov, e, "WHEN_TRUE", _, b), expr_type(prov, b, gk).

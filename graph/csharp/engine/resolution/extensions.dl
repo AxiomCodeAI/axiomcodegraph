@@ -105,6 +105,16 @@ call_recv_type_name(prov, e, tn) :-
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
     ref_denotes(prov, r, "PROPERTY", p), property_type_name(prov, p, tn, _).
+// A LAMBDA PARAMETER. Its type is explicit at the point it is written, and it is the
+// receiver shape of a minimal-API endpoint and of every handler registered as a
+// delegate -- where the receiver is nearly always a framework type, which is exactly
+// the case this by-name path exists to carry. expr-type.dl already types
+// LAMBDA_PARAMETER through param_type; only the NAME was missing here, so an
+// extension with an in-source `this` type resolved inside a lambda through the
+// nominal clause while one with an external `this` type did not.
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    ref_denotes(prov, r, "LAMBDA_PARAMETER", p), param_type_name(prov, p, tn, _).
 // A receiver that is itself a call: the callee's declared return type name.
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
@@ -195,6 +205,27 @@ extension_match(prov, e, m) :-
     method_name(prov, m, n),
     call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
     extension_recv_is_generic(prov, m).
+
+// (4) `this object`. Every type derives from object, so this matches any receiver --
+// and it is the one nominal `this` type none of the three clauses below can see. The
+// nominal walk needs a GROUP for object and a client-only run has none; the generic
+// clause needs the `this` parameter to BE a type parameter, which object is not; and
+// the by-name match needs the receiver to be SPELLED `object`, which it never is.
+//
+// So it is its own clause, gated like the generic one on the call still needing a
+// member: `this object` helpers are logging, tracing and type-name helpers called
+// from everywhere, and ungated they would be offered at every site in the program.
+extension_recv_is_object(prov, m) :- extension_recv_name(prov, m, "object").
+extension_recv_is_object(prov, m) :- extension_recv_name(prov, m, "System.Object").
+
+extension_match(prov, e, m) :-
+    call_needs_member_lookup(prov, e),
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    extension_recv_is_object(prov, m).
 
 // (3) BY NAME: neither side's type resolves, and both were written the same way.
 extension_match(prov, e, m) :-

@@ -93,15 +93,10 @@ def compile_case(src, work, lib_src=None):
             # will. Such a stub is not needed on the classpath either, because the client compiles
             # against the real platform. So a stub that will not build is skipped rather than fatal,
             # and if the CLIENT then fails to compile, that failure is reported with its own reason.
-            # -J-Dstderr.encoding=UTF-8: same reasoning as the javap fix below (#962) -- a
-            # localised javac diagnostic is what surfaces as the "reason" text in a skip summary,
-            # and stderr is read here as UTF-8 regardless of the console's code page.
-            r = subprocess.run(['javac', '-J-Dstderr.encoding=UTF-8', '-g', '-d', libclasses] + libfiles,
-                               capture_output=True, text=True, encoding='utf-8')
+            r = subprocess.run(['javac', '-g', '-d', libclasses] + libfiles, capture_output=True, text=True)
             if r.returncode == 0: cp = ['-cp', libclasses]
     files = [os.path.join(r, f) for r, _, fs in os.walk(src) for f in fs if f.endswith('.java')]
-    r = subprocess.run(['javac', '-J-Dstderr.encoding=UTF-8', '-g', '-d', classes] + cp + files,
-                       capture_output=True, text=True, encoding='utf-8')
+    r = subprocess.run(['javac', '-g', '-d', classes] + cp + files, capture_output=True, text=True)
     if r.returncode: sys.exit(f"javac failed:\n{r.stdout}{r.stderr}")
     names = []
     for root, _, fs in os.walk(classes):
@@ -124,12 +119,8 @@ BSM_ARG = re.compile(r'^\s*#\d+\s+REF_\w+\s+([\w$/.]+)\.([\w$<>]+):(\S+)\s*$')
 
 def parse(classes, names):
     """-> (supers, declared, edges) with edges = [(callerClass, callerName, callerDesc, kind, owner, name, desc)]"""
-    # javap does not encode its output in Python's locale encoding -- it writes through the JVM's
-    # stdout.encoding, which on a non-UTF-8 console is the console code page. Nothing couples the
-    # two, so `text=True` with no `encoding=` decodes with whatever locale this process happens to
-    # have, and disagreement crashes the reader thread (issue #962). Pin both sides to UTF-8.
-    out = subprocess.run(['javap', '-J-Dstdout.encoding=UTF-8', '-p', '-v', '-cp', classes] + names,
-                         capture_output=True, text=True, encoding='utf-8').stdout.splitlines()
+    out = subprocess.run(['javap', '-p', '-v', '-cp', classes] + names,
+                         capture_output=True, text=True).stdout.splitlines()
     supers = collections.defaultdict(list); declared = collections.defaultdict(set); is_enum = set()
     # Declarations carrying ACC_SYNTHETIC or ACC_BRIDGE. Kept apart from `declared` because the
     # declaration line is parsed before its `flags:` line is read. The CALLER side below already

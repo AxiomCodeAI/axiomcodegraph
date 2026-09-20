@@ -21,6 +21,11 @@
 #   4. the library frontier file is WRITTEN, so the body-staging loop can run.
 #      A missing file read as a converged frontier is indistinguishable from a
 #      project that genuinely calls nothing in its libraries.
+#   5. a STAGED GENERIC type's `T`-typed member has the client's argument
+#      substituted for it, so a chain through `IOpt<Settings>.Value` reaches the
+#      client method instead of stopping at the library's accessor. Every part of
+#      that shape except the argument belongs to the library, so a rule written
+#      under one provenance passes every case under cases/ and does nothing here.
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -129,6 +134,48 @@ if grep -q "known_implicit_ctor" "$CHAIN" 2>/dev/null; then
   fail "\`new T()\` on a staged type claimed the type declares no constructor, which the staged IR contradicts"
 fi
 grep -q "external:string.Trim" "$CHAIN" 2>/dev/null ||   fail "the call on a staged method's RETURN value is not named; the chain dies one hop in"
+
+# ── A STAGED GENERIC TYPE'S PARAMETER, SUBSTITUTED AT THE CLIENT'S SITE ────
+# `IOptions<CatalogOptions>.Value.SomeSetting` is the shape configuration is read
+# in, and every part of it except the ARGUMENT belongs to the library: the
+# interface, its type parameter and the `T Value` property are the library's,
+# while the reference that supplies the argument is the client's. A rule written
+# under one provenance fires on an in-source wrapper and never on this, so the
+# per-case suite can be green while the shape the rule exists for does nothing.
+mkdir -p "$WORK/gen-lib" "$WORK/gen-cli"
+cat > "$WORK/gen-lib/Opt.cs" <<'EOF2'
+namespace LibOpt;
+
+public interface IOpt<T> { T Value { get; } }
+EOF2
+cat > "$WORK/gen-cli/Read.cs" <<'EOF2'
+using LibOpt;
+
+public sealed class Settings { public bool Enabled() => true; }
+
+public sealed class Reader
+{
+    // The staged interface supplies `Value`; the client supplies Settings for T.
+    public bool Read(IOpt<Settings> o) => o.Value.Enabled();
+}
+EOF2
+node "$REPO/parser/dist/index.js" "$WORK/gen-lib" gen-lib false "$WORK/gen-libir" --per-language > "$WORK/gen-parse.log" 2>&1
+bash "$REPO/bin/axiomcode" all --language csharp --src "$WORK/gen-cli" --out "$WORK/gen-out" \
+  --library "$WORK/gen-libir" --version pinned --debug > "$WORK/gen.log" 2>&1
+GEN="$WORK/gen-out/csharp/raw/call-chain-edges.csv"
+# The assertion is on the SECOND hop. The first -- `o.Value` -- reaches the
+# library's own accessor and was already produced; what was missing is that its
+# RESULT had a type, so `.Enabled()` reached a client method instead of nothing.
+# Keyed on provenance and tier rather than on a hash, because the client IR the
+# pipeline builds internally is not written where a test can read it back.
+second=$(awk -F'\t' '$5=="client" && $6=="known_edge" && $7=="method"' "$GEN" 2>/dev/null | wc -l | tr -d ' ')
+if [ "${second:-0}" -lt 1 ]; then
+  fail "a call on a STAGED generic type's \`T\`-typed member reaches nothing: the type argument is not substituted across provenance"
+  awk -F'\t' '{print "        got: "$4"  "$5"  "$6"  "$7}' "$GEN" 2>/dev/null | head -5
+fi
+if grep -q "ambiguous_unknown" "$GEN" 2>/dev/null; then
+  fail "a chain through a staged GENERIC type still has a blind spot"
+fi
 
 # ── THE ACCESSOR PATH, THE LARGER HALF BY VOLUME ────────────────────────────
 # A property read, a property write, a get-only read and both indexer directions

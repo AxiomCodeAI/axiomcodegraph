@@ -130,6 +130,16 @@ cfg_stub_base_suffix("ImplBase", "grpc_service").      // gRPC (protoc java)
 cfg_stub_base_suffix("Grpc", "grpc_service").          // gRPC outer holder
 cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators
 
+// cfg_stub_client_suffix(Suffix) — the simple-name suffix of a GENERATED CLIENT stub, the other end
+// of the same .proto. protoc java emits <S>BlockingStub, <S>Stub and <S>FutureStub nested in the same
+// <S>Grpc holder as <S>ImplBase, so the holder's qualified name pairs a client call with the handler
+// that serves it without reading the .proto (#1108). Listed rather than matched on "Stub" alone: a
+// hand-written class called RequestStub is not a generated client.
+.decl cfg_stub_client_suffix(c0:symbol)
+cfg_stub_client_suffix("BlockingStub").
+cfg_stub_client_suffix("FutureStub").
+cfg_stub_client_suffix("Stub").
+
 // ── (8) DESTINATIONS: a name that identifies a place a message or request goes ──
 // A producer and the consumer that serves it live in different deployables and never
 // call each other, so the only thing tying them together is this string. These lists
@@ -206,15 +216,7 @@ cfg_route_verb("PatchMapping", "PATCH").
 cfg_route_verb("GetExchange", "GET").      cfg_route_verb("PostExchange", "POST").
 cfg_route_verb("PutExchange", "PUT").      cfg_route_verb("DeleteExchange", "DELETE").
 cfg_route_verb("PatchExchange", "PATCH").
-// @RequestMapping and @HttpExchange name no verb on their own, so they stay "any".
-// @Path does not either, but JAX-RS declares the verb in a SIBLING annotation on the
-// same method, so the verb is present and simply lives somewhere else. A verb-only
-// annotation contributes the verb and NO path of its own: the handler's path is the
-// one it inherits from its resource class.
-cfg_route_verb_ann("GET", "GET").         cfg_route_verb_ann("POST", "POST").
-cfg_route_verb_ann("PUT", "PUT").         cfg_route_verb_ann("DELETE", "DELETE").
-cfg_route_verb_ann("PATCH", "PATCH").     cfg_route_verb_ann("HEAD", "HEAD").
-cfg_route_verb_ann("OPTIONS", "OPTIONS").
+// @RequestMapping, @Path and @HttpExchange name no verb on their own — they stay "any".
 
 cfg_sends_verb("getForObject", "GET").     cfg_sends_verb("getForEntity", "GET").
 cfg_sends_verb("postForObject", "POST").   cfg_sends_verb("postForEntity", "POST").

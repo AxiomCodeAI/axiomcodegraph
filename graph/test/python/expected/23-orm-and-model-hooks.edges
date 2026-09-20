@@ -1,0 +1,14 @@
+ambiguous_unknown	DECORATOR_APPLICATION	main.<module> -> -
+ambiguous_unknown	DECORATOR_APPLICATION	main.UserModel.<classbody> -> -
+boundary_lib	SIMPLE_CALL	main.<module> -> builtin:object.__init__
+known_edge	DECORATOR_BARE	main.<module> -> main.local_validates
+known_edge	DECORATOR_CALL	main.<module> -> main._Event.listens_for
+known_edge	DECORATOR_CALL	main.UserModel.<classbody> -> main.field_validator
+known_edge	DECORATOR_CALL	main.UserModel.<classbody> -> main.model_validator
+known_edge	DECORATOR_CALL	main.UserModel.<classbody> -> main.validates
+known_edge	SIMPLE_CALL	main.UserModel.check_all -> main._normalise
+known_edge	SIMPLE_CALL	main.UserModel.check_email -> main._normalise
+known_edge	SIMPLE_CALL	main.UserModel.check_name -> main._normalise
+known_edge	SIMPLE_CALL	main.audit_change -> main._normalise
+known_edge	SIMPLE_CALL	main.calls_validates_directly -> main.validates
+known_edge	SIMPLE_CALL	main.stamp_created -> main._normalise

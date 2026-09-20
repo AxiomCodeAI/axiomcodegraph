@@ -601,7 +601,7 @@ Methods the runtime invokes without a client call site — process roots, test m
 |---|---|---|
 | `main` | java | A static `main`. |
 | `test` | java | A JUnit test or lifecycle method. |
-| `http` | java, python | A JAX-RS / Spring MVC handler (Java); a Flask / FastAPI / Starlette route handler (Python). |
+| `http` | java, python | A route handler a web framework invokes on a request: a JAX-RS / Spring MVC handler, or a function registered with a decorator naming an HTTP verb and a URL path. |
 | `cli` | java | A CLI command method (picocli etc.). |
 | `bean_ctor` | java | Constructor of a container-managed bean. |
 | `factory` | java | A `@Bean` factory method. |
@@ -610,6 +610,12 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `scheduled` | java | A `@Scheduled` method. |
 | `grpc` | python | A gRPC servicer method: the class derives from a generated `*Servicer` base in a `_pb2_grpc` module and overrides a method that base declares. `add_<Svc>Servicer_to_server` hands the object to grpc, which invokes it on a request — no call site reaches it. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
+| `task` | python | A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it. |
+| `fixture` | python | A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument. |
+| `url` | python | A view named as a value in a module-level route table. The framework calls it on a request. |
+| `signal_receiver` | python | A handler attached to a signal, by decorator or by connect(). It runs when the signal fires, whether or not this tree contains the send. |
+| `di_provider` | python | A provider named in a dependency-injection marker in a parameter default. The framework calls it and passes the result in. |
+| `orm_hook` | python | A lifecycle or validation hook registered by decoration. The data layer calls it; nothing in the client does. |
 
 **Notes**
 
