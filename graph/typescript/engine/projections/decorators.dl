@@ -9,8 +9,8 @@
 // NAME and its ARGUMENTS. `@Get(':id')` reached the solver as "a call to Get" and
 // never as "this method answers a route".
 //
-// The relation names here are Java's and Python's, deliberately and exactly:
-// annotation_on / annotation_arg / annotation_arg_type_ref. A Java annotation, a
+// The relation names here are Java's and Python's, deliberately and exactly, for the
+// two that carry the same facts: annotation_on and annotation_arg. A Java annotation, a
 // Python decorator and a TypeScript decorator are three syntaxes for one fact — a
 // name and some arguments attached to a declaration — so a framework rule written
 // over that shape ports between the three front ends without edit. That portability
@@ -92,10 +92,26 @@ decorator_module("lib", m, h) :- lib_ts_decorator(_, _, _, _, _, _, _, _, _, _, 
 annotation_arg("client", n, v, vt, pos, "false", parent, h) :- ts_decorator_argument(n, v, vt, pos, parent, _, _, _, _, _, _, _, h).
 annotation_arg("lib", n, v, vt, pos, "false", parent, h) :- lib_ts_decorator_argument(n, v, vt, pos, parent, _, _, _, _, _, _, _, h).
 
-// ── annotation_arg_type_ref(Prov, ReferencedTypeHash, ArgHash) ───────────────
-// A decorator argument naming a class — `@Module({ providers: [OrderService] })`,
-// `@Inject(CONFIG)`. This is the relation dependency injection is built on: the
-// provider is named in an argument, never called, and without this row the wiring
-// between a module and the classes it provides is unreachable.
-annotation_arg_type_ref("client", t, h) :- ts_decorator_argument(_, _, _, _, _, t, _, _, _, _, _, _, h), t != "".
-annotation_arg_type_ref("lib", t, h) :- lib_ts_decorator_argument(_, _, _, _, _, t, _, _, _, _, _, _, h), t != "".
+// ── decorator_arg_class_ref(Prov, ClassName, ArgHash) ───────────────────────
+// A decorator argument naming a class — `@Catch(HttpException)`,
+// `@Module({ providers: [Repo] })`. This is the relation dependency injection is
+// built on: the provider is NAMED in an argument and never called, so without it the
+// wiring between a module and the classes it provides is unreachable.
+//
+// IT CARRIES A NAME, NOT A HASH, AND THAT IS MEASURED RATHER THAN ASSUMED. Java's and
+// Python's annotation_arg_type_ref reads a resolved referencedTypeHash; the TypeScript
+// parser leaves that column EMPTY on every decorator argument (checked across three
+// fixtures: 0 non-empty rows), and marks the value instead with
+// valueType = CLASS_REFERENCE, putting the bare identifier in argumentValue. Projecting
+// annotation_arg_type_ref here would therefore have been a relation that is always
+// empty, and a rule joining it would return nothing while looking correct.
+//
+// So the consumer must resolve the name, the way any other unresolved identifier is
+// resolved, rather than dereference a hash that is not there.
+//
+// NOT YET USABLE FOR AN ARRAY. `@Module({ providers: [Repo, Svc] })` arrives as ONE row
+// with valueType=ARRAY and argumentValue the literal text `[Repo, Svc]`; the elements
+// are not individual rows, and arrayIndex distinguishes the named properties of the
+// object rather than the members of the array. Enumerating them needs a parser change.
+decorator_arg_class_ref("client", v, h) :- ts_decorator_argument(_, v, "CLASS_REFERENCE", _, _, _, _, _, _, _, _, _, h), v != "".
+decorator_arg_class_ref("lib", v, h) :- lib_ts_decorator_argument(_, v, "CLASS_REFERENCE", _, _, _, _, _, _, _, _, _, h), v != "".
