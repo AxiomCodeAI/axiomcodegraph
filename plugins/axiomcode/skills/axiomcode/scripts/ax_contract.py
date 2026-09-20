@@ -120,6 +120,39 @@ actual reproduce reproduction repro steps version
 
 HYPHEN = re.compile(r'[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+')
 
+# A REPORT MARKS ITS OWN CODE WORDS, AND THE SCORER WAS IGNORING THE MARKS.
+# Terms were ranked by graph document frequency alone, so a RARE PROSE word beat a COMMON CODE word:
+# on one issue the kept terms were `gaps · var · work · open · code · parser`, the best entry point was a
+# Gradle extractor matching "gaps" on a Python task, and the two files the fix actually touched ranked
+# 44th and 46th of 111. Handing the same command that issue's code words instead moved them to 1st and
+# 11th -- same graph, same repo, only the terms differed.
+# A writer already distinguishes the two: code goes in backticks or a fence, and identifiers carry
+# underscores, camelCase or ALL_CAPS. Those are evidence about THIS text, where document frequency is
+# only evidence about the graph, so they are collected separately and take the budget first.
+FENCED = re.compile(r'`{1,3}([^`]+)`{1,3}|^\s{4,}(\S.*)$', re.M)
+IDENTLIKE = re.compile(r'^(?:[a-z]+[A-Z]\w*|[A-Z][A-Z0-9_]{2,}|\w*_\w+)$')
+
+
+def code_terms(text):
+    """The terms a report itself marked as code: inside backticks or an indented block, or shaped like an
+    identifier anywhere. Returned lowercased and split the same way task_terms splits, so the two lists
+    are comparable."""
+    out, seen = [], set()
+    def add(w):
+        w = (w or '').lower()
+        if len(w) < 3 or w in seen or w in STOP: return
+        seen.add(w); out.append(w)
+    spans = [a or b for a, b in FENCED.findall(text or '')]
+    for raw in SPLIT.split(' '.join(spans)):
+        if raw:
+            add(raw)
+            for part in CAMEL.findall(raw): add(part)
+    for raw in SPLIT.split(text or ''):          # identifier-shaped tokens outside any fence
+        if raw and IDENTLIKE.match(raw):
+            add(re.sub(r'[-_.]', '', raw))
+            for part in CAMEL.findall(raw): add(part)
+    return out
+
 
 def task_terms(text):
     """The content words of the task, in order, deduped.
@@ -159,7 +192,7 @@ def task_terms(text):
 MAX_TERMS = 24
 
 
-def winnow(g, terms, name_df=None):
+def winnow(g, terms, name_df=None, strong=None):
     """The terms worth scoring, most discriminating first — by the graph's own document frequency."""
     if name_df is None:
         name_df = collections.Counter()
@@ -167,9 +200,14 @@ def winnow(g, terms, name_df=None):
             for t in set(subtokens(sym.get('name') or '') + subtokens(sym.get('display') or '')):
                 name_df[t] += 1
     keep = [t for t in terms if name_df.get(t, 0) > 0]
-    keep.sort(key=lambda t: name_df.get(t, 0))
+    # the report's own code words first, still ordered by how much they discriminate, then prose fills the
+    # rest of the budget. Only terms the graph actually knows are eligible either way -- a code word the
+    # graph has never heard of still cannot match anything.
+    marked = set(strong or ())
+    code = sorted([t for t in keep if t in marked], key=lambda t: name_df.get(t, 0))
+    prose = sorted([t for t in keep if t not in marked], key=lambda t: name_df.get(t, 0))
+    chosen = set((code + prose)[:MAX_TERMS])
     # order is the caller's contract elsewhere (seeds are picked per term in task order), so restore it
-    chosen = set(keep[:MAX_TERMS])
     return [t for t in terms if t in chosen] or terms[:MAX_TERMS]
 
 

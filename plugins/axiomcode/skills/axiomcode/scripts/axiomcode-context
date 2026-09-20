@@ -29,7 +29,7 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, best_scope, budgeted, BOUND,
-                         dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic)
+                         dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic, code_terms)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, die = P.G, P.die
@@ -112,7 +112,8 @@ DIR_EVIDENCE = 5
 
 def scope_terms(g, task):
     """The words that choose a PLACE — the headline's, not the whole report's. See ax_contract.headline."""
-    return winnow(g, task_terms(headline(task_text(task))))
+    h = headline(task_text(task))
+    return winnow(g, task_terms(h), strong=code_terms(h))
 
 
 def rank_dirs(g, terms, depth=3, topk=DIR_EVIDENCE):
@@ -219,9 +220,11 @@ def main(argv):
     repo = args[1] if len(args) > 1 else '.'
     g = G(repo)
 
-    terms = task_terms(task_text(task))
+    body = task_text(task)
+    terms = task_terms(body)
     if not terms: die("nothing to search for in that task description")
-    terms = winnow(g, terms)
+    # the terms the report itself marked as code take the budget first (see winnow)
+    terms = winnow(g, terms, strong=code_terms(body))
     scored = score_symbols(g, terms)
     # --in: a scope the CALLER supplies is knowledge — a stack frame, the file it just read, the package
     # named in the issue's labels. That is worth more than any amount of inferring the package from prose,
