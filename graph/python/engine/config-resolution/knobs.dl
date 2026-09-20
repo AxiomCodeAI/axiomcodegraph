@@ -40,3 +40,18 @@ py_http_route_verb("patch").
 py_http_route_verb("head").
 py_http_route_verb("options").
 py_http_route_verb("websocket").
+
+// ── py_grpc_servicer_suffix(Suffix) / py_grpc_generated_module_suffix(Suffix) ──
+// The two names protoc chooses, and the only two this ecosystem needs.
+//
+// `grpc_python_plugin` writes one module per `.proto`, named `<stem>_pb2_grpc.py`, and in
+// it one abstract base per service, named `<Service>Servicer`. Both spellings are the
+// plugin's, not a project's: they are produced by the code generator, so a codebase cannot
+// choose them differently and a new gRPC project needs no addition here.
+//
+// NEITHER IS SUFFICIENT ALONE, and config-resolution/entry-points.dl requires both. A class
+// called `OrderServicer` in ordinary hand-written source is not a gRPC servicer, and a
+// module suffix on its own says nothing about which classes in it are service bases. The
+// pair is what makes the match provenance-based rather than name-based.
+py_grpc_servicer_suffix("Servicer").
+py_grpc_generated_module_suffix("_pb2_grpc.py").

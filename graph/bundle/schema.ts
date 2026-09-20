@@ -635,13 +635,14 @@ export const VOCAB: readonly VocabSpec[] = [
   // entry_points.reason
   { table: 'entry_points', column: 'reason', value: 'main', languages: J, meaning: 'A static `main`.' },
   { table: 'entry_points', column: 'reason', value: 'test', languages: J, meaning: 'A JUnit test or lifecycle method.' },
-  { table: 'entry_points', column: 'reason', value: 'http', languages: J, meaning: 'A JAX-RS / Spring MVC handler.' },
+  { table: 'entry_points', column: 'reason', value: 'http', languages: ['java', 'python'], meaning: 'A JAX-RS / Spring MVC handler (Java); a Flask / FastAPI / Starlette route handler (Python).' },
   { table: 'entry_points', column: 'reason', value: 'cli', languages: J, meaning: 'A CLI command method (picocli etc.).' },
   { table: 'entry_points', column: 'reason', value: 'bean_ctor', languages: J, meaning: 'Constructor of a container-managed bean.' },
   { table: 'entry_points', column: 'reason', value: 'factory', languages: J, meaning: 'A `@Bean` factory method.' },
   { table: 'entry_points', column: 'reason', value: 'lifecycle', languages: J, meaning: '`@PostConstruct` / `@PreDestroy` and similar hooks.' },
   { table: 'entry_points', column: 'reason', value: 'queue', languages: J, meaning: 'A message-listener method.' },
   { table: 'entry_points', column: 'reason', value: 'scheduled', languages: J, meaning: 'A `@Scheduled` method.' },
+  { table: 'entry_points', column: 'reason', value: 'grpc', languages: P, meaning: 'A gRPC servicer method: the class derives from a generated `*Servicer` base in a `_pb2_grpc` module and overrides a method that base declares. `add_<Svc>Servicer_to_server` hands the object to grpc, which invokes it on a request — no call site reaches it.' },
   { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: ['typescript', 'javascript'], meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },
 
   // dispatch_candidates.basis

@@ -1,0 +1,5 @@
+boundary_lib	SIMPLE_CALL	main.serve -> builtin:object.__init__
+known_edge	METHOD_CALL	main.serve -> greet_pb2_grpc.add_GreeterServicer_to_server
+known_edge	SELF_CALL	main.GreeterServicer.Chat -> main.GreeterServicer._render
+known_edge	SELF_CALL	main.GreeterServicer.SayHello -> main.GreeterServicer._render
+known_edge	SELF_CALL	main.GreeterServicer.StreamReplies -> main.GreeterServicer._render

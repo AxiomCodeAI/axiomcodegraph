@@ -601,13 +601,14 @@ Methods the runtime invokes without a client call site — process roots, test m
 |---|---|---|
 | `main` | java | A static `main`. |
 | `test` | java | A JUnit test or lifecycle method. |
-| `http` | java | A JAX-RS / Spring MVC handler. |
+| `http` | java, python | A JAX-RS / Spring MVC handler (Java); a Flask / FastAPI / Starlette route handler (Python). |
 | `cli` | java | A CLI command method (picocli etc.). |
 | `bean_ctor` | java | Constructor of a container-managed bean. |
 | `factory` | java | A `@Bean` factory method. |
 | `lifecycle` | java | `@PostConstruct` / `@PreDestroy` and similar hooks. |
 | `queue` | java | A message-listener method. |
 | `scheduled` | java | A `@Scheduled` method. |
+| `grpc` | python | A gRPC servicer method: the class derives from a generated `*Servicer` base in a `_pb2_grpc` module and overrides a method that base declares. `add_<Svc>Servicer_to_server` hands the object to grpc, which invokes it on a request — no call site reaches it. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
 
 **Notes**
