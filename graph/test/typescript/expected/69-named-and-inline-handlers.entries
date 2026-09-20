@@ -1,0 +1,5 @@
+── entry_point (4) ──
+  http       routes#<arrow>   routes.ts:24
+  http       routes#namedHandler   routes.ts:28
+  test       routes#namedSpec   routes.ts:33
+  unimported_module routes#<module>   routes.ts:1

@@ -5178,10 +5178,20 @@ public static class Ext14
  */
 async function anUnreadableExtensionBlockLeavesTheFileAlone(): Promise<number> {
   return withTempDir(async (dir) => {
-    const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-mixed-'));
-    // ONE readable block and ONE unreadable one. The second has a single
-    // member, which is the shape the recovery does not present cleanly.
-    const source = `namespace Acme.App;
+    let bad = 0;
+
+    // ── PART ONE: A PREDEFINED-TYPE RECEIVER IS READ, NOT DECLINED ──────────
+    // `extension(int)` is not a `constructor_declaration` in the tree at all --
+    // it recovers as an ERROR holding a `variable_declaration` -- so it used to
+    // drive the all-or-nothing guard and take the WHOLE file down with it: the
+    // readable block's members went missing too, with no gap row at the lost
+    // declaration. cs-extension-block.ts now locates such a header in the TEXT,
+    // so this file flattens completely. This check was previously the inverse,
+    // and its own failure message named this outcome as the reason to invert it.
+    const mixed = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-mixed-'));
+    await fsp.writeFile(
+      path.join(mixed, 'Ext14Mixed.cs'),
+      `namespace Acme.App;
 
 public static class Ext14Mixed
 {
@@ -5197,38 +5207,350 @@ public static class Ext14Mixed
         public static int Zero => 0;
     }
 }
-`;
-    await fsp.writeFile(path.join(corpus, 'Ext14Mixed.cs'), source, 'utf-8');
+`,
+      'utf-8'
+    );
+    await runAnalyzer(mixed, dir);
+    {
+      const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
+      const methods = relations.get('all-csharp-methods.csv');
+      const properties = relations.get('all-csharp-properties.csv');
+      const gaps = relations.get('all-csharp-parse-gaps.csv');
+      if (methods === undefined || properties === undefined || gaps === undefined) {
+        return fail('a relation this check reads is missing');
+      }
+      // EVERY DECLARATION SURVIVES. The member counts are the point: a partial
+      // rewrite is what used to lose one, and a count is what notices.
+      const names = new Set([
+        ...methods.rows.map((r) => r[methods.header.indexOf('name')]!),
+        ...properties.rows.map((r) => r[properties.header.indexOf('name')]!),
+      ]);
+      for (const want of ['Slug', 'IsBlank', 'Zero']) {
+        if (!names.has(want)) {
+          bad += fail(
+            `\`${want}\` is declared in a file mixing a nominal and a predefined-type ` +
+              'extension receiver, and has no row. The flattening pass declined the file ' +
+              'rather than reading the predefined-type header from the text.'
+          );
+        }
+      }
+      // AND NOTHING IS LEFT UNREAD. A gap here would mean the file flattened
+      // and still failed to parse, which is a different defect from the old one.
+      if (gaps.rows.length !== 0) {
+        bad += fail(
+          `a fully flattened extension file still produced ${gaps.rows.length} parse gap(s)`
+        );
+      }
+    }
+
+    // ── PART TWO: A HEADER THE PASS STILL CANNOT ACCOUNT FOR DECLINES ───────
+    // The all-or-nothing policy is unchanged and still has to be asserted, so
+    // this uses a shape the pass genuinely cannot present: a GENERIC block,
+    // `extension<T>(...)`, which neither the grammar nor the textual locator
+    // reads. The file must be left ENTIRELY alone -- a partial rewrite loses a
+    // member the file declares -- and the gap relation must still report it,
+    // because declining is only defensible when the absence is RECORDED.
+    const generic = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-generic-'));
+    await fsp.writeFile(
+      path.join(generic, 'Ext14Generic.cs'),
+      `namespace Acme.App;
+
+public static class Ext14Generic
+{
+    extension(string source)
+    {
+        public string Slug() => source.Trim();
+    }
+
+    extension<T>(T value) where T : struct
+    {
+        public bool IsDefault() => value.Equals(default(T));
+    }
+}
+`,
+      'utf-8'
+    );
+    const genericOut = path.join(dir, 'generic-out');
+    await fsp.mkdir(genericOut, { recursive: true });
+    await runAnalyzer(generic, genericOut);
+    {
+      const relations = new Map(readRelations(genericOut).map((r) => [r.name, r]));
+      const methods = relations.get('all-csharp-methods.csv');
+      const properties = relations.get('all-csharp-properties.csv');
+      const gaps = relations.get('all-csharp-parse-gaps.csv');
+      if (methods === undefined || properties === undefined || gaps === undefined) {
+        return fail('a relation this check reads is missing');
+      }
+      const pExt = properties.header.indexOf('isExtension');
+      const mExt = methods.header.indexOf('isExtension');
+      const claimed =
+        properties.rows.filter((r) => r[pExt] === 'true').length +
+        methods.rows.filter((r) => r[mExt] === 'true').length;
+      if (claimed !== 0) {
+        bad += fail(
+          `${claimed} row(s) claim isExtension in a file whose blocks the pass cannot all ` +
+            'read. The pass rewrote PART of the file: the all-or-nothing guard in ' +
+            'cs-extension-block.ts was weakened.'
+        );
+      }
+      if (gaps.rows.length === 0) {
+        bad += fail(
+          'a file whose extension blocks were left unflattened produced NO parse gap — its ' +
+            'members are absent and nothing says the text was not fully read.'
+        );
+      }
+    }
+
+    return bad;
+  });
+}
+
+async function aGenericCreationInArgumentPositionIsOneArgument(): Promise<number> {
+  return withTempDir(async (dir) => {
+    // `Take(new D<K, V>(args) { ... })` is read as `a < b, c > d`: the `<`
+    // ambiguity the language resolves with type information the grammar does
+    // not have. The expression is split across SIBLING `argument` nodes, which
+    // fabricated two comparisons and a cast, turned the type arguments into
+    // VALUE references a resolver would look up, and made the call report two
+    // arguments where the source writes one.
+    //
+    // The four controls are the ones the report named: a genuine comparison,
+    // the same creation with no initializer, with predefined type arguments,
+    // and bound to a local. All four parsed correctly before and must keep to it.
+    const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-generic-creation-'));
+    await fsp.writeFile(
+      path.join(corpus, 'GenericCreation.cs'),
+      `using System.Collections.Generic;
+namespace Acme.App;
+
+public sealed class Key { }
+public sealed class Val { }
+
+public static class GenericCreation
+{
+    static void Two(bool p, bool q) { }
+    static void One(Dictionary<Key, Val> d) { }
+    static void OneInt(Dictionary<int, string> d) { }
+
+    public static void Go(Dictionary<Key, Val> snap, Key k, Val v, int a, int b, int c, int e)
+    {
+        Two(a < b, c > e);
+        One(new Dictionary<Key, Val>(snap));
+        One(new Dictionary<Key, Val>(snap) { { k, v } });
+        One(new Dictionary<Key, Val>() { [k] = v });
+        One(new Dictionary<Key, Val>(snap) { [k] = v });
+        OneInt(new Dictionary<int, string>(2) { { 1, "x" } });
+        var z = new Dictionary<Key, Val>(snap) { [k] = v };
+    }
+
+    // ONE type argument, so there is no comma: the misparse never has to split
+    // across sibling arguments, stays inside one expression, and reaches every
+    // position an expression may take rather than only an argument list.
+    public static object Arrow(Key x) => new Box<Key>(x) { Tag = 1 };
+
+    public static object Nested(Key x)
+    {
+        Boxed(new Box<Key>(x) { Tag = 1 });
+        var held = new Box<Key>(x) { Tag = 1 };
+        return held;
+    }
+
+    static void Boxed(Box<Key> b) { }
+
+    // A REAL chain of comparisons, which produces the very tree the
+    // one-type-argument repair recognises: a binary > over a binary <. dynamic
+    // is what makes it legal C# rather than merely parseable.
+    public static object Chained(dynamic a, dynamic b, dynamic c) => a < b > c;
+}
+
+public sealed class Box<T>
+{
+    public Box(T value) { }
+
+    public int Tag { get; set; }
+}
+`,
+      'utf-8'
+    );
     await runAnalyzer(corpus, dir);
     const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
-    const methods = relations.get('all-csharp-methods.csv');
-    const properties = relations.get('all-csharp-properties.csv');
-    const gaps = relations.get('all-csharp-parse-gaps.csv');
-    if (methods === undefined || properties === undefined || gaps === undefined) {
+    const expressions = relations.get('all-csharp-expressions.csv');
+    const callSites = relations.get('all-csharp-call-sites.csv');
+    if (expressions === undefined || callSites === undefined) {
       return fail('a relation this check reads is missing');
     }
+    const e = (n: string): number => expressions.header.indexOf(n);
+    const c = (n: string): number => callSites.header.indexOf(n);
     let bad = 0;
-    const pExt = properties.header.indexOf('isExtension');
-    const mExt = methods.header.indexOf('isExtension');
-    const claimed =
-      properties.rows.filter((r) => r[pExt] === 'true').length +
-      methods.rows.filter((r) => r[mExt] === 'true').length;
-    if (claimed !== 0) {
+
+    // EVERY `One` CALL TAKES ONE ARGUMENT, because the declaration does. This is
+    // the effect the report said would be acted on: the misparsed spellings
+    // reported two.
+    const oneCalls = callSites.rows.filter((r) => r[c('calleeName')] === 'One');
+    if (oneCalls.length !== 4) {
+      bad += fail(`expected 4 calls to One, found ${oneCalls.length}`);
+    }
+    for (const row of oneCalls) {
+      if (row[c('argumentCount')] !== '1') {
+        bad += fail(
+          `a One(...) call reports argumentCount ${row[c('argumentCount')]}, expected 1 — the ` +
+            'generic creation was counted as two arguments'
+        );
+      }
+    }
+
+    // NOTHING IS FABRICATED. The two comparisons and the cast are not in the
+    // source, and a row for a construct nobody wrote is worse than a missing
+    // one: an engine can see an absence and cannot see an invention.
+    //
+    // `a < b > c` in `Chained` is a genuine chain and produces exactly the tree
+    // the one-type-argument repair recognises, so the fixture makes both halves
+    // visible at once: that line is the ONLY one allowed to hold comparison
+    // rows, and it is REQUIRED to hold two. A repair keyed on the shape alone
+    // would eat it, and a check that merely forbade comparison rows would call
+    // that a pass.
+    const chainedLine = Number(
+      expressions.rows.find(
+        (r) => r[e('kind')] === 'NAME_REFERENCE' && r[e('potentialQualifiedName')] === 'c'
+      )?.[e('startLine')] ?? '0'
+    );
+    const fabricated = expressions.rows.filter(
+      (r) =>
+        (r[e('kind')] === 'BINARY' || r[e('kind')] === 'CAST') &&
+        Number(r[e('startLine')]) !== chainedLine
+    );
+    if (fabricated.length !== 0) {
       bad += fail(
-        `${claimed} row(s) claim isExtension in a file whose blocks the pass cannot all ` +
-          'read. The pass rewrote PART of the file: either the all-or-nothing guard in ' +
-          'cs-extension-block.ts was weakened, or the recovery improved and this check ' +
-          'should be inverted to require the rows.'
+        `${fabricated.length} BINARY/CAST row(s) on lines that hold no comparison — the ` +
+          'misparse fabricated operators the source does not contain'
       );
     }
-    // AND THE FILE IS STILL REPORTED AS INCOMPLETE. Declining is only defensible
-    // because the absence is RECORDED — a silent absence is the property that
-    // made this shape worth fixing in the first place.
-    if (gaps.rows.length === 0) {
+    const realComparisons = expressions.rows
+      .filter((r) => Number(r[e('startLine')]) === chainedLine && r[e('kind')] === 'BINARY')
+      .map((r) => r[e('operatorString')])
+      .sort()
+      .join('');
+    if (realComparisons !== '<>') {
       bad += fail(
-        'a file whose extension blocks were left unflattened produced NO parse gap — its ' +
-          'members are absent and nothing says the text was not fully read.'
+        `\`a < b > c\` yields comparison operators [${realComparisons}], expected < and >. It is a ` +
+          'REAL chain with the same tree the one-type-argument repair recognises, and a repair ' +
+          'that rewrites it has invented a creation the source does not contain'
       );
+    }
+
+    // AND THE TYPE ARGUMENTS ARE NOT VALUES. `Key` and `Val` are types; emitted
+    // as NAME_REFERENCE rows with a qualified name, a resolver looks for values
+    // of those names and finds the classes, which is a wrong edge rather than a
+    // missing one.
+    const typeArgsAsValues = expressions.rows.filter(
+      (r) =>
+        r[e('kind')] === 'NAME_REFERENCE' &&
+        (r[e('potentialQualifiedName')] === 'Key' || r[e('potentialQualifiedName')] === 'Val')
+    );
+    if (typeArgsAsValues.length !== 0) {
+      bad += fail(
+        `${typeArgsAsValues.length} NAME_REFERENCE row(s) name Key or Val — a TYPE ARGUMENT ` +
+          'was emitted as a value reference'
+      );
+    }
+
+    // THE CREATIONS SURVIVE WHOLE. Nine are written; a rebuild that dropped one,
+    // or dropped its arguments with the comparison they hung off, would pass
+    // every check above.
+    const creations = expressions.rows.filter((r) => r[e('kind')] === 'OBJECT_CREATION');
+    if (creations.length !== 9) {
+      bad += fail(`expected 9 OBJECT_CREATION rows, found ${creations.length}`);
+    }
+    const initializers = expressions.rows.filter(
+      (r) => r[e('edgeRole')] === 'INITIALIZER_VALUE' && r[e('kind')] === 'INITIALIZER'
+    );
+    if (initializers.length < 7) {
+      bad += fail(
+        `only ${initializers.length} initializer(s) attached to a creation, expected at least 7 ` +
+          '— the initializer was filed inside the fabricated cast and has to be grafted back'
+      );
+    }
+
+    // ONE CREATION, ONE COUNT. The expression row and the call site are a 1:1
+    // chain over the same creation and each builds its OWN argument list, so a
+    // repair applied to one and not the other leaves them disagreeing.
+    //
+    // Before this they agreed AT ZERO while the creation carried its argument as
+    // a child row, so a check that only compared the two columns would have
+    // passed on a creation recorded as parameterless. The count against the
+    // parameterless total below is what catches that; this loop is what stops
+    // the fix being applied to one column and not the other.
+    //
+    // Every creation in this fixture passes exactly one constructor argument
+    // except `new Dictionary<Key, Val>() { [k] = v }`, which passes none — so
+    // the expected count is read from the source rather than asserted flat.
+    const pk = expressions.header.length - 1;
+    let creationsChecked = 0;
+    for (const creation of creations) {
+      const site = callSites.rows.find((r) => r[c('csExpressionLinkHash')] === creation[pk]);
+      if (site === undefined) {
+        bad += fail(
+          `the OBJECT_CREATION on line ${creation[e('startLine')]} has no CONSTRUCTOR_CALL — a ` +
+            'creation the source writes is not recorded as a call at all'
+        );
+        continue;
+      }
+      creationsChecked += 1;
+      if (site[c('argumentCount')] !== creation[e('argumentCount')]) {
+        bad += fail(
+          `the creation on line ${creation[e('startLine')]} reports ${creation[e('argumentCount')]} argument(s) ` +
+            `on its expression row and ${site[c('argumentCount')]} on its call site. Two columns describing ` +
+            'one creation and disagreeing is worse than either answer alone'
+        );
+      }
+    }
+    if (creationsChecked === 0) {
+      bad += fail('NEGATIVE CONTROL FAILED: no creation was paired with its call site, so that comparison asserted nothing');
+    }
+    const parameterless = callSites.rows.filter(
+      (r) => r[c('callKind')] === 'CONSTRUCTOR_CALL' && r[c('argumentCount')] === '0'
+    );
+    if (parameterless.length !== 1) {
+      bad += fail(
+        `${parameterless.length} constructor call(s) report no arguments, expected exactly 1 — the ` +
+          'fixture writes one parameterless creation, and a constructor recorded as taking none ' +
+          'reads as an overload that may not exist'
+      );
+    }
+
+    // AND THE CREATED TYPE KEEPS ITS ARITY. The type arguments are comparison
+    // OPERANDS under this misparse, not children of the type node, so the
+    // reference came out as the bare name with arity 0 — and C# generics are
+    // REIFIED, so `Dictionary` and `Dictionary<Key, Val>` are different runtime
+    // types with different method tables. A wrong row, not a thin one.
+    const typeReferences = relations.get('all-csharp-type-references.csv');
+    if (typeReferences === undefined) {
+      return bad + fail('the type-reference relation is missing');
+    }
+    const t = (n: string): number => typeReferences.header.indexOf(n);
+    let typesChecked = 0;
+    for (const creation of creations) {
+      const head = typeReferences.rows.find(
+        (r) => r[t('ownerLinkHash')] === creation[pk] && r[t('depth')] === '0'
+      );
+      if (head === undefined) {
+        bad += fail(`the creation on line ${creation[e('startLine')]} has no type reference`);
+        continue;
+      }
+      typesChecked += 1;
+      // Every created type in this fixture is generic, and its arity is in the
+      // name: Dictionary takes two, Box takes one.
+      const expected = head[t('typeName')] === 'Box' ? '1' : '2';
+      if (head[t('kind')] !== 'CONSTRUCTED' || head[t('typeArgumentCount')] !== expected) {
+        bad += fail(
+          `the type created on line ${creation[e('startLine')]} is ${head[t('completeTypeName')]} — ` +
+            `${head[t('kind')]} with ${head[t('typeArgumentCount')]} type argument(s), expected CONSTRUCTED ` +
+            `with ${expected}. Reified generics: an arity of 0 is a different type, not a missing detail`
+        );
+      }
+    }
+    if (typesChecked === 0) {
+      bad += fail('NEGATIVE CONTROL FAILED: no created type was checked, so that comparison asserted nothing');
     }
     return bad;
   });
@@ -5680,20 +6002,25 @@ const RESERVED_ENUM_VALUES: ReadonlyMap<string, string> = new Map([
       'stays: it is what found that shape, and the next unlocatable one is not knowable in ' +
       'advance. Reserved, not deleted.',
   ],
-  [
-    'CsCallKind.OPERATOR_CALL',
-    'a user-defined operator invoked by `a + b`. Whether the operand type declares one is ' +
-      'RESOLUTION: the syntax is identical for `int + int` and `Vector + Vector`. INDEX_CALL ' +
-      'in TypeScript is the precedent — a kind syntax cannot decide is reserved with a ' +
-      'zero-row assertion, never guessed. The BINARY expression row carries the operator, ' +
-      'which is the whole hand-off.',
-  ],
-  [
-    'CsCallKind.CONVERSION_CALL',
-    'a cast that invokes a user-defined conversion. The same syntax as a cast that does ' +
-      'not, and only the target and source types decide it. The CAST row and its ' +
-      'castTypeReferenceLinkHash give the engine both halves.',
-  ],
+  // OPERATOR_CALL and CONVERSION_CALL WERE RESERVED HERE and are now emitted.
+  //
+  // The reservation borrowed the implicit conversion's reasoning — a kind syntax
+  // cannot decide is reserved, never guessed — and that reasoning is right for the
+  // implicit conversion, which has no syntax at the call site at all and stays
+  // reserved. It does not transfer: `a + b` and `(T)x` are written down. What
+  // syntax cannot decide is WHICH method runs, and that is resolution, the same
+  // question a receiver's type is for `a.M()` — which is emitted and has always
+  // been.
+  //
+  // The cost of the reservation was 100% of a construct class: every `operator`
+  // site the compiler oracle reports was a site the engine never saw, 445 across
+  // the designed-against set and 3,709 across the held-out one, against 380 missed
+  // of 56,046 ordinary invocations.
+  //
+  // A site is emitted for every written operator and explicit cast EXCEPT in a
+  // constant-expression context (an attribute argument, a case label, a parameter
+  // default, an enum member value), where the language permits only built-in
+  // operators on constants and the compiler folds them.
   [
     'CsCallKind.ELEMENT_ACCESS_CALL',
     '`a[i]` on a type with an indexer is a call to `get_Item`; on an array it is not. The ' +
@@ -8821,14 +9148,51 @@ function expressionSpine(outputDir: string): number {
       break;
     }
   }
+  // COUNTING INVOCATIONS AND CREATIONS WAS A PROXY FOR 1:1, and it stopped being
+  // one when OPERATOR_CALL and CONVERSION_CALL started being emitted: an operator
+  // site rides on a BINARY or a UNARY row and a conversion on a CAST. The equality
+  // it asserted is now false in a way that says nothing about the invariant, so the
+  // invariant is asserted directly instead, in three parts.
+  //
+  // (a) NO TWO SITES SHARE AN EXPRESSION. The key is the expression hash and
+  //     nothing else, so a second site on one expression does not collide, it
+  //     DOUBLES.
+  const seenSiteExpr = new Set<string>();
+  for (const call of callSites.rows) {
+    const hash = call[c('csExpressionLinkHash')]!;
+    if (seenSiteExpr.has(hash)) {
+      failures += fail('two call sites share one expression row; the relation is 1:1');
+      break;
+    }
+    seenSiteExpr.add(hash);
+  }
+
+  // (b) A SITE ONLY EVER RIDES ON A KIND THAT CAN CARRY ONE. This is what catches a
+  //     site minted on the wrong row, which the count could not distinguish from a
+  //     missing one.
+  const CALL_BEARING_KINDS = new Set(['INVOCATION', 'OBJECT_CREATION', 'BINARY', 'UNARY', 'CAST']);
+  for (const call of callSites.rows) {
+    const row = byHash.get(call[c('csExpressionLinkHash')]!);
+    if (row !== undefined && !CALL_BEARING_KINDS.has(row[e('kind')]!)) {
+      failures += fail(
+        `a call site rides on a ${row[e('kind')]} expression, which cannot carry one`
+      );
+      break;
+    }
+  }
+
+  // (c) EVERY INVOCATION AND CREATION STILL HAS ONE. The original direction, kept.
+  //     It does NOT extend to the operator kinds: `p && q` is a BINARY that is not a
+  //     call, because `&&` is not user-definable, and an operator in a
+  //     constant-expression context runs nothing and gets no site either.
   const callable = expressions.rows.filter(
     (r) => r[e('kind')] === 'INVOCATION' || r[e('kind')] === 'OBJECT_CREATION'
   );
-  if (callable.length !== callSites.rows.length) {
+  const withoutSite = callable.filter((r) => !seenSiteExpr.has(r[ePk]!));
+  if (withoutSite.length > 0) {
     failures += fail(
-      `${callable.length} invocation/creation expressions and ${callSites.rows.length} ` +
-        'call sites. The relation is 1:1 by construction — its key is the expression hash ' +
-        'and nothing else.'
+      `${withoutSite.length} of ${callable.length} invocation/creation expressions have no ` +
+        'call site. Every one of them is a call the IR records as an expression and not as a call.'
     );
   }
 
@@ -9104,9 +9468,10 @@ function expressionSpine(outputDir: string): number {
     callSites.rows.filter(
       (r) => r[c('calleeName')] === name && r[c('csModuleLinkHash')] === spineHash
     );
-  // PatRight is a REPAIRED misparse; RefTarget is a known absence. One shape
-  // each, and the difference is whether the misparse left a node to build the
-  // row from.
+  // PatRight and RefTarget are both REPAIRED misparses now. RefTarget was a
+  // known absence for as long as there was no node to build its row from; the
+  // declaration node the grammar filed it under is that node, and the tuple
+  // pattern beside it is the argument list.
   //
   //   `s is not null && PatRight(s)`   the pattern swallows the right operand,
   //   `s is null || PatRight(s)`       so the call sat inside a PATTERN — and a
@@ -9170,10 +9535,38 @@ function expressionSpine(outputDir: string): number {
         'its operand by position, and `this` is not a named child, so position 0 is the PATTERN'
     );
   }
-  if (spineCalls('RefTarget').length !== 0) {
+  // THE REF-RETURNING ASSIGNMENT NOW YIELDS ITS CALL, which is what this check
+  // asked for while it was still asserting zero. `RefTarget(v) = PatValue()` is
+  // an assignment through a ref-returning call that the published grammar files
+  // as a `variable_declaration`; the call had no row at all and, for the one-
+  // and two-argument forms, no parse gap either.
+  const refTargetCalls = spineCalls('RefTarget');
+  if (refTargetCalls.length !== 1) {
     failures += fail(
-      `RefTarget is now called ${spineCalls('RefTarget').length} time(s). The ref-returning ` +
-        'assignment misparse now yields a call — assert its ASSIGNMENT_TARGET structure.'
+      `RefTarget is called ${refTargetCalls.length} time(s), expected 1 — the ref-returning ` +
+        'assignment misparse lost its call site, which is the silent half of the defect'
+    );
+  } else if (refTargetCalls[0]![c('argumentCount')] !== '1') {
+    // The ARITY is the half a bare presence check would miss: the arguments live
+    // in the tuple pattern the grammar built, and reading them from an
+    // `argument_list` that does not exist reports zero.
+    failures += fail(
+      `RefTarget's call site reports argumentCount ` +
+        `${refTargetCalls[0]![c('argumentCount')]}, expected 1 — the tuple pattern the ` +
+        'grammar built IS the argument list'
+    );
+  }
+  // AND THE ASSIGNED VALUE IS STILL REACHED. Emitting the call must not cost the
+  // right-hand side, which is what the walk pushed before this shape had a call.
+  const refAssignedValue = expressions.rows.some(
+    (r) =>
+      r[e('edgeRole')] === 'ASSIGNMENT_VALUE' &&
+      r[e('csModuleLinkHash')] === spineHash
+  );
+  if (!refAssignedValue) {
+    failures += fail(
+      'the ref-returning assignment emitted its call but no ASSIGNMENT_VALUE child — the ' +
+        'value was dropped when the declaration node became the expression root'
     );
   }
   if (spineCalls('PatValue').length !== 1) {
@@ -13535,10 +13928,21 @@ async function main(): Promise<number> {
       {
         name: 'an unreadable extension block leaves the file alone',
         proves:
-          'a file with one readable block and one the recovery does not present cleanly is ' +
-          'left ENTIRELY alone rather than partly rewritten — a partial rewrite loses a ' +
-          'member the file declares, and the gap relation still reports the file',
+          'a predefined-type receiver is read from the text, so a file mixing it with a ' +
+          'nominal receiver keeps EVERY member — and a block the pass still cannot account ' +
+          'for leaves the file entirely alone, with the gap relation reporting it',
         run: () => anUnreadableExtensionBlockLeavesTheFileAlone(),
+      },
+      {
+        name: 'a generic creation in argument position is one argument',
+        proves:
+          'the `<` ambiguity no longer splits `Take(new D<K, V>(args) { … })` into two ' +
+          'comparisons and a cast, and neither spelling of it survives: the one-type-argument ' +
+          '`new Box<T>(x) { … }` has no comma to split on and occurs anywhere an expression ' +
+          'may. The call takes one argument, nothing is fabricated, the type arguments are ' +
+          'neither values nor lost from the created type`s arity, the expression row and the ' +
+          'call site agree on the constructor`s arguments, and a REAL `a < b > c` is untouched',
+        run: () => aGenericCreationInArgumentPositionIsOneArgument(),
       },
       {
         name: 'a delegate is named by its name field',

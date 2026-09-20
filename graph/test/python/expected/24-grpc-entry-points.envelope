@@ -1,0 +1,4 @@
+mro	greet_pb2_grpc.GreeterServicer.Chat -> main.GreeterServicer.Chat
+mro	greet_pb2_grpc.GreeterServicer.SayHello -> main.GreeterServicer.SayHello
+mro	greet_pb2_grpc.GreeterServicer.StreamReplies -> main.GreeterServicer.StreamReplies
+mro	greet_pb2_grpc.NotAService.SayHello -> main.SubclassOfNonService.SayHello

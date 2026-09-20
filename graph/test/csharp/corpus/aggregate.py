@@ -21,6 +21,12 @@ table by eye:
         precision win in a summary and is an unsoundness.
   FAIL  dev improved and holdout got worse. That is the definition of fitting the
         dev set, and it is the check a human reviewer reliably forgets.
+  WARN  dev improved and holdout's agreement RATE fell while its agreeing COUNT rose
+        on a larger population. A change that makes a construct visible for the
+        first time enlarges the denominator, so the rate can fall with every
+        previously scored site keeping its verdict. Reported with the counts and an
+        instruction to re-score both runs with the construct excluded from HELD,
+        which is the only way to compare one population with itself.
   WARN  dev improved and holdout did not move. Not a failure -- a construct may
         genuinely not occur in the held-out set -- but it is not evidence of
         generalisation either, and it must not be reported as though it were.
@@ -139,6 +145,44 @@ def rate(t, num, den):
     return (100.0 * t[num] / t[den]) if t and t[den] else None
 
 
+def dilution(tb, ta):
+    """
+    Whether a FALLEN AGREEMENT RATE on this set is dilution by newly visible sites
+    rather than a regression, and the counts that say so.
+
+    THE RATE CANNOT ANSWER THIS ON ITS OWN. `in_source_sites` counts the in-source
+    sites the engine SAW -- it is exactly declared_agree + declared_differs +
+    declared_none -- so a change that makes a construct visible for the first time
+    ENLARGES the denominator. Every site that was already scored can keep its
+    verdict and the rate still falls, because the new ones agree at a lower rate
+    than the old average. That is not the shape the dev-set-fitting check is looking
+    for, and reporting it as "the rule fits the dev set" names the wrong cause on the
+    run where it matters most.
+
+    It is dilution only when ALL THREE hold:
+      - the population GREW (a shrinking one means sites stopped being seen),
+      - agreeing sites ROSE in absolute number, and
+      - they rose by at least as much as disagreeing sites did.
+
+    Anything else is a real regression and keeps the old verdict. In particular a
+    population that grew while agreement FELL is the worst case, not the best one.
+
+    THIS IS NOT A WAY PAST THE GATE. The result is a WARN with the counts printed and
+    an instruction to re-score both runs with the new construct excluded from HELD,
+    which is the only comparison that puts the two runs on one population. A WARN
+    still has to be read.
+    """
+    grew = ta["in_source_sites"] - tb["in_source_sites"]
+    agree = ta["declared_agree"] - tb["declared_agree"]
+    wrong = ((ta["declared_differs"] + ta["declared_none"])
+             - (tb["declared_differs"] + tb["declared_none"]))
+    why = (f"on a population that grew by {grew} "
+           f"(agreeing {tb['declared_agree']} -> {ta['declared_agree']}, "
+           f"disagreeing {tb['declared_differs'] + tb['declared_none']} -> "
+           f"{ta['declared_differs'] + ta['declared_none']})")
+    return (grew > 0 and agree > 0 and agree >= wrong), why
+
+
 def diff(before, after):
     b, a = load(before), load(after)
     print("CORPUS DIFF")
@@ -158,7 +202,8 @@ def diff(before, after):
                 continue
             delta = ra - rb
             arrow = "+" if delta > 0.005 else ("-" if delta < -0.005 else "=")
-            print(f"    {what:<22} {rb:7.2f}% -> {ra:7.2f}%  {arrow}{abs(delta):.2f}")
+            print(f"    {what:<22} {rb:7.2f}% -> {ra:7.2f}%  {arrow}{abs(delta):.2f}"
+                  f"   ({tb[num]} -> {ta[num]} of {tb[den]} -> {ta[den]})")
         for k, what in (("dropped", "dropped sites"),
                         ("external_wrongly_resolved", "wrongly resolved external")):
             if ta[k] > tb[k]:
@@ -170,15 +215,25 @@ def diff(before, after):
             verdict = "FAIL"
             reasons.append(f"{pset}: the fan lost {tb['fan_sound'] - ta['fan_sound']} sound site(s)")
 
-    db = rate(totals(b, "dev"), "declared_agree", "in_source_sites")
-    da = rate(totals(a, "dev"), "declared_agree", "in_source_sites")
-    hb = rate(totals(b, "holdout"), "declared_agree", "in_source_sites")
-    ha = rate(totals(a, "holdout"), "declared_agree", "in_source_sites")
+    tdb, tda = totals(b, "dev"), totals(a, "dev")
+    thb, tha = totals(b, "holdout"), totals(a, "holdout")
+    db = rate(tdb, "declared_agree", "in_source_sites")
+    da = rate(tda, "declared_agree", "in_source_sites")
+    hb = rate(thb, "declared_agree", "in_source_sites")
+    ha = rate(tha, "declared_agree", "in_source_sites")
     if None not in (db, da, hb, ha):
         dev_up, hold_up = da - db, ha - hb
         if dev_up > 0.01 and hold_up < -0.01:
-            verdict = "FAIL"
-            reasons.append(f"dev +{dev_up:.2f} while holdout {hold_up:.2f}: the rule fits the dev set")
+            grew, why = dilution(thb, tha)
+            if grew:
+                if verdict == "PASS":
+                    verdict = "WARN"
+                reasons.append(f"dev +{dev_up:.2f} while holdout {hold_up:.2f} AS A RATE, {why}")
+                reasons.append("read the counts, not the rate; re-score both runs with the new")
+                reasons.append("construct excluded from HELD to compare like with like")
+            else:
+                verdict = "FAIL"
+                reasons.append(f"dev +{dev_up:.2f} while holdout {hold_up:.2f}: the rule fits the dev set")
         elif dev_up > 0.01 and abs(hold_up) <= 0.01:
             if verdict == "PASS":
                 verdict = "WARN"

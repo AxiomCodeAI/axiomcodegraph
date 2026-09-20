@@ -1,0 +1,7 @@
+68-decorator-framework-roots [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 11   resolved 1 (9.1%)
+  tiers ambiguous_unknown=10  known_edge=1
+  contexts DECORATOR_TYPE=5  METHOD_PARAM=6
+  not scored: 10 rows whose target is not a client declaration

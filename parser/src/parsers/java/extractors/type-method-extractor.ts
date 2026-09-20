@@ -7,7 +7,6 @@ import { AnnotationArgumentReference } from '@/analysis-types/java/AnnotationArg
 import { ExpressionReference } from '@/analysis-types/java/ExpressionReference';
 import { TypeAnnotation } from '@/analysis-types/java/TypeAnnotation';
 import { TypeReference } from '@/analysis-types/java/TypeReference';
-import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { MethodAccess, MethodKind, MethodModifier } from '@/enums/java/methods';
 import { EdgeRole, ExpressionKind, ExpressionOwnerKind, RootContext } from '@/enums/java/expressions';
 import { AnnotationExtractor } from '@/parsers/java/extractors/annotation-extractor';
@@ -167,6 +166,9 @@ export class TypeMethodExtractor {
     this.extractedAnonymousClasses.push(...anonymousClasses);
   }
 
+  /** Set per type by extractFromType; see the parameter's doc comment. */
+  private enumConstantHashByNodeRange: Map<string, string> = new Map();
+
   /**
    * Extracts methods from a type body
    * @param typeNode The type declaration node (class_declaration, interface_declaration, etc.)
@@ -185,8 +187,17 @@ export class TypeMethodExtractor {
     serviceVersionHash: string,
     packageName: string | null,
     importMap: Map<string, string>,
-    hasStarImports: boolean
+    hasStarImports: boolean,
+    /**
+     * The hash each enum_constant node was emitted under, keyed by `startIndex:endIndex`
+     * (EnumConstantExtractor.getConstantHashByNodeRange). A method in a constant's body
+     * links to its enclosing constant with this. Empty when the type is not an enum, or
+     * when the constants have not been extracted yet: an absent link is recoverable, a
+     * link to a constant that was never emitted is not.
+     */
+    enumConstantHashByNodeRange: Map<string, string> = new Map()
   ): MethodRegistry[] {
+    this.enumConstantHashByNodeRange = enumConstantHashByNodeRange;
     // Extract class-level type parameters
     const classTypeParams = this.extractClassTypeParameters(typeNode);
     const methods: MethodRegistry[] = [];
@@ -454,8 +465,11 @@ export class TypeMethodExtractor {
         );
       } else if (child.type === 'enum_constant') {
         // Check for anonymous class methods in enum constants
-        // Generate enum constant hash for linking
-        const constantHash = this.generateEnumConstantHash(child, filePath, typeRegistryHash);
+        // The hash the constant was EMITTED under. Deriving it again here produced links
+        // to constants that do not exist, because the emitting walk advances its ordinal
+        // only for a constant that extracted.
+        const constantHash =
+          this.enumConstantHashByNodeRange.get(`${child.startIndex}:${child.endIndex}`) ?? '';
         
         for (const constantChild of child.children) {
           if (constantChild.type === 'class_body') {
@@ -2580,49 +2594,6 @@ export class TypeMethodExtractor {
     return false;
   }
 
-  /**
-   * Generates an enum constant hash for linking methods to their owning enum constant.
-   * Uses the same hash generation logic as EnumConstant entity.
-   */
-  private generateEnumConstantHash(
-    enumConstantNode: Parser.SyntaxNode,
-    filePath: string,
-    typeRegistryHash: string
-  ): string {
-    // Extract the constant name from the identifier child
-    const identifierNode = enumConstantNode.children.find(child => child.type === 'identifier');
-    const name = identifierNode?.text || '';
-    
-    // Count ordinal by finding position among sibling enum constants
-    let ordinal = 0;
-    if (enumConstantNode.parent) {
-      for (const sibling of enumConstantNode.parent.children) {
-        if (sibling === enumConstantNode) break;
-        if (sibling.type === 'enum_constant') ordinal++;
-      }
-    }
-    
-    const startLine = enumConstantNode.startPosition.row + 1;
-    const endLine = enumConstantNode.endPosition.row + 1;
-    
-    const content =
-      filePath +
-      '||' +
-      typeRegistryHash +
-      '||' +
-      name +
-      '||' +
-      ordinal +
-      '||' +
-      startLine +
-      '||' +
-      endLine;
-
-    return EntityUtils.generateEntityHash(
-      ENTITY_IDENTIFIERS.ENUM_CONSTANT,
-      content
-    );
-  }
 
   /**
    * Creates a MethodRegistry instance from a method declaration node

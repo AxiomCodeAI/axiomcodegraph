@@ -60,10 +60,28 @@ export class EnumConstantExtractor {
   private extractedExpressions: ExpressionReference[] = [];
   private extractedTypeReferences: TypeReference[] = [];
   private extractedAnonymousClasses: AnonymousClassInfo[] = [];
+  /**
+   * The hash each enum_constant node was ACTUALLY emitted under, keyed by the node's
+   * byte range. A method declared in a constant's body needs this hash to link to its
+   * enclosing member, and re-deriving it there produced links to constants that were
+   * never emitted: the ordinal here advances only for a constant that extracted, so a
+   * second derivation counting sibling nodes cannot agree with it in general.
+   * Byte range, not start offset, because a start index alone collides.
+   */
+  private constantHashByNodeRange: Map<string, string> = new Map();
 
   constructor() {
     this.annotationExtractor = new AnnotationExtractor();
     this.expressionExtractor = new ExpressionReferenceExtractor();
+  }
+
+  /**
+   * The hash each enum_constant node was emitted under, keyed by `startIndex:endIndex`.
+   * The method extractor links a constant-body method to its enclosing constant with
+   * this, rather than deriving the hash a second time.
+   */
+  getConstantHashByNodeRange(): Map<string, string> {
+    return this.constantHashByNodeRange;
   }
 
   /**
@@ -121,6 +139,7 @@ export class EnumConstantExtractor {
     this.extractedExpressions = [];
     this.extractedTypeReferences = [];
     this.extractedAnonymousClasses = [];
+    this.constantHashByNodeRange = new Map();
 
     const enumConstants: EnumConstant[] = [];
 
@@ -146,6 +165,10 @@ export class EnumConstantExtractor {
 
         if (enumConstant) {
           enumConstants.push(enumConstant);
+          this.constantHashByNodeRange.set(
+            `${child.startIndex}:${child.endIndex}`,
+            enumConstant.getEnumConstantUniqueHash()
+          );
 
           // Extract annotations for this enum constant
           this.extractEnumConstantAnnotations(

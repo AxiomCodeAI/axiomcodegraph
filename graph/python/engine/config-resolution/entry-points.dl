@@ -79,3 +79,67 @@ entry_point(m, "http") :- decorator_target("client", _, m, h),
 // Only the HTTP rule is written here. A `__main__` guard and a CLI command are also
 // entry points, but neither was MEASURED on a subject yet, and an unmeasured rule is how
 // a fabricated edge gets in. They belong in a follow-up with their own numbers.
+
+// ── entry_reachable(Method) ─────────────────────────────────────────────────
+// Declared for Python (graph/bundle/languages.ts) and never derived here, so every
+// consumer reading it for liveness sees "everything is dead" regardless of how many
+// entry points the graph has (#1122). Same two clauses as TypeScript/JavaScript's
+// (call-edge-generation/call_chain.dl): root every entry point, then walk client call
+// edges. callee != "-" excludes the sentinel call_chain_edge writes for a site that
+// resolved to nothing (boundary_lib, ambiguous_unknown, ...) -- those are not a method.
+method_call_edge(caller, callee) :- call_chain_edge(_, caller, _, callee, "client", _, _),
+    callee != "-".
+
+entry_reachable(m) :- entry_point(m, _).
+entry_reachable(callee) :- entry_reachable(caller), method_call_edge(caller, callee).
+// (b) gRPC servicer methods — `add_<Svc>Servicer_to_server(MyServicer(), server)` hands the
+// object to grpc, which invokes the method on a request. No client call site reaches it, exactly
+// as for an HTTP route, and the consequence is worse: a servicer's private helpers are reached
+// only THROUGH its rpc methods, so with the rpc methods unrooted the whole server module is dead
+// code to the graph. Measured on a subject driven by a RUNNING server (a wrapper records each
+// servicer method at invocation): six trigger shapes — unary-unary, unary-stream, stream-unary,
+// stream-stream, a second service, and a client with no stub at all — all six ran, and the
+// engine linked 0 of 6. #1111.
+//
+// WHY NOT MATCH THE NAME. `*Servicer` alone would claim any class a codebase happens to call
+// `OrderServicer`, and matching `add_*_to_server` call sites would depend on the call resolving,
+// which is the thing that is broken. The rule keys on PROVENANCE instead: the base class must be
+// declared in a `_pb2_grpc.py` module, which only protoc writes. A hand-written class of that
+// name in ordinary source is not matched, and neither is a servicer that subclasses nothing
+// generated (duck-typed registration) — that shape is real but unmeasured, and an unmeasured
+// rule is how a fabricated edge gets in.
+//
+// THE SECOND CONDITION IS THE PRECISION GUARD. Only a method the GENERATED BASE ALSO DECLARES is
+// an entry point. The base declares exactly the rpc methods of the service, so an override of
+// one is rooted and a helper beside it is not: on the subject, `_render` — called by all four
+// rpc bodies and by nothing else — correctly stays unrooted and is reached transitively instead.
+
+// ── grpc_servicer_base(TypeHash) ────────────────────────────────────────────
+// A generated servicer base: a class whose name ends `Servicer`, declared in a module whose file
+// ends `_pb2_grpc.py`. substr offsets are clamped with max(): Souffle inlines a guard written as
+// its own relation back into the caller, so an unclamped offset warns once per fact even where
+// the guard would have excluded it.
+grpc_servicer_base(t) :-
+    py_grpc_servicer_suffix(suf),
+    py_grpc_generated_module_suffix(msuf),
+    type_decl(p, name, _, _, t),
+    strlen(name) > strlen(suf),
+    substr(name, max(0, strlen(name) - strlen(suf)), strlen(suf)) = suf,
+    type_module(p, mod, t),
+    module_file(p, path, mod),
+    strlen(path) > strlen(msuf),
+    substr(path, max(0, strlen(path) - strlen(msuf)), strlen(msuf)) = msuf.
+
+entry_point(m, "grpc_service") :-
+    type_base_resolved("client", sub, _, base),
+    grpc_servicer_base(base),
+    method_owner("client", sub, m),
+    method_decl("client", n, _, _, _, m),
+    // a class body is not an rpc: the generated base has a `<classbody>` too, so matching on the
+    // name alone rooted `GreeterServicer.<classbody>` and `AdminServicer.<classbody>` as well as
+    // the five real rpc methods. The initializer kinds are excluded the way attribute-lookup.dl
+    // excludes them.
+    method_kind("client", kind, _, m),
+    kind != "MODULE_INITIALIZER", kind != "CLASS_INITIALIZER",
+    method_owner(_, base, bm),
+    method_decl(_, n, _, _, _, bm).

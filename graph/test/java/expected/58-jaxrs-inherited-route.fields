@@ -1,0 +1,7 @@
+known_edge	read	testcases.jaxrs.OrderClient#find(String) -> testcases.jaxrs.OrderClient#restTemplate
+known_edge	read	testcases.jaxrs.OrderClient#list() -> testcases.jaxrs.OrderClient#restTemplate
+known_edge	read	testcases.jaxrs.OrderClient#replaceAll(String) -> testcases.jaxrs.OrderClient#restTemplate
+known_edge	read	testcases.jaxrs.WidgetClient#list() -> testcases.jaxrs.WidgetClient#restTemplate
+known_edge	read	testcases.jaxrs.WidgetClient#replaceAll(String) -> testcases.jaxrs.WidgetClient#restTemplate
+known_edge	write	testcases.jaxrs.OrderClient#<init>(RestTemplate) -> testcases.jaxrs.OrderClient#restTemplate
+known_edge	write	testcases.jaxrs.WidgetClient#<init>(RestTemplate) -> testcases.jaxrs.WidgetClient#restTemplate

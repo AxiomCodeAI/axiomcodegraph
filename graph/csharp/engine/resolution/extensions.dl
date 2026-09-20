@@ -8,8 +8,8 @@
 // directive somewhere above.
 //
 // WHY THIS FILE IS THE BIGGEST SINGLE RECALL ITEM. Measured on the dev corpus
-// before it existed: 912 of Humanizer's 3,203 in-source call sites resolved to
-// nothing, and Humanizer is a library of extension methods. LINQ means every
+// before it existed: on a corpus member that is a library of extension methods,
+// 912 of its 3,203 in-source call sites resolved to nothing. LINQ means every
 // project has them. Without this, an engine reports a library's own public surface
 // as unreachable.
 //
@@ -67,7 +67,7 @@ extension_recv_type(prov, m, gk) :- extension_method(prov, m, p), param_type(pro
 // `this IRuleBuilderOptions<T, TProperty>` owns THREE type references: the
 // constructed one and its two arguments, and the arguments ARE type parameters.
 // Matching on "owns a type-parameter reference" therefore made every generic
-// extension method match every receiver -- FluentValidation's
+// extension method match every receiver -- one corpus member's
 // `DefaultValidatorOptions.Where` was offered for `assemblies.Where(...)` on an
 // IEnumerable and won, producing six edges the compiler does not make. The root is
 // the reference with no parent.
@@ -105,6 +105,16 @@ call_recv_type_name(prov, e, tn) :-
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
     ref_denotes(prov, r, "PROPERTY", p), property_type_name(prov, p, tn, _).
+// A LAMBDA PARAMETER. Its type is explicit at the point it is written, and it is the
+// receiver shape of a minimal-API endpoint and of every handler registered as a
+// delegate -- where the receiver is nearly always a framework type, which is exactly
+// the case this by-name path exists to carry. expr-type.dl already types
+// LAMBDA_PARAMETER through param_type; only the NAME was missing here, so an
+// extension with an in-source `this` type resolved inside a lambda through the
+// nominal clause while one with an external `this` type did not.
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    ref_denotes(prov, r, "LAMBDA_PARAMETER", p), param_type_name(prov, p, tn, _).
 // A receiver that is itself a call: the callee's declared return type name.
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
@@ -165,7 +175,7 @@ call_instance_lookup_failed(prov, e) :-
 // So the MATCH is positive and ungated, and the GATE is applied afterwards:
 //
 //   extension_match      POSITIVE. Every in-scope extension whose name, arity and
-//                        receiver fit. Feeds typing, so `x.Humanize().Trim()` can
+//                        receiver fit. Feeds typing, so `x.Titlecase().Trim()` can
 //                        type its receiver through the extension's return type.
 //   extension_candidate  GATED. Only where instance lookup found nothing, which is
 //                        the language's own rule. Feeds the edge layer.
@@ -196,6 +206,27 @@ extension_match(prov, e, m) :-
     call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
     extension_recv_is_generic(prov, m).
 
+// (4) `this object`. Every type derives from object, so this matches any receiver --
+// and it is the one nominal `this` type none of the three clauses below can see. The
+// nominal walk needs a GROUP for object and a client-only run has none; the generic
+// clause needs the `this` parameter to BE a type parameter, which object is not; and
+// the by-name match needs the receiver to be SPELLED `object`, which it never is.
+//
+// So it is its own clause, gated like the generic one on the call still needing a
+// member: `this object` helpers are logging, tracing and type-name helpers called
+// from everywhere, and ungated they would be offered at every site in the program.
+extension_recv_is_object(prov, m) :- extension_recv_name(prov, m, "object").
+extension_recv_is_object(prov, m) :- extension_recv_name(prov, m, "System.Object").
+
+extension_match(prov, e, m) :-
+    call_needs_member_lookup(prov, e),
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    extension_recv_is_object(prov, m).
+
 // (3) BY NAME: neither side's type resolves, and both were written the same way.
 extension_match(prov, e, m) :-
     call_callee_name(prov, e, n),
@@ -213,6 +244,50 @@ extension_match(prov, e, m) :-
 extension_candidate(prov, e, m) :-
     extension_match(prov, e, m),
     call_instance_lookup_failed(prov, e).
+
+// A candidate the engine has real evidence for, as opposed to one it reached by
+// assuming an unanswerable question was answered "nothing". Only a FIRM candidate
+// suppresses the external boundary label, so a guess widens the site to
+// multi_inferred instead of committing it to a single known_edge. See
+// extension_is_guess below.
+extension_candidate_firm(prov, e, m) :-
+    extension_candidate(prov, e, m),
+    !extension_is_guess(prov, e, m).
+
+// ── A `this T` MATCH ON A RECEIVER THE ENGINE CANNOT TYPE IS A GUESS ────────
+// The third clause of the gate above reads "the engine has no facts for this
+// receiver's type" as "instance member lookup found nothing applicable". Those
+// are not the same statement, and where the extension's own receiver is an
+// unconstrained type parameter the difference decides the site:
+//
+//     public static string Substring<T>(this T self, int n) => "ext";
+//     public string Local(string t) => t.Substring(1);
+//
+// The compiler binds `t.Substring(1)` to string's own instance method, because
+// an extension is considered ONLY where instance lookup found nothing. The
+// engine has no members for `string`, so the gate opened and the site committed
+// to the in-source extension: a resolved target for a call the compiler sends
+// out of the source, tiered known_edge. That is the one defect class the scorer
+// treats as unarguable, and it was six sites on one corpus member.
+//
+// A `this T` match is evidence of nothing: it fits every receiver by
+// construction. A by-NAME match is different and is deliberately still allowed
+// -- `this string` against a receiver written `string` is the commonest
+// extension shape in the language, and the written names agreeing is real
+// evidence. What was wrong here is the gate, not the match.
+//
+// THE EXTENSION IS STILL A TARGET. Refusing it outright was measured and is
+// wrong in the other direction: `x.Identity()` on an `int`, with `this T
+// Identity<T>`, is a CORRECT resolution that the same test cannot tell from the
+// wrong one, and dropping it cost a case and a corpus member. Without library
+// facts the engine cannot answer, so it says so: the site keeps the extension AND
+// the external boundary label, which is multi_inferred rather than a committed
+// known_edge naming only the extension. That is the honest answer and it is what
+// the report asked for.
+extension_is_guess(prov, e, m) :-
+    extension_match(prov, e, m),
+    extension_recv_is_generic(prov, m),
+    !call_recv_type(prov, e, _).
 
 // An extension method is STATIC and is never virtually dispatched: the receiver is
 // an ordinary argument, so the target is exact and needs no fan.

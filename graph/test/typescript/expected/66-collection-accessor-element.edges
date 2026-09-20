@@ -1,0 +1,12 @@
+ambiguous_unknown	METHOD_CALL	flow#ctlAccessorCall(Registry) @L56 -> -
+ambiguous_unknown	METHOD_CALL	flow#ctlEntriesTuple(Registry) @L49 -> -
+ambiguous_unknown	METHOD_CALL	flow#viaArrayIterator(Slots) @L40 -> -
+ambiguous_unknown	METHOD_CALL	flow#viaKeys(Registry) @L26 -> -
+ambiguous_unknown	METHOD_CALL	flow#viaSetIterator(Bag) @L33 -> -
+ambiguous_unknown	METHOD_CALL	flow#viaValues(Registry) @L19 -> -
+known_edge	FUNCTION_CALL	flow#main(Registry,Bag,Slots) @L60 -> flow#ctlAccessorCall(Registry)
+known_edge	FUNCTION_CALL	flow#main(Registry,Bag,Slots) @L61 -> flow#viaArrayIterator(Slots)
+known_edge	FUNCTION_CALL	flow#main(Registry,Bag,Slots) @L61 -> flow#viaKeys(Registry)
+known_edge	FUNCTION_CALL	flow#main(Registry,Bag,Slots) @L61 -> flow#viaSetIterator(Bag)
+known_edge	FUNCTION_CALL	flow#main(Registry,Bag,Slots) @L61 -> flow#viaValues(Registry)
+known_edge	FUNCTION_CALL	flow#main(Registry,Bag,Slots) @L62 -> flow#ctlEntriesTuple(Registry)

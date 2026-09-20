@@ -301,6 +301,11 @@ __pycache__/
 
 # C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
 .cs-case-work/
+# staging-test.sh's default work dir, the same way .cs-case-work/ is the case
+# runner's. Without it a run of the C# suite leaves an untracked directory, and
+# the next `git add -A` in that tree commits a scratch tree full of absolute
+# machine paths.
+.cs-staging-work/
 .cs-dev-cache/
 
 # evaluation graders: run locally, never shipped in the plugin
@@ -314,3 +319,8 @@ AGENTS.md
 .codex/
 .copilot/
 .agents/
+
+# The C# corpus manifest names the evaluation set and is deliberately NOT committed.
+# corpus.tsv.template documents the format; the filled-in copy lives outside the repo
+# (CS_CORPUS_MANIFEST, default ~/.config/axiom/cs-corpus.tsv). See corpus/manifest.sh.
+graph/test/csharp/corpus/corpus.tsv

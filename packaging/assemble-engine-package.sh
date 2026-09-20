@@ -13,7 +13,7 @@ rm -rf "$out"; mkdir -p "$out"
 cp -R "$src"/. "$out/"
 langs="$(ls -d "$out"/*/ | xargs -n1 basename | tr '\n' ' ')"
 sed -e "s|@@SCOPE@@|$ENGINE_PACKAGE_SCOPE|g" -e "s|@@PLATFORM@@|$platform|g" -e "s|@@VERSION@@|$version|g" \
-    -e "s|@@OS@@|$os|g" -e "s|@@CPU@@|$cpu|g" -e "s|@@LANGS@@|${langs% }|g" -e "s|@@SOUFFLE@@|$SOUFFLE_VERSION|g" \
+    -e "s|@@OS@@|$os|g" -e "s|@@CPU@@|$cpu|g" -e "s|@@LANGS@@|${langs% }|g" \
     "$HERE/engine-package.json" > "$out/package.json"
 cp "$HERE/../LICENSE.md" "$out/LICENSE.md"
 { echo "# $ENGINE_PACKAGE_SCOPE/engine-$platform"; echo

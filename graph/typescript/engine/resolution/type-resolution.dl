@@ -553,6 +553,29 @@ ref_name_is_container("AsyncIterator").
 ref_name_is_container("IterableIterator").
 ref_name_is_container("AsyncIterableIterator").
 ref_name_is_container("ArrayLike").
+// THE 5.6 ITERATOR HELPERS, and why their absence was invisible. TypeScript 5.6
+// stopped declaring the built-in collection accessors as `IterableIterator<T>` and gave
+// each its own interface: `map.values()` is now `MapIterator<V>`, `set.values()` is
+// `SetIterator<V>`, `array.entries()` is `ArrayIterator<[number, T]>`, and all of them
+// extend `IteratorObject<T, …>` which extends the `Iterator<T, …>` that WAS on this
+// list. So every `for…of` over a collection accessor silently stopped yielding an
+// element the moment a project moved to a 5.6-or-later standard library, and it reads
+// as a for-of defect rather than a renamed declaration — which is how issue #433's
+// `for (const v of m.values())` line survived three rounds of for-of work.
+//
+// Element at type argument 0 for every one of them, which is the only thing this list
+// promises: `MapIterator<T>` `SetIterator<T>` `ArrayIterator<T>` `StringIterator<T>`
+// `RegExpStringIterator<T>` `IteratorObject<T, TReturn, TNext>`.
+//
+// `map.entries()` stays unresolved, correctly: its element is the tuple `[K, V]`, which
+// has no declaration to name. Destructuring a Map DIRECTLY is the positional rule in
+// reference-types.dl.
+ref_name_is_container("MapIterator").
+ref_name_is_container("SetIterator").
+ref_name_is_container("ArrayIterator").
+ref_name_is_container("StringIterator").
+ref_name_is_container("RegExpStringIterator").
+ref_name_is_container("IteratorObject").
 
 // ── ref_awaited_target(RefHash, Prov, TypeHash) — unwrap a Promise ──────────
 // `(await client.get()).body` — the receiver is the AWAITED type, not the Promise.

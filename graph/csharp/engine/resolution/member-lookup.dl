@@ -45,6 +45,27 @@ member_cand("client", gk, n, kind, mem, d) :-
     type_base_chain("client", gk, bgk, d),
     type_member_name("lib", bgk, n, kind, mem).
 
+// AND THE RECEIVER'S OWN TYPE MAY BE THE LIBRARY'S. `void M(Greeter g) => g.Hello()`
+// asks member_lookup("client", <lib group>, "Hello"), and the members of that group
+// are in type_member_name under "lib". The base-chain clause above covers a client
+// type that DERIVES from a library type; this covers the far commoner case of a
+// client simply holding one. Without it a call on a library-typed receiver resolves
+// to nothing even with the library staged and its name resolved.
+member_cand("client", gk, n, kind, mem, 0) :-
+    type_member_name("lib", gk, n, kind, mem).
+
+// AND THE LIBRARY TYPE'S OWN BASE CHAIN. The clause above is distance 0 only, so
+// a client site saw a staged type's own members and none it inherits -- and the
+// chain for a library type is derived under "lib", because `type_base_chain`
+// crosses provenance only for a CLIENT type with a library base.
+//
+// `input.GetType()` is the shape: `GetType` is declared on System.Object and the
+// receiver is a System.String, so every member a framework type inherits was
+// invisible. That is most of `object`: ToString, Equals, GetHashCode, GetType.
+member_cand("client", gk, n, kind, mem, d) :-
+    type_base_chain("lib", gk, bgk, d),
+    type_member_name("lib", bgk, n, kind, mem).
+
 // ── AN EXPLICIT INTERFACE IMPLEMENTATION IS EXCLUDED ────────────────────────
 // It is not a member of the declaring type. Removed from the candidate set rather
 // than filtered at the use site, so every consumer inherits the rule.
@@ -129,6 +150,15 @@ member_lookup_miss_real(prov, gk, n) :-
 member_method(prov, gk, n, m) :-
     member_lookup(prov, gk, n, "method", decl),
     method_impl_target(prov, decl, m).
+
+// A LIBRARY method reached through a CLIENT lookup. member_lookup now answers a
+// client question with a library declaration, and every fact ABOUT that
+// declaration -- here its partial-implementation target -- is under "lib". The
+// lookup crossing the boundary is not enough on its own: the answer has to be
+// readable once it has crossed.
+member_method("client", gk, n, m) :-
+    member_lookup("client", gk, n, "method", decl),
+    method_impl_target("lib", decl, m).
 
 // ── AMBIGUITY ───────────────────────────────────────────────────────────────
 // Two declarations of one name at the best rank. On a class that means two parts of

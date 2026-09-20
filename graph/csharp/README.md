@@ -33,7 +33,7 @@ declaration" that `base.M()` resolves to ill-defined.
 
 **Most member access is a call.** `x.Name` invokes `get_Name`, `a[i]` an indexer
 accessor, `e += h` an add accessor. The static oracle reports 3,943
-property-accessor sites in Humanizer against 3,203 ordinary in-source invocation
+property-accessor sites on one corpus member against 3,203 ordinary in-source invocation
 sites -- so an engine that reads them as field accesses loses more call sites than it
 finds. `resolution/properties.dl`
 
@@ -75,7 +75,7 @@ is exported so that it is checked rather than believed.
 
 An UNSTAGED TYPE IS A NAMED BOUNDARY, not a blind spot. On a client-only run the
 unresolved column is otherwise dominated by the BCL: before external labelling,
-1,562 of Humanizer's 2,235 external sites were counted as engine blind spots.
+1,562 of one corpus member's 2,235 external sites were counted as engine blind spots.
 External targets carry a label (`external:Console.WriteLine`) so the blind-spot
 count stays readable.
 

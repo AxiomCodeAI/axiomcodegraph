@@ -122,6 +122,55 @@ structural_implementor(t, s) :- type_satisfies(s, t),
     s != t,
     !target_has_nominal_implementor(t).
 
+// ── …AND A CONFORMER THE PROGRAM ACTUALLY CONSTRUCTS, EVEN THEN (#428) ─────
+// The gate above is right about EVIDENCE and wrong about what it does with it. Where a
+// codebase declares `implements` for an interface, that declaration is better evidence
+// than a shape match — but the gate does not rank the two, it DELETES the shape match,
+// so a class the compiler calls assignable and the program constructs left the dispatch
+// set entirely the moment any sibling declared the interface. Measured on the issue's
+// fixture: the engine answered {Declared#ping, Pingable#ping} where the compiler's own
+// envelope is {Declared#ping, Conforming#ping, Pingable#ping}, and at a site narrowed by
+// `instanceof Conforming` the engine's answer did not contain the compiler's at all —
+// a WRONG, not a miss, which is the one outcome this repository ranks below imprecision.
+//
+// THE NEGATION IS KEYED ON THE PAIR, NOT ON THE TARGET, which is the actual diagnosis.
+// The evidence argument the old gate rests on — a written `implements` beats a name match
+// — is about ONE class and ONE interface. Keying the negation on the TARGET applied it to
+// every OTHER class as well, so one declaration anywhere suppressed every structural
+// conformer of that interface. `!implementors(t, s)` keeps the argument exactly where it
+// holds: a class that declares the interface is reported nominally and is not reported
+// again structurally, and a class that does not declare it is no longer silenced by a
+// sibling that does.
+//
+// Keying on the target instead ALSO duplicated: measured on 02-interface-fanout, the two
+// instantiated implementors are nominal AND structural conformers, so they came back a
+// second time under the `structural` basis with no candidate added — the same pair twice
+// under two bases. With the pair-keyed negation that case is byte-identical to before.
+//
+// THE READMISSION IS RTA, NOT CHA, and that is the whole of why it is affordable.
+// Reversing the gate outright would widen every interface-typed call in a codebase that
+// mixes declared and undeclared conformance, which is most of them. Requiring the
+// conformer to be in `type_instantiated` admits the class the program builds and admits
+// nothing else: a same-shaped type nobody constructs cannot receive a dispatched call,
+// so excluding it loses no edge any run can take.
+//
+// This is also the FIRST TypeScript rule to read `type_instantiated` — #473 records
+// that the set was computed and exported and never consulted. Note the direction: this
+// reads it to WIDEN soundly, where #473 asks about reading it to NARROW, which needs a
+// closed-world premise this does not.
+//
+// STRATIFICATION. `type_instantiated` is `new_expression_type`, which this file's header
+// already permits: it reads `ref_type_target` and projections only, never the in-scope
+// member relations that `lookup_scope` ties to `expr_type`. So this clause keeps
+// structural_implementor in the stratum below the dispatch cap, whose negation the fan
+// rule performs.
+structural_implementor(t, s) :- type_satisfies(s, t),
+    satisfaction_target(t),
+    s != t,
+    target_has_nominal_implementor(t),
+    !implementors(t, s),
+    type_instantiated(s, _).
+
 // ── satisfaction_unmeasured(TargetTypeHash, Name) ───────────────────────────
 // EVERY SUPPRESSION COUNTABLE. A required member of a tested interface that NO
 // candidate source has — the reason a satisfies edge was not derived. Reading this

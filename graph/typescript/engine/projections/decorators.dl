@@ -1,0 +1,117 @@
+// ============================================================================
+// Projections · DECORATORS  (pure column views — no joins, no closures)
+//
+// ts_decorator and ts_decorator_argument are declared in souffle/decls_base.dl and
+// populated by the parser, and BEFORE THIS FILE NOTHING IN graph/typescript/engine
+// READ EITHER. The factory call already has an edge (call_sites carries a
+// DECORATOR_CALL for `@Controller('/orders')`), so the invocation was never the gap.
+// What was dropped is the pair that carries the FRAMEWORK meaning: the decorator's
+// NAME and its ARGUMENTS. `@Get(':id')` reached the solver as "a call to Get" and
+// never as "this method answers a route".
+//
+// The relation names here are Java's and Python's, deliberately and exactly, for the
+// two that carry the same facts: annotation_on and annotation_arg. A Java annotation, a
+// Python decorator and a TypeScript decorator are three syntaxes for one fact — a
+// name and some arguments attached to a declaration — so a framework rule written
+// over that shape ports between the three front ends without edit. That portability
+// is the reason this is a projection and not a set of ts_-prefixed rules.
+//
+// WHAT A TYPESCRIPT DECORATOR IS NOT: unlike Python's, it does not rebind the
+// decorated name. `@Injectable() class S {}` leaves `S` referring to the class, so
+// there is no analogue of py_decorator.replacesTarget and no rule here needs to
+// decline an edge because a decorator was applied. TypeScript's own semantics are
+// carried instead by decoratorSystem (c13): LEGACY_EXPERIMENTAL decorators can
+// replace the target via their return value, ES decorators cannot, and a rule that
+// cares must read decorator_system rather than assume.
+//
+// ts_decorator / lib_ts_decorator cols (21):
+//   0 decoratorName  1 kind  2 context  3 ownerHash  4 tsTypeLinkHash
+//   5 typeParameterHash  6 parentDecoratorHash  7 depth  8 position
+//   9 startLine  10 endLine  11 isMetaDecorator  12 argumentCount
+//   13 decoratorSystem  14 decoratorSemantics  15 tsExpressionLinkHash
+//   16 resolvedDecoratorMethodLinkHash  17 tsModuleLinkHash  18 startColumn
+//   19 serviceVersionLinkHash  20 tsDecoratorUniqueHash
+//
+// ts_decorator_argument / lib_ts_decorator_argument cols (13):
+//   0 argumentName  1 argumentValue  2 valueType  3 position
+//   4 parentDecoratorHash  5 referencedTypeHash  6 nestedObjectHash
+//   7 arrayIndex  8 startLine  9 endLine  10 tsExpressionLinkHash
+//   11 serviceVersionLinkHash  12 tsDecoratorArgumentUniqueHash
+// ============================================================================
+
+// ── annotation_on(Prov, Name, Kind, Context, OwnerHash, DecoratorHash) ───────
+// The SHARED shape. Kind is BARE | CALL (`@Injectable` vs `@Injectable()`), and the
+// distinction matters to a framework rule: a bare decorator has no arguments, so a
+// rule reading a route path must require CALL or it silently matches nothing.
+// Context is CLASS_DECLARATION | METHOD_DECLARATION | PROPERTY_DECLARATION |
+// PARAMETER_DECLARATION | ACCESSOR_DECLARATION.
+//
+// OwnerHash is polymorphic BY CONTEXT — a ts_type for CLASS_DECLARATION, a ts_method
+// for METHOD_DECLARATION — which is why decorator_target below splits it. A rule that
+// joins OwnerHash straight onto methods() drops every class decorator without saying so.
+annotation_on("client", name, kind, ctx, owner, h) :- ts_decorator(name, kind, ctx, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+annotation_on("lib", name, kind, ctx, owner, h) :- lib_ts_decorator(name, kind, ctx, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── decorator_target(Prov, TypeHash, MethodHash, DecoratorHash) ──────────────
+// The decorated entity, split so a rule does not have to switch on Context.
+// tsTypeLinkHash (c4) is the OWNING CLASS in both contexts: for a class decorator it
+// equals ownerHash, and for a method decorator it is the class the method belongs to.
+// That is what lets a controller's class-level path and its method-level route be
+// joined without walking containment.
+decorator_target("client", t, owner, h) :- ts_decorator(_, _, "METHOD_DECLARATION", owner, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+decorator_target("lib", t, owner, h) :- lib_ts_decorator(_, _, "METHOD_DECLARATION", owner, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+decorator_target("client", t, "", h) :- ts_decorator(_, _, ctx, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), ctx != "METHOD_DECLARATION".
+decorator_target("lib", t, "", h) :- lib_ts_decorator(_, _, ctx, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), ctx != "METHOD_DECLARATION".
+
+// ── decorator_system(Prov, System, DecoratorHash) ────────────────────────────
+// LEGACY_EXPERIMENTAL (the `experimentalDecorators` flag, what Nest and Angular are
+// built on) | ES (the standard proposal) | UNKNOWN. Kept because the two differ on
+// whether a decorator's return value replaces the target.
+decorator_system("client", sys, h) :- ts_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, sys, _, _, _, _, _, _, h).
+decorator_system("lib", sys, h) :- lib_ts_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, sys, _, _, _, _, _, _, h).
+
+// ── decorator_expr(Prov, DecoratorExprHash, DecoratorHash) ───────────────────
+// The decorator expression node, which for a CALL-kind decorator is also the
+// call_site carrying callKind=DECORATOR_CALL. This is the join back to the edge that
+// already exists, so a framework rule can say "the route registration is THIS site".
+decorator_expr("client", e, h) :- ts_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, h), e != "".
+decorator_expr("lib", e, h) :- lib_ts_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, h), e != "".
+
+// ── decorator_module(Prov, ModuleHash, DecoratorHash) ────────────────────────
+decorator_module("client", m, h) :- ts_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, h), m != "".
+decorator_module("lib", m, h) :- lib_ts_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, h), m != "".
+
+// ── annotation_arg(Prov, Name, Value, ValueType, Position, IsKeyword, ParentDecoratorHash, ArgHash) ──
+// Same 8-column shape as Python's. IsKeyword is the constant "false" and that is a
+// FACT, not a placeholder: TypeScript has no keyword arguments, so every decorator
+// argument is positional. Carrying the column keeps a ported rule's join intact.
+//
+// ValueType is the discriminator a route rule must read. argumentValue is the
+// parser's general value column, so a STRING check is what separates the path in
+// `@Get('/x')` from the identifier in `@Inject(TOKEN)`.
+annotation_arg("client", n, v, vt, pos, "false", parent, h) :- ts_decorator_argument(n, v, vt, pos, parent, _, _, _, _, _, _, _, h).
+annotation_arg("lib", n, v, vt, pos, "false", parent, h) :- lib_ts_decorator_argument(n, v, vt, pos, parent, _, _, _, _, _, _, _, h).
+
+// ── decorator_arg_class_ref(Prov, ClassName, ArgHash) ───────────────────────
+// A decorator argument naming a class — `@Catch(HttpException)`,
+// `@Module({ providers: [Repo] })`. This is the relation dependency injection is
+// built on: the provider is NAMED in an argument and never called, so without it the
+// wiring between a module and the classes it provides is unreachable.
+//
+// IT CARRIES A NAME, NOT A HASH, AND THAT IS MEASURED RATHER THAN ASSUMED. Java's and
+// Python's annotation_arg_type_ref reads a resolved referencedTypeHash; the TypeScript
+// parser leaves that column EMPTY on every decorator argument (checked across three
+// fixtures: 0 non-empty rows), and marks the value instead with
+// valueType = CLASS_REFERENCE, putting the bare identifier in argumentValue. Projecting
+// annotation_arg_type_ref here would therefore have been a relation that is always
+// empty, and a rule joining it would return nothing while looking correct.
+//
+// So the consumer must resolve the name, the way any other unresolved identifier is
+// resolved, rather than dereference a hash that is not there.
+//
+// NOT YET USABLE FOR AN ARRAY. `@Module({ providers: [Repo, Svc] })` arrives as ONE row
+// with valueType=ARRAY and argumentValue the literal text `[Repo, Svc]`; the elements
+// are not individual rows, and arrayIndex distinguishes the named properties of the
+// object rather than the members of the array. Enumerating them needs a parser change.
+decorator_arg_class_ref("client", v, h) :- ts_decorator_argument(_, v, "CLASS_REFERENCE", _, _, _, _, _, _, _, _, _, h), v != "".
+decorator_arg_class_ref("lib", v, h) :- lib_ts_decorator_argument(_, v, "CLASS_REFERENCE", _, _, _, _, _, _, _, _, _, h), v != "".

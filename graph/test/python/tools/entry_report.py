@@ -47,7 +47,14 @@ def main():
         if not h:
             continue
         q = m.get('qualifiedName') or m.get('name') or h
-        f = os.path.basename((m.get('filePath') or '').replace(os.sep, '/'))
+        # THE PATH, NOT THE BASENAME. Two directories may hold a file of the same name,
+        # and then two different declarations print identically and a reviewer cannot
+        # tell which one a row is about. `conftest.py` is the common case (pytest puts
+        # one per directory, and every one of them is the module `conftest`), and this
+        # corpus already has a second: 15-build-artifact-exclusion carries two `core.py`
+        # and two `__init__.py`. For a case whose files all sit at the root of src/ the
+        # path IS the basename, so those goldens are unchanged.
+        f = (m.get('filePath') or '').replace(os.sep, '/')
         name[h] = f"{q}   {f}:{m.get('startLine') or '0'}"
 
     # entry-point.csv is (method, reason) and has no header: it is a Souffle output.
@@ -62,6 +69,7 @@ def main():
     print(f"── entry_point ({len(seen)}) ──")
     for reason, who in sorted(seen):
         print(f"  {reason:10s} {who}")
+
     return 0
 
 

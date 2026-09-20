@@ -1247,8 +1247,48 @@ run_break "never flatten an extension block" \
 run_break "flatten a file whose blocks are not all accounted for" \
   src/parsers/csharp/extractors/cs-extension-block.ts \
   "an unreadable extension block leaves the file alone" \
-  "s = s.replace('  if (clean.length !== headersInText || clean.length === 0) {', '  if (clean.length === 0) {')" \
+  "s = s.replace('  if (clean.length + textual.length !== headersInText || headersInText === 0) {', '  if (headersInText === 0) {')" \
   "isExtension"
+# The TEXTUAL path is what reads a predefined-type receiver, and nothing else can:
+# disabling it must lose the members of such a block, which is the defect the
+# path was added for. Without this control the path could be deleted and the
+# check above would still pass on its generic-block half alone.
+# The REDIRECT is what stops the fabricated comparisons: without it the `<` binary
+# emits as itself, the type arguments become value references and the call counts
+# the run. Controls the repair rather than the detector, because the detector can
+# be present and unused.
+run_break "emit the fabricated comparison instead of the creation" \
+  src/parsers/csharp/extractors/cs-expression-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('  if (node.type === \'binary_expression\' && node.parent?.type === \'argument\') {', '  if (false) {')" \
+  "BINARY"
+# And the GRAFT: with the redirect alone the creation emits with no children, so
+# the arguments and initializer the source wrote are lost with the comparison.
+run_break "drop the arguments the misparse filed inside the cast" \
+  src/parsers/csharp/extractors/cs-expression-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('      const runPieces = misparsedGenericCreationAtCreationOf(node);', '      const runPieces = undefined;')" \
+  "initializer"
+run_break "read a one-type-argument generic creation as the comparison chain it looks like" \
+  src/parsers/csharp/extractors/cs-misparse.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace(\"  const initializer = tail.childForFieldName('value');\\n  if (initializer === null || initializer.type !== 'initializer_expression') {\", \"  const initializer = tail.childForFieldName('value');\\n  if (initializer !== null || initializer === null) {\")" \
+  "BINARY/CAST row"
+run_break "drop the type arguments the grammar detached from a creation's type" \
+  src/parsers/csharp/extractors/cs-type-reference-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('input.splitTypeArguments ?? []', '[]')" \
+  "Reified generics"
+run_break "correct a misparsed creation's arguments on its expression row and not on its call site" \
+  src/parsers/csharp/extractors/cs-expression-extractor.ts \
+  "a generic creation in argument position is one argument" \
+  "s = s.replace('      ? repairedCreationArgumentNodes(creationPieces)\\n', '      ? []\\n')" \
+  "on its call site"
+run_break "never locate a header the tree did not present" \
+  src/parsers/csharp/extractors/cs-extension-block.ts \
+  "an unreadable extension block leaves the file alone" \
+  "s = s.replace('    const span = textualBlockSpan(text, headerStart);', '    const span = undefined;')" \
+  "Zero"
 run_break "give a flattened receiver VALUE mode instead of THIS" \
   src/parsers/csharp/extractors/cs-member-extractor.ts \
   "C# 14 extension members are emitted" \

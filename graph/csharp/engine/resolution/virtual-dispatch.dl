@@ -153,9 +153,9 @@ dispatch_is_exact(prov, e) :- call_is_base(prov, e).
 // project's fan soundness.
 //
 // A receiver may have SEVERAL types -- a name that resolves to both a value and a
-// type, a field assigned two concrete types, a conditional. Serilog's `Logger`
+// type, a field assigned two concrete types, a conditional. One member's `Logger`
 // resolves to both the static property (typed `ILogger`) and the sealed class
-// `Serilog.Core.Logger`, and an existential test made the site exact because ONE of
+// a sealed `Core.Logger`, and an existential test made the site exact because ONE of
 // the two is sealed. The fan was then skipped and every implementor of ILogger
 // disappeared from it: 39 unsound fans, 38.10% soundness on that project, while the
 // dispatch relation underneath held the right answer all along.
@@ -216,6 +216,38 @@ dispatch_runtime_target("client", m, t) :-
     member_method("client", cgk, n, t),
     method_paramc("lib", m, pc), method_paramc("client", t, pc),
     method_type_arity("lib", m, ar), method_type_arity("client", t, ar).
+
+// AN EXPLICIT INTERFACE IMPLEMENTATION IS THE SECOND WAY A CONCRETE TYPE CAN
+// ANSWER FOR AN INTERFACE MEMBER, and the clause above cannot see it.
+//
+// `class Explicit : IWorker { string IWorker.Work(int n) => ...; }` is not a
+// member of `Explicit` -- member-lookup.dl removes it from the candidate set, and
+// that exclusion is CORRECT, because `new Explicit().Work(1)` does not compile.
+// It is reachable only through an interface-typed receiver. But the formulation
+// above asks each concrete type's own member lookup, so a type that satisfies the
+// interface only explicitly contributes nothing and the fan silently narrows.
+//
+// MEASURED: with one explicit and one ordinary implementor, `w.Work(1)` on an
+// IWorker receiver emitted ONE edge, to the ordinary implementor, tiered
+// known_edge -- which is worse than a missing edge, because it claims
+// monomorphism for a site that is not. Across five projects, 259 explicit
+// implementations in the IR were the target of zero engine edges.
+//
+// Restricted to the EXPLICIT form because the ordinary one is already covered by
+// member_method above; this adds the reachability the exclusion removes and
+// nothing else, so the exclusion stays intact for ordinary name lookup.
+dispatch_runtime_target(prov, m, t) :-
+    implements_member(prov, t, m),
+    member_is_explicit_impl(prov, t),
+    method_in_type(prov, cgk, t),
+    type_is_concrete(prov, cgk).
+// The same across the boundary: a client type implementing a library interface
+// explicitly.
+dispatch_runtime_target("client", m, t) :-
+    implements_member("client", t, m),
+    member_is_explicit_impl("client", t),
+    method_in_type("client", cgk, t),
+    type_is_concrete("client", cgk).
 
 // A NON-DISPATCHABLE method is its own only target, and the clause above does not
 // cover it: a static or private method has no subtype whose lookup would find it

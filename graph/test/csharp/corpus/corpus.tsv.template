@@ -1,4 +1,11 @@
-# The C# evaluation corpus -- the DEFINITION, not a description of one.
+# TEMPLATE for the C# evaluation corpus. THIS FILE CARRIES NO ENTRIES, and the
+# filled-in copy does not live in this repository.
+#
+# The manifest names the projects the engine is scored against and which set each
+# is in. Publishing that invites the thing the held-out half exists to prevent: a
+# rule tuned, however unconsciously, to the projects it will be measured on. The
+# split still has to be pinned to be reproducible, so it is pinned in a file the
+# operator holds. See manifest.sh, and CS_CORPUS_MANIFEST.
 #
 # Ten real projects, five designed against and five design-blind. The split is
 # recorded HERE, in the tree, at pinned commits, because a split that lives in an
@@ -20,16 +27,18 @@
 #          that gap IS the generalisation cost, and a fix that erases it usually
 #          means the dev set leaked.
 #
-# ── WHY THESE TEN ────────────────────────────────────────────────────────────
-# Chosen so that between them they exercise every construct the engine claims to
-# handle, and so that the two sets are not the same program twice. A corpus of five
+# ── CHOOSING THEM ────────────────────────────────────────────────────────────
+# Choose them so that between them they exercise every construct the engine claims
+# to handle, and so that the two sets are not the same program twice. A corpus of five
 # ASP.NET web applications reports excellent coverage of a subset; the parser's own
 # stratified audit is the precedent for caring about this -- its `modern-app` stratum
 # had 547 files and 67 kind disagreements while `framework-bcl` had 2,217 and 1,620.
 #
 # The DEV set is weighted towards what a client-only engine can actually resolve:
 # library code whose calls are mostly into its own source. The HOLDOUT set
-# deliberately includes two projects whose dominant idiom the dev set does NOT have -- # NodaTime's operators and conversions, CsvHelper's expression trees and `dynamic` -- # because a held-out set that only repeats the dev set's shapes measures nothing.
+# should deliberately include projects whose dominant idiom the dev set does NOT
+# have -- operator-and-conversion-heavy code, expression trees, `dynamic` -- because
+# a held-out set that only repeats the dev set's shapes measures nothing.
 #
 # ── PATH: why the project subdirectory, not the repository root ──────────────
 # The IR carries `filePath` relative to the parsed root. Pointing at a repository
@@ -41,10 +50,10 @@
 # ── TARGET FRAMEWORKS, CHECKED RATHER THAN ASSUMED ───────────────────────────
 # Every LIBRARY subtree below lists net8.0 among its TargetFrameworks at its pinned
 # commit. Verified, not assumed: an earlier version of this comment claimed the
-# whole repository did, and tracing MediatR disproved it in one run.
+# whole repository did, and tracing one member disproved it in one run.
 #
-# THE TEST PROJECTS ARE A DIFFERENT MATTER. Several target net10.0 only (mediatr,
-# serilog, humanizer, yamldotnet among them). That does not affect the STATIC
+# THE TEST PROJECTS ARE A DIFFERENT MATTER. Several target net10.0 only. That
+# does not affect the STATIC
 # oracle, which parses source and compiles against reference assemblies and never
 # builds a project. It does affect the RUNTIME oracle, which has to build and run
 # the suite, so runtime-oracle/trace-subject.sh needs an SDK new enough for the
@@ -60,13 +69,5 @@
 # drifts into that problem is visible instead of quietly lowering recall.
 #
 # name	set	path	repo	commit	note
-serilog	dev	src/Serilog	https://github.com/serilog/serilog	bebc7719004f76187ae72e64ce138ec2540f2070	Interfaces, fluent builders, extension methods, a sink hierarchy. The shape a DI-heavy application is written in.
-dapper	dev	Dapper	https://github.com/DapperLib/Dapper	8becae8d0e2b360165ae03c0d5d1330b0273473d	Heavy generics, extension methods on IDbConnection, IL emit and `dynamic`. The `dynamic` sites are the engine's declared blind spot and this is where the count of them is measured.
-polly	dev	src/Polly.Core	https://github.com/App-vNext/Polly	e381630db7d06d145b2a8837e4c23bfd54089ac8	Delegates, generic pipelines, async throughout. The delegate-invoke and lambda-caller paths.
-fluentvalidation	dev	src/FluentValidation	https://github.com/FluentValidation/FluentValidation	fa9787a0d4fd0c0b99f9682292d76d5ad97ba6cb	Deep generic inheritance and expression trees. A validator hierarchy is the widest dispatch fan in the dev set.
-humanizer	dev	src/Humanizer	https://github.com/Humanizr/Humanizer	ffc2b77c0f30d2fb176875841424379319d0ae9b	Extension methods at scale, plus per-culture partial classes. The partial-type merge and `using static` paths.
-automapper	holdout	src/AutoMapper	https://github.com/AutoMapper/AutoMapper	6e8697bc44f02fb54ef6a556a7d134e63485299e	Expression trees, reflection-driven construction, open generics. Types built by reflection are invisible to a static reading and the boundary count says how many.
-mediatr	holdout	src/MediatR	https://github.com/jbogard/MediatR	916ef1b3d68ccdc96db8f914eaf1b32fc7db52c5	Generic request/handler interfaces resolved through a container. Small, and almost entirely dispatch through open generic interfaces.
-yamldotnet	holdout	YamlDotNet	https://github.com/aaubry/YamlDotNet	4f7e6e346649ec2a402607a3c1ea352c6fb5ecd3	Visitor hierarchies and deep class inheritance. The nearest-declaration and `new`-hiding paths.
-csvhelper	holdout	src/CsvHelper	https://github.com/JoshClose/CsvHelper	33970e5183383bdac1fbce3b3fbcdf46b318ca52	Expression trees, `dynamic`, and indexers. A dominant idiom the dev set does not contain.
-nodatime	holdout	src/NodaTime	https://github.com/nodatime/nodatime	7aa2e026eb6c129fd3411d9a19223d0a2931fd50	Structs, user-defined operators and conversions. The one place operator_call and conversion_call are measured at scale, and the dev set has almost none.
+
+# name	set	path	repo	commit	note

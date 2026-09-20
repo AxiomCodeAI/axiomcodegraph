@@ -1,0 +1,7 @@
+ambiguous_unknown	FUNCTION_CALL	pipeline#runIterated(Node) @L14 -> -
+ambiguous_unknown	METHOD_CALL	pipeline#runByName(Node) @L33 -> -
+ambiguous_unknown	METHOD_CALL	pipeline#runIndexed(Node) @L24 -> -
+known_edge	FUNCTION_CALL	pipeline#runDirect(Node) @L38 -> steps#narrowRange(Node)
+known_edge	FUNCTION_CALL	steps#narrowRange(Node) @L10 -> steps#measure(Node)
+known_edge	FUNCTION_CALL	steps#squareRange(Node) @L15 -> steps#measure(Node)
+known_edge	FUNCTION_CALL	steps#widenRange(Node) @L5 -> steps#measure(Node)

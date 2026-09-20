@@ -1,0 +1,8 @@
+known_edge	FUNCTION_CALL	fewer#callAmbient() @L73 -> TwoArgs#<arrow@36>(number,number)
+known_edge	FUNCTION_CALL	fewer#callSiblingsOne() @L90 -> Siblings#<arrow@81>(number)
+known_edge	FUNCTION_CALL	fewer#callSiblingsTwo() @L91 -> Siblings#<arrow@84>(number,number)
+known_edge	METHOD_CALL	fewer#callHolderRun(Holder) @L68 -> TwoArgs#<arrow@36>(number,number)
+multi_inferred	FUNCTION_CALL	fewer#callDeclaresFewer() @L47 -> TwoArgs#<arrow@36>(number,number)
+multi_inferred	FUNCTION_CALL	fewer#callDeclaresFewer() @L47 -> fewer#declaresFewer(number)
+multi_inferred	FUNCTION_CALL	fewer#callDeclaresSame() @L54 -> TwoArgs#<arrow@36>(number,number)
+multi_inferred	FUNCTION_CALL	fewer#callDeclaresSame() @L54 -> fewer#declaresSame(number,number)

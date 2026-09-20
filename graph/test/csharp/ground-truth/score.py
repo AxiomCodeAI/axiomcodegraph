@@ -119,6 +119,46 @@ def read_raw(path):
         return [r for r in csv.reader(fh, delimiter="\t") if r]
 
 
+# The method name the compiler gives a user-defined operator. The parser names the
+# member as it is WRITTEN (`operator +`) and Roslyn reports the metadata name
+# (`op_Addition`), so both sides are reduced to the metadata spelling -- the same
+# treatment `.ctor` and `get_this[]` already get in norm_key.
+#
+# KEYED ON THE TOKEN AND THE ARITY TOGETHER. `-` is `op_Subtraction` between two
+# operands and `op_UnaryNegation` before one, and a type may declare both; a map on
+# the token alone would give them one name and one key.
+OPERATOR_METHOD_NAMES = {
+    ("+", 2): "op_Addition", ("-", 2): "op_Subtraction", ("*", 2): "op_Multiply",
+    ("/", 2): "op_Division", ("%", 2): "op_Modulus",
+    ("&", 2): "op_BitwiseAnd", ("|", 2): "op_BitwiseOr", ("^", 2): "op_ExclusiveOr",
+    ("<<", 2): "op_LeftShift", (">>", 2): "op_RightShift",
+    (">>>", 2): "op_UnsignedRightShift",
+    ("==", 2): "op_Equality", ("!=", 2): "op_Inequality",
+    ("<", 2): "op_LessThan", (">", 2): "op_GreaterThan",
+    ("<=", 2): "op_LessThanOrEqual", (">=", 2): "op_GreaterThanOrEqual",
+    ("+", 1): "op_UnaryPlus", ("-", 1): "op_UnaryNegation",
+    ("!", 1): "op_LogicalNot", ("~", 1): "op_OnesComplement",
+    ("++", 1): "op_Increment", ("--", 1): "op_Decrement",
+    ("true", 1): "op_True", ("false", 1): "op_False",
+}
+
+
+def operator_member_name(row):
+    """The metadata name for a cs_method row, or None if it is not an operator."""
+    kind = row.get("methodKind") or ""
+    if kind == "CONVERSION_OPERATOR":
+        conv = (row.get("conversionKind") or "").upper()
+        return "op_Implicit" if conv == "IMPLICIT" else "op_Explicit"
+    if kind != "OPERATOR":
+        return None
+    token = row.get("operatorToken") or ""
+    try:
+        arity = int(row.get("parameterCount") or 0)
+    except ValueError:
+        return None
+    return OPERATOR_METHOD_NAMES.get((token, arity))
+
+
 def engine_keys(ir_dir):
     """
     Engine hash -> the oracle's key shape, and expression hash -> (file, line, col).
@@ -134,9 +174,48 @@ def engine_keys(ir_dir):
     with open(os.path.join(ir_dir, "all-csharp-modules.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
             mods[r["csModuleUniqueHash"]] = r["filePath"]
+    # AN EXPLICIT INTERFACE IMPLEMENTATION IS KEYED WITH ITS INTERFACE, because
+    # that is part of its identity and because the compiler spells it that way.
+    # Roslyn writes `Probe.Explicit.Probe.IWorker.Work/1`; the parser records the
+    # member's own name (`Probe.Explicit.Work`) with the interface in a separate
+    # column, so the two keys never met and EVERY explicit implementation scored
+    # as a target the engine had lost -- 259 of them across five projects,
+    # whether or not the engine had it.
+    #
+    # The interface is resolved to its QUALIFIED name, which is what the oracle
+    # writes, from the types the IR declares. Collapsing it to the simple name
+    # instead would merge a type's two explicit implementations of two interfaces
+    # that both declare `Work(int)` into one key, and `Probe.Both.Work` is exactly
+    # that shape.
+    iface_qn = {}
+    types_csv = os.path.join(ir_dir, "all-csharp-types.csv")
+    if os.path.exists(types_csv):
+        with open(types_csv, newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh, delimiter="\t"):
+                if r.get("typeCategory") == "INTERFACE":
+                    iface_qn.setdefault(r["name"], r["qualifiedName"])
+                    iface_qn.setdefault(r["qualifiedName"], r["qualifiedName"])
+
     with open(os.path.join(ir_dir, "all-csharp-methods.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
             qn, pc = r["qualifiedName"], r["parameterCount"]
+            explicit = (r.get("explicitInterfaceName") or "").strip()
+            if explicit:
+                owner, _, name = qn.rpartition(".")
+                # An interface the IR does not declare (a staged or unstaged one)
+                # keeps the written spelling: closer than dropping it, and the
+                # only thing in hand.
+                qn = f"{owner}.{iface_qn.get(explicit, explicit)}.{name}" if owner else qn
+            # AN OPERATOR IS NAMED AS IT IS WRITTEN AND REPORTED AS IT IS
+            # COMPILED. `public static Money operator +(Money, Money)` has
+            # qualifiedName `Probe.Money.operator +`; Roslyn reports
+            # `Probe.Money.op_Addition/2`. Neither spelling is wrong and both
+            # identify the same member, so the written one is reduced to the
+            # metadata one here, next to the explicit-interface reduction above
+            # and for the same reason.
+            opname = operator_member_name(r)
+            if opname:
+                qn = f"{qn.rsplit('.', 1)[0]}.{opname}"
             meth[r["csMethodUniqueHash"]] = f"{qn}/{pc}"
     with open(os.path.join(ir_dir, "all-csharp-expressions.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
@@ -181,7 +260,7 @@ def norm_key(k):
     # `<constructor>` is a NAME here, not a generic argument list. Stripping angle
     # brackets naively removed it and turned `Type.<constructor>/1` into `Type./1`,
     # so every constructor comparison read as a disagreement -- 33 of them on
-    # humanizer alone, all spurious. Parked behind a sentinel, stripped, restored.
+    # one member alone, all spurious. Parked behind a sentinel, stripped, restored.
     k = k.replace("<constructor>", "\x00ctor\x00")
     out, depth = [], 0
     for ch in k:
@@ -204,6 +283,9 @@ def main():
     ap.add_argument("--engine-ir", required=True)
     ap.add_argument("--oracle", required=True)
     ap.add_argument("--oracle-dispatch")
+    ap.add_argument("--oracle-manifest",
+                    help="the oracle's manifest; defaults to <oracle>.manifest.tsv, "
+                         "which is where the oracle writes it")
     ap.add_argument("--json")
     ap.add_argument("--label", default="")
     ap.add_argument("--verbose", type=int, default=0, help="print N examples per failure class")
@@ -214,11 +296,17 @@ def main():
     # ── the engine's answers, keyed by position ───────────────────────────────
     # Every engine site is keyed by (position, callee name). A chained call puts
     # several at one position, so the name is what tells them apart.
+    # (position, name) -> the parser's callKind, so the join can tell an OPERATOR_CALL
+    # site from an ordinary one sharing a column. See operator_kind_clash.
+    site_call_kind = {}
+
     def site_key(exprhash):
         pos = expr.get(exprhash)
         if not pos:
             return None
-        name, _kind = callee.get(exprhash, ("", ""))
+        name, kind = callee.get(exprhash, ("", ""))
+        if kind:
+            site_call_kind[pos + (name,)] = kind
         return pos + (name,)
 
     cand = defaultdict(set)      # (pos, name) -> {declared key}
@@ -248,6 +336,11 @@ def main():
     #
     # Keyed by the ACCESSOR'S OWN NAME (`get_Item`, `add_Changed`), which is what
     # Roslyn reports, so the join needs no special case.
+    # AND THE EDGE KIND IS KEPT, because `get_Item` is the compiler's name for BOTH
+    # an indexer accessor and the getter of a property that happens to be called
+    # `Item`, and the two anchor at one column when they are written together
+    # (`items[i].Item`). See the accessor-kind guard in engine_site_for.
+    acc_edge_kind = defaultdict(set)
     for row in read_raw(os.path.join(a.engine_raw, "accessor-edges.csv")):
         if len(row) < 4 or row[0] != "client":
             continue
@@ -259,6 +352,7 @@ def main():
         k = pos + (nm,)
         resolved[k].add(target)
         at_pos[pos].add(nm)
+        acc_edge_kind[k].add(row[3])
 
     # A GENERATED RECORD PROPERTY READ is an accessor edge too. Its target is a
     # LABEL (`generated:Type.get_Name`) because the compiler generated the accessor
@@ -303,10 +397,58 @@ def main():
         external[pos + (nm,)].add(row[2])
         at_pos[pos].add(nm)
 
+    # AN ELEMENT ACCESS ON AN EXTERNAL RECEIVER, read the same way. `xs[0]` on an
+    # unstaged collection is a call to get_Item that the engine can name but not
+    # resolve. Without this the engine emits the label and the scorer still counts
+    # the site as one it never saw, so the fix for it is unmeasurable.
+    for row in read_raw(os.path.join(a.engine_raw, "external-element-access.csv")):
+        if len(row) < 3 or row[0] != "client":
+            continue
+        pos = expr.get(row[1])
+        if not pos:
+            continue
+        nm = row[2].rsplit(".", 1)[-1]
+        external[pos + (nm,)].add(row[2])
+        at_pos[pos].add(nm)
+
     dropped = len(read_raw(os.path.join(a.engine_raw, "call-site-dropped.csv")))
 
     # ── the oracle ───────────────────────────────────────────────────────────
-    oracle = read_tsv(a.oracle)
+    # A FILE THE ORACLE COULD NOT PARSE IS NOT EVIDENCE ABOUT THE ENGINE IN EITHER
+    # DIRECTION. The oracle is pinned to one compiler package and one LanguageVersion
+    # deliberately, so a parser figure and an engine figure from this repository stay
+    # comparable. A subject on a newer language version does not fail against that
+    # pin -- Roslyn recovers, and recovery INVENTS structure. A member-declaration
+    # form the pinned version cannot read closes its containing class early and the
+    # rest of the file is re-read as top-level statements, whose synthesised
+    # container is `Program`; every row under it names a declaration the source does
+    # not contain, and the engine naming the real containing type is scored as a
+    # disagreement.
+    #
+    # THE COUNT ALONE DID NOT COVER THIS. run-corpus.sh prints the compile errors so
+    # that "a pin that drifts into that problem is visible instead of quietly
+    # lowering recall" -- but recall is not what moves. Agreement moves, in the
+    # direction that blames the engine, and a reader comparing two runs cannot tell a
+    # rule regression from a subject that moved to a newer language version.
+    #
+    # THIS IS NOT THE SAME AS A BINDING ERROR, and the distinction is the whole
+    # point. A subject compiled against reference assemblies only has thousands of
+    # unresolved-type errors by design and its rows are still sound -- that is what
+    # the external bucket is for. Only a SYNTAX error fabricates structure, and the
+    # oracle reports those separately as `recoveredFile` (Roslyn's own parse/bind
+    # split, not a guess from error-code prefixes).
+    manifest_path = a.oracle_manifest or (os.path.splitext(a.oracle)[0] + ".manifest.tsv")
+    unparsable = set()
+    manifest_seen = os.path.exists(manifest_path)
+    if manifest_seen:
+        with open(manifest_path, newline="", encoding="utf-8") as fh:
+            for row in csv.reader(fh, delimiter="\t"):
+                if len(row) >= 2 and row[0] == "recoveredFile":
+                    unparsable.add(row[1])
+
+    oracle_all = read_tsv(a.oracle)
+    oracle = [r for r in oracle_all if r["filePath"] not in unparsable]
+    unparsable_rows = len(oracle_all) - len(oracle)
 
     # Engine sites indexed by (file, line), for the null-conditional fallback above.
     by_line = defaultdict(list)
@@ -319,9 +461,12 @@ def main():
         The name the ENGINE would write for this oracle row's call site.
 
         They differ for two shapes and matching them is the whole point of the key:
-        a constructor is `.ctor` to Roslyn and the TYPE NAME at a `new Foo(...)`
-        site, and an operator is `op_Addition` to Roslyn and the operator token in
-        the source. Anything else is the member's own name in both.
+        They differ for ONE shape: a constructor is `.ctor` to Roslyn and the TYPE
+        NAME at a `new Foo(...)` site. Anything else is the member's own name in
+        both -- including an operator, whose site the parser now names with the
+        metadata spelling (`op_Addition`) rather than the token, so the join needs
+        no special case for it. The METHOD's own name is still written
+        `operator +`, and engine_keys reduces that.
         """
         n = r["targetName"]
         if n in (".ctor", "<constructor>"):
@@ -330,6 +475,89 @@ def main():
             return t.rsplit(".", 1)[-1]
         return n
 
+
+    OPERATOR_CALL_KINDS = {"OPERATOR_CALL", "CONVERSION_CALL"}
+    OPERATOR_SITE_KINDS = {"operator", "conversion"}
+
+    def operator_kind_clash(key, rows):
+        """
+        True where pairing `key` with these oracle rows would cross an operator site
+        with an ordinary one.
+
+        A BINARY EXPRESSION ANCHORS AT ITS LEFT OPERAND, so `a.M() + b` puts the
+        invocation `M` and the operator `op_Addition` at ONE column -- the same
+        collision `items[i].Item` makes for an indexer and a property read, from a
+        different direction.
+
+        It is not the name that goes wrong here but the SINGLE-SITE SHORTCUT below:
+        that shortcut is what matches a position where the parser's calleeName and
+        Roslyn's member name are legitimately different words, and it requires the
+        position to hold exactly one engine site. An operator site appearing beside
+        the invocation makes it two, and the shortcut silently stops applying.
+        Measured: 6 held-out sites that had matched before went to `site_missed` on
+        the run that first emitted operator sites, every one of them a pairing this
+        function stopped making rather than an engine that stopped answering.
+        """
+        kind = site_call_kind.get(key)
+        if kind is None:
+            return False
+        wants_operator = any(r["siteKind"] in OPERATOR_SITE_KINDS for r in rows)
+        return (kind in OPERATOR_CALL_KINDS) != wants_operator
+
+    def kind_clash(key, rows):
+        return accessor_kind_clash(key, rows) or operator_kind_clash(key, rows)
+
+    def accessor_kind_clash(key, rows):
+        """
+        True where pairing `key` with these oracle rows would cross an indexer and a
+        property accessor.
+
+        `get_Item` IS THE COMPILER'S NAME FOR BOTH. An indexer's getter is
+        `get_Item`, and so is the getter of a property that happens to be named
+        `Item`; written together they anchor at one column:
+
+            var x = items[i].Item;
+            //      ^ ELEMENT_ACCESS  items[i]       -> the indexer on the receiver
+            //      ^ MEMBER_ACCESS   items[i].Item  -> `Item` on the element type
+
+        The oracle row is the indexer, external. The engine's only site at that
+        position is the property read, correctly resolved to the element type's own
+        `get_Item/0`. Name equality alone paired them and reported the engine as
+        having resolved an external target to an in-source method -- the one bucket
+        the harness treats as unarguable, and a gate that fails the run and the
+        corpus verdict on a single occurrence. Eight of the fourteen such verdicts on
+        the set measured were this pairing, invented here.
+
+        The existing synthesised-name guard below does not cover it: that one only
+        suppresses the SINGLE-SITE SHORTCUT, and the shortcut is never reached when
+        the name matches on the first branch, which is exactly what a property really
+        called `Item` does.
+
+        THE TEST IS THE ENGINE'S OWN EDGE KIND, NOT THE EXPRESSION KIND. Carrying
+        `kind` out of the IR looks equivalent and is not: a property read on an
+        implicit `this` (`return Name;`) is a NAME_REFERENCE, not a MEMBER_ACCESS, so
+        requiring MEMBER_ACCESS for a `property_accessor` row would refuse a correct
+        pairing for every bare property read. accessor-edges.csv already records
+        `indexer` / `property_read` / `property_write` in column 4, which is the
+        distinction itself rather than a proxy for it.
+
+        ONE-SIDED ON PURPOSE. The mirror rule -- a `property_accessor` row may not
+        pair with indexer-only evidence -- would never run: this function is only
+        ever called with the HELD rows, and `property_accessor` is reported
+        separately rather than held, so no call can carry one. Writing it anyway
+        would mean a branch no fixture can reach and a test that has to invent a
+        shape the oracle does not produce to reach it.
+
+        A key carrying BOTH kinds of accessor edge is also left alone: the key cannot
+        tell those apart, and a rule for a shape nothing in the corpus produces is a
+        rule nothing holds to.
+        """
+        evidence = acc_edge_kind.get(key)
+        if not evidence:
+            return False                      # not an accessor site; no constraint
+        if "indexer" in evidence:
+            return False                      # the evidence supports an indexer row
+        return any(r["siteKind"] == "indexer" for r in rows)
 
     def engine_site_for(pos, name, group_size, rows=()):
         """
@@ -349,7 +577,7 @@ def main():
         side would invent a miss.
         """
         names = at_pos.get(pos, set())
-        if name in names:
+        if name in names and not kind_clash(pos + (name,), rows):
             return pos + (name,)
         # A TARGET-TYPED `new()` HAS NO WRITTEN NAME. The parser records a
         # CONSTRUCTOR_CALL with an empty calleeName because there is nothing to
@@ -369,6 +597,10 @@ def main():
         # engine as having resolved an external target to an in-source method: 8
         # "wrongly resolved" edges across the holdout set, every one of them a pairing
         # this function invented.
+        # THE SHORTCUT COUNTS ONLY THE SITES THIS ORACLE ROW COULD PAIR WITH. An
+        # operator site sharing the column is not a competing candidate for an
+        # invocation row, so it must not be what makes the position ambiguous.
+        names = {n for n in names if not kind_clash(pos + (n,), rows)}
         synth = name.startswith(("get_", "set_", "add_", "remove_", "op_"))
         # `, None` is redundant under the len() == 1 guard and the lint cannot see the
         # guard. Written the safe way so the gate stays mechanical rather than teaching it
@@ -384,7 +616,8 @@ def main():
         # defensible and neither is a resolution outcome, so the join falls back to
         # (file, line, name) and requires the name to be UNIQUE on that line: two
         # calls of one name on one line get no match rather than a guessed one.
-        cands = [k for k in by_line.get((pos[0], pos[1]), ()) if k[3] == name]
+        cands = [k for k in by_line.get((pos[0], pos[1]), ())
+                 if k[3] == name and not kind_clash(k, rows)]
         if len(cands) == 1:
             return cands[0]
         return None
@@ -491,6 +724,10 @@ def main():
     # sites the ENGINE emitted that the oracle has no row for
     oracle_keys = set(by_call)
     for k in set(tier) | set(cand):
+        # An unparsable file has no ground truth to be "only" against: its oracle rows
+        # were dropped above, so every engine site in it would read as unmatched.
+        if k[0] in unparsable:
+            continue
         if (k[:3], k[3]) not in oracle_keys and k[:3] not in {p for p, _ in oracle_keys}:
             stats["engine_only_sites"] += 1
             fails["engine_only"].append((k, tier.get(k, "-"), sorted(cand.get(k, ()))))
@@ -571,6 +808,12 @@ def main():
           f"{s['field_like_event_accessor']} field-like event accessors")
     print(f"  property accessors        {s['property_sites']} sites, {s['property_sites_seen']} seen by the engine")
     print(f"  engine-only sites         {s['engine_only_sites']}")
+    if unparsable:
+        print(f"  UNSCORED (oracle could not parse the file)  "
+              f"{unparsable_rows} rows in {len(unparsable)} files")
+    elif not manifest_seen:
+        # Silence here would be indistinguishable from "nothing to exclude".
+        print(f"  no oracle manifest at {manifest_path}; no file was excluded")
 
     if a.verbose:
         for cls, items in sorted(fails.items()):
@@ -584,6 +827,7 @@ def main():
         os.makedirs(os.path.dirname(os.path.abspath(a.json)), exist_ok=True)
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump({"label": a.label, "stats": dict(s), "dropped": dropped,
+                       "unparsable_files": len(unparsable), "unparsable_rows": unparsable_rows,
                        "fan": fan, "per_kind": {k: dict(v) for k, v in per_kind.items()}},
                       fh, indent=1, sort_keys=True)
 

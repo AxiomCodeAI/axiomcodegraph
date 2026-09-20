@@ -78,6 +78,22 @@ export interface CsTypeReferenceInput {
    * the only kind of link the IR rule permits.
    */
   readonly typeParametersInScope?: ReadonlyMap<string, string>;
+  /**
+   * Type arguments the grammar DETACHED from `typeNode`, for the one shape
+   * where it does.
+   *
+   * `new D<K, V>(x) { … }` is read as `a < b, c > d` — the `<` ambiguity C#
+   * resolves with type information the grammar does not have — so the type node
+   * left on the creation is the bare name `D` and `K` and `V` are comparison
+   * operands elsewhere in the tree. Emitting the name alone records a reference
+   * to `D` with arity 0, and under C#'s reified generics that is not an
+   * incomplete answer but a DIFFERENT TYPE from the one written.
+   *
+   * Applies to the ROOT reference only, and only when the root reads as a bare
+   * NAME: a node that already carries its own arguments is not missing any, and
+   * overriding one would be guessing over evidence.
+   */
+  readonly splitTypeArguments?: readonly Parser.SyntaxNode[];
 }
 
 export function extractTypeReferences(
@@ -107,10 +123,24 @@ function build(
     return;
   }
 
-  const shape = describe(node);
-  if (shape === undefined) {
+  const described = describe(node);
+  if (described === undefined) {
     return;
   }
+  // The detached type arguments, reattached. See `splitTypeArguments`.
+  const split = depth === 0 ? input.splitTypeArguments ?? [] : [];
+  const shape =
+    split.length === 0 || described.kind !== CsTypeRefKind.NAMED
+      ? described
+      : {
+          ...described,
+          kind: CsTypeRefKind.CONSTRUCTED,
+          // The spelling the source holds. `node.text` is `D` alone, and a
+          // completeTypeName that disagrees with the arity beside it is the
+          // sort of row that reads as clean and joins to nothing.
+          completeTypeName: `${described.typeName}<${split.map((a) => a.text).join(', ')}>`,
+          children: [...split],
+        };
 
   // TYPE_PARAMETER is decided here rather than in `describe`, because `describe`
   // reads one node and this needs the enclosing declarations' scope.

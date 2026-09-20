@@ -30,12 +30,12 @@
 // NARROWED BY ARITY, AND THIS IS NOT OPTIONAL. `member_method` returns every
 // overload of the name; a site calls exactly one of them. Without the arity test:
 //
-//   * a 2-argument call matched a 1-parameter member, which on FluentValidation
+//   * a 2-argument call matched a 1-parameter member, which on one corpus member
 //     resolved `validator.Validate(instance, options => ...)` to
 //     `AbstractValidator.Validate/1` -- an edge the compiler does not make, and the
 //     kind of wrong answer that is worse than a missing one.
 //   * every overload entered the candidate set, so each one's dispatch fan was
-//     unioned into the site's targets. On Humanizer one site reported 43 targets
+//     unioned into the site's targets. On another one site reported 43 targets
 //     spanning two different arities.
 //
 // ARITY IS A RANGE, NOT A NUMBER (method_accepts_argc): optional parameters and a
@@ -227,6 +227,19 @@ call_ctor_target(prov, e, ctor) :-
     call_argc(prov, e, ac),
     ctor_accepts_argc(prov, ctor, ac).
 
+// A STAGED LIBRARY TYPE'S CONSTRUCTOR. `new StringBuilder()` on a staged type has
+// its constructor, its parameters and its arity under "lib", so the single-
+// provenance clause above finds nothing -- and the implicit-constructor clause
+// below then asserts the type declares NO constructor, which is a wrong claim and
+// worse than not staging at all, since an unstaged type at least names the
+// boundary.
+call_ctor_target("client", e, ctor) :-
+    call_needs_ctor_lookup("client", e),
+    expr_new_type("client", e, gk),
+    type_ctor("lib", gk, ctor),
+    call_argc("client", e, ac),
+    ctor_accepts_argc("lib", ctor, ac).
+
 expr_exact_target(prov, e, ctor) :- call_ctor_target(prov, e, ctor).
 
 // A type with NO declared constructor has an implicit public parameterless one. The
@@ -237,7 +250,21 @@ call_ctor_implicit(prov, e, gk) :-
     call_needs_ctor_lookup(prov, e),
     expr_new_type(prov, e, gk),
     !type_ctor(prov, gk, _),
+    !type_ctor_staged(prov, gk),
+    // AND NOT FOR A STAGED TYPE AT ALL. `type_ctor_staged` only covers a library
+    // type whose constructor IS carried. A library IR is a signature SUBSET, so
+    // one that carries no constructor for a type says nothing about whether the
+    // type declares any, and this class asserts exactly that: "the type declares
+    // no constructor, so there is no user code to call". A producer that omits
+    // constructors would have every `new` on every staged type reported as a
+    // known structural case.
+    !type_group("lib", _, gk),
     call_argc(prov, e, "0").
+
+// "This type declares no constructor" is only true if nobody declares one. A
+// staged library type's constructors are under "lib", so without this the claim
+// is made about a type whose constructor the run was given.
+type_ctor_staged("client", gk) :- type_ctor("lib", gk, _).
 
 // ── CONSTRUCTOR DELEGATION ──────────────────────────────────────────────────
 // `: this(a)` targets another constructor of the SAME type; `: base(a)` targets one
@@ -291,6 +318,15 @@ method_accepts_argc(prov, m, acs) :-
     method_arity_min(prov, m, lo), method_arity_max(prov, m, hi),
     call_argc_value(acs, ac),
     ac >= lo, ac <= hi.
+// The same boundary for ARITY. A client call site asks whether the method it
+// resolved accepts its argument count, and for a library method the parameter
+// facts that answer that are under "lib". Without this the candidate is found and
+// then rejected for an arity nobody could compute, which reads exactly like a
+// receiver typed wrong.
+method_accepts_argc("client", m, acs) :-
+    method_arity_min("lib", m, lo), method_arity_max("lib", m, hi),
+    call_argc_value(acs, ac),
+    ac >= lo, ac <= hi.
 ctor_accepts_argc(prov, ctor, ac) :- method_is_ctor(prov, ctor), method_accepts_argc(prov, ctor, ac).
 
 // The argument counts that actually occur, so the join above is over real values
@@ -303,18 +339,65 @@ call_argc_value(acs, ac) :- call_argc(_, _, acs), ac = to_number(acs).
 // into user code that a syntactic reading never produces. The parser emits
 // OPERATOR_CALL and CONVERSION_CALL where it can see the shape; the target is found
 // by matching the operator token against the declaring type's operator methods.
+// RESOLVED AGAINST THE OPERANDS, NOT A RECEIVER. `a + b` writes no `a.` before
+// the member, so the site has receiverKind NONE and call_recv_type is never
+// populated for it -- the rule this replaces could not fire on any program. A
+// user-defined operator is a static member of ONE OF THE OPERAND TYPES and the
+// syntax does not say which, so both are tried; the arity then separates the
+// overloads, which is not optional: a type may declare `operator -(Money)` and
+// `operator -(Money, Money)` and both carry the token `-`.
 expr_exact_target(prov, e, m) :-
     call_is_operator(prov, e),
     expr_operator(prov, e, op),
-    call_recv_type(prov, e, gk),
-    method_in_type(prov, gk, m),
-    method_operator(prov, m, op).
+    expr_operand_child(prov, e, c),
+    expr_type(prov, c, gk),
+    // ON THE OPERAND'S TYPE OR ANY ANCESTOR OF IT. C# gathers the candidate
+    // user-defined operators from the operand's type AND its base types, so an
+    // `operator ==` declared on a base entity is found for every derived one --
+    // which is the shape a domain model is written in, and `x == null` on a derived
+    // type is written in almost every handler.
+    //
+    // THE MISS WAS INVISIBLE, not merely wrong: a site whose operator is not found
+    // is counted as known_builtin_operator, the bucket for a site that ran no user
+    // code, so it was filed as a correct answer. The arity test below is what keeps
+    // the widened lookup honest -- a type may declare `operator -(Money)` and
+    // `operator -(Money, Money)` and an inherited one of the wrong arity must not
+    // be let in by the ancestor hop.
+    type_self_or_ancestor(prov, gk, ownerGk),
+    method_in_type(prov, ownerGk, m),
+    method_operator(prov, m, op),
+    call_argc(prov, e, acs),
+    method_accepts_argc(prov, m, acs).
+
+// AN EXPLICIT CAST, `(Money)d`. The conversion is declared on the target type or
+// on the operand's type -- `(Money)d` and `(decimal)m` are both written as casts
+// and only one of them is declared on the type named in the parentheses.
+//
+// NARROWED BY THE RETURN TYPE, not by the conversion kind. A cast to `Money`
+// runs whichever conversion PRODUCES a Money, and that may be declared
+// `implicit`: `(decimal)money` is written explicitly and invokes op_Implicit.
+// Matching on the kind would take the wrong one of a type's two conversions.
+conversion_target_name(prov, e, tn) :-
+    expr_cast_ref(prov, e, tr),
+    type_ref_resolves(prov, tr, targetGk),
+    type_group(prov, t, targetGk),
+    type_decl(prov, tn, _, _, _, t).
 
 expr_exact_target(prov, e, m) :-
     call_is_conversion(prov, e),
-    expr_cast_ref(prov, e, tr), type_ref_resolves(prov, tr, targetGk),
-    method_in_type(prov, targetGk, m),
-    method_conversion(prov, m, _).
+    conversion_target_name(prov, e, tn),
+    conversion_candidate_type(prov, e, gk),
+    method_in_type(prov, gk, m),
+    method_conversion(prov, m, _),
+    method_return_type_name(prov, m, tn).
+
+// Where to look for it: the type named in the parentheses, and the operand's own
+// type. Both are real: a conversion between two source types is declared on
+// exactly one of them.
+conversion_candidate_type(prov, e, gk) :-
+    expr_cast_ref(prov, e, tr), type_ref_resolves(prov, tr, gk).
+conversion_candidate_type(prov, e, gk) :-
+    expr_operand_child(prov, e, c), expr_type(prov, c, gk).
 
 // ── AN INDEXER: `a[i]` ──────────────────────────────────────────────────────
 // A user-defined indexer is a property whose accessors are real methods. `a[i]` on
@@ -348,3 +431,37 @@ expr_target_any(prov, e, m) :- expr_call_candidate(prov, e, m).
 // is the one place where "unresolved" is the correct and final answer rather than a
 // gap to close.
 call_unresolvable_by_design(prov, e, "dynamic") :- call_is_dynamic(prov, e).
+
+// THE PARSER'S `DYNAMIC_CALL` KIND IS RESERVED WITH ZERO ROWS, so the clause above
+// fires nowhere and the tier it feeds had no rows on any project measured. What the
+// parser DOES record is the receiver's written type, and `dynamic` is written down:
+// on a parameter, on a local, on a field, on a property. That is the same fact the
+// external-labelling path was reading when it fabricated a type named `dynamic`, so
+// it is taken here instead, where the answer is "undecidable" rather than a name.
+//
+// The receiver must not have typed, which is what `!call_recv_type` says: a name
+// that did resolve is not a DLR site whatever it is spelled.
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_name(prov, v, "dynamic", _).
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "PARAMETER", p), param_type_name(prov, p, "dynamic", _).
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "FIELD", f), field_type_name(prov, f, "dynamic", _).
+expr_dynamic_typed(prov, e) :-
+    ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, "dynamic", _).
+
+call_unresolvable_by_design(prov, e, "dynamic") :-
+    call_receiver_expr(prov, e, r),
+    expr_dynamic_typed(prov, r),
+    !call_recv_type(prov, e, _).
+
+// READING A PROPERTY THROUGH `dynamic` IS THE SAME SITE. `d.Name` invokes a getter
+// the DLR picks at runtime, and it arrived at the external-labelling path by the
+// same route the method call did, so removing `dynamic` from that path without this
+// would turn a false label into silence -- and silence reads as a site the engine
+// never saw, which is the worse of the two.
+dynamic_property_read(prov, acc) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_resolved(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_dynamic_typed(prov, q).

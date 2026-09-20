@@ -1,2 +1,1 @@
-oracle=5 engine=4 agree=4 missing=1 (known 1, NEW 0) extra=0
-  known    main#useGeneric() -> Cat#purr()
+oracle=5 engine=5 agree=5 missing=0 (known 0, NEW 0) extra=0

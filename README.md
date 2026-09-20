@@ -13,7 +13,7 @@
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java: stable"/>
   &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C#: planned"/>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C#: engine in beta"/>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML: Spring beans, web.xml, pom.xml"/>
   &nbsp;&nbsp;
@@ -52,23 +52,27 @@ Text search cannot do this. It finds names, not calls: it returns thousands of u
 
 Two stages, two columns: the **parser** turns source into the relational IR; the **engine** turns the IR into the graph. A language is usable end to end when both are there.
 
-| language | parser | engine | maturity | validated against |
-|---|---|---|---|---|
-| **JavaScript** | stable | beta | **beta**. The parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is merged and being scored against the TypeScript compiler over `allowJs`/`checkJs` | the TypeScript compiler over JavaScript with JSDoc |
-| **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
-| **TypeScript** | stable | stable | **stable**. 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
-| **Java** | stable | stable | **stable**. First front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
-| **C#** | planned | planned | **planned** | none yet |
-
-Configuration and build files are part of the graph too: a change to a bean definition, a property key or a dependency version has a blast radius into methods, and the Java engine resolves it:
-
-| format | parser | engine (Java wiring) | what it contributes |
+| language | parser | engine | maturity |
 |---|---|---|---|
-| **XML**: Spring beans, `web.xml`, `pom.xml` | stable | stable | bean definitions and injection points → `di_edge`, `bean_def`; entry points from servlet/handler declarations |
-| **`.properties`** | stable | stable | keys and typed value segments → `config_binding`, `config_affects_method` |
-| **YAML**: application configuration | beta | stable | the same bindings from YAML documents, anchors and aliases followed |
-| **Gradle**: Groovy and Kotlin DSL | beta | not yet | project graph, dependency coordinates and version catalogs, resolved; used for library discovery, not yet for edges |
-| **`META-INF/services`** | stable | stable | provider-configuration files → service entry points |
+| **JavaScript** | stable | beta | **beta**. The parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is merged and being scored against the TypeScript compiler over `allowJs`/`checkJs` |
+| **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite |
+| **TypeScript** | stable | stable | **stable**. 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries |
+| **Java** | stable | stable | **stable**. First front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved |
+| **C#** | stable | beta | **beta**. The parser is complete and the engine is merged, with 10 regression cases, ground truth and a runtime oracle under `graph/test/csharp`; not yet built into the published engine packages |
+
+Configuration and build files are part of the graph too: a change to a property key, a wiring
+declaration or a dependency version has a blast radius into methods.
+
+| format | parser | engine |
+|---|---|---|
+| **XML** | stable | stable |
+| **YAML** | beta | stable |
+| **`.properties`** | stable | stable |
+| **Gradle**: Groovy and Kotlin DSL | beta | not yet |
+| **`META-INF/services`** | stable | stable |
+
+Reading a configuration *file* is wired into the Java engine today; the other front ends resolve
+configuration written in code (a decorator, a marker in a parameter default) rather than in a file.
 
 See [`parser/README.md`](parser/README.md) for every relation each format produces.
 
@@ -79,11 +83,12 @@ A repository with several languages is one command: the parser emits every langu
 <p>
   <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/AxiomCodeAI/axiom-code-graph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/pull/418"><img alt="Nightly: not yet enabled" src="https://img.shields.io/badge/nightly-not%20yet%20enabled-lightgrey"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
 
-Build: the regression suites and the parser's suites on every merge to `main` (the badge reads "no status" until the workflow has run on `main`). Engines: the prebuilt engine packages on npm; the badge switches to the publish workflow's status once the first publish has run.
+Build: the regression suites and the parser's suites on every merge to `main` (the badge reads "no status" until the workflow has run on `main`). Engines: the prebuilt engine packages on npm; the badge switches to the publish workflow's status once the first publish has run. Nightly: once enabled, what the pull-request run cannot afford — the engines built for every platform including darwin-arm64, which needs the self-hosted Apple runner and so is skipped on pull requests, and the release packed the way `publish-npm.yml` packs it without uploading.
 
 ## Quick start
 

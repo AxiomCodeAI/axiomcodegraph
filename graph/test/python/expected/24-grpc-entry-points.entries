@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  grpc_service main.GreeterServicer.Chat   main.py:19
+  grpc_service main.GreeterServicer.SayHello   main.py:13
+  grpc_service main.GreeterServicer.StreamReplies   main.py:16

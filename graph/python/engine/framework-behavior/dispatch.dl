@@ -1,0 +1,431 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · DISPATCH  (the hop no call site expresses)
+//
+// ── WHY THIS IS ITS OWN PHASE ───────────────────────────────────────────────
+// The counterpart of java/engine/framework-behavior/, and it inherits that folder's
+// contract verbatim:
+//
+//   - a rule here models a LIBRARY'S BEHAVIOUR, not the language, so no interpreter
+//     can adjudicate it. CPython cannot be asked whether `send_report.delay(k)` runs
+//     `send_report`; only a running worker can. Every framework NAME a rule keys on
+//     therefore lives in config-resolution/knobs.dl and nowhere else, and NO RULE IN
+//     THIS FILE MENTIONS A FRAMEWORK BY NAME;
+//   - a rule here may only ADD relations. It must never write call_chain_edge or any
+//     relation the resolution phases own. A framework model is a weaker kind of
+//     knowledge than a resolved call, and folding the two together would silently
+//     restate every existing consumer in terms of it;
+//   - it is included AFTER call-edge-generation because it CONSUMES the resolved graph.
+//
+// ── WHAT IS MISSING WITHOUT IT ──────────────────────────────────────────────
+// Python had exactly one framework rule: config-resolution/entry-points.dl marks an
+// HTTP route handler as an entry point. Six mechanisms in wide use connect two client
+// declarations with no call site between them, and every rule in call-edge-generation
+// is silent across each one:
+//
+//   the producer writes              the consumer is                    joined by
+//   send_report.delay(k)             @shared_task def send_report       a proxy object
+//   def test_total(cart)             @fixture def cart                  a PARAMETER NAME
+//   path("items/<k>/", detail)       def detail(request, k)             a table entry
+//   order_placed.send(sender=o)      @receiver(order_placed) def on_..  a SIGNAL OBJECT
+//   svc = Depends(get_service)       def get_service()                  a default value
+//   @listens_for(User, "before_..")  the decorated function             a registration
+//
+// So `impact send_report` answers "nothing the graph can see" for a body that 493 call
+// sites dispatch on one public project, and test-impact cannot reach a test through the
+// fixture it injects. That is the same shape #778 reported for routes.
+//
+// ── WHAT IT EMITS, AND WHY NOT AS A CALL ────────────────────────────────────
+//   framework_edge(FromMethod, ToMethod, Mechanism, Detail, Confidence)
+//     Mechanism   task_dispatch | fixture_injection | url_dispatch |
+//                 signal_dispatch | di_provider | orm_hook
+//     Detail      what joined the two ends: the dispatch method, the parameter name,
+//                 the route table, the signal binding, the marker, the hook target
+//     Confidence  registered   both ends carry the framework's own registration
+//                 by_name      the join is a NAME the framework resolves at run time
+//                              (a fixture parameter), so it is correct exactly when
+//                              the runner's scoping agrees with lexical scope
+//
+// A framework hop is NOT an invocation: it may cross a process (a task body runs in a
+// worker), it may be asynchronous, and it carries different confidence. Emitting it as
+// call_chain_edge would change the meaning of every existing consumer, so it is a
+// separate relation that a consumer opts into, exactly as Java's remote_edge is.
+//
+// A declaration the framework calls from OUTSIDE the client also gets an entry_point
+// row, which is a different claim: "this runs, with no caller here" rather than "these
+// two are connected".
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. MATCHING A DECORATOR BY ITS TAIL
+// ─────────────────────────────────────────────────────────────────────────────
+// Every catalogue in knobs.dl is a TAIL, because the same registration is written with
+// and without a receiver: `@shared_task` and `@app.task(...)` and `@queue.task` are one
+// mechanism. Souffle has no rfind, so the tail is TESTED rather than extracted, the way
+// config-resolution/entry-points.dl tests a route verb.
+//
+// The receiver half is deliberately unconstrained: the author names it (app, queue,
+// worker, event, v1) and pinning that list would miss the next spelling. What keeps the
+// match honest is never the name alone -- it is the shape each rule requires around it.
+.decl py_fw_deco_tail(v:symbol)
+py_fw_deco_tail(v) :- py_task_register_deco(v).
+py_fw_deco_tail(v) :- py_fixture_deco(v).
+py_fw_deco_tail(v) :- py_signal_receiver_deco(v).
+py_fw_deco_tail(v) :- py_orm_hook_deco(v).
+
+// py_deco_named(DecoratorHash, Tail) -- the decorator's dotted path IS the tail, or
+// ends with "." ++ tail. A bare `@task` and `@app.task` both match; `@mytask` does not,
+// because a tail must be a whole dotted segment.
+.decl py_deco_named(h:symbol, v:symbol)
+py_deco_named(h, v) :- decorator_text("client", dp, _, _, h), py_fw_deco_tail(v), dp = v.
+py_deco_named(h, v) :- decorator_text("client", dp, _, _, h), py_fw_deco_tail(v),
+    strlen(dp) > strlen(v) + 1,
+    substr(dp, strlen(dp) - strlen(v), strlen(v)) = v,
+    substr(dp, strlen(dp) - strlen(v) - 1, 1) = ".".
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. TASK DISPATCH  (producer -> worker)
+// ─────────────────────────────────────────────────────────────────────────────
+// A registration decorator REPLACES the decorated name with a proxy. That is why the
+// body is unreachable and also why it is findable: the producer's receiver is a binding
+// whose `def` was replaced, and binding_binds_replaced_method holds exactly that def.
+.decl py_task_registered(m:symbol)
+py_task_registered(m) :- decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_task_register_deco(v).
+
+// The worker invokes the body; nothing in the client does.
+entry_point(m, "task") :- py_task_registered(m).
+
+// `<name>.delay(...)` / `<name>.apply_async(...)` where <name> is that replaced def.
+//
+// THREE CONDITIONS, each load-bearing:
+//   a catalogued dispatch method   `delay` alone is an ordinary method name
+//   a NAME receiver                 the proxy is reached through a binding, not an
+//                                   arbitrary expression
+//   the binding's def is REGISTERED this is the whole test; an undecorated def, or a
+//                                   parameter, produces nothing
+.decl py_task_dispatch(site:symbol, from:symbol, to:symbol, meth:symbol)
+py_task_dispatch(site, from, to, meth) :-
+    call_decl("client", _, meth, _, _, site), py_task_dispatch_method(meth),
+    call_receiver("client", "NAME", _, rexpr, site),
+    call_context("client", _, from, _, _, site), from != "",
+    expr_binding("client", b, ctx, rexpr), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_binds_replaced_method("client", b2, to),
+    py_task_registered(to).
+
+// (b) THE PRODUCER IMPORTED THE TASK, which is what real code does. A producer and the
+// task it enqueues almost never share a module: the task lives in a tasks module and
+// the caller writes `from tasks import send_report` or `import tasks`. Clause (a) alone
+// resolves only the same-module case, which is the shape a single-file fixture has and
+// almost nothing else. MEASURED on the task queue's own source before this clause
+// existed: 20 dispatches joined against 455 declined.
+py_task_dispatch(site, from, to, meth) :-
+    call_decl("client", _, meth, _, _, site), py_task_dispatch_method(meth),
+    call_receiver("client", "NAME", _, rexpr, site),
+    call_context("client", _, from, _, _, site), from != "",
+    expr_binding("client", b, ctx, rexpr), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    import_binds_method("client", b2, to),
+    py_task_registered(to).
+
+// (c) … and the module-qualified spelling, `tasks.send_report.delay(k)`, whose receiver
+// is an attribute expression rather than a bare name.
+py_task_dispatch(site, from, to, meth) :-
+    call_decl("client", _, meth, _, _, site), py_task_dispatch_method(meth),
+    call_receiver("client", "ATTRIBUTE", _, rexpr, site),
+    call_context("client", _, from, _, _, site), from != "",
+    expr_attr_names_method("client", rexpr, to),
+    py_task_registered(to).
+
+framework_edge(from, to, "task_dispatch", meth, "registered") :-
+    py_task_dispatch(_, from, to, meth).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. FIXTURE INJECTION  (test -> fixture)
+// ─────────────────────────────────────────────────────────────────────────────
+// The runner matches a test's PARAMETER NAME against the declared fixtures and calls
+// the fixture to build the argument. The name is the entire join, so the confidence is
+// `by_name`: it is correct exactly where the runner's scoping agrees with lexical scope.
+.decl py_fixture_decl(m:symbol, name:symbol)
+py_fixture_decl(m, name) :- decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_fixture_deco(v),
+    method_decl("client", name, _, _, _, m).
+
+// The runner calls a requested fixture; nothing in the client does.
+entry_point(m, "fixture") :- py_fixture_decl(m, _), py_fixture_requested(m).
+
+// A collected test: the runner recognises it by the name it was given.
+.decl py_collected_test(m:symbol)
+py_collected_test(m) :- method_decl("client", name, _, _, _, m), py_test_name_prefix(p),
+    strlen(name) >= strlen(p), substr(name, 0, strlen(p)) = p.
+
+// A REQUESTER is a test, or a fixture -- a fixture may request another, and the chain
+// has to carry or `impact` stops one hop short.
+.decl py_fixture_requester(m:symbol)
+py_fixture_requester(m) :- py_collected_test(m).
+py_fixture_requester(m) :- py_fixture_decl(m, _).
+
+// THE NEGATIVE CONDITIONS, and each one is what stops a name coincidence:
+//   the owner must be a requester   an ordinary helper taking `cart` is not a test
+//   the parameter must have NO default  a defaulted parameter is supplied by the
+//                                   caller; the runner injects nothing
+//   the parameter must not be a receiver  `self` is not a fixture request
+//   some fixture must declare the name  an unmatched parameter claims nothing
+// ── VISIBILITY AND SHADOWING, neither of which is optional ──────────────────
+// A fixture is resolved at the test's LOCATION, not globally, and exactly ONE wins.
+// The runner looks in the test's own module first; failing that, in a conftest in its
+// directory and then each ancestor directory, NEAREST first. It does not run the
+// others. So emitting every same-named candidate is not a conservative union over
+// things that might happen, it is a claim that a function runs which demonstrably does
+// not -- the same fabrication measured at 114 of 601 edges on a public subject before
+// this rule existed (see knobs.dl), and the shape resolution/value-flow.dl refuses when
+// it declines "every class with a method called draw".
+//
+// py_fixture_conftest(Fixture, Dir) -- the directory a conftest governs.
+// d KEEPS ITS TRAILING SEPARATOR, and that is load-bearing rather than untidy: for
+// "tests/conftest.py" it is "tests/", so "tests_extra/foo.py" does not match, because it
+// starts with "tests_". Strip the separator to tidy the string and every sibling
+// directory sharing a prefix becomes governed by the wrong conftest.
+//
+// The comparison is >=, NOT >. A repo-root conftest.py has path == basename, so a
+// strict > excludes it and the commonest place a project keeps shared fixtures
+// contributes nothing at all. At the root d is "" and the prefix test admits every
+// requester, which is exactly right.
+.decl py_fixture_conftest(fix:symbol, dir:symbol)
+py_fixture_conftest(fix, d) :- py_fixture_decl(fix, _),
+    method_file("client", p, fix), py_fixture_scope_file(c),
+    strlen(p) >= strlen(c), substr(p, strlen(p) - strlen(c), strlen(c)) = c,
+    d = substr(p, 0, strlen(p) - strlen(c)).
+
+// A requested parameter: no default, not a receiver, on a test or another fixture.
+.decl py_fixture_request(req:symbol, name:symbol)
+py_fixture_request(req, name) :- py_fixture_requester(req),
+    param_decl("client", name, _, _, req, ph), name != "",
+    param_default("client", "false", _, ph),
+    param_kind("client", _, _, "false", ph).
+
+// (a) the test's own module wins outright.
+.decl py_fixture_same_module(req:symbol, name:symbol, fix:symbol)
+py_fixture_same_module(req, name, fix) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req,
+    method_file("client", p, req), method_file("client", p, fix).
+.decl py_fixture_shadowed(req:symbol, name:symbol)
+py_fixture_shadowed(req, name) :- py_fixture_same_module(req, name, _).
+
+// (b) otherwise a conftest at or above the requester, NEAREST first. Depth is the
+//     length of the governed directory, so the longest prefix is the nearest ancestor.
+.decl py_fixture_conftest_cand(req:symbol, name:symbol, fix:symbol, depth:number)
+py_fixture_conftest_cand(req, name, fix, dl) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req,
+    py_fixture_conftest(fix, d), method_file("client", p, req),
+    strlen(p) > strlen(d), substr(p, 0, strlen(d)) = d, dl = strlen(d).
+.decl py_fixture_nearest(req:symbol, name:symbol, depth:number)
+py_fixture_nearest(req, name, m) :- py_fixture_conftest_cand(req, name, _, _),
+    m = max dl : { py_fixture_conftest_cand(req, name, _, dl) }.
+
+.decl py_fixture_injection(from:symbol, to:symbol, name:symbol)
+py_fixture_injection(req, fix, name) :- py_fixture_same_module(req, name, fix).
+py_fixture_injection(req, fix, name) :- py_fixture_conftest_cand(req, name, fix, dl),
+    !py_fixture_shadowed(req, name), py_fixture_nearest(req, name, dl).
+
+.decl py_fixture_requested(m:symbol)
+py_fixture_requested(m) :- py_fixture_injection(_, m, _).
+
+framework_edge(from, to, "fixture_injection", name, "by_name") :-
+    py_fixture_injection(from, to, name).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. URL DISPATCH  (route table -> view)
+// ─────────────────────────────────────────────────────────────────────────────
+// A routing table holds the view as a VALUE. The entry is a reference, not a call, so
+// the view has no caller; the framework calls it on a request.
+//
+// THE TABLE IS REQUIRED. `path(...)` is an ordinary name, and a call to it outside a
+// route table means nothing. The table is recognised by the module-level binding the
+// framework reads, which is the one thing the framework itself specifies.
+// BOTH keys are carried: call_arg is keyed by the CALL EXPRESSION (the site key in
+// expression-resolution IS the expression hash, call-site.dl:55) while call_context is
+// keyed by the site's own unique hash. They are different values and call_decl is the
+// one relation that holds the pair.
+.decl py_route_entry_call(site:symbol, expr:symbol)
+py_route_entry_call(site, e) :-
+    call_decl("client", _, fn, _, e, site), py_route_entry_fn(fn),
+    expr_in_route_table(e).
+
+// The VALUE side of `urlpatterns = [...]`. The table name is a STORE target and the
+// entries are its sibling, not its descendant, so the two halves are joined through
+// assign_pair rather than by walking up from the name.
+.decl py_route_table_value(val:symbol)
+py_route_table_value(val) :- assign_pair("client", tgt, val),
+    expr_binding("client", b, "STORE", tgt),
+    binding_decl("client", n, _, _, _, b), py_route_table(n).
+
+// The entry expression IS that value, or sits transitively under it.
+//
+// SEEDED FROM THE TABLE, NOT FROM EVERY EXPRESSION. The obvious spelling is a general
+// ancestor closure over expr_parent, but that materialises (expression x ancestor) for
+// the WHOLE tree to answer a question about a handful of list literals. This descends
+// from the table values only, so the closure is bounded by what is inside a routing
+// table. (expr_parent's FIRST column is the provenance, not the parent; reading it as
+// the parent makes every expression a child of "client".)
+.decl expr_in_route_table(e:symbol)
+expr_in_route_table(e) :- py_route_table_value(e).
+expr_in_route_table(e) :- py_route_table_value(val), expr_parent("client", val, _, _, e).
+expr_in_route_table(e) :- expr_in_route_table(p), expr_parent("client", p, _, _, e).
+
+// The view is whichever argument of the entry DENOTES a def. A route entry takes the
+// pattern as a string and the view as a reference, so the string arguments simply do
+// not denote a method and drop out without a position rule.
+.decl py_url_dispatch(from:symbol, to:symbol)
+py_url_dispatch(from, to) :-
+    py_route_entry_call(site, e), call_arg(e, _, a),
+    expr_denotes_method("client", a, to), to != "",
+    call_context("client", _, from, _, _, site), from != "".
+
+entry_point(m, "url") :- py_url_dispatch(_, m).
+framework_edge(from, to, "url_dispatch", "route_table", "registered") :-
+    py_url_dispatch(from, to).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. SIGNAL DISPATCH  (publisher -> receiver)
+// ─────────────────────────────────────────────────────────────────────────────
+// Both ends name the SIGNAL OBJECT and neither names the other. The join is therefore
+// the binding the signal is held in -- the one thing both ends spell.
+//
+// A receiver is attached two ways, and both have to be modelled or half the receivers
+// in a real project are invisible:
+//   @receiver(sig)      the decorator, whose first argument names the signal
+//   sig.connect(fn)     the imperative call, whose receiver names it
+.decl py_signal_receiver(m:symbol, sigb:symbol)
+// ── THE SIGNAL'S IDENTITY ACROSS MODULES ────────────────────────────────────
+// A publisher and a receiver are rarely in one module, and joining on the local binding
+// resolves only the case where they are. The obvious repair, resolving the imported name
+// to a declaration the way a call does, DOES NOT WORK HERE and the reason is structural:
+// a signal is a module-level INSTANCE, not a def, and the parser resolves a value-shaped
+// import to its MODULE with an empty target hash. Counted on one mid-sized project's
+// imports: 1225 MODULE-kind rows, every one with an empty resolvedTargetHash, against
+// 817 TYPE and 708 FUNCTION rows with none empty. There is no hash to join on, so the
+// join is made on the pair that IS exact -- the resolved module, and the member's own
+// name -- which is the same shape resolution/name-resolution.dl uses for a member import.
+//
+// py_module_level_binding(ModuleHash, Name, BindingHash): a name bound at module scope,
+// which is what a signal declaration is.
+.decl py_module_level_binding(mod:symbol, n:symbol, b:symbol)
+py_module_level_binding(mod, n, b) :- binding_decl("client", n, scope, "MODULE_LEVEL", _, b),
+    n != "", scope_module("client", mod, scope).
+
+// py_import_binds_binding(LocalBinding, RemoteBinding): `from signals import order_placed`
+// binds a local name to a module-level binding in the resolved module. The member's own
+// name is originalName, so an alias (`import x as y`) still joins on the right member.
+.decl py_import_binds_binding(local:symbol, remote:symbol)
+py_import_binds_binding(lb, rb) :-
+    import_binding("client", lb, i),
+    import_resolved_module("client", mod, i),
+    import_alias("client", orig, _, i), orig != "",
+    py_module_level_binding(mod, orig, rb), rb != lb.
+
+// py_signal_identity(Binding, Identity): the binding itself, or the module-level binding
+// it was imported from. Both ends map through this before they meet, so a publisher that
+// imported the signal and a receiver declared beside it agree.
+.decl py_signal_identity(b:symbol, id:symbol)
+py_signal_identity(b, b) :- binding_decl("client", _, _, _, _, b).
+py_signal_identity(b, r) :- py_import_binds_binding(b, r).
+
+// BOTH ENDS ARE NORMALISED THROUGH binding_lookup. The publisher and the receiver
+// each write the signal's NAME, but a name reference carries its own binding hash per
+// occurrence; only the DECLARING binding is shared. Joining the raw hashes silently
+// produced no edge at all while both halves looked correct on their own.
+py_signal_receiver(m, sigb) :-
+    decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_signal_receiver_deco(v),
+    decorator_expr("client", de, h), call_arg(de, "0", a),
+    expr_binding("client", b, ctx, a), ctx != "STORE",
+    binding_lookup("client", b, lb), py_signal_identity(lb, sigb).
+py_signal_receiver(m, sigb) :-
+    call_decl("client", _, meth, _, ce, site), py_signal_connect_method(meth),
+    call_receiver("client", "NAME", _, rexpr, site),
+    expr_binding("client", b, ctx, rexpr), ctx != "STORE",
+    binding_lookup("client", b, lb), py_signal_identity(lb, sigb),
+    call_arg(ce, "0", a), expr_denotes_method("client", a, m), m != "".
+
+// A receiver runs when the signal fires, whether or not this tree contains the send.
+entry_point(m, "signal_receiver") :- py_signal_receiver(m, _).
+
+// The publisher: `<sig>.send(sender=...)` on the same binding.
+.decl py_signal_send(site:symbol, from:symbol, sigb:symbol)
+py_signal_send(site, from, sigb) :-
+    call_decl("client", _, meth, _, _, site), py_signal_send_method(meth),
+    call_receiver("client", "NAME", _, rexpr, site),
+    expr_binding("client", b, ctx, rexpr), ctx != "STORE",
+    binding_lookup("client", b, lb), py_signal_identity(lb, sigb),
+    call_context("client", _, from, _, _, site), from != "".
+
+// The two ends meet ONLY through the same binding. An ordinary `mailer.send(...)` has
+// no receiver attached to that binding, so it joins nothing -- which is the whole
+// reason the signal object, and not the method name, is the key.
+framework_edge(from, to, "signal_dispatch", "signal", "registered") :-
+    py_signal_send(_, from, sigb), py_signal_receiver(to, sigb).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. DEPENDENCY-INJECTION PROVIDERS  (handler -> provider)
+// ─────────────────────────────────────────────────────────────────────────────
+// `def handler(svc = Depends(get_service))`. The marker receives the provider as a
+// VALUE and the framework calls it. A provider may declare its own, so the chain has
+// to carry.
+//
+// THE ARGUMENT MUST DENOTE A DEF. `Depends(get_service())` calls the provider eagerly:
+// that is an ordinary call site, already a resolved edge, and the argument expression
+// denotes the RESULT rather than the function -- so it drops out here with no rule of
+// its own. `Depends()` names nothing and matches nothing.
+.decl py_di_injection(from:symbol, to:symbol, marker:symbol)
+py_di_injection(from, to, marker) :-
+    param_decl("client", _, _, _, from, ph), from != "",
+    param_default_expr("client", de, ph),
+    call_decl("client", _, marker, _, de, _), py_di_marker(marker),
+    call_arg(de, "0", a),
+    expr_denotes_method("client", a, to), to != "", to != from.
+
+entry_point(m, "di_provider") :- py_di_injection(_, m, _).
+framework_edge(from, to, "di_provider", marker, "registered") :-
+    py_di_injection(from, to, marker).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. ORM AND MODEL HOOKS
+// ─────────────────────────────────────────────────────────────────────────────
+// A lifecycle or validation hook is registered by decoration and called by the library.
+// There is no second end in the client at all -- nothing here fires the hook -- so this
+// mechanism produces an ENTRY POINT and no framework_edge. Claiming an edge would mean
+// naming a caller that does not exist.
+//
+// The registration must NAME ITS TARGET: a hook always says what it hooks (a mapper and
+// an event, or the fields it validates). A project's own decorator spelled the same way
+// takes no such argument, and a bare call to a function of that name is not a
+// registration at all.
+.decl py_orm_hook(m:symbol, tail:symbol)
+py_orm_hook(m, v) :- decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_orm_hook_deco(v),
+    decorator_text("client", _, _, argc, h), argc != "0", argc != "".
+
+entry_point(m, "orm_hook") :- py_orm_hook(m, _).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. DIAGNOSTICS — the half that says what did NOT join
+// ─────────────────────────────────────────────────────────────────────────────
+// A dispatch-shaped site whose receiver is not a registered task, and a receiver
+// attached to a signal nothing sends. Both are reported rather than silently dropped,
+// so "the engine saw it and declined" is distinguishable from "the engine never looked".
+// THE SITE COLUMN IS THE CALL EXPRESSION, not the call site's own unique hash, and the
+// two are different key spaces: `PY_EXPRESSION_...` against `PY_CALL_SITE_...`. The bundle
+// keys call_sites.id on the EXPRESSION (expression-resolution's site key is the expression
+// hash, call-site.dl:55), so emitting py_call_site's unique hash here produced a relation
+// that joins to ZERO rows of call_sites and cannot be located to a file or line from the
+// database at all. A diagnostic whose whole purpose is to say WHICH site was declined has
+// to be joinable, so it carries the key the consumer has. call_decl holds both: column 5
+// is the expression, column 6 is the site hash, and the negations below still key on the
+// site hash because that is what py_task_dispatch and py_signal_send carry.
+framework_unjoined(e, "task_dispatch", meth) :-
+    call_decl("client", _, meth, _, e, site), py_task_dispatch_method(meth),
+    !py_task_dispatch(site, _, _, _).
+framework_unjoined(e, "signal_dispatch", "no_receiver") :-
+    py_signal_send(site, _, sigb), !py_signal_receiver(_, sigb),
+    call_decl("client", _, _, _, e, site).

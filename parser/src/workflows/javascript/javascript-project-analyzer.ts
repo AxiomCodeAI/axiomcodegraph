@@ -284,8 +284,35 @@ export class JavaScriptProjectAnalyzer {
       for (const name of walkUnderRoot) {
         buildOutputWalked.push(path.join(root, name));
       }
+      let found = 0;
       for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory, prunedDirectories, walkUnderRoot, packageJsonsSeen)) {
         discovered.set(path.normalize(file), file);
+        found += 1;
+      }
+      // A PROJECT that ships from a build directory and has no other JavaScript
+      // (#709). The rule above is right for a dependency and too narrow here: a
+      // package whose `main` names `dist/` and whose only code is that `dist/`
+      // staged NOTHING when it was analysed as the project rather than as a
+      // library, so `javascript/` was written empty and then deleted as a stray.
+      //
+      // The condition is what keeps #796 intact. That issue is about a project
+      // holding BOTH its source and a committed copy of it under `dist/`, where
+      // walking the copy changes the answers for the source. Such a project
+      // stages its source here, so `found` is non-zero and the build directory
+      // stays pruned. Only a root that would otherwise contribute nothing at all
+      // reaches this, and for it the build directory is not a copy of the source,
+      // it is the only source there is.
+      if (found === 0 && rootPackage !== undefined && walkUnderRoot.size === 0) {
+        const shipped = buildOutputDirectoriesNamedBy(rootPackage).filter((name) => excludes.has(name));
+        if (shipped.length > 0) {
+          const shippedOnly = new Set<string>(shipped);
+          for (const name of shippedOnly) {
+            buildOutputWalked.push(path.join(root, name));
+          }
+          for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory, prunedDirectories, shippedOnly, packageJsonsSeen)) {
+            discovered.set(path.normalize(file), file);
+          }
+        }
       }
     }
     const files = [...discovered.values()].sort();

@@ -1,0 +1,3 @@
+nominal	lib:collections#IteratorObject.[Symbol.iterator] -> lib:collections#ArrayIterator.[Symbol.iterator]
+nominal	lib:collections#IteratorObject.[Symbol.iterator] -> lib:collections#MapIterator.[Symbol.iterator]
+nominal	lib:collections#IteratorObject.[Symbol.iterator] -> lib:collections#SetIterator.[Symbol.iterator]

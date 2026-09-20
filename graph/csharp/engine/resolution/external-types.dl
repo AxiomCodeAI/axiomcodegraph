@@ -116,12 +116,12 @@ external_target(prov, e, label) :-
 // declared type is a C# keyword alias or an unstaged framework type, so it resolves
 // to nothing and the call leaves the source.
 //
-// MEASURED: without this clause 1,562 of Humanizer's 2,235 external sites were
+// MEASURED: without this clause 1,562 of one member's 2,235 external sites were
 // classified ambiguous_unknown -- counted as engine blind spots when every one is a
 // call into the BCL that a client-only run cannot expand. That made the blind-spot
 // number unreadable, which is the number the engine is judged on.
 //
-// GATED ON THE EXTENSION PATH HAVING FAILED. `someString.Humanize()` also has a
+// GATED ON THE EXTENSION PATH HAVING FAILED. `someString.Titlecase()` also has a
 // `string` receiver and DOES resolve, to an extension method in the project. Naming
 // it external as well would emit a boundary edge beside a correct one.
 external_target(prov, e, label) :-
@@ -129,18 +129,52 @@ external_target(prov, e, label) :-
     expr_predefined_recv_name(prov, r, tn),
     call_callee_name(prov, e, m),
     !call_recv_type(prov, e, _),
-    !extension_candidate(prov, e, _),
+    // A FIRM candidate suppresses the label; a guess does not, so a site the
+    // engine cannot decide carries both and reads as multi_inferred.
+    !extension_candidate_firm(prov, e, _),
     label = cat("external:", cat(tn, cat(".", m))).
 
+// `dynamic` IS A PREDEFINED ALIAS AND IS NOT A BOUNDARY. Every other name in that
+// list denotes a REAL framework type the client did not stage, so naming it is a
+// service to a consumer: `external:string.Trim` says where the call went and what it
+// went to. `dynamic` denotes no type at all -- it is the DLR being asked at runtime
+// -- so `external:dynamic.Describe` tells a consumer there is a type called
+// `dynamic` with that member, and what is true is that the site is undecidable.
+//
+// IT IS ALSO REACHABLE THE WRONG WAY. An external target makes the site
+// boundary_lib, which means client to library and is the tier a consumer FOLLOWS
+// into a staged dependency. A site with no static target by construction should
+// never be reachable that way, and a `dynamic` call staged against any library would
+// try to link `external:dynamic.*` to a type that does not exist.
+//
+// The site is not left unlabelled either: it gets the ambiguous_dynamic tier, which
+// is the declared blind spot and is counted separately from ambiguous_unknown
+// precisely so a language feature is not reported as an engine defect. See
+// expression-resolution/callee-resolution.dl.
+predefined_boundary_alias(n) :- cs_predefined_alias(n), n != "dynamic".
+
 expr_predefined_recv_name(prov, e, n) :-
-    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_name(prov, v, n, _), cs_predefined_alias(n).
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_name(prov, v, n, _), predefined_boundary_alias(n).
 expr_predefined_recv_name(prov, e, n) :-
-    ref_denotes(prov, e, "PARAMETER", p), param_type_name(prov, p, n, _), cs_predefined_alias(n).
+    ref_denotes(prov, e, "PARAMETER", p), param_type_name(prov, p, n, _), predefined_boundary_alias(n).
 expr_predefined_recv_name(prov, e, n) :-
-    ref_denotes(prov, e, "FIELD", f), field_type_name(prov, f, n, _), cs_predefined_alias(n).
+    ref_denotes(prov, e, "FIELD", f), field_type_name(prov, f, n, _), predefined_boundary_alias(n).
 expr_predefined_recv_name(prov, e, n) :-
-    ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, n, _), cs_predefined_alias(n).
+    ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, n, _), predefined_boundary_alias(n).
 // A LITERAL receiver: `"text".Trim()`.
+// A RECEIVER THAT IS ITSELF A CALL, returning a predefined type. `sb.ToString()`
+// on a staged StringBuilder resolves, and its declared return type is `string`,
+// which no client-only run has a group for. Without this the chain dies one hop
+// in: the call resolves and the member access on its result is a blind spot,
+// which is the shape a staged library makes common rather than rare.
+//
+// The return type is read under the TARGET's own provenance, because the method
+// reached may be the library's.
+expr_predefined_recv_name(prov, e, n) :-
+    expr_target_any(prov, e, m), method_return_type_name(prov, m, n), cs_predefined_alias(n).
+expr_predefined_recv_name("client", e, n) :-
+    expr_target_any("client", e, m), method_return_type_name("lib", m, n), cs_predefined_alias(n).
+
 expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "STRING", _).
 expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "VERBATIM_STRING", _).
 
@@ -155,6 +189,26 @@ external_target(prov, e, label) :-
     call_callee_name(prov, e, m),
     !call_recv_type(prov, e, _),
     !extension_candidate(prov, e, _),
+    label = cat("external:", cat(tn, cat(".", m))).
+
+// ── AN OPERATOR ON AN UNSTAGED OPERAND TYPE ─────────────────────────────────
+// `a - b` on two `DateTime`s is `System.DateTime.op_Subtraction`: a real method in
+// an assembly nobody staged. Naming the boundary is the same service as naming
+// `external:Console.WriteLine` -- the chain ends at a named member instead of
+// stopping -- and the callee name the parser writes is already the metadata one.
+//
+// A PREDEFINED ALIAS IS NOT NAMED HERE, and that exclusion is the point.
+// `System.Int32` declares no `op_Addition`: `i + 1` is an IL instruction, and
+// `external:int.op_Addition` would assert a member that does not exist, which is
+// exactly what `external:dynamic.M` did. Those sites stay known_builtin_operator.
+// It costs the decimal and DateTime-like aliases, whose operators ARE real methods;
+// telling those apart from the intrinsics needs knowledge this engine does not have,
+// and an unlabelled site is honest where a wrong label is not.
+external_target(prov, e, label) :-
+    call_is_operator(prov, e),
+    call_callee_name(prov, e, m),
+    expr_operand_child(prov, e, c),
+    expr_external_type_name(prov, c, tn),
     label = cat("external:", cat(tn, cat(".", m))).
 
 // ── AN INHERITED MEMBER FROM AN UNSTAGED BASE ───────────────────────────────
@@ -206,6 +260,48 @@ external_target(prov, e, label) :-
     type_base_unresolved(prov, gk, _, bn, _),
     label = cat("external:", cat(bn, cat(".", n))).
 
+// ── A MEMBER THE STAGED LIBRARY DOES NOT CARRY IS STILL NAMED ───────────────
+// The same subset argument, on the call paths. Staging a library that covers a
+// type incompletely turned a NAMED boundary into a blind spot: measured on a
+// dev-set project, ten sites moved that way, among them `string.Substring`,
+// where the stub carries the one-argument overload and the source calls the
+// two-argument one, and `string.Any`, an extension method on no version of the
+// type. The type IS known, so the site is still named.
+external_target(prov, e, label) :-
+    call_recv_type(prov, e, gk),
+    type_group("lib", _, gk),
+    call_callee_name(prov, e, n),
+    !member_method(prov, gk, n, _),
+    type_decl("lib", bn, _, _, _, t), type_group("lib", t, gk),
+    label = cat("external:", cat(bn, cat(".", n))).
+
+external_target(prov, e, label) :-
+    call_recv_type(prov, e, gk),
+    type_group("lib", _, gk),
+    call_callee_name(prov, e, n),
+    call_arity_no_member(prov, e),
+    type_decl("lib", bn, _, _, _, t), type_group("lib", t, gk),
+    label = cat("external:", cat(bn, cat(".", n))).
+
+// And a `new` on a staged type whose constructor is not carried. The external
+// constructor clause above needs the type to be UNSTAGED, so once a library
+// declares the type the site had neither a constructor to resolve nor a name to
+// carry. Refusing the implicit-constructor claim alone leaves it a blind spot.
+external_target(prov, e, label) :-
+    call_needs_ctor_lookup(prov, e),
+    expr_new_type(prov, e, gk),
+    type_group("lib", _, gk),
+    call_argc(prov, e, ac),
+    !call_ctor_target_accepts(prov, e, ac),
+    type_decl("lib", n, _, _, _, t), type_group("lib", t, gk),
+    label = cat("external:", cat(n, ".<constructor>")).
+
+// Whether any constructor of the created type accepts this site's argument
+// count. Named rather than inlined because the rule above needs its NEGATION,
+// and a negated conjunction over three relations is where a cross-product hides.
+call_ctor_target_accepts(prov, e, ac) :-
+    call_ctor_target(prov, e, ctor), ctor_accepts_argc(prov, ctor, ac).
+
 // ── A PROPERTY READ ON AN EXTERNAL RECEIVER ─────────────────────────────────
 // `someString.Length`, `dict.Count`, `ex.Message`. Reading a property IS a call, and
 // on a receiver whose type is not staged there is nothing to resolve -- but there is
@@ -237,11 +333,76 @@ external_property_read(prov, acc, label) :-
     external_recv_name(prov, q, tn),
     label = cat("external:", cat(tn, cat(".get_", n))).
 
+// ── AN ELEMENT ACCESS ON AN EXTERNAL RECEIVER ───────────────────────────────
+// `xs[0]` where `xs` is an IList the run was not given. `a[i]` is a call to
+// get_Item, and the receiver is a platform or dependency collection far more
+// often than it is a project type.
+//
+// MEASURED: such a site reached the output as NO ROW AT ALL -- not resolved, not
+// labelled, not declared ambiguous -- while the two sibling constructs on the
+// same receiver, a property read and an ordinary invocation, were both labelled.
+// 747 of 1,184 indexer sites were missing, 96.6% on the member whose indexers
+// are mostly external. A silent omission is the one answer shape the design says
+// never to produce, and it was invisible to the conservation check, which keys on
+// cs_call_site and an element access has no call-site row.
+//
+// properties.dl resolves the in-source case by joining the receiver's group to a
+// declared indexer, so a receiver whose type is in no group drops out with
+// nothing emitted. This is the boundary counterpart, beside the property-read one
+// it mirrors. An ARRAY receiver is deliberately NOT covered: indexing an array is
+// not a call, which is the same ruling properties.dl makes by joining on the
+// indexer member.
+external_element_access(prov, e, label) :-
+    expr_kind(prov, e, "ELEMENT_ACCESS"),
+    !indexer_access(prov, e, _),
+    expr_child(prov, e, "RECEIVER", _, q),
+    !expr_element_type(prov, q, _),
+    !expr_recv_is_array(prov, q),
+    external_recv_name(prov, q, tn),
+    !expr_is_write_target(prov, e),
+    label = cat("external:", cat(tn, ".get_Item")).
+external_element_access(prov, e, label) :-
+    expr_kind(prov, e, "ELEMENT_ACCESS"),
+    !indexer_access(prov, e, _),
+    expr_child(prov, e, "RECEIVER", _, q),
+    !expr_element_type(prov, q, _),
+    !expr_recv_is_array(prov, q),
+    external_recv_name(prov, q, tn),
+    expr_is_write_target(prov, e),
+    label = cat("external:", cat(tn, ".set_Item")).
+
+// INDEXING AN ARRAY IS NOT A CALL. `a[0]` on `int[] a` has no get_Item to name,
+// and properties.dl makes the same ruling by joining on the indexer member. Here
+// the element type is external too, so the join cannot make it: the array has to
+// be recognised from the reference's own rank.
+expr_recv_is_array(prov, e) :-
+    expr_type_via_ref(prov, e, tr), type_ref_array_rank(prov, tr, _).
+
 // The receiver's type name, where that type is not staged. Both spellings: a C#
 // keyword alias, and a named type the project does not declare.
 external_recv_name(prov, e, tn) :- expr_predefined_recv_name(prov, e, tn).
 external_recv_name(prov, e, tn) :-
     expr_external_type_name(prov, e, tn).
+
+// AND A TYPE THAT IS STAGED, WHOSE MEMBER IS NOT. A library IR is a signature
+// SUBSET, so a property it does not carry is one the engine was not told about.
+// Without this the site did not become a blind spot -- it CEASED TO EXIST:
+// `property_access` needs the member, `external_property_read` fired only where
+// the receiver's type was UNSTAGED, and a staged receiver satisfies neither.
+//
+// MEASURED on a dev-set project against a stub library: 32 property-read sites
+// present without the library were ABSENT with it, `task.Status` among them,
+// where the stub declares Task and not its Status. `call_site_dropped` stayed 0
+// throughout, because the site was never built rather than built and discarded,
+// so nothing reported it and only a bare count of call_sites found it.
+//
+// Safe because `external_property_read` is gated on `!member_access_resolved`:
+// where the property IS carried, `property_access` fires and this never reaches
+// the label.
+external_recv_name(prov, e, tn) :-
+    expr_type(prov, e, gk),
+    type_group("lib", _, gk),
+    type_decl("lib", tn, _, _, _, t), type_group("lib", t, gk).
 
 // ── THE EXTERNAL EDGE ───────────────────────────────────────────────────────
 // client_calls_external(SiteExpr, Label). Kept separate from the client and lib

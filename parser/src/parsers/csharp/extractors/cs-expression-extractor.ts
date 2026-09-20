@@ -13,6 +13,11 @@ import {
   misparsedCollectionExpressionOf,
   relationalPatternSwallowOf,
   misparsedGenericCreationArgumentsOf,
+  misparsedGenericCreationRunOf,
+  misparsedGenericCreationAtCreationOf,
+  misparsedGenericCreationRunAtCreationOf,
+  misparsedNestedGenericCreationOf,
+  refReturningAssignmentOf,
   misparsedNullConditionalUnder,
   misparsedTupleGenericCreationOf,
   nullConditionalMisparseInPrimaryChainOf,
@@ -645,6 +650,16 @@ function unwrapForRoot(
   if (current === undefined) {
     return undefined;
   }
+  // A RECOGNISED REF-RETURNING ASSIGNMENT IS A ROOT, though its node is a
+  // `variable_declaration` and so not an expression node. `Store.One(k) = v;`
+  // is an assignment through a ref-returning call that the published grammar
+  // files under the declaration rule; refusing it here is what left the call
+  // with no row at all, and for the one- and two-argument forms no
+  // cs_parse_gap either. The discriminator is cs-misparse.ts's, which is exact
+  // rather than heuristic, so this admits that shape and nothing else.
+  if (refReturningAssignmentOf(current) !== undefined) {
+    return current;
+  }
   return isExpressionNode(current) ? current : undefined;
 }
 
@@ -883,6 +898,14 @@ function spanEndOf(node: Parser.SyntaxNode): Parser.Point {
   if (creationArguments !== undefined) {
     return creationArguments.argumentsNode.endPosition;
   }
+  // The run form ends at the LAST argument of the run, which is where the
+  // initializer closes; the one-type-argument form ends at the fabricated cast,
+  // for the same reason. A creation row ending on its type name is the
+  // signature of this misparse just as it is of the one above.
+  const creationPieces = misparsedGenericCreationAtCreationOf(node);
+  if (creationPieces !== undefined) {
+    return creationPieces.end.endPosition;
+  }
   // A CALL THE GRAMMAR READ AS A LAMBDA ends where that lambda does. Its row is
   // built from the callee IDENTIFIER, whose own span is just the name — so
   // without this the arguments and the lambda, which are its children, would
@@ -975,7 +998,14 @@ function emitOne(
     ? CsExpressionKind.LITERAL
     : isPrimaryBaseArgumentList(node)
       ? CsExpressionKind.INVOCATION
-      : EXPRESSION_NODE_KINDS.get(node.type);
+      // `Store.One(k) = v;` reaches here as a `variable_declaration`, which is
+      // not an expression node and so has no entry in EXPRESSION_NODE_KINDS --
+      // the reason the call had no row at all. It IS an invocation; the grammar
+      // filed it under the wrong rule. Same shape as the primary-base case
+      // above, which is also a non-expression node carrying a call.
+      : refReturningAssignmentOf(node) !== undefined
+        ? CsExpressionKind.INVOCATION
+        : EXPRESSION_NODE_KINDS.get(node.type);
   if (kind === undefined) {
     return;
   }
@@ -997,6 +1027,51 @@ function emitOne(
   // end of its arguments — so the comparison is replaced by it, and the tuple
   // that stood for the type arguments is never walked. It is a TYPE, and a type
   // gets no expression rows.
+  // `Take(new D<K, V>(args) { ... })` is split across sibling arguments by the
+  // `<` ambiguity, and the leading `<` binary is not a comparison at all: the
+  // row that belongs at this position is the CREATION. Redirecting here is what
+  // stops the two fabricated BINARY rows and the fabricated CAST from being
+  // emitted, and stops the type arguments becoming NAME_REFERENCE values -- a
+  // resolver was looking for values named after the types.
+  if (node.type === 'binary_expression' && node.parent?.type === 'argument') {
+    const creation = node.childForFieldName('left');
+    if (
+      creation !== null &&
+      creation.type === 'object_creation_expression' &&
+      misparsedGenericCreationRunAtCreationOf(creation) !== undefined
+    ) {
+      queue.push({
+        node: creation,
+        parentHash: pending.parentHash,
+        role: pending.role,
+        position: pending.position,
+        depth,
+        localNames: pending.localNames,
+      });
+      return;
+    }
+  }
+
+  // THE SAME REDIRECT for the one-type-argument spelling. With no comma the
+  // misparse stays inside ONE expression, so the node standing where the
+  // creation belongs is the outer `>` rather than a run's leading `<` -- and it
+  // is reached everywhere an expression may appear, not only in an argument
+  // list. `new Foo<T>(x) { P = 1 }` as an arrow body was emitted as two
+  // comparisons, a cast, and `T` as a value, with the constructor reporting no
+  // arguments; none of that is in the source.
+  const nested = misparsedNestedGenericCreationOf(node);
+  if (nested !== undefined) {
+    queue.push({
+      node: nested.creation,
+      parentHash: pending.parentHash,
+      role: pending.role,
+      position: pending.position,
+      depth,
+      localNames: pending.localNames,
+    });
+    return;
+  }
+
   if (misparsedTupleGenericCreationOf(node) !== undefined) {
     const creation = misparsedTupleGenericCreationOf(node)!.creation;
     queue.push({
@@ -1125,7 +1200,7 @@ function emitOne(
     unaryFixity: shape.unaryFixity,
     methodReferenceKind: shape.methodReferenceKind,
     referencedEntityKind,
-    potentialQualifiedName: shape.potentialQualifiedName,
+    potentialQualifiedName: qualifiedNameOrEmpty(shape.potentialQualifiedName),
     // A documented PARITY SLOT, always false — deciding a name is ambiguous
     // needs to know what the using scope contains, which is resolution.
     isAmbiguous: false,
@@ -1466,7 +1541,16 @@ interface ExpressionShape {
   isSpread: boolean;
   isNullConditional: boolean;
   isNullForgiving: boolean;
-  callSite?: { callKind: CsCallKind; calleeName: string };
+  callSite?: {
+    callKind: CsCallKind;
+    calleeName: string;
+    /**
+     * Set only where the call has no `argument_list` to count — an operator's
+     * operands and a cast's operand. Absent everywhere else so the written
+     * argument list stays the single source for an ordinary call.
+     */
+    argumentCount?: number;
+  };
 }
 
 /**
@@ -1479,6 +1563,36 @@ interface ExpressionShape {
  * A `#if` holding a whole argument with no comma is still the expression
  * path, inside an `argument` node, and is not this list's business.
  */
+/**
+ * The count every caller takes is `argumentsOf(list).filter(argument).length`,
+ * so the ONE place a misparsed generic creation has to be collapsed is here.
+ *
+ * `Take(new D<K, V>(args) { ... })` is split across sibling `argument` nodes by
+ * the `<` ambiguity, and counting them gives the call two arguments where the
+ * source writes one. Collapsing the run to its first member leaves the count
+ * right for every caller at once -- an invocation, a constructor initializer
+ * and a primary base all read this function -- rather than correcting each.
+ */
+function collapseMisparsedCreationRun(
+  list: Parser.SyntaxNode,
+  args: Parser.SyntaxNode[]
+): Parser.SyntaxNode[] {
+  const run = misparsedGenericCreationRunOf(list);
+  if (run === undefined) {
+    return args;
+  }
+  const argumentIndexes: number[] = [];
+  args.forEach((a, i) => {
+    if (a.type === 'argument') {
+      argumentIndexes.push(i);
+    }
+  });
+  const drop = new Set(
+    argumentIndexes.slice(run.start + 1, run.start + run.length)
+  );
+  return args.filter((_, i) => !drop.has(i));
+}
+
 function argumentsOf(
   list: Parser.SyntaxNode,
   activeSymbols: ReadonlySet<string>
@@ -1501,7 +1615,135 @@ function argumentsOf(
       }
     }
   }
-  return out;
+  return collapseMisparsedCreationRun(list, out);
+}
+
+/**
+ * A `potentialQualifiedName` that is not a name at all is dropped.
+ *
+ * The column is what an engine joins names on, so a value that cannot be a name
+ * is worse than an empty one: empty says "no name here", and 48 characters of
+ * source says "look for a member called this". Measured on the ref-returning
+ * assignment `Unsafe.AsRef(in this) = p.Parse(text).Value`, where the grammar
+ * recovers by inserting a `!` the source does not contain and hands the whole
+ * STATEMENT to this column.
+ *
+ * A C# qualified name is identifiers, dots, `::` and generic brackets. It can
+ * hold no whitespace, no `=`, and no parentheses, so those are the test. The
+ * guard is on the column rather than on any one producer, because the issue
+ * that found this pointed out that a content guard here would have caught it
+ * without knowing which misparse produced it.
+ */
+function qualifiedNameOrEmpty(value: string): string {
+  if (value === '' || value === 'await') {
+    return value;
+  }
+  return /[\s=(){}\[\];,]/.test(value) ? '' : value;
+}
+
+/**
+ * The method name the compiler gives a user-defined operator.
+ *
+ * `a + b` where the operand type overloads `+` IS a static method call, and the
+ * method is named `op_Addition` in metadata — which is what Roslyn reports at the
+ * site and what the ground-truth comparator joins on. The token alone cannot be
+ * the callee name: `-` is `op_Subtraction` written between two operands and
+ * `op_UnaryNegation` written before one, and a type may declare both.
+ *
+ * ONLY THE OPERATORS THE LANGUAGE ALLOWS TO BE USER-DEFINED are listed. `&&`,
+ * `||` and `??` are deliberately absent: they are not overloadable, and `&&` in
+ * particular is COMPOSED from `op_BitwiseAnd` plus `op_True`/`op_False`, so
+ * naming it `op_LogicalAnd` would invent a method the language has no way to
+ * declare.
+ */
+const BINARY_OPERATOR_METHODS: ReadonlyMap<string, string> = new Map([
+  ['+', 'op_Addition'],
+  ['-', 'op_Subtraction'],
+  ['*', 'op_Multiply'],
+  ['/', 'op_Division'],
+  ['%', 'op_Modulus'],
+  ['&', 'op_BitwiseAnd'],
+  ['|', 'op_BitwiseOr'],
+  ['^', 'op_ExclusiveOr'],
+  ['<<', 'op_LeftShift'],
+  ['>>', 'op_RightShift'],
+  ['>>>', 'op_UnsignedRightShift'],
+  ['==', 'op_Equality'],
+  ['!=', 'op_Inequality'],
+  ['<', 'op_LessThan'],
+  ['>', 'op_GreaterThan'],
+  ['<=', 'op_LessThanOrEqual'],
+  ['>=', 'op_GreaterThanOrEqual'],
+]);
+
+/** The same, for the one-operand forms. `-x` is not `x - y`. */
+const UNARY_OPERATOR_METHODS: ReadonlyMap<string, string> = new Map([
+  ['+', 'op_UnaryPlus'],
+  ['-', 'op_UnaryNegation'],
+  ['!', 'op_LogicalNot'],
+  ['~', 'op_OnesComplement'],
+  ['++', 'op_Increment'],
+  ['--', 'op_Decrement'],
+]);
+
+/**
+ * THE SITE IS EMITTED WHETHER OR NOT A USER-DEFINED OPERATOR EXISTS, and that is
+ * the same ruling an ordinary invocation on an unstaged type gets: the parser
+ * records what is WRITTEN and resolution decides what it hits. Deciding here
+ * would mean knowing the operand's type, which is the engine's question.
+ *
+ * What syntax cannot decide for an operator is WHICH method runs — whether the
+ * operands are the declaring type at all, and which overload. That is a
+ * resolution question, exactly like a receiver's type for `a.M()`. What syntax
+ * CAN see is that `a + b` and `(T)x` are written down, which is the difference
+ * between them and an IMPLICIT conversion: that one runs with no syntax at the
+ * call site at all, and stays reserved.
+ */
+/**
+ * The contexts C# requires to hold a COMPILE-TIME CONSTANT.
+ *
+ * A user-defined operator cannot appear in one: the language permits only the
+ * built-in operators on constants there, and the compiler folds them. `[assembly:
+ * AssemblyDescription("a" + "b")]` runs no code at all, ever, and Roslyn reports no
+ * site for it.
+ *
+ * This is not a convenience filter. A site here has no enclosing method AND no
+ * enclosing type -- an assembly-level attribute is attached to neither -- so
+ * caller attribution has no answer and the site reaches no output row at all,
+ * which the engine's conservation guard counts as a DROPPED site and fails on.
+ * Measured: 10 dropped sites on one corpus member, every one of them a string
+ * concatenation in an assembly attribute.
+ */
+const CONSTANT_EXPRESSION_CONTEXTS: ReadonlySet<CsRootContext> = new Set([
+  CsRootContext.ATTRIBUTE_ARGUMENT,
+  CsRootContext.CASE_LABEL,
+  CsRootContext.PARAMETER_DEFAULT,
+  CsRootContext.ENUM_MEMBER_VALUE,
+]);
+
+function operatorCallSite(
+  shape: ExpressionShape,
+  token: string,
+  operands: number,
+  context: CsExpressionContext
+): void {
+  if (CONSTANT_EXPRESSION_CONTEXTS.has(context.rootContext)) {
+    return;
+  }
+  const name =
+    operands === 1 ? UNARY_OPERATOR_METHODS.get(token) : BINARY_OPERATOR_METHODS.get(token);
+  if (name === undefined) {
+    return;
+  }
+  shape.callSite = {
+    callKind: CsCallKind.OPERATOR_CALL,
+    calleeName: name,
+    // The operands ARE the arguments. buildCallSite reads an `argument_list`,
+    // and an operator has none, so it would report a call that takes nothing —
+    // and arity is how the engine tells `operator -(Money)` from
+    // `operator -(Money, Money)` on one type.
+    argumentCount: operands,
+  };
 }
 
 function describeExpression(
@@ -1524,6 +1766,29 @@ function describeExpression(
   };
 
   switch (node.type) {
+    // `Store.One(k) = v;` is an ASSIGNMENT to a REF-RETURNING call, and the
+    // published grammar reads it as a `variable_declaration` whose "declarator"
+    // is a tuple pattern holding the call's arguments. cs-misparse.ts already
+    // recognises it exactly and the walkers already refuse to mint phantom
+    // locals from it -- but nothing put the CALL back, so the invocation had no
+    // row and, for the one- and two-argument shapes, no cs_parse_gap either: a
+    // call in the source, absent from the fact base, with nothing saying so.
+    //
+    // The pieces of an invocation are all present, just not assembled: the
+    // "type" is the callee and the tuple pattern is the argument list.
+    case 'variable_declaration': {
+      const refAssignment = refReturningAssignmentOf(node);
+      if (refAssignment === undefined) {
+        break;
+      }
+      shape.kind = CsExpressionKind.INVOCATION;
+      shape.argumentCount = namedChildren(refAssignment.argumentsNode).length;
+      shape.callSite = {
+        callKind: callKindOf(refAssignment.calleeNode, context, localNames),
+        calleeName: calleeNameOf(refAssignment.calleeNode),
+      };
+      break;
+    }
     case 'with_initializer': {
       shape.operatorString = '=';
       break;
@@ -1596,8 +1861,34 @@ function describeExpression(
       break;
     }
 
+    case 'cast_expression':
+      // `(Money)d` INVOKES `Money.op_Explicit(decimal)` when Money declares one,
+      // and is a reference or numeric conversion when it does not. Which of the
+      // two it is needs the operand's type and the target type's members, so the
+      // site is emitted and resolution decides — the same ruling as an operator.
+      //
+      // `x as Foo` gets NO site, and that is not an omission: `as` cannot run a
+      // user-defined conversion at all, so a site there would name a method the
+      // language forbids being reached that way.
+      //
+      // AN IMPLICIT CONVERSION STAYS RESERVED. `decimal d = money;` runs
+      // `op_Implicit` with no syntax at the call site at all, and there is no
+      // expression to anchor a site to. That reservation is sound and this does
+      // not touch it.
+      // The same constant-expression exclusion: `(int)1` in an attribute argument
+      // is folded and runs nothing, and the site would have no caller to attach to.
+      if (!CONSTANT_EXPRESSION_CONTEXTS.has(context.rootContext)) {
+        shape.callSite = {
+          callKind: CsCallKind.CONVERSION_CALL,
+          calleeName: 'op_Explicit',
+          argumentCount: 1,
+        };
+      }
+      break;
+
     case 'binary_expression':
       shape.operatorString = operatorTokenOf(node);
+      operatorCallSite(shape, shape.operatorString, 2, context);
       break;
 
     case 'preproc_operator_expression': {
@@ -1629,6 +1920,12 @@ function describeExpression(
         // a System.Index, and `a[^1]` is a different access from `a[1]`.
         shape.kind = CsExpressionKind.INDEX;
       }
+      // AFTER the reclassifications above, and gated on the kind still being
+      // UNARY. `&x`, `*p` and `^1` are not operator invocations whatever their
+      // token says, and `&` is in the binary map.
+      if (shape.kind === CsExpressionKind.UNARY) {
+        operatorCallSite(shape, shape.operatorString, 1, context);
+      }
       break;
 
     case 'postfix_unary_expression': {
@@ -1639,6 +1936,10 @@ function describeExpression(
       // Grouping it with `++`/`--` would report a mutation that never happens.
       if (shape.operatorString === '!') {
         shape.isNullForgiving = true;
+      } else {
+        // `x++` and `x--` ARE user-definable, and postfix and prefix call the
+        // SAME method: `op_Increment` is declared once and both forms invoke it.
+        operatorCallSite(shape, shape.operatorString, 1, context);
       }
       break;
     }
@@ -1723,7 +2024,14 @@ function describeExpression(
       // or it comes out zero, and a constructor call reporting no arguments
       // reads as a parameterless constructor that may not exist.
       const repaired = misparsedGenericCreationArgumentsOf(node);
-      shape.argumentCount = repaired !== undefined
+      // And for the `<` ambiguity the argument is inside the fabricated cast.
+      // The creation's CHILD row was grafted back without this, so the argument
+      // was present as a row and the count above it said zero -- two columns
+      // describing one creation and disagreeing, which is worse than either.
+      const creationPieces = misparsedGenericCreationAtCreationOf(node);
+      shape.argumentCount = creationPieces !== undefined
+        ? repairedCreationArgumentNodes(creationPieces).length
+        : repaired !== undefined
         ? misparsedCreationArgumentNodes(repaired.argumentsNode).length
         : argumentList === undefined
           ? 0
@@ -2150,8 +2458,22 @@ function buildCallSite(
   // looks for an `argument_list` and the callee identifier has none.
   const asyncCall = misparsedAsyncCallAtCalleeOf(node);
   const repairedCreation = misparsedGenericCreationArgumentsOf(node);
+  // The REF-RETURNING ASSIGNMENT's arguments are the tuple pattern's elements.
+  // The call site builds its own argument list rather than taking the shape's
+  // count, so a misparse repaired only in describeExpression reports zero
+  // arguments here: `Store.One(k) = v` had its call back and said it took none.
+  const refAssignment = refReturningAssignmentOf(node);
+  // The `<` ambiguity, for the same reason: the creation's row was corrected
+  // and the call site builds its own list, so `new D<K, V>(snap) { … }` had its
+  // argument back on the expression and still reported a PARAMETERLESS
+  // constructor here -- which is the overload an engine would then select.
+  const creationPieces = misparsedGenericCreationAtCreationOf(node);
   const argumentNodes =
-    asyncCall !== undefined
+    refAssignment !== undefined
+      ? namedChildren(refAssignment.argumentsNode)
+      : creationPieces !== undefined
+      ? repairedCreationArgumentNodes(creationPieces)
+      : asyncCall !== undefined
       ? [...asyncCall.argumentNodes, asyncCall.callee.parent!]
       : repairedCreation !== undefined
       ? misparsedCreationArgumentNodes(repairedCreation.argumentsNode).filter(
@@ -2195,7 +2517,7 @@ function buildCallSite(
     csModuleLinkHash: context.csModuleLinkHash,
     callerMethodLinkHash: context.callerMethodLinkHash,
     callerTypeLinkHash: context.csTypeLinkHash,
-    argumentCount: argumentNodes.length,
+    argumentCount: shape.callSite!.argumentCount ?? argumentNodes.length,
     namedArgumentCount: argumentNodes.filter(
       (a) => a.childForFieldName('name') !== null
     ).length,
@@ -2374,7 +2696,12 @@ function emitExpressionTypeReferences(
   if (sink === undefined) {
     return;
   }
-  const emit = (typeNode: Parser.SyntaxNode | null | undefined, refContext: CsTypeRefContext, position = 0): CsTypeReferenceRegistry | undefined => {
+  const emit = (
+    typeNode: Parser.SyntaxNode | null | undefined,
+    refContext: CsTypeRefContext,
+    position = 0,
+    splitTypeArguments?: readonly Parser.SyntaxNode[]
+  ): CsTypeReferenceRegistry | undefined => {
     const rows = extractTypeReferences({
       typeNode,
       ownerLinkHash: row.getHash(),
@@ -2383,6 +2710,7 @@ function emitExpressionTypeReferences(
       serviceVersionLinkHash: context.serviceVersionLinkHash,
       rootPosition: position,
       typeParametersInScope: context.typeParametersInScope,
+      splitTypeArguments,
     });
     sink.push(...rows);
     return rows[0];
@@ -2398,9 +2726,21 @@ function emitExpressionTypeReferences(
     case 'as_expression':
       emit(node.childForFieldName('right'), CsTypeRefContext.AS_TYPE);
       break;
-    case 'object_creation_expression':
-      emit(node.childForFieldName('type'), CsTypeRefContext.OBJECT_CREATION);
+    case 'object_creation_expression': {
+      // Under the `<` ambiguity the type arguments are comparison OPERANDS
+      // rather than children of the type node, so they are handed in. Without
+      // them the reference is to `D` with arity 0 — and C# generics are
+      // REIFIED, so `D` and `D<K, V>` are different runtime types with
+      // different method tables. That is a wrong row, not a thin one.
+      const pieces = misparsedGenericCreationAtCreationOf(node);
+      emit(
+        node.childForFieldName('type'),
+        CsTypeRefContext.OBJECT_CREATION,
+        0,
+        pieces?.typeArguments
+      );
       break;
+    }
     case 'array_creation_expression':
       emit(node.childForFieldName('type'), CsTypeRefContext.ARRAY_CREATION);
       break;
@@ -2530,6 +2870,23 @@ const LINKABLE_REFERENCE_KINDS: ReadonlySet<CsReferencedEntityKind> = new Set([
  * and the children agree — a count taken from one shape and children from the
  * other is how a two-argument call came out with one argument row.
  */
+/**
+ * The constructor arguments of a creation caught in the `<` ambiguity.
+ *
+ * The grammar read `(snap)` as the TYPE of a cast, so there is exactly one and
+ * it arrives as a TYPE node -- an `identifier` or a `qualified_name` -- whose
+ * text is the argument the source wrote. That is also why there is never more
+ * than one: `(a, b)` is not a type, so a two-argument creation parses correctly
+ * and never reaches here, and neither does `(F(x))`, `(1)` or `(this.n)`. All
+ * four were checked against the grammar, because "exactly one" is an assumption
+ * a list would hide.
+ */
+function repairedCreationArgumentNodes(pieces: {
+  readonly constructorArguments: Parser.SyntaxNode | undefined;
+}): Parser.SyntaxNode[] {
+  return pieces.constructorArguments === undefined ? [] : [pieces.constructorArguments];
+}
+
 function misparsedCreationArgumentNodes(
   argumentsNode: Parser.SyntaxNode
 ): Parser.SyntaxNode[] {
@@ -2573,6 +2930,20 @@ function childrenWithRoles(
     }
     push(child, role);
   };
+
+  // THE REF-RETURNING ASSIGNMENT'S CALL. The tuple pattern the grammar built is
+  // the ARGUMENT LIST, so its elements are arguments and get argument rows; the
+  // assigned value is still walked, as it was before this shape emitted a call.
+  const refAssignment = refReturningAssignmentOf(node);
+  if (refAssignment !== undefined) {
+    for (const argument of namedChildren(refAssignment.argumentsNode)) {
+      out.push({ node: argument, role: CsEdgeRole.ARGUMENT });
+    }
+    if (refAssignment.valueNode !== undefined) {
+      out.push({ node: refAssignment.valueNode, role: CsEdgeRole.ASSIGNMENT_VALUE });
+    }
+    return out;
+  }
 
   // THE INVENTED LAMBDA'S CALL, from the callee identifier: the earlier
   // parameters are the earlier ARGUMENTS and the lambda itself is the last one.
@@ -3022,6 +3393,20 @@ function childrenWithRoles(
       // here so the subtree survives: the comparison they hung off is not
       // emitted, and a tree rooted at a non-emitting node dies before its
       // children are enqueued — `(src)` would have taken `src` with it.
+      // The run form: the constructor arguments and the initializer were filed
+      // inside a fabricated cast two arguments along, so they are grafted back
+      // here. Without this the creation emits with no children at all and the
+      // arguments the source wrote are lost with the comparison they hung off.
+      const runPieces = misparsedGenericCreationAtCreationOf(node);
+      if (runPieces !== undefined) {
+        if (runPieces.constructorArguments !== undefined) {
+          push(runPieces.constructorArguments, CsEdgeRole.ARGUMENT);
+        }
+        if (runPieces.initializer !== undefined) {
+          push(runPieces.initializer, CsEdgeRole.INITIALIZER_VALUE);
+        }
+        break;
+      }
       const repaired = misparsedGenericCreationArgumentsOf(node);
       if (repaired !== undefined) {
         if (repaired.argumentsNode.type === 'initializer_expression') {
@@ -3187,6 +3572,24 @@ function unwrapTransparentChild(
 }
 
 function operatorTokenOf(node: Parser.SyntaxNode): string {
+  // THE `operator` FIELD FIRST, where the grammar declares one. It does for
+  // `binary_expression` (node-types.json: left, operator, right) and not for the
+  // unary forms, which is why the scan below stays.
+  //
+  // The scan alone was wrong whenever the LEFT operand is an anonymous token.
+  // `this == m` inside an `Equals` override reported the operator as `this`,
+  // because `this` is not a named child and the first anonymous child won. That
+  // is the same trap the operand walker already carries a note about: positions
+  // 0 and 1 of the named children are right until the value is `this`.
+  //
+  // Measured on two corpus members: 0 of 1,223 BINARY rows change, so the field
+  // read agrees with the scan everywhere the scan was right.
+  if (node.type === 'binary_expression') {
+    const operator = node.childForFieldName('operator');
+    if (operator !== null) {
+      return operator.type;
+    }
+  }
   for (const child of allChildren(node)) {
     if (!child.isNamed) {
       return child.type;

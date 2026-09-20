@@ -118,6 +118,34 @@ call_class(prov, e, "ambiguous_dynamic") :-
 // no user code to call, so nothing resolving is the right answer.
 call_class(prov, e, "known_implicit_ctor") :-
     call_target_count(prov, e, 0), call_ctor_implicit(prov, e, _).
+
+// AN OPERATOR OR CAST THAT RAN NO USER CODE. `i + 1`, `s == null`, `(int)d`: the
+// operator is one of the language's built-ins and the cast is a numeric or
+// reference conversion. There is no method anywhere -- System.Int32 declares no
+// op_Addition, it is an IL instruction -- so the engine saying nothing is the
+// truthful answer, on the same footing as a compiler-synthesised default
+// constructor and counted in its own bucket rather than as a blind spot.
+//
+// EVERY C# PROGRAM IS MOSTLY THIS. The parser emits a site for every written
+// operator and cast, because deciding whether one is user-defined needs the
+// operand's type and that is this layer's question, not syntax's. Folding the
+// remainder into ambiguous_unknown would put thousands of correct answers into the
+// one number the engine is judged on and make it unreadable, which is the same
+// mistake the external-type clause exists to avoid for `Console.WriteLine`.
+//
+// WHAT THIS GIVES UP, AND WHERE IT IS KEPT. The blind-spot count can no longer
+// separate "built-in operator" from "a declared operator the engine failed to
+// find". That distinction needs the compiler, and the harness HAS the compiler: the
+// Roslyn oracle emits a ground-truth row for every user-defined operator site, so a
+// failure to resolve one shows up as a missed site or a disagreement there. The
+// distinction is kept in the instrument that can make it.
+// GATED ON THERE BEING NO NAMED BOUNDARY. An operator on an unstaged operand type
+// -- `DateTime - DateTime` -- IS a real method in a library, and external-types.dl
+// names it; that site is boundary_lib and a consumer can follow it. This bucket is
+// for the remainder, where there is no member anywhere to name.
+call_class(prov, e, "known_builtin_operator") :-
+    call_target_count(prov, e, 0), call_ran_no_user_code(prov, e),
+    !site_leaves_client(prov, e).
 // The receiver's hierarchy is incomplete, so the member may be in an unstaged base.
 call_class(prov, e, "boundary_lib") :-
     call_target_count(prov, e, 0), site_leaves_client(prov, e),
@@ -127,7 +155,12 @@ call_class(prov, e, "ambiguous_unknown") :-
     call_target_count(prov, e, 0),
     !site_leaves_client(prov, e),
     !call_unresolvable_by_design(prov, e, _),
-    !call_ctor_implicit(prov, e, _).
+    !call_ctor_implicit(prov, e, _),
+    !call_ran_no_user_code(prov, e).
+
+// The two above, as one name, so the negations read as the single claim they are.
+call_ran_no_user_code(prov, e) :- call_is_operator(prov, e).
+call_ran_no_user_code(prov, e) :- call_is_conversion(prov, e).
 
 // ── THE EDGES ───────────────────────────────────────────────────────────────
 call_chain_edge(e, caller, "-", callee, "client", cls, kind) :-
@@ -237,6 +270,21 @@ call_chain_edge(e, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
 // external method call is.
 call_chain_edge(acc, caller, "-", label, "external", "boundary_lib", "property_read") :-
     external_property_read("client", acc, label),
+    call_from_expr("client", acc, caller).
+
+// AN ELEMENT ACCESS ON AN EXTERNAL RECEIVER, for the same reason and in the same
+// shape. `xs[0]` is a call to get_Item; with the receiver's type unstaged there is
+// no member to resolve, and the site used to reach the output as no row at all.
+call_chain_edge(e, caller, "-", label, "external", "boundary_lib", "indexer") :-
+    external_element_access("client", e, label),
+    call_from_expr("client", e, caller).
+
+// A PROPERTY READ THROUGH `dynamic`. The same declared blind spot as a call through
+// `dynamic`, and it reaches the output for the same reason: a site that produced no
+// row is indistinguishable from one the engine never saw. No target, because there
+// is no member to name.
+call_chain_edge(acc, caller, "-", "-", "-", "ambiguous_dynamic", "property_read") :-
+    dynamic_property_read("client", acc),
     call_from_expr("client", acc, caller).
 
 // ── A GENERATED RECORD PROPERTY READ ────────────────────────────────────────
