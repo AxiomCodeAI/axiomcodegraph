@@ -414,8 +414,18 @@ entry_point(m, "orm_hook") :- py_orm_hook(m, _).
 // A dispatch-shaped site whose receiver is not a registered task, and a receiver
 // attached to a signal nothing sends. Both are reported rather than silently dropped,
 // so "the engine saw it and declined" is distinguishable from "the engine never looked".
-framework_unjoined(site, "task_dispatch", meth) :-
-    call_decl("client", _, meth, _, _, site), py_task_dispatch_method(meth),
+// THE SITE COLUMN IS THE CALL EXPRESSION, not the call site's own unique hash, and the
+// two are different key spaces: `PY_EXPRESSION_...` against `PY_CALL_SITE_...`. The bundle
+// keys call_sites.id on the EXPRESSION (expression-resolution's site key is the expression
+// hash, call-site.dl:55), so emitting py_call_site's unique hash here produced a relation
+// that joins to ZERO rows of call_sites and cannot be located to a file or line from the
+// database at all. A diagnostic whose whole purpose is to say WHICH site was declined has
+// to be joinable, so it carries the key the consumer has. call_decl holds both: column 5
+// is the expression, column 6 is the site hash, and the negations below still key on the
+// site hash because that is what py_task_dispatch and py_signal_send carry.
+framework_unjoined(e, "task_dispatch", meth) :-
+    call_decl("client", _, meth, _, e, site), py_task_dispatch_method(meth),
     !py_task_dispatch(site, _, _, _).
-framework_unjoined(site, "signal_dispatch", "no_receiver") :-
-    py_signal_send(site, _, sigb), !py_signal_receiver(_, sigb).
+framework_unjoined(e, "signal_dispatch", "no_receiver") :-
+    py_signal_send(site, _, sigb), !py_signal_receiver(_, sigb),
+    call_decl("client", _, _, _, e, site).
