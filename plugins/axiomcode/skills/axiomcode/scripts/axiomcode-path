@@ -410,13 +410,36 @@ class G:
         ms = [r['name'] for d in tdisp for r in self.q("SELECT name FROM symbols WHERE owner = ? AND method_id IS NOT NULL", d)]
         if mem == '*': return f"{'.'.join(tdisp[:1]) or outer + '.' + inner} declares no method in the graph"
         return f"{'.'.join(tdisp[:1]) or outer + '.' + inner} has no method {mem}; it declares: " + ', '.join(sorted(set(ms))[:12])
+    # where the client graph ENDS is named differently by every front end. Java, Python and C# resolve a
+    # call into a dependency and mark it `boundary_lib`, so the callee has a qualified name. TypeScript
+    # and JavaScript mark it `ambient_terminal` (`dynamic_terminal` when the callee is computed) and
+    # carry NO callee at all: on one JavaScript project 15,630 such edges have neither a callee_method_id
+    # nor a callee_label. So this listed nothing on two of the five languages, and `path X '*'` there
+    # simply did not say what the code calls out to — not because the graph does not know, but because
+    # the name is on the CALL SITE (`push`, `Error`, `JSON.stringify`) rather than on the edge.
+    TERMINAL_TIERS = ('boundary_lib', 'boundary_generated', 'ambient_terminal', 'dynamic_terminal')
+
     def library_calls(self, ids, cap=10):
-        """the library / platform methods these methods call (boundary_lib edges) — the ends of the client graph, listed, never traversed"""
+        """the library / platform methods these methods call — the ends of the client graph, listed, never traversed"""
         if not ids: return []
-        rows = self.q(f"""SELECT COALESCE(m.qualified_name, e.callee_label) AS lib, count(*) n FROM call_edges e LEFT JOIN methods m ON m.id = e.callee_method_id
-                         WHERE e.caller_id IN ({','.join('?' * len(ids))}) AND e.tier = 'boundary_lib' AND COALESCE(m.qualified_name, e.callee_label) IS NOT NULL
-                         GROUP BY lib ORDER BY n DESC""", *ids)
-        return [(r['lib'], r['n']) for r in rows][:cap]
+        q = ','.join('?' * len(ids)); t = ','.join('?' * len(self.TERMINAL_TIERS))
+        rows = self.q(f"""SELECT COALESCE(m.qualified_name, e.callee_label, s.callee_name) AS lib, count(*) n,
+                                 (m.qualified_name IS NULL AND e.callee_label IS NULL) AS from_site
+                         FROM call_edges e LEFT JOIN methods m ON m.id = e.callee_method_id
+                                           LEFT JOIN call_sites s ON s.id = e.call_site_id
+                         WHERE e.caller_id IN ({q}) AND e.tier IN ({t})
+                           AND COALESCE(m.qualified_name, e.callee_label, s.callee_name) IS NOT NULL
+                         GROUP BY lib ORDER BY n DESC""", *ids, *self.TERMINAL_TIERS)
+        # TWO LISTS, because they are two different facts and only one of them is "a library".
+        # A named callee IS the dependency: the engine resolved the call to a declaration outside the
+        # client and stopped there on purpose. A site-named one is only the word written at the call —
+        # no receiver is recorded anywhere in the graph — and on JavaScript that word is as often a
+        # client method whose receiver was never typed (`unshiftChunk`) as a platform one (`push`).
+        # Printing the second set under "calls into libraries" would assert a resolution that was
+        # never made, about methods that are frequently in the project itself.
+        named  = [(r['lib'], r['n']) for r in rows if not r['from_site']][:cap]
+        unfoll = [(r['lib'], r['n']) for r in rows if r['from_site']][:cap]
+        return named, unfoll
     def site_file(self, raw):
         """a call site's file as the repo sees it: Java bundles store absolute paths; the index's paths table maps them"""
         if self.has('paths'):
@@ -630,6 +653,21 @@ def hop_label(g, a, b, t):
     return f"[{' · '.join(bits)}" + (f" @ {at}]" if at else "]")
 
 
+def print_boundary(g, ids, into, makes):
+    """where the graph stops, in the two ways it stops: a resolved call into a dependency, and a call
+    the engine could not follow at all. Both are printed; neither is traversed. The two lead-ins are
+    passed whole rather than assembled from a subject — "it" and "the target(s)" do not take the
+    same verb."""
+    named, unfollowed = g.library_calls(ids)
+    if named:
+        print(f"  {into} (not traversed — where the client graph ends): " +
+              ', '.join(f"{l} ×{n}" if n > 1 else l for l, n in named))
+    if unfollowed:
+        print(f"  {makes} {sum(n for _, n in unfollowed)} call(s) the graph does not follow — the callee is "
+              "ambient, or its receiver is not typed. These are the words at the call sites, not resolutions: " +
+              ', '.join(f"{l} ×{n}" if n > 1 else l for l, n in unfollowed))
+
+
 def print_chain(g, chain):
     lines = [f"    {g.disp(chain[0][0])}   {g.loc(chain[0][0])}"]
     prev = chain[0][0]
@@ -719,8 +757,7 @@ def closure(g, sel, upstream, limit=40, depth=40):
     word = 'can reach' if upstream else 'is reached from'
     print(f"{'everything that ' + word + ' ' if upstream else 'everything reached from '}{label}: {len(rows)} method(s) in {len({g.sym[m]['file'] for m, _ in rows})} file(s)" + (" through resolved calls" if rows else '') + (f" within {depth} hop(s)" if depth < 40 else ''))
     if not upstream:
-        libs = g.library_calls(ids)
-        if libs: print("  it calls into libraries directly (not traversed — where the client graph ends): " + ', '.join(f"{l} ×{n}" if n > 1 else l for l, n in libs))
+        print_boundary(g, ids, "it calls into libraries directly", "it also makes")
     if not rows:
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(ids))})", *ids)[0]['n'] if not upstream else 0
         print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ") + "an unresolved site elsewhere may still " + ("call it" if upstream else "be it")))
@@ -829,8 +866,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         print(f"  verified: every printed hop is an edge in graph.sqlite and a plain BFS finds the same length" if not (vbad or vlen) else f"  ✗ verification failed on {vbad} hop(s) / {vlen} length(s) — report this")
         if seen_tiers:
             print("  what the hops are:"); [print(l) for l in ax_edges.legend(seen_tiers)]
-        libs = g.library_calls([m for m, _ in hits[:limit]])
-        if libs: print("  the target(s) call into libraries (not traversed — where the client graph ends): " + ', '.join(f"{l} ×{n}" if n > 1 else l for l, n in libs))
+        print_boundary(g, [m for m, _ in hits[:limit]], "the target(s) call into libraries", "the target(s) also make")
         if every: every_route(g, res, q, srcs, dsts, max_paths, adj)
         else: print(f"  (one shortest chain per reached target; --every for all the routes and every method on any of them)")
         if u: print(f"  bound: the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see")
