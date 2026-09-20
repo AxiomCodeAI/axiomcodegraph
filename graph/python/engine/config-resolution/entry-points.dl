@@ -80,6 +80,18 @@ entry_point(m, "http") :- decorator_target("client", _, m, h),
 // entry points, but neither was MEASURED on a subject yet, and an unmeasured rule is how
 // a fabricated edge gets in. They belong in a follow-up with their own numbers.
 
+// ── entry_reachable(Method) ─────────────────────────────────────────────────
+// Declared for Python (graph/bundle/languages.ts) and never derived here, so every
+// consumer reading it for liveness sees "everything is dead" regardless of how many
+// entry points the graph has (#1122). Same two clauses as TypeScript/JavaScript's
+// (call-edge-generation/call_chain.dl): root every entry point, then walk client call
+// edges. callee != "-" excludes the sentinel call_chain_edge writes for a site that
+// resolved to nothing (boundary_lib, ambiguous_unknown, ...) -- those are not a method.
+method_call_edge(caller, callee) :- call_chain_edge(_, caller, _, callee, "client", _, _),
+    callee != "-".
+
+entry_reachable(m) :- entry_point(m, _).
+entry_reachable(callee) :- entry_reachable(caller), method_call_edge(caller, callee).
 // (b) gRPC servicer methods — `add_<Svc>Servicer_to_server(MyServicer(), server)` hands the
 // object to grpc, which invokes the method on a request. No client call site reaches it, exactly
 // as for an HTTP route, and the consequence is worse: a servicer's private helpers are reached

@@ -23,6 +23,8 @@
 .decl call_span(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl annotation_on(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl entry_point(c0:symbol,c1:symbol)
+.decl entry_reachable(c0:symbol)
+.decl method_call_edge(c0:symbol,c1:symbol)
 .decl py_http_route_verb(v:symbol)
 .decl py_grpc_servicer_suffix(s:symbol)
 .decl py_grpc_stub_suffix(s:symbol)

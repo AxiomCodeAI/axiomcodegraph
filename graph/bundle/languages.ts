@@ -232,6 +232,7 @@ const PYTHON: LanguageAdapter = {
   raw: {
     callEdges: CALL_EDGES,
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
+    entryReachable: { file: 'entry-reachable.csv', columns: [0] },
     // Python's ancestor relation carries a leading provenance column: (prov, type, ancestor)
     typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [1, 2] },
     // (prov, type) — no "how"; every row is a constructor call
