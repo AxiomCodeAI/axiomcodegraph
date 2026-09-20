@@ -12,8 +12,31 @@ H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
 # the engine checkout: walk up from this script until a bin/axiomcode is found (skills/… or plugins/axiomcode/skills/…)
 if [ -z "${AXIOMCODE_ENGINE:-}" ]; then E="$H"; while [ "$E" != "/" ] && [ ! -x "$E/bin/axiomcode" ]; do E="$(dirname "$E")"; done; AXIOMCODE_ENGINE="$E"; fi
+# THE WALK-UP ONLY WORKS FROM A CHECKOUT. Installed from a marketplace the plugin is COPIED under
+# ~/.claude/plugins/cache/..., where nothing above it is an engine, so the walk ends at / and every verb
+# dies -- the install reports success and the first query fails. Fall back to the published engine:
+# an `axiomcode` on PATH (npm global bin, resolved through its symlink) or the global node_modules.
+# Each candidate is CHECKED -- an executable of that name from something else entirely is not our engine,
+# and this machine has exactly that from an older unrelated package.
+engine_ok() { [ -x "$1/bin/axiomcode" ] && [ -d "$1/graph" ] && [ -f "$1/package.json" ]; }
+if ! engine_ok "$AXIOMCODE_ENGINE"; then
+  for cand in \
+    "$(command -v axiomcode 2>/dev/null | while read -r l; do while [ -L "$l" ]; do l="$(cd "$(dirname "$l")" && pwd)/$(readlink "$l")"; done; dirname "$(dirname "$l")"; done)" \
+    "$(npm root -g 2>/dev/null)/@axiomcode/code-graph"; do
+    [ -n "$cand" ] || continue
+    if engine_ok "$cand"; then AXIOMCODE_ENGINE="$cand"; break; fi
+  done
+fi
 ENGINE="$AXIOMCODE_ENGINE"
-[ -x "$ENGINE/bin/axiomcode" ] || { echo "no bin/axiomcode under $ENGINE (set AXIOMCODE_ENGINE)"; exit 1; }
+[ -x "$ENGINE/bin/axiomcode" ] || {
+  echo "axiomcode: no engine found." >&2
+  echo "  The skill queries a graph; the ENGINE builds it, and it ships separately because it carries" >&2
+  echo "  native solver binaries. Installed from a marketplace the plugin is copied outside any" >&2
+  echo "  checkout, so there is nothing to find above it. Fix with ONE of:" >&2
+  echo "    npm i -g @axiomcode/code-graph        (then this resolves it automatically)" >&2
+  echo "    AXIOMCODE_ENGINE=/path/to/axiom-code-graph" >&2
+  echo "  Looked in: $H upwards, \`command -v axiomcode\`, and \$(npm root -g)/@axiomcode/code-graph" >&2
+  exit 1; }
 # no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently
 count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
 py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx'); cs=$(count -name '*.cs')
