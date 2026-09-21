@@ -1685,11 +1685,21 @@ def main(argv):
               " it is never a seed, so the transitive layer below is unaffected by it)")
     for title, rows in groups:
         if not rows: continue
+        # PRODUCTION BEFORE TESTS. A test that reaches the target is a CONSEQUENCE of the change, not a place that
+        # has to be edited, and in a well-tested tree the tests outnumber the production callers several times over.
+        # Ranking by certainty alone therefore interleaved them, and since the window is finite the file that
+        # actually breaks was pushed into the hidden tail: a run whose two production callers mattered led with
+        # three test classes instead. The production rows ARE the answer. The tests are a count here and a list in
+        # `test-impact`, which also prints the command that runs them; --tests puts them back inline.
+        prod = [r for r in rows if not _is_t(r[0])]
+        tst = [r for r in rows if _is_t(r[0])]
+        body = prod + tst if want_tests else prod
         by = collections.Counter(cert for _, _, _, cert, _, _ in rows)
-        print(f"{title} ({len({c for c, *_ in rows})} callable(s): " + ', '.join(f"{n} {c}" for c, n in sorted(by.items(), key=lambda x: CERT[x[0]])) + "):")
+        print(f"{title} ({len({c for c, *_ in rows})} callable(s): " + ', '.join(f"{n} {c}" for c, n in sorted(by.items(), key=lambda x: CERT[x[0]]))
+              + (f"; {len({c for c, *_ in tst})} of them test" if tst else '') + "):")
         # and no single file may fill the window: one test file with 21 anonymous callbacks used to hide every other file
         cap = max(3, limit // 5); per = collections.Counter(); shown = []; hidden = []
-        for r in rows:
+        for r in body:
             f = (r[4] or '').rsplit(':', 1)[0]
             if len(shown) < limit and per[f] < cap: per[f] += 1; shown.append(r)
             else: hidden.append(r)
@@ -1697,6 +1707,8 @@ def main(argv):
         if hidden:
             byf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in hidden)
             print(f"    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--limit N for all of them)")
+        if tst and not want_tests:
+            print(f"    +{len({c for c, *_ in tst})} test callable(s) also reach it, not listed here — `axiomcode test-impact` names them and the command that runs them (--tests lists them inline)")
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
