@@ -96,6 +96,20 @@ export interface DecoratorsIR {
   fileVia: { column: string; through: 'modules' };
 }
 
+/**
+ * The parser's skipped-files report — the one IR file that names what is NOT in any other
+ * table. Its columns differ per front end (only Python records a construct and a position),
+ * so every column but the path and the reason is optional and reads as NULL where absent.
+ */
+export interface SkippedIR {
+  file: string; filePath: string; reason: string;
+  /** the syntactic form that caused the rejection (Python only) */
+  construct?: string;
+  startLine?: string; startColumn?: string;
+  /** free text: the error message, or the file count behind a DIRECTORY_EXCLUDED row */
+  detail?: string;
+}
+
 export interface LanguageAdapter {
   language: Language;
   /** id prefixes, for the sanity report only */
@@ -128,6 +142,8 @@ export interface LanguageAdapter {
     expressions: ExpressionsIR;
     callSites?: CallSitesIR;
     decorators?: DecoratorsIR;
+    /** absent where the front end writes no skipped-files report */
+    skipped?: SkippedIR;
   };
 }
 
@@ -183,6 +199,9 @@ const JAVA: LanguageAdapter = {
       // the parser puts the invoked name / created class name in literalValue for these kinds
       calleeName: { column: 'literalValue', kinds: ['METHOD_INVOCATION', 'OBJECT_CREATION', 'METHOD_REFERENCE', 'ANONYMOUS_CLASS_CREATION'] },
     },
+    // The Java report carries no construct and no position: the three reasons it emits
+    // (EMPTY_CONTENT, FILE_TOO_LARGE, READ_ERROR) are properties of the whole file.
+    skipped: { file: 'skipped-java-files.csv', filePath: 'filePath', reason: 'reason' },
   },
 };
 
@@ -229,6 +248,7 @@ const TYPESCRIPT: LanguageAdapter = {
       startLine: 'startLine', startColumn: 'startColumn',
       fileVia: { column: 'tsModuleLinkHash', through: 'modules' },
     },
+    skipped: { file: 'skipped-typescript-files.csv', filePath: 'filePath', reason: 'reason', detail: 'detail' },
   },
 };
 
@@ -271,6 +291,12 @@ const PYTHON: LanguageAdapter = {
       startLine: 'startLine', endLine: 'endLine',
       fileVia: { column: 'pyModuleLinkHash', through: 'modules' },
     },
+    // The only report that positions the rejection: a PY2_CONSTRUCT_DETECTED row names the
+    // construct and the line and column it was written at.
+    skipped: {
+      file: 'skipped-python-files.csv', filePath: 'filePath', reason: 'reason', construct: 'construct',
+      startLine: 'startLine', startColumn: 'startColumn', detail: 'detail',
+    },
   },
 };
 
@@ -308,6 +334,9 @@ const JAVASCRIPT: LanguageAdapter = {
       startLine: 'startLine', startColumn: 'startColumn',
       fileVia: { column: 'ownerModuleLinkHash', through: 'modules' },
     },
+    // A DIRECTORY_EXCLUDED row names a PRUNED DIRECTORY and not a file, with the count of
+    // files behind it in `detail` — see the note on the `skipped` table in schema.ts.
+    skipped: { file: 'skipped-javascript-files.csv', filePath: 'filePath', reason: 'reason', detail: 'detail' },
   },
 };
 
@@ -358,6 +387,12 @@ const CSHARP: LanguageAdapter = {
       startLine: 'startLine', startColumn: 'startColumn',
       fileVia: { column: 'csModuleLinkHash', through: 'modules' },
     },
+    // No `skipped` entry: the C# front end writes no skipped-files report at all. Its
+    // grammar gate takes the opposite line — a construct the grammar does not cover is a
+    // failed run, not a skipped file (parser/src/parsers/csharp/grammar-gate.ts) — so
+    // there is no CSV to stage and `skipped` is legitimately empty for csharp. Pointing the
+    // adapter at a file the parser never writes would only produce the same empty table
+    // while claiming a source that does not exist.
   },
 };
 

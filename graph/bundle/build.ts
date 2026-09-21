@@ -32,6 +32,7 @@ export interface CoreTables {
   fields: Row[];
   field_access: Row[];
   type_use: Row[];
+  skipped: Row[];
 }
 
 export interface BuildInputs {
@@ -525,6 +526,33 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const unplaced = [...sites.values()].filter((r) => r[5] === null).length;
   if (unplaced > 0) log(`  ! ${unplaced} of ${sites.size} call sites have no position in the IR`);
 
+  // ── 5b. what the parser did NOT read ──────────────────────────────────────
+  // A file the parser skipped has no row in any table above, and until #1148 nothing in the
+  // bundle said so: a consumer could not tell a file with no calls from a file that was
+  // never read, and every dispatch site into it read as an engine miss. The report is the
+  // parser's own CSV in the client IR — no Soufflé relation is involved, because the skip
+  // happens before any fact is emitted and so cannot be derived from the facts.
+  const skipped: Row[] = [];
+  if (A.ir.skipped) {
+    const S = A.ir.skipped;
+    const src = await clientSource(inp.clientIrDir, S.file);
+    if (src) {
+      const h = src.header;
+      const cf = h.col(S.filePath), cr = h.col(S.reason);
+      // optional columns: absent from the adapter means this front end's report has no
+      // such column. `has` as well, so an IR written before the column existed still bundles.
+      const opt = (n: string | undefined): number => (n && h.has(n) ? h.col(n) : -1);
+      const cc = opt(S.construct), csl = opt(S.startLine), csc = opt(S.startColumn), cd = opt(S.detail);
+      const at = (r: string[], i: number): string | undefined => (i < 0 ? undefined : r[i]);
+      for await (const r of rowsOf(src)) {
+        const file = r[cf] ?? '';
+        if (file === '') continue; // a torn or blank row names nothing
+        skipped.push([file, r[cr] ?? '', nul(at(r, cc)), int(at(r, csl)), int(at(r, csc)), nul(at(r, cd))]);
+      }
+    }
+  }
+  if (skipped.length > 0) log(`  skipped: ${skipped.length} file(s) the parser did not read`);
+
   // ── 6. assemble ───────────────────────────────────────────────────────────
   const run: Row[] = Object.entries(inp.meta).map(([k, v]) => [k, v]);
   return {
@@ -543,6 +571,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     fields: [...fields.values()],
     field_access,
     type_use,
+    skipped: dedupe(skipped),
   };
 }
 
