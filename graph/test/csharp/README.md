@@ -20,7 +20,7 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `01-dispatch-and-hiding` | virtual through an abstract base, an inherited-not-overridden target, `new`-hiding, `base.M()`, a sealed receiver, a freshly constructed receiver, a default interface implementation |
 | `02-extension-methods` | a `this string` receiver matched by name, a nominal receiver, a generic `this T`, and the control that a `this IEnumerable<T>` parameter is NOT a generic receiver |
 | `03-target-typed-new` | `new()` in a field, property, local, return and assignment, with an explicit `new T()` control |
-| `04-accessors-and-indexers` | property read and write, a virtual property's fan, a compound assignment that is both, an indexer, an event subscription, and the control that a plain field access is not a call |
+| `04-accessors-and-indexers` | property read and write, qualified and with no receiver at all; a virtual property's fan; the forms that read AND write (`+=`, `++`, `--`) on a property and on an indexer; an event subscription; and the controls that a plain field access, a local, an array index and a unary `-` are not accessor calls |
 | `05-partial-and-records` | a positional record's primary constructor, a primary constructor's base invocation written in the heritage clause, and a private member of another part of a partial type |
 | `06-explicit-interface-impl` | an explicit interface implementation reached through the interface and not through the class-typed receiver, and the two-interface shape that makes the key collision real |
 | `07-dynamic-boundary` | a call and a property read through `dynamic`, from a parameter, a local, a field and a property, with the same member names on a static receiver, a real unstaged framework receiver and a `dynamic` value never called through as controls |
@@ -96,6 +96,34 @@ score. It is kept in the instrument that can make it.
 Invariant 3 is taken from the DECLARATIONS rather than from the parser's call kind:
 `DYNAMIC_CALL` is reserved with zero rows, so a check keyed on it would pass
 vacuously on a file full of `dynamic`.
+
+### The oracle's own self-test
+
+```
+ground-truth/oracle-selftest.py [--oracle <path>] [-v]
+```
+
+Runs first of all, from inside `run-tests.sh`, on real C# read by the real oracle.
+
+The scorer's self-test below covers the JOIN, from synthetic ground-truth rows.
+Nothing covered the rows themselves, and a shape the oracle emits NO row for is the
+one failure everything else here is blind to: it cannot be scored as agreement, it is
+not counted as engine-only either, so a correct engine edge and a missing one read
+the same. The claim above -- that scoring against the compiler makes "a rule wrong in
+the same way as the golden passes forever" impossible -- only holds where the ground
+truth asks the question.
+
+It did not, for two whole classes of accessor call (#1170). A compound assignment
+yielded its SETTER alone and `++` its GETTER alone, so `b.Computed = 1` and
+`b.Computed += 1` held identical ground truth and `04-accessors-and-indexers` scored
+100% whichever way the engine answered; a property access written without a receiver
+yielded nothing at all. No case could have caught either, because a case is scored
+against the very rows that were missing.
+
+**Each case carries its control**: the compound form is asserted beside the simple
+one, so a rule that emitted both accessors everywhere would fail; and the shapes that
+bind to a property while calling nothing -- `nameof(V)`, a named argument's label, a
+property pattern -- are asserted to stay silent.
 
 ### The scorer's own self-test
 

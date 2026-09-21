@@ -111,6 +111,19 @@ expr_is_write_target(prov, e) :- expr_role(prov, e, "ASSIGNMENT_TARGET"),
     expr_parent(prov, e, asg, _, _), expr_kind(prov, asg, "ASSIGNMENT").
 expr_is_readwrite_target(prov, e) :- expr_role(prov, e, "ASSIGNMENT_TARGET"),
     expr_parent(prov, e, asg, _, _), expr_kind(prov, asg, "COMPOUND_ASSIGNMENT").
+// `p.V++` AND `--p.V` READ AND WRITE TOO, and neither is an assignment, so the role
+// above never matched them and they were reported as a read alone. The operand of a
+// `++`/`--` is the only unary position that writes back; `-x` and `!x` do not, which
+// is why the operator is tested rather than the UNARY kind.
+expr_is_readwrite_target(prov, e) :- expr_role(prov, e, "UNARY_OPERAND"),
+    expr_parent(prov, e, u, _, _), expr_kind(prov, u, "UNARY"), expr_operator(prov, u, "++").
+expr_is_readwrite_target(prov, e) :- expr_role(prov, e, "UNARY_OPERAND"),
+    expr_parent(prov, e, u, _, _), expr_kind(prov, u, "UNARY"), expr_operator(prov, u, "--").
+// AN OBJECT INITIALIZER IS A WRITE. `new Q { Name = "x" }` calls set_Name exactly as
+// `q.Name = "x"` does; the parser gives the target its own role, so the assignment
+// test above did not see it and the site was reported as a READ of a property the
+// statement never reads.
+expr_is_write_target(prov, e) :- expr_role(prov, e, "INITIALIZER_TARGET").
 
 // ── THE ACCESSOR CALL, AND ITS DISPATCH ─────────────────────────────────────
 // A property accessor CAN be virtual, and an abstract or interface property is the
@@ -128,12 +141,16 @@ property_write_target(prov, e, acc) :-
 property_write_target(prov, e, acc) :-
     property_access_unqualified(prov, e, p), expr_is_write_target(prov, e),
     property_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
-// A compound assignment reads AND writes.
-property_read_target(prov, e, acc) :-
-    property_access(prov, e, p, _), expr_is_readwrite_target(prov, e),
-    property_getter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+// A compound assignment reads AND writes. The READ half needs no rule of its own:
+// `!expr_is_write_target` above already admits it, because a read-write target is
+// not a write target. The WRITE half does, and it is needed for the UNQUALIFIED form
+// as well -- `Count += 1` inside the declaring type mutates the property exactly as
+// `this.Count += 1` does, and only the qualified rule existed (#1170).
 property_write_target(prov, e, acc) :-
     property_access(prov, e, p, _), expr_is_readwrite_target(prov, e),
+    property_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+property_write_target(prov, e, acc) :-
+    property_access_unqualified(prov, e, p), expr_is_readwrite_target(prov, e),
     property_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
 
 // ── INDEXERS ────────────────────────────────────────────────────────────────
@@ -150,6 +167,12 @@ indexer_read_target(prov, e, acc) :-
     indexer_getter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
 indexer_write_target(prov, e, acc) :-
     indexer_access(prov, e, p), expr_is_write_target(prov, e),
+    indexer_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
+// AN INDEXER COMPOUNDS THE SAME WAY A PROPERTY DOES. `a[i] += 1` and `a[i]++` call
+// the getter and then the setter; the write half had no rule, so the engine reported
+// a read alone and the mutation was invisible to a consumer asking who writes.
+indexer_write_target(prov, e, acc) :-
+    indexer_access(prov, e, p), expr_is_readwrite_target(prov, e),
     indexer_setter(prov, p, decl), dispatch_concrete_target(prov, decl, acc).
 
 // ── EVENTS ──────────────────────────────────────────────────────────────────
