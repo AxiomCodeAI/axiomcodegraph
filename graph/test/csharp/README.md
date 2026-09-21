@@ -224,7 +224,7 @@ anecdote.
 
 ```
 brew install souffle                      # 2.5, pinned in graph/pipeline/engine.conf
-npm ci && npm run build                   # the parser
+npm install && npm run build              # the parser (no lock file is committed)
 dotnet build -c Release graph/test/csharp/ground-truth/AxiomCsOracle
 dotnet build -c Release graph/test/csharp/runtime-oracle/AxiomCsInstrument
 ```

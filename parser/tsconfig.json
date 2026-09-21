@@ -10,7 +10,13 @@
     // its `@/…` imports — dist existed, and `node dist/index.js` died on the
     // first require. Silencing the deprecation is what makes the package
     // buildable; migrating off node10/baseUrl is a separate change.
-    "ignoreDeprecations": "6.0",
+    //
+    // The value must name a version the *pinned* compiler accepts, not the one
+    // whose errors we are deferring. package.json pins `typescript: ^5.3.3`,
+    // and 5.x accepts only "5.0" here — "6.0" is TS5103, which fails `tsc`
+    // before any file is read and so fails `npm install` via `prepare`.
+    // Raise this in the same change that raises the `typescript` range.
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

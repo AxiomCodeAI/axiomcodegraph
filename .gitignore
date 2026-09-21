@@ -3,7 +3,7 @@
 #
 # Tracked by design: src/**, src/souffle/*.dl, src/souffle/export_manifest.tsv,
 # src/templates/*.map, src/pipeline/run-souffle.sh, .claude/agents/*.md,
-# package-lock.json (pinned toolchain), tsconfig.json.
+# tsconfig.json.  (package-lock.json is deliberately NOT tracked — see below.)
 # Everything below is machine-local, generated, or secret.
 # ─────────────────────────────────────────────────────────────────────────────
 
