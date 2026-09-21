@@ -788,12 +788,33 @@ def closure(g, sel, upstream, limit=40, depth=40):
                 why = " — a type calls nothing itself; who uses it is the question" if is_type else ""
                 print(f"  → the other direction has it: `path '*' {sel}` reaches {up} method(s){why}")
         return 1
+    # THE NEAREST CALLER IS THE ANSWER AND IT WAS PRINTED AS A DIGIT. `by hop: 1:1, 2:1, 3:4` reduces the one
+    # row a reader most needs -- who calls this, and where -- to a count, and the entry-point list below does not
+    # recover it: an entry point is a method NOTHING resolved calls, so a direct caller that is itself called
+    # appears nowhere in this answer by name. A reader then opens the file to learn what the digit 1 was, which
+    # is the work this command exists to save. Name the first two hops before any summary; production first,
+    # because a test that reaches the target is a consequence of the change and not a place to edit.
+    if upstream:
+        near = [(m, d) for m, d in rows if d <= 2]
+        np_, nt = [x for x in near if not g.sym[x[0]]['is_test']], [x for x in near if g.sym[x[0]]['is_test']]
+        np_.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], x[0])); nt.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], x[0]))
+        if np_ or nt:
+            print(f"  nearest callers ({len(np_)} production, {len(nt)} test), the ones that call it directly first:")
+            for m, d in np_[:limit]:
+                print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}")
+            if len(np_) > limit: print(f"    … +{len(np_) - limit} production (--limit N)")
+            if nt: print(f"    +{len(nt)} test caller(s) within 2 hop(s) — `axiomcode test-impact` names them and the command that runs them")
     byhop = collections.Counter(d for _, d in rows); print("  by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
     # most_common breaks a tie by insertion order, which is the order the closure rows arrived in: two files with the
     # same count then swap depending on which engine answered. Sort the tie by name so the line is stable either way.
-    byfile = collections.Counter(g.sym[m]['file'] for m, _ in rows)
+    # PRODUCTION FILES FIRST, for the same reason. A well-tested tree has more test methods reaching a target
+    # than production ones, so a single ranked list of files is all tests at the top and the file that has to
+    # change is off the end of it.
+    byfile = collections.Counter(g.sym[m]['file'] for m, _ in rows if not g.sym[m]['is_test'])
+    tfile = collections.Counter(g.sym[m]['file'] for m, _ in rows if g.sym[m]['is_test'])
     top = sorted(byfile.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
-    print("  files: " + ', '.join(f"{f} ({n})" for f, n in top) + (f" … +{len(byfile) - 12}" if len(byfile) > 12 else ''))
+    if top: print("  files: " + ', '.join(f"{f} ({n})" for f, n in top) + (f" … +{len(byfile) - 12}" if len(byfile) > 12 else ''))
+    if tfile: print(f"  test files: {len(tfile)}, {sum(tfile.values())} method(s) — not listed; `axiomcode test-impact` is the verb for them")
     if upstream and ids and g.sym[ids[0]]['kind'] == 'written':
         sites = g.SITES[ids[0]]
         print("  the sites, as written: " + ', '.join(f"{g.site_file(r['file_path'])}:{r['start_line']}" for r in sites[:8]) + (f" … +{len(sites) - 8}" if len(sites) > 8 else ''))
