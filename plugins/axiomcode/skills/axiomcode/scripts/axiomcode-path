@@ -800,8 +800,22 @@ def closure(g, sel, upstream, limit=40, depth=40):
         np_.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], x[0])); nt.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], x[0]))
         if np_ or nt:
             print(f"  nearest callers ({len(np_)} production, {len(nt)} test), the ones that call it directly first:")
+            # WHERE THE CALL IS WRITTEN, not just who wrote it. g.loc() gives the caller's DECLARATION line,
+            # which is not the line that makes the call, and a reader checking the hop wants the second. For a
+            # direct caller that line is knowable exactly, so print it; beyond one hop there is no single site.
+            qmark = ','.join('?' * len(ids))
             for m, d in np_[:limit]:
-                print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}")
+                at = ''
+                if d == 1:
+                    r = g.q("SELECT s.file_path f, s.start_line ln FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id "
+                            f"WHERE e.caller_id = ? AND e.callee_method_id IN ({qmark}) AND s.start_line IS NOT NULL "
+                            "ORDER BY s.start_line LIMIT 1", m, *ids)
+                    if r:
+                        sf = g.site_file(r[0]['f'])
+                        # the call is nearly always written in the caller's own file, and repeating a 90-character
+                        # path to say so pushes the name off the line. Same file, just the line.
+                        at = f"   — calls it at {':' if sf == (g.sym[m]['file'] or '') else sf + ':'}{r[0]['ln']}".replace('at ::', 'at :')
+                print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}{at}")
             if len(np_) > limit: print(f"    … +{len(np_) - limit} production (--limit N)")
             if nt: print(f"    +{len(nt)} test caller(s) within 2 hop(s) — `axiomcode test-impact` names them and the command that runs them")
     byhop = collections.Counter(d for _, d in rows); print("  by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
@@ -844,7 +858,17 @@ def closure(g, sel, upstream, limit=40, depth=40):
     RESULT['reached'] = [{'name': g.disp(m), 'at': g.loc(m), 'hops': int(d)} for m, d in sorted(rows, key=lambda x: (int(x[1]), g.sym[x[0]]['display'], x[0]))]
     RESULT['verified'] = bool(agree)
     print(f"  verified: a plain BFS over the same facts gives the same {len(rows)} methods at the same depths" if agree else f"  ✗ BFS disagrees with Datalog ({len(bfs)} vs {len(rows)}) — report this")
-    if u: print(f"  bound: {u} unresolved call(s) inside these methods — the set is a lower bound; `path <one of them> {sel}` for the chain")
+    # A BOUND NOBODY CAN ACT ON IS NOT A BOUND. Counted over every method in the closure this reached four
+    # figures on a large tree, which reads as "unknown" and is skipped. The reader can only check the rows
+    # actually in front of them, so the actionable number is the unresolved calls inside THOSE; the closure-wide
+    # figure stays, in parentheses, as the honest total.
+    if u:
+        shown_ids = [m for m, _ in (np_ if upstream else sorted(rows, key=lambda x: (x[1], g.sym[x[0]]['display'], x[0])))[:limit]]
+        un = g.q("SELECT count(*) n FROM unresolved_sites WHERE caller_id IN (%s)" % ','.join('?' * (len(shown_ids) + len(ids))),
+                 *shown_ids, *ids)[0]['n'] if shown_ids or ids else 0
+        print(f"  bound: {un} unresolved call(s) inside the {len(shown_ids)} method(s) printed above"
+              + (f" ({u} across the whole closure)" if u != un else '')
+              + f" — the set is a lower bound; `path <one of them> {sel}` for the chain")
     print(f"  (chain from any one of them: path <that method> {sel}" + (")" if upstream else " — or the reverse)"))
     return 0
 
