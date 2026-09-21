@@ -2,6 +2,10 @@
   "name": "@axiomcode/code-graph",
   "version": "0.1.0",
   "description": "AxiomCode code graph: parser (IR extraction) + type-directed reasoning engine + language-neutral graph.sqlite output. bin/axiomcode runs the whole pipeline.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AxiomCodeAI/axiom-code-graph.git"
+  },
   "main": "dist/reason.js",
   "types": "dist/reason.d.ts",
   "scripts": {
@@ -19,8 +23,7 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "tsc-alias": "^1.8.16",
-    "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "tsx": "^4.7.0"
   },
   "workspaces": [
     "parser"
@@ -55,7 +58,7 @@
     "tree-sitter-groovy": "^0.1.2",
     "tree-sitter-java": "0.23.4",
     "tree-sitter-python": "^0.21.0",
-    "typescript": "^6.0.0",
+    "typescript": "^5.3.3",
     "yaml": "^2.8.2"
   }
 }
