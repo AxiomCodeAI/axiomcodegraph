@@ -36,6 +36,8 @@ axiomcode install [<repo>] [--remove]                                     write 
 | **`.axiomcode/out/graph.sqlite` already exists** | **use it — do NOT run `index`** (see below) |
 | no graph at all | `axiomcode index` |
 | "who calls X" / "what breaks if X changes" | `axiomcode impact X` |
+| "who writes this field" / "where is it set" | `axiomcode impact <Type>.<field>` — writers group separately from readers |
+| "is this field safe under concurrent access" | `axiomcode impact <Type>.<field>` — ask of the FIELD, not of a method that touches it |
 | a task in words, no name to ask about yet | `axiomcode context "<the task>"` |
 | "where is the decryption code" — one concept, and you can name it | `axiomcode path decrypt '*'` |
 | "how does A reach B" | `axiomcode path A B` |

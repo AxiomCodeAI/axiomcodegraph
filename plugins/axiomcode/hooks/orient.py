@@ -27,7 +27,33 @@ try:
 except Exception:
     sys.exit(0)
 
-cwd = ev.get('cwd') or os.getcwd()
+def repo_root(start):
+    """The repository the prompt is about, which is not always where the shell happens to be.
+
+    A graph lives at the root; an agent working in a subdirectory would otherwise be told the
+    repository has none and sent into a multi-minute rebuild for a graph it already has. Nearest
+    ancestor holding one wins; failing that the git root, so a repo that has never been indexed
+    still reports against its root rather than against a subdirectory.
+    """
+    cur = os.path.realpath(start)
+    while True:
+        if os.path.exists(os.path.join(cur, '.axiomcode', 'out', 'graph.sqlite')):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    try:
+        r = subprocess.run(['git', '-C', start, 'rev-parse', '--show-toplevel'],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return os.path.realpath(start)
+
+
+cwd = repo_root(ev.get('cwd') or os.getcwd())
 prompt = (ev.get('prompt') or '').strip()
 if len(prompt) < 25:                                   # too short to carry a task
     sys.exit(0)
@@ -58,9 +84,17 @@ if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
         pass
     entry = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                           '..', 'skills', 'axiomcode', 'scripts', 'axiomcode'))
-    print("graph: this repository has no call graph yet, so callers, change impact and test selection are "
-          "unavailable until one is built.")
-    print(f"  `{entry} index` builds it (minutes on a large tree, once per commit); every other verb needs it.")
+    # A build that ran and failed leaves the output directory and its log behind. Telling that caller to
+    # "build one" invites them to repeat the failure; the log already says why it stopped.
+    log = os.path.join(cwd, '.axiomcode', 'build.log')
+    if os.path.isdir(os.path.join(cwd, '.axiomcode', 'out')) and os.path.exists(log):
+        print("graph: a build ran here and produced no graph, so callers, change impact and test selection "
+              "are unavailable.")
+        print(f"  {log} says why it stopped; `{entry} index` re-runs it once that is addressed.")
+    else:
+        print("graph: this repository has no call graph yet, so callers, change impact and test selection are "
+              "unavailable until one is built.")
+        print(f"  `{entry} index` builds it (minutes on a large tree, once per commit); every other verb needs it.")
     sys.exit(0)
 
 here = os.path.dirname(os.path.abspath(__file__))
