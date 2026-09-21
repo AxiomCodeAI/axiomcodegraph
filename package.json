@@ -12,7 +12,7 @@
     "reason": "node dist/index.js",
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
-    "build": "npm run build -w parser && tsc && tsc-alias",
+    "build": "npm --prefix parser run build && tsc && tsc-alias",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "schema-doc": "tsx graph/bundle/cli.ts --print-schema > graph/bundle/SCHEMA.md"
