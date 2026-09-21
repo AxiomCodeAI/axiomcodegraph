@@ -428,8 +428,8 @@ internal static class Program
                 // right distinction.
                 if (model.GetSymbolInfo(ea).Symbol is IPropertySymbol ip)
                 {
-                    var acc = IsWriteContext(ea) ? ip.SetMethod : ip.GetMethod;
-                    if (acc is not null) yield return new Site(ea, "indexer", acc, null);
+                    foreach (var acc in AccessorsCalled(ea, ip))
+                        yield return new Site(ea, "indexer", acc, null);
                 }
                 yield break;
             }
@@ -441,8 +441,42 @@ internal static class Program
                 if (ma.Parent is InvocationExpressionSyntax pi && pi.Expression == ma) yield break;
                 if (model.GetSymbolInfo(ma).Symbol is IPropertySymbol prop)
                 {
-                    var acc = IsWriteContext(ma) ? prop.SetMethod : prop.GetMethod;
-                    if (acc is not null) yield return new Site(ma, "property_accessor", acc, null);
+                    foreach (var acc in AccessorsCalled(ma, prop))
+                        yield return new Site(ma, "property_accessor", acc, null);
+                }
+                yield break;
+            }
+            case IdentifierNameSyntax id:
+            {
+                // A PROPERTY ACCESS WITH NO RECEIVER. `Own` inside the declaring type
+                // is `this.get_Own()`, and a static one is a call too; `o?.Own` binds
+                // its name through a MemberBindingExpression rather than a
+                // MemberAccessExpression, so it reaches no branch above either.
+                //
+                // Both were absent from the ground truth entirely (#1170), which is
+                // worse than being wrong about them: a shape the oracle holds no row
+                // for cannot be scored as agreement and is not counted as engine-only,
+                // so the engine's correct edges for it were invisible in BOTH
+                // directions -- the one failure mode README.md says scoring against
+                // the compiler rules out.
+                //
+                // The guards are the ones the member-access branch already carries,
+                // plus the two places an identifier NAMES a property without calling
+                // it. `nameof(Own)` binds to the property and evaluates to a string at
+                // compile time -- no accessor runs. `Name =` in an attribute argument
+                // or an anonymous object (NameEqualsSyntax) and `name:` in a named
+                // argument or a property pattern (NameColonSyntax) are also bindings
+                // rather than calls; a property pattern does read the property, but the
+                // read is the pattern matcher's, not the expression's, and reporting it
+                // would hold the engine to a call no call site in the source spells.
+                if (id.Parent is MemberAccessExpressionSyntax pma && pma.Name == id) yield break;
+                if (id.Parent is InvocationExpressionSyntax pinv && pinv.Expression == id) yield break;
+                if (id.Parent is NameEqualsSyntax or NameColonSyntax) yield break;
+                if (InNameOf(id)) yield break;
+                if (model.GetSymbolInfo(id).Symbol is IPropertySymbol ip2)
+                {
+                    foreach (var acc in AccessorsCalled(id, ip2))
+                        yield return new Site(id, "property_accessor", acc, null);
                 }
                 yield break;
             }
@@ -567,8 +601,56 @@ internal static class Program
         return "virtual";
     }
 
-    private static bool IsWriteContext(SyntaxNode node) =>
-        node.Parent is AssignmentExpressionSyntax a && a.Left == node;
+    /// <summary>
+    /// The accessors a property or indexer access at <paramref name="node"/> calls,
+    /// in the order the runtime calls them.
+    ///
+    /// AN ACCESS IS NOT READ XOR WRITE. `p.V = 1` calls the setter and `p.V` the
+    /// getter, but `p.V += 1`, `p.V ??= x` and `p.V++` call BOTH -- the compiler reads
+    /// the property, applies the operator, and writes it back. Answering with one
+    /// accessor made every compound form report only its setter (and `++`/`--` only
+    /// its getter, since neither is an assignment at all), so the ground truth held one
+    /// row where two calls happen and `p.V = 1` and `p.V += 1` were INDISTINGUISHABLE
+    /// to the scorer: a case pinning the difference passed whichever way the engine
+    /// answered (#1170).
+    ///
+    /// The kind test is SyntaxKind rather than the node type, because
+    /// AssignmentExpressionSyntax is the node for `=` AND for every compound form;
+    /// only SimpleAssignmentExpression is a write on its own.
+    /// </summary>
+    private static IEnumerable<IMethodSymbol> AccessorsCalled(SyntaxNode node, IPropertySymbol prop)
+    {
+        var (reads, writes) = node.Parent switch
+        {
+            AssignmentExpressionSyntax a when a.Left == node =>
+                a.IsKind(SyntaxKind.SimpleAssignmentExpression) ? (false, true) : (true, true),
+            PrefixUnaryExpressionSyntax pre when pre.Operand == node &&
+                pre.Kind() is SyntaxKind.PreIncrementExpression or SyntaxKind.PreDecrementExpression
+                => (true, true),
+            PostfixUnaryExpressionSyntax post when post.Operand == node &&
+                post.Kind() is SyntaxKind.PostIncrementExpression or SyntaxKind.PostDecrementExpression
+                => (true, true),
+            _ => (true, false),
+        };
+        if (reads && prop.GetMethod is not null) yield return prop.GetMethod;
+        if (writes && prop.SetMethod is not null) yield return prop.SetMethod;
+    }
+
+    /// <summary>
+    /// Whether this identifier sits inside a `nameof(...)`, where a property name is a
+    /// compile-time string and no accessor runs. Roslyn still binds the identifier to
+    /// the property, so the symbol alone cannot tell the two apart.
+    /// </summary>
+    private static bool InNameOf(SyntaxNode node)
+    {
+        for (var n = node.Parent; n is not null; n = n.Parent)
+        {
+            if (n is InvocationExpressionSyntax inv &&
+                inv.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" }) return true;
+            if (n is MemberDeclarationSyntax or StatementSyntax) break;
+        }
+        return false;
+    }
 
     private static string Reason(SymbolInfo si) => si.CandidateReason switch
     {

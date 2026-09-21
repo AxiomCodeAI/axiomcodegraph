@@ -62,6 +62,19 @@ command -v souffle >/dev/null || { echo "souffle is not installed (brew install 
 [ -x "$ORACLE" ] || {
   echo "the oracle is not built:  dotnet build -c Release $HERE/ground-truth/AxiomCsOracle" >&2; exit 77; }
 
+# AND THE ORACLE ITSELF IS SCORED BEFORE THE SCORER, because a shape it emits NO row
+# for is invisible to everything below: it cannot be scored as agreement and it is not
+# counted as engine-only either, so a correct engine edge and a missing one read the
+# same. That is the one failure the "golden is the compiler" design is supposed to
+# rule out, and it happened -- a compound assignment reported only its setter and an
+# unqualified property read reported nothing at all (#1170). No case here could have
+# caught it, because a case is scored against the very rows that were missing.
+if ! python3 "$HERE/ground-truth/oracle-selftest.py" --oracle "$ORACLE"; then
+  echo "the oracle's own self-test fails -- the ground truth below is not ground truth" >&2
+  exit 1
+fi
+echo
+
 # THE SCORER IS SCORED FIRST. Every case below is read through score.py, so a defect
 # in its JOIN moves every number in this file and is indistinguishable from an engine
 # change -- and two of its verdicts are gates rather than measurements. The self-test
