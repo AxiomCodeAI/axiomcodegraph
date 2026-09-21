@@ -18,25 +18,22 @@ as a callback, which claims only what is written: this call receives it, and cal
 
 ROUTE_VERB = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'connect', 'all', 'use', 'route'}
 
-# ── what takes a callable and calls it later ────────────────────────────────────────────────────────────────
-# The second convention list, and it exists because the first measurement said it had to. Treating EVERY call that
-# a declaration's name appears at as "handed over as a callback" labelled 13,976 lines of one 124-file Express
-# application, and 3,549 of the references on those lines were names that merely COINCIDE with a declared callable
-# — `length` 262 times, `text` 124, `jQuery` 417. A name match on an arbitrary call line is not evidence that the
-# declaration was handed over; a call whose whole purpose is to take a callable is.
+# A CALLBACK IS NOT RECOGNISED BY THE VERB ALONE, and a curated list of verbs was the wrong instrument.
+# The route leg has two independent signals -- an HTTP verb AND a path-shaped literal on the same line -- and it is
+# the pair that carries it. The callback leg had one: the name of the method being called, matched against a list
+# this file maintained by hand. That list had to grow with every framework in every ecosystem, and it was wrong in
+# the common case rather than the rare one. Measured on a JVM framework of ~8,600 files it produced 5,361 rows, of
+# which forEach (1347), map (1065), filter (586), find (164), flatMap (150) and sort (61) are synchronous
+# collection operations: the callable is invoked on that line, in that thread, before the call returns. Each of
+# those rows told the reader "that call receives it and calls it where the graph cannot follow", which is the
+# opposite of what the code does -- about two thirds of the leg, stated confidently and backwards.
 #
-# Timers, event registration, promise continuations, the iteration protocol, and the scheduling verbs. Kept to what
-# is unambiguous across ecosystems; a name that is also an ordinary accessor (`set`, `add`, `push`) is deliberately
-# absent, because the cost of a wrong row here is a dependent that does not exist.
-CALLBACK_TAKER = {
-    'settimeout', 'setinterval', 'setimmediate', 'requestanimationframe', 'queuemicrotask', 'nexttick', 'defer',
-    'on', 'once', 'addlistener', 'prependlistener', 'addeventlistener', 'removelistener', 'removeeventlistener',
-    'subscribe', 'unsubscribe', 'observe', 'watch', 'listen', 'hook', 'addhook', 'tap',
-    'then', 'catch', 'finally',
-    'foreach', 'map', 'filter', 'reduce', 'flatmap', 'sort', 'some', 'every', 'find', 'findindex',
-    'register', 'addhandler', 'addroute', 'middleware', 'use',
-    'add_task', 'addtask', 'enqueue', 'schedule', 'submit', 'apply_async', 'delay',
-}
+# The evidence a registration needs is that a declaration is handed over AS A VALUE, and the graph already records
+# that independently of any name: `valueref` in dl/impact.dl, and `refs` with a callable entity kind here. The
+# `registered` rule is a join on that reference, so the verb list was a second gate on top of the real signal, not
+# the signal itself -- removing it drops the rows that rested on the name alone and keeps the ones the reference
+# carries. Route registrations, decoration keys and value-route registrations are untouched: each of those has a
+# second signal that does not come from a hand-written vocabulary.
 
 # the entity kinds a parser gives an identifier that binds to a callable. IMPORT_BINDING is here because a handler is
 # usually imported from the module that declares it, and the reference at the registration is then recorded as the
@@ -50,7 +47,7 @@ MAX_SITE_SPAN = 200          # a "call" spanning a whole file is a parse artefac
 def registrations(q, site_file=None):
     """[(file, line, kind, key, why)] — every line that hands a declaration to something outside the graph.
 
-    `kind` is "route" or "callback"; `key` is the string the framework dispatches on, VERBATIM and never normalised
+    `kind` is always "route"; `key` is the string the framework dispatches on, VERBATIM and never normalised
     (`/orders/:id`), empty when there is none. The key is what lets a test that drives the app through the framework's
     client (`supertest.get('/orders/1')`, `TestClient(app).post('/orders')`) be joined to the handler it reaches: the
     two ends spell the same string and nothing else connects them. Normalising it belongs in the join, not here —
@@ -94,9 +91,6 @@ def registrations(q, site_file=None):
         if short.lower() in ROUTE_VERB and paths:
             kind, key = 'route', ('' if f in tf else paths[0])
             why = f'registered as a {short.upper()} route "{paths[0]}" here — the router calls it, no call site does'
-        elif short.lower() in CALLBACK_TAKER:
-            kind, key = 'callback', ''
-            why = f'handed to {short}(…) as a callback — that call receives it and calls it where the graph cannot follow'
         else:
             continue                       # no evidence that this call does anything with a declaration named here
         for l in range(a, b + 1):
