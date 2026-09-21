@@ -564,6 +564,108 @@ def case_an_operator_site_does_not_block_the_shortcut(fx):
     yield "and both agree", s.get("declared_agree", 0) == 2, s
 
 
+def case_a_windows_path_joins_a_forward_slash_oracle(fx):
+    """
+    #1169. The join's first key element is a file path, taken from the IR verbatim on
+    one side and from the oracle verbatim on the other. The IR writes the PLATFORM's
+    separator; the oracle writes `/` on every platform. Where those differ, only a
+    file sitting in the subject's root can ever match, and the scorer reports the
+    shortfall AS A RATE -- 4.78% where the truth was 95.84% -- rather than failing.
+
+    The backslash is written literally here, not via os.sep, so the case holds the
+    normalisation on every host rather than only on the one that reproduces the bug.
+    The two sites are the two halves of the claim: the file in a SUBDIRECTORY is the
+    one that was lost, and the file in the ROOT is the one that joined anyway and so
+    kept the failure looking like a recall number instead of a broken join.
+
+    #94 is this defect in the Python harness, and the convention it settled --
+    normalise the IR's filePath where it is read -- is what this asserts for C#.
+    """
+    root = fx.module("mod_root", "Program.cs")
+    sub = fx.module("mod_sub", "Extensions\\Abbreviations\\Abbreviation.cs")
+    fx.method("m1", "N.T.M", 0)
+    fx.method("m2", "N.T.N", 0)
+
+    e_root = fx.expression("e_root", root, 3, 10)
+    fx.call_site(e_root, "M")
+    fx.candidate(e_root, "m1")
+    fx.resolves(e_root, "m1")
+    fx.classify(e_root, "client_calls_client")
+    fx.oracle_row("Program.cs", 3, 11, "invocation", "in_source", "N.T.M/0")
+
+    e_sub = fx.expression("e_sub", sub, 7, 20)
+    fx.call_site(e_sub, "N")
+    fx.candidate(e_sub, "m2")
+    fx.resolves(e_sub, "m2")
+    fx.classify(e_sub, "client_calls_client")
+    fx.oracle_row("Extensions/Abbreviations/Abbreviation.cs", 7, 21,
+                  "invocation", "in_source", "N.T.N/0")
+
+    r = fx.score()
+    s = r["stats"]
+    yield "the site in a subdirectory is seen", s.get("site_seen", 0) == 2, s
+    yield "and agrees", s.get("declared_agree", 0) == 2, s
+    # The tell that separates a broken join from a real engine collapse: a collapse
+    # leaves rows MISSING, an unjoined path leaves the engine's own site unmatched.
+    yield "with no engine site left unmatched", s.get("engine_only_sites", 0) == 0, s
+
+
+def _join_guard_fixture(fx, ir_prefix):
+    """
+    Ten files, one call each, all resolved and all correct. `ir_prefix` is prepended to
+    the path the IR writes and to nothing else, so the ONLY thing that varies between
+    the guard case and its control is whether the two sides' paths agree -- the
+    dimension the guard keys on. Ten is above the guard's floor of 8.
+    """
+    for i in range(10):
+        rel = f"F{i}.cs"
+        m = fx.module(f"mod{i}", ir_prefix + rel)
+        fx.method(f"m{i}", f"N.T{i}.M", 0)
+        e = fx.expression(f"e{i}", m, 3, 10)
+        fx.call_site(e, "M")
+        fx.candidate(e, f"m{i}")
+        fx.resolves(e, f"m{i}")
+        fx.classify(e, "client_calls_client")
+        fx.oracle_row(rel, 3, 11, "invocation", "in_source", f"N.T{i}.M/0")
+
+
+def case_an_unjoinable_run_fails_instead_of_scoring(fx):
+    """
+    #1169. The guard, held to the property that matters: a run whose join does not
+    stand up must FAIL, not report. Every rate in this scorer is computed over the
+    rows that joined, so when the join collapses the rates do not fall -- agreement
+    and fan soundness read HIGHER, over a denominator that shrank out of sight. Only
+    coverage falls, and it falls to something that reads as an engine collapse.
+
+    The paths here differ by a ROOT rather than by a separator, deliberately: the
+    separator can no longer break the join, and the guard is not a second separator
+    fix. It is the backstop for the whole class -- any key that cannot match.
+    """
+    _join_guard_fixture(fx, "src/")
+
+    r = fx.score()
+    yield "the run fails", r["_rc"] == 1, r["_rc"]
+    yield "and says the join is broken", r.get("join_broken") is True, r.get("join_broken")
+    yield "loudly, above the rates", "THE JOIN IS BROKEN" in r["_stdout"], r["_stdout"]
+
+
+def case_a_healthy_run_of_the_same_shape_does_not_trip_the_guard(fx):
+    """
+    The control for the case above, and the reason it is worth having: a guard that
+    fired on a real run would be worse than the defect it catches, because it would
+    fail the runs that ARE measuring. Identical to it in every dimension -- same ten
+    files, same sites, same targets -- except the one the guard reads.
+    """
+    _join_guard_fixture(fx, "")
+
+    r = fx.score()
+    s = r["stats"]
+    yield "the run passes", r["_rc"] == 0, r["_rc"]
+    yield "the guard stays quiet", not r.get("join_broken"), r.get("join_broken")
+    yield "nothing is printed about it", "THE JOIN IS BROKEN" not in r["_stdout"], r["_stdout"]
+    yield "and all ten sites are scored", s.get("site_seen", 0) == 10, s
+
+
 CASES = [
     case_unparsable_file_is_not_scored,
     case_binding_errors_are_still_scored,
@@ -573,6 +675,9 @@ CASES = [
     case_an_explicit_implementation_is_one_key_on_both_sides,
     case_two_explicit_implementations_stay_two_keys,
     case_an_operator_site_does_not_block_the_shortcut,
+    case_a_windows_path_joins_a_forward_slash_oracle,
+    case_an_unjoinable_run_fails_instead_of_scoring,
+    case_a_healthy_run_of_the_same_shape_does_not_trip_the_guard,
 ]
 
 

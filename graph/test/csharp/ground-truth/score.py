@@ -173,7 +173,15 @@ def engine_keys(ir_dir):
     callee = {}
     with open(os.path.join(ir_dir, "all-csharp-modules.csv"), newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
-            mods[r["csModuleUniqueHash"]] = r["filePath"]
+            # THE PATH IS NORMALISED WHERE IT IS READ, because it is the first element
+            # of the join key and the two sides spell it differently: the IR carries
+            # the PLATFORM's separator, the oracle writes `/` on every platform. Left
+            # alone, only a file in the subject's root can ever match, and the shortfall
+            # is reported as a RATE -- one project read 4.78% where the truth was
+            # 95.84%, with the wrongly-resolved gate silently disarmed because all
+            # three of its occurrences were in subdirectories. #94 is the same defect
+            # in the Python harness and settled this convention; this is the C# side.
+            mods[r["csModuleUniqueHash"]] = r["filePath"].replace("\\", "/")
     # AN EXPLICIT INTERFACE IMPLEMENTATION IS KEYED WITH ITS INTERFACE, because
     # that is part of its identity and because the compiler spells it that way.
     # Roslyn writes `Probe.Explicit.Probe.IWorker.Work/1`; the parser records the
@@ -732,6 +740,37 @@ def main():
             stats["engine_only_sites"] += 1
             fails["engine_only"].append((k, tier.get(k, "-"), sorted(cand.get(k, ()))))
 
+    # ── IS THE JOIN ITSELF STANDING UP? ──────────────────────────────────────
+    # #1169. Every number above is computed over the rows that JOINED, so a join that
+    # silently matches almost nothing does not read as a failure -- it reads as a low
+    # recall, with agreement and fan soundness reading HIGHER because their
+    # denominators shrank out of sight. That is the failure SCORING.md exists to
+    # prevent, and it cost a run that reported 4.78% where the truth was 95.84%.
+    #
+    # The check is on the FILE SETS, not on the rate: the engine and the oracle read
+    # the same compiled source tree, so a file the engine emits a call in should be a
+    # file the oracle has rows for. A real engine collapse leaves rows MISSING and the
+    # file sets still agree; only a broken key leaves the engine's own files unable to
+    # find themselves in the oracle. That is what makes this distinguishable from a
+    # bad score, and it is why the guard reads files rather than percentages.
+    #
+    # It needs a population before it can mean anything: below MIN_FILES a subject is
+    # a case fixture, where one file legitimately outside the oracle is not evidence
+    # of anything. Half is deliberately far from both sides -- a healthy run is at or
+    # near 1.0, the separator bug put it at 8/316.
+    JOIN_GUARD_MIN_FILES = 8
+    JOIN_GUARD_MIN_OVERLAP = 0.5
+    engine_files = {k[0] for k in set(tier) | set(cand) if k[0] and k[0] not in unparsable}
+    oracle_files = {r["filePath"] for r in oracle}
+    join_broken = False
+    if len(engine_files) >= JOIN_GUARD_MIN_FILES and oracle_files:
+        matched_files = engine_files & oracle_files
+        overlap = len(matched_files) / len(engine_files)
+        stats["join_file_overlap_pct"] = round(100 * overlap, 2)
+        join_broken = overlap < JOIN_GUARD_MIN_OVERLAP
+        if join_broken:
+            fails["join_broken"].extend(sorted(engine_files - oracle_files)[:20])
+
     # ── the dispatch fan ─────────────────────────────────────────────────────
     fan = {}
     if a.oracle_dispatch:
@@ -783,6 +822,16 @@ def main():
     ext_n = s["external_sites"] or 1
     label = f" [{a.label}]" if a.label else ""
     print(f"== C# engine vs Roslyn oracle{label} ==")
+    if join_broken:
+        # Printed ABOVE the rates, because the rates below it are the artefact and a
+        # reader who stops at the first number must not stop at a fiction.
+        print(f"  !! THE JOIN IS BROKEN -- EVERY RATE BELOW IS MEANINGLESS !!")
+        print(f"     only {stats['join_file_overlap_pct']}% of the {len(engine_files)} files "
+              f"the engine emitted calls in appear in the oracle's {len(oracle_files)} files.")
+        print(f"     The engine and the oracle read the same tree, so this is a key that")
+        print(f"     does not match -- a path separator, a relative root -- and NOT a low score.")
+        for f in fails["join_broken"][:5]:
+            print(f"       engine has no oracle file for  {f}")
     print(f"  oracle sites held to      {s['held_sites']}")
     print(f"    site coverage           {s['site_seen']}/{s['held_sites']}  {100*s['site_seen']/held_n:.2f}%")
     print(f"    dropped by the engine   {dropped}   (must be 0)")
@@ -827,13 +876,17 @@ def main():
         os.makedirs(os.path.dirname(os.path.abspath(a.json)), exist_ok=True)
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump({"label": a.label, "stats": dict(s), "dropped": dropped,
+                       "join_broken": join_broken,
                        "unparsable_files": len(unparsable), "unparsable_rows": unparsable_rows,
                        "fan": fan, "per_kind": {k: dict(v) for k, v in per_kind.items()}},
                       fh, indent=1, sort_keys=True)
 
     # A dropped site or a wrong external edge is a hard failure. Recall is a number
-    # to improve; those two are defects.
-    return 1 if (dropped or s["external_wrongly_resolved"]) else 0
+    # to improve; those two are defects. A BROKEN JOIN fails for a different reason:
+    # not because the engine did badly but because this run cannot say whether it did,
+    # and the wrongly-resolved gate beside it is disarmed whenever the join is (all
+    # three of #1169's wrong edges were in unjoinable files and it reported 0).
+    return 1 if (dropped or s["external_wrongly_resolved"] or join_broken) else 0
 
 
 if __name__ == "__main__":
