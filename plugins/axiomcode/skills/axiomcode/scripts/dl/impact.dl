@@ -728,7 +728,10 @@ test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), owner(fx, t), scope(t, s)
 test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), typ(fx, _, _), member(fx, m, _, _), test_method(m).
 // a test file is imported as a whole: a class body or a fixture at its top level runs before every test in it — pytest
 // injects a fixture by parameter name and a the Python validation library model class is built at import, and neither is a call edge
-test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), (kind(c, "module") ; fixture(c)).
+// An OWNED fixture is already carried, scoped to its type, by the rule above. Only a fixture that
+// belongs to no type -- a conftest.py fixture, a module-level setup -- has the file as its scope; a
+// constructor is a fixture too, and file-keyed it carried a sibling @Nested class's tests.
+test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), (kind(c, "module") ; (fixture(c), !owner(c, _))).
 // a CLASS body runs before the tests that class declares, and before those of a type nested in it or deriving from
 // it -- which is what scope/2 already ranges over. Keyed on the file instead, one Java source file is one unit, so a
 // reached @Nested class carried every test of its SIBLING classes too.
