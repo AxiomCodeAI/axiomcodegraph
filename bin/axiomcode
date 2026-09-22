@@ -1,33 +1,36 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# axiomcode — one command for any repository: source tree in, graph.sqlite out.
+# axiomcode — build a call graph from a source tree.
 #
+# Usage:
 #   bin/axiomcode <src-dir> <out-dir> [--library <path>[,…]] [--exclude-tests] [--version V]
 #                                     [--language L] [--debug] [engine options]
 #
-# It parses every language it finds (Java, TypeScript, Python, JavaScript — C# as it
-# lands), solves each with its engine, and leaves <out-dir>/<lang>/graph.sqlite per language.
-# Nothing about the repository has to be known in advance. Graphs are per language: a
-# Java→TypeScript call is not an edge in either.
+# Parses the source tree, solves each language it contains and writes
+# <out-dir>/<lang>/graph.sqlite per language.
 #
-# --library      the platform library and real dependencies, as SOURCE TREES or as IR
-#                (an IR root, e.g. a JDK IR; a source tree is parsed for you, once, under
-#                <out-dir>/.intermediate/lib/). Libraries are the type oracle: without them,
-#                calls into dependencies are declared unknown rather than guessed.
-# --version V    the version the IR is stamped with. Default: the source's git commit; v1.0.0
-#                when it is not a checkout. Recorded in graph.sqlite (run.source_version).
-# --exclude-tests  leave test code out (default: included).
-# --language L   restrict to one language.
-# --debug        also write csv/*.csv and keep raw/ next to each graph.sqlite.
-# Engine options: --dispatch-cap N|off  --lib-depth N  --jdk-depth N  --taint on|off
+# Options:
+#   --library <path>[,…]   Dependency and platform roots, as source trees or as IR. A source
+#                          tree is parsed once into <out-dir>/.intermediate/lib/. Calls into
+#                          dependencies are resolved against these roots.
+#   --version <V>          Version stamped on the IR and recorded in graph.sqlite
+#                          (run.source_version). Defaults to the source's git commit, or
+#                          v1.0.0 outside a checkout.
+#   --exclude-tests        Exclude test code. Included by default.
+#   --language <L>         Restrict the run to one language: java, typescript, python or
+#                          javascript.
+#   --debug                Also write csv/*.csv and keep raw/ beside each graph.sqlite.
 #
-# The pieces, when you want them separately:
-#   bin/axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]   → <ir-dir>/<lang>/
-#   bin/axiomcode engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
-#   bin/axiomcode test   [java|typescript|python|javascript|csharp|parser|all] [suite options]
+# Engine options:
+#   --dispatch-cap <N|off>   --lib-depth <N>   --jdk-depth <N>   --taint <on|off>
 #
-# Requires Node ≥ 22.5; no Soufflé or compiler (the engine comes from npm as @axiomcode/engine-<os>-<cpu>,
-# or is compiled locally when souffle is present).
+# Commands:
+#   parser <src-dir> <ir-dir> [--version V] [--exclude-tests]
+#                          Parse only; writes <ir-dir>/<lang>/.
+#   engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
+#                          Solve previously parsed IR.
+#   test [java|typescript|python|javascript|csharp|parser|all] [suite options]
+#                          Run the test suites.
 # ─────────────────────────────────────────────────────────────────────────────
 set -eu
 # RESOLVE $0 THROUGH SYMLINKS BEFORE THE WALK. npm installs a `bin` entry as a link in
@@ -72,7 +75,7 @@ QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
 query_verbs(){ [ -f "$QUERY" ] && bash "$QUERY" --verbs 2>/dev/null | grep -vx tests || true; }
 is_query_verb(){ query_verbs | grep -qx -- "$1"; }
 usage(){
-  sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'
   if [ -f "$QUERY" ]; then
     echo
     echo 'ASKING THE GRAPH — `axiomcode help <verb>` for any one of them:'
