@@ -125,6 +125,7 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
     observe('type_use', 'owner_kind', c.type_use.map((r) => r[4] as string));
     observe('type_use', 'tier', c.type_use.map((r) => r[9] as string));
     observe('type_use', 'type_provenance', c.type_use.map((r) => r[8] as string | null));
+    observe('skipped', 'reason', c.skipped.map((r) => r[1] as string));
     const note = db.prepare('INSERT INTO schema_notes VALUES (?, ?, ?)');
     for (const n of NOTES) if (n.language === 'all' || n.language === inp.language) note.run(n.language, n.table, n.note);
     const guide = db.prepare('INSERT INTO schema_guide VALUES (?, ?)');

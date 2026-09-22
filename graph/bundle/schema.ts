@@ -223,6 +223,18 @@ export const CORE_TABLES: readonly TableSpec[] = [
     ],
   },
   {
+    name: 'skipped',
+    description: 'WHAT THE PARSER DID NOT READ — one row per source file it declined, with the reason. Every other table describes code that WAS read, so without this one a file the parser skipped is indistinguishable from a file with nothing in it: its declarations are absent, and every call that targets them reads as an engine miss rather than as a target that was never indexed. Join `file_path` against the other tables\' `file_path` to separate the two. Empty is the normal case and means the parser read everything it was given.',
+    columns: [
+      { name: 'file_path', type: 'TEXT', indexed: true, description: 'The file that was not read, as the parser recorded it — the same spelling the other tables\' file_path uses, so the two join. For a DIRECTORY_EXCLUDED row it is a DIRECTORY, not a file (see notes).' },
+      { name: 'reason', type: 'TEXT', indexed: true, description: 'Why it was declined — see vocabulary. The sets differ per language because the front ends decline for different things.' },
+      { name: 'construct', type: 'TEXT', nullable: true, description: 'The syntactic form that caused the rejection (`except_clause_comma_target`), where the front end names one. Python only; NULL everywhere else.' },
+      { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based line the offending construct is written at; NULL where the reason is a property of the whole file rather than of one place in it.' },
+      { name: 'start_column', type: 'INTEGER', nullable: true, description: 'Column, as the parser counts it; NULL with start_line.' },
+      { name: 'detail', type: 'TEXT', nullable: true, description: 'Free text from the front end: the error message for a READ_ERROR or EXTRACTION_ERROR, the count of files behind a DIRECTORY_EXCLUDED row. Not a vocabulary — do not match on it.' },
+    ],
+  },
+  {
     name: 'type_instantiated',
     description: 'Types this run creates an instance of — the rapid-type-analysis set that bounds virtual dispatch. (A subtype nothing instantiates cannot receive a dispatched call.) Deliberately an over-approximation: narrowing it on evidence the run does not have would lose real edges. Populated in every language.',
     columns: [
@@ -667,6 +679,17 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'type_instantiated', column: 'how', value: 'new', languages: 'all', meaning: 'A constructor call — `new C()` / `C()`.' },
   { table: 'type_instantiated', column: 'how', value: 'anonymous', languages: J, meaning: 'An anonymous class exists only by being instantiated.' },
   { table: 'type_instantiated', column: 'how', value: 'enum_constant', languages: J, meaning: 'An enum\'s constants are its instances.' },
+
+  // skipped.reason — parser/src/enums/SkippedFileReason.ts. The sets differ per front end
+  // because they decline for different things; a value listed for no language is one no
+  // front end emits and is deliberately absent rather than listed everywhere.
+  { table: 'skipped', column: 'reason', value: 'READ_ERROR', languages: ['java', 'typescript', 'python', 'javascript'], meaning: 'The file could not be read — an I/O or encoding failure. The ENVIRONMENT failed, which is nobody\'s bug; contrast EXTRACTION_ERROR.' },
+  { table: 'skipped', column: 'reason', value: 'EMPTY_CONTENT', languages: J, meaning: 'The file is empty or is only whitespace. Nothing was lost.' },
+  { table: 'skipped', column: 'reason', value: 'FILE_TOO_LARGE', languages: J, meaning: 'The file is longer than the parser\'s line threshold and was declined whole. Everything it declares is missing from every other table.' },
+  { table: 'skipped', column: 'reason', value: 'EXTRACTION_ERROR', languages: ['typescript', 'python', 'javascript'], meaning: 'The file read and parsed, and the extractor then threw. The PARSER failed, which is always a bug — `detail` carries the message.' },
+  { table: 'skipped', column: 'reason', value: 'PY2_CONSTRUCT_DETECTED', languages: P, meaning: 'Python 2 source, rejected whole rather than misread under Python 3 scoping (tree-sitter parses `print "x"` without erroring). `construct`, `start_line` and `start_column` name the form that gave it away.' },
+  { table: 'skipped', column: 'reason', value: 'NO_PROGRAM_CLAIMS_FILE', languages: T, meaning: 'A file under a root that declares programs (a tsconfig) which no program claims and no claimed file imports. It is out of every program, not unparseable.' },
+  { table: 'skipped', column: 'reason', value: 'DIRECTORY_EXCLUDED', languages: ['javascript'], meaning: 'A directory the walker pruned by name (`node_modules`, `dist`, …). ONE row per DIRECTORY, with the file count in `detail` — the files were never enumerated, and naming them individually would invent paths.' },
 ];
 
 // ── notes ───────────────────────────────────────────────────────────────────
@@ -715,6 +738,10 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'java', table: 'field_access', note: 'ARRAY ELEMENTS are not tracked: `a[i] = v` where `a` is a field is recorded as a READ of `a` (the array reference is read; the element write is not a field write). This matches the bytecode, where the instruction is `getfield a` followed by `aastore`.' },
   { language: 'java', table: 'fields', note: 'A library field is listed when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches, OR when a config_binding row names it as the field a configuration key binds to. The second was added in #890: a @Value field on a library type that nothing reads has no access edge, so config_binding named a field the table did not list and the join lost the row silently.' },
   { language: 'all', table: 'call_edges', note: 'The raw relation has a seventh column, ToExpr, that is always `-` (reserved). It is dropped here.' },
+  { language: 'all', table: 'skipped', note: 'THE ONLY TABLE ABOUT CODE THAT IS NOT IN THE GRAPH. Read it before reading any absence as an engine result: a call into a skipped file is unresolved because the target was never indexed, not because the rules could not resolve it. Rows describe the CLIENT only — a library file the parser skipped is not reported here.' },
+  { language: 'csharp', table: 'skipped', note: 'EMPTY — the C# front end writes no skipped-files report. It takes the opposite line: a construct its grammar does not cover fails the run rather than skipping the file, so there is no per-file decision to record. An empty table here is not evidence that every file was read.' },
+  { language: 'javascript', table: 'skipped', note: 'A DIRECTORY_EXCLUDED row\'s file_path is a PRUNED DIRECTORY, not a file, and `detail` carries how many files are behind it; those files have no rows of their own. So `SELECT count(*) FROM skipped` is not the number of files missing, and a join on file_path will not match them. Filter the reason out when you want per-file rows.' },
+  { language: 'python', table: 'skipped', note: 'The only front end that positions a skip: a PY2_CONSTRUCT_DETECTED row carries the construct and its line and column, so the file can be triaged without re-running the parser.' },
   { language: 'all', table: 'call_edges', note: 'An unresolved site (tier ambiguous_*) has NULL callee_method_id, callee_label and callee_provenance. The raw relation writes `-` in those slots.' },
 ];
 
@@ -739,6 +766,15 @@ export interface QuerySpec { name: string; question: string; params: string; sql
 
 const LANG_SQL = "(SELECT value FROM run WHERE key='language')";
 export const QUERIES: readonly QuerySpec[] = [
+  {
+    name: 'skipped_files',
+    question: 'Which files is this graph missing, and why? (Run this before reading any absence as an answer.)',
+    params: '(none)',
+    sql: `SELECT k.file_path, k.reason, k.construct, k.start_line, k.detail,
+       (SELECT count(*) FROM methods m WHERE m.file_path = k.file_path) AS methods_in_graph
+FROM skipped k
+ORDER BY k.reason, k.file_path`,
+  },
   {
     name: 'callers_of',
     question: 'Who calls this method, from where, and how sure is each edge?',

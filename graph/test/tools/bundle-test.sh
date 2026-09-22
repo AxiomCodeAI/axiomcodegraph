@@ -11,6 +11,8 @@
 #   4. the vocabulary inside the database knows the language's own values, and a value the
 #      schema does not list is still recorded as undocumented rather than dropped
 #   5. graph/bundle/SCHEMA.md is what schema.ts renders — the two cannot drift
+#   6. a file the PARSER SKIPPED is in `skipped` with its reason — the one table about code
+#      that is NOT in the graph, in every language that writes the report (#1148)
 # Assertions read the CSVs; the sqlite3 CLI, when present, also queries the database.
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
@@ -48,6 +50,12 @@ mk_java(){ local d="$1"; mkdir -p "$d/ir" "$d/raw"
   printf 'METHOD_REGISTRY_m1\tmain\n' > "$d/raw/entry-point.csv"
   printf 'TYPE_REGISTRY_t2\tnew\nTYPE_REGISTRY_t2\tmade_up_how\nTYPE_REGISTRY_t3\tnew\n' > "$d/raw/type-instantiated.csv"
   printf 'METHOD_REGISTRY_m2\tMETHOD_REGISTRY_m3\tnominal\n' > "$d/raw/dispatch-candidates.csv"
+  # A file the parser declined: no method, type or expression row anywhere names it.
+  # Written WITHOUT a trailing newline, byte-for-byte as the Java analyzer writes it
+  # (`[header, ...rows].join('\n')`) — the one report of the four that ends mid-line, and
+  # a reader that drops the last unterminated row would lose the only row there is.
+  printf 'filePath\tbaseMservPath\tserviceVersionHash\treason\tuniqueFileHash\n' > "$d/ir/skipped-java-files.csv"
+  printf 'src/Huge.java\t/p\tSV1\tFILE_TOO_LARGE\tH1' >> "$d/ir/skipped-java-files.csv"
 }
 mk_typescript(){ local d="$1"; mkdir -p "$d/ir" "$d/raw"
   printf 'name\tsignature\tqualifiedName\tfilePath\tstartLine\tendLine\ttsTypeLinkHash\townerQualifiedName\tmethodKind\ttsMethodUniqueHash\n' > "$d/ir/all-typescript-methods.csv"
@@ -66,6 +74,8 @@ mk_typescript(){ local d="$1"; mkdir -p "$d/ir" "$d/raw"
   printf 'TS_METHOD_m1\tunimported_module\n' > "$d/raw/entry-point.csv"
   printf 'TS_METHOD_m2\tTS_METHOD_m3\tnominal\nTS_METHOD_m2\tTS_METHOD_m4\tstructural\n' > "$d/raw/dispatch-candidates.csv"
   printf 'TS_TYPE_t2\tnew\nTS_TYPE_t3\tnew\n' > "$d/raw/resolution-type-instantiated.csv"
+  printf 'filePath\tbaseMservPath\tserviceVersionLinkHash\treason\tdetail\n' > "$d/ir/skipped-typescript-files.csv"
+  printf 'src/orphan.ts\t/p\tSV1\tNO_PROGRAM_CLAIMS_FILE\tno tsconfig claims it\n' >> "$d/ir/skipped-typescript-files.csv"
 }
 mk_python(){ local d="$1"; mkdir -p "$d/ir" "$d/raw"
   printf 'name\tsignature\tqualifiedName\tfilePath\tstartLine\tendLine\tpyTypeLinkHash\townerQualifiedName\tmethodKind\tpyMethodUniqueHash\n' > "$d/ir/all-python-methods.csv"
@@ -85,6 +95,8 @@ mk_python(){ local d="$1"; mkdir -p "$d/ir" "$d/raw"
   printf 'PY_EXPRESSION_e3\tPY_METHOD_m1\t-\tbuiltin:print\tbuiltin\tboundary_lib\tSIMPLE_CALL\n' >> "$d/raw/call-chain-edges.csv"
   printf 'client\tPY_TYPE_t2\nclient\tPY_TYPE_t3\n' > "$d/raw/resolution-type-instantiated.csv"
   printf 'PY_METHOD_m2\tPY_METHOD_m3\tmro\n' > "$d/raw/dispatch-candidates.csv"
+  printf 'filePath\tbaseMservPath\tserviceVersionLinkHash\treason\tconstruct\tstartLine\tstartColumn\tdetail\n' > "$d/ir/skipped-python-files.csv"
+  printf 'legacy.py\t/p\tSV1\tPY2_CONSTRUCT_DETECTED\texcept_clause_comma_target\t4\t11\tpython 2 source\n' >> "$d/ir/skipped-python-files.csv"
 }
 
 # column N (1-based) of the row whose first column is $3, in headered TSV $1
@@ -98,7 +110,7 @@ for lang in java typescript python; do
   fi
   G="$d/csv"
   # 1. every core table, with the declared header
-  for t in run methods types call_sites call_edges type_ancestors dispatch_candidates overrides entry_points entry_reachable unresolved_sites type_instantiated; do
+  for t in run methods types call_sites call_edges type_ancestors dispatch_candidates overrides entry_points entry_reachable unresolved_sites type_instantiated skipped; do
     [ -f "$G/$t.csv" ] || bad "$lang: csv/$t.csv missing"
   done
   [ "$(header "$G/call_edges.csv")" = "$(printf 'call_site_id\tcaller_id\tcallee_method_id\tcallee_label\tcallee_provenance\ttier\tkind')" ] || bad "$lang: call_edges header is $(header "$G/call_edges.csv")"
@@ -130,6 +142,30 @@ for lang in java typescript python; do
   cand="$(awk -F'\t' 'NR>1{print $2; exit}' "$G/dispatch_candidates.csv")"
   case "$(cell "$G/methods.csv" 3 "$base")" in *Widget.render) ;; *) bad "$lang: envelope base is '$(cell "$G/methods.csv" 3 "$base")', not a Widget.render";; esac
   case "$(cell "$G/methods.csv" 3 "$cand")" in *FancyWidget.render) ;; *) bad "$lang: envelope candidate is '$(cell "$G/methods.csv" 3 "$cand")', not FancyWidget.render";; esac
+  # 3c. THE ONE TABLE ABOUT CODE THAT IS NOT IN THE GRAPH (#1148).
+  #     A file the parser declined has no row in methods, types or call_sites — that is the
+  #     point — so the ONLY way to tell it from a file with nothing in it is this table. It
+  #     was absent from every bundle while the parser, and the skill's own index, both had
+  #     it, and the calls into such a file read as engine misses. Asserted per language
+  #     because each front end writes a different report with different columns.
+  [ "$(header "$G/skipped.csv")" = "$(printf 'file_path\treason\tconstruct\tstart_line\tstart_column\tdetail')" ] || bad "$lang: skipped header is $(header "$G/skipped.csv")"
+  case $lang in
+    java)       sk=src/Huge.java;   sr=FILE_TOO_LARGE;;
+    typescript) sk=src/orphan.ts;   sr=NO_PROGRAM_CLAIMS_FILE;;
+    python)     sk=legacy.py;       sr=PY2_CONSTRUCT_DETECTED;;
+  esac
+  [ "$(cell "$G/skipped.csv" 2 "$sk")" = "$sr" ] || bad "$lang: skipped does not record $sk as $sr (got '$(cell "$G/skipped.csv" 2 "$sk")')"
+  # and the file really is absent from the graph — otherwise the row proves nothing
+  grep -q "	$sk	" "$G/methods.csv" && bad "$lang: $sk has a methods row; the fixture no longer models a skipped file"
+  # the position columns are the python report's alone, and they must not be invented elsewhere
+  if [ "$lang" = python ]; then
+    [ "$(cell "$G/skipped.csv" 3 "$sk")" = "except_clause_comma_target" ] || bad "python: skipped.construct is '$(cell "$G/skipped.csv" 3 "$sk")'"
+    [ "$(cell "$G/skipped.csv" 4 "$sk")" = "4" ] || bad "python: skipped.start_line is '$(cell "$G/skipped.csv" 4 "$sk")', not 4"
+    [ "$(cell "$G/skipped.csv" 5 "$sk")" = "11" ] || bad "python: skipped.start_column is '$(cell "$G/skipped.csv" 5 "$sk")', not 11"
+  else
+    [ -z "$(cell "$G/skipped.csv" 3 "$sk")" ] || bad "$lang: skipped.construct is '$(cell "$G/skipped.csv" 3 "$sk")' — the report has no such column"
+    [ -z "$(cell "$G/skipped.csv" 4 "$sk")" ] || bad "$lang: skipped.start_line is not empty — the report carries no position"
+  fi
   # 4. the in-database catalog
   if [ "$HAVE_SQLITE" = 1 ]; then
     DB="$d/graph.sqlite"; [ -f "$DB" ] || { bad "$lang: graph.sqlite missing"; continue; }
@@ -144,6 +180,15 @@ for lang in java typescript python; do
     # undocumented value here means the vocabulary and the rules disagree about the envelope
     undoc="$(SQL "$DB" "SELECT DISTINCT d.basis FROM dispatch_candidates d WHERE NOT EXISTS (SELECT 1 FROM schema_vocab v WHERE v.table_name='dispatch_candidates' AND v.column_name='basis' AND v.value=d.basis AND v.language='$lang' AND v.meaning NOT LIKE 'undocumented%')")"
     [ -z "$undoc" ] || bad "$lang: dispatch_candidates.basis emits '$undoc', which the schema does not document for $lang"
+    # every reason this language emits is documented FOR THIS LANGUAGE: the sets differ per
+    # front end, so a reason listed under some other language is not documentation here
+    undocsk="$(SQL "$DB" "SELECT DISTINCT k.reason FROM skipped k WHERE NOT EXISTS (SELECT 1 FROM schema_vocab v WHERE v.table_name='skipped' AND v.column_name='reason' AND v.value=k.reason AND v.language='$lang' AND v.meaning NOT LIKE 'undocumented%')")"
+    [ -z "$undocsk" ] || bad "$lang: skipped.reason emits '$undocsk', which the schema does not document for $lang"
+    [ "$(SQL "$DB" "SELECT count(*) FROM skipped")" = 1 ] || bad "$lang: skipped has $(SQL "$DB" "SELECT count(*) FROM skipped") rows in the database, expected 1"
+    # the skipped file has NO methods row — the join a consumer makes to separate
+    # "not indexed" from "indexed and empty" must come back zero
+    [ "$(SQL "$DB" "SELECT count(*) FROM methods m JOIN skipped k ON k.file_path = m.file_path")" = 0 ] \
+      || bad "$lang: a skipped file also has methods rows"
     case $lang in
       java) [ "$(SQL "$DB" "SELECT count(*) FROM schema_vocab WHERE table_name='type_instantiated' AND value='made_up_how' AND meaning LIKE 'undocumented%'")" = 1 ] || bad "java: an unauthored value was not recorded as undocumented";;
       python) [ "$(SQL "$DB" "SELECT callee_label||'/'||callee_provenance FROM call_edges WHERE tier='boundary_lib'")" = "builtin:print/builtin" ] || bad "python: builtin target not carried as a label";;

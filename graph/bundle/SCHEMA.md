@@ -40,6 +40,15 @@ Identifiers are the parser's hashes and are opaque; join them to `methods` / `ty
 
 Each is verified to run against every language's bundle. Bind the named parameters.
 
+**`skipped_files`** — Which files is this graph missing, and why? (Run this before reading any absence as an answer.) _((none))_
+
+```sql
+SELECT k.file_path, k.reason, k.construct, k.start_line, k.detail,
+       (SELECT count(*) FROM methods m WHERE m.file_path = k.file_path) AS methods_in_graph
+FROM skipped k
+ORDER BY k.reason, k.file_path
+```
+
 **`callers_of`** — Who calls this method, from where, and how sure is each edge? _(:qualified_name)_
 
 ```sql
@@ -851,6 +860,38 @@ THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the con
 - **java** — EVERY DEPTH is here, unlike the receiver-typing relations the engine uses internally, which filter to depth 0. A field of type `Map<String, Widget>` produces three rows. Filter on `depth = 0` when you want the type an expression has rather than every type its declaration mentions.
 - **java** — A TYPE_VARIABLE reference (`T`, `E`) is not a row: it names the declaration's own parameter, not a type. Where the parameter has a written bound the USE resolves to that bound and IS a row, so `<T extends Node> void f(T t)` records a use of Node.
 - **java** — The reference rows carry no line in the Java IR (every all-type-references row has an empty startLine), so this table has no position columns. Use owner_method_id, or owner_type_id plus the types row, to locate a use.
+
+### `skipped`
+
+WHAT THE PARSER DID NOT READ — one row per source file it declined, with the reason. Every other table describes code that WAS read, so without this one a file the parser skipped is indistinguishable from a file with nothing in it: its declarations are absent, and every call that targets them reads as an engine miss rather than as a target that was never indexed. Join `file_path` against the other tables' `file_path` to separate the two. Empty is the normal case and means the parser read everything it was given.
+
+| # | column | type | key | null | idx | meaning |
+|---|---|---|---|---|---|---|
+| 0 | `file_path` | TEXT |  |  | yes | The file that was not read, as the parser recorded it — the same spelling the other tables' file_path uses, so the two join. For a DIRECTORY_EXCLUDED row it is a DIRECTORY, not a file (see notes). |
+| 1 | `reason` | TEXT |  |  | yes | Why it was declined — see vocabulary. The sets differ per language because the front ends decline for different things. |
+| 2 | `construct` | TEXT |  | yes |  | The syntactic form that caused the rejection (`except_clause_comma_target`), where the front end names one. Python only; NULL everywhere else. |
+| 3 | `start_line` | INTEGER |  | yes |  | 1-based line the offending construct is written at; NULL where the reason is a property of the whole file rather than of one place in it. |
+| 4 | `start_column` | INTEGER |  | yes |  | Column, as the parser counts it; NULL with start_line. |
+| 5 | `detail` | TEXT |  | yes |  | Free text from the front end: the error message for a READ_ERROR or EXTRACTION_ERROR, the count of files behind a DIRECTORY_EXCLUDED row. Not a vocabulary — do not match on it. |
+
+**`skipped.reason` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `READ_ERROR` | java, typescript, python, javascript | The file could not be read — an I/O or encoding failure. The ENVIRONMENT failed, which is nobody's bug; contrast EXTRACTION_ERROR. |
+| `EMPTY_CONTENT` | java | The file is empty or is only whitespace. Nothing was lost. |
+| `FILE_TOO_LARGE` | java | The file is longer than the parser's line threshold and was declined whole. Everything it declares is missing from every other table. |
+| `EXTRACTION_ERROR` | typescript, python, javascript | The file read and parsed, and the extractor then threw. The PARSER failed, which is always a bug — `detail` carries the message. |
+| `PY2_CONSTRUCT_DETECTED` | python | Python 2 source, rejected whole rather than misread under Python 3 scoping (tree-sitter parses `print "x"` without erroring). `construct`, `start_line` and `start_column` name the form that gave it away. |
+| `NO_PROGRAM_CLAIMS_FILE` | typescript | A file under a root that declares programs (a tsconfig) which no program claims and no claimed file imports. It is out of every program, not unparseable. |
+| `DIRECTORY_EXCLUDED` | javascript | A directory the walker pruned by name (`node_modules`, `dist`, …). ONE row per DIRECTORY, with the file count in `detail` — the files were never enumerated, and naming them individually would invent paths. |
+
+**Notes**
+
+- **all** — THE ONLY TABLE ABOUT CODE THAT IS NOT IN THE GRAPH. Read it before reading any absence as an engine result: a call into a skipped file is unresolved because the target was never indexed, not because the rules could not resolve it. Rows describe the CLIENT only — a library file the parser skipped is not reported here.
+- **csharp** — EMPTY — the C# front end writes no skipped-files report. It takes the opposite line: a construct its grammar does not cover fails the run rather than skipping the file, so there is no per-file decision to record. An empty table here is not evidence that every file was read.
+- **javascript** — A DIRECTORY_EXCLUDED row's file_path is a PRUNED DIRECTORY, not a file, and `detail` carries how many files are behind it; those files have no rows of their own. So `SELECT count(*) FROM skipped` is not the number of files missing, and a join on file_path will not match them. Filter the reason out when you want per-file rows.
+- **python** — The only front end that positions a skip: a PY2_CONSTRUCT_DETECTED row carries the construct and its line and column, so the file can be triaged without re-running the parser.
 
 ### `type_instantiated`
 
