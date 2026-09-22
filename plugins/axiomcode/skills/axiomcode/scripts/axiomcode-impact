@@ -647,7 +647,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '22'          # 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '23'          # 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -660,8 +660,14 @@ class Impact:
         need = set(re.findall(r'\.decl (\w+)\([^)]*\)\s+\.input', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dl', 'impact.dl')).read())) - PER_QUERY
         if os.path.exists(stamp) and open(stamp).read() == want and all(os.path.exists(os.path.join(D, n + '.facts')) for n in need): return D
         os.makedirs(D, exist_ok=True); W = lambda n, rows: g.write(n, rows, D)
-        tid_of = {}                                                                     # owner display -> type id
-        for r in g.q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL"): tid_of.setdefault(r['display'], r['type_id'])
+        # owner display -> type id. A display name is NOT unique: two files of one test suite commonly
+        # declare a class of the same name, and keyed on the name alone the second one's members were
+        # filed under the first one's type. Everything scope/2 reaches then crossed between them --
+        # a base class of one carried the other's tests. So keep the per-file map and prefer it.
+        tid_of = {}; tid_in_file = {}
+        for r in g.q("SELECT display, type_id, file FROM symbols WHERE type_id IS NOT NULL"):
+            tid_of.setdefault(r['display'], r['type_id'])
+            if r['file']: tid_in_file.setdefault((r['file'], r['display']), r['type_id'])
         cat = {r['id']: (r['category'] or '') for r in g.q("SELECT id, category FROM types")}
         mods = {i for i, sy in g.sym.items() if sy['kind'] == 'module' and sy.get('file')}
         W('typ', [(i, s['name'], 'record' if 'RECORD' in cat.get(i, '') else s['kind']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id')]
@@ -690,15 +696,16 @@ class Impact:
                 stack.append((a, b, i))
         W('lex_parent', sorted(set(lex)))
         W('imports_fact', self.imports())
-        def owner_tid(disp):                                                          # Enum.CONSTANT.m and <anon> bodies: the nearest enclosing type
+        def owner_tid(disp, file=None):                                               # Enum.CONSTANT.m and <anon> bodies: the nearest enclosing type
             while disp:
+                if file and (file, disp) in tid_in_file: return tid_in_file[(file, disp)]
                 if disp in tid_of: return tid_of[disp]
                 disp = disp.rsplit('.', 1)[0] if '.' in disp else ''
             return None
         members = []; owners = []
         for i, s in g.sym.items():
             if not (s.get('method_id') and s.get('owner')): continue
-            t = owner_tid(s['owner'])
+            t = owner_tid(s['owner'], s.get('file'))
             if t: members.append((t, i, s['name'], s['kind'])); owners.append((i, t))
         fields = []; acc = []
         # a module-level declaration (an exported const, a top-level binding) has no owner TYPE. Dropping it here left
@@ -710,7 +717,7 @@ class Impact:
         modules_used = set()
         for rid, f in self.fields.items():
             # the field's own registry hash when the index has it, so a decoration ON the field joins (#750)
-            fid = f['id'] or f"f:{rid}"; t = tid_of.get(f['owner'] or '')
+            fid = f['id'] or f"f:{rid}"; t = owner_tid(f['owner'] or '', f.get('file'))
             if not t: t = mod_of.get(f.get('file') or '')
             if not t: continue
             if t in mod_of.values(): modules_used.add(t)
