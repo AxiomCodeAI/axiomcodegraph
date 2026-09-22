@@ -647,7 +647,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '21'          # 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '22'          # 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -670,6 +670,25 @@ class Impact:
                           + [(i, g.sym[i]['file']) for i in sorted(mods)])
         W('kind', [(i, s['kind']) for i, s in g.sym.items()])
         W('decl_file', [(i, s['file']) for i, s in g.sym.items() if s.get('file')])
+        # the innermost declaration that lexically encloses each one, read off the spans. This is the
+        # only scope a callable that NO TYPE OWNS has: a `describe` callback holds its own helpers and
+        # its own tests, a module holds the file. Java rarely needs it (a helper there is owned by its
+        # class); TypeScript has nothing else, every arrow in a file being ownerless and identically
+        # named. Sort by (start, -end) and keep a stack: the top of the stack when a span opens is the
+        # innermost span still open around it.
+        by_file = {}
+        for i, sy in g.sym.items():
+            if sy.get('file') and sy.get('line') and sy.get('end_line'):
+                by_file.setdefault(sy['file'], []).append((sy['line'], sy['end_line'], i))
+        lex = []
+        for rows in by_file.values():
+            rows.sort(key=lambda r: (r[0], -r[1]))
+            stack = []
+            for a, b, i in rows:
+                while stack and stack[-1][1] < a: stack.pop()
+                if stack: lex.append((i, stack[-1][2]))
+                stack.append((a, b, i))
+        W('lex_parent', sorted(set(lex)))
         W('imports_fact', self.imports())
         def owner_tid(disp):                                                          # Enum.CONSTANT.m and <anon> bodies: the nearest enclosing type
             while disp:
