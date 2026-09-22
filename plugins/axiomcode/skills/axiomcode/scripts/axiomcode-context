@@ -204,7 +204,11 @@ RESULT = {'task': None, 'repo': None, 'scope': None, 'scope_offered': None, 'ter
 
 
 def main(argv):
-    budget, seeds_wanted, scopes, args = 40, 6, [], []
+    # 12 files by default, not 40. The answer is read by an agent that pays for every line on every later
+    # turn: on a 1,071-file answer the bare call printed 40 rows, 16k characters, most of them name-only
+    # matches in unrelated modules, and the agent opened a file from the top five. The ranking is the same
+    # at any budget -- only the tail is cut, and the footer says how many and how to ask for them.
+    budget, seeds_wanted, scopes, args = 12, 6, [], []
     scope_offered = False
     show_source = False
     as_json = False

@@ -63,6 +63,19 @@ def edges(mid, sid):
 if tool == 'Bash':
     c = str(inp.get('command', ''))
     m = re.search(r'\b(?:grep|rg|ag|git\s+grep)\b((?:\s+-[-\w=]+)*)\s+(?:-e\s+)?([\'"]?)(.+?)\2(?:\s|$)', c)
+    # a search of ANOTHER tree says nothing about this graph: whatever it names is a same-named stranger here.
+    # The tree searched is where the shell is (a `cd` before the grep) and the paths given after the pattern.
+    if m:
+        import shlex
+        def outside(p):
+            p = os.path.expanduser(p)
+            r = os.path.relpath(os.path.realpath(p if os.path.isabs(p) else os.path.join(cwd, p)), os.path.realpath(cwd))
+            return r == '..' or r.startswith('..' + os.sep)
+        cds = re.findall(r'(?:^|[;&|]\s*)cd\s+([^\s;&|]+)', c[:m.start()])
+        try: rest = shlex.split(c[m.end():].split('|')[0].split('&&')[0].split(';')[0])
+        except ValueError: rest = []
+        where = [a for a in rest if not a.startswith('-') and ('/' in a or a.startswith(('~', '.')))]
+        if (cds and outside(cds[-1])) or any(outside(a) for a in where): sys.exit(0)
     if m: tool = 'Grep'; inp = {'pattern': m.group(3)}
     else:
         m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py))', c)
@@ -246,14 +259,16 @@ elif tool == 'Read':
         for x in shown: lines.append(line(x))
         left = [x for x in info if x not in shown]
         if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{len(x['up'])}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
-elif tool == 'Grep':
+elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(os.path.join(cwd, os.path.expanduser(str(inp['path'])))), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
+    # (a Grep of a path outside this tree is about another codebase — nothing here to add)
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
     # Split the alternation, strip the regex around each branch, keep the identifiers, look each one up — in parallel, one
     # connection per thread — and cap the whole block so a 6-way grep still reads as a glance
     import concurrent.futures
     pat = str(inp.get('pattern', ''))
     idents = []
-    for br in re.split(r'(?<!\\)\|', pat):
+    # `a|b` is alternation for rg and grep -E, `a\|b` for plain grep: both are branches (a literal pipe is not an identifier)
+    for br in re.split(r'\\\||(?<!\\)\|', pat):
         b = re.sub(r'\\[bBwWsSdD.()\[\]{}+*?^$|]', ' ', br)              # \( \) \. \b … → separators
         b = re.sub(r'[()\[\]{}+*?^$.]', ' ', b)                            # unescaped regex syntax → separators
         for n in re.findall(r'[A-Za-z_]\w{2,}', b):
@@ -262,8 +277,12 @@ elif tool == 'Grep':
     ctx = context_ids(); ctx_names = {i: nm for r in load_state()['reads'] for i, nm in zip(r['ids'], r['names'])}
     def lookup(n):
         c = sqlite3.connect(db); c.row_factory = sqlite3.Row
+        # A plain lowercase word (`once`, `path`, `session`) is as likely prose, a flag or a config key as a name, and by
+        # prefix it matches whatever starts with it (`once` -> onceAWeekTrigger). It is looked up exactly, never by prefix,
+        # and kept below only when it connects to what the agent read this session — the `close` it was just reading.
+        plain = n.islower() and '_' not in n
         rows = c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file LIMIT 12", (n,)).fetchall() \
-            or c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name LIKE ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 12", (n + '%',)).fetchall()
+            or ([] if plain else c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name LIKE ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 12", (n + '%',)).fetchall())
         # the declarations connected to what the agent just read: called BY a read callable, or CALLING one — first, and marked
         rel_ = {}
         unres = []
@@ -271,12 +290,13 @@ elif tool == 'Grep':
             ph = ','.join('?' * len(ctx))
             # a call written `n` inside what was read whose receiver the engine could not type: it may be any of these — say so
             unres = c.execute(f"SELECT cs.caller_id, cs.start_line FROM call_sites cs JOIN unresolved_sites u ON u.call_site_id = cs.id WHERE cs.callee_name = ? AND cs.caller_id IN ({ph}) LIMIT 3", (n, *ctx)).fetchall()
-        if ctx and len(rows) > 1:
+        if ctx and (len(rows) > 1 or plain):
             for r in rows:
                 e = c.execute(f"SELECT cr.id AS who, 'called from' AS how FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? AND e.caller_id IN ({ph}) LIMIT 1", (r['method_id'], *ctx)).fetchone() \
                     or c.execute(f"SELECT ce.id AS who, 'calls' AS how FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND ce.id IN ({ph}) LIMIT 1", (r['id'], *ctx)).fetchone()
                 if e: rel_[r['id']] = (e['how'], ctx_names.get(e['who'], '?'))
             rows = sorted(rows, key=lambda r: (r['id'] not in rel_, r['file']))
+        if plain and not rel_ and not unres: return n, [], []
         rows = rows[:2]
         out = []
         for r in rows:
