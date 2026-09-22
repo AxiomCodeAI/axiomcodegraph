@@ -110,6 +110,17 @@ MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}         
 FIXTURE_DECOR = re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', re.I)
 FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}   # `init` / `before` alone are ordinary helper names: they count as a fixture only with the decoration
 TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|Fact|Theory|it|test)$')
+# The `test*` NAMING convention carries the condition that the class is a test class -- JUnit 3 reads
+# it on a TestCase subclass, pytest only on a class matching python_classes (`Test*`). Read without
+# that condition it takes in a `@Bean` method of a nested @Configuration class and a method of a
+# Python class named anything at all, neither of which a runner ever invokes as a test (#1181).
+# Matched with search, not fullmatch: a mixin or base that only CONCRETE subclasses run -- 
+# `RFC2616PolicyTestMixin`, `StorageTestMixin`, `TestBase` -- declares real tests, collected
+# through a subclass named Test*. Anchoring the name dropped every one of them.
+TEST_OWNER = re.compile(r'(Test|Spec|ITCase)')
+# a decoration that says the method is a dependency the framework builds, not a test
+NON_TEST_DECOR = re.compile(r'^(Bean|Configuration|Component|Provides|Produces|TestConfiguration)$')
+RET_TYPE = re.compile(r'\)\s*:\s*(.+)$')
 # a URL path as a router accepts it: path-absolute (RFC 3986 §3.3) with no whitespace and no quote in it. A path
 # parameter — `{id}`, `<int:id>`, `:id`, `*` — is left exactly as written: its spelling is per framework, and the
 # join matches the two spellings against each other rather than normalising either into the other
@@ -647,7 +658,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '23'          # 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '26'          # 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -942,7 +953,19 @@ class Impact:
         W('reexport', sorted(set(rex)))
         decs = collections.defaultdict(set)
         for r in (g.q("SELECT owner_id, name FROM decorations") if g.has('decorations') else []): decs[r[0]].add(r[1].split('.')[-1])
-        tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function') and (any(TEST_DECOR.search(d) for d in decs.get(i, ())) or s['name'].startswith(('test', 'it')))]
+        def named_test(i, s):
+            # the naming convention, with the condition it actually carries: no owning type (a bare
+            # pytest function, a module-level `function testX()`), or a type that is a test class.
+            if not s['name'].startswith(('test', 'it')): return False
+            if any(NON_TEST_DECOR.match(d) for d in decs.get(i, ())): return False
+            own = (s.get('owner') or '').split('.')[-1]
+            if own and not TEST_OWNER.search(own): return False
+            # JUnit 3 reads the convention on `public void testX()`. A method that DECLARES a return
+            # type and it is not void is a helper the tests call -- `private Method[] testFoo()`.
+            # Languages whose signatures declare no return type are unaffected by this.
+            r = RET_TYPE.search(s.get('signature') or '')
+            return not r or r.group(1).strip() in ('void', 'Unit', 'None')
+        tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function') and (any(TEST_DECOR.search(d) for d in decs.get(i, ())) or named_test(i, s))]
         # a vitest / jest / mocha test is an ANONYMOUS callable handed to it(…) / test(…) / bench(…): on one TypeScript
         # project 6,661 of the 7,723 callables in test files are <arrow> and exactly 2 carried a name the rule above
         # accepts, so the whole test layer was empty. The registrar on the declaration's own line names it as a test.
