@@ -769,8 +769,15 @@ is_test_file(f) :- test_method(m), decl_file(m, f).
 // and an `autouse=True` fixture runs before every test in its scope without being named anywhere at all. None of the
 // three is a call, so what a fixture reaches was reported as reaching no test.
 .decl uses_fixture(m:symbol, fx:symbol)
+// A fixture that a CLASS declares is visible to that class's tests, and to those of a class deriving
+// from it -- not to a sibling class that happens to declare a fixture of the same name. fixture_scope
+// carries a path prefix, which is the right scope for conftest.py and for a module-level fixture and
+// too wide for this one: three sibling classes each declaring `mw` had every `mw` test credited to
+// all three.
 uses_fixture(m, fx) :- takes_param(m, n), fixture_scope(fx, n, p), decl_file(m, f), file_scope(f, p), m != fx,
-                       (test_method(m) ; fixture(m)).
+                       (test_method(m) ; fixture(m)), owner(fx, t), owner(m, u), scope(t, u).
+uses_fixture(m, fx) :- takes_param(m, n), fixture_scope(fx, n, p), decl_file(m, f), file_scope(f, p), m != fx,
+                       (test_method(m) ; fixture(m)), !owner(fx, _).
 uses_fixture(m, fx) :- dec_literal(m, "usefixtures", n, _, _), fixture_scope(fx, n, p), decl_file(m, f), file_scope(f, p), m != fx.
 uses_fixture(m, fx) :- autouse_fixture(fx), fixture_scope(fx, _, p), decl_file(m, f), file_scope(f, p), test_method(m), m != fx.
 // a fixture may request another fixture, and then both run before the test
