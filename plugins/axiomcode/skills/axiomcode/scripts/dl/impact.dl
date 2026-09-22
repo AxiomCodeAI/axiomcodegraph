@@ -728,10 +728,19 @@ test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), owner(fx, t), scope(t, s)
 test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), typ(fx, _, _), member(fx, m, _, _), test_method(m).
 // a test file is imported as a whole: a class body or a fixture at its top level runs before every test in it — pytest
 // injects a fixture by parameter name and a the Python validation library model class is built at import, and neither is a call edge
-test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), (kind(c, "class") ; kind(c, "module") ; fixture(c)).
+test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), (kind(c, "module") ; fixture(c)).
+// a CLASS body runs before the tests that class declares, and before those of a type nested in it or deriving from
+// it -- which is what scope/2 already ranges over. Keyed on the file instead, one Java source file is one unit, so a
+// reached @Nested class carried every test of its SIBLING classes too.
+test_hit(q, m, d, c) :- reach(q, c, d), kind(c, "class"), scope(c, s), member(s, m, _, _), test_method(m), !test_method(c).
 // and a helper declared in a test file: a callable in that file that is not itself a test is written for the tests
 // beside it (a builder, a describe callback, a fixture arrow), so what it reaches, those tests reach
-test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), is_test_file(f).
+// Scoped to the type the helper belongs to (and what that type encloses or is extended by), not to the file: a
+// JUnit file holds several @Nested classes, and a helper private to one of them is not written for a sibling's
+// tests. A helper that belongs to no type -- a module-level function, an arrow beside the describe block -- has no
+// scope narrower than the file, and keeps it.
+test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), decl_file(c, f), is_test_file(f).
+test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), is_test_file(f).
 .decl is_test_file(f:symbol)
 is_test_file(f) :- test_method(m), decl_file(m, f).
 // ── a fixture a framework INJECTS, which no call site records ────────────────────────────────────────────────
