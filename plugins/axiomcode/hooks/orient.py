@@ -57,6 +57,10 @@ cwd = repo_root(ev.get('cwd') or os.getcwd())
 prompt = (ev.get('prompt') or '').strip()
 if len(prompt) < 25:                                   # too short to carry a task
     sys.exit(0)
+# a harness event delivered as a prompt (a background task finishing, a monitor line) is not the task, and
+# orienting on it spends the session's one orientation on words like "task summary monitor event"
+if prompt.startswith(('<task-notification>', '<system-reminder>', '[SYSTEM NOTIFICATION')):
+    sys.exit(0)
 stamp = os.path.join(cwd, MARK.format(ev.get('session_id') or 'x'))
 if os.path.exists(stamp):
     sys.exit(0)
