@@ -90,6 +90,7 @@
 .decl autouse_fixture(fx:symbol)                                  .input autouse_fixture
 .decl kind(s:symbol, k:symbol)                                    .input kind
 .decl decl_file(s:symbol, f:symbol)                               .input decl_file
+.decl lex_parent(inner:symbol, outer:symbol)                       .input lex_parent
 .decl flag(n:symbol)                                              .input flag
 .decl file_dir(f:symbol, d:symbol)                                .input file_dir
 .decl field_type(fl:symbol, n:symbol)                             .input field_type
@@ -743,7 +744,23 @@ test_hit(q, m, d, c) :- reach(q, c, d), kind(c, "class"), scope(c, s), member(s,
 // tests. A helper that belongs to no type -- a module-level function, an arrow beside the describe block -- has no
 // scope narrower than the file, and keeps it.
 test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), decl_file(c, f), is_test_file(f).
-test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), is_test_file(f).
+// A helper no type owns is scoped by the innermost declaration that lexically encloses it: a
+// `describe` callback holds its own helpers and its own tests, not a sibling block's; a module holds
+// its file, which is the file rule kept where it was right. TypeScript has no other scope to use --
+// every arrow in a file is ownerless and they all carry the same qualified name.
+// A callable that ENCLOSES tests is a block -- a `describe` callback, a module body. It runs when the
+// block is evaluated, so it serves the tests inside IT, and a sibling block's tests are not inside it.
+test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), lex_in(c, m), test_method(m), !test_method(c), decl_file(c, f), is_test_file(f).
+// A callable that encloses no test is a helper. It serves the tests declared in the same scope it is
+// -- the block that can see it -- and not the whole file.
+test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), !encloses_test(c), lex_parent(c, p), lex_in(p, m), test_method(m), !test_method(c), decl_file(c, f), is_test_file(f).
+// nothing recorded a span for it, so the file is still the only scope known
+test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), !lex_parent(c, _), !encloses_test(c), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), is_test_file(f).
+.decl encloses_test(c:symbol)
+encloses_test(c) :- lex_in(c, m), test_method(m).
+.decl lex_in(outer:symbol, inner:symbol)
+lex_in(o, i) :- lex_parent(i, o).
+lex_in(o, i) :- lex_parent(i, x), lex_in(o, x).
 .decl is_test_file(f:symbol)
 is_test_file(f) :- test_method(m), decl_file(m, f).
 // ── a fixture a framework INJECTS, which no call site records ────────────────────────────────────────────────
