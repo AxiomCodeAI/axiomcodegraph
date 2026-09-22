@@ -24,7 +24,7 @@
   ],
   "PreToolUse": [
    {
-    "matcher": "Read|Grep|Glob|Bash",
+    "matcher": "Read|Grep|Glob|Bash|mcp__plugin_axiomcode_axiomcode__.*",
     "hooks": [
      {
       "type": "command",

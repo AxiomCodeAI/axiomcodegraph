@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse on Read|Grep|Glob|Bash: say it at the moment the alternative is about to run.
+"""PreToolUse on Read|Grep|Glob|Bash (and the graph's own MCP tools, which silence it): say it at the moment the alternative is about to run.
 
 #1100 measured three changes to what this skill SAYS and none of them moved the number: the body cut by
 72%, the description rewritten into the words a task is phrased in, and orient.py's first turn turned from
@@ -15,14 +15,19 @@ Rules it holds itself to, in the spirit of orient.py:
   · SILENT WHEN THE AGENT IS ALREADY DOING IT. A Bash call that IS an axiomcode verb gets nothing.
   · NEVER BLOCKS. additionalContext, exit 0. The agent keeps its own judgement; the point is that the
     judgement is made with the option in view, not that the option wins.
-  · BOUNDED AND DECAYING. Said in full once per session, then one line. Repetition is the mechanism under
-    test, so it does repeat — but orient.py is right that a paragraph on every turn is a context tax, and
-    the reminder only has to be visible, not re-argued.
+  · ONCE PER SESSION. Said in full before the first search, then never again. It used to repeat as one line
+    before every later Read, Grep and Bash, and in a measured run those lines were seven of the plugin's
+    injections, re-read on every turn after, for an agent that had already called the graph twice. A
+    reminder only has to be visible once; after that it is a context tax on every turn.
+  · ONLY WHERE THE CHOICE IS. A Bash call that searches or reads source competes with the graph; `git`,
+    `ls`, a build or a test run does not, and a directive in front of one is noise.
 """
-import json, os, sys
+import json, os, re, sys
 
-MARK = '.axiomcode/.directed'                  # full text once per session, per repo
+MARK = '.axiomcode/.directed-{}'               # once per session: keyed by session id, not once per repo forever
 SRC = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs', '.cs')
+# the shell commands that are the search or read this directive competes with
+SEARCH = re.compile(r'(^|[;&|(]\s*|\s)(grep|egrep|rg|ag|ack|git\s+grep|find|fd|cat|head|tail|sed|awk|less)\b')
 
 FULL = (
     "graph: this repository has a resolved call graph, and it answers the question this search is asking.\n"
@@ -34,8 +39,6 @@ FULL = (
     "  Search raw files after that, to read or to change specific lines. If you hand this to a subagent,\n"
     "  carry this line into its prompt — exploration done in a child is exploration done without the graph."
 )
-ONE = ("graph: `axiomcode impact <name>` resolves callers this search will miss "
-       "(interface, override, callback, DI, config key).")
 
 def main():
     ev = json.load(sys.stdin)
@@ -46,8 +49,16 @@ def main():
     if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
         sys.exit(0)
 
-    # the agent is already reaching for the graph -- saying it again is the nag this is trying not to be
-    if tool == 'Bash' and 'axiomcode' in (inp.get('command') or ''):
+    stamp = os.path.join(cwd, MARK.format(ev.get('session_id') or 'x'))
+
+    # the agent is already reaching for the graph -- saying it again is the nag this is trying not to be,
+    # and once it has, the directive has nothing left to say this session
+    if 'axiomcode' in tool or (tool == 'Bash' and 'axiomcode' in (inp.get('command') or '')):
+        try:
+            os.makedirs(os.path.dirname(stamp), exist_ok=True)
+            open(stamp, 'w').close()
+        except Exception:
+            pass
         sys.exit(0)
 
     # a Read of something that is not source is not the decision this is about (a log, a lockfile, a README)
@@ -56,22 +67,24 @@ def main():
         if not fp.endswith(SRC):
             sys.exit(0)
 
-    stamp = os.path.join(cwd, MARK)
-    first = not os.path.exists(stamp)
-    if first:
-        try:
-            os.makedirs(os.path.dirname(stamp), exist_ok=True)
-            open(stamp, 'w').close()
-        except Exception:
-            pass
+    if tool == 'Bash' and not SEARCH.search(inp.get('command') or ''):
+        sys.exit(0)
 
-    text = FULL if first else ONE
+    if os.path.exists(stamp):
+        sys.exit(0)
+    try:
+        os.makedirs(os.path.dirname(stamp), exist_ok=True)
+        open(stamp, 'w').close()
+    except Exception:
+        pass
+
+    text = FULL
     # stream-json does not carry additionalContext, so a run cannot show from its transcript that this
     # fired or what it said -- and #1100 is a question about exactly that. enrich.py already logs itself
     # next to the graph for the same reason; this writes the same file, so one reader sees both halves.
     try:
         with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f:
-            f.write(json.dumps({'hook': 'direct', 'tool': tool, 'first': first, 'chars': len(text),
+            f.write(json.dumps({'hook': 'direct', 'tool': tool, 'chars': len(text),
                                 'input': {k: v for k, v in inp.items()
                                           if k in ('file_path', 'pattern', 'command')}}) + '\n')
     except OSError:

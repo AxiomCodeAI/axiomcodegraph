@@ -19,7 +19,7 @@ Rules it holds itself to:
 """
 import json, os, subprocess, sys
 
-MARK = '.axiomcode/.oriented'          # once per session, per repo
+MARK = '.axiomcode/.oriented-{}'       # once per session: keyed by session id (one stamp per repo never fired again)
 MAX_LINES = 14
 
 try:
@@ -57,7 +57,7 @@ cwd = repo_root(ev.get('cwd') or os.getcwd())
 prompt = (ev.get('prompt') or '').strip()
 if len(prompt) < 25:                                   # too short to carry a task
     sys.exit(0)
-stamp = os.path.join(cwd, MARK)
+stamp = os.path.join(cwd, MARK.format(ev.get('session_id') or 'x'))
 if os.path.exists(stamp):
     sys.exit(0)
 
