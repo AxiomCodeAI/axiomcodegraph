@@ -1,19 +1,93 @@
-{"lang": "typescript", "src": "src",
+{
+ "lang": "typescript",
+ "src": "src",
  "checks": [
-  {"why": "a call through a FIELD whose type is a function type resolves to that type's signature, which has no body; the function the field holds is what runs, so its caller is a direct user (#1206)",
-   "run": ["impact", "getPath"],
-   "want": ["App.dispatch", "calls it through a field that holds it", "it is stored in a field of this function type"],
-   "avoid": ["directly touches it: nothing", "the change is local"]},
-  {"why": "and the walk continues through the arrow a second function-typed field holds (`fetch: T = (url) => …`) to the callers of that field",
-   "run": ["impact", "getPath"],
-   "want": ["handle", "load"],
-   "avoid": []},
-  {"why": "a function passed as an ARGUMENT to a function-typed PARAMETER, and forwarded from that parameter to another one, reaches the call made through the inner parameter",
-   "run": ["path", "retry", "src/app.ts:3"],
-   "want": ["1 of 1 target(s) reached", "[dispatch] <arrow>   src/app.ts:32", "App.dispatch"],
-   "avoid": ["no chain of resolved calls"]},
-  {"why": "the other arm of the ternary is held by the same field, so it is reached too, and labelled one of a set rather than resolved",
-   "run": ["impact", "getPathLoose"],
-   "want": ["[one of a set] App.dispatch"],
-   "avoid": ["[resolved] App.dispatch"]}
- ]}
+  {
+   "why": "a call through a FIELD whose type is a function type resolves to that type's signature, which has no body; the function the field holds is what runs, so its caller is a direct user (#1206)",
+   "run": [
+    "impact",
+    "getPath"
+   ],
+   "want": [
+    "App.dispatch",
+    "calls it through a field that holds it",
+    "it is stored in a field of this function type"
+   ],
+   "avoid": [
+    "directly touches it: nothing",
+    "the change is local"
+   ]
+  },
+  {
+   "why": "and the walk continues through the arrow a second function-typed field holds (`fetch: T = (url) => …`) to the callers of that field",
+   "run": [
+    "impact",
+    "getPath"
+   ],
+   "want": [
+    "handle",
+    "load"
+   ],
+   "avoid": []
+  },
+  {
+   "why": "a function passed as an ARGUMENT to a function-typed PARAMETER, and forwarded from that parameter to another one, reaches the call made through the inner parameter",
+   "run": [
+    "path",
+    "retry",
+    "src/app.ts:3"
+   ],
+   "want": [
+    "1 of 1 target(s) reached",
+    "[dispatch] <arrow>   src/app.ts:32",
+    "App.dispatch"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "the other arm of the ternary is held by the same field, so it is reached too, and labelled one of a set rather than resolved",
+   "run": [
+    "impact",
+    "getPathLoose"
+   ],
+   "want": [
+    "[one of a set] App.dispatch"
+   ],
+   "avoid": [
+    "[resolved] App.dispatch"
+   ]
+  },
+  {
+   "why": "a stored function runs whether or not its owner type is ever constructed, so the instantiation narrowing that applies to virtual dispatch must not drop it: Formats is never instantiated, and price still reaches Formats.money through the variable that holds it",
+   "run": [
+    "impact",
+    "Formats.money"
+   ],
+   "want": [
+    "price",
+    "calls it through a field that holds it",
+    "checkout"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "and path takes the same hop: the instantiation narrowing that applies to virtual dispatch must not drop a stored function whose owner is never constructed",
+   "run": [
+    "path",
+    "checkout",
+    "Formats.money"
+   ],
+   "want": [
+    "1 of 1 target(s) reached",
+    "[dispatch] Formats.money"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  }
+ ]
+}
