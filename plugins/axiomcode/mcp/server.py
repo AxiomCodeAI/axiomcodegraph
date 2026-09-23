@@ -43,9 +43,9 @@ def axiomcode_path(from_: str, to: str, repo: str, every: bool = False, in_path:
     return run(a)
 
 @srv.tool()
-def axiomcode_impact(targets: list[str], repo: str, tests: bool = False, depth: int = 0, in_path: str = '', kind: str = '') -> str:
-    """What has to be looked at again when a declaration changes: must-change-with-it (overrides, subtypes), everything that directly uses it (with how sure each is), everything that reaches those, the tests among them (tests=True), and the bound (unresolved calls). Targets as written: Owner.method, Owner.field, Type, Owner.method(param), Type<T>, Owner.method:local. kind: method|field|type|param|typeparam|var when a name is declared as several kinds."""
-    a = ['impact', *targets, repo] + (['--tests'] if tests else []) + (['--depth', str(depth)] if depth else []) + (['--in', in_path] if in_path else []) + (['--kind', kind] if kind else [])
+def axiomcode_impact(targets: list[str], repo: str, tests: bool = False, why: bool = False, tests_in: str = '', depth: int = 0, in_path: str = '', kind: str = '') -> str:
+    """What has to be looked at again when a declaration changes: must-change-with-it (overrides, subtypes), everything that directly uses it (with how sure each is), everything that reaches those, and the bound (unresolved calls). The tests are always counted, by rung, with the strong-route ones named and the top test files. Ask for the full list SECOND, only if you need it: tests=True returns ONLY the tests, grouped by rung and test file; why=True adds each test's route; tests_in narrows that listing to test files containing it. Targets as written: Owner.method, Owner.field, Type, Owner.method(param), Type<T>, Owner.method:local. kind: method|field|type|param|typeparam|var when a name is declared as several kinds."""
+    a = ['impact', *targets, repo] + (['--tests-only'] if tests else []) + (['--why'] if why else []) + (['--tests-in', tests_in] if tests_in else []) + (['--depth', str(depth)] if depth else []) + (['--in', in_path] if in_path else []) + (['--kind', kind] if kind else [])
     return run(a)
 
 @srv.tool()
