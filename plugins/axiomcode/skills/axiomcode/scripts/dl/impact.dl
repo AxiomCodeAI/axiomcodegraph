@@ -753,7 +753,27 @@ test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _
 test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), lex_in(c, m), test_method(m), !test_method(c), decl_file(c, f), is_test_file(f).
 // A callable that encloses no test is a helper. It serves the tests declared in the same scope it is
 // -- the block that can see it -- and not the whole file.
-test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), !encloses_test(c), lex_parent(c, p), lex_in(p, m), test_method(m), !test_method(c), decl_file(c, f), is_test_file(f).
+// Where the graph KNOWS who calls the helper, that is better than its declaring scope. A helper at a
+// test file's module level is visible to every test in the file but is usually called from only some
+// of the blocks; crediting the file reports tests that never reach it. Use the innermost
+// test-bearing block each caller sits in, and fall back to the declaring scope when no caller is
+// recorded -- which is the case the helper rule exists for.
+.decl tblock(b:symbol, x:symbol)
+tblock(b, x) :- lex_in(b, x), encloses_test(b).
+.decl tighter(b:symbol, x:symbol)
+tighter(b, x) :- tblock(b, x), tblock(b2, x), lex_in(b, b2).
+.decl helper_block_test(c:symbol, m:symbol)
+// the caller is itself a test: that test reaches it, and nothing else follows
+helper_block_test(c, m) :- calls(m, c, _, _, _), test_method(m).
+// the caller is a block that bears tests -- a `describe` callback whose BODY makes the call, which is
+// how a test file builds a fixture once for the block. Its own tests reach it, a sibling's do not.
+helper_block_test(c, m) :- calls(x, c, _, _, _), encloses_test(x), lex_in(x, m), test_method(m).
+// otherwise the innermost test-bearing block the caller sits in
+helper_block_test(c, m) :- calls(x, c, _, _, _), !encloses_test(x), !test_method(x), tblock(b, x), !tighter(b, x), lex_in(b, m), test_method(m).
+.decl helper_has_block(c:symbol)
+helper_has_block(c) :- helper_block_test(c, _).
+test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), !encloses_test(c), helper_has_block(c), helper_block_test(c, m), !test_method(c), decl_file(c, f), is_test_file(f).
+test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), !encloses_test(c), !helper_has_block(c), lex_parent(c, p), lex_in(p, m), test_method(m), !test_method(c), decl_file(c, f), is_test_file(f).
 // nothing recorded a span for it, so the file is still the only scope known
 test_hit(q, m, d, c) :- reach(q, c, d), !owner(c, _), !lex_parent(c, _), !encloses_test(c), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), is_test_file(f).
 .decl encloses_test(c:symbol)
