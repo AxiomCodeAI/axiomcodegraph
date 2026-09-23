@@ -1,0 +1,14 @@
+staged library covers 20% of the library types this client calls (1 of 5; 20 call sites name an absent type)
+  ** LOW — the numbers below are bounded by what is staged, not by the rules. Stage the client's dependencies (tools/build-lib-ir.sh --coord) before reading them.
+boundary sites: 19   (client callers, library callees matching dep.,java.,javax.,jdk.)
+  EXACT                         2 ( 10.5%)
+  LIB IR LACKS THE TYPE        17 ( 89.5%)
+  ---
+  correct METHOD named       10.5%   (100.0% of the 2 the lib IR can answer)
+  wrong library method       0.0%
+
+ABSENT from the staged library, by call sites naming them
+       9  java.util.function.Function
+       6  java.lang.String
+       3  java.lang.Object
+       2  java.lang.Boolean

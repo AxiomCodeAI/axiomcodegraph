@@ -1,0 +1,16 @@
+known_edge	read	probe.App#callOther(App,String) -> probe.App#other
+known_edge	read	probe.App#dispatch(String) -> probe.App#getPath
+known_edge	read	probe.App#handle(App,String) -> probe.App#fetch
+known_edge	read	probe.App#main2() -> probe.App#fetch
+known_edge	read	probe.App#sameAs(Object) -> probe.App#getPath
+known_edge	read	probe.App#viaCastField(String) -> probe.App#cast
+known_edge	read	probe.App#viaInitField(String) -> probe.App#init
+known_edge	read	probe.LibHolder#run(String) -> probe.LibHolder#fn
+known_edge	read	probe.LibHolder#wrap() -> probe.LibHolder#fn
+known_edge	read	probe.Router#composed() -> probe.Router#h
+known_edge	read	probe.Router#route(String) -> probe.Router#h
+known_edge	write	probe.App#<init>(Function,boolean) -> probe.App#cast
+known_edge	write	probe.App#<init>(Function,boolean) -> probe.App#getPath
+known_edge	write	probe.App#wire(App) -> probe.App#other
+known_edge	write	probe.LibHolder#strict() -> probe.LibHolder#fn
+known_edge	write	probe.Router#<init>(boolean) -> probe.Router#h

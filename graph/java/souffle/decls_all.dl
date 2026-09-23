@@ -98,6 +98,16 @@
 .decl lambda_invoked_at(c0:symbol,c1:symbol)
 .decl mref_invoked_at(c0:symbol,c1:symbol)
 .decl lambda_dispatch_edge(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)
+.decl fn_holder_ref(c0:symbol,c1:symbol)       // (expression, field|parameter|local it names)
+.decl fn_holder_store(c0:symbol,c1:symbol)     // (holder, expression written as its value: initializer, `=` right-hand side, argument)
+.decl fn_value_passthrough(c0:symbol)          // edge roles a function value passes through unchanged (?: branch, parens, cast)
+.decl fn_holder_value(c0:symbol,c1:symbol)     // (holder, expression whose value may be stored in it)
+.decl fn_holder_holds(c0:symbol,c1:symbol)     // (holder, method): what a function-valued field, parameter or local may hold (#1206)
+.decl fn_object_member(c0:symbol)              // java.lang.Object member names: never a functional-interface base
+.decl fn_value_base(c0:symbol)                 // a method (or external label) a call through a function holder may resolve to
+.decl fn_holder_call_base(c0:symbol,c1:symbol) // (holder, what a call made through it resolves to)
+.decl fn_holder_demand(c0:symbol)              // a holder whose contents are asked for: called through, or forwarded into one that is
+.decl fn_value_call(c0:symbol,c1:symbol)       // (caller, method): caller calls through a holder that may hold the method (#1206)
 .decl ident_field_recv(c0:symbol,c1:symbol)   // FIELD-stamped identifier used as a receiver/qualifier
 .decl recv_name_is_field(c0:symbol)          // ...and a real field of that name IS visible
 .decl recv_name_is_local(c0:symbol)          // ...or a local/param of that name is in scope
