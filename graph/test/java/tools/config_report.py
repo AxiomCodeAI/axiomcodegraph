@@ -57,6 +57,18 @@ class Labels(Names):
         return h
 
 
+def add_library_labels(L, lib):
+    """Give `L` the names in a stub library's IR — one root, or a directory of them."""
+    roots = [lib] if os.path.exists(os.path.join(lib, 'all-types.csv')) else \
+            [os.path.join(lib, d) for d in sorted(os.listdir(lib))
+             if os.path.exists(os.path.join(lib, d, 'all-types.csv'))]
+    for root in roots:
+        other = Labels(root)
+        for attr in ('m', 'types', 'f', 'p', 'a'):
+            for h, label in getattr(other, attr).items():
+                getattr(L, attr).setdefault(h, label)
+
+
 def load(out, name):
     p = f'{out}/{name}'
     if not os.path.exists(p):
@@ -82,14 +94,7 @@ def main():
     if len(args) > 2 and not os.path.isdir(args[2]):
         sys.exit(f"config_report: library root is not a directory: {args[2]!r}")
     if len(args) > 2:
-        roots = [args[2]] if os.path.exists(os.path.join(args[2], 'all-types.csv')) else \
-                [os.path.join(args[2], d) for d in sorted(os.listdir(args[2]))
-                 if os.path.exists(os.path.join(args[2], d, 'all-types.csv'))]
-        for root in roots:
-            lib = Labels(root)
-            for attr in ('m', 'types', 'f', 'p', 'a'):
-                for h, label in getattr(lib, attr).items():
-                    getattr(L, attr).setdefault(h, label)
+        add_library_labels(L, args[2])
 
     # (relation file, section title, row -> golden line)
     SECTIONS = [
