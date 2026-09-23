@@ -273,7 +273,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `DEFAULT_METHOD` | java | Interface default method. |
 | `CONSTRUCTOR` | java, typescript | Constructor (Java `<init>`; TypeScript `constructor`). |
 | `STATIC_INITIALIZER` | java | `static { … }` block. |
-| `GENERATED_METHOD` | java | Synthesised for a member an annotation processor declares, which is in no IR and so has no real methodKind. Always paired with provenance `generated`. |
+| `GENERATED_METHOD` | java, csharp | Synthesised for a member no IR declares, so it has no real methodKind: in Java one an annotation processor declares, in C# the Invoke of the delegate a field or property holds. Always paired with provenance `generated`. |
 | `ENUM_CONSTANT_METHOD` | java | Method body declared on an enum constant. |
 | `RECORD_ACCESSOR` | java | A record component accessor. |
 | `COMPACT_CONSTRUCTOR` | java | A record's compact canonical constructor. |
@@ -346,6 +346,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `client` | all | Declared in the analysed project. |
 | `lib` | all | Declared in a staged library IR; listed because an edge reaches it. |
 | `generated` | java | Declared by a compile-time annotation processor: present in the compiled artefact and in every caller's source, and in no IR, so the bundle synthesises it to give the edge a target. id `generated:<owner qualified name>#<name>/<arity>`, no file and no line numbers. |
+| `generated` | csharp | The Invoke of the delegate held in one field or property: id `generated:<owner qualified name>#<member>.Invoke`, no file and no line numbers. Every call through that member is an edge to it (tier boundary_lib, which is also where the compiler binds the call), and what the member holds is in dispatch_candidates with basis `value`. |
 
 **Notes**
 
@@ -590,6 +591,7 @@ THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call
 |---|---|---|
 | `nominal` | java, typescript | A written extends/implements reaches the candidate's owner from the base's owner. The strongest evidence there is: the author declared the relationship. |
 | `structural` | typescript | No declaration; the candidate's owner satisfies the base's owner by SHAPE. Emitted only for supertypes with no nominal implementor at all, so it never competes with a declared answer — but it is a heuristic, and a consumer that wants declarations only filters it out. |
+| `value` | csharp | A function stored in a field, variable or parameter whose type is the base's callable type; a call through that holder may run it. The base is the signature the call resolves to (bodiless), so the pair is how a walk over callers reaches the function that runs. Flow-derived rather than declared: a consumer that wants declarations only filters it out. |
 | `mro` | python | The subtype's C3 linearisation picks the candidate for that attribute name. Not merely "the subtype declares this name" — a name a sibling base wins is attributed to that sibling. |
 
 ### `overrides`

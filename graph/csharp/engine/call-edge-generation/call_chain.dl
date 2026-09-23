@@ -100,6 +100,10 @@ site_leaves_client(prov, e) :- client_calls_lib(prov, e, _, _).
 // a real project that is most of the unresolved sites -- which makes the number that
 // matters unreadable.
 site_leaves_client(prov, e) :- external_target(prov, e, _).
+// A call through a field or property holding a delegate lands on the delegate's
+// Invoke, which the runtime supplies (resolution/delegates.dl). The site gets an edge
+// to that member's Invoke node and the stored functions are in the envelope.
+site_leaves_client(prov, e) :- delegate_member_call(prov, e, _).
 
 call_class(prov, e, "fan_capped") :- call_fan_refused(prov, e).
 call_class(prov, e, "known_edge") :-
@@ -183,6 +187,18 @@ call_chain_edge(e, caller, "-", label, "external", "boundary_lib", kind) :-
     call_from("client", e, caller),
     invocation_site("client", e, kind).
 
+// client -> A DELEGATE MEMBER'S INVOKE (#1206). `getPath(url)` on a field holding a
+// delegate calls Invoke -- Roslyn's answer too -- and which stored function then runs
+// is value flow, recorded in method_dispatch_candidate with basis `value` rather than
+// claimed at the site. The node is `generated:<owner>#<member>.Invoke`, one per
+// member, and the bundle gives it a methods row. An explicit `f.Invoke(x)` keeps the
+// external label it already had and gains this row beside it.
+call_chain_edge(e, caller, "-", node, "client", "boundary_lib", kind) :-
+    delegate_member_call("client", e, mem),
+    delegate_invoke_node(mem, node),
+    call_from("client", e, caller),
+    invocation_site("client", e, kind).
+
 // ── SYNTHESISED EDGES: A PRIMARY CONSTRUCTOR'S BASE INVOCATION ──────────────
 // `class D(int a) : B(a)` calls B's constructor with no call syntax anywhere in the
 // body. The kind says primary_ctor_base so a synthesised edge is never mistaken for
@@ -251,6 +267,7 @@ call_from_expr(prov, e, t) :- expr_ultimate_type(prov, e, t), !expr_ultimate_met
 call_has_edge(prov, e) :- client_calls_client(prov, e, _, _).
 call_has_edge(prov, e) :- client_calls_lib(prov, e, _, _).
 call_has_edge("client", e) :- client_calls_external(e, _).
+call_has_edge("client", e) :- delegate_member_call("client", e, _).
 
 call_chain_edge(e, caller, "-", "-", "-", cls, kind) :-
     invocation_site("client", e, kind),

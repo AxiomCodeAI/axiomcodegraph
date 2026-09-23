@@ -1,0 +1,198 @@
+// ============================================================================
+// RESOLUTION · A DELEGATE STORED IN A FIELD OR PROPERTY  (#1206)
+//
+// `getPath(url)` on a `Func<string, string> getPath` field is a call to the
+// delegate's Invoke. That is what Roslyn says the site binds to
+// (System.Func`2.Invoke, outside the source), and it is not what RUNS: what runs is
+// whatever function was stored in the field -- a method group or a lambda assigned
+// in the constructor, the field's initializer, a `??=` somewhere else. Which one is
+// a VALUE-FLOW question, not a member lookup, so no rule in member-lookup.dl can
+// answer it, and before this file the site resolved to nothing and the chain ended:
+// `impact` on the stored method reached none of the code calling through the field.
+//
+// THE ANSWER GOES TO THE DISPATCH ENVELOPE, NOT TO THE SITE. A site's resolved target
+// is scored against the compiler, and the compiler's answer is Invoke; claiming
+// `GetPath` at `getPath(url)` would be a precision the engine cannot back (the field
+// holds one of three methods, chosen at runtime). The envelope is the relation that
+// already says "a call to this base may run that candidate", and it is what impact
+// and path walk (candidate -> base -> callers of the base). So:
+//
+//   1. every call through a field/property that is seen holding a function gets an
+//      edge to ONE synthetic node standing for that member's Invoke,
+//        generated:<owner qualified name>#<member>.Invoke
+//      tier boundary_lib, because the call lands on the runtime's Invoke and the
+//      chain is not expanded past it here. The resolved-target relations
+//      (expr_resolves_to_method / expr_call_candidate) are NOT touched, so the
+//      per-site score against Roslyn cannot move.
+//   2. method_dispatch_candidate(<that node>, <stored method>, "value") for every
+//      method group or lambda that flows into the member.
+//
+// ONE NODE PER MEMBER, NOT PER DELEGATE TYPE. Keying on the type (every
+// `Func<string, string>` shares one Invoke) would put every function stored in any
+// field of that type behind every call through any of them -- on a real codebase
+// that is most of the delegates it has. The member is the unit the value is stored
+// in, so it is the unit the envelope is keyed on. The bundle turns the id into a
+// methods row with provenance `generated`, the same shape it already uses for a
+// member no IR declares.
+//
+// WHAT FLOWS: the member's initializer; `=`, `??=` and `+=` whose target is the
+// member (bare `f`, `this.f`, `obj.f`, `Type.f`); and through the branches of `?:`,
+// both operands of `??`, parentheses, a cast, the null-forgiving `!`, and the
+// argument of `new D(M)`. WHAT IS STORED: a lambda or anonymous method (its own
+// cs_method row), or a method group -- a name that is a method on the type it is
+// looked up in, bare, `this.M` or `Type.M`. A CALL on the right-hand side
+// (`f = Make()`) stores the call's return value, which is not followed.
+//
+// NOT HANDLED, and left exactly as before: a delegate that reaches the field from a
+// parameter or a local (`this.f = f`), a local or parameter of delegate type invoked
+// directly, and an event (`+=` on an event is an accessor call, accessor-edges).
+// ============================================================================
+
+// ── THE MEMBER AN EXPRESSION DENOTES ────────────────────────────────────────
+// delegate_member_ref(Prov, Expr, Member): `Expr` names the field or property
+// `Member`. A bare name uses the binding the parser (or local-binding.dl, for an
+// inherited member) already made; a qualified one is looked up on the qualifier's
+// type, never on the parser's same-file guess.
+delegate_member_ref(prov, e, mem) :-
+    expr_kind(prov, e, "NAME_REFERENCE"), ref_denotes(prov, e, "FIELD", mem).
+delegate_member_ref(prov, e, mem) :-
+    expr_kind(prov, e, "NAME_REFERENCE"), ref_denotes(prov, e, "PROPERTY", mem).
+delegate_member_ref(prov, e, mem) :-
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nm),
+    expr_written_name(prov, nm, n),
+    delegate_qualifier_type(prov, q, gk),
+    member_lookup(prov, gk, n, kind, mem),
+    delegate_member_kind(kind).
+// `app.f`, `this.f`, `new App().f` -- and `App.f` for a static member.
+delegate_qualifier_type(prov, q, gk) :- expr_type(prov, q, gk).
+delegate_qualifier_type(prov, q, gk) :- ref_names_type(prov, q, gk).
+delegate_member_kind("field").
+delegate_member_kind("property").
+
+// The null-forgiving `!` and parentheses around a callee or a receiver name the
+// same member: `named!(url)`, `(f)(url)`.
+delegate_member_ref(prov, e, mem) :-
+    expr_kind(prov, e, "UNARY"), expr_operator(prov, e, "!"),
+    expr_child(prov, e, "UNARY_OPERAND", _, x), delegate_member_ref(prov, x, mem).
+delegate_member_ref(prov, e, mem) :-
+    expr_kind(prov, e, "PARENTHESIZED"),
+    expr_child(prov, e, "PARENTHESIZED_OPERAND", _, x), delegate_member_ref(prov, x, mem).
+
+// ── WHAT IS STORED IN A MEMBER ──────────────────────────────────────────────
+// delegate_store(Prov, Member, ValueExpr): ValueExpr's value is written into Member.
+delegate_store(prov, f, e) :- field_initializer(prov, f, e).
+delegate_store(prov, p, e) :- property_initializer(prov, p, e).
+delegate_store(prov, mem, v) :-
+    expr_kind(prov, a, "ASSIGNMENT"), expr_operator(prov, a, "="),
+    expr_child(prov, a, "ASSIGNMENT_TARGET", _, t), delegate_member_ref(prov, t, mem),
+    expr_child(prov, a, "ASSIGNMENT_VALUE", _, v).
+// `f ??= M` stores M when f was null; `f += M` adds M to f's invocation list. Both
+// make M a function a call through f may run.
+delegate_store(prov, mem, v) :-
+    expr_kind(prov, a, "COMPOUND_ASSIGNMENT"), expr_operator(prov, a, op),
+    delegate_storing_op(op),
+    expr_child(prov, a, "ASSIGNMENT_TARGET", _, t), delegate_member_ref(prov, t, mem),
+    expr_child(prov, a, "ASSIGNMENT_VALUE", _, v).
+// Matched by prefix, not as the literal "??=": souffle emits C++ and that literal is
+// a trigraph there, which the compiler warns about on every build.
+delegate_storing_op(op) :- expr_operator(_, _, op), substr(op, 0, 2) = "??", strlen(op) = 3.
+delegate_storing_op("+=").
+
+// The branches the value may come from.
+delegate_store(prov, mem, c) :- delegate_store(prov, mem, p), delegate_value_branch(prov, p, c).
+delegate_value_branch(prov, p, c) :- expr_kind(prov, p, "CONDITIONAL"), expr_child(prov, p, "WHEN_TRUE", _, c).
+delegate_value_branch(prov, p, c) :- expr_kind(prov, p, "CONDITIONAL"), expr_child(prov, p, "WHEN_FALSE", _, c).
+delegate_value_branch(prov, p, c) :-
+    expr_kind(prov, p, "BINARY"), expr_operator(prov, p, "??"), expr_child(prov, p, "LEFT_OPERAND", _, c).
+delegate_value_branch(prov, p, c) :-
+    expr_kind(prov, p, "BINARY"), expr_operator(prov, p, "??"), expr_child(prov, p, "RIGHT_OPERAND", _, c).
+delegate_value_branch(prov, p, c) :- expr_kind(prov, p, "PARENTHESIZED"), expr_child(prov, p, "PARENTHESIZED_OPERAND", _, c).
+delegate_value_branch(prov, p, c) :- expr_child(prov, p, "CAST_OPERAND", _, c).
+delegate_value_branch(prov, p, c) :-
+    expr_kind(prov, p, "UNARY"), expr_operator(prov, p, "!"), expr_child(prov, p, "UNARY_OPERAND", _, c).
+// `new Func<string, string>(GetPath)` wraps the group in an explicit construction;
+// the parser marks exactly that argument DELEGATE_CREATION.
+delegate_value_branch(prov, p, c) :-
+    expr_kind(prov, p, "OBJECT_CREATION"), expr_child(prov, p, "ARGUMENT", _, c),
+    expr_method_ref(prov, c, "DELEGATE_CREATION").
+
+// ── THE FUNCTION A STORED VALUE IS ──────────────────────────────────────────
+// A lambda or an anonymous method is its own cs_method row.
+// Asked only of the expressions something stores: the lookup below is per name, and
+// every unbound name in a program is far more than the handful stored in a member.
+delegate_stored_expr(prov, e) :- delegate_store(prov, _, e).
+delegate_value_method(prov, e, m) :- delegate_stored_expr(prov, e), expr_anon_decl(prov, e, m).
+// A METHOD GROUP: a bare name that is not a local and that names a method on the
+// enclosing type (its own or inherited, nearest declaration first). The parser marks
+// the plain positions METHOD_GROUP, but not a name inside `?:` or `??`, so the name
+// is looked up here rather than read off that mark. Every overload of the name is a
+// candidate: which one the conversion picks needs the delegate's parameter types.
+delegate_value_method(prov, e, m) :-
+    delegate_stored_expr(prov, e),
+    expr_kind(prov, e, "NAME_REFERENCE"), expr_ref_unknown(prov, e),
+    expr_written_name(prov, e, n), !local_binds(prov, e, _),
+    expr_ultimate_type_group(prov, e, gk),
+    member_lookup(prov, gk, n, "method", m).
+// `this.M` and `Type.M`.
+delegate_value_method(prov, e, m) :-
+    delegate_stored_expr(prov, e),
+    expr_kind(prov, e, "MEMBER_ACCESS"),
+    expr_qualifier_child(prov, e, q), expr_member_name_child(prov, e, nm),
+    expr_written_name(prov, nm, n),
+    delegate_qualifier_type(prov, q, gk),
+    member_lookup(prov, gk, n, "method", m).
+
+// delegate_member_holds(Prov, Member, Method): Method may be the function in Member.
+delegate_member_holds(prov, mem, m) :-
+    delegate_store(prov, mem, e), delegate_value_method(prov, e, m),
+    method_decl(prov, _, _, _, m).
+
+delegate_member_holds_any(prov, mem) :- delegate_member_holds(prov, mem, _).
+
+// ── A CALL THROUGH THE MEMBER ───────────────────────────────────────────────
+// delegate_member_call(Prov, Site, Member).
+//
+// (a) With nothing written before it: `getPath(url)`, `named!(url)`, `Handler(url)`.
+// The callee name's own binding says which member, and a local or parameter of the
+// same name has already shadowed it there.
+delegate_member_call(prov, e, mem) :-
+    csite(prov, e), call_receiver_kind(prov, e, "NONE"),
+    expr_method_name_child(prov, e, x), delegate_member_ref(prov, x, mem),
+    delegate_member_holds_any(prov, mem).
+// (b) On a receiver: `this.getPath(url)`, `app.Fetch(url)`, `new App().Fetch(url)`.
+// The member is looked up on the receiver's type, and a site the engine resolved to
+// a METHOD is not one of these whatever its name.
+delegate_member_call(prov, e, mem) :-
+    call_needs_member_lookup(prov, e),
+    call_recv_type(prov, e, gk), call_callee_name(prov, e, n),
+    member_lookup(prov, gk, n, kind, mem), delegate_member_kind(kind),
+    !expr_resolves_to_method(prov, e, _),
+    delegate_member_holds_any(prov, mem).
+// (c) The explicit form: `getPath.Invoke(url)`, `late?.Invoke(url)`. The receiver
+// names the member; the site keeps the external label it already had.
+delegate_member_call(prov, e, mem) :-
+    call_callee_name(prov, e, "Invoke"),
+    call_receiver_expr(prov, e, r), delegate_member_ref(prov, r, mem),
+    !expr_resolves_to_method(prov, e, _),
+    delegate_member_holds_any(prov, mem).
+
+// ── THE NODE, AND THE ENVELOPE ──────────────────────────────────────────────
+delegate_member_owner(prov, f, t) :- field_decl(prov, _, t, f).
+delegate_member_owner(prov, p, t) :- property_decl(prov, _, t, p).
+delegate_member_name(prov, f, n) :- field_decl(prov, n, _, f).
+delegate_member_name(prov, p, n) :- property_decl(prov, n, _, p).
+
+// delegate_invoke_node(Member, NodeId) -- one per member some call goes through.
+delegate_invoke_node(mem, id) :-
+    delegate_member_call("client", _, mem),
+    delegate_member_owner("client", mem, t), type_decl("client", _, qn, _, _, t),
+    delegate_member_name("client", mem, n),
+    id = cat("generated:", cat(qn, cat("#", cat(n, ".Invoke")))).
+
+// method_dispatch_candidate(Base, Candidate, Basis) -- the envelope, exported as
+// dispatch-candidates.csv. `value`: Candidate is a function stored in the member
+// whose Invoke is Base, so a call through that member may run it.
+method_dispatch_candidate(base, m, "value") :-
+    delegate_invoke_node(mem, base),
+    delegate_member_holds("client", mem, m).
