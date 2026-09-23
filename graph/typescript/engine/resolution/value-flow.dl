@@ -133,3 +133,113 @@ expr_exact_type(e, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
 field_in_enclosing(encl, n, f) :- field_decl("client", n, _, encl, f).
 field_in_enclosing(encl, n, f) :- type_ancestor(encl, anc),
     field_decl("client", n, _, anc, f).
+
+// ============================================================================
+// WHAT A FUNCTION-VALUED HOLDER HOLDS  (#1206)
+//
+// A call through a FIELD, VARIABLE or PARAMETER whose declared type is a function type
+// resolves to that type's call signature: `app.fetch(req)` to `fetch: (req: Request) =>
+// Response`, `this.getPath(req)` to the `GetPath` alias, `mergePath(a, b)` to the
+// annotation on `export const mergePath: (...paths: string[]) => string = …`, `fn()` to
+// `fn: () => T`. That is the compiler's own answer and it stays the call-site answer
+// (callee-resolution.dl (5d) keeps the initializer out of it on purpose). But a signature
+// has no body and no outgoing edges, so a walk over callers stopped there: every call
+// edge ending on a FUNCTION_TYPE_SIGNATURE was a dead end, and `impact` on a function
+// stored in a field reached none of the code that calls it through the field
+// (tests/cases/typescript/function-stored-in-a-holder). The function that runs is the
+// one the holder HOLDS.
+//
+// So what flows into the holder is added to the DISPATCH ENVELOPE, not to the call site:
+// (the signature the call resolved to, a function the holder holds, "value"). impact and
+// path already walk candidate -> base -> callers of the base, which is exactly the hop that
+// was missing, and per-site precision against the compiler is untouched.
+//
+// KEYED ON THE CALLS THAT GO THROUGH A HOLDER, not on the holder's type reference. The
+// base is whatever the call actually resolved to, so no second route to the signature has
+// to agree with the resolver's; and a holder nothing calls through contributes nothing.
+//
+// A function reaches a holder through
+//   * a field:     its initializer, and an assignment to it (`this.f = …`, `this.f ??= …`);
+//   * a variable:  its initializer, and a reassignment;
+//   * a parameter: the argument at that position at every call the resolver bound;
+// and through the value branches of that expression: both arms of a ternary, both
+// operands of `??` and `||`, the right operand of `&&`, and the transparent wrappers
+// (`!`, `as`, `satisfies`). Parentheses never reach the IR.
+//
+// Downstream of every resolver rule and read by none of them: method_dispatch_candidate is
+// an output only (type-hierarchy.dl), so this stratifies above the expr_type fixpoint.
+// ============================================================================
+
+// ── holder_value(Holder, Expr): an expression whose value is stored in the holder ──
+holder_value(f, e) :- field_initializer("client", e, f).
+holder_value(f, v) :- expr_kind("client", "ASSIGNMENT_EXPRESSION", _, a),
+    expr_child("client", a, "LEFT_OPERAND", _, tgt),
+    ts_field_access_target(tgt, f),
+    expr_child("client", a, "RIGHT_OPERAND", _, v).
+holder_value(f, v) :- expr_kind("client", "COMPOUND_ASSIGNMENT", _, a),
+    expr_operator("client", op, a),
+    compound_op_keeps_value(op),
+    expr_child("client", a, "LEFT_OPERAND", _, tgt),
+    ts_field_access_target(tgt, f),
+    expr_child("client", a, "RIGHT_OPERAND", _, v).
+compound_op_keeps_value("??=").
+compound_op_keeps_value("||=").
+holder_value(v, e) :- var_initializer("client", _, e, v), e != "".
+holder_value(v, e) :- var_reassigned_value(v, e).
+holder_value(p, a) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_call_candidate(ce, callee),
+    param_decl("client", _, pos, _, callee, p).
+
+// ── value_branch(Root, Expr): Expr is a value Root can evaluate to ──
+value_branch(e, e) :- holder_value(_, e).
+value_branch(root, x) :- value_branch(root, e),
+    expr_kind("client", "TERNARY_EXPRESSION", _, e),
+    expr_child("client", e, r, _, x),
+    edge_role_is_ternary_branch(r).
+value_branch(root, x) :- value_branch(root, e),
+    expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    binary_op_yields_operand(op, r),
+    expr_child("client", e, r, _, x).
+value_branch(root, x) :- value_branch(root, e),
+    expr_kind("client", k, _, e),
+    expr_kind_is_transparent(k),
+    expr_child("client", e, r, _, x),
+    edge_role_is_operand(r).
+binary_op_yields_operand("??", "LEFT_OPERAND").
+binary_op_yields_operand("??", "RIGHT_OPERAND").
+binary_op_yields_operand("||", "LEFT_OPERAND").
+binary_op_yields_operand("||", "RIGHT_OPERAND").
+binary_op_yields_operand("&&", "RIGHT_OPERAND").
+
+holder_holds_function(h, m) :- holder_value(h, e),
+    value_branch(e, x),
+    expr_callable(x, m).
+// …AND WHAT ANOTHER HOLDER HANDS OVER. `run(fn, promise, resolve)` passes the caller's own
+// parameter on, and a wrapper that forwards a callback is the ordinary shape of one: the
+// function reaches the inner parameter only through the outer one.
+holder_holds_function(h, m) :- holder_value(h, e),
+    value_branch(e, x),
+    expr_referenced("client", k, h2, x),
+    holder_ref_kind(k),
+    holder_holds_function(h2, m).
+holder_holds_function(h, m) :- holder_value(h, e),
+    value_branch(e, x),
+    ts_field_access_target(x, f),
+    holder_holds_function(f, m).
+
+// ── called_through(CallExpr, Holder): the callee expression names the holder ──
+called_through(ce, f) :- call_callee_expr(_, ce, ne),
+    ts_field_access_target(ne, f).
+called_through(ce, h) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", k, h, ne),
+    holder_ref_kind(k).
+holder_ref_kind("VARIABLE").
+holder_ref_kind("PARAMETER").
+
+method_dispatch_candidate(sig, m, "value") :- called_through(ce, h),
+    expr_resolves_to_method(ce, sig),
+    method_kind(_, k, _, sig),
+    method_kind_is_call_signature(k),
+    holder_holds_function(h, m),
+    m != sig.
