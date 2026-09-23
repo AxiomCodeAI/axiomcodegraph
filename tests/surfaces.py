@@ -77,6 +77,17 @@ def main():
     r = subprocess.run(['bash', CLI, 'impackt'], capture_output=True, text=True)
     if r.returncode == 0 or 'neither a verb nor a directory' not in r.stderr:
         bad.append("an unknown verb is not refused — it is still being taken for a build")
+    # THE FRONTMATTER IS YAML, AND NOT EVERY READER IS LENIENT. A plain scalar may not contain `: ` or ` #`:
+    # strict parsers read the first as a nested mapping and the second as a comment, so the description
+    # that decides when the skill fires fails to load ("mapping values are not allowed here") wherever the
+    # file is parsed properly, though the harness that loads it accepted it. Checked without PyYAML, which
+    # a plain checkout does not have: a value that is quoted or a block scalar (`>`, `|`) is left alone.
+    fm = skill.split('---', 2)[1] if skill.startswith('---') else ''
+    for line in fm.splitlines():
+        m = re.match(r'^([A-Za-z_-]+):[ \t]+(.*)$', line)
+        if m and not m.group(2).startswith(('"', "'", '>', '|')) and re.search(r': | #', m.group(2)):
+            bad.append(f"SKILL.md frontmatter: `{m.group(1)}` is a plain YAML scalar containing ': ' or ' #' — "
+                       f"quote it or make it a block scalar (`{m.group(1)}: >-`)")
     print(f"dispatched verbs: {', '.join(vs)}  (surfaces: bin/axiomcode --help, its dispatch, skill --help, SKILL.md, MCP)")
     for b in bad: print("FAIL " + b)
     if bad:
