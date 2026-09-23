@@ -29,6 +29,10 @@ def paginate(text, page, budget):
     if page == 'all' or len(text) <= budget * 4:
         return text
     head = []
+    # a note printed BEFORE the answer says how to read all of it (a name that merged two declarations, a name that is
+    # a field and a method): it stays on top of every page instead of sinking into the footer with the qualifiers
+    while lines and lines[0].startswith('note:'):
+        head.append(lines.pop(0))
     while lines and (lines[0].startswith('change:') or (head and lines[0].startswith('  ') and not lines[0].startswith('    '))):
         head.append(lines.pop(0))
     quals = [l for l in lines if QUALIFIER.match(l)]

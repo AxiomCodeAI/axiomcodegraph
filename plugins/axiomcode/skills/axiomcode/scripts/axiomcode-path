@@ -62,6 +62,10 @@ def chain_json(g, chain):
     return out
 
 # ── the graph ────────────────────────────────────────────────────────────────────────────────────────────────────
+# declarations that describe a callable and have no body (score.py's bodiless_kinds)
+BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE',
+                  'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE'}
+
 class G:
     def __init__(self, repo):
         self.repo = os.path.realpath(repo or '.')
@@ -155,6 +159,10 @@ class G:
             if len(kept) < len(ids): label += f" [{len(kept)} under *{self.IN}*]"
             ids = kept
         return label, ids
+    def method_kind(self, i):
+        if not hasattr(self, '_mkind'):
+            self._mkind = {r[0]: r[1] for r in self.q("SELECT id, kind FROM methods")} if self.has('methods') else {}
+        return self._mkind.get((self.sym.get(i) or {}).get('method_id') or i)
     def _resolve(self, sel, fragment=False):
         s = sel.strip().strip('`"\'')
         m = re.match(r'^(.+?):(\d+)$', s)
@@ -163,7 +171,16 @@ class G:
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
             r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, f"%/{f}", ln, ln)
-            if r: ids = [x['id'] for x in r if x['span'] == r[0]['span']]; return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
+            if r:
+                ids = [x['id'] for x in r if x['span'] == r[0]['span']]
+                # AN ANNOTATION IS NOT THE FUNCTION. `export const f: (a: A) => B = (a) => …` puts a one-line call
+                # signature and the arrow on the same line, and the signature, being shortest, won: `impact file:171`
+                # answered for `<function-type>`. Where every pick is a bodiless signature, the callable that starts
+                # on the same line is the declaration the line names, so it joins them: both are the change.
+                if self.has('methods') and all(self.method_kind(i) in BODILESS_KINDS for i in ids):
+                    start = {self.sym[i].get('line') for i in ids if i in self.sym}
+                    ids += [x['id'] for x in r if x['id'] not in ids and self.sym.get(x['id'], {}).get('line') in start and self.method_kind(x['id']) not in BODILESS_KINDS]
+                return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
             r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f, f"%/{f}")
             if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
             die(f"no callable spans {s}")

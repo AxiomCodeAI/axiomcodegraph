@@ -344,7 +344,12 @@ callable_ek("METHOD"). callable_ek("FUNCTION"). callable_ek("IMPORT_BINDING").
 .decl valueref(q:symbol, c:symbol, f:symbol, l:number)
 .decl registered(q:symbol, c:symbol, why:symbol, f:symbol, l:number)
 valueref(q, c, f, l) :- target(q, "method", m, _), named(n, m), ref(c, n, _, ek, f, l), callable_ek(ek),
-    !calls(c, m, _, f, l), !unresolved(c, n, _, f, l), !is_target_decl(q, c).
+    !calls(c, m, _, f, l), !unresolved(c, n, _, f, l), !is_target_decl(q, c), !calls_same_named(c, n, f, l).
+// A RESOLVED CALL TO ANOTHER DECLARATION OF THE NAME is not a reference to this one. Two same-named functions in
+// different files: the site that calls the OTHER one was reported as naming THIS one as a value, so each function's
+// answer carried the other's callers, as leads and then as a seed of the walk.
+.decl calls_same_named(c:symbol, n:symbol, f:symbol, l:number)
+calls_same_named(c, n, f, l) :- calls(c, m2, _, f, l), named(n, m2).
 // There is NO second leg keyed on the site alone, and the reason is measured rather than assumed. A JavaScript
 // graph's refs carry the ACCESS MODE (IDENTIFIER|READ, PROPERTY_ACCESS|WRITE) and no entity kind, so the rule above
 // matches nothing there and a site-evidence version was written to cover it: a bare reference, not the receiver of

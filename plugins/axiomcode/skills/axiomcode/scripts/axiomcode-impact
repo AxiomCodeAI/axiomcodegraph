@@ -58,7 +58,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
-G, run_dl, die = P.G, P.run_dl, P.die
+G, run_dl, die, BODILESS_KINDS = P.G, P.run_dl, P.die, P.BODILESS_KINDS
 
 # written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
@@ -423,7 +423,10 @@ class Impact:
             if exact_m and any(k == 'type' for k, _, _ in out):
                 out = [o for o in out if o[0] != 'type']
             elif mids and any(k == 'type' for k, _, _ in out) and all(self.g.sym[i]['kind'] == 'constructor' for i in mids): mids = []
-            if mids: out.append(('method', (self.g.disp(mids[0]) if len(mids) == 1 else f"{s} ({len(mids)} declarations)"), mids))
+            # a bodiless signature beside the function it annotates (file:line on `const f: T = …`) is ONE declaration
+            bodied = [i for i in mids if self.g.method_kind(i) not in BODILESS_KINDS] if mids else []
+            one = len(mids) == 1 or (len(bodied) == 1 and ':' in s)
+            if mids: out.append(('method', (self.g.disp((bodied or mids)[0]) + (f" (at {s})" if ':' in s else '') if one else f"{s} ({len(mids)} declarations)"), mids))
         if not out:
             # an inherited member is written under the name the code uses: Sub.member, declared in a base. Answer for the
             # declaration and say where it is, instead of falling through to a name match that no rule can act on
@@ -1408,6 +1411,17 @@ def main(argv):
                   file=sys.stderr if as_json else sys.stdout)
         elif len(rs) > 1 and not kind:
             die(f"{a} is declared as more than one kind: " + ' · '.join(f"{k} ({lab})" for k, lab, _ in rs) + " — say which with --kind " + '|'.join(k for k, _, _ in rs))
+        # ONE NAME, UNRELATED DECLARATIONS IN DIFFERENT FILES. A bare name answers for every declaration of it — the
+        # documented contract — but two same-named functions in different files are two different changes, and the
+        # answer merged them without saying so: an agent asked for `mergePath` got a utility and an unrelated client
+        # helper as one change set, then searched by hand to pull them apart. Say where they are and how to pick one.
+        for k, _, pay in rs:
+            ids = [i for i in (pay if isinstance(pay, list) else []) if isinstance(i, str) and i in g.sym and g.sym[i].get('file')]
+            files = sorted({g.sym[i]['file'] for i in ids})
+            if k == 'method' and len(files) > 1 and not re.search(r':\d+$', a):
+                where = ', '.join(dict.fromkeys(g.loc(i) for i in sorted(ids, key=lambda i: (g.sym[i]['file'], g.sym[i].get('line') or 0))))
+                print(f"note: {a} names {len(ids)} declarations in {len(files)} files ({where}) — this answer is for all of them; "
+                      f"target one by file:line (e.g. `impact {g.loc(ids[0])}`)", file=sys.stderr if as_json else sys.stdout)
         targets += rs
     targets_files = [t for k, _, pay in targets for t in (pay if isinstance(pay, list) else []) if isinstance(t, str) and t in g.sym]
     prof('targets resolved'); res = I.run(targets); prof('souffle done')

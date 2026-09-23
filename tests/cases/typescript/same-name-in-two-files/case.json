@@ -1,0 +1,15 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a bare name that names unrelated declarations in different files is answered for all of them, and the answer says so first and how to pick one: an agent asked for one of two same-named functions otherwise got both as one change set and searched by hand to pull them apart",
+   "run": ["impact", "mergePath"],
+   "want": ["note: mergePath names 2 declarations in 2 files", "target one by file:line"],
+   "avoid": []},
+  {"why": "file:line on an annotated const names the function, not its one-line type annotation: the annotation is shortest and used to win, so the answer was for `<function-type>`",
+   "run": ["impact", "utils/url.ts:1"],
+   "want": ["change: mergePath (at utils/url.ts:1)", "App.route"],
+   "avoid": ["change: <function-type>", "request", "declarations in"]},
+  {"why": "and the other file's function by its own line reaches only its own caller",
+   "run": ["impact", "client/utils.ts:2"],
+   "want": ["request"],
+   "avoid": ["App.route"]}
+ ]}
