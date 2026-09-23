@@ -99,8 +99,8 @@ export interface CsFileExtractionOptions {
   readonly context: CsModuleContext;
   /**
    * Preprocessor symbols active for THIS emission, over and above the implicit
-   * framework ones. An input. Never inferred, never read from a `.csproj` by
-   * this process.
+   * framework ones. An input: the analyzer reads them from the governing
+   * project (cs-project-config.ts) or takes them from its caller.
    */
   readonly defineConstants: readonly string[];
   /**
@@ -108,6 +108,11 @@ export interface CsFileExtractionOptions {
    * the corpus enable them and they appear in no file anywhere.
    */
   readonly implicitUsings?: readonly string[];
+  /**
+   * False when the governing project sets `DisableImplicitFrameworkDefines`
+   * or is not SDK-style: the framework symbols are then not added.
+   */
+  readonly implicitFrameworkDefines?: boolean;
 }
 
 export interface CsFileFacts {
@@ -174,7 +179,8 @@ export class CsFactExtractor {
     // so every span still points at the real source.
     const fileSymbols = resolveFileSymbols(
       options.context.targetFramework,
-      options.defineConstants
+      options.defineConstants,
+      options.implicitFrameworkDefines !== false
     );
     const blanked = blankAndReport(sourceText, fileSymbols);
     // AND C# 12'S SEMICOLON BODY BECOMES AN EMPTY BLOCK. `public interface
@@ -225,7 +231,9 @@ export class CsFactExtractor {
       root,
       new Set<string>([
         ...options.defineConstants,
-        ...implicitFrameworkSymbols(options.context.targetFramework),
+        ...(options.implicitFrameworkDefines === false
+          ? []
+          : implicitFrameworkSymbols(options.context.targetFramework)),
       ])
     );
 

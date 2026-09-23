@@ -43,11 +43,14 @@ import { implicitFrameworkSymbols } from '@/parsers/csharp/extractors/preproc-co
  */
 export function resolveFileSymbols(
   targetFramework: string,
-  defineConstants: readonly string[]
+  defineConstants: readonly string[],
+  // False for a pre-SDK project or one that sets DisableImplicitFrameworkDefines:
+  // the framework symbols are an SDK behaviour, not a compiler one.
+  implicitFrameworkDefines = true
 ): Set<string> {
   const symbols = new Set<string>([
     ...defineConstants,
-    ...implicitFrameworkSymbols(targetFramework),
+    ...(implicitFrameworkDefines ? implicitFrameworkSymbols(targetFramework) : []),
   ]);
   // The file's own `#define`/`#undef` are NOT read here. They are applied by
   // `blankAndReport` as it walks, because a `#define` inside a dead `#if` arm

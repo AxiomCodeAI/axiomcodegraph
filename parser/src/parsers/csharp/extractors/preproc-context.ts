@@ -34,7 +34,8 @@ import { allChildren, namedChildren, namedChildrenWithDirectives, TRIVIA_NODE_TY
  * ## Symbols are an INPUT. Nothing here infers them.
  *
  * No MSBuild, no `dotnet`, no evaluation of a project file's full property
- * graph. The active set is handed in. What this module does supply is the
+ * graph. The active set is handed in — by the analyzer, which reads it from the
+ * governing project (cs-project-config.ts). What this module does supply is the
  * **implicit framework symbols**, which are not written in any `.csproj` and are
  * added by the compiler driver — the table below is verified against the csc
  * command line, not against `dotnet msbuild -getProperty:DefineConstants`, which
@@ -64,15 +65,14 @@ export interface PreprocBranch {
 /**
  * The framework symbols the SDK injects, by target framework moniker.
  *
- * Every `netX.Y` defines `NETX_Y` plus `NETX_Y_OR_GREATER` for itself and every
- * lower version back to `NET5_0`, plus `NETCOREAPP` and its `_OR_GREATER` chain.
+ * Every `netX.Y` defines `NETX_Y` plus `NETX_0_OR_GREATER` for every major from
+ * 5 up to its own, plus `NETCOREAPP` and its `_OR_GREATER` chain.
  * `netstandard2.0` defines `NETSTANDARD2_0` and its chain. Verified against
  * `/define:` on the csc command line for six TFMs.
  */
-const FRAMEWORK_VERSIONS = ['5.0', '6.0', '7.0', '8.0', '9.0', '10.0'] as const;
-
 export function implicitFrameworkSymbols(targetFramework: string): string[] {
-  const tfm = targetFramework.trim().toLowerCase();
+  // `net10.0-windows10.0.22621.0` is the framework `net10.0` plus a platform.
+  const [tfm = '', platform = ''] = targetFramework.trim().toLowerCase().split('-', 2);
   const symbols = new Set<string>();
 
   const netMatch = /^net(\d+)\.(\d+)$/.exec(tfm);
@@ -82,16 +82,34 @@ export function implicitFrameworkSymbols(targetFramework: string): string[] {
     symbols.add(`NET${major}_${minor}`);
     symbols.add('NETCOREAPP');
     symbols.add('NET');
-    for (const version of FRAMEWORK_VERSIONS) {
-      const [vMajor, vMinor] = version.split('.').map(Number);
-      if (vMajor! < major || (vMajor === major && vMinor! <= minor)) {
-        symbols.add(`NET${vMajor}_${vMinor}_OR_GREATER`);
-      }
+    // Every major from 5 up to this one, so a framework newer than the table
+    // still gets its own `_OR_GREATER`.
+    for (let vMajor = 5; vMajor <= major; vMajor++) {
+      symbols.add(`NET${vMajor}_0_OR_GREATER`);
+    }
+    for (const s of platformSymbols(platform)) {
+      symbols.add(s);
     }
     // netcoreapp lineage: every net5.0+ TFM is also "3.1 or greater", and so on.
     for (const version of ['1.0', '1.1', '2.0', '2.1', '2.2', '3.0', '3.1']) {
       const [vMajor, vMinor] = version.split('.').map(Number);
       symbols.add(`NETCOREAPP${vMajor}_${vMinor}_OR_GREATER`);
+    }
+    return [...symbols].sort();
+  }
+
+  // netcoreapp1.0 … netcoreapp3.1: `NETCOREAPP`, `NETCOREAPPX_Y`, and the chain up to it.
+  const coreMatch = /^netcoreapp(\d+)\.(\d+)$/.exec(tfm);
+  if (coreMatch !== null) {
+    const major = Number(coreMatch[1]);
+    const minor = Number(coreMatch[2]);
+    symbols.add('NETCOREAPP');
+    symbols.add(`NETCOREAPP${major}_${minor}`);
+    for (const version of ['1.0', '1.1', '2.0', '2.1', '2.2', '3.0', '3.1']) {
+      const [vMajor, vMinor] = version.split('.').map(Number);
+      if (vMajor! < major || (vMajor === major && vMinor! <= minor)) {
+        symbols.add(`NETCOREAPP${vMajor}_${vMinor}_OR_GREATER`);
+      }
     }
     return [...symbols].sort();
   }
@@ -114,7 +132,14 @@ export function implicitFrameworkSymbols(targetFramework: string): string[] {
   const frameworkMatch = /^net(\d)(\d)(\d?)$/.exec(tfm);
   if (frameworkMatch !== null) {
     symbols.add('NETFRAMEWORK');
-    symbols.add(`NET${frameworkMatch[1]}${frameworkMatch[2]}${frameworkMatch[3] ?? ''}`);
+    const own = `${frameworkMatch[1]}${frameworkMatch[2]}${frameworkMatch[3] ?? ''}`;
+    symbols.add(`NET${own}`);
+    // The SDK's chain, oldest first.
+    const chain = ['30', '35', '40', '45', '451', '452', '46', '461', '462', '47', '471', '472', '48', '481'];
+    const rank = (v: string): number => Number(v.padEnd(3, '0'));
+    for (const v of chain) {
+      if (rank(v) <= rank(own)) symbols.add(`NET${v}_OR_GREATER`);
+    }
     return [...symbols].sort();
   }
 
@@ -122,6 +147,47 @@ export function implicitFrameworkSymbols(targetFramework: string): string[] {
   // honest answer: guessing would make `#if NET8_0_OR_GREATER` take a branch on
   // no evidence, and a wrong branch is worse than a named absence.
   return [];
+}
+
+/**
+ * `GenerateTargetPlatformDefineConstants`: the platform's name, the platform
+ * version, and — for Windows, whose ladder ships in the SDK itself
+ * (Microsoft.NET.WindowsSdkSupportedTargetPlatforms.props) — every supported
+ * version at or below it as `_OR_GREATER`. The other platforms' ladders come
+ * from whichever workloads the machine has installed, so only their name is
+ * emitted: `#if IOS` is what code tests, and a symbol that depends on the
+ * machine would make two machines extract different bytes.
+ */
+const WINDOWS_PLATFORM_VERSIONS = [
+  '7.0', '8.0', '10.0.17763.0', '10.0.18362.0', '10.0.19041.0', '10.0.20348.0', '10.0.22000.0',
+  '10.0.22621.0', '10.0.26100.0',
+] as const;
+
+function platformSymbols(platform: string): string[] {
+  const m = /^([a-z]+)([\d.]*)$/.exec(platform);
+  if (m === null || m[1] === undefined) {
+    return [];
+  }
+  const name = m[1].toUpperCase();
+  const out = [name];
+  if (m[1] !== 'windows') {
+    if (m[2]) out.push(`${name}${m[2].replace(/\./g, '_')}`);
+    return out;
+  }
+  const version = m[2] || '7.0';
+  out.push(`WINDOWS${version.replace(/\./g, '_')}`);
+  const cmp = (a: string, b: string): number => {
+    const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+      if (d !== 0) return d;
+    }
+    return 0;
+  };
+  for (const v of WINDOWS_PLATFORM_VERSIONS) {
+    if (cmp(v, version) <= 0) out.push(`WINDOWS${v.replace(/\./g, '_')}_OR_GREATER`);
+  }
+  return out;
 }
 
 /**

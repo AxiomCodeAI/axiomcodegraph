@@ -6757,6 +6757,146 @@ function regimePins(outputDir: string): number {
  * the framework were not in the key the second emission would collide with the
  * first and the fact base would silently hold one of the two answers.
  */
+/**
+ * With no framework or symbols handed in, each file is read under the project
+ * that compiles it.
+ */
+async function projectConfigurationDecidesBranches(): Promise<number> {
+  return withTempDir(async (root) => {
+    let failures = 0;
+    const write = (rel: string, text: string): void => {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), text);
+    };
+    // A feature symbol only one framework gets, set where most repositories set it.
+    write('Directory.Build.props', `<Project>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <DefineConstants>$(DefineConstants);FEATURE_SPAN</DefineConstants>
+  </PropertyGroup>
+</Project>
+`);
+    write('src/Lib/Lib.csproj', `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
+</Project>
+`);
+    write('src/Lib/Lib.cs', `namespace L;
+public class Lib
+{
+#if FEATURE_SPAN
+    public void WithFeature() { }
+#else
+    public void WithoutFeature() { }
+#endif
+#if NET8_0_OR_GREATER
+    public void OnNet8() { }
+#endif
+#if DEBUG
+    public void InDebug() { }
+#endif
+}
+`);
+    // A shared project: no .csproj of its own, compiled by the app that imports it.
+    write('src/Shared/Shared.projitems', `<Project>
+  <ItemGroup><Compile Include="$(MSBuildThisFileDirectory)Shared.cs" /></ItemGroup>
+</Project>
+`);
+    write('src/Shared/Shared.cs', `namespace S;
+public class Shared
+{
+#if WINDOWS
+    public void OnWindows() { }
+#endif
+#if NET8_0_OR_GREATER
+    public void SharedOnNet8() { }
+#endif
+}
+`);
+    write('src/App/App.csproj', `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0-windows</TargetFramework></PropertyGroup>
+  <Import Project="..\\Shared\\Shared.projitems" Label="Shared" />
+</Project>
+`);
+    write('src/App/App.cs', `namespace A;
+public class App { public void Run() { new L.Lib().OnNet8(); } }
+`);
+    // A pre-SDK project: its own Platform default decides which group applies.
+    write('legacy/Old.csproj', `<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <DefineConstants>DEBUG;TRACE;LEGACY_X86</DefineConstants>
+  </PropertyGroup>
+</Project>
+`);
+    write('legacy/Old.cs', `namespace O;
+public class Old
+{
+#if LEGACY_X86
+    public void OnX86() { }
+#endif
+#if NETFRAMEWORK
+    public void OnFramework() { }
+#endif
+}
+`);
+
+    const out = path.join(root, '.out');
+    await new CSharpProjectAnalyzer().analyze({
+      rootDir: root,
+      outputDir: out,
+      baseMservPath: root,
+      serviceVersionLink: SERVICE_VERSION,
+      excludeDirs: ['obj', 'bin', '.git', '.out'],
+    });
+    const relations = readRelations(out);
+    const methods = relations.find((r) => r.name === 'all-csharp-methods.csv')!;
+    const names = new Set(methods.rows.map((r) => r[methods.header.indexOf('name')]!));
+    const want = ['WithFeature', 'OnNet8', 'InDebug', 'OnWindows', 'SharedOnNet8', 'OnX86'];
+    const refuse = ['WithoutFeature', 'OnFramework'];
+    for (const n of want) {
+      if (!names.has(n)) failures += fail(`\`${n}\` is missing: its #if branch was not taken under the project's configuration`);
+    }
+    for (const n of refuse) {
+      if (names.has(n)) failures += fail(`\`${n}\` was emitted: a branch the compiler does not take`);
+    }
+
+    const modules = relations.find((r) => r.name === 'all-csharp-modules.csv')!;
+    const col = (n: string): number => modules.header.indexOf(n);
+    const byFile = new Map(modules.rows.map((r) => [r[col('filePath')]!, r]));
+    const expectFramework: Record<string, string> = {
+      'src/Lib/Lib.cs': 'net8.0',
+      'src/Shared/Shared.cs': 'net8.0-windows',
+      'legacy/Old.cs': 'net40',
+    };
+    for (const [file, tf] of Object.entries(expectFramework)) {
+      const got = byFile.get(file)?.[col('targetFramework')];
+      if (got !== tf) failures += fail(`${file} was read under \`${got}\`, expected \`${tf}\``);
+    }
+    // One assembly for the tree: the engine walls assemblies off from each other
+    // and has no project references to open the wall, so App.Run -> Lib.OnNet8
+    // would resolve to nothing.
+    for (const r of modules.rows) {
+      if (r[col('assemblyName')] !== '') {
+        failures += fail(`${r[col('filePath')]} carries assemblyName \`${r[col('assemblyName')]}\` — it severs cross-project calls`);
+        break;
+      }
+    }
+    const usings = relations.find((r) => r.name === 'all-csharp-usings.csv')!;
+    const uc = (n: string): number => usings.header.indexOf(n);
+    const libModule = byFile.get('src/Lib/Lib.cs')?.[col('csModuleUniqueHash')];
+    const implicit = usings.rows
+      .filter((r) => r[uc('csModuleLinkHash')] === libModule && r[uc('isImplicit')] === 'true')
+      .map((r) => r[uc('namespaceOrTypeName')]);
+    if (!implicit.includes('System.Linq')) {
+      failures += fail(`<ImplicitUsings>enable</ImplicitUsings> gave Lib.cs no implicit System.Linq (got ${implicit.join(', ') || 'none'})`);
+    }
+    return failures;
+  });
+}
+
 async function multiTargetKeying(corpusDir: string): Promise<number> {
   return withTempDir(async (dir) => {
     let failures = 0;
@@ -14049,6 +14189,15 @@ async function main(): Promise<number> {
           'order, duplication and the empty set cannot fork a module identity, and case ' +
           'is preserved because C# preprocessor symbols are case-sensitive',
         run: defineConstantsCanonical,
+      },
+      {
+        name: 'project configuration decides the #if branch',
+        proves:
+          'with nothing handed in, a file is read under the project that compiles it — the ' +
+          'framework its TargetFrameworks picks, Directory.Build.props symbols, TRACE/DEBUG, ' +
+          'platform symbols, a shared project reached through its .projitems, a pre-SDK ' +
+          'project\'s own Platform default — and the tree stays one assembly',
+        run: () => projectConfigurationDecidesBranches(),
       },
       {
         name: 'multi-target keying',
