@@ -59,10 +59,10 @@ does not restrict. Detail: `reference/context.md`.
 
 ## impact — what a change to a declaration reaches
 
-`axiomcode impact <target>… [--tests] [--depth N] [--in <path>] [--delete]`. Targets as written in the code:
+`axiomcode impact <target>… [--depth N] [--in <path>] [--delete]`. Targets as written in the code:
 `Owner.method`, `Owner.field`, `Type`, `Owner.method(param)`, `Type<T>`, `Owner.method:local`, a config key.
 Sections: **must change with it** · **produces or writes it** · **reads or uses it** (by rung) · **reaches those**
-(transitively: what can reach a user, not where the value goes) · tests · `verified:` · `bound:`. It finds config
+(transitively: what can reach a user, not where the value goes) · tests, counted by rung with the strong ones named · `verified:` · `bound:`. For the full test list ask second: `--tests-only` (grouped by rung and file), `--why` for routes, `--tests-in <file>` to narrow. It finds config
 keys, injected beans and handlers registered as values — none has a call site. Detail: `reference/impact.md`.
 
 ## changed · test-impact — from an edit

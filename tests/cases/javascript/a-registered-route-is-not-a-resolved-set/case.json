@@ -43,9 +43,11 @@
     "--tests"
    ],
    "want": [
-    "[registered] pipeline.test.js"
+    "[registered] 1 test(s) in 1 file(s):",
+    "pipeline.test.js"
    ],
    "avoid": [
+    "[by name] 1 test(s)",
     "[by name] pipeline.test.js"
    ]
   },

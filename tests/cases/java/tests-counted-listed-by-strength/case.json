@@ -1,0 +1,108 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "without --tests every test is COUNTED, the strong-route ones are named, and the full list is one flag away (#1194)",
+   "run": [
+    "impact",
+    "Rates.rate"
+   ],
+   "want": [
+    "4 of",
+    "[sound] RatesTest::doublesTheRate",
+    "[sound] QuoteTest::totalOfZero",
+    "test files:",
+    "--tests-only lists all 4"
+   ],
+   "avoid": [
+    "QuoteTest.java (3):"
+   ]
+  },
+  {
+   "why": "the strong-route names are capped at --limit with a count of the rest, never cut silently (#1194)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--limit",
+    "1"
+   ],
+   "want": [
+    "[sound] RatesTest::doublesTheRate",
+    "… +3 more on a strong route (--limit N)"
+   ],
+   "avoid": [
+    "QuoteTest::totalOfZero"
+   ]
+  },
+  {
+   "why": "--tests lists every test grouped by rung and by test file, with a count per file and no per-test chain (#1194)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--tests"
+   ],
+   "want": [
+    "QuoteTest.java (3):",
+    "QuoteTest::totalAddsOne",
+    "QuoteTest::totalOfZero",
+    "QuoteTest::totalOfMany",
+    "RatesTest::doublesTheRate",
+    "reads or uses it"
+   ],
+   "avoid": [
+    "→ Rates.rate"
+   ]
+  },
+  {
+   "why": "--tests-only prints the tests section and what qualifies it, and none of the other sections (#1194)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--tests-only"
+   ],
+   "want": [
+    "change: Rates.rate",
+    "QuoteTest::totalOfMany",
+    "verified:"
+   ],
+   "avoid": [
+    "reads or uses it",
+    "reaches those through resolved calls",
+    "entry points"
+   ]
+  },
+  {
+   "why": "--why adds each test's route, and --tests-in narrows the listing to matching test files (#1194)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--tests-only",
+    "--why",
+    "--tests-in",
+    "QuoteTest"
+   ],
+   "want": [
+    "listing test files under *QuoteTest* only (3 of 4)",
+    "Quote.total → Rates.rate"
+   ],
+   "avoid": [
+    "RatesTest::doublesTheRate"
+   ]
+  },
+  {
+   "why": "--limit caps the names per file and says how many more there are — nothing is dropped without a count (#1194)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--tests",
+    "--limit",
+    "1"
+   ],
+   "want": [
+    "QuoteTest.java (3):",
+    "… +2 more (--limit N)"
+   ]
+  }
+ ]
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json]
+"""axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--json]
    what has to be looked at again when a declaration changes — and how sure each entry is.
 
 A target is a declaration, written as it appears in the code. Its kind is read from the index, never guessed:
@@ -35,7 +35,10 @@ The answer has the same shape for every kind and every language:
                               [text]      the name found in the source where the parser records no line (Java type
                                           references); a same-named other thing is possible
     reaches those           everything that can reach a touched callable through resolved calls, by hop — the
-                            transitive impact — with the entry points and tests among them (--tests lists the tests)
+                            transitive impact — with the entry points and tests among them. The tests are always
+                            COUNTED, by rung, with the strong-route ones named and the top test files; --tests lists
+                            them all by rung and test file, --tests-only prints only that, --why adds each route, and
+                            --tests-in <path> narrows the listing (not the closure) to test files containing it
     bound                   the unresolved calls inside the impacted set: the graph cannot see what those reach, so the
                             set is a lower bound on the real one
 Every closure is cross-checked against a plain BFS over the same facts (the `verified:` line). The tool infers nothing
@@ -1327,9 +1330,16 @@ def rank_targets(I, g, text, top=5):
     return [(a, b, c, d, e) for a, b, c, d, e, _ in out][:top]
 
 def main(argv):
-    args = list(argv); depth = 40; limit = 25; IN = None; want_tests = '--tests' in args; as_json = '--json' in args; kind = None
+    args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
+    # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
+    # --why adds each listed test's route; --tests-in narrows the LISTING (not the closure, which --in would
+    # cut short and so lose every route that passes through code outside the path) to test files containing it
+    tests_only = '--tests-only' in args; want_tests = '--tests' in args or tests_only; want_why = '--why' in args
     want_delete = '--delete' in args; want_warm = '--warm' in args; want_depends = '--depends' in args
-    args = [a for a in args if a not in ('--tests', '--json', '--delete', '--warm', '--depends')]
+    args = [a for a in args if a not in ('--tests', '--tests-only', '--why', '--json', '--delete', '--warm', '--depends')]
+    tests_in = None
+    if '--tests-in' in args:
+        i = args.index('--tests-in'); tests_in = args[i + 1]; del args[i:i + 2]
     from_text = None; take_top = 0
     if '--from-text' in args:
         i = args.index('--from-text'); from_text = args[i + 1]; del args[i:i + 2]
@@ -1368,7 +1378,7 @@ def main(argv):
         chosen = ranked[:take_top]
         print(f"\nimpact of the top {len(chosen)} as one change set: " + ', '.join(c[3] for c in chosen) + "\n", file=out)
         args = [c[3] for c in chosen]
-    if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k] [--delete]\n"
+    if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--json] [--kind k] [--delete]\n"
                      "       axiomcode impact --from-text <file|-> [<repo>] [--top N]   — an issue report in, the candidate declarations out\n"
                      "       axiomcode impact --warm [<repo>]                            — export the graph's facts now so the first query need not")
     g = G(repo); g.IN = IN; I = Impact(g); prof('graph loaded, path facts exported')
@@ -1636,6 +1646,10 @@ def main(argv):
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
     for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
+    # --tests-only: every section is still COMPUTED (the tests are derived from them) but only the tests section,
+    # and the verified / bound lines that qualify it, are printed
+    _stdout = sys.stdout
+    if tests_only: sys.stdout = io.StringIO()
     for k, lab, _ in targets:
         if k in ('method', 'field', 'type'):
             nm = lab.split()[-1].split('(')[0].split('.')[-1]
@@ -1757,7 +1771,7 @@ def main(argv):
             byf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in hidden)
             print(f"    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--limit N for all of them)")
         if tst and not want_tests:
-            print(f"    +{len({c for c, *_ in tst})} test callable(s) also reach it, not listed here — `axiomcode test-impact` names them and the command that runs them (--tests lists them inline)")
+            print(f"    +{len({c for c, *_ in tst})} test callable(s) also reach it, not listed here — `axiomcode test-impact` names them and the command that runs them (--tests lists them by file)")
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
@@ -1790,6 +1804,7 @@ def main(argv):
     all_tfiles = {r[0] for r in g.q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
     sure = [m for m, c in test_cert.items() if c == 'sound' and tests[m][0] <= 3]
     weak_tests = [m for m in tests if m not in sure_set]
+    sys.stdout = _stdout
     print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
     if weak_tests: print(f"    {len(weak_tests)} of them only through a dependent that is not an exact edge")
     if tests:
@@ -1801,10 +1816,48 @@ def main(argv):
         if all_tfiles and len(tfiles) >= 0.6 * len(all_tfiles):
             print(f"    fan-in: {len(tfiles)} of {len(all_tfiles)} test file(s) reach this method — at that fan-in reaching says little about failing"
                   " (measured on this repo's own mutation truth: a hub answer is right about 3 test files in 10, a narrow one about 6 in 10, and a sound route within 3 hops about 9 in 10)")
-    if want_tests:
-        for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'], x[0])):
-            print(f"    [{test_cert[m]}] {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
-            if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
+    # THE TESTS ARE COUNTED IN FULL AND LISTED BY STRENGTH (#1194). One line per test with its chain was 169k of a
+    # 180k answer on a hub method -- 435 tests, 433 of them through routes this answer itself calls weak -- which
+    # no agent can read inline, so it was saved to a file and re-read piecemeal. Every test is still accounted for:
+    # the strong ones by name here, all of them by rung and file under --tests, each route under --why.
+    STRONG = ('sound', 'defines', 'at import', 'one of a set')
+    tname = lambda m: f"{g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}"
+    torder = lambda m: (tests[m][0], g.sym[m]['display'], g.loc(m), m)
+    def route(m):
+        d, fx = tests[m]
+        if fx: return f"via {g.disp(fx)}"
+        return ' → '.join(g.disp(x) for x in chains[m]) if d > 0 and len(chains.get(m, [])) > 1 else ''
+    if tests and not want_tests:
+        strong = sorted((m for m in tests if test_cert[m] in STRONG), key=torder)
+        for m in strong[:limit]:
+            print(f"    [{test_cert[m]}] {tname(m)}   {g.loc(m)}   {tests[m][0]} hop(s)")
+        if len(strong) > limit: print(f"    … +{len(strong) - limit} more on a strong route (--limit N)")
+        byf = collections.Counter(g.sym[m]['file'] for m in tests)
+        print("    test files: " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (f" … +{len(byf) - 6}" if len(byf) > 6 else ''))
+        print(f"    --tests-only lists all {len(tests)} by rung and file; --why adds each one's route")
+    if want_tests and tests:
+        groups = collections.defaultdict(lambda: collections.defaultdict(list))
+        for m in tests:
+            if tests_in and tests_in not in (g.sym[m]['file'] or ''): continue
+            groups[test_cert[m]][g.sym[m]['file']].append(m)
+        if tests_in: print(f"    listing test files under *{tests_in}* only ({sum(len(ms) for fs in groups.values() for ms in fs.values())} of {len(tests)})")
+        for cert in sorted(groups, key=lambda c: CERT_RANK[c]):
+            files = groups[cert]
+            print(f"    [{cert}] {sum(len(ms) for ms in files.values())} test(s) in {len(files)} file(s):")
+            for f, ms in sorted(files.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+                ms = sorted(ms, key=torder); shown = ms[:limit]
+                # the fixture a test reaches the change through is WHY it is listed, and it is short: once per file
+                # when the file's tests share it, a count when they do not (each one's own is under --why)
+                fxs = {g.disp(tests[m][1]) for m in ms if tests[m][1]}
+                via = (f" via {next(iter(fxs))}" if len(fxs) == 1 else f" via {len(fxs)} fixtures" if fxs else '')
+                if want_why:
+                    print(f"      {f} ({len(ms)}){via}:")
+                    for m in shown:
+                        r = route(m); print(f"        {tname(m)}  {tests[m][0]} hop(s)" + (f"   {r}" if r else ''))
+                    if len(ms) > limit: print(f"        … +{len(ms) - limit} more (--limit N)")
+                else:
+                    print(f"      {f} ({len(ms)}){via}: " + ', '.join(tname(m) for m in shown) + (f" … +{len(ms) - limit} more (--limit N)" if len(ms) > limit else ''))
+        if not want_why: print("    --why adds each test's route (with --tests-in <file> to keep it short)")
     # --depends: the downstream direction (#761). `impact` walks callers only, so what the target itself calls is
     # never reported, and that is what an agent editing it has to change alongside. Same edges, read the other way;
     # the same certainty vocabulary, printed as its own section so the two questions are never confused.

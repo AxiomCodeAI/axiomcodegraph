@@ -152,8 +152,11 @@ line and names the constructor query to run; take that suggestion before acting 
   It is a ranking, not a test selection; a narrow answer can be used as one.
 - **reaches those through resolved calls** — the transitive impact: everything that can reach a touched callable, by hop and by
   file, with the entry points among the reached callables *and* the direct dependents (a `@PostMapping` handler that reads the
-  field is where the change is observed from, though nothing resolved calls it); `--tests` lists the tests, each with its
-  shortest chain to the change. A test counts when
+  field is where the change is observed from, though nothing resolved calls it). The tests are always counted by rung, with
+  the strong-route ones (`[sound]`, `[one of a set]`) named and the top test files; `--tests` lists every one by rung and test
+  file, `--tests-only` prints only that, `--why` adds each test's shortest chain to the change, and `--tests-in <path>` narrows
+  the listing (not the closure) to test files containing it. Listing all of them with their chains by default was 169k
+  characters for a hub method — 435 tests, 433 of them on weak routes (#1194). `--json` carries the full list. A test counts when
   its own body reaches the change **or a fixture its framework runs first does** (a constructor, a static initializer, `@Before*`,
   `setUp` — a convention table, printed as such), **or it names the key the change is registered under** (below).
   `--in <path>` and `--depth N` bound it; `--json` is the same answer as data.
