@@ -421,4 +421,5 @@ def cli(argv):
 
 
 if __name__ == '__main__':
+    import ax_pages; ax_pages.install('context')      # pages and a next step (#1202)
     cli(sys.argv[1:])

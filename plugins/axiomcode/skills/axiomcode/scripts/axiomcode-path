@@ -1004,6 +1004,7 @@ def selftest(lang):
     return 0 if not tool_bugs else 1
 
 if __name__ == '__main__':
+    import ax_pages; ax_pages.install('path')         # pages and a next step (#1202)
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'): print(__doc__); sys.exit(0)
     if args[0] == '--selftest': sys.exit(selftest(args[1] if len(args) > 1 else 'typescript'))

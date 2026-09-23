@@ -414,4 +414,5 @@ def main(argv):
 
 if __name__ == '__main__':
     if sys.argv[1:] and sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
+    import ax_pages; ax_pages.install('changed')      # pages and a next step (#1202)
     sys.exit(main(sys.argv[1:]))
