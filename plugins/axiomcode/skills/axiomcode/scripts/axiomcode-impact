@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--json]
+"""axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--page N|all] [--budget N] [--json]
    what has to be looked at again when a declaration changes — and how sure each entry is.
 
 A target is a declaration, written as it appears in the code. Its kind is read from the index, never guessed:
@@ -14,6 +14,9 @@ A target is a declaration, written as it appears in the code. Its kind is read f
     --kind method|field|type|param|typeparam|var|config  when the same name is declared as more than one kind
            (the language's own word is accepted too: class / interface / enum / namespace → type, const /
             enum_member / variable → field, function / constructor → method)
+    --page N | all  ·  --budget N                      the answer is printed in pages of ~2000 tokens (--budget); every page
+                                                       carries the counts of the whole answer, the rows come strongest first,
+                                                       and the footer says how to get the next page. --json is never paged
     --delete                                           add a verdict: is it safe to delete, and what the graph cannot vouch for
     --depends                                          the OTHER direction: what this declaration calls, which is what an agent
                                                        editing it usually has to change alongside. Dependents answer "who breaks
@@ -2030,6 +2033,88 @@ def main(argv):
         print("note: " + REGISTERED_NOTE)
     return 0
 
+# ── pages (#1198) ─────────────────────────────────────────────────────────────────────────────────────────
+# The answer is COMPUTED in full and only PRINTED in pages. An agent keeps every answer in its context for the
+# rest of its session, and on a common name most of a full answer is low-certainty rows it never uses (51
+# `[by name]` users of `run`, 642 reached callables): one call was 15k characters re-read on every later turn.
+# Every page therefore carries the complete counts -- each section's own header line -- so page 1 can never
+# understate the reach; the rows follow in a fixed order, strongest first, and the footer says how to go on.
+PAGE_BUDGET = 2000                      # tokens per page, at ~4 characters a token
+WEAK_ROW = re.compile(r'^\s{4}\[(by name|text|alongside|in scope)\]'
+                      r'|^\s{6}\s?\d+ hop\(s\)  |^\s{6}… \+')     # low-certainty users, and the entry-point list, go last
+QUALIFIER = re.compile(r'^(verified:|bound:|note:|through a call the engine could not resolve|outside the graph:)')
+
+def paginate(text, page, budget, argv):
+    lines = text.rstrip('\n').split('\n')
+    if page == 'all' or len(text) <= budget * 4:
+        return text
+    head = []
+    while lines and (lines[0].startswith('change:') or (head and lines[0].startswith('  ') and not lines[0].startswith('    '))):
+        head.append(lines.pop(0))
+    quals = [l for l in lines if QUALIFIER.match(l)]
+    body = [l for l in lines if not QUALIFIER.match(l)]
+    # sections: a line at column 0 opens one, indented lines belong to it
+    sections, cur = [], None
+    for l in body:
+        if not l.startswith(' ') or cur is None:
+            cur = [l, []]; sections.append(cur)
+        else:
+            cur[1].append(l)
+    def totals_for(shown):
+        # every section's own count line, except those the page already prints in full above its rows
+        out = []
+        for title, rows in sections:
+            if title.startswith('(') or title in shown: continue      # the `alongside` legend is not a count
+            out.append('  ' + title)
+            out += ['    ' + r.strip() for r in rows if r.lstrip().startswith(('how sure each route', 'by hop:'))]
+        return out
+    totals = totals_for(set())
+    # rows in a fixed order: every section's rows, with the low-certainty users moved after all of them
+    strong, weak = [], []
+    for title, rows in sections:
+        keep = [r for r in rows if not WEAK_ROW.match(r)]
+        low = [r for r in rows if WEAK_ROW.match(r)]
+        if keep or not low: strong.append((title, keep))
+        if low: weak.append((title + '  — low-certainty rows', low))
+    blocks = strong + weak
+    fixed = sum(len(l) + 1 for l in head + quals) + sum(len(l) + 1 for l in totals) + 400
+    room = max(1500, budget * 4 - fixed)
+    pages, cur, used = [], [], 0
+    for title, rows in blocks:
+        chunk = [title] + rows
+        for i, l in enumerate(chunk):
+            if used + len(l) + 1 > room and cur:
+                pages.append(cur); cur, used = [], 0
+                if i > 0: cur.append(title + '  (continued)'); used += len(title) + 13
+            cur.append(l); used += len(l) + 1
+    if cur: pages.append(cur)
+    n = len(pages)
+    if page < 1 or page > n:
+        return f"page {page} does not exist: this answer has {n} page(s) at --budget {budget}\n"
+    base = ' '.join(a for a in argv if a not in ('--page',))
+    body = pages[page - 1]; rest = totals_for({l for l in body if not l.startswith(' ')})
+    out = head + [f'page {page} of {n}:'] + body + ([''] + ['also in this answer (counts are for the whole answer):'] + rest if rest else []) + [''] + quals
+    nxt = f"`--page {page + 1}` for the next" if page < n else "this is the last page"
+    out.append(f"page {page} of {n} at ~{budget} tokens a page — {nxt}; `--page all` for everything, `--budget N` to change the size;"
+               " narrow instead with --in <path>, --depth N or --tests-only")
+    return '\n'.join(out) + '\n'
+
 if __name__ == '__main__':
     if not sys.argv[1:] or sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
-    sys.exit(main(sys.argv[1:]))
+    argv = list(sys.argv[1:]); page, budget = 1, PAGE_BUDGET
+    if '--page' in argv:
+        i = argv.index('--page'); v = argv[i + 1]; page = 'all' if v == 'all' else int(v); del argv[i:i + 2]
+    if '--budget' in argv:
+        i = argv.index('--budget'); budget = int(argv[i + 1]); del argv[i:i + 2]
+    if '--json' in argv:
+        sys.exit(main(argv))
+    buf, real = io.StringIO(), sys.stdout
+    sys.stdout = buf
+    try:
+        rc = main(argv)
+    except SystemExit as e:
+        sys.stdout = real; real.write(buf.getvalue()); raise
+    finally:
+        sys.stdout = real
+    real.write(paginate(buf.getvalue(), page, budget, argv) if rc == 0 else buf.getvalue())
+    sys.exit(rc)
