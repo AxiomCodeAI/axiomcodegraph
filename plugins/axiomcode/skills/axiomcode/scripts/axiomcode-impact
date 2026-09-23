@@ -799,6 +799,10 @@ class Impact:
         W('value_pair', sorted({(r[0], r[1]) for r in g.q(
             "SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE basis = 'value' AND base_method_id <> candidate_method_id")})
             if g.has('dispatch_candidates') else [])
+        # …and, where the engine names the holder a call goes through, the exact caller of each stored function: Java's
+        # base is the functional interface's method, shared by every holder of that type, so `value_pair` alone would
+        # make every `.apply` caller a direct user of every stored method reference
+        W('value_call', sorted({(r[0], r[1]) for r in g.q("SELECT c0, c1 FROM ext_fn_value_call")}) if g.has('ext_fn_value_call') else [])
         # a project's own decorator that wraps a generating one (`def frozen(cls): return dataclass(frozen=True)(cls)`,
         # `Accessors = ...`): if the declaration's own source names a generator, it generates the same members
         gen_table = {d: set(ws) for d, ws in GENERATED.items()}

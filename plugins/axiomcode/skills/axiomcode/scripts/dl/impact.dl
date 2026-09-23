@@ -216,10 +216,21 @@ contract(q, b, "it implements this — the engine records a dispatch candidate h
 // nothing" and "the change is local" about a function the whole request path runs. `one of a set`, because the
 // field may hold another function at that call (the ternary's other arm, a caller-supplied option).
 .decl value_pair(b:symbol, m:symbol)                               .input value_pair
-contract(q, b, "it is stored in a field of this function type — a call through that field runs it") :-
+contract(q, b, "it is held by a field, variable or parameter of this function type — a call through that holder runs it") :-
     target(q, "method", m, _), value_pair(b, m), !target(q, _, b, _).
-direct(q, c, "uses", "calls it through a field that holds it", "one of a set", f, l) :-
-    target(q, "method", m, _), value_pair(b, m), calls(c, b, _, f, l), !inside_target(q, c).
+// ONLY WHERE THE CALLER HAS NO ROW ALREADY. An annotated `const f: T = …` is often ALSO bound to its initializer by the
+// resolver, so the same caller arrived twice — "calls it" and "calls it through a field that holds it" — which is
+// noise, not a second fact.
+.decl calls_target_directly(q:symbol, c:symbol)
+calls_target_directly(q, c) :- target(q, "method", m, _), calls(c, m, _, _, _).
+direct(q, c, "uses", "calls it through a field, variable or parameter that holds it", "one of a set", f, l) :-
+    target(q, "method", m, _), value_pair(b, m), calls(c, b, _, f, l), !inside_target(q, c), !calls_target_directly(q, c).
+// Where the engine names the holder a call goes through (`value_call`, Java), that is the caller; the pair's base is
+// the functional interface's method, which every holder of the type shares, and `calls` never carries it (it is not
+// client code), so the rule above stays silent there rather than crediting every `.apply` caller.
+.decl value_call(c:symbol, m:symbol)                               .input value_call
+direct(q, c, "uses", "calls it through a field, variable or parameter that holds it", "one of a set", "", 0) :-
+    target(q, "method", m, _), value_call(c, m), !inside_target(q, c), !calls_target_directly(q, c).
 contract(q, o, "declares the same member in a subtype (a name match: this graph has no override table)") :- flag("no_overrides"),
     target(q, "method", m, _), owner(m, t), member(t, m, n, _), extends(s, t), member(s, o, n, _), o != m.
 contract(q, o, "declares the same member in a supertype (a name match: this graph has no override table)") :- flag("no_overrides"),
