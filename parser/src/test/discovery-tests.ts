@@ -255,11 +255,33 @@ const CHECKS: Check[] = [
       };
       const root = build(tmp, 'exclude-tests', layout);
       const withTests = (await new ProjectScanner().scanForProjects(root)).map((p) => path.relative(root, p.path) || '.');
-      const without = (await new ProjectScanner().scanForProjects(root, 3, true)).map((p) => path.relative(root, p.path) || '.');
+      const without = (await new ProjectScanner().scanForProjects(root, Infinity, true)).map((p) => path.relative(root, p.path) || '.');
       const testRoots = (list: string[]) => list.filter((p) => /^(test|tests|__tests__|e2e)(\/|$)/.test(p));
       if (testRoots(withTests).length === 0) return `control: without the flag no test directory became a root (${withTests}) — the check proves nothing`;
       if (testRoots(without).length > 0) return `with excludeTests these test directories are still roots: ${testRoots(without)}`;
       if (!without.some((p) => p === '.' || p.startsWith('src'))) return `with excludeTests the source itself vanished: ${without}`;
+      return null;
+    },
+  },
+  {
+    name: 'a-file-under-empty-directories-is-found-at-any-depth',
+    proves: 'a source file four directories down, under directories that hold no source and no '
+      + 'manifest, is under a discovered project for Python, TypeScript, JavaScript and C#',
+    rulesOut: 'a discovery depth limit: the shallow detectors claim only a directory that holds '
+      + 'source itself, so below the limit such a file had no root, was never analysed, and no '
+      + 'skipped-file report named it (#1176)',
+    run: async (tmp) => {
+      const CS = 'namespace N { public class C { public void M() { } } }\n';
+      const root = build(tmp, 'deep-orphans', {
+        'a/b/c/d/orphan.py': PY,
+        'e/f/g/h/orphan.ts': TS,
+        'i/j/k/l/orphan.js': JS,
+        'm/n/o/p/Orphan.cs': CS,
+      });
+      const found = await projectsIn(root);
+      const want = ['PYTHON @ a/b/c/d', 'TYPESCRIPT @ e/f/g/h', 'JAVASCRIPT @ i/j/k/l', 'CSHARP @ m/n/o/p'];
+      const missing = want.filter((w) => !found.some((f) => f.toUpperCase() === w.toUpperCase()));
+      if (missing.length > 0) return `no project covers ${missing.join(', ')}; discovered: ${found.join(', ') || 'nothing'}`;
       return null;
     },
   },
