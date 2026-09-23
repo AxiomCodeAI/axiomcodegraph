@@ -33,6 +33,7 @@ import { CsModuleContext } from '@/parsers/csharp/extractors/cs-module-extractor
 import { implicitFrameworkSymbols } from '@/parsers/csharp/extractors/preproc-context';
 import { EntityUtils } from '@/utils/entity-utils';
 import { CsRelationWriter } from '@/workflows/csharp/cs-relation-writer';
+import { governingProject, readProjectConfig } from '@/workflows/csharp/cs-project-config';
 
 /**
  * Runs the C# front end over one root and writes the fact base.
@@ -47,9 +48,10 @@ import { CsRelationWriter } from '@/workflows/csharp/cs-relation-writer';
  * ## `targetFramework` and `defineConstants` are inputs
  *
  * They are in `cs_module`'s primary key, and a multi-targeting project has more
- * than one answer for the same file. This analyzer takes them from its options
- * and does not read a `.csproj` — reading one would eventually mean evaluating
- * MSBuild, and no .NET runs in this process.
+ * than one answer for the same file. A caller that passes them fixes them for
+ * every file (the test suites do). A caller that passes neither gets them from
+ * the project that compiles each file — cs-project-config.ts, a subset of MSBuild
+ * evaluation that runs no .NET.
  */
 export interface CsAnalyzeOptions {
   readonly rootDir: string;
@@ -205,6 +207,7 @@ export class CSharpProjectAnalyzer {
         ? options.targetFrameworks
         : [CSHARP_DEFAULT_TARGET_FRAMEWORK];
     const defineConstants = options.defineConstants ?? [];
+    const readsProjects = options.targetFrameworks === undefined && options.defineConstants === undefined;
 
     // PASS 1 — discovery. Sorted, so two runs walk the directory in the same
     // order and the byte-for-byte determinism gate has something to be true of.
@@ -236,25 +239,41 @@ export class CSharpProjectAnalyzer {
           continue;
         }
 
-        for (const targetFramework of frameworks) {
+        // THE GOVERNING PROJECT decides the framework and the symbols, unless the
+        // caller fixed them. See cs-project-config.ts for why this is read at all.
+        const project = readsProjects
+          ? readProjectConfigFor(absoluteFilePath, rootDir, options.baseMservPath)
+          : undefined;
+        const fileFrameworks =
+          project !== undefined && project.targetFramework !== '' ? [project.targetFramework] : frameworks;
+        const fileDefines = project !== undefined ? project.defineConstants : defineConstants;
+        const implicitFrameworkDefines = project === undefined || project.implicitFrameworkDefines;
+
+        for (const targetFramework of fileFrameworks) {
           // The RESOLVED set, per framework: what the caller supplied plus what
           // the SDK injects. Two frameworks therefore differ in the key even
           // when the .csproj lists the same constants for both, which is what
           // makes the two emissions distinguishable rather than merely
           // differently labelled.
           const activeSymbols = [
-            ...defineConstants,
-            ...implicitFrameworkSymbols(targetFramework),
+            ...fileDefines,
+            ...(implicitFrameworkDefines ? implicitFrameworkSymbols(targetFramework) : []),
           ];
           const context: CsModuleContext = {
             targetFramework,
             defineConstantsKey: defineConstantsKeyOf(activeSymbols),
-            langVersion: options.langVersion ?? '',
+            langVersion: options.langVersion ?? project?.langVersion ?? '',
             nullableContextDefault:
               options.nullableContextDefault ?? CsNullableContext.INHERITED,
-            projectPath: '',
+            projectPath: project?.projectPath ?? '',
+            // NOT the project's assembly name, although it is known. The engine
+            // treats an assembly as a wall a simple name cannot cross
+            // (type-resolution.dl, THE ASSEMBLY GUARD), and nothing tells it
+            // which assemblies REFERENCE which — so filling this in severs every
+            // test project from the code it tests. One assembly for the whole
+            // tree, as before, until project references are facts.
             assemblyName: '',
-            implicitUsingsEnabled: false,
+            implicitUsingsEnabled: project?.implicitUsings ?? false,
           };
 
           try {
@@ -265,8 +284,9 @@ export class CSharpProjectAnalyzer {
               sourceText,
               serviceVersionLinkHash,
               context,
-              defineConstants,
-              implicitUsings: options.implicitUsings,
+              defineConstants: fileDefines,
+              implicitUsings: options.implicitUsings ?? project?.usings,
+              implicitFrameworkDefines,
             });
             await writers.modules.append(facts.modules as readonly CsModuleRegistry[]);
             await writers.types.append(facts.types as readonly CsTypeRegistry[]);
@@ -380,6 +400,36 @@ function countsOf(writers: Record<keyof typeof RELATION_FILES, CsRelationWriter>
         cs_attribute_argument: writers.attributeArguments.rowCount,
         cs_comment: writers.comments.rowCount,
         cs_preproc_region: writers.preprocRegions.rowCount,
+  };
+}
+
+/**
+ * The configuration of the project that governs a file, with its path made
+ * relative to the tree. Undefined when no `.csproj` governs it, which leaves the
+ * file under `unspecified` exactly as before.
+ */
+function readProjectConfigFor(
+  absoluteFilePath: string,
+  rootDir: string,
+  baseMservPath: string
+): { targetFramework: string; defineConstants: readonly string[]; implicitFrameworkDefines: boolean;
+     langVersion: string; projectPath: string;
+     implicitUsings: boolean; usings: readonly string[] } | undefined {
+  // The search stops at the tree being extracted, never above it: a project file
+  // outside the tree is not part of what was handed in.
+  const stop = path.resolve(baseMservPath).length < path.resolve(rootDir).length ? baseMservPath : rootDir;
+  const projectFile = governingProject(absoluteFilePath, stop);
+  if (projectFile === undefined) return undefined;
+  const config = readProjectConfig(projectFile);
+  if (config === null) return undefined;
+  return {
+    targetFramework: config.targetFramework,
+    defineConstants: config.defineConstants,
+    implicitFrameworkDefines: config.implicitFrameworkDefines,
+    langVersion: config.langVersion,
+    projectPath: path.relative(baseMservPath, config.projectFile),
+    implicitUsings: config.implicitUsings,
+    usings: config.usings,
   };
 }
 

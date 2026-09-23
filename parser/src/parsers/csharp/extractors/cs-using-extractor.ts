@@ -41,8 +41,8 @@ import {
  * file, which is exactly the set `xs.Where(…)` needs.
  *
  * So this extractor is handed them, the same way it is handed
- * `DefineConstants`. Inferring them would mean evaluating MSBuild, and no .NET
- * runs in this process.
+ * `DefineConstants` — by the analyzer, from the governing project's
+ * `<ImplicitUsings>` and `<Using>` items (cs-project-config.ts).
  */
 
 export interface CsUsingExtractionOptions {
