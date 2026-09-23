@@ -1807,7 +1807,19 @@ def main(argv):
     if weak: print(f"    {len(weak)} of those {len(reached)} are reached ONLY through a dependent that is not an exact edge ([by name], [text], [one of a set]): they stand or fall with it")
     if reached:
         byhop = collections.Counter(reached.values()); print("    by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
-        byfile = collections.Counter(g.sym[m]['file'] for m in reached); print("    files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(8)) + (f" … +{len(byfile) - 8}" if len(byfile) > 8 else ''))
+        # SOURCE FILES IN FULL, TEST FILES COUNTED. The top eight files by callable count are nearly always test files
+        # (hundreds of test arrows each), so the source files that can end up calling the change -- what a reviewer
+        # or an agent asked for -- sat behind "… +99", and agents rebuilt that list with grep. The test files are
+        # listed, by rung, in the tests section; here they are a count.
+        near = {}
+        for m, d in reached.items():
+            f = g.sym[m]['file']; near[f] = min(d, near.get(f, d))
+        tfiles = {g.sym[m]['file'] for m in reached if _is_t(m)}
+        src = sorted((f for f in near if f not in tfiles), key=lambda f: (near[f], f))
+        ntest = len(near) - len(src)
+        CAP = 60
+        if src: print(f"    source files ({len(src)}, nearest first): " + ', '.join(f"{f} ({near[f]})" for f in src[:CAP]) + (f" … +{len(src) - CAP} (--page all)" if len(src) > CAP else ''))
+        if ntest: print(f"    test files: {ntest} — listed under tests below (--tests-only for all of them)")
     if ent:
         # (hop, display) is NOT a total order: several distinct declarations share both — a `cli` test command
         # defined once per test file is the common shape — and the ties then fell back to the order `ent` was
