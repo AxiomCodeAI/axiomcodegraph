@@ -794,6 +794,11 @@ class Impact:
         W('implements_pair', sorted({(r[0], r[1]) for r in g.q(
             "SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE base_method_id <> candidate_method_id")})
             if g.has('dispatch_candidates') else [])
+        # the pairs whose base is a FUNCTION TYPE and whose candidate is a function stored in a field of it (#1206):
+        # the callers of the base call the candidate through that field (impact.dl, `value_pair`)
+        W('value_pair', sorted({(r[0], r[1]) for r in g.q(
+            "SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE basis = 'value' AND base_method_id <> candidate_method_id")})
+            if g.has('dispatch_candidates') else [])
         # a project's own decorator that wraps a generating one (`def frozen(cls): return dataclass(frozen=True)(cls)`,
         # `Accessors = ...`): if the declaration's own source names a generator, it generates the same members
         gen_table = {d: set(ws) for d, ws in GENERATED.items()}

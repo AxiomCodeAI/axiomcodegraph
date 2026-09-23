@@ -209,7 +209,17 @@ contract(q, b, "it overrides this") :- target(q, "method", m, _), override(b, m)
 // the reader is told the thing that is actually true, which is that the declaration implements this.
 .decl implements_pair(b:symbol, m:symbol)                          .input implements_pair
 contract(q, b, "it implements this — the engine records a dispatch candidate here and no override row") :-
-    target(q, "method", m, _), implements_pair(b, m), !override(b, m), !override(m, b), !target(q, _, b, _).
+    target(q, "method", m, _), implements_pair(b, m), !value_pair(b, m), !override(b, m), !override(m, b), !target(q, _, b, _).
+// A FUNCTION STORED IN A FIELD (#1206). `value_pair(b, m)`: m flows into a field whose declared type is the
+// function type b — `this.getPath = options.getPath ?? getPath`, `fetch: T = (req) => …`. A call through the field
+// is typed to b, so its caller is a DIRECT user of m: without this row the answer said "directly touches it:
+// nothing" and "the change is local" about a function the whole request path runs. `one of a set`, because the
+// field may hold another function at that call (the ternary's other arm, a caller-supplied option).
+.decl value_pair(b:symbol, m:symbol)                               .input value_pair
+contract(q, b, "it is stored in a field of this function type — a call through that field runs it") :-
+    target(q, "method", m, _), value_pair(b, m), !target(q, _, b, _).
+direct(q, c, "uses", "calls it through a field that holds it", "one of a set", f, l) :-
+    target(q, "method", m, _), value_pair(b, m), calls(c, b, _, f, l), !inside_target(q, c).
 contract(q, o, "declares the same member in a subtype (a name match: this graph has no override table)") :- flag("no_overrides"),
     target(q, "method", m, _), owner(m, t), member(t, m, n, _), extends(s, t), member(s, o, n, _), o != m.
 contract(q, o, "declares the same member in a supertype (a name match: this graph has no override table)") :- flag("no_overrides"),

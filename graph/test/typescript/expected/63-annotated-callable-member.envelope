@@ -1,0 +1,4 @@
+value	members#<function-type>@26:25 -> members#<arrow>@29
+value	members#<function-type>@38:8 -> members#PropInline.<arrow>
+value	members#NamedCallable.<call-signature> -> members#<arrow>@34
+value	members#NamedCallable.<call-signature> -> members#PropNamed.<arrow>
