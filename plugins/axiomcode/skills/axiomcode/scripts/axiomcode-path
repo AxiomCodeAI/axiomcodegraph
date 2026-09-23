@@ -473,11 +473,20 @@ class G:
         if self.has('dispatch_candidates'):
             disp = {(r[0], r[1]) for r in self.q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id FROM dispatch_candidates dc JOIN methods m ON m.id = dc.candidate_method_id
                 WHERE m.provenance = 'client' AND dc.base_method_id <> dc.candidate_method_id
-                AND (m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated) OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+                AND (dc.basis = 'value' OR m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated) OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+            # `value` (#1206) is exempt from the instantiation narrowing: the candidate is a function STORED in a holder, and it
+            # runs whether or not its owner type is ever constructed (a method group in a static class's delegate field)
             # a hop from a base method to one of its overrides is a dispatch choice whatever tier the engine stored on it (over the
             # fan cap it emits base → candidate rows, #664): label it so, then add the candidates the edge rows do not carry
             have = {(a, b) for a, b, _ in edges}
             edges = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in edges] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]
+        # A CALL THROUGH A HOLDER, where the engine could name the holder (#1206): `ext_fn_value_call(caller, fn)` says the
+        # caller calls through a field / parameter / local that holds fn. Java's base for such a call is the functional
+        # interface's method, shared by every holder of that type, so its `value` pairs are an envelope, not a route —
+        # walking them would make every `.apply` caller a caller of every stored method reference. This is the route.
+        if self.has('ext_fn_value_call'):
+            have = {(a, b) for a, b, _ in edges}
+            edges += [(r[0], r[1], 'dispatch') for r in self.q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call") if (r[0], r[1]) not in have]
         self.write('edge', edges)
         self.write('byname', [(r[0], r[1]) for r in self.q("SELECT DISTINCT s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
         self.write('named', [(r['name'], r['id']) for r in self.sym.values() if r['method_id'] and r['kind'] != 'module' and r['name']])
