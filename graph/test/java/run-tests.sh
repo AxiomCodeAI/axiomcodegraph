@@ -408,9 +408,9 @@ for dir in "$HERE"/cases/*/; do
   # config golden: written only when a case produces rows, so the 57 cases that do not are unaffected,
   # and a pairing that starts or stops firing is a diff rather than a silence.
   # the pipeline writes this relation hyphenated, like every other raw CSV beside it
-  if [ -f "$w/out/raw/remote-edge.csv" ]; then
-    sort "$w/out/raw/remote-edge.csv" > "$w/actual.remote"
-  else : > "$w/actual.remote"; fi
+  # Named, not raw: the ends are METHOD_REGISTRY hashes, which differ between checkouts.
+  python3 "$HERE/tools/normalize_remote.py" "$w/ir" "$w/out/raw" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.remote" 2>"$w/remote.log" || {
+    echo "FAIL (remote report — see $w/remote.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
   rem_rows=$(grep -c . "$w/actual.remote" || true)
   rexp="$HERE/expected/$name.remote"
   if [ "$BLESS" = "1" ]; then

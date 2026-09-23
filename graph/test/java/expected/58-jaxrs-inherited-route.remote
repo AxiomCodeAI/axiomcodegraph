@@ -1,0 +1,5 @@
+http	exact	/orders	testcases.jaxrs.OrderClient#list() -> testcases.jaxrs.OrderResource#list()
+http	exact	/orders	testcases.jaxrs.OrderClient#replaceAll(String) -> testcases.jaxrs.OrderResource#replaceAll(String)
+http	exact	/orders/{id}	testcases.jaxrs.OrderClient#find(String) -> testcases.jaxrs.OrderResource#find(String)
+http	exact	/widgets	testcases.jaxrs.WidgetClient#list() -> testcases.jaxrs.WidgetController#list()
+http	exact	/widgets	testcases.jaxrs.WidgetClient#replaceAll(String) -> testcases.jaxrs.WidgetController#replaceAll(String)
