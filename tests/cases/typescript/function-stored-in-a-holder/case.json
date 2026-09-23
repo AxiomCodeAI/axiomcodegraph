@@ -10,8 +10,8 @@
    ],
    "want": [
     "App.dispatch",
-    "calls it through a field that holds it",
-    "it is stored in a field of this function type"
+    "calls it through a field, variable or parameter that holds it",
+    "it is held by a field, variable or parameter of this function type"
    ],
    "avoid": [
     "directly touches it: nothing",
@@ -67,7 +67,7 @@
    ],
    "want": [
     "price",
-    "calls it through a field that holds it",
+    "calls it through a field, variable or parameter that holds it",
     "checkout"
    ],
    "avoid": [
