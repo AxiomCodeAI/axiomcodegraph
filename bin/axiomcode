@@ -6,20 +6,20 @@
 #   bin/axiomcode <src-dir> <out-dir> [--library <path>[,…]] [--exclude-tests] [--version V]
 #                                     [--language L] [--debug] [engine options]
 #
-# Parses the source tree, solves each language it contains and writes
-# <out-dir>/<lang>/graph.sqlite per language.
+# Parses the source tree, solves each language it contains and writes the graph for
+# each to <out-dir>/<lang>/.
 #
 # Options:
 #   --library <path>[,…]   Dependency and platform roots, as source trees or as IR. A source
 #                          tree is parsed once into <out-dir>/.intermediate/lib/. Calls into
 #                          dependencies are resolved against these roots.
-#   --version <V>          Version stamped on the IR and recorded in graph.sqlite
+#   --version <V>          Version stamped on the IR and recorded in the graph
 #                          (run.source_version). Defaults to the source's git commit, or
 #                          v1.0.0 outside a checkout.
 #   --exclude-tests        Exclude test code. Included by default.
 #   --language <L>         Restrict the run to one language: java, typescript, python or
 #                          javascript.
-#   --debug                Also write csv/*.csv and keep raw/ beside each graph.sqlite.
+#   --debug                Also write csv/*.csv and keep raw/ beside each graph.
 #
 # Engine options:
 #   --dispatch-cap <N|off>   --lib-depth <N>   --jdk-depth <N>   --taint <on|off>
