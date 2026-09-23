@@ -473,7 +473,9 @@ class G:
         if self.has('dispatch_candidates'):
             disp = {(r[0], r[1]) for r in self.q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id FROM dispatch_candidates dc JOIN methods m ON m.id = dc.candidate_method_id
                 WHERE m.provenance = 'client' AND dc.base_method_id <> dc.candidate_method_id
-                AND (m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated) OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+                AND (dc.basis = 'value' OR m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated) OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+            # `value` (#1206) is exempt from the instantiation narrowing: the candidate is a function STORED in a holder, and it
+            # runs whether or not its owner type is ever constructed (a method group in a static class's delegate field)
             # a hop from a base method to one of its overrides is a dispatch choice whatever tier the engine stored on it (over the
             # fan cap it emits base → candidate rows, #664): label it so, then add the candidates the edge rows do not carry
             have = {(a, b) for a, b, _ in edges}

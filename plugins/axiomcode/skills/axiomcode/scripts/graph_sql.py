@@ -183,7 +183,8 @@ def impact(repo, target, depth=DEPTH):
         # build is one scan (0.011 s median of five, 9,014 pairs down to 6,614) and the index keeps the hop indexed.
         dispatch = 'dispatch_candidates' in _tables(con)
         if dispatch and 'methods' in _tables(con):
-            inst = ("AND (m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)"
+            # `value` pairs (#1206) are exempt: a function stored in a holder runs whether or not its owner is constructed
+            inst = ("AND (dc.basis = 'value' OR m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)"
                     " OR NOT EXISTS (SELECT 1 FROM type_instantiated))") if 'type_instantiated' in _tables(con) else ""
             con.execute(f"""CREATE TEMP TABLE _disp AS
                 SELECT DISTINCT dc.base_method_id b, dc.candidate_method_id c
@@ -481,7 +482,7 @@ def _edges(q):
     disp = {(r[0], r[1]) for r in q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id
                                        FROM dispatch_candidates dc JOIN methods m ON m.id=dc.candidate_method_id
                                        WHERE m.provenance='client' AND dc.base_method_id<>dc.candidate_method_id
-                                         AND (m.owner_type_id IS NULL
+                                         AND (dc.basis = 'value' OR m.owner_type_id IS NULL
                                               OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)
                                               OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
     e = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in e] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]

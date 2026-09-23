@@ -31,3 +31,26 @@ function retry<T>(fn: () => T): T {
 export function load(): string {
   return runTask(() => new App().fetch('/a?b'))
 }
+
+type Format = (n: number) => string
+
+// Never constructed: only its static method is used, as a VALUE.
+export class Formats {
+  static money(n: number): string {
+    return '$' + n
+  }
+}
+
+// Never constructed in this program either: a Registry arrives from outside, and the
+// function lives in its annotated field.
+export class Registry {
+  format: Format = Formats.money
+}
+
+export function price(registry: Registry, n: number): string {
+  return registry.format(n)
+}
+
+export function checkout(registry: Registry): string {
+  return price(registry, 3)
+}
