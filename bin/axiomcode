@@ -31,6 +31,8 @@
 #                          Solve previously parsed IR.
 #   test [java|typescript|python|javascript|csharp|parser|all] [suite options]
 #                          Run the test suites.
+#   mcp                    Serve the graph to an agent as MCP tools over stdio. Any MCP client
+#                          can start it as: npx -y @axiomcode/code-graph mcp
 # ─────────────────────────────────────────────────────────────────────────────
 set -eu
 # RESOLVE $0 THROUGH SYMLINKS BEFORE THE WALK. npm installs a `bin` entry as a link in
@@ -75,7 +77,7 @@ QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
 query_verbs(){ [ -f "$QUERY" ] && bash "$QUERY" --verbs 2>/dev/null | grep -vx tests || true; }
 is_query_verb(){ query_verbs | grep -qx -- "$1"; }
 usage(){
-  sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,35p' "$0" | sed 's/^# \{0,1\}//'
   if [ -f "$QUERY" ]; then
     echo
     echo 'ASKING THE GRAPH — `axiomcode help <verb>` for any one of them:'
@@ -92,6 +94,13 @@ case "$cmd" in
   -h|--help|help)
     if [ $# -gt 1 ] && is_query_verb "$2"; then exec bash "$QUERY" help "$2"; fi ;;
   "") ;;
+  # THE MCP SERVER IS THE PLUGIN'S, NOT A SECOND ONE. The package already ships plugins/axiomcode/,
+  # so an agent that is not Claude Code gets the same seven tools from one line of MCP config and
+  # no plugin install. launch.sh picks the interpreter and falls back to a built-in protocol
+  # implementation, so nothing beyond the python3 the query verbs already need has to be installed.
+  mcp) shift
+       export AXIOMCODE_PLUGIN_ROOT="$ROOT/plugins/axiomcode"
+       exec bash "$ROOT/plugins/axiomcode/mcp/launch.sh" "$@" ;;
   tests) echo "axiomcode: 'tests' is ambiguous here — 'axiomcode test-impact' for the tests an edit needs," >&2
          echo "           'axiomcode test' for this package's own engine suite." >&2; exit 2 ;;
   *) if is_query_verb "$cmd"; then shift; exec bash "$QUERY" "$cmd" "$@"; fi ;;
@@ -103,6 +112,7 @@ case "$cmd" in
   parser|engine|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;;
   *) [ -d "$cmd" ] || { echo "axiomcode: '$cmd' is neither a verb nor a directory." >&2
        echo "  build:  parser  engine  all  test   (or: axiomcode <src-dir> <out-dir>)" >&2
+       echo "  serve:  mcp" >&2
        echo "  ask:    $(query_verbs | tr '\n' ' ')" >&2
        echo "  \`axiomcode help\` for what each one does." >&2; exit 2; }
      cmd=all;;
