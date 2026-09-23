@@ -395,6 +395,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'provenance', value: 'client', languages: 'all', meaning: 'Declared in the analysed project.' },
   { table: 'methods', column: 'provenance', value: 'lib', languages: 'all', meaning: 'Declared in a staged library IR; listed because an edge reaches it.' },
   { table: 'methods', column: 'provenance', value: 'generated', languages: J, meaning: 'Declared by a compile-time annotation processor: present in the compiled artefact and in every caller\'s source, and in no IR, so the bundle synthesises it to give the edge a target. id `generated:<owner qualified name>#<name>/<arity>`, no file and no line numbers.' },
+  { table: 'methods', column: 'provenance', value: 'generated', languages: C, meaning: 'The Invoke of the delegate held in one field or property: id `generated:<owner qualified name>#<member>.Invoke`, no file and no line numbers. Every call through that member is an edge to it (tier boundary_lib, which is also where the compiler binds the call), and what the member holds is in dispatch_candidates with basis `value`.' },
   { table: 'types', column: 'provenance', value: 'client', languages: 'all', meaning: 'Declared in the analysed project.' },
   { table: 'types', column: 'provenance', value: 'lib', languages: 'all', meaning: 'Declared in a staged library IR.' },
   { table: 'types', column: 'provenance', value: 'external', languages: J, meaning: 'Named by the client as an ancestor (`extends`/`implements`) but declared in no staged IR: id `external:<qualified name>`, category EXTERNAL_TYPE, no file, no members. Kept so the subtype edge survives; stage the library to replace it with the real declaration.' },
@@ -406,7 +407,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'kind', value: 'DEFAULT_METHOD', languages: J, meaning: 'Interface default method.' },
   { table: 'methods', column: 'kind', value: 'CONSTRUCTOR', languages: ['java', 'typescript'], meaning: 'Constructor (Java `<init>`; TypeScript `constructor`).' },
   { table: 'methods', column: 'kind', value: 'STATIC_INITIALIZER', languages: J, meaning: '`static { … }` block.' },
-  { table: 'methods', column: 'kind', value: 'GENERATED_METHOD', languages: J, meaning: 'Synthesised for a member an annotation processor declares, which is in no IR and so has no real methodKind. Always paired with provenance `generated`.' },
+  { table: 'methods', column: 'kind', value: 'GENERATED_METHOD', languages: ['java', 'csharp'], meaning: 'Synthesised for a member no IR declares, so it has no real methodKind: in Java one an annotation processor declares, in C# the Invoke of the delegate a field or property holds. Always paired with provenance `generated`.' },
   { table: 'methods', column: 'kind', value: 'ENUM_CONSTANT_METHOD', languages: J, meaning: 'Method body declared on an enum constant.' },
   { table: 'methods', column: 'kind', value: 'RECORD_ACCESSOR', languages: J, meaning: 'A record component accessor.' },
   { table: 'methods', column: 'kind', value: 'COMPACT_CONSTRUCTOR', languages: J, meaning: 'A record\'s compact canonical constructor.' },
@@ -673,7 +674,7 @@ export const VOCAB: readonly VocabSpec[] = [
   // dispatch_candidates.basis
   { table: 'dispatch_candidates', column: 'basis', value: 'nominal', languages: ['java', 'typescript'], meaning: 'A written extends/implements reaches the candidate\'s owner from the base\'s owner. The strongest evidence there is: the author declared the relationship.' },
   { table: 'dispatch_candidates', column: 'basis', value: 'structural', languages: T, meaning: 'No declaration; the candidate\'s owner satisfies the base\'s owner by SHAPE. Emitted only for supertypes with no nominal implementor at all, so it never competes with a declared answer — but it is a heuristic, and a consumer that wants declarations only filters it out.' },
-  { table: 'dispatch_candidates', column: 'basis', value: 'value', languages: ['java', 'typescript'], meaning: 'A function stored in a field, variable or parameter whose type is the base\'s callable type; a call through that holder may run it. The base is the signature the call resolves to (bodiless), so the pair is how a walk over callers reaches the function that runs. Flow-derived rather than declared: a consumer that wants declarations only filters it out.' },
+  { table: 'dispatch_candidates', column: 'basis', value: 'value', languages: ['java', 'typescript', 'csharp'], meaning: 'A function stored in a field, variable or parameter whose type is the base\'s callable type; a call through that holder may run it. The base is the signature the call resolves to (bodiless), so the pair is how a walk over callers reaches the function that runs. Flow-derived rather than declared: a consumer that wants declarations only filters it out.' },
   { table: 'dispatch_candidates', column: 'basis', value: 'mro', languages: P, meaning: 'The subtype\'s C3 linearisation picks the candidate for that attribute name. Not merely "the subtype declares this name" — a name a sibling base wins is attributed to that sibling.' },
 
   // type_instantiated.how

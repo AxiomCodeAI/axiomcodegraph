@@ -5,7 +5,7 @@ than the numbers.
 
 | | what it is | what it proves | cost |
 |---|---|---|---|
-| `run-tests.sh` | 10 cases, scored against Roslyn | a construct resolves, and its control does not over-resolve | seconds |
+| `run-tests.sh` | 11 cases, scored against Roslyn | a construct resolves, and its control does not over-resolve | seconds |
 | `corpus/run-corpus.sh` | 10 real projects, dev and holdout | the rules generalise beyond what they were written against | ~30 min |
 | `runtime-oracle/` | the subject's own test suite, traced | an edge was actually taken, and which taken edge was missed | ~5 min per subject |
 
@@ -27,6 +27,7 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `08-operators-and-conversions` | `a + b`, `a == b`, `-a` and `(Money)d` on a type that declares them, with built-in operators on the same tokens, the `operator -(Money)` / `operator -(Money, Money)` arity pair, the non-overloadable `&&`/`||`/`??`, and `as` as controls |
 | `09-injected-and-inherited-receivers` | a primary constructor's parameter as a receiver and captured by a lambda, a property and a field inherited from a base, a positional record's property, `this object` and an external `this` type reached from a lambda parameter, and a user-defined operator declared on a base -- each with the control that pins what already resolved: a field receiver, a shadowing local, the property on its own class, the extension gate, and a built-in `==` |
 | `10-generic-substitution` | a member declared `T` read through `IWrap<Settings>`, through a field, through a local, and through a generic base both passed through (`Repo<T> : Base<T>`) and closed at the declaration (`OrderRepo : Base<Order>`), with the controls that pin what a by-position substitution can get wrong: a two-parameter generic whose arguments must not cross, a `List<T>` member that is not a `T`, a base closed with a DIFFERENT type, a renamed parameter, and a non-generic wrapper that resolved before |
+| `11-delegate-fields` | a call through a field holding a delegate -- bare, `this.`, on a receiver, `.Invoke` and `?.Invoke` -- with the function stored by an initializer, `=`, `??=` and `+=` through `?:`, `??` and parentheses. The site's target stays the compiler's (Invoke); what the field holds goes to `dispatch_candidates` with basis `value`, which `tools/delegate-field-value-test.sh` asserts exactly, with the controls: a second field of the same type, a local and a parameter of delegate type, and a field holding a call's RESULT |
 
 ### The acceptance bar's own self-test
 
