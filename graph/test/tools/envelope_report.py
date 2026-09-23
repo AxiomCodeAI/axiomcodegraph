@@ -85,6 +85,10 @@ def main() -> int:
         # pair still records that the envelope crosses the boundary, which is the fact
         # worth regressing on.
         q = name.get(h)
+        # An `external:<type>.<name>` label is already a portable name (no library staged, so
+        # the base is the label the call edge carries — basis `value`, #1206): print it as is.
+        if not q and h.startswith('external:'):
+            return h
         if not q:
             return 'lib:?'
         return f'{q}@{line.get(h, "?")}' if q in shared else q

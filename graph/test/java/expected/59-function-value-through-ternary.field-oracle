@@ -1,0 +1,10 @@
+59-function-value-through-ternary
+  precision 0.8125   (13 correct, 3 wrong)
+  recall    1.0000   (13 of 13 in the bytecode)
+  sites 16   resolved 16 (100.0%)
+  tiers known_edge=16
+  access read=11  write=5
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   probe.App#<init>(Function,boolean) WRITE probe.App#cast
+    WRONG   probe.App#<init>(Function,boolean) WRITE probe.App#getPath
+    WRONG   probe.Router#<init>(boolean) WRITE probe.Router#h

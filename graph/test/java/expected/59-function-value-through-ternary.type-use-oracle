@@ -1,0 +1,8 @@
+59-function-value-through-ternary
+  precision 0.8333   (5 correct, 1 wrong)
+  recall    1.0000   (5 of 5 in the bytecode)
+  references 84   resolved 11 (13.1%)
+  tiers ambiguous_unknown=73  boundary_lib=2  known_edge=9
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts CAST_EXPRESSION=4  FIELD_TYPE=22  LOCAL_VARIABLE=3  METHOD_PARAM=28  METHOD_RETURN=25  OBJECT_CREATION_TYPE=2
+    WRONG   probe.Router CAST_EXPRESSION probe.Handler

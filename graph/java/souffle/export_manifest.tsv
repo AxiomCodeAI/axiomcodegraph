@@ -35,3 +35,4 @@ persistence_entity	persistence-entity.csv
 persistence_field	persistence-field.csv
 persistence_unresolved	persistence-unresolved.csv
 bean_origin	config-bean-origin.csv
+fn_holder_holds	function-holder-holds.csv
