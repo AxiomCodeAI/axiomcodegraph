@@ -123,3 +123,106 @@ call_chain_edge(call, caller, "-", callee, prov, "known_edge", "lambda_body") :-
 call_chain_edge(call, caller, "-", callee, prov, "multi_inferred", "lambda_body") :-
     mref_invoked_at(call, R), fn_value_count(call, n), n >= 2, call_from(call, caller),
     expr_resolves_to_method(R, callee), method_owner(prov, _, callee).
+
+// ============================================================================
+// EXPORT 3: WHAT A FUNCTION-VALUED HOLDER HOLDS, as dispatch-envelope pairs with basis `value` (#1206)
+//
+// The collapsed edges above cover a lambda or method reference assigned to a field DIRECTLY. The
+// shape frameworks actually write puts a choice on the right-hand side, or hands the function in:
+//
+//     this.getPath = strict ? (custom != null ? custom : App::getPath) : App::getPathLoose;
+//     String dispatch(String u) { return getPath.apply(u); }
+//
+// and there the chain stopped at `dispatch -> Function.apply`, so a change to App.getPath reached
+// none of the methods that call it through the field. This section does NOT change what that call
+// site resolves to — the site still says Function.apply, which is what javac compiled, so per-site
+// precision against the bytecode is untouched. It adds to the ENVELOPE instead: "a call resolved to
+// Function.apply, made through this holder, may run App.getPath", which is exactly the shape of a
+// dispatch pair and is walked the same way (candidate -> base -> callers of the base).
+//
+//   holder    = a field, a method parameter or a local variable.
+//   base      = what a call made THROUGH the holder resolves to today: the functional interface's
+//               abstract method — a client method, a staged library method, or, when no library is
+//               staged, the `external:<type>.<name>` label the call edge carries.
+//   candidate = a method reference's target, flowing into the holder by a field or local
+//               initializer, an assignment (`this.f = …`, `f = …`, `other.f = …`), an argument at a
+//               call that resolves to the parameter's method, or FORWARDING from another holder
+//               (`this.getPath = custom`), through the branches of `?:`, parentheses and casts.
+//
+// KEYED ON THE HOLDER, never on the interface: a pair exists only when a method reference flows into
+// a holder AND a call is made through that same holder. A field is resolved by field_access_target
+// (the read/write graph's own resolution), a parameter by the call's resolved target
+// (expr_resolves_to_method — the same binding param-flow.dl types a parameter by), a local by name
+// within its method (as recv_is_local above).
+//
+// NOT HERE: a LAMBDA. Its body is not a method in the IR, so there is no candidate id to name; its
+// calls are credited to the method that contains it (and a lambda stored directly in a field or local
+// is already seen through by the lambda_body edges above).
+// ============================================================================
+
+// ── an expression that NAMES a holder ───────────────────────────────────────
+fn_holder_ref(e, f) :- field_access_target(e, f).
+fn_holder_ref(e, p) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "PARAMETER", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_method_parameter(name, _, m, _, _, _, _, _, _, _, _, _, p).
+fn_holder_ref(e, l) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, l).
+
+// ── the expression written as a holder's value ─────────────────────────────
+// field / local initializer
+fn_holder_store(f, top) :- java_expression(_, "ROOT", "FIELD_INITIALIZER", "FIELD", _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, top).
+fn_holder_store(l, top) :- java_expression(_, "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, l, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, top).
+// the right-hand side of a plain `=`
+fn_holder_store(h, top) :- java_expression("ASSIGNMENT_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, "=", _, _, _, _, _, _, _, _, _, _, asgn),
+    java_expression(_, "ASSIGNMENT_VALUE", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, top),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tgt),
+    fn_holder_ref(tgt, h).
+// an argument, at a call resolved to the parameter's method. DEMAND-DRIVEN: every argument of every
+// call is a store into some parameter, so only a parameter something is called through (or that is
+// forwarded into such a holder) is followed back to its arguments.
+fn_holder_demand(h) :- fn_holder_call_base(h, _).
+fn_holder_demand(src) :- fn_holder_demand(h), fn_holder_value(h, e), fn_holder_ref(e, src).
+fn_holder_store(p, arg) :- fn_holder_demand(p),
+    java_method_parameter(_, pos, callee, _, _, _, _, _, _, _, _, _, p),
+    expr_resolves_to_method(call, callee),
+    java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, arg).
+// a value passes unchanged through a `?:` branch (never its condition), parentheses and a cast
+fn_value_passthrough("TERNARY_TRUE").
+fn_value_passthrough("TERNARY_FALSE").
+fn_value_passthrough("PARENTHESIZED_INNER").
+fn_value_passthrough("CAST_OPERAND").
+fn_holder_value(h, e) :- fn_holder_store(h, e).
+fn_holder_value(h, e) :- fn_holder_value(h, p), fn_value_passthrough(role),
+    java_expression(_, role, _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+// what a holder may hold: a stored method reference's target (client or generated code: the only
+// kind with a body here), or whatever the holder it was forwarded from holds
+fn_holder_holds(h, m) :- fn_holder_value(h, e), call_is_method_ref(e),
+    expr_resolves_to_method(e, m), method_owner(prov, _, m), prov != "lib".
+fn_holder_holds(h, m) :- fn_holder_value(h, e), fn_holder_ref(e, src), src != h, fn_holder_holds(src, m).
+
+// ── what a call made through the holder resolves to today ───────────────────
+// A base must be the interface's abstract method: a default method such as `andThen` composes the
+// value rather than running it, and an Object member such as `equals` never runs it.
+fn_object_member("equals"). fn_object_member("hashCode"). fn_object_member("toString").
+fn_object_member("getClass"). fn_object_member("wait"). fn_object_member("notify").
+fn_object_member("notifyAll"). fn_object_member("clone"). fn_object_member("finalize").
+fn_value_base(b) :- java_method(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", _, _, _, _, b), !fn_object_member(n).
+fn_value_base(b) :- lib_method(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", _, _, _, _, b), !fn_object_member(n).
+fn_value_base(b) :- external_target(_, b),
+    !match("external:.*\\.(equals|hashCode|toString|getClass|wait|notify|notifyAll|clone|finalize)", b).
+fn_holder_call_base(h, base) :- call_site(call, _, recv), fn_holder_ref(recv, h),
+    call_chain_edge(call, _, "-", base, _, _, "method"), base != "-", fn_value_base(base).
+
+method_dispatch_candidate(base, m, "value") :- fn_holder_call_base(h, base), fn_holder_holds(h, m), base != m.
+
+// ── fn_value_call(Caller, Candidate): the pair a WALK should use ─────────────
+// The envelope pair above pools every holder of one interface under its one base: Function.apply
+// -> every method reference stored in any Function holder. That is the envelope's job (an upper
+// bound, like the nominal CHA fan), but walked as "callers of the base" it makes every `.apply`
+// caller in a program a caller of every stored method reference. This relation keeps the HOLDER:
+// Caller contains a call made through holder h, and h may hold Candidate. A caller that calls
+// through a different holder of the same interface does not get the candidate.
+fn_value_call(caller, m) :- call_site(call, _, recv), fn_holder_ref(recv, h),
+    call_chain_edge(call, _, "-", base, _, _, "method"), base != "-", fn_value_base(base),
+    fn_holder_holds(h, m), call_from(call, caller), caller != m.

@@ -482,6 +482,25 @@ for dir in "$HERE"/cases/*/; do
       echo "FAIL (dispatch envelope changed)"; diff -u "$eexp" "$w/actual.envelope" | sed 's/^/    /' | head -40
       fail=$((fail+1)); failed+=("$name"); continue; fi
   fi
+  # expected/<case>.envelope-assert: rows the envelope MUST hold (`+ <row>`) and MUST NOT hold
+  # (`- <row>`), checked even under --bless. A golden pins a negative only by absence, and a
+  # --bless that adds the forbidden row would pass unreviewed; this names the rows that matter.
+  aexp="$HERE/expected/$name.envelope-assert"
+  if [ -f "$aexp" ]; then
+    abad=$(python3 - "$aexp" "$w/actual.envelope" <<'PYEOF'
+import sys
+have = set(l.rstrip('\n') for l in open(sys.argv[2]))
+for l in open(sys.argv[1]):
+    l = l.rstrip('\n')
+    if not l.strip() or l.startswith('#'): continue
+    sign, row = l[:1], l[2:]
+    if sign == '+' and row not in have: print('    missing  ' + row)
+    if sign == '-' and row in have:     print('    present  ' + row)
+PYEOF
+)
+    if [ -n "$abad" ]; then
+      echo "FAIL (envelope assertion)"; echo "$abad"; fail=$((fail+1)); failed+=("$name"); continue; fi
+  fi
   # ── LIVE SPRING CONTEXT oracle (opt-in, and only for cases that declare one) ──
   # cases/<name>/spring-oracle.conf holds: <scan-package> [key=value ...]
   sconf="$dir/spring-oracle.conf"

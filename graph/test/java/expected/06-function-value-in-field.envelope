@@ -1,0 +1,2 @@
+value	external:java.util.function.Function.apply -> Asset.readRef
+value_call	Asset.handleRef -> Asset.readRef

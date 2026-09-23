@@ -85,6 +85,10 @@ def main() -> int:
         # pair still records that the envelope crosses the boundary, which is the fact
         # worth regressing on.
         q = name.get(h)
+        # An `external:<type>.<name>` label is already a portable name (no library staged, so
+        # the base is the label the call edge carries — basis `value`, #1206): print it as is.
+        if not q and h.startswith('external:'):
+            return h
         if not q:
             return 'lib:?'
         return f'{q}@{line.get(h, "?")}' if q in shared else q
@@ -95,6 +99,24 @@ def main() -> int:
             continue
         base, cand, basis = r[0], r[1], r[2]
         out.add(f'{basis}\t{label(base)} -> {label(cand)}')
+    # THE HOLDER-KEYED HALF (#1206): caller -> method it may run through a function-valued
+    # field, parameter or local. The `value` pairs above pool every holder of one interface
+    # under one base; this is the relation a walk uses, so it is pinned beside them. A caller
+    # in an initializer is keyed by its TYPE, named from the client type table.
+    tnames = {}
+    t = rows(os.path.join(ir_dir, 'all-types.csv'))
+    if t:
+        tix = {c: i for i, c in enumerate(t[0])}
+        hc = next((c for c in ('typeRegistryUniqueHash', 'typeRegistryHash') if c in tix), None)
+        if hc and 'qualifiedName' in tix:
+            for r in t[1:]:
+                if len(r) > max(tix[hc], tix['qualifiedName']):
+                    tnames[r[tix[hc]]] = r[tix['qualifiedName']] + '.<init>'
+    for r in rows(os.path.join(raw_dir, 'function-value-call.csv'), rfc=False):
+        if len(r) < 2:
+            continue
+        caller = tnames.get(r[0]) or label(r[0])
+        out.add(f'value_call\t{caller} -> {label(r[1])}')
     for s in sorted(out):
         print(s)
     return 0
