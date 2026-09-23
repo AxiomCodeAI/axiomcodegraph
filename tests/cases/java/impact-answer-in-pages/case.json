@@ -6,7 +6,7 @@
    "avoid": ["page 1 of", "also in this answer"]},
   {"why": "a long answer is split into pages, and the first page says how many and how to get the next (#1198)",
    "run": ["impact", "Rates.rate", "--budget", "60"],
-   "want": ["page 1 of", "`--page 2` for the next", "`--page all` for everything"]},
+   "want": ["page 1 of", "more page(s) left", "page=2 (MCP) or --page 2 (CLI)", "--page all"]},
   {"why": "every page carries the counts of the WHOLE answer, so a later page cannot be read as the answer (#1198)",
    "run": ["impact", "Rates.rate", "--budget", "60", "--page", "2"],
    "want": ["page 2 of", "also in this answer (counts are for the whole answer):", "tests: 1 of"]},

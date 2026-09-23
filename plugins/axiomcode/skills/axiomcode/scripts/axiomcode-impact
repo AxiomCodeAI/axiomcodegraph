@@ -2094,8 +2094,29 @@ def paginate(text, page, budget, argv):
     base = ' '.join(a for a in argv if a not in ('--page',))
     body = pages[page - 1]; rest = totals_for({l for l in body if not l.startswith(' ')})
     out = head + [f'page {page} of {n}:'] + body + ([''] + ['also in this answer (counts are for the whole answer):'] + rest if rest else []) + [''] + quals
-    nxt = f"`--page {page + 1}` for the next" if page < n else "this is the last page"
-    out.append(f"page {page} of {n} at ~{budget} tokens a page — {nxt}; `--page all` for everything, `--budget N` to change the size;"
+    # what the remaining pages hold, so an agent can decide whether asking for them is worth a turn
+    left = pages[page:]
+    held = []
+    for pg in left:
+        for l in pg:
+            if not l.startswith(' ') and not l.startswith('('):
+                t = re.sub(r'\s+\(continued\)$', '', l)
+                if t not in held: held.append(t)
+    rows_left = sum(1 for pg in left for l in pg if l.startswith('    '))
+    LABEL = (('reads or uses it', 'users'), ('produces or writes it', 'writers'), ('must change with it', 'contract'),
+             ('reaches those', 'entry points'), ('bound from outside the source', 'non-source name matches'),
+             ('tests:', 'tests'), ('depends on', 'dependencies'))
+    def short(t):
+        weak = t.endswith('low-certainty rows')
+        name = next((v for k, v in LABEL if t.startswith(k)), t.split(' (')[0].split(':')[0].strip())
+        return ('[by name]/[text] ' if weak and name == 'users' else '') + name
+    if left:
+        what = ', '.join(dict.fromkeys(short(t) for t in held)) or 'the rest of the rows above'
+        nxt = (f"{len(left)} more page(s) left, {rows_left} row(s): {what} — ask for them with "
+               f"page={page + 1} (MCP) or --page {page + 1} (CLI), or all of it with --page all")
+    else:
+        nxt = "this is the last page"
+    out.append(f"page {page} of {n} (~{budget} tokens a page): {nxt}; --budget N changes the page size;"
                " narrow instead with --in <path>, --depth N or --tests-only")
     return '\n'.join(out) + '\n'
 
