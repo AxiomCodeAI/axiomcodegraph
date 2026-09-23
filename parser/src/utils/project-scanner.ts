@@ -15,7 +15,13 @@ export class ProjectScanner {
   /**
    * Scans a directory for projects recursively
    * @param rootPath Root directory to scan
-   * @param maxDepth Maximum depth to scan (default: 3)
+   * @param maxDepth How deep to look for a project root. Unbounded by default:
+   *   a shallow detector only claims a directory that holds source itself, so a
+   *   file under directories that hold none is reachable only by descending to
+   *   it, and a limit there loses the file without a trace (#1176). An ancestor's
+   *   claim still stops the same language from being recorded twice below it.
+   *   The name exclusions (`node_modules`, build output, dot-directories) are
+   *   what bounds the walk.
    * @param excludeTests Do not descend into a test directory (`test`, `tests`,
    *   `__tests__`, `test-*`, `integration-tests`, `e2e`), so it never becomes a
    *   project root of its own. Each analyzer excludes those names while walking
@@ -24,7 +30,7 @@ export class ProjectScanner {
    *   flag excluded nothing for JavaScript, TypeScript and Python (#613). Java was
    *   unaffected only because its roots are build-descriptor shaped.
    */
-  async scanForProjects(rootPath: string, maxDepth: number = 3, excludeTests: boolean = false): Promise<ProjectInfo[]> {
+  async scanForProjects(rootPath: string, maxDepth: number = Infinity, excludeTests: boolean = false): Promise<ProjectInfo[]> {
     const projects: ProjectInfo[] = [];
     await this.scanDirectory(rootPath, projects, 0, maxDepth, new Set(), excludeTests);
     return projects;

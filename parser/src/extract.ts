@@ -230,7 +230,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
 
   console.log('⏳ Scanning for projects...');
   // Discovery itself honours the flag: a test directory is never a root (#613).
-  const allProjects = await scanner.scanForProjects(absolutePath, 3, excludeTests);
+  const allProjects = await scanner.scanForProjects(absolutePath, Infinity, excludeTests);
   console.log(`✅ Scan complete! Found ${allProjects.length} total project(s)\n`);
 
   const projectsByLanguage = scanner.groupByLanguage(allProjects);
