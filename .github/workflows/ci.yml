@@ -66,6 +66,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # the version gate needs the merge base with the target branch
 
       # A fixture input that .gitignore matches passes on the machine that wrote
       # it and fails on every clone. The suites run this too; running it here as
@@ -117,6 +119,17 @@ jobs:
             bash -n "$f" || { echo "::error file=$f::does not parse"; fail=1; }
           done < <(git ls-files '*.sh')
           exit $fail
+
+      # npm will not republish a version, so anything inside the tarball reaches
+      # nobody unless the version moves — README.md included, since `files` names
+      # it. The inverse is the error worth avoiding too: a bump demanded for a CI
+      # tweak or a test fixture teaches people to bump without asking why, and a
+      # version that moves for reasons users cannot observe stops meaning
+      # anything. The gate reads package.json's own `files` declaration to tell
+      # the two apart, and prints the files that decided it.
+      - name: a change that reaches a user has a version
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/version-gate.sh "origin/${{ github.base_ref }}"
 
   engine:
     name: engine (${{ matrix.lang }})
