@@ -11,6 +11,7 @@ set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
 # the engine checkout: walk up from this script until a bin/axiomcode is found (skills/… or plugins/axiomcode/skills/…)
+ENGINE_SET="${AXIOMCODE_ENGINE:+1}"
 if [ -z "${AXIOMCODE_ENGINE:-}" ]; then E="$H"; while [ "$E" != "/" ] && [ ! -x "$E/bin/axiomcode" ]; do E="$(dirname "$E")"; done; AXIOMCODE_ENGINE="$E"; fi
 # THE WALK-UP ONLY WORKS FROM A CHECKOUT. Installed from a marketplace the plugin is COPIED under
 # ~/.claude/plugins/cache/..., where nothing above it is an engine, so the walk ends at / and every verb
@@ -18,13 +19,19 @@ if [ -z "${AXIOMCODE_ENGINE:-}" ]; then E="$H"; while [ "$E" != "/" ] && [ ! -x 
 # an `axiomcode` on PATH (npm global bin, resolved through its symlink) or the global node_modules.
 # Each candidate is CHECKED -- an executable of that name from something else entirely is not our engine,
 # and this machine has exactly that from an older unrelated package.
+# A CHECKOUT FOUND BY THE WALK MUST BE BUILT. Gemini CLI and Codex install from the repository itself, so
+# the walk from an installed copy now ends at a clone -- bin/, graph/ and package.json present, parser/dist
+# not, since it is not in git -- and that clone was taken over the built engine `npm i -g` installed. An
+# unbuilt checkout is still used when nothing else is found, so a developer keeps the "parser not built"
+# advice; an engine named in AXIOMCODE_ENGINE is used as given whenever it is one.
 engine_ok() { [ -x "$1/bin/axiomcode" ] && [ -d "$1/graph" ] && [ -f "$1/package.json" ]; }
-if ! engine_ok "$AXIOMCODE_ENGINE"; then
+engine_built() { engine_ok "$1" && [ -f "$1/parser/dist/index.js" ]; }
+if ! { if [ -n "$ENGINE_SET" ]; then engine_ok "$AXIOMCODE_ENGINE"; else engine_built "$AXIOMCODE_ENGINE"; fi; }; then
   for cand in \
     "$(command -v axiomcode 2>/dev/null | while read -r l; do while [ -L "$l" ]; do l="$(cd "$(dirname "$l")" && pwd)/$(readlink "$l")"; done; dirname "$(dirname "$l")"; done)" \
     "$(npm root -g 2>/dev/null)/@axiomcode/code-graph"; do
     [ -n "$cand" ] || continue
-    if engine_ok "$cand"; then AXIOMCODE_ENGINE="$cand"; break; fi
+    if engine_built "$cand"; then AXIOMCODE_ENGINE="$cand"; break; fi
   done
 fi
 ENGINE="$AXIOMCODE_ENGINE"

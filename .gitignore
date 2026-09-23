@@ -319,6 +319,12 @@ AGENTS.md
 .codex/
 .copilot/
 .agents/
+# ...except what the plugin ships to other agents: Codex reads its marketplace from .agents/plugins/,
+# and Gemini CLI loads the plugin's AGENTS.md as the extension's context file.
+!/.agents/
+/.agents/*
+!/.agents/plugins/
+!/plugins/axiomcode/AGENTS.md
 
 # The C# corpus manifest names the evaluation set and is deliberately NOT committed.
 # corpus.tsv.template documents the format; the filled-in copy lives outside the repo

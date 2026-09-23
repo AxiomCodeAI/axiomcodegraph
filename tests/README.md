@@ -17,6 +17,9 @@ One check needs no graph and is its own script:
                                          never raises, silent without a graph)
     python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,
                                          directly, through an npm-style symlink, and on the SDK-free fallback
+    python3 tests/manifests.py           every agent's manifest (Claude, Codex, Gemini) names the same plugin
+                                         and points at files that exist, the way that agent resolves them
+    python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
 
 A case is `tests/cases/<language>/<name>/` with its sources and a `case.json`:
 
