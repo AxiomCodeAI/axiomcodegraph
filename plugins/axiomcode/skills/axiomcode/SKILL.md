@@ -10,6 +10,8 @@ Prefer the MCP tools (`mcp__plugin_axiomcode_axiomcode__axiomcode_<verb>`) when 
 run `<this dir>/scripts/axiomcode <verb> …` from the repository root. Same code, same verified output. `<repo>`
 defaults to the current directory. A hook adds the graph's edges to your own Read / Grep results as `graph: …` lines.
 
+**Trust the answer.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping or opening the other files it names. Each answer ends with `next:` — the one step to take; read only the lines you will cite or change. `[by name]` / `[text]` rows are leads, not facts.
+
 ## Start here
 
 | the question in front of you | the call |

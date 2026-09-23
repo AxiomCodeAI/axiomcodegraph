@@ -390,4 +390,5 @@ def _guess_lang(files):
 
 
 if __name__ == '__main__':
+    import ax_pages; ax_pages.install('test-impact')  # pages and a next step (#1202)
     sys.exit(main(sys.argv[1:]))

@@ -35,17 +35,20 @@ END = '<!-- END axiomcode -->'
 BLOCK = """<!-- BEGIN axiomcode -->
 ## Finding code in this repository
 
-This repository has a resolved call graph (`axiomcode`). For any question about how code connects
-rather than what it says — who calls a function, what breaks if a declaration changes, where a
-symbol is really used, which tests an edit reaches, whether something is safe to delete — prefer the
-`axiomcode` skill over `grep`/`Glob`. Text search finds names; it misses the caller that never
-spells the name because it goes through an interface, an override, a callback, dependency injection
-or a config key, and it cannot tell you how certain a match is.
+This repository has a resolved call graph. Ask it FIRST — from the shell, or through the
+`mcp__plugin_axiomcode_axiomcode__axiomcode_*` tools; no skill needs loading:
 
-Text search is still the right tool for a string, a comment, a TODO, or a file you already know.
+    axiomcode context "<the task, in your words>"   # where the work is, when you have no name yet
+    axiomcode impact <Owner.method>                 # what a change reaches: contract, users, tests
+    axiomcode path <A> <B>                          # how A reaches B
 
-`axiomcode index` builds the graph if `.axiomcode/out/graph.sqlite` is absent. An unresolved call in
-an answer means *unknown*, not *absent* — never read it as "no callers".
+**Trust the answer.** A `[resolved]` / `[sound]` row has already been looked up again in the graph
+(the `verified:` line) — do not re-derive it by grepping or opening the other files it names. Every
+answer ends with `next:`, the one step to take: read only the lines you will cite or change.
+`[by name]` / `[text]` rows are leads, not facts. An unresolved call means *unknown*, not *absent*.
+
+Text search is still right for a string, a comment, a config value, or a file you already know.
+`axiomcode index` builds the graph if `.axiomcode/out/graph.sqlite` is absent.
 <!-- END axiomcode -->"""
 
 

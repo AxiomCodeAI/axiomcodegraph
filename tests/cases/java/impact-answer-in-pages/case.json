@@ -1,23 +1,149 @@
-{"lang": "java", "src": "src",
+{
+ "lang": "java",
+ "src": "src",
  "checks": [
-  {"why": "an answer that fits the budget prints exactly as it always did: no page header, no footer (#1198)",
-   "run": ["impact", "Rates.rate"],
-   "want": ["reads or uses it", "Quote.total"],
-   "avoid": ["page 1 of", "also in this answer"]},
-  {"why": "a long answer is split into pages, and the first page says how many and how to get the next (#1198)",
-   "run": ["impact", "Rates.rate", "--budget", "60"],
-   "want": ["page 1 of", "more page(s) left", "page=2 (MCP) or --page 2 (CLI)", "--page all"]},
-  {"why": "every page carries the counts of the WHOLE answer, so a later page cannot be read as the answer (#1198)",
-   "run": ["impact", "Rates.rate", "--budget", "60", "--page", "2"],
-   "want": ["page 2 of", "also in this answer (counts are for the whole answer):", "tests: 1 of"]},
-  {"why": "--page all prints the whole answer, the same as an answer that fits (#1198)",
-   "run": ["impact", "Rates.rate", "--budget", "60", "--page", "all"],
-   "want": ["reads or uses it", "Invoice.total", "Ledger.total", "Quote.total", "Refund.total"],
-   "avoid": ["page 1 of"]},
-  {"why": "a page past the end says how many there are instead of printing nothing (#1198)",
-   "run": ["impact", "Rates.rate", "--budget", "60", "--page", "99"],
-   "want": ["page 99 does not exist: this answer has"]},
-  {"why": "--json is never paged: a consumer parses the whole document (#1198)",
-   "run": ["impact", "Rates.rate", "--budget", "60", "--json"],
-   "want": ["\"direct\"", "\"tests\""],
-   "avoid": ["page 1 of"]}]}
+  {
+   "why": "an answer that fits the budget prints exactly as it always did: no page header, no footer (#1198)",
+   "run": [
+    "impact",
+    "Rates.rate"
+   ],
+   "want": [
+    "reads or uses it",
+    "Quote.total"
+   ],
+   "avoid": [
+    "page 1 of",
+    "also in this answer"
+   ]
+  },
+  {
+   "why": "a long answer is split into pages, and the first page says how many and how to get the next (#1198)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--budget",
+    "60"
+   ],
+   "want": [
+    "page 1 of",
+    "more page(s) left",
+    "page=2 (MCP) or --page 2 (CLI)",
+    "--page all"
+   ]
+  },
+  {
+   "why": "every page carries the counts of the WHOLE answer, so a later page cannot be read as the answer (#1198)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--budget",
+    "60",
+    "--page",
+    "2"
+   ],
+   "want": [
+    "page 2 of",
+    "also in this answer (counts are for the whole answer):",
+    "tests: 1 of"
+   ]
+  },
+  {
+   "why": "--page all prints the whole answer, the same as an answer that fits (#1198)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--budget",
+    "60",
+    "--page",
+    "all"
+   ],
+   "want": [
+    "reads or uses it",
+    "Invoice.total",
+    "Ledger.total",
+    "Quote.total",
+    "Refund.total"
+   ],
+   "avoid": [
+    "page 1 of"
+   ]
+  },
+  {
+   "why": "a page past the end says how many there are instead of printing nothing (#1198)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--budget",
+    "60",
+    "--page",
+    "99"
+   ],
+   "want": [
+    "page 99 does not exist: this answer has"
+   ]
+  },
+  {
+   "why": "--json is never paged: a consumer parses the whole document (#1198)",
+   "run": [
+    "impact",
+    "Rates.rate",
+    "--budget",
+    "60",
+    "--json"
+   ],
+   "want": [
+    "\"direct\"",
+    "\"tests\""
+   ],
+   "avoid": [
+    "page 1 of"
+   ]
+  },
+  {
+   "why": "impact ends with one next step: what to read, and that the rest are leads (#1202)",
+   "run": [
+    "impact",
+    "Rates.rate"
+   ],
+   "want": [
+    "next: read",
+    "then only these"
+   ]
+  },
+  {
+   "why": "a found chain ends with its call sites to read, and says the chain is verified (#1202)",
+   "run": [
+    "path",
+    "Quote.total",
+    "Rates.rate"
+   ],
+   "want": [
+    "next: the chain is verified",
+    "read only its 1 call site(s)"
+   ]
+  },
+  {
+   "why": "everything that reaches X ends with the nearest callers to read first (#1202)",
+   "run": [
+    "path",
+    "*",
+    "Rates.rate"
+   ],
+   "want": [
+    "next: the nearest callers are at 1 hop(s)"
+   ]
+  },
+  {
+   "why": "context ends with the one file to read first, not a reading list (#1202)",
+   "run": [
+    "context",
+    "the rate a quote total uses"
+   ],
+   "want": [
+    "next: read",
+    "not a reading list"
+   ]
+  }
+ ]
+}
