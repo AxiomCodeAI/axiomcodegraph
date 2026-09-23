@@ -329,6 +329,24 @@ elif tool == 'Glob':
             for r in rows:
                 top = q("SELECT s.display, (SELECT count(*) FROM call_edges e WHERE e.callee_method_id = s.method_id) c FROM symbols s WHERE s.file = ? AND s.method_id IS NOT NULL AND s.kind <> 'module' ORDER BY c DESC LIMIT 3", r['file'])
                 lines.append(f"  {r['file']}: {r['n']} callable(s); most called: " + ', '.join(f"{t['display']} ({t['c']})" for t in top))
+# A PER-SESSION BUDGET FOR WHAT A READ OR A SEARCH GETS (#1199). Each block is small, but a session reads a lot and
+# every block stays in the agent's context for the rest of it: in three runs of an implementation task these blocks
+# came to 23k-27k characters a run, more than any graph answer in the same runs. The edges of an EDIT (what the change
+# just made reaches) are a different signal and stay outside the budget.
+ENRICH_BUDGET = int(os.environ.get('AXIOMCODE_ENRICH_BUDGET', '6000'))
+if lines and tool in ('Read', 'Grep', 'Glob'):
+    st = load_state()
+    key = f"{tool}|{inp.get('file_path') or inp.get('pattern')}|{inp.get('offset') or ''}|{inp.get('limit') or ''}"
+    seen = st.setdefault('annotated', [])
+    spent = st.get('enriched_chars', 0)
+    if key in seen:
+        lines = []                                            # the same range, or the same search, is annotated once
+    elif spent >= ENRICH_BUDGET:
+        lines = [] if st.get('budget_said') else [f"graph: this session's enrichment budget ({ENRICH_BUDGET} characters) is spent, so reads and searches get no more of these blocks; ask `axiomcode impact` / `path` directly for a declaration's edges"]
+        st['budget_said'] = True
+    else:
+        st['enriched_chars'] = spent + sum(len(l) + 1 for l in lines); seen.append(key)
+    save_state(st)
 # every invocation is logged next to the graph — stream-json does not carry additionalContext, so this is how a run proves the
 # hook fired and what it added
 try:
