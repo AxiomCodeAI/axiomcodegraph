@@ -215,3 +215,14 @@ fn_holder_call_base(h, base) :- call_site(call, _, recv), fn_holder_ref(recv, h)
     call_chain_edge(call, _, "-", base, _, _, "method"), base != "-", fn_value_base(base).
 
 method_dispatch_candidate(base, m, "value") :- fn_holder_call_base(h, base), fn_holder_holds(h, m), base != m.
+
+// ── fn_value_call(Caller, Candidate): the pair a WALK should use ─────────────
+// The envelope pair above pools every holder of one interface under its one base: Function.apply
+// -> every method reference stored in any Function holder. That is the envelope's job (an upper
+// bound, like the nominal CHA fan), but walked as "callers of the base" it makes every `.apply`
+// caller in a program a caller of every stored method reference. This relation keeps the HOLDER:
+// Caller contains a call made through holder h, and h may hold Candidate. A caller that calls
+// through a different holder of the same interface does not get the candidate.
+fn_value_call(caller, m) :- call_site(call, _, recv), fn_holder_ref(recv, h),
+    call_chain_edge(call, _, "-", base, _, _, "method"), base != "-", fn_value_base(base),
+    fn_holder_holds(h, m), call_from(call, caller), caller != m.

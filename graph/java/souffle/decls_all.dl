@@ -107,6 +107,7 @@
 .decl fn_value_base(c0:symbol)                 // a method (or external label) a call through a function holder may resolve to
 .decl fn_holder_call_base(c0:symbol,c1:symbol) // (holder, what a call made through it resolves to)
 .decl fn_holder_demand(c0:symbol)              // a holder whose contents are asked for: called through, or forwarded into one that is
+.decl fn_value_call(c0:symbol,c1:symbol)       // (caller, method): caller calls through a holder that may hold the method (#1206)
 .decl ident_field_recv(c0:symbol,c1:symbol)   // FIELD-stamped identifier used as a receiver/qualifier
 .decl recv_name_is_field(c0:symbol)          // ...and a real field of that name IS visible
 .decl recv_name_is_local(c0:symbol)          // ...or a local/param of that name is in scope

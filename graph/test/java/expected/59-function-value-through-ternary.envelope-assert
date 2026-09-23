@@ -1,0 +1,22 @@
+# #1206: value_call is keyed on the holder a call goes through, not on the interface it resolves to.
+# a FIELD holder (through ?:, nested ?: and parentheses; and a constructor argument forwarded into it)
++ value_call	probe.App.dispatch -> probe.App.getPath
++ value_call	probe.App.dispatch -> probe.App.getPathLoose
++ value_call	probe.App.dispatch -> probe.App.viaCustom
+# a PARAMETER holder (the argument at a call resolved to the method)
++ value_call	probe.App.viaParam -> probe.App.viaArg
+# a LOCAL holder
++ value_call	probe.App.callers -> probe.App.unrelatedLocal
+# a DIFFERENT holder of the same interface never gets another holder's candidate
+- value_call	probe.App.handle -> probe.App.getPath
+- value_call	probe.App.main2 -> probe.App.getPath
+- value_call	probe.App.viaInitField -> probe.App.getPath
+- value_call	probe.App.viaParam -> probe.App.getPath
+- value_call	probe.App.dispatch -> probe.App.viaArg
+- value_call	probe.App.dispatch -> probe.App.viaInit
+# stored but never called through: no caller at all
+- value_call	probe.App.dispatch -> probe.App.unrelated
+# Object members and default methods are not calls through the value
+- value_call	probe.App.sameAs -> probe.App.getPath
+- value_call	probe.Router.composed -> probe.App.getPath
+- value_call	probe.LibHolder.wrap -> probe.App.getPath
