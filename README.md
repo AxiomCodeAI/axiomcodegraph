@@ -64,14 +64,15 @@ TypeScript (best CST-based: 0.870 and 0.661), and finds the call path from one m
 the evaluation rules were frozen. Defects4J's own selection is the ground truth: it runs the test suite and records
 which tests load the changed code. AxiomCode works from source alone, without running anything:
 
-| | Defects4J (observed by running the tests) | AxiomCode (from source) |
-|---|---:|---:|
-| tests selected per bug, median | 1× | **0.98×** |
-| share of the suite selected, mean | 47.6% | 52.2% |
-| bugs with every bug-revealing test selected | 100% | **94.9%** |
+| | Defects4J<br><sub>observed by running the tests</sub> | **AxiomCode**<br><sub>static, from source</sub> | best tree-sitter (CST) builder<br><sub>static, from source</sub> |
+|---|---:|---:|---:|
+| **tests selected per bug, vs Defects4J (median)** | **1.00×** | **0.98×** | **0.65×** |
+| share of the suite selected (mean) | 47.6% | 52.2% | 30.8% |
+| bugs with every bug-revealing test selected | 100% | **94.9%** | 65.2% |
 
-So without running a test, it selects about as many tests as the run-time observation does, and they include
-every bug-revealing test for 94.9% of bugs, against 65.2% for the best CST-based graph builder. It is not the same
+So without running a test, AxiomCode selects about as many tests as the run-time observation does, and they
+include every bug-revealing test for 94.9% of bugs. The best tree-sitter builder selects a third fewer and misses a
+bug-revealing test on a third of the bugs. AxiomCode's selection is not the same
 set: on average, 71.2% of the tests Defects4J observes are in AxiomCode's selection, and in 38 of the 748 bugs it missed at
 least one bug-revealing test.
 
