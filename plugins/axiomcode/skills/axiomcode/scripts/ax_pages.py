@@ -96,8 +96,10 @@ def next_path(text):
     sites = list(dict.fromkeys(re.findall(r'call @ ' + LOC + r'\]', text)))
     if sites:
         multi = ' — one hop is [multi_inferred], one of several candidates: check that call site only if the answer depends on which' if 'multi_inferred ·' in text else ''
-        return (f"next: the chain is verified (every printed hop is an edge in the graph); read only its {len(sites)} call "
-                f"site(s): {', '.join(sites[:6])}{' …' if len(sites) > 6 else ''}{multi}")
+        return (f"next: the chain is verified (every printed hop is an edge in the graph); its {len(sites)} call "
+                f"site(s): {', '.join(sites[:6])}{' …' if len(sites) > 6 else ''}{multi}. For a change, those sites are "
+                "what to check; to explain how it works, read each hop's body — `context \"how does …\" --from <start>` "
+                "prints the whole flow")
     rows = re.findall(r'^\s+(\d+) hop\(s\)\s+(\S+).*?\s' + LOC, text, re.M)
     if rows:
         near = min(int(h) for h, _, _ in rows)
@@ -108,10 +110,22 @@ def next_path(text):
                 + (" — read it" if len(first) == 1 else " — read those") + "; farther hops matter only if these pass the change on"
                 + (f" (of {total.group(1)} in all)" if total else ''))
     if re.search(r'no (chain|route|path)', text, re.I):
-        return "next: no resolved chain — the unresolved sites named above are where one could hide; check those, not the whole tree"
+        return ("next: no resolved chain — the graph loses the call at one of the unresolved sites named above, so the "
+                "code may still connect them; read the start's body from those sites on")
     return ''
 
 def next_context(text):
+    if 'how it runs —' in text:
+        # an EXPLANATION: the flow is the reading order, and each step's body is the answer — a pointer list that
+        # says "read only these" cut two measured explanations short at the first hops the graph printed
+        locs = list(dict.fromkeys(re.findall(r'^\s+\d+ .*?\s' + LOC + r'\s*$', text, re.M)))
+        gap = ' At every ⚠ the graph lost a call: read that body and follow the unresolved name (`path <name> \'*\'` continues from it).' if '⚠' in text else ''
+        if re.search(r'^\s+\d+ \| ', text, re.M):
+            return ("next: answer from the steps' code shown above, in order; open a file only for a step whose body was cut "
+                    "(`… more line(s)`) or a call the flow could not follow." + gap)
+        return (f"next: read the flow's steps in order — {', '.join(locs[:6])}{' …' if len(locs) > 6 else ''}; read each "
+                "step's BODY, not only the line shown, since the body is the explanation and the flow is only its spine "
+                "(`--source` prints it)." + gap)
     m = re.search(r'^\s+(?:hop \d+|name only, no call path)\s+(\S+)\s+\(\d+ symbol\(s\)\)[^\n]*\n\s+-> ([^\n]+)', text, re.M)
     if not m: return ''
     f = m.group(1); syms = [x.strip() for x in m.group(2).split(',') if x.strip()][:2]

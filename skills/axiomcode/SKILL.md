@@ -11,7 +11,7 @@ are in your tool list; otherwise run `<this dir>/../../plugins/axiomcode/skills/
 verified output. `<repo>` defaults to the current directory. In Claude Code, a hook adds the graph's edges to your own
 Read / Grep results as `graph: …` lines.
 
-**Trust the answer.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping or opening the other files it names. Each answer ends with `next:` — the one step to take; read only the lines you will cite or change. `[by name]` / `[text]` rows are leads, not facts.
+**Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
 
 ## Start here
 
@@ -20,10 +20,10 @@ Read / Grep results as `graph: …` lines.
 | **`.axiomcode/out/graph.sqlite` already exists** | **query it — do NOT run `index`** |
 | no graph at all | `axiomcode index` |
 | a task in words, no name to ask about yet | `axiomcode context "<the task>"` — then `--in <path>` it names |
-| "how does X work" / explain a flow | `axiomcode context "<the question>" --source` — it returns the code itself; answer from it and open a file only for a line it did not include |
 | "who calls X" / "what breaks if X changes" | `axiomcode impact X` |
 | "who writes this field" / "is it safe under concurrent access" | `axiomcode impact <Type>.<field>` — ask of the FIELD |
 | one concept you can name ("the decryption code") | `axiomcode path decrypt '*'` |
+| "how does X work" · "explain / walk through X" | `axiomcode context "<the question>" --source` — the call flow in order with each step's code; answer from it, and open a file only for a step whose body was cut or a `⚠` call. `--from <start>` when you know where it begins |
 | "how does A reach B" · "everything that reaches X" | `axiomcode path A B` · `axiomcode path '*' X` |
 | "what did my edit touch" · "which tests do I run" | `axiomcode changed --impact` · `axiomcode test-impact` |
 | "is it safe to delete X" | `axiomcode impact X --delete` |
