@@ -15,6 +15,8 @@ One check needs no graph and is its own script:
     python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape
     python3 tests/directive.py           the PreToolUse directive hook keeps its promises (never blocks,
                                          never raises, silent without a graph)
+    python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,
+                                         directly, through an npm-style symlink, and on the SDK-free fallback
 
 A case is `tests/cases/<language>/<name>/` with its sources and a `case.json`:
 
