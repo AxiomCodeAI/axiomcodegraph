@@ -118,10 +118,16 @@ call_recv_type_name(prov, e, tn) :-
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
     ref_denotes(prov, r, "LAMBDA_PARAMETER", p), param_type_name(prov, p, tn, _).
-// A receiver that is itself a call: the callee's declared return type name.
+// A receiver that is itself a call: the callee's declared return type name. The ROOT
+// reference's name where there is one (`List`, not `List<Item>`), which is how every
+// other receiver is named; the written text only where no reference was recorded.
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
-    expr_target_any(prov, r, m), method_return_type_name(prov, m, tn), tn != "".
+    expr_target_any(prov, r, m), method_return_type_ref(prov, m, tr), type_ref_name(prov, tr, tn).
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    expr_target_any(prov, r, m), !method_return_type_ref(prov, m, _),
+    method_return_type_name(prov, m, tn), tn != "".
 // A receiver whose type DID resolve: its own name, so the nominal and by-name paths
 // do not have to be kept apart by the consumer.
 call_recv_type_name(prov, e, tn) :-
