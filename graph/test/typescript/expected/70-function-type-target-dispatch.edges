@@ -1,0 +1,7 @@
+known_edge	FUNCTION_CALL	targets#<arrow@14>(?) @L14 -> targets#<arrow@6>(number)
+known_edge	FUNCTION_CALL	targets#<arrow@19>(?) @L19 -> targets#<arrow@6>(number)
+known_edge	FUNCTION_CALL	targets#viaForOf(CB[]) @L23 -> targets#<arrow@6>(number)
+known_edge	METHOD_CALL	targets#viaAnnotatedParam(CB[]) @L14 -> Array#map((v: T, i: number) =)
+known_edge	METHOD_CALL	targets#viaAsCast(unknown) @L19 -> Array#map((v: T, i: number) =)
+known_edge	METHOD_CALL	targets#viaGenericMap(number[]) @L31 -> Array#map((v: T, i: number) =)
+known_edge	METHOD_CALL	targets#viaIndex(CB[]) @L27 -> targets#<arrow@6>(number)

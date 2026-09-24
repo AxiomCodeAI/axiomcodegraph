@@ -615,3 +615,24 @@ expr_type(e, prov, t) :- ts_call_site(_, _, _, recv, _, e, _, _, _, _, _, _, _, 
     method_return_ref(cp, r, callee),
     type_ref(cp, "THIS_TYPE", _, _, _, _, _, r),
     expr_type(recv, prov, t).
+
+// ── AN ELEMENT OF FUNCTION TYPE, REACHED THE THREE WAYS CODE REACHES ONE ─────
+// A call on an element of an array of functions -- `list[0](x)`, `for (const c of list) c(x)`,
+// `(obj.cbs as Cb[]).map((c) => c(x))` -- is typed by the element's SHAPE, since a function type
+// has no declaration to name. expr_element_shape existed, but only callback parameters read
+// it, so each of these calls stayed ambiguous_unknown and the chain through it was cut: the
+// callbacks a renderer keeps in an array never reached the renderer.
+
+// `x as T`: the assertion's reference is the expression's declared reference, so an
+// un-annotated `const list = x as Cb[]` takes it through its initializer (generics.dl)
+expr_decl_ref(e, r) :- expr_asserted_type("client", r, e).
+// an element shape through any declared reference: an asserted value, an initializer, a field
+expr_element_shape(e, sh) :- expr_decl_ref(e, r), ref_element_shape(r, sh).
+// `for (const c of list)`: the binding holds an element
+var_shape(v, sh) :- for_binding_iterable(v, e),
+    !var_has_declared_type(v),
+    expr_element_shape(e, sh).
+// `list[i]`: the access IS an element
+expr_shape(e, sh) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_element_shape(q, sh).

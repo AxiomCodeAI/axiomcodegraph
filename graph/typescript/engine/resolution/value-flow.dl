@@ -187,8 +187,8 @@ compound_op_keeps_value("||=").
 holder_value(v, e) :- var_initializer("client", _, e, v), e != "".
 holder_value(v, e) :- var_reassigned_value(v, e).
 holder_value(p, a) :- expr_child("client", ce, "ARGUMENT", pos, a),
-    expr_call_candidate(ce, callee),
-    param_decl("client", _, pos, _, callee, p).
+    expr_resolves_to_method(ce, callee),                 # the overload the call SELECTS, not every candidate:
+    param_decl("client", _, pos, _, callee, p).          # an arrow passed to on("close", …) is not every on's listener
 
 // ── value_branch(Root, Expr): Expr is a value Root can evaluate to ──
 value_branch(e, e) :- holder_value(_, e).
@@ -214,7 +214,8 @@ binary_op_yields_operand("&&", "RIGHT_OPERAND").
 
 holder_holds_function(h, m) :- holder_value(h, e),
     value_branch(e, x),
-    expr_callable(x, m).
+    !expr_kind("client", "CALL_EXPRESSION", _, x),        # `return make()` holds what make RETURNS, not make:
+    expr_callable(x, m).                                  # a call node carries its callee as its referenced entity
 // …AND WHAT ANOTHER HOLDER HANDS OVER. `run(fn, promise, resolve)` passes the caller's own
 // parameter on, and a wrapper that forwards a callback is the ordinary shape of one: the
 // function reaches the inner parameter only through the outer one.
@@ -242,4 +243,44 @@ method_dispatch_candidate(sig, m, "value") :- called_through(ce, h),
     method_kind(_, k, _, sig),
     method_kind_is_call_signature(k),
     holder_holds_function(h, m),
+    m != sig.
+
+// ============================================================================
+// A FUNCTION TYPED BY WHERE IT IS WRITTEN  (the Java lambda rule)
+//
+// Java sends a call typed to a functional interface to every lambda and method reference
+// whose TARGET TYPE is that interface, wherever the value then goes: a field, a list, an
+// array, a map. Storage never has to be tracked, because the type carries the link. The
+// holder rules above follow storage instead, so a function that reaches its call through
+// an array element (`callbacks.map((c) => c(opts))`, `middleware[i][0]`) never met it.
+//
+// This is the TypeScript port. A function is an implementation of a function type T when it
+// is written where a value of T is expected: held by a field, variable or parameter
+// declared T, or returned from a function declared to return T. Every call that resolves to
+// T's call signature may then run it, as in Java; the fan is as wide as the type, exactly as
+// a Java call through `Function` or `Handler` is.
+//
+// Envelope only, like the holder rules: no call-site answer moves.
+// ============================================================================
+
+// the call signatures of the function type a reference names: an inline `(a: A) => B`, an
+// alias of one, or an interface with a call signature
+ref_call_signature(r, sig) :- ref_shape_target(r, s), call_signature_in_scope(s, sig).
+ref_call_signature(r, sig) :- ref_type_target(r, _, t), call_signature_in_scope(t, sig).
+
+typed_holder_signature(h, sig) :- field_type_ref("client", r, h), ref_call_signature(r, sig).
+typed_holder_signature(h, sig) :- var_type_ref("client", r, h), ref_call_signature(r, sig).
+typed_holder_signature(h, sig) :- param_type_ref("client", r, h), ref_call_signature(r, sig).
+
+method_dispatch_candidate(sig, m, "value") :- typed_holder_signature(h, sig),
+    holder_holds_function(h, m),
+    m != sig.
+
+// what a function returns is held by it, for this purpose: `makeCb(): CB { return (n) => … }`
+// the ROOT of the returned expression only: method_returns_expr also holds every sub-expression under a `return`
+// (the callee identifier of `return make(x)` among them), and those are not what the function returns
+holder_value(f, e) :- method_returns_expr(f, e), expr_kind("client", _, "ROOT", e), method_return_ref("client", r, f), ref_call_signature(r, _).
+method_dispatch_candidate(sig, m, "value") :- method_return_ref("client", r, f),
+    ref_call_signature(r, sig),
+    holder_holds_function(f, m),
     m != sig.
