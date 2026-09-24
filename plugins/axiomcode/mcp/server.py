@@ -22,7 +22,25 @@ srv = MCPServer('axiomcode')
 # launch.js hands over the bash it chose, because on Windows a bare `bash` is WSL's or nothing (#1233).
 BASH = os.environ.get('AXIOMCODE_BASH') or 'bash'
 
+# THE TIMER (#1305). The hooks refresh the graph while an agent works; an edit made in an editor or a terminal while the
+# session sits idle is caught only at the next prompt. The server lives as long as the session, so once
+# AXIOMCODE_REFRESH_INTERVAL seconds (default 900, 15 minutes; 0 turns it off) have passed since the LAST UPDATE of a
+# repository it has answered for (a refresh, or a check by an edit, a prompt, a query or the timer itself) it asks the
+# refresher to look: a rebuild if a file changed or HEAD moved, otherwise only the time of the check is recorded. An
+# active session updates that time itself, so the timer mostly fires for one that has gone quiet.
+SEEN = set()
+def _timer(interval):
+    import time
+    while True:
+        time.sleep(max(1.0, min(60.0, interval / 3)))
+        for repo in list(SEEN):
+            try:
+                if time.time() - ax_fresh.last_update(repo) >= interval: ax_fresh.kick(repo, trigger='the timer')
+            except Exception: pass
+
 def run(args, cwd=None, timeout=900):
+    for a in args[1:]:
+        if os.path.isdir(a) and os.path.isdir(os.path.join(a, '.axiomcode')): SEEN.add(os.path.realpath(a))
     try:
         r = subprocess.run([BASH, AX, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout)
     except OSError as e:
@@ -77,7 +95,11 @@ def axiomcode_graph(repo: str = ".", out: str = '') -> str:
 if __name__ == '__main__':
     # catch up on whatever changed while no session was running (#1305): started, never waited on
     try:
-        sys.path.insert(0, os.path.dirname(AX)); import ax_fresh; ax_fresh.kick(os.getcwd())
+        sys.path.insert(0, os.path.dirname(AX)); import ax_fresh; ax_fresh.kick(os.getcwd(), trigger='the MCP server starting')
+        if os.path.isdir(os.path.join(os.getcwd(), '.axiomcode')): SEEN.add(os.path.realpath(os.getcwd()))
+        interval = float(os.environ.get('AXIOMCODE_REFRESH_INTERVAL') or 900)
+        if interval > 0:
+            import threading; threading.Thread(target=_timer, args=(interval,), daemon=True).start()
     except Exception:
         pass
     srv.run()

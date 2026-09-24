@@ -89,13 +89,13 @@ case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; the
 # seconds (default 10, enough for a small repository's rebuild). Past that it is given from the previous graph, with
 # one line on stderr naming the files that graph predates. The repository is the last argument that is a directory,
 # as the verbs themselves take it, else the working directory. No graph: nothing here, the verb builds its first one.
-# `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they
-# start the refresher but do not wait for it.
+# `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they do
+# not wait for the graph; they wait only when HEAD moved and the baseline has to follow it.
 FR=.; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ -d "$a" ] && FR="$a"; done
 if [ -f "$FR/.axiomcode/out/graph.sqlite" ]; then
   case "$cmd" in
     context|path|impact|graph) python3 "$H/ax_fresh.py" wait "$FR" "${AXIOMCODE_FRESH_WAIT:-10}" || true ;;
-    changed|test-impact|tests) python3 "$H/ax_fresh.py" kick "$FR" || true ;;
+    changed|test-impact|tests) python3 "$H/ax_fresh.py" baseline "$FR" "${AXIOMCODE_BASELINE_WAIT:-30}" || true ;;
   esac
 fi
 case "$cmd" in

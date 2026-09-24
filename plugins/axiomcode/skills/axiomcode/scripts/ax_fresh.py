@@ -20,6 +20,7 @@ the previous graph. Three pieces:
   ax_fresh.py status <repo> [--json]           fresh | stale (+ the changed files) | building | no graph
   ax_fresh.py kick <repo>                      start the worker if the graph is stale; never waits
   ax_fresh.py wait <repo> [<seconds>]          kick, then wait up to <seconds> for a fresh graph
+  ax_fresh.py baseline <repo> [<seconds>]      when HEAD moved, wait for the baseline to follow it (changed, test-impact)
   ax_fresh.py worker <repo>                    the worker itself (what kick detaches)
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
 
@@ -132,6 +133,19 @@ def baseline_graph(repo):
     except OSError: pass
     return None
 
+def head(repo):
+    r = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=repo, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+def base_moved(repo):
+    """HEAD is not the commit the baseline was set at: a commit, a merge, a pull or a checkout since. The baseline has
+    to follow it even when no file differs from the graph (committing edits the graph already holds), or `changed`
+    keeps reporting every committed edit and test-impact selects for all of them, more with each commit."""
+    try: bc = open(os.path.join(out_dir(repo), 'base-commit')).read().strip()
+    except OSError: return False
+    h = head(repo)
+    return bool(h) and bool(bc) and bc != h
+
 def legacy_params(repo):
     """a graph built before the file table: the language, --src and --library it was built with, from its run table"""
     import sqlite3
@@ -187,7 +201,7 @@ def change_key(c):
 def enabled(repo):
     return not os.environ.get('AXIOMCODE_NO_REFRESH') and not os.environ.get('AXIOMCODE_GRAPH') and has_graph(repo)
 
-def kick(repo):
+def kick(repo, trigger='an edit'):
     """start the worker and return at once; a no-op without a graph (the FIRST build takes minutes and is
     the caller's decision, see ax_contract.ensure_graph) or when one is already running"""
     if not enabled(repo): return False
@@ -198,7 +212,8 @@ def kick(repo):
     finally: os.close(fd)
     log = open(os.path.join(repo, '.axiomcode', 'refresh.log'), 'a')
     kw = dict(start_new_session=True) if os.name != 'nt' else dict(creationflags=0x00000008 | 0x00000200)   # DETACHED | NEW_GROUP
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), 'worker', repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, **kw)
+    env = dict(os.environ, AXIOMCODE_REFRESH_TRIGGER=trigger)
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), 'worker', repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, **kw)
     return True
 
 def worker(repo):
@@ -219,17 +234,22 @@ def worker(repo):
                 legacy_done = True; c = [['(no file table yet)'], [], []]
             else:
                 c = changes(repo, t)
-                if c is None or not any(c): write_state(repo, state='fresh', checked=time.time()); return 0
+                if (c is None or not any(c)) and not base_moved(repo):
+                    write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', '')); return 0
+                c = c or [[], [], []]
             st = read_state(repo)
             # a build that FAILED on exactly this tree is not retried on every trigger: the next edit retries it
             fp = change_key(c)
             if st.get('failed_table') == fp: return 0
+            n = sum(len(x) for x in c)
+            why = (f"{n} file(s) changed" if n else f"HEAD moved to {(head(repo) or '')[:10]}") + f", found by {os.environ.get('AXIOMCODE_REFRESH_TRIGGER') or 'an edit'}"
             env = dict(os.environ, AXIOMCODE_LANG=t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''),
-                       AXIOMCODE_BACKGROUND='1')
+                       AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
             env.pop('AXIOMCODE_LIBRARY', None)
             if t.get('library'): env['AXIOMCODE_LIBRARY'] = t['library']
             t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
-            print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
+            if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
+            else: print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
             r = subprocess.run(['bash', os.path.join(H, 'axiomcode-build'), repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             took = round(time.time() - t0, 1)
             if r.returncode != 0:
@@ -237,14 +257,14 @@ def worker(repo):
                             failed_log=os.path.join(repo, '.axiomcode', 'build.log'))
                 print(f"refresh: build failed after {took}s; the previous graph is kept\n{r.stdout[-800:]}", flush=True)
                 return 1
-            write_state(repo, state='fresh', finished=time.time(), seconds=took, failed_table=None)
+            write_state(repo, state='fresh', finished=time.time(), checked=time.time(), seconds=took, failed_table=None, reason=why)
             print(f"refresh: done in {took}s", flush=True)
     finally:
         os.close(fd)                                          # the lock goes with it
     # an edit that landed after the last check but while the lock was still held found the worker busy and
     # returned; it is picked up here, after the lock is released, by starting over
     c = changes(repo)
-    if c and any(c) and read_state(repo).get('failed_table') != change_key(c): kick(repo)
+    if (c and any(c) and read_state(repo).get('failed_table') != change_key(c)) or base_moved(repo): kick(repo)
     return 0
 
 def wait(repo, seconds):
@@ -253,11 +273,43 @@ def wait(repo, seconds):
     end = time.time() + seconds
     while True:
         s = status(repo)
-        if s['state'] == 'unknown': kick(repo); return s     # a graph from before the file table: its first refresh records one
+        if s['state'] == 'unknown': kick(repo, 'a query'); return s     # a graph from before the file table: its first refresh records one
         if s['state'] in ('fresh', 'no graph') or s.get('failed'): return s
-        if s['state'] == 'stale': kick(repo)                  # idempotent: a no-op while a worker holds its lock
+        if s['state'] == 'stale': kick(repo, 'a query')       # idempotent: a no-op while a worker holds its lock
         if time.time() >= end: return s
         time.sleep(0.5)
+
+def wait_baseline(repo, seconds):
+    """for `changed` and `test-impact`: when HEAD moved since the baseline was set, start the refresher and wait for it
+    to move the baseline (0.2 s when no file changed, a build of HEAD's text when the tree is dirty). '' or a note."""
+    if not enabled(repo) or not base_moved(repo): return ''
+    kick(repo, 'a query'); end = time.time() + seconds
+    while time.time() < end:
+        time.sleep(0.3)
+        if not base_moved(repo): return ''
+        if read_state(repo).get('state') == 'failed': break
+        kick(repo, 'a query')
+    return (f"graph refresh: HEAD moved since the baseline was set ({head(repo)[:10]}); the baseline is still being moved, "
+            "so this answer also counts what the new commits changed")
+
+def last_update(repo):
+    """the last time anything looked at this graph's freshness or rebuilt it: a check, a refresh, a build"""
+    st = read_state(repo); ts = [st.get('checked') or 0, st.get('finished') or 0]
+    try: ts.append(os.path.getmtime(table_path(repo)))
+    except OSError: pass
+    return max(ts)
+
+def refreshed(repo):
+    """when the graph was built and why (index_meta, written by axiomcode-build), and when it was last checked"""
+    import sqlite3
+    d = {}
+    try:
+        con = sqlite3.connect(f"file:{os.path.join(out_dir(repo), 'graph.sqlite')}?mode=ro", uri=True)
+        d = dict(con.execute("SELECT key, value FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_commit')").fetchall()); con.close()
+    except Exception: pass
+    st = read_state(repo)
+    if st.get('checked'): d['checked_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(st['checked'])); d['checked_by'] = st.get('checked_by') or st.get('reason', '')
+    return d
 
 def note(s):
     """one line for an answer given from a graph that is behind the files, or '' when it is not"""
@@ -288,10 +340,17 @@ def main(argv):
         return 0 if c is not None and not any(c) else 1
     if cmd == 'status':
         s = status(repo)
-        if '--json' in argv: print(json.dumps(s))
-        else: print(s['state'] + (': ' + note(s) if note(s) else ''))
+        if '--json' in argv: print(json.dumps(dict(s, **refreshed(repo))))
+        else:
+            r = refreshed(repo)
+            print(s['state'] + (': ' + note(s) if note(s) else ''))
+            if r.get('refreshed_at'): print(f"built {r['refreshed_at']} ({r.get('refresh_reason', '')})" + (f"; last checked {r['checked_at']}" if r.get('checked_at') else ''))
         return 0
     if cmd == 'kick': kick(repo); return 0
+    if cmd == 'baseline':
+        n = wait_baseline(repo, float(argv[3]) if len(argv) > 3 else 30)
+        if n: print(n, file=sys.stderr)
+        return 0
     if cmd == 'worker': return worker(repo)
     if cmd == 'wait':
         s = wait(repo, float(argv[3]) if len(argv) > 3 else float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 10))

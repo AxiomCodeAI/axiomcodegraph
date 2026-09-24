@@ -97,10 +97,17 @@ set_base(){
   if [ -n "${AXIOMCODE_BACKGROUND:-}" ] && [ -f "$OUT/base-tree" ] && [ "$(cat "$OUT/base-commit" 2>/dev/null)" = "$HEAD_SHA" ]; then :
   elif [ -n "${AXIOMCODE_BACKGROUND:-}" ] && [ ! -f "$OUT/base-tree" ] && [ -n "$OLD_INDEXED" ] && [ "$OLD_COMMIT" = "$HEAD_SHA" ]; then
     echo "$OLD_INDEXED" > "$OUT/base-tree"                    # a graph from before base-tree: its baseline was the tree it indexed
+  elif [ -n "${AXIOMCODE_BACKGROUND:-}" ]; then
+    # HEAD MOVED (a commit, a merge, a pull, a checkout): the baseline is the new commit. Kept where it was, every
+    # commit's edits would stay "changed" and test-impact would select for all of them, growing with each commit.
+    # Not the working tree either: after a pull, the edits still uncommitted are exactly what `changed` must show.
+    (cd "$REPO" && git rev-parse 'HEAD^{tree}' 2>/dev/null) > "$OUT/base-tree.new" && mv "$OUT/base-tree.new" "$OUT/base-tree" || rm -f "$OUT/base-tree.new"
   elif [ -n "$1" ]; then echo "$1" > "$OUT/base-tree"
   else rm -f "$OUT/base-tree"; fi
-  echo "$HEAD_SHA" > "$OUT/base-commit"
 }
+# the commit the baseline follows, written LAST: `changed` waits while it differs from HEAD, so it must not say "moved"
+# before the baseline's graph exists (keep_base_graph), or `changed` reads a baseline with no graph for it
+commit_base(){ [ -n "$GD" ] && echo "$HEAD_SHA" > "$OUT/base-commit"; return 0; }
 # THE BASELINE GRAPH. `changed`, `test-impact` and the change reports ask about an EDIT: which declarations it touched and
 # who depended on them before it, a removed method's callers included. After a background refresh the graph no longer
 # has the removed method, and its spans are in the new text. So the graph that describes the baseline is kept, moved
@@ -110,9 +117,31 @@ set_base(){
 keep_base_graph(){
   local B="$REPO/.axiomcode/base" BT; BT="$(cat "$OUT/base-tree" 2>/dev/null || true)"
   if [ -z "$BT" ] || [ "$BT" = "$INDEXED_TREE" ]; then rm -rf "$B"; return 0; fi
-  if [ "$BT" = "$OLD_INDEXED" ] && [ -f "$PREV/graph.sqlite" ] && [ ! -L "$PREV/graph.sqlite" ]; then
+  if [ "$BT" = "$OLD_INDEXED" ] && [ -n "$PREV" ] && [ -f "$PREV/graph.sqlite" ] && [ ! -L "$PREV/graph.sqlite" ]; then
     rm -rf "$B"; mkdir -p "$B/out"; mv "$PREV/graph.sqlite" "$B/out/graph.sqlite"; echo "$BT" > "$B/tree"; BASE_SAVED=1
+  elif [ "$(cat "$B/tree" 2>/dev/null)" != "$BT" ]; then build_head_graph "$BT"
   fi
+}
+# the baseline is HEAD and the working tree is not: no graph describes HEAD's text, so one is built from it, exported
+# with `git archive` into a scratch directory (the user's checkout and index are never touched). node_modules is not in
+# git, and TypeScript resolves types through it, so the repository's own is linked in.
+build_head_graph(){
+  local T D; T="$(mktemp -d "${TMPDIR:-/tmp}/axiomcode-base.XXXXXX")" || return 0
+  if (cd "$REPO" && git archive "$HEAD_SHA" -- ${AXIOMCODE_SRC:+"$AXIOMCODE_SRC"}) | tar -x -C "$T" 2>/dev/null; then
+    [ -d "$REPO/node_modules" ] && ln -s "$REPO/node_modules" "$T/node_modules"
+    # library roots are given relative to the repository or absolute; from the scratch directory only absolute reach
+    local LIBS="" r; if [ -n "${AXIOMCODE_LIBRARY:-}" ]; then
+      for r in $(printf %s "$AXIOMCODE_LIBRARY" | tr ',' ' '); do case "$r" in /*) ;; *) r="$REPO/$r" ;; esac; LIBS="${LIBS:+$LIBS,}$r"; done
+    fi
+    if env -u AXIOMCODE_BACKGROUND AXIOMCODE_NO_REFRESH=1 AXIOMCODE_LIBRARY="$LIBS" bash "$H/axiomcode-build" "$T" > "$REPO/.axiomcode/base-build.log" 2>&1; then
+      D="$(readlink "$T/.axiomcode/out/graph.sqlite" 2>/dev/null || true)"
+      if [ -n "$D" ] && [ -f "$D" ]; then
+        rm -rf "$REPO/.axiomcode/base"; mkdir -p "$REPO/.axiomcode/base/out"; mv "$D" "$REPO/.axiomcode/base/out/graph.sqlite"
+        echo "$1" > "$REPO/.axiomcode/base/tree"; BASE_SAVED=1
+      fi
+    fi
+  fi
+  rm -rf "$T"
 }
 BASE_SAVED=""
 # FRESH IS "THE FILES THE GRAPH WAS BUILT FROM", NOT "A CLEAN GIT STATUS". The file table (ax_fresh.py) records every
@@ -120,7 +149,7 @@ BASE_SAVED=""
 # edits are already indexed is not rebuilt, and a tree edited and restored, which git calls clean against a graph built
 # from the edit, is. A commit that changed no file moves the stamp, not the graph.
 if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
-  if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; fi
+  if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
   sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0
 fi
@@ -180,12 +209,19 @@ DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; 
 # at it; until the pointer moves, every verb (and the hooks) keeps answering from the previous graph. Only then is the
 # old one removed: a reader that opened it keeps the file it opened.
 AXIOMCODE_INDEX_DB="$DB" python3 "$H/axiomcode-index" "$REPO" || { restore; echo "indexing the new graph failed — the graph that was there is untouched"; exit 1; }
+# WHEN AND WHY THIS GRAPH WAS BUILT, in the graph itself (index_meta): refreshed_at (UTC), refresh_reason (`axiomcode
+# index`, or what the background refresher saw: files changed, HEAD moved, found by an edit, a query or the timer), and
+# the tree and commit it describes. Written before the swap: a write to the live graph later would change its mtime,
+# which keys the impact-facts cache, and cost the next query a re-export.
+REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
+sqlite3 "$DB" "DELETE FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_tree','refreshed_commit');
+  INSERT INTO index_meta VALUES ('refreshed_at','$(date -u +%Y-%m-%dT%H:%M:%SZ)'),('refresh_reason','$REASON'),('refreshed_tree','$INDEXED_TREE'),('refreshed_commit','$HEAD_SHA');" 2>/dev/null || true
 echo "$STAMP" > "$OUT/stamp"
 if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
 set_base "$INDEXED_TREE"
 point "$DB"; rm -f "$OUT/.live.sqlite"
 if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
-keep_base_graph
+keep_base_graph; commit_base
 rm -rf "$PREV"
 sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
 python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
