@@ -1195,7 +1195,12 @@ function emitOne(
       kind === CsExpressionKind.DEFAULT && node.childForFieldName('type') === null
         ? CsLiteralKind.DEFAULT_LITERAL
         : (literalKind ?? CsLiteralKind.NONE),
-    literalValue: literalKind !== undefined ? node.text : '',
+    // An INTERPOLATED string keeps its source text too, while its literalKind stays NONE
+    // so nothing that reads a literal's value mistakes it for a constant. Its text parts
+    // are `string_content` nodes, which are not expressions and produce no row, so without
+    // this `$"api/orders/{id}"` reached the IR as its holes alone and the route it spells
+    // was nowhere (#1295).
+    literalValue: literalKind !== undefined || kind === CsExpressionKind.INTERPOLATED_STRING ? node.text : '',
     operatorString: shape.operatorString,
     unaryFixity: shape.unaryFixity,
     methodReferenceKind: shape.methodReferenceKind,

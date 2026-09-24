@@ -4,7 +4,7 @@
 remote-edge.csv, remote-unserved.csv and remote-unsent.csv hold CS_METHOD hashes, which
 are not stable across checkouts, so the ends are resolved to the method's qualified name
 and parameter count from the IR. Same shape as graph/test/java/tools/normalize_remote.py,
-with the two unjoined halves added: a golden that lists only the edges passes when a send
+with the unjoined halves and the undetermined sends added: a golden that lists only the edges passes when a send
 silently stops being reported.
 
 usage: normalize_remote.py <IR-dir> <engine-out-dir>
@@ -35,6 +35,7 @@ def main():
     lines = [f"edge\t{r[2]}\t{r[4]}\t{r[3]}\t{L(r[0])} -> {L(r[1])}" for r in rows(os.path.join(out, 'remote-edge.csv'))]
     lines += [f"unserved\t{r[1]}\t-\t{r[2]}\t{L(r[0])}" for r in rows(os.path.join(out, 'remote-unserved.csv'))]
     lines += [f"unsent\t{r[1]}\t-\t{r[2]}\t{L(r[0])}" for r in rows(os.path.join(out, 'remote-unsent.csv'))]
+    lines += [f"undetermined\t{r[1]}\t-\t{r[2]}\t{L(r[0])}" for r in rows(os.path.join(out, 'remote-undetermined.csv'))]
     print('\n'.join(sorted(set(lines))))
 
 

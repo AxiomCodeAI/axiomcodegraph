@@ -206,6 +206,7 @@ they resolve. No compiler adjudicates a cross-process hop; the golden is the con
 | case | what it pins |
 |---|---|
 | `01-grpc` | a call on a `<S>.<S>Client` (an injected field, a local built with `new`, a parameter, a using alias through a primary constructor; blocking, `Async` and streaming) reaches the `override` of the same rpc on a `<S>.<S>Base` subclass. Two services with an rpc of the same name stay apart. An rpc nothing serves is `unserved`, one nothing calls is `unsent`. Controls: `System.Net.Http.HttpClient` and `ControllerBase` have the generated SHAPE through their namespace and are not gRPC; a non-override helper on a service is not an rpc |
+| `02-http` | an ASP.NET Core route reached by an `HttpClient` call. Server: attribute routing (`[Route("api/[controller]")]`, `Http<Verb>` templates, an absolute `/health`) and minimal APIs (`MapGroup` prefixes through a local and a fluent call, method-group and lambda handlers, an optional `{day:int?}`). Client: literals, `+`, interpolation with a field-held base path, a local, `TrimEnd`, `SendAsync` with an `HttpRequestMessage`, a declarative interface, and a string-path wrapper bound at its callers. Route precedence keeps `/widgets/{id}` off `/widgets/featured`, and a whole URL in a leading hole followed by a query is not a base address. A verb mismatch and an unknown path are `unserved`, a parameter-only URL is `undetermined`, and unused routes are `unsent` |
 
 ## The corpus
 
