@@ -65,6 +65,12 @@ expr_external_type_name(prov, e, n) :-
     var_type_name(prov, v, n, _),
     var_method(prov, v, mth), method_module(prov, mth, mod),
     external_type_name(prov, mod, n, _).
+// a pattern binding is a variable too: `o is List<Shape> xs`
+expr_external_type_name(prov, e, n) :-
+    ref_denotes(prov, e, "PATTERN_BINDING", v),
+    var_type_name(prov, v, n, _),
+    var_method(prov, v, mth), method_module(prov, mth, mod),
+    external_type_name(prov, mod, n, _).
 expr_external_type_name(prov, e, n) :-
     ref_denotes(prov, e, "PARAMETER", p),
     param_type_name(prov, p, n, _),
@@ -155,6 +161,8 @@ predefined_boundary_alias(n) :- cs_predefined_alias(n), n != "dynamic".
 
 expr_predefined_recv_name(prov, e, n) :-
     ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_name(prov, v, n, _), predefined_boundary_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "PATTERN_BINDING", v), var_type_name(prov, v, n, _), predefined_boundary_alias(n).
 expr_predefined_recv_name(prov, e, n) :-
     ref_denotes(prov, e, "PARAMETER", p), param_type_name(prov, p, n, _), predefined_boundary_alias(n).
 expr_predefined_recv_name(prov, e, n) :-
@@ -368,6 +376,27 @@ external_element_access(prov, e, label) :-
     external_recv_name(prov, q, tn),
     expr_is_write_target(prov, e),
     label = cat("external:", cat(tn, ".set_Item")).
+
+// AN INDEXER THE UNSTAGED BASE MAY DECLARE. The indexer counterpart of the overload
+// rule for calls above: an in-source indexer was found, and the receiver's type derives
+// from something unstaged that may declare another indexer taking a different parameter
+// type. `interface IOrderedMap<K, V> : IDictionary<K, V> { V this[int i] { get; } }`
+// declares `this[int]`, and `map[key]` binds to IDictionary's `this[K]`. Matching on
+// arity alone committed that site to `this[int]` at known_edge, a wrong edge. The local
+// target is kept and the site becomes a set with the base's accessor, which is the
+// claim the engine can support without typing the argument.
+external_element_access(prov, e, label) :-
+    indexer_access(prov, e, _),
+    expr_child(prov, e, "RECEIVER", _, q), expr_type(prov, q, gk),
+    type_base_unresolved(prov, gk, _, bn, _),
+    !expr_is_write_target(prov, e),
+    label = cat("external:", cat(bn, ".get_Item")).
+external_element_access(prov, e, label) :-
+    indexer_access(prov, e, _),
+    expr_child(prov, e, "RECEIVER", _, q), expr_type(prov, q, gk),
+    type_base_unresolved(prov, gk, _, bn, _),
+    expr_is_write_target(prov, e),
+    label = cat("external:", cat(bn, ".set_Item")).
 
 // INDEXING AN ARRAY IS NOT A CALL. `a[0]` on `int[] a` has no get_Item to name,
 // and properties.dl makes the same ruling by joining on the indexer member. Here

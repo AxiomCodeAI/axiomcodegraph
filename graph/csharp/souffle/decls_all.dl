@@ -394,7 +394,6 @@
 .decl param_type_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)
 .decl parse_gap_bytes(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
-.decl pattern_binding_type(c0:symbol,c1:symbol,c2:symbol)
 .decl predefined_boundary_alias(c0:symbol)
 .decl preproc_inactive(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl preproc_region(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)

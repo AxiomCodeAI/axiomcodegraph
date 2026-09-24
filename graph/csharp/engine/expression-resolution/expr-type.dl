@@ -200,6 +200,7 @@ call_recv_type_name(prov, e, n) :-
 // on the resolved type: `IShape[]` and `IShape` resolve to the same group.
 expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "PARAMETER", p), param_type_ref(prov, p, tr).
 expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_ref(prov, v, tr).
+expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "PATTERN_BINDING", v), var_type_ref(prov, v, tr).
 expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "FIELD", f), field_type_ref(prov, f, tr).
 // A `var` local's reference is the reference of its initializer.
 expr_type_via_ref(prov, e, tr) :-
@@ -485,12 +486,17 @@ expr_type(prov, e, gk) :-
 expr_type(prov, e, gk) :- expr_kind(prov, e, "CONDITIONAL"), expr_child(prov, e, "WHEN_TRUE", _, b), expr_type(prov, b, gk).
 expr_type(prov, e, gk) :- expr_kind(prov, e, "CONDITIONAL"), expr_child(prov, e, "WHEN_FALSE", _, b), expr_type(prov, b, gk).
 
-// A PATTERN BINDING: `if (x is Circle c)` types c as Circle. The pattern's type is
-// the narrowing the author asserted, so it is exact for the branch.
+// A PATTERN BINDING: `if (x is Circle c)` types c as Circle, and so do `case Circle c:`
+// and a switch-expression arm. It is the DECLARED type, not an exact one: `o is Shape s`
+// holds any Shape, so `s.Area()` still fans to the overrides.
+//
+// The binding is a cs_variable row (declarationKind PATTERN) carrying its own type name
+// and root reference, so it is typed exactly as a local is. This used to look for a
+// reference OWNED by the binding as an EXPRESSION, which the parser never writes (the
+// pattern's own reference is owned by the is-expression), so no pattern binding was
+// ever typed and every call on one was ambiguous_unknown.
 expr_type(prov, e, gk) :-
-    ref_denotes(prov, e, "PATTERN_BINDING", pb), pattern_binding_type(prov, pb, gk).
-pattern_binding_type(prov, pb, gk) :-
-    type_ref_owner(prov, tr, pb, "EXPRESSION"), type_ref_resolves(prov, tr, gk).
+    ref_denotes(prov, e, "PATTERN_BINDING", v), var_type(prov, v, gk).
 
 // ── THE RECEIVER'S TYPE, WHICH IS WHAT THE CALL RULES WANT ──────────────────
 // call_recv_type(Prov, SiteExpr, GroupKey). Four shapes, and each has a different
