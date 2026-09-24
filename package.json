@@ -36,7 +36,7 @@
     "@axiomcode/engine-win32-x64": "0.1.0"
   },
   "bin": {
-    "axiomcode": "bin/axiomcode"
+    "axiomcode": "bin/axiomcode.js"
   },
   "files": [
     "bin/",

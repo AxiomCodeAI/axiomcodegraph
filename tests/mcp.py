@@ -7,7 +7,9 @@ puts it, so the server is started three ways and each has to answer `initialize`
 run one:
 
   bin/axiomcode mcp            the command itself
-  <link>/axiomcode mcp         through a symlink, the way node_modules/.bin and a global install reach it
+  <link>/axiomcode mcp         through a symlink to bin/axiomcode.js, the `bin` entry, the way
+                               node_modules/.bin and a global install reach it
+  .mcp.json                    Claude Code's server entry, with ${CLAUDE_PLUGIN_ROOT} replaced
   python3 -S server.py         without site-packages, so the SDK cannot import and the built-in fallback
                                serves — the path a clean machine takes
   plugins/axiomcode/mcp.json   the portable plugin's own command, exactly as written, the three ways a host
@@ -23,6 +25,7 @@ import json, os, shutil, subprocess, sys, tempfile, threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')
+LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 TOOLS = {'axiomcode_index', 'axiomcode_context', 'axiomcode_path', 'axiomcode_impact',
          'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph'}
@@ -95,7 +98,7 @@ def main():
         link_dir = os.path.join(work, 'bin')
         os.mkdir(link_dir)
         link = os.path.join(link_dir, 'axiomcode')
-        os.symlink(CLI, link)
+        os.symlink(LAUNCHER, link)
         bad += check('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo)
         bad += check('symlinked axiomcode mcp', [link, 'mcp'], repo)
         env_note = 'python3 -S server.py (fallback, no SDK)'
@@ -121,6 +124,20 @@ def main():
         cmd = [server['command'], *map(expand, server['args'])]
         env = dict(base, **{k: expand(v) for k, v in server.get('env', {}).items()})
         bad += check('.cursor-plugin/plugin.json', cmd, repo, env, repo)
+
+        with open(os.path.join(plugin, '.mcp.json')) as f:
+            server = json.load(f)['mcpServers']['axiomcode']
+        expand = lambda v: v.replace('${CLAUDE_PLUGIN_ROOT}', plugin)
+        cmd = [server['command'], *map(expand, server['args'])]
+        env = dict(base, **{k: expand(v) for k, v in server.get('env', {}).items()})
+        bad += check('.mcp.json', cmd, repo, env, repo)
+
+        # A bash named by AXIOMCODE_BASH that is not there is an error that says so, exit 127, rather than
+        # a quiet fall back to whatever `bash` PATH holds, which on Windows is the wrong one (#1229).
+        r = subprocess.run([link, '--help'], capture_output=True, text=True,
+                           env=dict(os.environ, AXIOMCODE_BASH=os.path.join(work, 'no-bash')))
+        if r.returncode != 127 or 'AXIOMCODE_BASH' not in r.stderr:
+            bad.append(f"axiomcode with a missing AXIOMCODE_BASH: exit {r.returncode}, stderr {r.stderr.strip()[:200]!r}")
     for b in bad:
         print('FAIL', b)
     print('ok' if not bad else f'{len(bad)} failure(s)')

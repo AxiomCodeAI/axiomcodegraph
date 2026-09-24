@@ -3,8 +3,8 @@
   "mcpServers": {
     "axiomcode": {
       "type": "stdio",
-      "command": "bash",
-      "args": ["-c", "exec bash \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-.}}}/mcp/launch.sh\""]
+      "command": "node",
+      "args": ["-e", "const e=process.env;require(require('path').resolve(e.PLUGIN_ROOT||e.CLAUDE_PLUGIN_ROOT||e.CURSOR_PLUGIN_ROOT||'.','mcp','launch.js'))"]
     }
   }
 }

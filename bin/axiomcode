@@ -96,11 +96,11 @@ case "$cmd" in
   "") ;;
   # THE MCP SERVER IS THE PLUGIN'S, NOT A SECOND ONE. The package already ships plugins/axiomcode/,
   # so an agent that is not Claude Code gets the same seven tools from one line of MCP config and
-  # no plugin install. launch.sh picks the interpreter and falls back to a built-in protocol
+  # no plugin install. launch.js picks the interpreter and falls back to a built-in protocol
   # implementation, so nothing beyond the python3 the query verbs already need has to be installed.
   mcp) shift
        export AXIOMCODE_PLUGIN_ROOT="$ROOT/plugins/axiomcode"
-       exec bash "$ROOT/plugins/axiomcode/mcp/launch.sh" "$@" ;;
+       exec node "$ROOT/plugins/axiomcode/mcp/launch.js" "$@" ;;
   tests) echo "axiomcode: 'tests' is ambiguous here — 'axiomcode test-impact' for the tests an edit needs," >&2
          echo "           'axiomcode test' for this package's own engine suite." >&2; exit 2 ;;
   *) if is_query_verb "$cmd"; then shift; exec bash "$QUERY" "$cmd" "$@"; fi ;;

@@ -19,8 +19,15 @@ ROOT = os.environ.get('AXIOMCODE_PLUGIN_ROOT') or os.path.dirname(os.path.dirnam
 AX = os.path.join(ROOT, 'skills', 'axiomcode', 'scripts', 'axiomcode')
 srv = MCPServer('axiomcode')
 
+# launch.js hands over the bash it chose, because on Windows a bare `bash` is WSL's or nothing (#1233).
+BASH = os.environ.get('AXIOMCODE_BASH') or 'bash'
+
 def run(args, cwd=None, timeout=900):
-    r = subprocess.run(['bash', AX, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout)
+    try:
+        r = subprocess.run([BASH, AX, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout)
+    except OSError as e:
+        return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
+                "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")
     out = (r.stdout or '') + (('\n' + r.stderr.strip()) if r.returncode and r.stderr.strip() else '')
     return out.strip() or f"(no output, exit {r.returncode})"
 

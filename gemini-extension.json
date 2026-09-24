@@ -5,8 +5,8 @@
   "contextFileName": "plugins/axiomcode/AGENTS.md",
   "mcpServers": {
     "axiomcode": {
-      "command": "bash",
-      "args": ["${extensionPath}${/}plugins${/}axiomcode${/}mcp${/}launch.sh"],
+      "command": "node",
+      "args": ["${extensionPath}${/}plugins${/}axiomcode${/}mcp${/}launch.js"],
       "env": {
         "AXIOMCODE_PLUGIN_ROOT": "${extensionPath}${/}plugins${/}axiomcode"
       }
