@@ -1,0 +1,12 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "an upstream closure says how much of it is certain: callers through exact calls apart from those that reach the target only through a dispatch choice (an interface with several implementations)",
+   "run": ["path", "*", "GitRepo.fetch"],
+   "want": ["Through exact calls only: 2 production, 0 test", "only through a dispatch choice", "they MAY run it, not must"],
+   "avoid": ["through resolved calls"]
+  }
+ ]
+}
