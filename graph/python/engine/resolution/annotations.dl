@@ -274,3 +274,135 @@ field_declared_element(p, f, t) :-
     type_ref_owner(p, f, "FIELD", r),
     type_ref(p, k, "FIELD_TYPE", _, _, r), annotation_container_kind(k),
     type_ref_element(p, r, t).
+
+// ============================================================================
+// A LAMBDA TYPED BY THE ANNOTATION IT IS ASSIGNED TO (issue #1283)
+//
+//     Parse = Callable[[Schema, int], int]
+//     parse: Parse = lambda schema, value: schema._i.run(value)
+//
+// A lambda cannot annotate its own parameters, so the only declaration `schema` has is
+// the one on the name the lambda is assigned to. A type checker reads it from there, and
+// so does this: the lambda's parameter at position i takes the declared type at position
+// i of the callable annotation. Before this, the lambda's parameters were typed by
+// argument flow alone, so a lambda with no caller in the analysed tree (an exported
+// callback, a hook a library invokes) left every call in its body untyped while the same
+// body written as an annotated `def` resolved.
+//
+// THREE SPELLINGS of the declared callable, all read the same way:
+//   - inline:    `parse: Callable[[Schema, int], int] = lambda ...`
+//   - an alias:  `Parse = Callable[[Schema, int], int]` and `parse: Parse = lambda ...`
+//   - a callback Protocol whose `__call__` declares the parameters (after `self`).
+// A parameter declared as a bounded TypeVar (`Callable[[T, int], int]` with
+// `T = TypeVar("T", bound=Schema)`) takes the bound, as an annotated parameter does
+// (resolution/generics.dl).
+//
+// The result is a DECLARED type and goes through param_declared_type, so it is widened
+// over constructed subclasses and registered as declared exactly like a written
+// annotation. It is read from annotations and expression shapes alone, outside the
+// resolution fixpoint, which is what param_type's negation of it requires.
+//
+// Only a LAMBDA is typed this way. A `def` assigned to the same name has its own
+// annotations, and an unannotated `def` is not contextually typed by any checker.
+// ============================================================================
+
+// ── callable_annotation_head(Name) — the subscript that spells a callable type ──
+// typing.Callable and collections.abc.Callable. Both are written `Callable[...]`, bare or
+// dotted; the dotted form's attribute node carries the same name.
+callable_annotation_head("Callable").
+
+// ── callable_sig_param_expr(Prov, SubscriptExpr, Position, ParamTypeExpr) ────
+// The i-th parameter type written in `Callable[[A, B], R]`. The parser gives the
+// subscript's index two shapes: in an annotation position the list and the return type
+// are each an index child; as an ordinary value (the right-hand side of an alias) they
+// are the elements of one TUPLE index. The list is the first of them either way.
+callable_sig_list(p, s, l) :-
+    expr_node(p, "SUBSCRIPT", _, _, s),
+    expr_parent(p, s, "SUBSCRIPT_OBJECT", _, head),
+    expr_node(p, _, _, hn, head), callable_annotation_head(hn),
+    expr_parent(p, s, "SUBSCRIPT_INDEX", _, l),
+    expr_node(p, "LIST", _, _, l).
+callable_sig_list(p, s, l) :-
+    expr_node(p, "SUBSCRIPT", _, _, s),
+    expr_parent(p, s, "SUBSCRIPT_OBJECT", _, head),
+    expr_node(p, _, _, hn, head), callable_annotation_head(hn),
+    expr_parent(p, s, "SUBSCRIPT_INDEX", _, tup),
+    expr_node(p, "TUPLE", _, _, tup),
+    expr_parent(p, tup, "ELEMENT", "0", l),
+    expr_node(p, "LIST", _, _, l).
+callable_sig_param_expr(p, s, pos, e) :-
+    callable_sig_list(p, s, l),
+    expr_parent(p, l, "ELEMENT", pos, e).
+
+// ── callable_sig_param_type(Prov, SubscriptExpr, Position, TypeHash) ─────────
+// A class name, or a bounded TypeVar taking its bound.
+callable_sig_param_type(p, s, pos, t) :-
+    callable_sig_param_expr(p, s, pos, e),
+    expr_names_type(p, e, t).
+callable_sig_param_type(p, s, pos, t) :-
+    callable_sig_param_expr(p, s, pos, e),
+    expr_node(p, "NAME_REFERENCE", _, vn, e), vn != "",
+    typevar_bound(p, vn, t).
+
+// ── binding_declared_callable(Prov, BindingHash, SubscriptExpr) ──────────────
+// The annotation on a name IS a callable subscript, or names a single-binding alias of
+// one.
+binding_declared_callable(p, bind, s) :-
+    binding_declared_ref(p, bind, r),
+    type_ref_expr(p, r, s),
+    callable_sig_list(p, s, _).
+// The DOTTED spelling (`typing.Callable[[Schema, int], int]`): the reference's expression
+// link lands on the subscript's TUPLE index rather than on the subscript itself, so the
+// subscript is that node's parent.
+binding_declared_callable(p, bind, s) :-
+    binding_declared_ref(p, bind, r),
+    type_ref_expr(p, r, e),
+    expr_parent(p, s, "SUBSCRIPT_INDEX", _, e),
+    callable_sig_list(p, s, _).
+binding_declared_callable(p, bind, s) :-
+    binding_declared_ref(p, bind, r),
+    type_ref_expr(p, r, e),
+    expr_node(p, "NAME_REFERENCE", _, _, e),
+    expr_binding(p, bref, _, e),
+    binding_lookup(p, bref, alias),
+    binding_rebinding(p, "1", _, _, alias),
+    expr_binding(p, alias, "STORE", tgt),
+    assign_pair(p, tgt, s),
+    callable_sig_list(p, s, _).
+
+// ── binding_declared_call_protocol(Prov, BindingHash, CallMethodHash) ────────
+// The annotation names a class declaring `__call__`: a callback Protocol, written bare or
+// subscripted (`GenericParse[Schema]`). The class is resolved WITHOUT the structural gate
+// binding_declared_nominal applies, because nothing here types an instance of it -- only
+// its `__call__` signature is read.
+binding_declared_call_protocol(p, bind, c) :-
+    binding_declared_ref(p, bind, r),
+    type_ref_resolved(p, pt, r),
+    method_owner(p, pt, c), method_decl(p, "__call__", _, _, _, c).
+binding_declared_call_protocol(p, bind, c) :-
+    binding_declared_ref(p, bind, r),
+    type_ref(p, _, "VARIABLE_ANNOTATION", tn, _, r), tn != "",
+    binding_owner(p, mod, _, bind),
+    type_name_in_module(p, mod, tn, pt),
+    method_owner(p, pt, c), method_decl(p, "__call__", _, _, _, c).
+
+// ── binding_assigned_lambda(Prov, BindingHash, LambdaMethodHash) ─────────────
+binding_assigned_lambda(p, bind, m) :-
+    expr_binding(p, bind, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_lambda_method(p, val, m).
+
+// ── the lambda's parameters take the declared positions ──────────────────────
+param_declared_type(p, ph, t) :-
+    binding_assigned_lambda(p, bind, m),
+    binding_declared_callable(p, bind, s),
+    param_decl(p, _, pos, _, m, ph),
+    callable_sig_param_type(p, s, pos, t).
+// `__call__`'s parameter 0 is `self`, so lambda parameter i is its parameter i + 1.
+param_declared_type(p, ph, t) :-
+    binding_assigned_lambda(p, bind, m),
+    binding_declared_call_protocol(p, bind, c),
+    param_decl(p, _, pos, _, m, ph),
+    param_decl(p, _, cpos, _, c, cph),
+    to_number(cpos) = to_number(pos) + 1,
+    param_declared_type(p, cph, t).
