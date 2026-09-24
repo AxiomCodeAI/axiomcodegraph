@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "axiomcode": {
+      "command": "bash",
+      "args": ["mcp/launch.sh"],
+      "cwd": "."
+    }
+  }
+}

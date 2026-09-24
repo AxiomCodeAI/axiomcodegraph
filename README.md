@@ -188,7 +188,23 @@ The MCP tools need only `python3`. If the Python MCP SDK is installed (`pip inst
 PATH to fetch it, the server uses it; otherwise it serves with a built-in implementation of the part of the
 protocol it uses, and says so on stderr.
 
-## Using it from any other agent (MCP)
+## Using it from other agents
+
+The same plugin directory installs into these agents, each from this repository. Each gets the seven MCP
+tools and the skill or an instructions file; only Claude Code runs the hooks so far.
+
+```bash
+codex plugin marketplace add AxiomCodeAI/axiom-code-graph           # Codex
+codex plugin add axiomcode@axiomcode
+copilot plugin marketplace add AxiomCodeAI/axiom-code-graph         # Copilot CLI
+copilot plugin install axiomcode@axiomcode
+gemini extensions install https://github.com/AxiomCodeAI/axiom-code-graph   # Gemini CLI
+```
+
+As with Claude Code, building a graph needs the engine: `npm i -g @axiomcode/code-graph`.
+`python3 tests/manifests.py` checks that each manifest points at files that exist.
+
+### Any MCP client
 
 The package serves the same seven tools the plugin does, so any agent that speaks MCP can use them
 with one entry in its MCP config and no plugin install:
