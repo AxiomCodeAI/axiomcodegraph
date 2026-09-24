@@ -1,0 +1,11 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a class implementing Builder is its subtype though it declares a nested class named Builder: a member type is not in scope in the class header (#1244)",
+   "run": ["impact", "a.Builder"],
+   "want": ["PlainImpl   src/a/PlainImpl.java:4   — extends / implements it",
+            "DiffLike   src/a/DiffLike.java:6   — extends / implements it"]},
+  {"why": "its build() overrides Builder.build, as the plain implementer's does",
+   "run": ["impact", "Builder.build"],
+   "want": ["PlainImpl.build   src/a/PlainImpl.java:5   — overrides it",
+            "DiffLike.build   src/a/DiffLike.java:11   — overrides it"],
+   "avoid": ["DiffLike.Builder.build"]}]}

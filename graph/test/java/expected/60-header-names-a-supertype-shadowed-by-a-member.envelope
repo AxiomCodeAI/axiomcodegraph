@@ -1,0 +1,4 @@
+nominal	a.Base.name -> a.Shape.name
+nominal	a.Builder.build -> a.DiffLike.build
+nominal	a.Builder.build -> a.PlainImpl.build
+nominal	a.Outer.Builder.build -> a.Outer.Impl.build

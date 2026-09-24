@@ -1,0 +1,5 @@
+oracle=14 engine=18 agree=14 missing=0 (known 0, NEW 0) extra=4
+  extra    a.Main#named -> a.Shape#name()
+  extra    a.Main#outer -> a.Outer.Impl#build()
+  extra    a.Main#run -> a.DiffLike#build()
+  extra    a.Main#run -> a.PlainImpl#build()
