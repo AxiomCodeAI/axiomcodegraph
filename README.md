@@ -60,18 +60,14 @@ execution of long-horizon tasks.
   <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 65.2%, CodeGraph 52.4%, Graphify 48.7%, Code-Review-Graph 21.9%, name match 46.8%. F1 against Defects4J's own selection. Run-time observation, median: AxiomCode 0.98x, GitNexus 0.65x, CodeGraph 0.25x, Graphify 0.11x, Code-Review-Graph 0.00x, name match 0.03x.">
 </p>
 
-**On real bugs.** 748 held-out bugs from [Defects4J](https://github.com/rjust/defects4j), every tool static and
-from source to tests, scored once after
-the evaluation rules were frozen. Defects4J's own selection is the ground truth: it runs the test suite and records
-which tests load the changed code. Every graph builder above works statically, from source. Without running a
-test, AxiomCode's selection includes every bug-revealing test for **94.9%** of bugs, at an F1 of **72.4** against
-that run-time observation. The best tree-sitter (CST) builder catches them all for 65.2%, at an F1 of 57.5. AxiomCode's selection is not the same set: on average, 71.2% of the tests Defects4J observes are in it, and
-in 38 of the 748 bugs it missed at least one bug-revealing test.
+**On real bugs.** On 748 held-out [Defects4J](https://github.com/rjust/defects4j) bugs, scored once after the rules
+were frozen, the tests AxiomCode picks from source include every bug-revealing test for **94.9%** of bugs (best
+tree-sitter builder: 65.2%), at an **F1 of 72.4** against what Defects4J observes by running the suite.
 
-**Why: types.** Choosing tests means following calls several hops back from a change, and one wrong link loses
-every test beyond it. A CST-based builder matches a call to a declaration by name; AxiomCode resolves it the way
-the compiler does, from the receiver's type. Scored against the compiler's own answer, compiled bytecode for Java
-and the type checker for TypeScript, over five open-source projects per language:
+**Why: types make a better graph.** Choosing tests means following calls several hops back from a change, and one
+wrong link loses every test beyond it. A tree-sitter based CST builder matches a call to a declaration by name;
+AxiomCode resolves it the way the compiler does, from the receiver's type. Scored against the compiler's own answer,
+compiled bytecode for Java and the type checker for TypeScript, over five open-source projects per language:
 
 | share of calls linked to their exact target | **AxiomCode** | GitNexus | CodeGraph | Code-Review-Graph | Graphify |
 |---|---:|---:|---:|---:|---:|
