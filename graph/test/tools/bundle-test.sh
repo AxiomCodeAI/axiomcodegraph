@@ -189,6 +189,10 @@ for lang in java typescript python; do
     # "not indexed" from "indexed and empty" must come back zero
     [ "$(SQL "$DB" "SELECT count(*) FROM methods m JOIN skipped k ON k.file_path = m.file_path")" = 0 ] \
       || bad "$lang: a skipped file also has methods rows"
+    # an owned member names its owner: SCHEMA.md makes owner_qualified_name NULL only when
+    # owner_type_id is (#1247)
+    [ "$(SQL "$DB" "SELECT count(*) FROM methods WHERE owner_type_id IS NOT NULL AND coalesce(owner_qualified_name,'')=''")" = 0 ] \
+      || bad "$lang: an owned method has no owner_qualified_name"
     case $lang in
       java) [ "$(SQL "$DB" "SELECT count(*) FROM schema_vocab WHERE table_name='type_instantiated' AND value='made_up_how' AND meaning LIKE 'undocumented%'")" = 1 ] || bad "java: an unauthored value was not recorded as undocumented";;
       python) [ "$(SQL "$DB" "SELECT callee_label||'/'||callee_provenance FROM call_edges WHERE tier='boundary_lib'")" = "builtin:print/builtin" ] || bad "python: builtin target not carried as a label";;
@@ -225,6 +229,40 @@ if [ "$HAVE_SQLITE" = 1 ]; then
     dangling="$(SQL "$CBDB" "SELECT count(*) FROM ext_config_binding b WHERE b.c2='field' AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.id=b.c3)")"
     [ "$dangling" = 0 ] \
       || bad "config_binding names $dangling field(s) that the fields table does not list"
+  fi
+fi
+
+# 4c. A C# MEMBER NAMES ITS OWNER (#1247)
+#
+# cs_method and cs_field carry the owner's type hash and no owner name column, so the adapter
+# mapped none and owner_qualified_name was NULL on every C# member, while the same column is
+# filled for Java, TypeScript and Python. The bundle now takes it from the owning type's row.
+# The control is a local function: no owner type, so the name must stay NULL.
+if [ "$HAVE_SQLITE" = 1 ]; then
+  cs="$W/cs"; mkdir -p "$cs/ir" "$cs/raw"
+  printf 'name\tqualifiedName\tsignature\tmethodKind\tcsModuleLinkHash\tcsTypeLinkHash\tstartLine\tendLine\tcsMethodUniqueHash\n' > "$cs/ir/all-csharp-methods.csv"
+  printf 'Main\tApp.Program.Main\tvoid\tMETHOD\tCS_MODULE_a\tCS_TYPE_t1\t3\t8\tCS_METHOD_m1\n' >> "$cs/ir/all-csharp-methods.csv"
+  printf 'get_Value\tApp.Counter.get_Value\tint\tMETHOD\tCS_MODULE_a\tCS_TYPE_t2\t12\t12\tCS_METHOD_m2\n' >> "$cs/ir/all-csharp-methods.csv"
+  printf 'Local\tLocal\tvoid\tLOCAL_FUNCTION\tCS_MODULE_a\t\t6\t6\tCS_METHOD_m3\n' >> "$cs/ir/all-csharp-methods.csv"
+  printf 'name\tqualifiedName\ttypeCategory\tcsModuleLinkHash\tstartLine\tendLine\tcsTypeUniqueHash\n' > "$cs/ir/all-csharp-types.csv"
+  printf 'Program\tApp.Program\tCLASS\tCS_MODULE_a\t1\t9\tCS_TYPE_t1\nCounter\tApp.Counter\tCLASS\tCS_MODULE_a\t10\t14\tCS_TYPE_t2\n' >> "$cs/ir/all-csharp-types.csv"
+  printf 'name\tfieldTypeName\tfieldModifiers\tcsTypeLinkHash\tcsModuleLinkHash\tstartLine\tendLine\tcsFieldUniqueHash\n' > "$cs/ir/all-csharp-fields.csv"
+  printf '_value\tint\tPRIVATE\tCS_TYPE_t2\tCS_MODULE_a\t11\t11\tCS_FIELD_f1\n' >> "$cs/ir/all-csharp-fields.csv"
+  printf 'filePath\tcsModuleUniqueHash\nProgram.cs\tCS_MODULE_a\n' > "$cs/ir/all-csharp-modules.csv"
+  printf 'kind\tcsModuleLinkHash\tstartLine\tstartColumn\tendLine\tendColumn\tcsExpressionUniqueHash\n' > "$cs/ir/all-csharp-expressions.csv"
+  printf 'INVOCATION\tCS_MODULE_a\t5\t9\t5\t20\tCS_EXPRESSION_e1\n' >> "$cs/ir/all-csharp-expressions.csv"
+  printf 'calleeName\tcsExpressionLinkHash\tcsModuleLinkHash\tstartLine\tstartColumn\n' > "$cs/ir/all-csharp-call-sites.csv"
+  printf 'get_Value\tCS_EXPRESSION_e1\tCS_MODULE_a\t5\t9\n' >> "$cs/ir/all-csharp-call-sites.csv"
+  printf 'CS_EXPRESSION_e1\tCS_METHOD_m1\t-\tCS_METHOD_m2\tclient\tknown_edge\tmethod\n' > "$cs/raw/call-chain-edges.csv"
+  BUNDLE --language csharp --client-ir "$cs/ir" --raw "$cs/raw" --out "$cs/out" > "$cs/log" 2>&1 \
+    || { bad "csharp owner fixture did not bundle:"; sed 's/^/      /' "$cs/log" | tail -5; }
+  CSDB="$cs/out/graph.sqlite"
+  if [ -f "$CSDB" ]; then
+    got="$(SQL "$CSDB" "SELECT group_concat(name||'='||coalesce(owner_qualified_name,'NULL'), ' ') FROM (SELECT name, owner_qualified_name FROM methods ORDER BY name)")"
+    [ "$got" = "Local=NULL Main=App.Program get_Value=App.Counter" ] \
+      || bad "csharp: methods.owner_qualified_name is '$got', expected 'Local=NULL Main=App.Program get_Value=App.Counter'"
+    got="$(SQL "$CSDB" "SELECT coalesce(owner_qualified_name,'NULL') FROM fields WHERE name='_value'")"
+    [ "$got" = "App.Counter" ] || bad "csharp: fields.owner_qualified_name is '$got', expected App.Counter"
   fi
 fi
 
