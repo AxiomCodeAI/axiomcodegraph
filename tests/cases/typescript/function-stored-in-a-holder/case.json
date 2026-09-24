@@ -102,6 +102,18 @@
    "avoid": [
     "    files: "
    ]
+  },
+  {
+   "why": "each source file comes with its shortest route, uncertain hops marked, so the route is checked by reading the call site a ⇢ names instead of being rebuilt by search",
+   "run": [
+    "impact",
+    "getPath"
+   ],
+   "want": [
+    "how each is reached",
+    "src/app.ts: "
+   ],
+   "avoid": []
   }
  ]
 }
