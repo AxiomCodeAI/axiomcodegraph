@@ -156,26 +156,39 @@ repository out of `chat.plugins.marketplaces`; in any other MCP client, delete t
 From the shell, in any Java, TypeScript, Python, JavaScript or C# project. There is no setup step: the first
 command builds the graph and later ones read it.
 
-In this TypeScript project, `OrderService` holds a `Store`, an interface, and `SqlStore` implements it in another
-folder. Nothing in `orderService.ts` names `SqlStore`, so searching for it never reaches the caller. The graph
-follows the call through the interface, across files:
+In this TypeScript project, `main` builds an `OrderService` and calls `place`, which writes to two things in two
+other folders: a `Ledger`, a concrete class, and a `Store`, an interface that `SqlStore` and `MemoryStore`
+implement. Both chains cross files; the second goes through the interface, where nothing in `orderService.ts`
+names `SqlStore`, so searching for it never reaches the caller.
 
 ```bash
 cd <your-project>
+axiomcode path main Ledger.put
 axiomcode path main SqlStore.put
 ```
 
 ```
+main → Ledger.put: 1 of 1 target(s) reached through resolved calls; nearest at 2 hop(s)
+  2 call(s):
+    main   src/main.ts:6
+      → [known_edge · call @ src/main.ts:9] OrderService.place   src/orders/orderService.ts:7
+      → [known_edge · call @ src/orders/orderService.ts:8] Ledger.put   src/ledger/ledger.ts:4
+  verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length
+
 main → SqlStore.put: 1 of 1 target(s) reached through resolved calls; nearest at 2 hop(s)
   2 call(s):
-    main   src/main.ts:4
-      → [known_edge · call @ src/main.ts:6] OrderService.place   src/orders/orderService.ts:6
-      → [multi_inferred · call @ src/orders/orderService.ts:7] SqlStore.put   src/storage/sqlStore.ts:6
+    main   src/main.ts:6
+      → [known_edge · call @ src/main.ts:9] OrderService.place   src/orders/orderService.ts:7
+      → [multi_inferred · call @ src/orders/orderService.ts:9] SqlStore.put   src/storage/sqlStore.ts:6
   verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length
   what the hops are:
     [known_edge] resolved to one declaration
     [multi_inferred] several declarations fit; each is a real candidate
 ```
+
+The first chain is `known_edge` all the way: each call has exactly one target. The second ends in
+`multi_inferred`, because `store.put` can run `SqlStore.put` or `MemoryStore.put`, depending on which store `main`
+built; the graph keeps both as candidates instead of picking one.
 
 From an agent, ask in plain words. The skill tells the agent to query the graph instead of grepping:
 
@@ -186,7 +199,7 @@ From an agent, ask in plain words. The skill tells the agent to query the graph 
   must change with it (1: bound by a contract the engine resolved):
       Store.put   src/storage/store.ts:2   — it implements this
   reads or uses it (3 callable(s): 1 one of a set, 2 alongside):
-      [one of a set] OrderService.place   src/orders/orderService.ts:7   — calls it
+      [one of a set] OrderService.place   src/orders/orderService.ts:9   — calls it
       ...
   reaches those through resolved calls: 4 more callable(s) in 3 file(s)
       src/main.ts: main → OrderService.place
@@ -195,8 +208,7 @@ From an agent, ask in plain words. The skill tells the agent to query the graph 
   verified: 2 printed edge(s) looked up again in the graph, all present
 ```
 
-Four files, and one of them, the interface, is the reason text search stops: the change reaches the entry point
-and the test through a call that never names `SqlStore`.
+The change reaches the entry point and the test through a call that never names `SqlStore`.
 
 Each hop carries the line the call is on, how certain the edge is, and what kind of call it is. Every printed
 edge is looked up again in the graph before you see it; the `verified:` line is that check reporting.
