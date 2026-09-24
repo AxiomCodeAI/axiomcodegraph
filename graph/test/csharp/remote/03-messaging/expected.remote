@@ -1,0 +1,21 @@
+edge	amqp	amqp_binding	events/any.key	Producer.RabbitPublisher.Broadcast/1 -> Consumer.RabbitWorker.Listen/1
+edge	amqp	amqp_binding	shop/order.shipped	Producer.RabbitPublisher.Shipped/1 -> Consumer.RabbitWorker.Start/1
+edge	amqp	exact	audit	Producer.BuiltClients.Audit/2 -> Consumer.RabbitWorker.StartAudit/1
+edge	amqp	exact	audit	Producer.ModernRabbit.Audit/1 -> Consumer.RabbitWorker.StartAudit/1
+edge	amqp	exact	audit	Producer.RabbitPublisher.Audit/1 -> Consumer.RabbitWorker.StartAudit/1
+edge	azure_servicebus	exact	stock-changes	Producer.ServiceBusPublisher.Stock/1 -> Consumer.ServiceBusWorker.OnStock/1
+edge	event_bus	exact	Accepted	Producer.NoticePublisher.Decide/1 -> Consumer.AcceptedHandler.Handle/1
+edge	event_bus	exact	Rejected	Producer.NoticePublisher.Decide/1 -> Consumer.RejectedHandler.Handle/1
+edge	kafka	exact	orders.placed	Producer.KafkaPublisher.Placed/1 -> Consumer.KafkaWorker.Run/1
+edge	kafka	exact	orders.refunded	Producer.BuiltClients.Refund/2 -> Consumer.KafkaWorker.RunMany/1
+edge	masstransit	exact	OrderPlaced	Producer.BuiltClients.Placed/1 -> Consumer.OrderPlacedConsumer.Consume/1
+edge	masstransit	exact	OrderPlaced	Producer.BusPublishers.Placed/1 -> Consumer.OrderPlacedConsumer.Consume/1
+edge	masstransit	exact	OrderPlaced	Producer.ModernBus.Placed/1 -> Consumer.OrderPlacedConsumer.Consume/1
+edge	masstransit	exact	StockChanged	Producer.ModernBus.Ask/0 -> Consumer.StockConsumer.Consume/1
+edge	nservicebus	exact	ReportRequested	Producer.BusPublishers.Report/0 -> Consumer.ReportHandler.Handle/2
+edge	nservicebus	exact	ReportRequested	Producer.HostedPublisher.Run/1 -> Consumer.ReportHandler.Handle/2
+undetermined	event_bus	-	unresolved_destination	Producer.NoticePublisher.Flush/1
+undetermined	kafka	-	unresolved_destination	Producer.KafkaPublisher.Dynamic/2
+unsent	kafka	-	orders.voided	Consumer.KafkaWorker.RunMany/1
+unsent	masstransit	-	OrderAudited	Consumer.AuditedConsumer.Consume/1
+unserved	kafka	-	metrics.raw	Producer.KafkaPublisher.Metrics/1
