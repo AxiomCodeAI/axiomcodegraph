@@ -1,0 +1,204 @@
+// ============================================================================
+// EXPRESSION RESOLUTION · OVERLOAD BY ARGUMENT TYPE (#1246)
+//
+// Arity (callee-resolution.dl) leaves every overload of the right count standing,
+// so `Scale(3)`, `Scale(2.5)` and `Scale("x")` against Scale(int) / Scale(double) /
+// Scale(string) each resolved to all three, as multi_inferred. The compiler's
+// choice is fixed by the argument's type, and where that type is WRITTEN DOWN the
+// engine can make the same choice:
+//
+//   a literal          `3` int, `3L` long, `2.5` double, `2.5f` float, `"x"` string
+//   a declared name    a local, parameter, field or property declared with a
+//                      predefined type (`int i`, `string s`); `var` is not
+//
+// TWO PRUNES, both PRUNE-ONLY. An argument whose type is not known removes nothing.
+//
+//   1. NOT APPLICABLE. A candidate whose parameter at some position is a predefined
+//      type the known argument type has no implicit conversion to: `"x"` cannot
+//      reach `int`. Only predefined parameter types are tested, because a
+//      user-defined implicit conversion to a source type is invisible here, and
+//      none can exist between two predefined types.
+//   2. EXACT MATCH. A candidate whose every parameter is IDENTICAL to its known
+//      argument's type is better than any other candidate of the SAME type at every
+//      position (identity beats every other conversion), and it needs no default,
+//      no `params` expansion and no type inference, so the compiler's tie-breaks
+//      favour it too. It evicts its siblings in the same type, and only there:
+//      C# discards a BASE candidate when the derived type has an applicable one, so
+//      an exact match in a base says nothing about a derived overload.
+//
+// WHAT IS NOT DONE: ranking two applicable non-identical conversions (`Scale('c')`
+// reaches int and double; the compiler prefers int). That is the better-conversion
+// ladder; the set stays whole and correct there.
+//
+// NEGATION IS OUTSIDE THE RECURSION. Candidates come from the recursive stratum
+// (expr_call_candidate, expr_exact_target); the drop is applied only where
+// expr_resolves_to_method is derived, which is already downstream of it. Typing
+// (expr_target_any) keeps the whole set, the same stated price as the dispatch fan.
+// ============================================================================
+
+// The declared candidates of a site, before narrowing.
+ovl_cand(prov, e, m) :- expr_call_candidate(prov, e, m).
+ovl_cand(prov, e, m) :- expr_exact_target(prov, e, m).
+
+// Only a site with a choice to make, and only where positions line up with
+// parameters: no named argument, no ref/out, no explicit type arguments, and not an
+// operator, a conversion or an indexer (their operands are not ARGUMENT children).
+ovl_site(prov, e) :-
+    ovl_cand(prov, e, m1), ovl_cand(prov, e, m2), m1 != m2,
+    !call_has_named_args(prov, e),
+    call_ref_out(prov, e, "0", "0"),
+    call_type_argc(prov, e, "0"),
+    !call_is_operator(prov, e),
+    !call_is_conversion(prov, e),
+    !call_is_element_access(prov, e).
+
+// The argument's ORDINAL. The expression position counts the receiver and the
+// method-name children too, so it is ranked among the ARGUMENT children.
+ovl_arg_at(prov, e, k, a) :-
+    ovl_site(prov, e),
+    expr_argument(prov, e, pos, a), p = to_number(pos),
+    k = count : { expr_argument(prov, e, q, _), to_number(q) < p }.
+
+// ── The argument's type, where it is written down ───────────────────────────
+// An integer literal is int only while it fits; nine characters is always below
+// 2^31 in decimal, hex and binary alike. A longer one is left unknown.
+ovl_int_suffix("L", "long"). ovl_int_suffix("l", "long").
+ovl_int_suffix("U", "uint"). ovl_int_suffix("u", "uint").
+ovl_int_suffix2("UL", "ulong"). ovl_int_suffix2("Ul", "ulong").
+ovl_int_suffix2("uL", "ulong"). ovl_int_suffix2("ul", "ulong").
+ovl_int_suffix2("LU", "ulong"). ovl_int_suffix2("Lu", "ulong").
+ovl_int_suffix2("lU", "ulong"). ovl_int_suffix2("lu", "ulong").
+ovl_real_suffix("F", "float"). ovl_real_suffix("f", "float").
+ovl_real_suffix("D", "double"). ovl_real_suffix("d", "double").
+ovl_real_suffix("M", "decimal"). ovl_real_suffix("m", "decimal").
+
+ovl_literal_type(prov, a, t) :-
+    ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "INTEGER", v),
+    n = strlen(v), n >= 3, ovl_int_suffix2(substr(v, n - 2, 2), t).
+ovl_literal_type(prov, a, "long") :-
+    ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "INTEGER", v),
+    n = strlen(v), n >= 2, ovl_int_suffix(substr(v, n - 1, 1), "long"),
+    !ovl_int_suffix2(substr(v, n - 2, 2), _).
+// A `U` literal is uint only while it fits, like an unsuffixed one.
+ovl_literal_type(prov, a, "uint") :-
+    ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "INTEGER", v),
+    n = strlen(v), n >= 2, n <= 10, ovl_int_suffix(substr(v, n - 1, 1), "uint"),
+    !ovl_int_suffix2(substr(v, n - 2, 2), _).
+ovl_literal_type(prov, a, "int") :-
+    ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "INTEGER", v),
+    n = strlen(v), n <= 9,
+    !ovl_int_suffix(substr(v, n - 1, 1), _).
+ovl_literal_type(prov, a, t) :-
+    ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "REAL", v),
+    n = strlen(v), ovl_real_suffix(substr(v, n - 1, 1), t).
+ovl_literal_type(prov, a, "double") :-
+    ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "REAL", v),
+    n = strlen(v), !ovl_real_suffix(substr(v, n - 1, 1), _).
+ovl_literal_type(prov, a, "string") :- ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "STRING", _).
+ovl_literal_type(prov, a, "string") :- ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "VERBATIM_STRING", _).
+ovl_literal_type(prov, a, "string") :- ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "RAW_STRING", _).
+ovl_literal_type(prov, a, "char") :- ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "CHARACTER", _).
+ovl_literal_type(prov, a, "bool") :- ovl_arg_at(prov, _, _, a), expr_literal(prov, a, "BOOLEAN", _).
+
+ovl_arg_type(prov, e, k, t) :- ovl_arg_at(prov, e, k, a), ovl_literal_type(prov, a, t).
+ovl_arg_type(prov, e, k, t) :- ovl_arg_at(prov, e, k, a),
+    ref_denotes(prov, a, "LOCAL_VARIABLE", v), var_type_name(prov, v, _, ctn), ovl_predef(ctn, t).
+ovl_arg_type(prov, e, k, t) :- ovl_arg_at(prov, e, k, a),
+    ref_denotes(prov, a, "PARAMETER", p), param_type_name(prov, p, _, ctn), ovl_predef(ctn, t).
+ovl_arg_type(prov, e, k, t) :- ovl_arg_at(prov, e, k, a),
+    ref_denotes(prov, a, "FIELD", f), field_type_name(prov, f, _, ctn), ovl_predef(ctn, t).
+ovl_arg_type(prov, e, k, t) :- ovl_arg_at(prov, e, k, a),
+    ref_denotes(prov, a, "PROPERTY", p), property_type_name(prov, p, _, ctn), ovl_predef(ctn, t).
+
+// The predefined types, by keyword and by System name. `object`, `dynamic` and
+// every nullable form are deliberately absent: they prune nothing.
+ovl_predef_kw("sbyte", "SByte"). ovl_predef_kw("byte", "Byte").
+ovl_predef_kw("short", "Int16"). ovl_predef_kw("ushort", "UInt16").
+ovl_predef_kw("int", "Int32"). ovl_predef_kw("uint", "UInt32").
+ovl_predef_kw("long", "Int64"). ovl_predef_kw("ulong", "UInt64").
+ovl_predef_kw("char", "Char"). ovl_predef_kw("float", "Single").
+ovl_predef_kw("double", "Double"). ovl_predef_kw("decimal", "Decimal").
+ovl_predef_kw("bool", "Boolean"). ovl_predef_kw("string", "String").
+ovl_predef(kw, kw) :- ovl_predef_kw(kw, _).
+ovl_predef(sys, kw) :- ovl_predef_kw(kw, clr), sys = cat("System.", clr).
+
+// Implicit conversions between predefined types (identity included). An int or a
+// long is treated as possibly CONSTANT, which adds the constant-expression
+// conversions to every integral type: wider than the truth for a variable, so it
+// can only keep a candidate, never drop one.
+ovl_conv(t, t) :- ovl_predef_kw(t, _).
+ovl_conv(f, t) :- ovl_widen(f, t).
+ovl_widen("sbyte", "short"). ovl_widen("sbyte", "int"). ovl_widen("sbyte", "long"). ovl_widen("sbyte", "float"). ovl_widen("sbyte", "double"). ovl_widen("sbyte", "decimal").
+ovl_widen("byte", "short"). ovl_widen("byte", "ushort"). ovl_widen("byte", "int"). ovl_widen("byte", "uint"). ovl_widen("byte", "long"). ovl_widen("byte", "ulong"). ovl_widen("byte", "float"). ovl_widen("byte", "double"). ovl_widen("byte", "decimal").
+ovl_widen("short", "int"). ovl_widen("short", "long"). ovl_widen("short", "float"). ovl_widen("short", "double"). ovl_widen("short", "decimal").
+ovl_widen("ushort", "int"). ovl_widen("ushort", "uint"). ovl_widen("ushort", "long"). ovl_widen("ushort", "ulong"). ovl_widen("ushort", "float"). ovl_widen("ushort", "double"). ovl_widen("ushort", "decimal").
+ovl_widen("int", "sbyte"). ovl_widen("int", "byte"). ovl_widen("int", "short"). ovl_widen("int", "ushort"). ovl_widen("int", "uint"). ovl_widen("int", "ulong"). ovl_widen("int", "long"). ovl_widen("int", "float"). ovl_widen("int", "double"). ovl_widen("int", "decimal").
+ovl_widen("uint", "long"). ovl_widen("uint", "ulong"). ovl_widen("uint", "float"). ovl_widen("uint", "double"). ovl_widen("uint", "decimal").
+ovl_widen("long", "ulong"). ovl_widen("long", "float"). ovl_widen("long", "double"). ovl_widen("long", "decimal").
+ovl_widen("ulong", "float"). ovl_widen("ulong", "double"). ovl_widen("ulong", "decimal").
+ovl_widen("char", "ushort"). ovl_widen("char", "int"). ovl_widen("char", "uint"). ovl_widen("char", "long"). ovl_widen("char", "ulong"). ovl_widen("char", "float"). ovl_widen("char", "double"). ovl_widen("char", "decimal").
+ovl_widen("float", "double").
+
+// ── The parameter's type, where it is predefined and passed by value ────────
+// Keyed on the method hash alone: a hash is minted by one IR, so a staged library
+// candidate's parameters are found under "lib" (csharp-provenance note in
+// member-lookup.dl). An extension method is never tested: its `this` parameter
+// shifts every position by one against a call written with a receiver.
+ovl_param_type(m, k, t) :-
+    ovl_cand(_, _, m), !method_is_extension(_, m),
+    param_decl(_, m, pos, _, p), k = to_number(pos),
+    param_mode(_, p, "VALUE"), !param_is_params(_, p),
+    param_type_name(_, p, _, ctn), ovl_predef(ctn, t).
+
+// Every parameter written as a predefined type, whatever its mode. Read by
+// virtual-dispatch.dl to refuse a runtime-target or implementation pairing between two
+// same-count overloads; always joined there on a bound pair of methods.
+method_param_predef(m, k, t) :-
+    param_decl(_, m, pos, _, p), k = to_number(pos),
+    param_type_name(_, p, _, ctn), ovl_predef(ctn, t).
+
+// ── 1. NOT APPLICABLE ───────────────────────────────────────────────────────
+ovl_rejected(prov, e, m) :-
+    ovl_site(prov, e), ovl_cand(prov, e, m),
+    ovl_arg_type(prov, e, k, at), ovl_param_type(m, k, pt),
+    !ovl_conv(at, pt).
+
+// ── 2. EXACT MATCH ──────────────────────────────────────────────────────────
+// Every argument identical to its parameter, as many parameters as arguments (no
+// default filled in, no params expansion), and not generic (a type parameter that
+// appears in no parameter cannot be inferred, so a generic "exact" match is not
+// applicable at all).
+ovl_exact_pos(prov, e, m, k) :-
+    ovl_site(prov, e), ovl_cand(prov, e, m),
+    ovl_arg_type(prov, e, k, t), ovl_param_type(m, k, t).
+ovl_exact(prov, e, m) :-
+    ovl_site(prov, e), ovl_cand(prov, e, m),
+    !method_is_extension(_, m),
+    method_type_arity(_, m, "0"),
+    call_argc(prov, e, acs), method_paramc(_, m, acs),
+    n = count : { ovl_exact_pos(prov, e, m, _) },
+    n = to_number(acs).
+ovl_rejected(prov, e, lose) :-
+    ovl_exact(prov, e, win), ovl_visible(prov, e, win),
+    ovl_cand(prov, e, lose), lose != win,
+    method_in_type(_, gk, win), method_in_type(_, gk, lose).
+
+// AND ONLY IF THE CALLER CAN SEE IT. An inaccessible overload is not a candidate
+// at all, so `F("x")` from outside a type declaring `private F(string)` and
+// `public F(object)` binds F(object), and letting the private exact match win
+// would name a method the compiler does not call. Member lookup does not filter on
+// access (see member-lookup.dl), so it is checked here, where it changes the
+// answer: public or internal, a member of an interface, or a caller inside the
+// declaring type or a type nested in it. `protected` is left out rather than
+// modelled; its exact match then evicts nothing.
+ovl_visible(prov, e, m) :- ovl_exact(prov, e, m), member_access(_, m, a), ovl_open_access(a).
+ovl_visible(prov, e, m) :- ovl_exact(prov, e, m), method_owner(_, t, m), type_is_interface(_, t).
+ovl_visible(prov, e, m) :-
+    ovl_exact(prov, e, m), method_in_type(_, gk, m),
+    expr_ultimate_type_group(prov, e, cgk), type_nest_ancestor(prov, cgk, gk).
+ovl_open_access("PUBLIC"). ovl_open_access("INTERNAL"). ovl_open_access("PROTECTED_INTERNAL").
+
+// NEVER EMPTY A SITE. If every candidate were rejected the argument reading is
+// wrong somewhere, and the unpruned set is the sound answer.
+ovl_survives(prov, e) :- ovl_cand(prov, e, m), !ovl_rejected(prov, e, m).
+ovl_drop(prov, e, m) :- ovl_rejected(prov, e, m), ovl_survives(prov, e).
