@@ -20,6 +20,7 @@ Read / Grep results as `graph: …` lines.
 | **`.axiomcode/out/graph.sqlite` already exists** | **query it — do NOT run `index`** |
 | no graph at all | `axiomcode index` |
 | a task in words, no name to ask about yet | `axiomcode context "<the task>"` — then `--in <path>` it names |
+| "how does X work" / explain a flow | `axiomcode context "<the question>" --source` — it returns the code itself; answer from it and open a file only for a line it did not include |
 | "who calls X" / "what breaks if X changes" | `axiomcode impact X` |
 | "who writes this field" / "is it safe under concurrent access" | `axiomcode impact <Type>.<field>` — ask of the FIELD |
 | one concept you can name ("the decryption code") | `axiomcode path decrypt '*'` |

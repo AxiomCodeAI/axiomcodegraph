@@ -1,0 +1,20 @@
+{
+ "lang": "typescript",
+ "checks": [
+  {
+   "why": "the project's own name is in most paths, so it is no evidence for any one file: asked how the project draws shapes, the file that draws shapes ranks first, not the one that merely carries the project's name",
+   "run": [
+    "context",
+    "How does Sketchy draw shapes?",
+    "--json"
+   ],
+   "stdout_json": true,
+   "want": [
+    "\"files\": [\n    {\n      \"file\": \"lib/render/painter.ts\""
+   ],
+   "avoid": [
+    "\"files\": [\n    {\n      \"file\": \"sketchy-app/tools/inspector.ts\""
+   ]
+  }
+ ]
+}
