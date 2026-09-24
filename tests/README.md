@@ -21,9 +21,9 @@ One check needs no graph and is its own script:
                                          directly, through an npm-style symlink, on the SDK-free fallback, and
                                          as plugins/axiomcode/mcp.json starts it under each way a host names
                                          the plugin directory
-    python3 tests/manifests.py           every agent's manifest (Claude, portable, Codex, Gemini) names the same
+    python3 tests/manifests.py           every agent's manifest (Claude, portable, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
-                                         them, and Gemini's copy of the skill is current
+                                         them, and Gemini's skill and Cursor's rule are current copies
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
 
 A case is `tests/cases/<language>/<name>/` with its sources and a `case.json`:

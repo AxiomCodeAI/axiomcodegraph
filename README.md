@@ -194,7 +194,7 @@ above: `npm i -g @axiomcode/code-graph`.
 | Codex CLI and desktop app | `codex plugin marketplace add AxiomCodeAI/axiom-code-graph` then `codex plugin add axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
 | Copilot CLI | `copilot plugin marketplace add AxiomCodeAI/axiom-code-graph` then `copilot plugin install axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
 | VS Code (Copilot agent mode) | add `"chat.plugins.marketplaces": ["AxiomCodeAI/axiom-code-graph"]` to settings, or install with Copilot CLI, whose plugins VS Code also loads | `plugin.json`, `mcp.json` | from VS Code's docs |
-| Cursor | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiom-code-graph`, or a team marketplace imported from this repository | `.claude-plugin/`, `.mcp.json` | from Cursor's loader |
+| Cursor | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiom-code-graph`, or a team marketplace imported from this repository | `.cursor-plugin/`, `rules/`, hooks | from Cursor's loader |
 | Windsurf, Devin CLI | `devin plugins install AxiomCodeAI/axiom-code-graph#plugins/axiomcode` | `.claude-plugin/`, `.mcp.json`, hooks | from Devin's loader |
 | Kiro | Powers panel: Add Custom Power, Import power from GitHub, this repository's URL | `plugin.json`, `mcp.json` | from Kiro's docs |
 | Gemini CLI | `gemini extensions install https://github.com/AxiomCodeAI/axiom-code-graph` | `gemini-extension.json`, `skills/` | installed, server and skill loaded |
@@ -203,9 +203,13 @@ above: `npm i -g @axiomcode/code-graph`.
 their own manifests; `.codex-plugin/` is kept for Codex versions from before it. Their server command finds the
 plugin from `PLUGIN_ROOT`, `CLAUDE_PLUGIN_ROOT` or its working directory, whichever the agent provides.
 
+Cursor reads its own `.cursor-plugin/` manifest, which names the server with `${CURSOR_PLUGIN_ROOT}` (it
+does not expand `${PLUGIN_ROOT}`), and loads `rules/axiomcode.mdc`, `AGENTS.md` as an always-applied rule. It
+converts `hooks/hooks.json` to its own events, except `Glob`, which it has no tool for.
+
 Gemini installs the repository root and reads skills only from `skills/` there, so `skills/axiomcode/` is a
-copy of the skill's text. After editing the skill, run `python3 packaging/root-skill.py`;
-`python3 tests/manifests.py` fails while the copy is stale, and checks that every manifest points at files
+copy of the skill's text. After editing the skill or `AGENTS.md`, run `python3 packaging/copies.py`;
+`python3 tests/manifests.py` fails while a copy is stale, and checks that every manifest points at files
 that exist. The Codex IDE extension does not load plugins; use the MCP config below there.
 
 Agents with no plugin install take the server from their MCP config (next section) and the skill from a

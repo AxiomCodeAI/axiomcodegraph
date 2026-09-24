@@ -11,6 +11,8 @@ it knows:
   Codex before the portable       plugins/axiomcode/.codex-plugin/plugin.json
   format
   Gemini CLI                      gemini-extension.json and skills/, at the repository root
+  Cursor                          .cursor-plugin/marketplace.json -> plugins/axiomcode/.cursor-plugin/plugin.json,
+                                  which it prefers to .claude-plugin/; skills/, rules/ and hooks/ by folder
 
 The hosts start the MCP server differently, and a manifest that points at a moved file installs cleanly and
 fails only when the agent first calls a tool. So every path each manifest names is resolved the way that
@@ -20,8 +22,11 @@ host resolves it and must exist, and the name and version must agree everywhere:
   Codex reading .codex-plugin/ expands nothing in a plugin's MCP config, sets no variable, and resolves a
   relative `cwd` against the plugin directory, so that server is started by a relative path from `"cwd": "."`.
   Reading the portable format, it expands ${PLUGIN_ROOT} and sets PLUGIN_ROOT, as the format requires.
+  Cursor expands ${CURSOR_PLUGIN_ROOT} and ${CLAUDE_PLUGIN_ROOT}, but not the portable format's
+  ${PLUGIN_ROOT}, so its manifest names the server itself. Its logo and every path are relative to the
+  plugin directory, with no `..`, as its marketplace review requires.
   Gemini expands ${extensionPath} to the repository root and ${/} to the path separator, and finds skills
-  only in skills/ at that root, so skills/axiomcode/ holds a copy of the skill's text (packaging/root-skill.py).
+  only in skills/ at that root, so skills/axiomcode/ holds a copy of the skill's text (packaging/copies.py).
   The portable format's schema is closed and its mcp.json takes a single executable as `command`; hosts
   reject a manifest that breaks either rule. How a host says where the plugin is differs (PLUGIN_ROOT,
   CLAUDE_PLUGIN_ROOT, or only the working directory), which tests/mcp.py runs.
@@ -118,11 +123,31 @@ def main():
         if {'PLUGIN_ROOT', 'PLUGIN_DATA'} & set(server.get('env', {})):
             bad.append(f"mcp.json {name}: env must not set PLUGIN_ROOT or PLUGIN_DATA; the host does")
 
-    # Gemini: skills/axiomcode/ at the repository root is a current copy of the plugin's skill text.
-    sync = subprocess.run([sys.executable, os.path.join(ROOT, 'packaging', 'root-skill.py'), '--check'],
+    # Cursor: its marketplace leads to the plugin, and its manifest agrees with the others and names files
+    # that exist once ${CURSOR_PLUGIN_ROOT} is the plugin directory.
+    cursor_market = load('.cursor-plugin', 'marketplace.json')
+    cursor = load('plugins', 'axiomcode', '.cursor-plugin', 'plugin.json')
+    if os.path.normpath(os.path.join(ROOT, cursor_market['plugins'][0]['source'])) != PLUGIN:
+        bad.append(f"cursor marketplace: source {cursor_market['plugins'][0]['source']!r} is not plugins/axiomcode")
+    for key in ('name', 'version', 'license', 'keywords'):
+        if cursor.get(key) != portable.get(key):
+            bad.append(f"cursor plugin.json: {key} {cursor.get(key)!r} differs from plugin.json {portable.get(key)!r}")
+    logo = cursor.get('logo', '')
+    if not logo or '..' in logo or os.path.isabs(logo) or not os.path.isfile(os.path.join(PLUGIN, logo)):
+        bad.append(f"cursor plugin.json: logo {logo!r} is not a file relative to the plugin")
+    for name, server in cursor.get('mcpServers', {}).items():
+        for arg in server.get('args', []):
+            path = arg.replace('${CURSOR_PLUGIN_ROOT}', PLUGIN)
+            if arg != path and not os.path.isfile(path):
+                bad.append(f"cursor plugin.json {name}: {arg} does not exist")
+        if '${PLUGIN_ROOT}' in json.dumps(server):
+            bad.append(f"cursor plugin.json {name}: Cursor does not expand ${{PLUGIN_ROOT}}")
+
+    # Gemini's copy of the skill and Cursor's rule are current copies of their sources.
+    sync = subprocess.run([sys.executable, os.path.join(ROOT, 'packaging', 'copies.py'), '--check'],
                           capture_output=True, text=True)
     if sync.returncode:
-        bad += [line for line in sync.stdout.splitlines() if line] or ["skills/axiomcode/: stale"]
+        bad += [line for line in sync.stdout.splitlines() if line] or ["packaging/copies.py --check failed"]
 
     # Hook commands run through a shell. An unquoted ${CLAUDE_PLUGIN_ROOT} splits at a space in the install
     # path, python3 exits 2, and exit 2 from PreToolUse blocks the tool call it was meant to enrich.
