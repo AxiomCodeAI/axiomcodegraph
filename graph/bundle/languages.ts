@@ -35,6 +35,12 @@ export interface MethodsIR {
   filePath?: string;
   /** absent where the IR has no such column (JavaScript declares no signatures); the core column is then '' / NULL */
   signature?: string; ownerQualifiedName?: string;
+  /**
+   * Where the IR carries no owner-qualified-name column but the owner is a real type row
+   * (C#), true takes the column from the owning type's qualified_name once types are read.
+   * JavaScript leaves it unset: see its NOTES entry in schema.ts.
+   */
+  ownerQualifiedNameFromType?: boolean;
   /** declared visibility (Java: methodAccess). Absent where the language has no access modifiers. */
   access?: string;
   /** the column naming the owning module, where a LIBRARY row's names are relative to its own package root and need the package prefixed (see ModulesIR.packageName) */
@@ -66,6 +72,8 @@ export interface ModulesIR { file: string; id: string; filePath: string; package
 export interface FieldsIR {
   file: string; id: string; name: string; ownerTypeId: string;
   ownerQualifiedName?: string; typeName?: string; modifiers?: string;
+  /** as MethodsIR.ownerQualifiedNameFromType */
+  ownerQualifiedNameFromType?: boolean;
   startLine: string; endLine: string;
   /** absent where the row carries no path; resolved through `moduleId` (see MethodsIR). */
   filePath?: string;
@@ -360,6 +368,8 @@ const CSHARP: LanguageAdapter = {
     methods: {
       file: 'all-csharp-methods.csv', id: 'csMethodUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       signature: 'signature', kind: 'methodKind', ownerTypeId: 'csTypeLinkHash',
+      // cs_method has no owner name column; the owner's type row supplies it (#1247)
+      ownerQualifiedNameFromType: true,
       startLine: 'startLine', endLine: 'endLine', moduleId: 'csModuleLinkHash',
     },
     types: {
@@ -372,7 +382,7 @@ const CSHARP: LanguageAdapter = {
     // declared type column and is reached through cs_enum_member instead.
     fields: {
       file: 'all-csharp-fields.csv', id: 'csFieldUniqueHash', name: 'name', ownerTypeId: 'csTypeLinkHash',
-      typeName: 'fieldTypeName', modifiers: 'fieldModifiers',
+      typeName: 'fieldTypeName', modifiers: 'fieldModifiers', ownerQualifiedNameFromType: true,
       startLine: 'startLine', endLine: 'endLine', moduleId: 'csModuleLinkHash',
     },
     modules: { file: 'all-csharp-modules.csv', id: 'csModuleUniqueHash', filePath: 'filePath' },

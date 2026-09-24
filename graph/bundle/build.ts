@@ -435,6 +435,16 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     external++;
   }
   if (external > 0) log(`  external types named: ${external}`);
+  // An IR with no owner-name column (C#) takes it from the owning type, now that every type a
+  // member names has been read. Methods rows hold it at 6 and fields rows at 4, owner at 5 and 3.
+  const fillOwnerNames = (rows: Map<string, Row>, ownerAt: number, nameAt: number) => {
+    for (const r of rows.values()) {
+      const owner = r[ownerAt] as string | null;
+      if (owner && r[nameAt] == null) r[nameAt] = (types.get(owner)?.[2] as string | undefined) || null;
+    }
+  };
+  if (M.ownerQualifiedNameFromType) fillOwnerNames(methods, 5, 6);
+  if (FI?.ownerQualifiedNameFromType) fillOwnerNames(fields, 3, 4);
   // A library module's file path is not staged; a library site never occurs (edges start in the client).
 
   // ── 5. call sites: name + position for every site the edges mention ───────
