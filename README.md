@@ -61,7 +61,7 @@ cannot see: calls through an interface, a subclass or a callback, pruning 99.9% 
 their context for the task, not the search.
 
 <p align="center">
-  <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 61.5%, CodeGraph 52.3%, Graphify 48.7%, Code-Review-Graph 21.9%, name match 46.8%. F1 against Defects4J's own selection. Run-time observation, median: AxiomCode 0.98x, GitNexus 0.56x, CodeGraph 0.25x, Graphify 0.11x, Code-Review-Graph 0.00x, name match 0.03x.">
+  <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 61.5%, CodeGraph 52.3%, Graphify 48.7%, Code-Review-Graph 21.9%, Name-Match (grep) 46.8%. F1 against Defects4J's own selection: AxiomCode 72.4, GitNexus 54.3, CodeGraph 44.8, Graphify 41.3, Code-Review-Graph 18.7, Name-Match (grep) 32.5.">
 </p>
 
 **On real bugs.** On 748 held-out [Defects4J](https://github.com/rjust/defects4j) bugs, scored once after the rules
@@ -78,9 +78,9 @@ compiled bytecode for Java and the type checker for TypeScript, over five open-s
 | Java, 33,257 calls (bytecode) | **96.5%** | 78.9% | 78.5% | 71.9% | 67.5% |
 | TypeScript, 9,829 calls (type checker) | **88.8%** | 65.1% | 65.4% | 71.6% | 49.8% |
 
-**Across files**, it recovers which files call into which with an F1 of **0.974** in Java and **0.898** in
-TypeScript (best CST-based: 0.870 and 0.661), and finds the call path from one method to another **96.1%** and
-**87.7%** of the time (78.6% and 65.7%).
+**Across files**, it recovers which files call into which with an F1 of **0.976** in Java and **0.896** in
+TypeScript (best CST-based: 0.876 and 0.708), and finds the call path from one method to another **97.4%** and
+**87.7%** of the time (80.6% and 65.8%).
 
 AxiomCode supports **Java, TypeScript and Python**, with **JavaScript and C#** in beta
 ([Language and skill maturity](#language-and-skill-maturity)). These benchmarks are Java and TypeScript, the
@@ -337,20 +337,20 @@ the cross-file call relation: which files call into which.
 
 | tool | call resolution | file → file F1 | callers of a method, F1 | path A→B found |
 |---|---:|---:|---:|---:|
-| **AxiomCode** | **96.5%** | **0.974** | **0.965** | **0.961** |
-| GitNexus | 78.9% | 0.870 | 0.853 | 0.786 |
-| CodeGraph | 78.5% | 0.735 | 0.807 | 0.716 |
-| Code-Review-Graph | 71.9% | 0.636 | 0.708 | 0.580 |
+| **AxiomCode** | **96.5%** | **0.976** | **0.967** | **0.974** |
+| GitNexus | 78.9% | 0.876 | 0.858 | 0.806 |
+| CodeGraph | 78.5% | 0.737 | 0.814 | 0.722 |
+| Code-Review-Graph | 71.9% | 0.650 | 0.712 | 0.589 |
 | Graphify | 67.5% | 0.671 | 0.717 | 0.585 |
 
 **TypeScript** (ground truth: the TypeScript type checker, 9,829 one-target call groups)
 
 | tool | call resolution | file → file F1 | callers of a method, F1 | path A→B found |
 |---|---:|---:|---:|---:|
-| **AxiomCode** | **88.8%** | **0.898** | **0.872** | **0.877** |
-| Code-Review-Graph | 71.6% | 0.605 | 0.660 | 0.576 |
-| CodeGraph | 65.4% | 0.661 | 0.663 | 0.657 |
-| GitNexus | 65.1% | 0.639 | 0.582 | 0.514 |
+| **AxiomCode** | **88.8%** | **0.896** | **0.873** | **0.877** |
+| Code-Review-Graph | 71.6% | 0.708 | 0.749 | 0.654 |
+| CodeGraph | 65.4% | 0.663 | 0.667 | 0.658 |
+| GitNexus | 65.1% | 0.685 | 0.616 | 0.565 |
 | Graphify | 49.8% | 0.616 | 0.564 | 0.436 |
 
 Coverage is not resolution precision: a tool that lists every candidate target of a call also recovers the

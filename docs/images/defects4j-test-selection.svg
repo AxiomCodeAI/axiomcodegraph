@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" role="img" aria-labelledby="t d">
 <title id="t">Test selection on 748 held-out Defects4J bugs</title>
-<desc id="d">Bugs with every bug-revealing test selected, and F1 against the selection Defects4J observed by running the tests. AxiomCode 94.9%, F1 72.4; GitNexus 61.5%, F1 54.3; CodeGraph 52.3%, F1 44.8; Graphify 48.7%, F1 41.3; Code-Review-Graph 21.9%, F1 18.7; Name-Match 46.8%, F1 32.5. Defects4J observed by running the tests: 100%, F1 100.</desc>
+<desc id="d">Bugs with every bug-revealing test selected, and F1 against the selection Defects4J observed by running the tests. AxiomCode 94.9%, F1 72.4; GitNexus 61.5%, F1 54.3; CodeGraph 52.3%, F1 44.8; Graphify 48.7%, F1 41.3; Code-Review-Graph 21.9%, F1 18.7; Name-Match (grep) 46.8%, F1 32.5. Defects4J observed by running the tests: 100%, F1 100.</desc>
 <rect x="0.5" y="0.5" width="899" height="469" rx="14" fill="#ffffff" stroke="#d5dce8"/>
 <text x="28" y="44" font-size="22" font-weight="700" fill="#222a40">Test selection on real bugs: Defects4J</text>
 <text x="28" y="68" font-size="13.5" fill="#59657a">748 held-out Defects4J bugs · every static tool, from source to tests · Defects4J's own answer is observed by running the tests</text>
