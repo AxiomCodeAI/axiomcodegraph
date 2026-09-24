@@ -1,0 +1,78 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a comment inserted inside a declaration header is not a signature change",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/scanner.ts"
+   ],
+   "want": [
+    "Scanner.scanForModules"
+   ],
+   "avoid": [
+    "signature  Scanner.scanForModules",
+    "header text changed"
+   ]
+  },
+  {
+   "why": "a comment in a header whose default value holds `//` or `/*` in a string is not a signature change either",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/scanner.ts"
+   ],
+   "want": [
+    "Scanner.scanUrl"
+   ],
+   "avoid": [
+    "signature  Scanner.scanUrl"
+   ]
+  },
+  {
+   "why": "a parameter added beside it is still a signature change",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/scanner.ts"
+   ],
+   "want": [
+    "signature  Scanner.resolve",
+    "+strict"
+   ]
+  },
+  {
+   "why": "a string edited inside a decorator in the header is still a header change: comments are stripped, strings are not",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/scanner.ts"
+   ],
+   "want": [
+    "signature  Scanner.handle"
+   ]
+  }
+ ]
+}

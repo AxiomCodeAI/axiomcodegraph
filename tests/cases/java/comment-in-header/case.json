@@ -1,0 +1,9 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a comment inserted inside a method header is not a signature change, and is not read as part of a parameter",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Scanner.java"],
+   "want": ["Scanner.scan"],
+   "avoid": ["signature  Scanner.scan ", "header text changed", "+/*"]},
+  {"why": "a parameter added beside it is still a signature change",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Scanner.java"],
+   "want": ["signature  Scanner.resolve", "+strict"]}]}
