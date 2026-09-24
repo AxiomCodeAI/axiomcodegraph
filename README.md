@@ -61,16 +61,19 @@ TypeScript (best CST-based: 0.870 and 0.661), and finds the call path from one m
 [Measured cross-file coverage](#measured-cross-file-coverage).
 
 **On real bugs.** 748 held-out Java bugs from [Defects4J](https://github.com/rjust/defects4j), scored once after
-the evaluation rules were frozen. A bug counts only when every test that reveals it is selected.
+the evaluation rules were frozen. Defects4J's own selection is the ground truth: it runs the test suite and records
+which tests load the changed code. AxiomCode works from source alone, without running anything:
 
-| method | bugs with every triggering test selected | share of the suite selected |
+| | Defects4J (observed by running the tests) | AxiomCode (from source) |
 |---|---:|---:|
-| **AxiomCode** | **94.9%** | 52.2% |
-| GitNexus | 65.2% | 30.8% |
-| codegraph | 52.4% | 21.2% |
-| Slug-graph | 48.7% | 17.0% |
-| string search | 46.8% | 2.8% |
-| code-review-graph | 21.9% | 5.4% |
+| tests selected per bug, median | 1× | **0.98×** |
+| share of the suite selected, mean | 47.6% | 52.2% |
+| bugs with every bug-revealing test selected | 100% | **94.9%** |
+
+So without running a test, it selects about as many tests as the run-time observation does, and they include
+every bug-revealing test for 94.9% of bugs, against 65.2% for the best CST-based graph builder. It is not the same
+set: on average, 71.2% of the tests Defects4J observes are in AxiomCode's selection, and in 38 of the 748 bugs it missed at
+least one bug-revealing test.
 
 Details in [Benchmark results](#benchmark-results) and [Measured cross-file coverage](#measured-cross-file-coverage).
 
