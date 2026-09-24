@@ -36,6 +36,8 @@
 
 <p align="center">
   <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
+  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/418"><img alt="Nightly: not yet enabled" src="https://img.shields.io/badge/nightly-not%20yet%20enabled-lightgrey"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
@@ -106,9 +108,13 @@ AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) pa
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
 agent-facing frontend: a skill, seven MCP tools and hooks. Install the engine first.
 
-Requirements: **Node ≥ 22.5** and **`python3`**. Until the prebuilt engine packages are published,
-the first run per language also needs [Soufflé](https://souffle-lang.github.io) 2.5
-(`brew install souffle`) and a C++ compiler.
+Requirements: **Node ≥ 22.5** and **`python3`**. `npm install` fetches the prebuilt engine for your
+platform — `@axiomcode/engine-<os>-<cpu>`, an optional dependency npm selects by platform — so nothing
+else is needed to run. Those packages are not on npm yet: until the publish workflow has been
+dispatched for real, the first run per language compiles the engine once instead, which needs
+[Soufflé](https://souffle-lang.github.io) 2.5 (`brew install souffle`) and a C++ compiler. A checkout
+whose rules differ from the published engine never runs a stale binary — the engine id is a hash of
+the rules and the pinned Soufflé version.
 
 ### Installation
 
