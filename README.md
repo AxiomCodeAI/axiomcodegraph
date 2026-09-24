@@ -55,6 +55,10 @@ callers that never spell the name because they go through an interface, a subcla
 The chart above scores every call in five open-source projects per language against the compiler's own answer:
 compiled bytecode for Java, the type checker for TypeScript. AxiomCode links **96.5%** of Java calls and **88.8%**
 of TypeScript calls to their exact target, more than 17 points ahead of the best CST-based graph builder.
+**Across files**, it recovers which files call into which with an F1 of **0.974** in Java and **0.898** in
+TypeScript (best CST-based: 0.870 and 0.661), and finds the call path from one method to another
+**96.1%** and **87.7%** of the time (78.6% and 65.7%). Full tables in
+[Measured cross-file coverage](#measured-cross-file-coverage).
 
 **On real bugs.** 748 held-out Java bugs from [Defects4J](https://github.com/rjust/defects4j), scored once after
 the evaluation rules were frozen. A bug counts only when every test that reveals it is selected.
