@@ -137,6 +137,32 @@ method_returns_param(p, m, pos) :-
     method_return_value_expr(p, m, e),
     expr_names_param(p, e, ph),
     param_decl(p, _, pos, _, m, ph).
+// ...and COMPOSED: `return self.filter(name, func, **flags)` returns `func` when filter
+// returns the parameter that argument lands on. The registration idiom chains two or
+// three of these. Until the return value was restricted to the returned expression
+// (call_chain.dl) the shape resolved by accident, because `func` sat INSIDE the return;
+// this is the same answer with an argument behind it.
+method_returns_param("client", m, q) :-
+    method_return_value_expr("client", m, e),
+    call_of_expr(e, site),
+    expr_call_candidate(site, g),
+    method_returns_param("client", g, pos),
+    call_arg_offset(site, g, off),
+    !call_flow_imprecise(site),
+    call_arg(site, argPos, a),
+    to_number(pos) = to_number(argPos) + off,
+    expr_names_param("client", a, ph),
+    param_decl("client", _, q, _, m, ph).
+method_returns_param("client", m, q) :-
+    method_return_value_expr("client", m, e),
+    call_of_expr(e, site),
+    expr_call_candidate(site, g),
+    method_returns_param("client", g, pos),
+    !call_flow_imprecise(site),
+    call_kwarg(site, kw, a), kw != "",
+    param_decl("client", kw, pos, _, g, _),
+    expr_names_param("client", a, ph),
+    param_decl("client", _, q, _, m, ph).
 
 // ── binding_value_method(Prov, BindingHash, MethodHash) ──────────────────────
 // `adder = make_adder(3)` then `adder(4)`. The binding holds the FUNCTION that
@@ -174,6 +200,27 @@ field_holds_method(p, f, m) :-
 type_attr_method_value(p, t, n, m) :-
     type_attr_field(p, t, n, f), field_holds_method(p, f, m).
 
+// ── type_attr_class_value(Prov, TypeHash, Name, ClassHash) ───────────────────
+// The CLASS-valued twin: `self._row_class = RowIterable`, then
+// `self._row_class(self)`. field_type_holds_class recorded the write and nothing read
+// it, so the call was neither resolved nor explained (`no_rule`) -- and worse, the
+// construction it performs was invisible to argument flow, so the constructor's parameter
+// was typed from the OTHER callers alone. With one sibling constructing it directly, that
+// is a wrong type rather than a missing one, and every call on the parameter was
+// `member_absent_from_type`. A multi-write attribute gives the union, as field_type_union
+// does for instances.
+type_attr_class_value(p, t, n, c) :-
+    type_attr_field(p, t, n, f), field_type_holds_class(p, f, c).
+
+// Read as a value -- `k = self._row_class` -- the attribute denotes the class, so a
+// call on it or through it resolves like any other class object.
+expr_type_class_object(p, e, c) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    !expr_name_context(p, "STORE", e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, t),
+    type_attr_class_value(p, t, n, c).
+
 // ============================================================================
 // THE UNION — what a callee EXPRESSION denotes, name and value flow together
 // ============================================================================
@@ -208,6 +255,14 @@ expr_denotes_method(p, e, m) :-
 expr_denotes_method(p, e, m) :-
     expr_attr_names_method(p, e, def), method_target_replaced(p, def),
     decorated_name_target(def, m).
+
+// (h) a CALL whose callee returns a function denotes that function: `defer_result(str)`
+//     is `decorator`, so `defer_result(str)(func)` calls it. Return flow, not a name match;
+//     a factory with two returns gives two targets.
+expr_denotes_method("client", e, r) :-
+    call_of_expr(e, site),
+    expr_call_candidate(site, g),
+    method_returns_method("client", g, r).
 
 // ── expr_type from a parameter ───────────────────────────────────────────────
 // The duck-typing answer, and the reason it is a DISPATCH SET rather than a guess: the

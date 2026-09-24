@@ -461,6 +461,22 @@ expr_lib_type(e, t) :-
     expr_node("client", "BOOLEAN_OPERATION", _, _, e),
     expr_parent("client", e, "OPERAND_RIGHT", _, o), expr_lib_type(o, t).
 
+// ── `copy.copy(x)` / `copy.deepcopy(x)` IS AN x ─────────────────────────────
+// The receiver is the name an `import copy` bound, so a local module or a variable that
+// happens to be called `copy` does not qualify. The copied object's type is exact where
+// x's is, so it goes out with whatever x carries (py_copy_function, builtins.dl).
+expr_type("client", e, t) :-
+    call_of_expr(e, site),
+    call_name(site, fn),
+    call_receiver_object(site, obj),
+    expr_binding("client", rb, ctx, obj), ctx != "STORE",
+    binding_lookup("client", rb, rb2),
+    import_binding("client", rb2, i),
+    import_decl("client", "MODULE_IMPORT", mod, _, i),
+    py_copy_module(mod), py_copy_function(fn),
+    call_arg(site, "0", a),
+    expr_type("client", a, t).
+
 // ── call_returns_type(SiteHash, TypeHash) ────────────────────────────────────
 // The callee's `-> X` annotation, resolved as a member of the CALLEE's own module. A
 // within-module lookup, so no cross-module name matching sneaks in. Restricted to
@@ -684,6 +700,13 @@ expr_type_untypable("client", e, "call_result_untyped") :-
     call_of_expr(e, site),
     !expr_call_candidate(site, _),
     !expr_any_type("client", e).
+// (5b) the call RESOLVED, and what the callee returns has no type the engine can derive:
+//      `q.get_compiler(conn).execute()` where get_compiler returns a class it looked up by
+//      name. Without this the site had no reason at all and read as `no_rule`.
+expr_type_untypable("client", e, "callee_return_untyped") :-
+    call_of_expr(e, site),
+    expr_call_candidate(site, _),
+    !expr_any_type("client", e).
 
 // (6) a SUBSCRIPT receiver: `mapping[k].run()` where the container has no element type.
 expr_type_untypable(p, e, "subscript_untyped") :-
@@ -696,5 +719,22 @@ expr_type_untypable(p, e, "subscript_untyped") :-
 expr_type_untypable(p, e, "local_untyped") :-
     expr_binding(p, b, ctx, e), ctx != "STORE",
     binding_lookup(p, b, _),
+    !expr_names_param(p, e, _),
+    !local_holds_untyped_return(p, e),
+    !expr_any_type(p, e).
+// (7b) the local was assigned the result of a call that RESOLVED, and the callee's return
+//      has no type: `compiler = q.get_compiler(conn)`; `compiler.execute()`, where
+//      get_compiler returns a class it looked up by a name held in a string. The gap is in
+//      the callee's return, not in the local, and the reason says so.
+local_holds_untyped_return("client", e) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    expr_binding("client", b2, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    call_of_expr(val, site),
+    expr_call_candidate(site, _),
+    !expr_any_type("client", val).
+expr_type_untypable(p, e, "local_from_callee_return_untyped") :-
+    local_holds_untyped_return(p, e),
     !expr_names_param(p, e, _),
     !expr_any_type(p, e).

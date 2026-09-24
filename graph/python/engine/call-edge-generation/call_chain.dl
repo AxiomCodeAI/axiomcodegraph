@@ -130,12 +130,31 @@ decorator_resolves_to(d, r) :- deco_applied(d, r), decorator_expr("client", e, d
 // A function that returns a bare name denoting a `def`. This is what a parameterised
 // decorator IS, and Python's first-class functions make it an ordinary idiom rather
 // than a special case — Java has no analogue to port.
+//
+// THE RETURNED EXPRESSION, NOT EVERY EXPRESSION INSIDE IT. rootContext is stamped on the
+// whole tree under a `return`, so without the root test `return self.compile(self.where)`
+// also "returned" `self` and `self.where`, and `return factory(name)(self, conn)` returned
+// its receiver and both arguments. Each consumer (call_returns_type (c2), return-of-
+// parameter, the property getter's type, element and builtin types) then typed the call by
+// its sub-expressions: `compiler = q.get_compiler(conn)` came out a Query, a Connection
+// and an Operations, and `compiler.execute()` was member_absent_from_type -- a wrong type,
+// not a missing one. The carriers that look inside a value (ternary, `or`, a tuple, a
+// dict display) have their own rules and start from this root.
 method_return_value_expr(p, m, e) :-
     expr_root_context(p, "RETURN_VALUE", e),
+    !expr_parent(p, _, _, _, e),
     expr_ultimate_method(p, e, m).
 method_returns_method(p, m, r) :-
     method_return_value_expr(p, m, e),
     expr_names_method(p, e, r).
+// A function returning what ANOTHER function returns: `def defer_text(func): return
+// defer_result(str)(func)` hands back whatever the inner factory produced. Sound for the same
+// reason as the bare-name case -- it is return flow, not a name match.
+method_returns_method("client", m, r) :-
+    method_return_value_expr("client", m, e),
+    call_of_expr(e, site),
+    expr_call_candidate(site, g),
+    method_returns_method("client", g, r).
 
 // ── decorator_hits_lib(SiteKey, LibMethodHash) ───────────────────────────────
 // `@abstractmethod` names `abc.abstractmethod`, which HAS Python source and is in the

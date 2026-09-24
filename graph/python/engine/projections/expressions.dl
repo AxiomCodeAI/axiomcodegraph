@@ -57,6 +57,10 @@ expr_comprehension_kind("lib", k, h) :- lib_py_expression(_, _, _, _, _, _, _, _
 expr_parent("client", parent, role, pos, h) :- py_expression(_, role, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
 expr_parent("lib", parent, role, pos, h) :- lib_py_expression(_, role, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
 
+// ── expr_operator(Prov, Operator, ExprHash) ──────────────────────────────────
+// The operator of a BINARY_OPERATION / UNARY_OPERATION / COMPARISON, as written (`+`, `%`).
+expr_operator("client", op, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), op != "".
+
 // ── expr_owner(Prov, OwnerKind, OwnerHash, TypeHash, ExprHash) ───────────────
 // OwnerKind in {MODULE, TYPE, METHOD, LAMBDA, BLOCK, FIELD, BINDING,
 // METHOD_PARAMETER, DECORATOR, IMPORT, COMPREHENSION_SCOPE}; OwnerHash polymorphic.
