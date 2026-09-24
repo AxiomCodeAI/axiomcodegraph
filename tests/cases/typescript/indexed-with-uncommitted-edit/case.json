@@ -1,0 +1,28 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a graph indexed from a working tree with uncommitted edits has spans in that text's line numbers; against the committed file they can run past its end, and `changed` (and test-impact, which calls it) crashed with an IndexError. It now reads the file clamped and says the positions may be off until a re-index",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/app.ts"
+   ],
+   "want": [
+    "changed declarations",
+    "indexed from a working tree with uncommitted edits"
+   ],
+   "avoid": [
+    "Traceback",
+    "IndexError",
+    "added      src/app.ts: the graph"
+   ]
+  }
+ ]
+}
