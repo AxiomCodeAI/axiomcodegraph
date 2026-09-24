@@ -136,7 +136,17 @@ class Changed:
         else:
             base = self.base_tree or (self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD')
             out = sh('git', 'diff', '--name-only', base, cwd=self.repo)
-            if out is None: out = sh('git', 'diff', '--name-only', 'HEAD', cwd=self.repo)
+            if out is None: out = sh('git', 'diff', '--name-only', 'HEAD', cwd=self.repo); base = 'HEAD'
+            # A NEW FILE IS A CHANGE. `git diff <tree>` covers tracked paths only, so a file created and not yet added
+            # never reached `changed`, and test-impact never started from anything declared in it. An untracked file
+            # counts when the baseline does not have it, or has it with other content (an explicit index records
+            # untracked files in the tree it indexed).
+            extra = []
+            for u in (sh('git', 'ls-files', '--others', '--exclude-standard', cwd=self.repo) or '').split('\n'):
+                if not re.search(r'\.(java|ts|tsx|js|mjs|cjs|py|cs)$', u): continue
+                had = (sh('git', 'rev-parse', '--verify', '-q', f'{base}:{u}', cwd=self.repo) or '').strip()
+                if not had or had != (sh('git', 'hash-object', u, cwd=self.repo) or '').strip(): extra.append(u)
+            out = (out or '') + ''.join('\n' + u for u in extra)
         # the extension list is the ONLY gate on what a diff can contain, so a language missing from it is
         # not degraded here, it is absent: `changed` answers [] for every edit and test-impact, which is
         # `changed` plus impact --tests, can never select anything from it (#1083)

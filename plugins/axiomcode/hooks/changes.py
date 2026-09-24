@@ -131,6 +131,10 @@ elif event in ('PostToolUse', 'UserPromptSubmit'):
     # after a background refresh (#1305) that graph is the one kept in .axiomcode/base. Before an edit (above), the
     # current graph is right: its lines are the file's as it is now.
     import ax_fresh
+    # a commit, a merge or a pull since the baseline was set: let it follow HEAD first (0.2 s when no file changed),
+    # or every committed edit is reported again as changed
+    try: ax_fresh.wait_baseline(cwd, 8)
+    except Exception: pass
     bg = ax_fresh.baseline_graph(cwd)
     if bg: os.environ['AXIOMCODE_GRAPH'] = bg
 if event == 'PostToolUse' and tool == 'Bash':

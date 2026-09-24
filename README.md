@@ -291,7 +291,8 @@ about one change had to read 95 of 43,793 methods, and every true direct caller 
 
 A target is written the way it appears in the code: `Owner.method`, `method`, `Type`, `Owner.field`, or
 `file.py:123`. It is resolved exactly; a miss lists the nearest names. `changed` and `test-impact` compare the
-working tree with the tree of the last `axiomcode index` (moved to the new commit when HEAD moves);
+working tree with a baseline: the tree of the last `axiomcode index`, and the new commit whenever HEAD moves (a
+commit, a merge, a pull, a checkout), so committed edits drop out and nothing accumulates;
 `--range <a>..<b>` compares two commits. The query commands take `--json`. `axiomcode help <command>` prints one
 command's usage.
 
@@ -302,7 +303,10 @@ command keeps reading the previous graph until the new one is indexed and swappe
 `AXIOMCODE_FRESH_WAIT` seconds (default 10) for it, then answers from the previous graph with a `graph refresh:` line
 naming the files it predates. `changed` and `test-impact` ask about an edit, so they read the graph of their
 baseline, which a refresh keeps in `.axiomcode/base` while the current graph is ahead of it: a removed method keeps
-its callers there. `AXIOMCODE_NO_REFRESH=1` turns this off; the log is `.axiomcode/refresh.log`.
+its callers there. The MCP server also checks every repository it has answered for once 15 minutes have passed since
+its last update (`AXIOMCODE_REFRESH_INTERVAL`, seconds; 0 turns it off), which catches edits made while a session
+sits idle. The graph records when and why it was built in `index_meta` (`refreshed_at`, `refresh_reason`).
+`AXIOMCODE_NO_REFRESH=1` turns all of this off; the log is `.axiomcode/refresh.log`.
 
 ## Graph output
 
