@@ -470,6 +470,10 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `conversion` | csharp | A user-defined conversion. An implicit one has no syntax at the call site. |
 | `indexer` | csharp | A user-defined indexer accessor, invoked by `a[i]`. |
 | `dynamic` | csharp | A call through a `dynamic` value. Dispatched at runtime by the DLR, so the target is undecidable from source; the tier is ambiguous_dynamic and that is final, not a gap. |
+| `property_read` | csharp | Reading a property runs its `get` accessor. No written call; the site is the member access. |
+| `property_write` | csharp | Assigning a property runs its `set` (or `init`) accessor. |
+| `event_subscribe` | csharp | `e += h` / `e -= h` on an event with custom `add` / `remove` accessors runs that accessor. |
+| `runtime` | csharp | The edge of a `runtime_observed` row: no written call behind it. |
 | `other` | csharp | A call kind this engine has no rule for. Present so a kind added to the schema later is unresolved rather than invisible. |
 | `method` | java | `obj.m()`, `Class.m()`, `super.m()`, or an unqualified `m()`. |
 | `new` | java | `new X(…)`. |
@@ -488,8 +492,8 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `DECORATOR_CALL` | typescript | A decorator application `@d` / `@d(…)`. |
 | `OPTIONAL_CALL` | typescript | `f?.(…)`. |
 | `JSX_COMPONENT_CALL` | typescript | `<Component …/>` (reserved by the parser; emitted by nothing yet). |
-| `PROPERTY_READ` | typescript | Reading `obj.x` where `x` is a `get` accessor runs the getter (engine-authored). No written call; the site is the property-access expression. A compound assignment or `++` reads before it writes, so it carries this and PROPERTY_WRITE. |
-| `PROPERTY_WRITE` | typescript | Assigning `obj.x = v` where `x` is a `set` accessor runs the setter (engine-authored). No written call; the site is the property-access expression on the left. |
+| `PROPERTY_READ` | typescript, javascript | Reading `obj.x` where `x` is a `get` accessor runs the getter (engine-authored). No written call; the site is the property-access expression. A compound assignment or `++` reads before it writes, so it carries this and PROPERTY_WRITE. |
+| `PROPERTY_WRITE` | typescript, javascript | Assigning `obj.x = v` where `x` is a `set` accessor runs the setter (engine-authored). No written call; the site is the property-access expression on the left. |
 | `FUNCTION_CALL` | javascript | `f(…)` — a bare callee, resolved by the binder. |
 | `METHOD_CALL` | javascript | `obj.m(…)`. |
 | `CONSTRUCTOR_CALL` | javascript | `new X(…)`. |
@@ -522,12 +526,16 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `PROPERTY_READ` | python | Reading `obj.attr` where `attr` is a `@property` runs the getter; reading `Cls.attr` where the METACLASS defines `attr` as a property runs that getter. No written call; the site is the attribute-access expression. |
 | `CONTEXT_MANAGER` | python | `with expr:` runs `__enter__` / `__exit__` (or the async pair). No written call; the site is the context-manager expression. |
 | `ITERATION_PROTOCOL` | python | `for x in expr:` (and comprehensions) runs `__iter__` / `__next__` (or the async pair). No written call; the site is the iterated expression. |
+| `SUBSCRIPT_PROTOCOL` | python | `x[k]` runs `__getitem__` (and `x[k] = v` / `del x[k]` the setter and deleter) of the receiver's class. No written call; the site is the subscript expression. Its own kind so it is never counted as a written call. |
 
 **`call_edges.tier` values**
 
 | value | languages | meaning |
 |---|---|---|
 | `ambiguous_dynamic` | csharp | A call through `dynamic`. Unresolvable BY DESIGN rather than by omission, and separated from ambiguous_unknown so a known-undecidable site is not counted as an engine failure. |
+| `known_builtin_operator` | csharp | An operator or conversion with no user-defined declaration anywhere (`a + b` on built-in types). No user code runs, so no target is the right answer; callee is NULL. An operator on an unstaged type IS a library member and is boundary_lib instead. |
+| `boundary_generated` | csharp | A read of a property the compiler generated (a positional record's property). There is no written accessor to point at, so callee_method_id is NULL, callee_label names the member and callee_provenance is `generated`. A correct end, not a blind spot. |
+| `runtime_observed` | csharp | Only when a runtime trace is supplied: an edge the trace saw and the static pass did not name. Real by construction, and added only, never used to remove an edge. The site is the CALLER METHOD, not an expression (the tracer sees method entry, not the call site), and kind is `runtime`. |
 | `known_implicit_ctor` | csharp | `new Foo()` where Foo declares no constructor. The compiler supplies a parameterless one, so there is no user code to call and nothing resolving is the right answer. |
 | `known_edge` | all | Exactly one target resolved. The strongest claim. |
 | `multi_inferred` | all | A sound SET of possible targets; each member is one row. The set over-approximates — every member is a real possibility, but not every member runs. HOW WIDE the set is differs by language: see the per-language notes on this table for whether the fan is narrowed by the instantiation set. |
@@ -538,7 +546,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `ambient_terminal` | javascript | The callee or receiver VALUE is the platform (`console.log`, `path.join`, `arr.forEach`) — a correct end, not a blind spot; callee is NULL. Beside a project edge it is the platform ALTERNATIVE of a `multi_inferred` site. |
 | `implicit_constructor` | javascript | `new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL. |
 | `dynamic_terminal` | javascript | `obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL. |
-| `fan_capped` | javascript, java | More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count. |
+| `fan_capped` | javascript, java, csharp | More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java and C#: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count. |
 | `callback_registered` | javascript | The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`), which may invoke it. Not the site's own callee; a reachability edge, labelled so it is never read as a resolved call. |
 | `event_dispatch` | javascript | `x.emit('name')` reaching a handler registered by `x.on('name', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one. |
 | `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
@@ -550,6 +558,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `external` | all | The target is outside every staged IR. callee_method_id is NULL and callee_label names it, as `external:<Type>.<Member>`. A client-only run of a C# project reaches the BCL this way for most of its calls. |
 | `client` | all | Target is a client method (callee_method_id set). |
 | `lib` | all | Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib). |
+| `generated` | csharp | The target is a member the compiler generated and no source declares (a `boundary_generated` row); callee_label names it. |
 | `builtin` | python | Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`). |
 | `external` | python, java | Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external. |
 
@@ -559,7 +568,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 - **python** — A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.
 - **java** — A `boundary_lib` edge with callee_provenance external names a method of an ancestor type no staged IR declares (callee_label `external:<type>.<name>`, no methods row). A site whose receiver is declared as such a type is multi_inferred even with one client override: the platform method itself, and the platform's own subclasses, are the other possible targets. Stage the library to replace the label with the real method.
 - **python** — The reason a site is ambiguous_unknown is exported per site in ext_call_site_unresolved (site, caller, reason, detail).
-- **all** — THE TRUST LINE, and it is not the same set of tiers in every language. RESOLVED (callee_method_id is set): known_edge, multi_inferred, boundary_lib, and in TypeScript ALSO ambient_terminal and intrinsic_terminal. BLIND SPOT (callee is NULL): ambiguous_unknown, and in Java ALSO ambiguous_anon. A filter written as `tier IN (known_edge, multi_inferred)` therefore drops resolved edges in TypeScript and nowhere else — derive the set from this note or from unresolved_sites, never from a hardcoded list.
+- **all** — THE TRUST LINE, and it is not the same set of tiers in every language. RESOLVED (callee_method_id is set): known_edge and multi_inferred in every language, and boundary_lib where the library is staged (--library) — without it boundary_lib names the target in callee_label and leaves callee_method_id NULL; ALSO ambient_terminal in TypeScript, fan_capped in Java and C# (the declared base, the fan refused), and runtime_observed in C#. HANDED OVER (callee set, but the site passes the function rather than calling it): callback_registered and event_dispatch in JavaScript. CORRECT END (callee NULL, and nothing is missing): intrinsic_terminal in TypeScript; ambient_terminal, implicit_constructor and dynamic_terminal in JavaScript; known_implicit_ctor, known_builtin_operator and boundary_generated (callee_label set) in C#. BLIND SPOT (callee NULL; exactly the tiers named `ambiguous_*`, which are what unresolved_sites holds): ambiguous_unknown everywhere, ALSO ambiguous_anon in Java and ambiguous_dynamic in C#. CAPPED (callee NULL, not in unresolved_sites): fan_capped in JavaScript. Python emits only the four shared tiers. A filter written as `tier IN (known_edge, multi_inferred)` therefore drops resolved edges in every language but Python — derive the set from this note or from unresolved_sites, never from a hardcoded list.
 - **java** — A multi_inferred fan is CHA-wide: it is every override the hierarchy admits, bounded only by the dispatch cap. type_instantiated is computed and exported but NOT read by any rule, so the fan is not narrowed to types the program constructs. Narrow it yourself by joining dispatch_candidates to type_instantiated — see the dispatch_envelope_of query. A receiver is ALSO typed by what flows into it (a local's initializer, the arguments callers pass to a parameter, the receivers callers invoke a method on for its `this`), and each flow-in type resolves its member directly, outside the fan: that is why a `fan_capped` site still carries edges, and why they are the types the program was seen to hand over, not the whole hierarchy.
 - **typescript** — A multi_inferred fan is CHA-wide, as in Java: type_instantiated is computed and exported but NOT read by any rule. The fan also has sources that are not virtual dispatch at all — an overload set or a union-typed receiver produces one too.
 - **python** — A multi_inferred fan IS narrowed by the instantiation set: type_instantiated_reachable (the constructed classes and their bases) bounds dispatch in resolution/dispatch.dl. Python is the only front end where that narrowing is applied, so a fan here is tighter than the same shape would be in Java or TypeScript.
@@ -577,7 +586,7 @@ Transitive supertype closure: (type, ancestor) for every ancestor reachable thro
 
 ### `dispatch_candidates`
 
-THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call that statically resolves to the base. This is the set `call_edges` narrowed FROM — the difference between "these are the targets" and "these are the targets, out of these possibilities". Populated in every language; `basis` says what admitted the pair, because the three front ends admit by different means.
+THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call that statically resolves to the base. This is the set `call_edges` narrowed FROM — the difference between "these are the targets" and "these are the targets, out of these possibilities". Populated in every language but JavaScript (see its note); `basis` says what admitted the pair, because the front ends admit by different means.
 
 | # | column | type | key | null | idx | meaning |
 |---|---|---|---|---|---|---|
@@ -591,8 +600,12 @@ THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call
 |---|---|---|
 | `nominal` | java, typescript | A written extends/implements reaches the candidate's owner from the base's owner. The strongest evidence there is: the author declared the relationship. |
 | `structural` | typescript | No declaration; the candidate's owner satisfies the base's owner by SHAPE. Emitted only for supertypes with no nominal implementor at all, so it never competes with a declared answer — but it is a heuristic, and a consumer that wants declarations only filters it out. |
-| `value` | java, typescript, csharp, python | A function stored in a field, variable or parameter whose type is the base's callable type; a call through that holder may run it. In Python, a function assigned onto an instance's member from outside its class, which shadows the class's method of that name. The base is the signature the call resolves to (bodiless), so the pair is how a walk over callers reaches the function that runs. Flow-derived rather than declared: a consumer that wants declarations only filters it out. |
+| `value` | java, typescript, csharp, python | A function stored in a field, variable or parameter whose type is the base's callable type; a call through that holder may run it. In TypeScript also a function written as an implementation of an interface's member signature: an object-literal member of a literal typed by the interface (#1208), or a function assigned to the member through a property chain, `inst.i.run = (x) => …` (#1283). In C# also what one delegate member is assigned from another (`a.Run = a.Parse`). In Python, a function assigned onto an instance's member from outside its class, which shadows the class's method of that name. The base is the signature the call resolves to (bodiless), so the pair is how a walk over callers reaches the function that runs. Flow-derived rather than declared: a consumer that wants declarations only filters it out. |
 | `mro` | python | The subtype's C3 linearisation picks the candidate for that attribute name. Not merely "the subtype declares this name" — a name a sibling base wins is attributed to that sibling. |
+
+**Notes**
+
+- **javascript** — EMPTY — JavaScript has no declared dispatch to widen from: a multi_inferred set is already the values the receiver may hold (see call_edges), so there is no envelope to record.
 
 ### `overrides`
 
@@ -607,6 +620,7 @@ Virtual-dispatch pairs: (base method, overriding method) wherever a call to the 
 
 - **typescript** — EMPTY — this table is Java-shaped. The TypeScript dispatch envelope is in dispatch_candidates, with basis `nominal` or `structural`.
 - **python** — EMPTY — this table is Java-shaped. The Python dispatch envelope is in dispatch_candidates with basis `mro`, and `value` for a function assigned onto an instance's member; the raw linearisation is in ext_mro_position.
+- **csharp** — EMPTY — C# records the dispatch envelope in dispatch_candidates, not as override rows.
 
 ### `entry_points`
 
@@ -631,7 +645,16 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `queue` | java | A message-listener method. |
 | `scheduled` | java | A `@Scheduled` method. |
 | `grpc_service` | java, python | A gRPC service implementation the server invokes on a request, with no call site reaching it: a generated `ImplBase` override (Java); a class deriving from a generated `*Servicer` base in a `_pb2_grpc` module, overriding a method that base declares (Python). |
+| `web_servlet` | java | A servlet class named in `web.xml` (`<servlet-class>`): its container callbacks (`doGet`, `service`, …) and the library methods it overrides are invoked by the container. |
+| `web_filter` | java | A filter class named in `web.xml` (`<filter-class>`); the container calls its callbacks. |
+| `web_listener` | java | A listener class named in `web.xml` (`<listener-class>`); the container calls its callbacks (`contextInitialized`, `sessionCreated`, …). |
+| `lifecycle_init` | java | The method an XML bean definition names as `init-method`; the container calls it after construction. |
+| `lifecycle_destroy` | java | The method an XML bean definition names as `destroy-method`; the container calls it at shutdown. |
+| `lifecycle_factory` | java | The method an XML bean definition names as `factory-method`; the container calls it to build the bean. |
+| `config_handler` | java | A callback of a class a configuration file names under a key that expects a class (not an annotation); the container instantiates it and calls it. |
+| `service_loader` | java | A callback of a provider listed in `META-INF/services`; `ServiceLoader` instantiates it and the caller reaches it through the service interface. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
+| `exported_from_entry_module` | typescript | A named function exported from a module nothing in the project imports. Its caller is the package's consumer, which is not in the repository. Placeholder names (`<arrow>`) are not roots. |
 | `task` | python | A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it. |
 | `fixture` | python | A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument. |
 | `url` | python | A view named as a value in a module-level route table. The framework calls it on a request. |
@@ -746,10 +769,10 @@ THE DATA GRAPH. One row per (site, resolved field), and the answer to "who reads
 
 **Notes**
 
-- **all** — JAVA AND TYPESCRIPT. The table is declared in every bundle and is EMPTY for Python and JavaScript, so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".
+- **all** — JAVA AND TYPESCRIPT. The table is declared in every bundle and is EMPTY for Python, JavaScript and C# (C# fills `fields`, not `field_access`), so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".
 - **typescript** — AN ACCESSOR IS NOT HERE. `get url()` read as `c.url` is a CALL, and call_edges already carries it with kind PROPERTY_READ or PROPERTY_WRITE (#703). The two tables are disjoint by construction: this one holds properties, call_edges holds accessors. Ask both when you want every read of a member.
 - **typescript** — AN ELEMENT ACCESS IS NOT HERE either: `obj["x"]` with a literal key is a different node kind and is not yet a site. A known gap, not a silent one.
-- **typescript** — A METHOD IS NOT A SITE. The callee of `obj.m()` is a PROPERTY_ACCESS node (37% of them, measured on immer), and `const f = obj.m` reads a method as a value; neither is a data edge, and admitting them would fill the ambiguous_unknown tier with sites the engine HAS resolved elsewhere. Both are excluded and counted in ext_field_site_excluded with reasons method_callee and method_value.
+- **typescript** — A METHOD IS NOT A SITE. The callee of `obj.m()` is a PROPERTY_ACCESS node (37% of them, measured on one TypeScript library), and `const f = obj.m` reads a method as a value; neither is a data edge, and admitting them would fill the ambiguous_unknown tier with sites the engine HAS resolved elsewhere. Both are excluded and counted in ext_field_site_excluded with reasons method_callee and method_value.
 - **java** — A field access written in a SWITCH CASE LABEL is deliberately absent. An enum constant in a case label is recorded TYPE for some arms and FIELD for others (#760), and javac compiles the switch through a $SwitchMap array rather than through a read of the constant, so there is no field access in the bytecode either.
 - **java** — A field read that PRECEDES a same-named local declared later in the same method is missing: the parser classifies such a name LOCAL_VARIABLE against the whole body rather than against the scope at the use site (#725), so the site never reaches the engine and is absent rather than ambiguous. Rare (1 in 5,647 local references measured) but it is an absence, not a declared unknown.
 - **java** — ARRAY ELEMENTS are not tracked: `a[i] = v` where `a` is a field is recorded as a READ of `a` (the array reference is read; the element write is not a field write). This matches the bytecode, where the instruction is `getfield a` followed by `aastore`.
@@ -821,6 +844,7 @@ THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the con
 | `ARRAY_CREATION_TYPE` | java | The element type of a `new T[n]`. |
 | `CAST_EXPRESSION` | java | The type of a `(T) x`. |
 | `INSTANCEOF_TYPE` | java, typescript | The type tested by an `x instanceof T`. |
+| `PERMITS` | java | A permitted subtype named in a sealed type's `permits` clause. |
 | `SUPER_TYPE` | java, typescript | An `extends` clause. |
 | `IMPLEMENTS_INTERFACE` | java, typescript | An `implements` clause. |
 | `THROWS_CLAUSE` | java | A declared thrown type. |
@@ -862,6 +886,7 @@ THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the con
 - **java** — EVERY DEPTH is here, unlike the receiver-typing relations the engine uses internally, which filter to depth 0. A field of type `Map<String, Widget>` produces three rows. Filter on `depth = 0` when you want the type an expression has rather than every type its declaration mentions.
 - **java** — A TYPE_VARIABLE reference (`T`, `E`) is not a row: it names the declaration's own parameter, not a type. Where the parameter has a written bound the USE resolves to that bound and IS a row, so `<T extends Node> void f(T t)` records a use of Node.
 - **java** — The reference rows carry no line in the Java IR (every all-type-references row has an empty startLine), so this table has no position columns. Use owner_method_id, or owner_type_id plus the types row, to locate a use.
+- **csharp** — EMPTY — the C# front end does not export type uses yet.
 
 ### `skipped`
 
@@ -911,11 +936,13 @@ Types this run creates an instance of — the rapid-type-analysis set that bound
 | `new` | all | A constructor call — `new C()` / `C()`. |
 | `anonymous` | java | An anonymous class exists only by being instantiated. |
 | `enum_constant` | java | An enum's constants are its instances. |
+| `service_loader` | java | A provider listed in `META-INF/services`: `ServiceLoader` constructs it reflectively, with no `new` in the source. |
 
 **Notes**
 
 - **typescript** — Every row has how = `new`. Not restricted to client provenance: a type the library constructs is still a type that exists at run time, and dropping it would narrow the envelope unsoundly.
 - **python** — Every row has how = `new`: the rule set records that some client call constructs the class, not which form.
+- **csharp** — EMPTY — the C# engine derives the instantiation set but does not export it. Dispatch in C# is not narrowed by it either (see the README of the C# engine).
 
 ## Extended tables — `ext_<relation>`
 
@@ -955,7 +982,7 @@ Every enumerated value a core column may hold, and WHICH LANGUAGES emit it. Filt
 |---|---|---|---|
 | 0 | `table_name` | TEXT | Core table. |
 | 1 | `column_name` | TEXT | Column. |
-| 2 | `language` | TEXT | `java`, `typescript`, `python` — the front end that emits this value (one row per language; a value shared by all has three rows). |
+| 2 | `language` | TEXT | `java`, `typescript`, `javascript`, `python`, `csharp` — the front end that emits this value (one row per language; a value shared by all has one row for each). |
 | 3 | `value` | TEXT | The value as it appears in the column. A trailing `*` marks a prefix (e.g. `DECORATOR_*`). |
 | 4 | `meaning` | TEXT | What it means. |
 
@@ -985,7 +1012,7 @@ Per-language caveats that are not a vocabulary: what a table lacks in one front 
 
 | # | column | type | meaning |
 |---|---|---|---|
-| 0 | `language` | TEXT | `java`, `typescript`, `python`, or `all`. |
+| 0 | `language` | TEXT | `java`, `typescript`, `javascript`, `python`, `csharp`, or `all`. |
 | 1 | `table_name` | TEXT | The table the note is about. |
 | 2 | `note` | TEXT | The caveat. |
 
