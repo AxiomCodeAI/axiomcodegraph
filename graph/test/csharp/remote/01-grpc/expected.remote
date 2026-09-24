@@ -5,3 +5,4 @@ edge	grpc	exact	Greeter/SayHello	Client.GreeterCaller.GreetBlocking/1 -> Server.
 edge	grpc	exact	Greeter/SayHellos	Client.GreeterCaller.Stream/1 -> Server.Services.GreeterService.SayHellos/3
 unsent	grpc	-	Greeter/SayGoodnight	Server.Services.GreeterService.SayGoodnight/2
 unserved	grpc	-	Greeter/SayGoodbye	Client.GreeterCaller.Missing/1
+unserved	http	-	/greet	Client.GreeterCaller.Http/1

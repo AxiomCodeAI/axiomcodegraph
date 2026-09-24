@@ -28,3 +28,92 @@ cs_framework_namespace_root("Microsoft").
 
 cs_remote_transport_grpc("grpc").
 cs_remote_confidence_exact("exact").
+
+// ── HTTP: ASP.NET Core on the server ────────────────────────────────────────
+// Attribute routing. `Route` carries a template and no verb; each Http<Verb> carries a
+// verb and an optional template. Written with or without the Attribute suffix.
+cs_http_route_attr("Route").
+cs_http_route_attr("RouteAttribute").
+cs_http_verb_attr("HttpGet", "GET").        cs_http_verb_attr("HttpGetAttribute", "GET").
+cs_http_verb_attr("HttpPost", "POST").      cs_http_verb_attr("HttpPostAttribute", "POST").
+cs_http_verb_attr("HttpPut", "PUT").        cs_http_verb_attr("HttpPutAttribute", "PUT").
+cs_http_verb_attr("HttpDelete", "DELETE").  cs_http_verb_attr("HttpDeleteAttribute", "DELETE").
+cs_http_verb_attr("HttpPatch", "PATCH").    cs_http_verb_attr("HttpPatchAttribute", "PATCH").
+cs_http_verb_attr("HttpHead", "HEAD").      cs_http_verb_attr("HttpHeadAttribute", "HEAD").
+cs_http_verb_attr("HttpOptions", "OPTIONS"). cs_http_verb_attr("HttpOptionsAttribute", "OPTIONS").
+// The suffix ASP.NET strips from a controller's class name for the [controller] token.
+cs_http_controller_suffix("Controller").
+// Minimal APIs: `app.MapGet(template, handler)`, and a route group's prefix.
+cs_http_map_verb("MapGet", "GET").
+cs_http_map_verb("MapPost", "POST").
+cs_http_map_verb("MapPut", "PUT").
+cs_http_map_verb("MapDelete", "DELETE").
+cs_http_map_verb("MapPatch", "PATCH").
+cs_http_map_group("MapGroup").
+
+// ── HTTP: the client ────────────────────────────────────────────────────────
+// A receiver whose written type is HttpClient, and the verb each of its calls sends.
+// The URL is the first argument of every one of them.
+cs_http_client_type("HttpClient").
+cs_http_client_type("System.Net.Http.HttpClient").
+cs_http_client_method("GetAsync", "GET").
+cs_http_client_method("GetStringAsync", "GET").
+cs_http_client_method("GetStreamAsync", "GET").
+cs_http_client_method("GetByteArrayAsync", "GET").
+cs_http_client_method("GetFromJsonAsync", "GET").
+cs_http_client_method("PostAsync", "POST").
+cs_http_client_method("PostAsJsonAsync", "POST").
+cs_http_client_method("PutAsync", "PUT").
+cs_http_client_method("PutAsJsonAsync", "PUT").
+cs_http_client_method("PatchAsync", "PATCH").
+cs_http_client_method("PatchAsJsonAsync", "PATCH").
+cs_http_client_method("DeleteAsync", "DELETE").
+cs_http_client_method("DeleteFromJsonAsync", "DELETE").
+// IHttpClientFactory hands one out: `factory.CreateClient("name").GetAsync(...)`.
+cs_http_client_factory_method("CreateClient").
+// A declarative client (Refit): the interface method IS the send.
+cs_http_declarative_attr("Get", "GET").
+cs_http_declarative_attr("Post", "POST").
+cs_http_declarative_attr("Put", "PUT").
+cs_http_declarative_attr("Delete", "DELETE").
+cs_http_declarative_attr("Patch", "PATCH").
+
+cs_remote_transport_http("http").
+cs_remote_confidence_route_shape("route_shape").
+cs_http_verb_any("any").
+
+// Routes compare case-insensitively, as ASP.NET routing does, and Soufflé has no
+// lower-case functor.
+cs_lower("A","a"). cs_lower("B","b"). cs_lower("C","c"). cs_lower("D","d"). cs_lower("E","e").
+cs_lower("F","f"). cs_lower("G","g"). cs_lower("H","h"). cs_lower("I","i"). cs_lower("J","j").
+cs_lower("K","k"). cs_lower("L","l"). cs_lower("M","m"). cs_lower("N","n"). cs_lower("O","o").
+cs_lower("P","p"). cs_lower("Q","q"). cs_lower("R","r"). cs_lower("S","s"). cs_lower("T","t").
+cs_lower("U","u"). cs_lower("V","v"). cs_lower("W","w"). cs_lower("X","x"). cs_lower("Y","y").
+cs_lower("Z","z").
+
+// `client.SendAsync(new HttpRequestMessage(HttpMethod.Post, url))`: the message names the
+// verb as a member of HttpMethod and the URL as its second argument.
+cs_http_send_message_method("SendAsync").
+cs_http_request_message_type("HttpRequestMessage").
+cs_http_method_member("Get", "GET").
+cs_http_method_member("Post", "POST").
+cs_http_method_member("Put", "PUT").
+cs_http_method_member("Delete", "DELETE").
+cs_http_method_member("Patch", "PATCH").
+cs_http_method_member("Head", "HEAD").
+cs_http_method_member("Options", "OPTIONS").
+// string methods that return the same path they were given, near enough for routing
+cs_string_passthrough("TrimEnd").
+cs_string_passthrough("TrimStart").
+cs_string_passthrough("Trim").
+cs_string_passthrough("ToLower").
+cs_string_passthrough("ToLowerInvariant").
+
+// the parameter types a wrapper takes a path in
+cs_string_type("string").
+cs_string_type("String").
+cs_string_type("System.String").
+
+// characters that start a query or a fragment, never a path segment
+cs_url_not_path_start("&"). cs_url_not_path_start("?"). cs_url_not_path_start("#").
+cs_url_not_path_start("="). cs_url_not_path_start(":").

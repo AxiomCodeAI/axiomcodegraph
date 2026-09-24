@@ -33,3 +33,4 @@ method_dispatch_candidate	dispatch-candidates.csv
 remote_edge	remote-edge.csv
 remote_unserved	remote-unserved.csv
 remote_unsent	remote-unsent.csv
+remote_undetermined	remote-undetermined.csv

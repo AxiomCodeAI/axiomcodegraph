@@ -1,0 +1,22 @@
+edge	http	exact	/api/Orders	Web.Services.ApiClient.Create/1 -> Api.Controllers.OrdersController.Create/1
+edge	http	exact	/api/Orders	Web.Services.ApiClient.Orders/0 -> Api.Controllers.OrdersController.List/0
+edge	http	exact	/api/Orders	Web.Services.OrdersPage.Load/0 -> Api.Controllers.OrdersController.List/0
+edge	http	exact	/api/Orders/{id:int}	Web.Services.ApiClient.Order/1 -> Api.Controllers.OrdersController.Get/1
+edge	http	exact	/api/Orders/{id:int}	Web.Services.IOrdersApi.GetOrder/1 -> Api.Controllers.OrdersController.Get/1
+edge	http	exact	/api/Orders/{id:int}	Web.Services.OrdersPage.Show/1 -> Api.Controllers.OrdersController.Get/1
+edge	http	exact	/api/Orders/{id}	Web.Services.ApiClient.Remove/1 -> Api.Controllers.OrdersController.Delete/1
+edge	http	exact	/api/Orders/{id}	Web.Services.OrdersPage.Remove/1 -> Api.Controllers.OrdersController.Delete/1
+edge	http	exact	/api/reports/daily/{day:int?}	Web.Services.ReportsClient.Daily/1 -> Api.Endpoints.ReportsEndpoints.Daily/1
+edge	http	exact	/api/reports/daily/{day:int?}	Web.Services.ReportsClient.Today/0 -> Api.Endpoints.ReportsEndpoints.Daily/1
+edge	http	exact	/api/reports/rebuild	Web.Services.ReportsClient.Rebuild/0 -> Api.Endpoints.ReportsEndpoints.<lambda>/0
+edge	http	exact	/api/store/widgets	Web.Services.ApiClient.Items/1 -> Api.Endpoints.WidgetsEndpoints.GetWidgets/0
+edge	http	exact	/api/store/widgets/featured	Web.Services.ApiClient.Featured/0 -> Api.Endpoints.WidgetsEndpoints.GetFeatured/0
+edge	http	exact	/api/store/widgets/{id:int}	Web.Services.ApiClient.Item/1 -> Api.Endpoints.WidgetsEndpoints.GetWidget/1
+edge	http	route_shape	/api/store/widgets/{id:int}/parts	Web.Services.ApiClient.Parts/0 -> Api.Endpoints.WidgetsEndpoints.GetParts/1
+undetermined	http	-	unresolved_destination	Web.Services.ApiClient.Dynamic/1
+undetermined	http	-	unresolved_destination	Web.Services.ApiClient.Paged/1
+unsent	http	-	/api/store/widgets	Api.Endpoints.WidgetsEndpoints.CreateWidget/0
+unsent	http	-	/health	Api.Controllers.OrdersController.Health/0
+unsent	http	-	/ping	Api.Endpoints.WidgetsEndpoints.Ping/0
+unserved	http	-	/api/nowhere	Web.Services.ApiClient.Missing/0
+unserved	http	-	/api/store/widgets	Web.Services.ApiClient.Replace/1

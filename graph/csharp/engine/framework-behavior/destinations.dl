@@ -21,6 +21,7 @@
 // and the two halves that could not be joined, which are reported rather than dropped:
 //   remote_unserved(Method, Transport, Destination)   a send nothing here serves
 //   remote_unsent(Method, Transport, Destination)     a handler nothing here sends to
+//   remote_undetermined(Method, Transport, Reason)    a send whose destination cannot be read
 // ============================================================================
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,7 +123,438 @@ remote_send_at(e, from, tr, d) :- cs_remote_transport_grpc(tr), grpc_send_primar
 serves_destination(m, tr, d) :- cs_remote_transport_grpc(tr), grpc_serves(m, d).
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. THE EDGE, AND THE TWO HALVES IT CANNOT JOIN
+// 3. HTTP
+// ─────────────────────────────────────────────────────────────────────────────
+// The key is a ROUTE: a path template and a verb. The server declares it on an ASP.NET
+// Core controller (attribute routing) or a minimal-API `MapGet`; the client writes it as
+// the URL of an HttpClient call, usually built by interpolation or concatenation.
+// Both are reduced to SEGMENTS, a `{...}` segment on either side stands for one
+// segment of anything, and the two match when every segment agrees. `exact` when the two
+// spell the same template, `route_shape` when a placeholder stood in for a literal.
+
+// ── the value of a string literal, from its source text ─────────────────────
+// literalValue is the token as written, and the IR reader keeps its quotes DOUBLED
+// (`""api/orders""`), so the value is what lies between the leading run of `$`, `@` and
+// `"` and the trailing run of `"`. A quote escaped inside a URL is not a case worth a
+// parser here.
+str_open(raw, i) :- str_demand(raw), i = range(0, strlen(raw)), c = substr(raw, i, 1),
+    c != "\"", c != "$", c != "@".
+str_close(raw, i) :- str_demand(raw), i = range(0, strlen(raw)), substr(raw, i, 1) != "\"".
+str_first(raw, a) :- str_open(raw, _), a = min i : str_open(raw, i).
+str_last(raw, b) :- str_close(raw, _), b = max i : str_close(raw, i).
+str_value(raw, v) :- str_first(raw, a), str_last(raw, b), b >= a, v = substr(raw, a, b - a + 1).
+str_value(raw, "") :- str_demand(raw), !str_has_text(raw).
+str_has_text(raw) :- str_first(raw, a), str_last(raw, b), b >= a.
+
+// an interpolated string's text, which the parser records while its literalKind is NONE
+expr_interp_text(e, raw) :-
+    cs_expression("INTERPOLATED_STRING", _, _, _, _, _, _, _, _, _, _, raw, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    raw != "".
+
+// the argument at index k (0-based among the arguments) of a call
+// Computed for every call, not on demand: the demand now runs through the wrapper rule,
+// which reads arguments, and an aggregate cannot sit inside that recursion.
+arg_index(e, k, a) :- expr_argument("client", e, pos, a), p = to_number(pos),
+    k = count : { expr_argument("client", e, q, _), to_number(q) < p }.
+http_arg(e, k, a) :- arg_index(e, k, a).
+http_arg_raw(e, k, a) :- http_arg(e, k, a).
+http_arg_string(e, k, v) :- http_arg(e, k, a), expr_literal("client", a, _, raw), str_value(raw, v).
+str_demand(raw) :- http_arg(_, _, a), expr_literal("client", a, _, raw).
+
+// ── the server: attribute routing ───────────────────────────────────────────
+// cs_attribute: c0 name, c3 owner, c4 ownerKind, c18 hash. cs_attribute_argument: c1 value,
+// c2 valueKind, c3 position, c4 isNamed, c5 parent attribute.
+attr_on(owner, kind, name, a) :-
+    cs_attribute(name, _, _, owner, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, a).
+attr_template_raw(a, raw) :-
+    cs_attribute_argument(_, raw, "STRING", "0", "false", a, _, _, _, _, _, _, _, _).
+attr_has_template(a) :- attr_template_raw(a, _).
+str_demand(raw) :- attr_template_raw(_, raw).
+attr_template(a, v) :- attr_template_raw(a, raw), str_value(raw, v).
+
+ctl_base(t, b) :- attr_on(t, "TYPE", n, a), cs_http_route_attr(n), attr_template(a, b).
+ctl_has_base(t) :- ctl_base(t, _).
+
+method_verb_attr(m, verb, a) :- attr_on(m, "METHOD", n, a), cs_http_verb_attr(n, verb).
+method_route_attr(m, a) :- attr_on(m, "METHOD", n, a), cs_http_route_attr(n).
+method_has_verb(m) :- method_verb_attr(m, _, _).
+method_route_tmpl(m, v) :- method_route_attr(m, a), attr_template(a, v).
+method_has_route_tmpl(m) :- method_route_tmpl(m, _).
+
+// (template, verb) a controller action declares
+ctl_action(m, tm, verb) :- method_verb_attr(m, verb, a), attr_template(a, tm).
+ctl_action(m, tm, verb) :- method_verb_attr(m, verb, a), !attr_has_template(a), method_route_tmpl(m, tm).
+ctl_action(m, "", verb) :- method_verb_attr(m, verb, a), !attr_has_template(a), !method_has_route_tmpl(m).
+ctl_action(m, tm, verb) :- method_route_tmpl(m, tm), !method_has_verb(m), cs_http_verb_any(verb).
+
+// An absolute template (`/health`, `~/health`) ignores the class route.
+tmpl_absolute(tm) :- ctl_action(_, tm, _), strlen(tm) >= 1, substr(tm, 0, 1) = "/".
+tmpl_absolute(tm) :- ctl_action(_, tm, _), strlen(tm) >= 2, substr(tm, 0, 2) = "~/".
+ctl_route_tok(m, path, verb) :- ctl_action(m, tm, verb), tmpl_absolute(tm), path = tm.
+ctl_route_tok(m, path, verb) :- ctl_action(m, tm, verb), !tmpl_absolute(tm),
+    method_owner("client", t, m), ctl_base(t, b), path = cat(b, cat("/", tm)).
+// (joining with a slash may double one; the segment split below skips empty segments)
+ctl_route_tok(m, tm, verb) :- ctl_action(m, tm, verb), !tmpl_absolute(tm), tm != "",
+    method_owner("client", t, m), !ctl_has_base(t).
+
+// [controller] is the class name without Controller, [action] the method's name
+ctl_name(m, c) :- ctl_route_tok(m, _, _), method_owner("client", t, m), type_decl("client", tn, _, _, _, t),
+    cs_http_controller_suffix(sfx), strlen(tn) > strlen(sfx),
+    substr(tn, max(0, strlen(tn) - strlen(sfx)), strlen(sfx)) = sfx, c = substr(tn, 0, max(0, strlen(tn) - strlen(sfx))).
+ctl_name(m, tn) :- ctl_route_tok(m, _, _), method_owner("client", t, m), type_decl("client", tn, _, _, _, t),
+    cs_http_controller_suffix(sfx), !ends_with_suffix(tn, sfx).
+ends_with_suffix(tn, sfx) :- type_decl("client", tn, _, _, _, _), cs_http_controller_suffix(sfx),
+    strlen(tn) > strlen(sfx), substr(tn, max(0, strlen(tn) - strlen(sfx)), strlen(sfx)) = sfx.
+tok_at(p, tok, i) :- ctl_route_tok(_, p, _), tok = "[controller]", contains(tok, p),
+    i = range(0, strlen(p) - strlen(tok) + 1), substr(p, i, strlen(tok)) = tok.
+ctl_route_c(m, p2, verb) :- ctl_route_tok(m, p, verb), tok_at(p, "[controller]", i), ctl_name(m, c),
+    p2 = cat(substr(p, 0, i), cat(c, substr(p, i + 12, strlen(p) - i - 12))).
+ctl_route_c(m, p, verb) :- ctl_route_tok(m, p, verb), !contains("[controller]", p).
+tok_at_a(p, i) :- ctl_route_c(_, p, _), contains("[action]", p),
+    i = range(0, strlen(p) - 7), substr(p, i, 8) = "[action]".
+http_route_raw(m, p2, verb) :- ctl_route_c(m, p, verb), tok_at_a(p, i), method_name("client", m, n),
+    p2 = cat(substr(p, 0, i), cat(n, substr(p, i + 8, strlen(p) - i - 8))).
+http_route_raw(m, p, verb) :- ctl_route_c(m, p, verb), !contains("[action]", p).
+
+// ── the server: minimal APIs ────────────────────────────────────────────────
+map_call(e, verb) :- call_callee_name("client", e, n), cs_http_map_verb(n, verb), csite("client", e).
+map_group_call(e) :- call_callee_name("client", e, n), cs_http_map_group(n), csite("client", e).
+
+// the handler: a method group, `Type.Method`, or a lambda (its own method row)
+map_handler(e, m) :- map_call(e, _), http_arg(e, 1, h), expr_anon_decl("client", h, m).
+map_handler(e, m) :- map_call(e, _), http_arg(e, 1, h),
+    expr_kind("client", h, "NAME_REFERENCE"), expr_ref_unknown("client", h),
+    expr_written_name("client", h, n), !local_binds("client", h, _),
+    expr_ultimate_type_group("client", h, gk), member_lookup("client", gk, n, "method", m).
+map_handler(e, m) :- map_call(e, _), http_arg(e, 1, h),
+    expr_kind("client", h, "MEMBER_ACCESS"),
+    expr_qualifier_child("client", h, q), expr_member_name_child("client", h, nm),
+    expr_written_name("client", nm, n), delegate_qualifier_type("client", q, gk),
+    member_lookup("client", gk, n, "method", m).
+
+// The route group a MapX is called on: its receiver, through a local and through any
+// fluent call (`.WithName("reports")`, `.RequireAuthorization()`), back to MapGroup.
+gp_demand(r) :- map_call(e, _), call_receiver_expr("client", e, r).
+gp_demand(r) :- map_group_call(e), call_receiver_expr("client", e, r), gp_demand(e).
+gp_demand(init) :- gp_demand(r), ref_denotes("client", r, "LOCAL_VARIABLE", v), var_initializer("client", v, init).
+gp_demand(rr) :- gp_demand(r), csite("client", r), call_receiver_expr("client", r, rr).
+gp_is_local(r) :- gp_demand(r), ref_denotes("client", r, "LOCAL_VARIABLE", v), var_initializer("client", v, _).
+gp_is_call(r) :- gp_demand(r), csite("client", r), call_receiver_expr("client", r, _).
+group_prefix(r, "") :- gp_demand(r), !gp_is_local(r), !gp_is_call(r).
+group_prefix(r, p) :- gp_demand(r), ref_denotes("client", r, "LOCAL_VARIABLE", v),
+    var_initializer("client", v, init), group_prefix(init, p).
+group_prefix(r, p) :- gp_demand(r), csite("client", r), !map_group_call(r),
+    call_receiver_expr("client", r, rr), group_prefix(rr, p).
+group_prefix(r, g) :- gp_demand(r), map_group_call(r), http_arg_string(r, 0, g),
+    call_receiver_expr("client", r, rr), group_prefix(rr, "").
+group_prefix(r, p) :- gp_demand(r), map_group_call(r), http_arg_string(r, 0, g),
+    call_receiver_expr("client", r, rr), group_prefix(rr, pp), pp != "", !starts_slash(g), p = cat(pp, cat("/", g)).
+group_prefix(r, p) :- gp_demand(r), map_group_call(r), http_arg_string(r, 0, g),
+    call_receiver_expr("client", r, rr), group_prefix(rr, pp), pp != "", starts_slash(g), p = cat(pp, g).
+
+http_route_raw(m, p, verb) :- map_call(e, verb), map_handler(e, m), http_arg_string(e, 0, t),
+    call_receiver_expr("client", e, r), group_prefix(r, ""), p = t.
+http_route_raw(m, p, verb) :- map_call(e, verb), map_handler(e, m), http_arg_string(e, 0, t),
+    call_receiver_expr("client", e, r), group_prefix(r, g), g != "", !starts_slash(t), p = cat(g, cat("/", t)).
+http_route_raw(m, p, verb) :- map_call(e, verb), map_handler(e, m), http_arg_string(e, 0, t),
+    call_receiver_expr("client", e, r), group_prefix(r, g), g != "", starts_slash(t), p = cat(g, t).
+starts_slash(t) :- http_arg_string(_, _, t), strlen(t) >= 1, substr(t, 0, 1) = "/".
+
+// ── the client: an HttpClient call and the URL it is given ──────────────────
+http_client_recv(e) :- call_recv_written_name(e, tn), cs_http_client_type(tn).
+http_client_recv(e) :- call_receiver_expr("client", e, r), call_callee_name("client", r, f),
+    cs_http_client_factory_method(f).
+http_client_recv(e) :- call_receiver_expr("client", e, r),
+    ref_denotes("client", r, "LOCAL_VARIABLE", v), var_value_initializer("client", v, init),
+    call_callee_name("client", init, f), cs_http_client_factory_method(f).
+http_send_call(e, from, verb) :- http_client_recv(e), call_callee_name("client", e, n),
+    cs_http_client_method(n, verb), call_from("client", e, from).
+
+// SendAsync: the request message, inline or held in a local, carries verb and URL.
+http_message_of(e, msg) :- http_client_recv(e), call_callee_name("client", e, n),
+    cs_http_send_message_method(n), http_arg_raw(e, 0, a), http_message_creation(a, msg).
+http_message_of(e, msg) :- http_client_recv(e), call_callee_name("client", e, n),
+    cs_http_send_message_method(n), http_arg_raw(e, 0, a),
+    ref_denotes("client", a, "LOCAL_VARIABLE", v), var_value_initializer("client", v, init),
+    http_message_creation(init, msg).
+http_message_creation(c, c) :- call_callee_name("client", c, tn), cs_http_request_message_type(tn),
+    expr_kind("client", c, "OBJECT_CREATION").
+http_message_verb(msg, verb) :- http_message_creation(_, msg), http_arg(msg, 0, a),
+    expr_kind("client", a, "MEMBER_ACCESS"), expr_member_name_child("client", a, nm),
+    expr_written_name("client", nm, mn), cs_http_method_member(mn, verb).
+http_message_verb(msg, verb) :- http_message_creation(_, msg), !http_message_has_verb(msg), cs_http_verb_any(verb).
+http_message_has_verb(msg) :- http_message_creation(_, msg), http_arg(msg, 0, a),
+    expr_kind("client", a, "MEMBER_ACCESS"), expr_member_name_child("client", a, nm),
+    expr_written_name("client", nm, mn), cs_http_method_member(mn, _).
+http_send_call(e, from, verb) :- http_message_of(e, msg), http_message_verb(msg, verb), call_from("client", e, from).
+// where the URL argument is: first on a plain call, second on the message
+http_url_arg(e, a) :- http_send_call(e, _, _), !http_message_of(e, _), http_arg(e, 0, a).
+http_url_arg(e, a) :- http_message_of(e, msg), http_arg(msg, 1, a).
+
+// The URL argument as a TEMPLATE: literal text kept, anything computed becomes `{}`.
+// Built through `+`, interpolation, and a local or field whose initializer is the text.
+t_demand(a) :- http_url_arg(_, a).
+t_demand(c) :- t_demand(e), expr_kind("client", e, "BINARY"), expr_operator("client", e, "+"),
+    expr_child("client", e, "LEFT_OPERAND", _, c).
+t_demand(c) :- t_demand(e), expr_kind("client", e, "BINARY"), expr_operator("client", e, "+"),
+    expr_child("client", e, "RIGHT_OPERAND", _, c).
+t_demand(i) :- t_demand(e), ref_denotes("client", e, "LOCAL_VARIABLE", v), var_initializer("client", v, i).
+t_demand(i) :- t_demand(e), ref_denotes("client", e, "FIELD", f), field_initializer("client", f, i).
+// `$"...".TrimEnd('&')`: a string method that keeps the path
+t_demand(r) :- t_demand(e), csite("client", e), call_callee_name("client", e, n), cs_string_passthrough(n),
+    call_receiver_expr("client", e, r).
+t_is_pass(e) :- t_demand(e), csite("client", e), call_callee_name("client", e, n), cs_string_passthrough(n),
+    call_receiver_expr("client", e, _).
+// a hole in an interpolation that names a field or local holding text
+t_demand(c) :- t_demand(e), expr_interp_text(e, _), expr_child("client", e, "INTERPOLATION_CONTENT", _, h),
+    expr_child("client", h, "INTERPOLATION_CONTENT", _, c).
+t_is_str(e) :- t_demand(e), expr_literal("client", e, "STRING", _).
+t_is_str(e) :- t_demand(e), expr_literal("client", e, "VERBATIM_STRING", _).
+t_is_interp(e) :- t_demand(e), expr_interp_text(e, _).
+t_is_plus(e) :- t_demand(e), expr_kind("client", e, "BINARY"), expr_operator("client", e, "+").
+t_is_ref(e) :- t_demand(e), ref_denotes("client", e, "LOCAL_VARIABLE", v), var_initializer("client", v, _).
+t_is_ref(e) :- t_demand(e), ref_denotes("client", e, "FIELD", f), field_initializer("client", f, _).
+str_demand(raw) :- t_demand(e), expr_literal("client", e, _, raw).
+str_demand(raw) :- t_demand(e), expr_interp_text(e, raw).
+
+url_tmpl(e, v) :- t_is_str(e), expr_literal("client", e, _, raw), str_value(raw, v).
+url_tmpl(e, v) :- t_is_interp(e), interp_final(e, v).
+url_tmpl(e, v) :- t_is_pass(e), call_receiver_expr("client", e, r), url_tmpl(r, v).
+
+// Holes are substituted one at a time, in order, where the hole is a bare name for a
+// field or local initialised with a string literal: `$"{baseUrl}daily/{day}"`
+// with the field holding "api/reports/" becomes "api/reports/daily/{day}". Any other hole
+// stays a placeholder. Kept off url_tmpl on purpose: a hole valued through the recursion
+// would put the substitution, which negates, inside the recursion.
+hole_literal(c, val) :- ref_denotes("client", c, "FIELD", f), field_initializer("client", f, i),
+    expr_literal("client", i, _, raw), str_value(raw, val).
+hole_literal(c, val) :- ref_denotes("client", c, "LOCAL_VARIABLE", v), var_initializer("client", v, i),
+    expr_literal("client", i, _, raw), str_value(raw, val).
+str_demand(raw) :- t_is_interp(e), expr_child("client", e, "INTERPOLATION_CONTENT", _, h),
+    expr_child("client", h, "INTERPOLATION_CONTENT", _, c), ref_denotes("client", c, "FIELD", f),
+    field_initializer("client", f, i), expr_literal("client", i, _, raw).
+str_demand(raw) :- t_is_interp(e), expr_child("client", e, "INTERPOLATION_CONTENT", _, h),
+    expr_child("client", h, "INTERPOLATION_CONTENT", _, c), ref_denotes("client", c, "LOCAL_VARIABLE", v),
+    var_initializer("client", v, i), expr_literal("client", i, _, raw).
+interp_hole(e, k, tok, val) :- t_is_interp(e),
+    expr_child("client", e, "INTERPOLATION_CONTENT", pos, h), expr_child("client", h, "INTERPOLATION_CONTENT", _, c),
+    expr_kind("client", c, "NAME_REFERENCE"), expr_written_name("client", c, n), hole_literal(c, val),
+    !contains("{", val), k = to_number(pos), tok = cat("{", cat(n, "}")).
+interp_hole(e, k, tok, val) :- t_is_interp(e),
+    expr_child("client", e, "INTERPOLATION_CONTENT", pos, h), expr_child("client", h, "INTERPOLATION_CONTENT", _, c),
+    expr_kind("client", c, "NAME_REFERENCE"), expr_written_name("client", c, n),
+    ref_denotes("client", c, "PARAMETER", prm), param_position("client", prm, ppos),
+    k = to_number(pos), tok = cat("{", cat(n, "}")), val = cat("{@", cat(ppos, "}")).
+interp_hole_at(e, k) :- interp_hole(e, k, _, _).
+interp_hole_max(e, mx) :- t_is_interp(e), expr_child("client", e, "INTERPOLATION_CONTENT", _, _),
+    mx = max k : { expr_child("client", e, "INTERPOLATION_CONTENT", pos, _), k = to_number(pos) }.
+interp_has_hole(e) :- interp_hole_max(e, _).
+interp_step(e, -1, v) :- t_is_interp(e), expr_interp_text(e, raw), str_value(raw, v).
+interp_step(e, k + 1, s2) :- interp_step(e, k, s1), interp_hole_max(e, mx), k < mx,
+    interp_hole(e, k + 1, tok, val), contains(tok, s1),
+    // no aggregate here: an aggregate inside this recursion is evaluated too early and
+    // yields nothing. A hole's token is written once in practice.
+    i = range(0, strlen(s1) - strlen(tok) + 1), substr(s1, i, strlen(tok)) = tok,
+    s2 = cat(substr(s1, 0, i), cat(val, substr(s1, i + strlen(tok), strlen(s1) - i - strlen(tok)))).
+interp_step(e, k + 1, s1) :- interp_step(e, k, s1), interp_hole_max(e, mx), k < mx, !interp_hole_at(e, k + 1).
+interp_step(e, k + 1, s1) :- interp_step(e, k, s1), interp_hole_max(e, mx), k < mx,
+    interp_hole(e, k + 1, tok, _), !contains(tok, s1).
+interp_final(e, s) :- interp_hole_max(e, mx), interp_step(e, mx, s).
+interp_final(e, v) :- t_is_interp(e), !interp_has_hole(e), expr_interp_text(e, raw), str_value(raw, v).
+url_tmpl(e, v) :- t_is_plus(e), expr_child("client", e, "LEFT_OPERAND", _, l),
+    expr_child("client", e, "RIGHT_OPERAND", _, r), url_tmpl(l, lv), url_tmpl(r, rv), v = cat(lv, rv).
+url_tmpl(e, v) :- t_demand(e), ref_denotes("client", e, "LOCAL_VARIABLE", x),
+    var_initializer("client", x, i), url_tmpl(i, v).
+url_tmpl(e, v) :- t_demand(e), ref_denotes("client", e, "FIELD", f),
+    field_initializer("client", f, i), url_tmpl(i, v).
+url_tmpl(e, "{}") :- t_demand(e), !t_is_str(e), !t_is_interp(e), !t_is_plus(e), !t_is_ref(e), !t_is_pass(e), !t_is_param(e).
+// A parameter of the enclosing method becomes a MARKER, `{@0}` for the first, which a
+// caller of a wrapper method fills in below.
+t_is_param(e) :- t_demand(e), ref_denotes("client", e, "PARAMETER", p), param_position("client", p, _).
+url_tmpl(e, v) :- t_is_param(e), ref_denotes("client", e, "PARAMETER", p), param_position("client", p, pos),
+    v = cat("{@", cat(pos, "}")).
+
+http_send_tmpl0(e, from, verb, v) :- http_send_call(e, from, verb), http_url_arg(e, a), url_tmpl(a, v).
+
+// ── one hop through a wrapper ───────────────────────────────────────────────
+// Real clients send through their own helper, `Fetch(string path)` wrapping
+// `_httpClient.GetAsync($"{_root}{path}")`, and callers pass the path. The URL inside
+// the wrapper is then a marker for the parameter, and each resolved call to the wrapper
+// fills it with the caller's argument: the edge starts at the CALLER, where the route is
+// written, and the wrapper's own send is dropped once a caller has bound it.
+//
+// Demanded structurally (a parameter somewhere in the URL's expression tree), never from
+// the template text, so the demand chain does not depend on the templates it feeds.
+// Only a STRING parameter is a path a caller supplies. `Order(int id)` building
+// `$"api/orders/{id}"` is not a wrapper, and binding it would move the edge off the
+// method that wrote the route onto whatever called it.
+wrap_url_param(e, w, pos) :- http_url_arg(e, a), t_param_under(a, pos), call_from("client", e, w),
+    param_decl("client", w, pos, _, p), param_type_name("client", p, tn, _), cs_string_type(tn).
+t_param_under(x, pos) :- t_demand(x), ref_denotes("client", x, "PARAMETER", p), param_position("client", p, pos).
+t_param_under(x, pos) :- t_is_interp(x), expr_child("client", x, "INTERPOLATION_CONTENT", _, h),
+    expr_child("client", h, "INTERPOLATION_CONTENT", _, c),
+    ref_denotes("client", c, "PARAMETER", p), param_position("client", p, pos).
+t_param_under(x, pos) :- t_demand(x), expr_child("client", x, _, _, c), t_param_under(c, pos).
+t_param_under(x, pos) :- t_demand(x), ref_denotes("client", x, "LOCAL_VARIABLE", v), var_initializer("client", v, i), t_param_under(i, pos).
+wrap_call(c, e, w) :- wrap_url_param(e, w, _), expr_resolves_to_method("client", c, w), csite("client", c).
+wrap_caller_arg(c, e, pos, a) :- wrap_call(c, e, w), wrap_url_param(e, w, pos), http_arg(c, to_number(pos), a).
+// every argument of the call, so a non-path marker (`{@1}` for an id) is filled too
+wrap_caller_any(c, e, pos, a) :- wrap_call(c, e, _), http_arg(c, k, a), pos = to_string(k).
+t_demand(a) :- wrap_caller_any(_, _, _, a).
+// a caller argument that is itself one of the caller's parameters is just a placeholder
+wrap_arg_val(c, e, pos, v) :- wrap_caller_any(c, e, pos, a), url_tmpl(a, v), !contains("{@", v).
+wrap_arg_val(c, e, pos, out) :- wrap_caller_any(c, e, pos, a), url_tmpl(a, v), contains("{@", v),
+    marker_scrub(v, out), !contains("{@", out).
+marker_scrub(v, v) :- wrap_caller_any(_, _, _, a), url_tmpl(a, v), contains("{@", v).
+marker_scrub(v, s2) :- marker_scrub(v, s1), contains("{@", s1),
+    i = range(0, strlen(s1) - 3), substr(s1, i, 2) = "{@", substr(s1, i + 3, 1) = "}",
+    s2 = cat(substr(s1, 0, i), cat("{}", substr(s1, i + 4, strlen(s1) - i - 4))).
+t_demand(a) :- wrap_caller_arg(_, _, _, a).
+
+bind_step(c, e, -1, t) :- wrap_call(c, e, w), http_send_tmpl0(e, w, _, t).
+bind_step(c, e, k + 1, s2) :- bind_step(c, e, k, s1), k < 9, tok = cat("{@", cat(to_string(k + 1), "}")),
+    contains(tok, s1), wrap_arg_val(c, e, to_string(k + 1), v),
+    i = range(0, strlen(s1) - strlen(tok) + 1), substr(s1, i, strlen(tok)) = tok,
+    s2 = cat(substr(s1, 0, i), cat(v, substr(s1, i + strlen(tok), strlen(s1) - i - strlen(tok)))).
+bind_step(c, e, k + 1, s1) :- bind_step(c, e, k, s1), k < 9, !contains(cat("{@", cat(to_string(k + 1), "}")), s1).
+bind_step(c, e, 0, s2) :- bind_step(c, e, -1, s1), tok = "{@0}", contains(tok, s1),
+    wrap_arg_val(c, e, "0", v),
+    i = range(0, strlen(s1) - 3), substr(s1, i, 4) = tok,
+    s2 = cat(substr(s1, 0, i), cat(v, substr(s1, i + 4, strlen(s1) - i - 4))).
+bind_step(c, e, 0, s1) :- bind_step(c, e, -1, s1), !contains("{@0}", s1).
+http_bound_send(c, from, verb, s) :- bind_step(c, e, 9, s), !contains("{@", s),
+    http_send_tmpl0(e, _, verb, _), call_from("client", c, from).
+wrapper_bound(e) :- bind_step(_, e, 9, s), !contains("{@", s).
+
+http_send_tmpl(e, from, verb, v) :- http_send_tmpl0(e, from, verb, v), !wrapper_bound(e).
+http_send_tmpl(c, from, verb, v) :- http_bound_send(c, from, verb, v).
+
+// a declarative client: the interface method IS the send, keyed on the method itself
+http_send_tmpl(m, m, verb, v) :- attr_on(m, "METHOD", n, a), cs_http_declarative_attr(n, verb),
+    attr_template(a, v), method_owner("client", t, m), type_is_interface("client", t).
+http_send_site(e, from) :- http_send_tmpl(e, from, _, _).
+
+// ── one shape for both ends: a path, split into segments ────────────────────
+// Scheme and host are dropped, the query string is dropped, a leading slash is ensured
+// and a trailing one removed.
+path_raw(p) :- http_route_raw(_, p, _).
+path_raw(p) :- http_send_tmpl(_, _, _, p).
+// A client URL that begins with a hole glued to text, `{_root}widgets`, is a base
+// address that ends in its own slash; the hole is dropped. (One followed by `/` is handled
+// as a leading placeholder segment below.) Not when the text is a query or a fragment:
+// `$"{url}&page=2"` has a whole URL in the hole, and nothing path-shaped after it.
+p_scheme_at(s, i) :- path_raw(s), strlen(s) >= 3, i = range(0, strlen(s) - 2), substr(s, i, 3) = "://".
+p_after_scheme(s, r) :- p_scheme_at(s, i), r = substr(s, i + 3, strlen(s) - i - 3).
+p_slash_in(r, i) :- p_after_scheme(_, r), i = range(0, strlen(r)), substr(r, i, 1) = "/".
+p_no_scheme(s, s) :- path_raw(s), !contains("://", s), !client_glued_base(s, _).
+p_no_scheme(s, r) :- path_raw(s), !contains("://", s), client_glued_base(s, r).
+client_glued_base(s, r) :- http_send_tmpl(_, _, _, s), strlen(s) > 2, substr(s, 0, 1) = "{",
+    j = min i : { i = range(0, strlen(s)), substr(s, i, 1) = "}" }, j + 1 < strlen(s),
+    substr(s, j + 1, 1) != "/", !cs_url_not_path_start(substr(s, j + 1, 1)),
+    r = cat("/", substr(s, j + 1, strlen(s) - j - 1)).
+p_no_scheme(s, p) :- p_after_scheme(s, r), m = min i : p_slash_in(r, i), p = substr(r, m, strlen(r) - m).
+// the query string is a CLIENT's: a server template writes `?` for an optional
+// parameter inside braces, `{day:int?}`, and cutting there truncates the route
+p_q(p, i) :- p_no_scheme(s, p), client_path(s), i = range(0, strlen(p)), substr(p, i, 1) = "?".
+p_no_query(p, p) :- p_no_scheme(_, p), !p_q(p, _).
+p_no_query(p, q) :- p_no_scheme(_, p), m = min i : p_q(p, i), q = substr(p, 0, m).
+p_tilde(q, r) :- p_no_query(_, q), strlen(q) >= 1, substr(q, 0, 1) = "~", r = substr(q, 1, strlen(q) - 1).
+p_tilde(q, q) :- p_no_query(_, q), !p_starts_tilde(q).
+p_starts_tilde(q) :- p_no_query(_, q), strlen(q) >= 1, substr(q, 0, 1) = "~".
+p_lead(q, r) :- p_tilde(_, q), strlen(q) >= 1, substr(q, 0, 1) = "/", r = q.
+p_lead(q, r) :- p_tilde(_, q), !p_starts_slash(q), r = cat("/", q).
+p_starts_slash(q) :- p_tilde(_, q), strlen(q) >= 1, substr(q, 0, 1) = "/".
+p_trail(q, r) :- p_lead(_, q), strlen(q) > 1, substr(q, strlen(q) - 1, 1) = "/", r = substr(q, 0, strlen(q) - 1).
+p_trail(q, q) :- p_lead(_, q), !p_ends_slash(q).
+p_ends_slash(q) :- p_lead(_, q), strlen(q) > 1, substr(q, strlen(q) - 1, 1) = "/".
+path_norm(s, n) :- p_no_scheme(s, a), p_no_query(a, b), p_tilde(b, c), p_lead(c, d), p_trail(d, n).
+
+// segments: the text after each slash up to the next one
+pn(n) :- path_norm(_, n).
+pn_slash(n, i) :- pn(n), i = range(0, strlen(n)), substr(n, i, 1) = "/".
+pn_next(n, i, j) :- pn_slash(n, i), j = min k : { pn_slash(n, k), k > i }.
+pn_seg_at(n, i, t) :- pn_next(n, i, j), t = substr(n, i + 1, j - i - 1).
+pn_seg_at(n, i, t) :- pn_slash(n, i), !pn_has_next(n, i), t = substr(n, i + 1, strlen(n) - i - 1).
+pn_has_next(n, i) :- pn_next(n, i, _).
+pn_seg_raw(n, k, t) :- pn_seg_at(n, i, t), t != "", k = count : { pn_slash(n, x), x < i, pn_nonempty_at(n, x) }.
+pn_nonempty_at(n, i) :- pn_seg_at(n, i, t), t != "".
+// a `{...}` segment is a placeholder, whatever it names or constrains
+seg_ph(t) :- pn_seg_raw(_, _, t), strlen(t) >= 1, substr(t, 0, 1) = "{".
+lc_demand(t) :- pn_seg_raw(_, _, t), !seg_ph(t).
+lc_step(t, 0, "") :- lc_demand(t).
+lc_step(t, i + 1, cat(acc, c2)) :- lc_step(t, i, acc), i < strlen(t), c = substr(t, i, 1), cs_lower(c, c2).
+lc_step(t, i + 1, cat(acc, c)) :- lc_step(t, i, acc), i < strlen(t), c = substr(t, i, 1), !lower_src(c).
+lower_src(c) :- cs_lower(c, _).
+lc(t, l) :- lc_demand(t), lc_step(t, strlen(t), l).
+pn_seg(n, k, "{}") :- pn_seg_raw(n, k, t), seg_ph(t).
+pn_seg(n, k, l) :- pn_seg_raw(n, k, t), !seg_ph(t), lc(t, l).
+
+// A client's leading placeholder is a BASE ADDRESS, `$"{_base}/api/orders"`, and is
+// dropped when a literal segment follows it. A server's is a route parameter and stays.
+pn_count(n, c) :- pn(n), c = count : { pn_seg(n, _, _) }.
+pn_has_literal(n) :- pn_seg(n, _, t), t != "{}".
+client_path(s) :- http_send_tmpl(_, _, _, s).
+client_drops_base(n) :- client_path(s), path_norm(s, n), pn_seg(n, 0, "{}"), pn_count(n, c), c > 1,
+    pn_seg(n, k, t), k >= 1, t != "{}".
+client_shift(s, n, 1) :- client_path(s), path_norm(s, n), client_drops_base(n).
+client_shift(s, n, 0) :- client_path(s), path_norm(s, n), !client_drops_base(n).
+cseg(s, k - d, t) :- client_shift(s, n, d), pn_seg(n, k, t), k >= d.
+ccount(s, c - d) :- client_shift(s, n, d), pn_count(n, c).
+chas_literal(s) :- cseg(s, _, t), t != "{}".
+server_path(p) :- http_route_raw(_, p, _).
+sseg(p, k, t) :- server_path(p), path_norm(p, n), pn_seg(n, k, t).
+scount(p, c) :- server_path(p), path_norm(p, n), pn_count(n, c).
+
+// ── the join ────────────────────────────────────────────────────────────────
+route_pair(s, p) :- ccount(s, c), scount(p, c), chas_literal(s).
+// A trailing OPTIONAL parameter (`{day:int?}`, `{day?}`) may be left off by the caller.
+route_pair(s, p) :- ccount(s, c), scount(p, c + 1), server_last_optional(p), chas_literal(s).
+server_last_optional(p) :- server_path(p), path_norm(p, n), pn_count(n, c), pn_seg_raw(n, c - 1, t),
+    seg_ph(t), contains("?}", t).
+route_seg_conflict(s, p) :- route_pair(s, p), cseg(s, k, a), sseg(p, k, b), a != b, a != "{}", b != "{}".
+route_seg_literal_eq(s, p) :- route_pair(s, p), cseg(s, k, a), sseg(p, k, a), a != "{}".
+route_seg_differs(s, p) :- route_pair(s, p), cseg(s, k, a), sseg(p, k, b), a != b.
+route_match(s, p, conf) :- route_pair(s, p), !route_seg_conflict(s, p), route_seg_literal_eq(s, p),
+    !route_seg_differs(s, p), cs_remote_confidence_exact(conf).
+route_match(s, p, conf) :- route_pair(s, p), !route_seg_conflict(s, p), route_seg_literal_eq(s, p),
+    route_seg_differs(s, p), cs_remote_confidence_route_shape(conf).
+
+http_verb_ok(a, b) :- http_send_tmpl(_, _, a, _), http_route_raw(_, _, b), a = b.
+http_verb_ok(a, b) :- http_send_tmpl(_, _, a, _), http_route_raw(_, _, b), cs_http_verb_any(a).
+http_verb_ok(a, b) :- http_send_tmpl(_, _, a, _), http_route_raw(_, _, b), cs_http_verb_any(b).
+
+// the destination a route is reported under: its normalised path
+http_route_dest(p, d) :- server_path(p), path_norm(p, d).
+http_send_dest(s, d) :- client_path(s), path_norm(s, d).
+
+// ROUTE PRECEDENCE. A send is compared with every route of its shape, and several can
+// fit: `/widgets/{id}` fits `/widgets/{id:int}` and, placeholder for literal, `/widgets/featured`.
+// ASP.NET picks the most specific, and so does this: of the verb-compatible candidates,
+// only those with the FEWEST differing segments are kept. An exact match therefore rules
+// out every looser one, and a looser one survives only where nothing fits better.
+route_seg_diff_n(s, p, n) :- route_match(s, p, _),
+    n = count : { cseg(s, k, a), sseg(p, k, b), a != b }.
+http_candidate(e, from, to, p, conf, n) :- http_send_tmpl(e, from, sv, s), route_match(s, p, conf),
+    http_route_raw(to, p, rv), http_verb_ok(sv, rv), route_seg_diff_n(s, p, n), from != to.
+http_candidate_best(e, b) :- http_candidate(e, _, _, _, _, _), b = min n : http_candidate(e, _, _, _, _, n).
+remote_edge_via(e, from, to, tr, d, conf) :- cs_remote_transport_http(tr),
+    http_candidate(e, from, to, p, conf, n), http_candidate_best(e, n), http_route_dest(p, d).
+serves_destination(m, tr, d) :- cs_remote_transport_http(tr), http_route_raw(m, p, _), http_route_dest(p, d).
+remote_send_at(e, from, tr, d) :- cs_remote_transport_http(tr), http_send_tmpl(e, from, _, s),
+    chas_literal(s), http_send_dest(s, d).
+// A URL with no literal segment at all, `GetAsync(path)`: nothing can be said about where
+// it goes, and saying so beats silence.
+// Judged over every recognised send, not only those with a template: a request message
+// built with an object initializer (`RequestUri = new Uri(target.Url)`) has no URL
+// argument at all, and is exactly the runtime destination this report exists for.
+remote_undetermined(from, tr, "unresolved_destination") :- cs_remote_transport_http(tr),
+    http_send_site(e, from), !http_send_has_literal(e).
+remote_undetermined(from, tr, "unresolved_destination") :- cs_remote_transport_http(tr),
+    http_send_call(e, from, _), !http_send_has_literal(e), !wrapper_bound(e).
+http_send_has_literal(e) :- http_send_tmpl(e, _, _, s), chas_literal(s).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. THE EDGE, AND THE TWO HALVES IT CANNOT JOIN
 // ─────────────────────────────────────────────────────────────────────────────
 remote_edge(from, to, tr, d, conf) :- remote_edge_via(_, from, to, tr, d, conf).
 
