@@ -11,7 +11,8 @@ run one:
                                node_modules/.bin and a global install reach it
   .mcp.json                    Claude Code's server entry, with ${CLAUDE_PLUGIN_ROOT} replaced
   python3 -S server.py         without site-packages, so the SDK cannot import and the built-in fallback
-                               serves — the path a clean machine takes
+                               serves — the path a clean machine takes; it also has to refuse a call whose
+                               arguments do not fit the schema it advertised, as the SDK does (#1243)
   .codex-plugin/mcp.json       Codex's server entry, a relative path run from the plugin directory
   .cursor-plugin/plugin.json   Cursor's own server entry, with ${CURSOR_PLUGIN_ROOT} replaced as Cursor does
 
@@ -69,6 +70,49 @@ def exchange(cmd, cwd, env=None, workdir=None):
     return replies, p.stderr.read()
 
 
+def call(cmd, cwd, name, arguments):
+    """one tools/call on a started server, after initialize; the reply's result"""
+    frames = [{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+               'params': {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'tests', 'version': '0'}}},
+              {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+              {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': name, 'arguments': arguments}}]
+    r = subprocess.run(cmd, input=''.join(json.dumps(f) + '\n' for f in frames), capture_output=True, text=True,
+                       cwd=cwd, timeout=120)
+    for line in r.stdout.splitlines():
+        m = json.loads(line)
+        if m.get('id') == 2:
+            return m.get('result') or {}
+    return {}
+
+
+def check_arguments(label, cmd, cwd):
+    """A call whose arguments do not fit the advertised schema is an error naming the field, never an answer.
+
+    A string sent for `targets: list[str]` was splatted into characters and impact answered about `u` (#1243).
+    The well-formed calls are the control: each must NOT be refused, or a validator that refuses everything
+    would pass."""
+    bad = []
+    wrong = [('axiomcode_impact', {'targets': 'Excluder.excludeClass', 'repo': cwd}, 'targets'),
+             ('axiomcode_changed', {'repo': cwd, 'files': 'a.py'}, 'files'),
+             ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'depth': '2'}, 'depth'),
+             ('axiomcode_impact', {'targets': ['A.f', 3], 'repo': cwd}, 'targets'),
+             ('axiomcode_impact', {'repo': cwd}, 'targets'),
+             ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': cwd, 'nope': 1}, 'nope')]
+    for name, args, field in wrong:
+        res = call(cmd, cwd, name, args)
+        text = ' '.join(c.get('text', '') for c in res.get('content', []))
+        if not res.get('isError') or field not in text or 'invalid arguments' not in text:
+            bad.append(f"{label}: {name}({json.dumps(args)}) was not refused naming {field!r}: {res}")
+    right = [('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'depth': 2, 'tests': True}),
+             ('axiomcode_changed', {'repo': cwd, 'files': ['a.py']})]
+    for name, args in right:
+        res = call(cmd, cwd, name, args)
+        text = ' '.join(c.get('text', '') for c in res.get('content', []))
+        if not text or 'invalid arguments' in text:
+            bad.append(f"{label}: well-formed {name}({json.dumps(args)}) was refused or empty: {res}")
+    return bad
+
+
 def check(label, cmd, cwd, env=None, workdir=None):
     replies, err = exchange(cmd, cwd, env, workdir)
     if replies is None:
@@ -99,6 +143,7 @@ def main():
         bad += check('symlinked axiomcode mcp', [link, 'mcp'], repo)
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)
+        bad += check_arguments(env_note, [sys.executable, '-S', SERVER], repo)
 
         # The plugin's own server entries, run as their hosts run them, from a copy of the plugin under a path
         # with a space, which splits an unquoted path into two words.

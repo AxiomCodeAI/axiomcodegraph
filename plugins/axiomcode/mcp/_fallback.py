@@ -37,6 +37,43 @@ def _schema_for(ann, default):
     return {"type": _JSON_TYPE.get(ann, "string")}
 
 
+def _nullable(ann, default):
+    """Whether None is a value the parameter takes: Optional[X], or a default of None."""
+    return default is None or (typing.get_origin(ann) is typing.Union and type(None) in typing.get_args(ann))
+
+
+_CHECK = {"string": lambda v: isinstance(v, str),
+          "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+          "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+          "boolean": lambda v: isinstance(v, bool),
+          "array": lambda v: isinstance(v, list),
+          "object": lambda v: isinstance(v, dict)}
+
+
+def _conforms(value, schema):
+    if not _CHECK.get(schema["type"], lambda v: True)(value):
+        return False
+    return schema["type"] != "array" or all(_conforms(x, schema["items"]) for x in value)
+
+
+def _invalid(spec, nullable, arguments):
+    """Why these arguments do not fit the advertised schema, or None if they do (#1243).
+
+    The SDK validates a call against the schema before the function runs; without that, a string sent for
+    a list[str] reached `[*targets]` and was splatted into characters, so impact answered about `u` with no
+    error. A call that does not fit is refused with the field named, as the SDK refuses it."""
+    schema = spec["inputSchema"]
+    errors = [f"{k}: missing required argument" for k in schema["required"] if k not in arguments]
+    for k, v in arguments.items():
+        want = schema["properties"].get(k)
+        if want is None:
+            errors.append(f"{k}: unexpected argument")
+        elif not (v is None and k in nullable) and not _conforms(v, want):
+            shown = want["type"] + (f" of {want['items']['type']}" if want["type"] == "array" else "")
+            errors.append(f"{k}: expected {shown}, got {type(v).__name__} {json.dumps(v)[:60]}")
+    return f"invalid arguments for {spec['name']}: " + "; ".join(errors) if errors else None
+
+
 class MCPServer:
     def __init__(self, name, version=""):
         self.name, self.version, self._tools = name, version, {}
@@ -45,13 +82,16 @@ class MCPServer:
         """Collect the function and derive its input schema from the signature, as the SDK does."""
         def deco(fn):
             sig = inspect.signature(fn)
-            props, required = {}, []
+            props, required, nullable = {}, [], set()
             for pname, p in sig.parameters.items():
                 props[pname] = _schema_for(p.annotation, p.default)
+                if _nullable(p.annotation, p.default):
+                    nullable.add(pname)
                 if p.default is inspect.Parameter.empty:
                     required.append(pname)
             self._tools[name or fn.__name__] = {
                 "fn": fn,
+                "nullable": nullable,
                 "spec": {"name": name or fn.__name__,
                          "description": (description or fn.__doc__ or "").strip(),
                          "inputSchema": {"type": "object", "properties": props, "required": required}},
@@ -75,8 +115,12 @@ class MCPServer:
                 raise LookupError(f"unknown tool {p.get('name')!r}")
             # a tool that raises must come back as an MCP tool error, not a transport error: the client
             # can show the agent the former and can only drop the connection on the latter
+            args = p.get("arguments") or {}
+            bad = _invalid(t["spec"], t["nullable"], args) if isinstance(args, dict) else "arguments: expected object"
+            if bad:
+                return {"content": [{"type": "text", "text": bad}], "isError": True}
             try:
-                out = t["fn"](**(p.get("arguments") or {}))
+                out = t["fn"](**args)
                 return {"content": [{"type": "text", "text": "" if out is None else str(out)}]}
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True}
