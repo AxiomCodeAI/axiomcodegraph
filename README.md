@@ -42,6 +42,10 @@
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
 
+<p align="center">
+  <b>AxiomCode goes live soon.</b> &nbsp;<a href="https://axiomcode.ai/updates"><b>Get developer updates →</b></a>
+</p>
+
 ---
 
 ## What it does
@@ -54,7 +58,8 @@ callers that never spell the name because they go through an interface, a subcla
   <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 65.2%, CodeGraph 52.4%, Graphify 48.7%, Code-Review-Graph 21.9%, name match 46.8%. F1 against Defects4J's own selection. Run-time observation, median: AxiomCode 0.98x, GitNexus 0.65x, CodeGraph 0.25x, Graphify 0.11x, Code-Review-Graph 0.00x, name match 0.03x.">
 </p>
 
-**On real bugs.** 748 held-out Java bugs from [Defects4J](https://github.com/rjust/defects4j), scored once after
+**On real bugs.** 748 held-out bugs from [Defects4J](https://github.com/rjust/defects4j), every tool static and
+from source to tests, scored once after
 the evaluation rules were frozen. Defects4J's own selection is the ground truth: it runs the test suite and records
 which tests load the changed code. Every graph builder above works statically, from source. Without running a
 test, AxiomCode selects a median of **0.98×** as many tests as the run-time observation, and they include every
@@ -108,13 +113,9 @@ AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) pa
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
 agent-facing frontend: a skill, seven MCP tools and hooks. Install the engine first.
 
-Requirements: **Node ≥ 22.5** and **`python3`**. `npm install` fetches the prebuilt engine for your
-platform — `@axiomcode/engine-<os>-<cpu>`, an optional dependency npm selects by platform — so nothing
-else is needed to run. Those packages are not on npm yet: until the publish workflow has been
-dispatched for real, the first run per language compiles the engine once instead, which needs
-[Soufflé](https://souffle-lang.github.io) 2.5 (`brew install souffle`) and a C++ compiler. A checkout
-whose rules differ from the published engine never runs a stale binary — the engine id is a hash of
-the rules and the pinned Soufflé version.
+Requirements: **Node ≥ 22.5** and **`python3`**. Until the prebuilt engine packages are published,
+the first run per language also needs [Soufflé](https://souffle-lang.github.io) 2.5
+(`brew install souffle`) and a C++ compiler.
 
 ### Installation
 
@@ -268,8 +269,8 @@ the chart above and [Measured cross-file coverage](#measured-cross-file-coverage
 
 **Test selection.** On 748 held-out bugs from Defects4J, scored once after the evaluation rules were frozen,
 the tests AxiomCode selects include every bug-revealing test for **94.9%** of bugs, against **65.2%** for the
-best CST-based graph builder, while selecting a median of 0.98× as many tests as Defects4J's own
-selection, which it gets by running the suite.
+best CST-based graph builder, at an F1 of **72.4** against Defects4J's own selection, which it gets by
+running the suite.
 
 The table is at the [top of this page](#what-it-does).
 
@@ -302,34 +303,14 @@ every language** and its documentation inside it (`schema_guide`, `schema_querie
 tables are `call_edges` (one row per call site and possible target), `methods`, `types`, `call_sites`,
 `field_access`, `type_use`, and `unresolved_sites`, the calls the engine declares it could not resolve.
 
-Every edge has a tier, so a consumer picks its own risk tolerance. The tiers fall into five families, and
-not every front end emits every tier:
+Every edge has a tier, so a consumer picks its own risk tolerance:
 
-| family | tier | meaning | callee | Java | TypeScript | JavaScript | Python | C# |
-|---|---|---|---|:-:|:-:|:-:|:-:|:-:|
-| **resolved** | `known_edge` | exactly one resolved target | set | ✓ | ✓ | ✓ | ✓ | ✓ |
-| | `multi_inferred` | a sound set of possible targets (virtual dispatch over instantiated subtypes); one row each | set | ✓ | ✓ | ✓ | ✓ | ✓ |
-| | `boundary_lib` | the target is in a library: named, not expanded | set with `--library`, else NULL and named in `callee_label` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| | `ambient_terminal` | an ambient declaration (a `.d.ts` signature with no body anywhere) | set | | ✓ | | | |
-| | `fan_capped` | more targets than `--dispatch-cap`: the fan is refused, and the row names the declared base | set | ✓ | | | | ✓ |
-| | `runtime_observed` | an edge a supplied runtime trace saw and the static pass did not; added only, never removes | set | | | | | ✓ |
-| **handed over** | `callback_registered` | the site passes the function on (`xs.forEach(f)`, `p.then(f)`); whoever holds it may call it | set | | | ✓ | | |
-| | `event_dispatch` | `x.emit('name')` reaching a handler registered with `x.on('name', h)` | set | | | ✓ | | |
-| **correct end** | `ambient_terminal` | the callee or receiver is the platform (`console.log`, `path.join`) | NULL | | | ✓ | | |
-| | `intrinsic_terminal` | a JSX intrinsic element or a dynamic `import()` | NULL | | ✓ | | | |
-| | `implicit_constructor` | `new C()` / `super()` with no constructor up the chain: the synthesized default runs | NULL | | | ✓ | | |
-| | `known_implicit_ctor` | `new Foo()` where Foo declares no constructor: the compiler supplies one | NULL | | | | | ✓ |
-| | `known_builtin_operator` | an operator or conversion with no user-defined declaration: no user code runs | NULL | | | | | ✓ |
-| | `boundary_generated` | a read of a compiler-generated property (a record's); `callee_label` names it | NULL | | | | | ✓ |
-| | `dynamic_terminal` | `obj[expr]()`, `eval`, `import()`: no static target by construction | NULL | | | ✓ | | |
-| **capped** | `fan_capped` | more targets than `--dispatch-cap`: the fan is refused and no target is named | NULL | | | ✓ | | |
-| **blind spot** | `ambiguous_unknown` | the engine could not resolve the site; kept as a row with a NULL target | NULL | ✓ | ✓ | ✓ | ✓ | ✓ |
-| | `ambiguous_anon` | an anonymous-class creation the engine has no rule for yet | NULL | ✓ | | | | |
-| | `ambiguous_dynamic` | a call through C# `dynamic`: undecidable from source by design | NULL | | | | | ✓ |
-
-The blind spots are exactly the `ambiguous_*` tiers, and `unresolved_sites` lists every site that has one. A
-filter such as `tier IN ('known_edge', 'multi_inferred')` drops resolved edges in every language except Python.
-Build the set from this table or from `schema_vocab` in the graph, not from a hard-coded list.
+| tier | meaning |
+|---|---|
+| `known_edge` | exactly one resolved target |
+| `multi_inferred` | a sound set of possible targets (virtual dispatch over instantiated subtypes) |
+| `boundary_lib` | the target is in a library: named, not expanded |
+| `ambiguous_unknown` | the engine could not resolve the site; kept as a row with a NULL target |
 
 Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 
