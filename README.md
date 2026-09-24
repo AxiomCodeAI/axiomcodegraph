@@ -202,8 +202,7 @@ above: `npm i -g @axiomcode/code-graph`.
 Codex reads `.codex-plugin/plugin.json`, which names the skill, the server and `hooks/hooks.json`. Codex runs the
 hooks with `CLAUDE_PLUGIN_ROOT` set, so the same file serves it; it asks the user to trust them under `/hooks`
 first. The plugin has no portable Agent Plugins `plugin.json` on purpose: Codex prefers one to
-`.codex-plugin/` and then loads no plugin hooks, as of Codex 0.156.1. Kiro, which installs only that format,
-is not supported until Codex loads hooks from it.
+`.codex-plugin/` and then loads no plugin hooks, as of Codex 0.156.1.
 
 Cursor reads its own `.cursor-plugin/` manifest, which names the server with `${CURSOR_PLUGIN_ROOT}` (it
 does not expand `${PLUGIN_ROOT}`), and loads `rules/axiomcode.mdc`, `AGENTS.md` as an always-applied rule. It
