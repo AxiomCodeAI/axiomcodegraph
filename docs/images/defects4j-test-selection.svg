@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" role="img" aria-labelledby="t d">
+<title id="t">Test selection on 748 held-out Defects4J bugs</title>
+<desc id="d">Bugs with every bug-revealing test selected, and tests selected per bug against Defects4J's run-time observation (median). AxiomCode 94.9%, 0.98x; GitNexus 65.2%, 0.65x; codegraph 52.4%, 0.25x; Slug-graph 48.7%, 0.11x; code-review-graph 21.9%, 0.00x; name match 46.8%, 0.03x. Defects4J observed by running the tests: 100%, 1.00x.</desc>
+<rect x="0.5" y="0.5" width="899" height="469" rx="14" fill="#ffffff" stroke="#d5dce8"/>
+<text x="28" y="44" font-size="22" font-weight="700" fill="#222a40">Test selection on real bugs: Defects4J</text>
+<text x="28" y="68" font-size="13.5" fill="#59657a">748 held-out Java bugs · every tool static, from source · Defects4J's own answer is observed by running the tests</text>
+<text x="190" y="112" font-size="13" font-weight="600" fill="#222a40">Bugs with every bug-revealing test selected</text>
+<text x="560" y="112" font-size="13" font-weight="600" fill="#222a40">Tests selected per bug vs Defects4J, median</text>
+<line x1="190.0" y1="136" x2="190.0" y2="390" stroke="#d5dce8" stroke-width="1"/>
+<text x="190.0" y="132" font-size="11" fill="#59657a" text-anchor="middle">0%</text>
+<line x1="267.5" y1="136" x2="267.5" y2="390" stroke="#d5dce8" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="267.5" y="132" font-size="11" fill="#59657a" text-anchor="middle">25%</text>
+<line x1="345.0" y1="136" x2="345.0" y2="390" stroke="#d5dce8" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="345.0" y="132" font-size="11" fill="#59657a" text-anchor="middle">50%</text>
+<line x1="422.5" y1="136" x2="422.5" y2="390" stroke="#d5dce8" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="422.5" y="132" font-size="11" fill="#59657a" text-anchor="middle">75%</text>
+<line x1="500.0" y1="136" x2="500.0" y2="390" stroke="#d5dce8" stroke-width="1"/>
+<text x="500.0" y="132" font-size="11" fill="#59657a" text-anchor="middle">100%</text>
+<line x1="560.0" y1="136" x2="560.0" y2="390" stroke="#d5dce8" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="560.0" y="132" font-size="11" fill="#59657a" text-anchor="middle">0×</text>
+<line x1="620.0" y1="136" x2="620.0" y2="390" stroke="#d5dce8" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="620.0" y="132" font-size="11" fill="#59657a" text-anchor="middle">0.25×</text>
+<line x1="680.0" y1="136" x2="680.0" y2="390" stroke="#d5dce8" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="680.0" y="132" font-size="11" fill="#59657a" text-anchor="middle">0.5×</text>
+<line x1="740.0" y1="136" x2="740.0" y2="390" stroke="#d5dce8" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="740.0" y="132" font-size="11" fill="#59657a" text-anchor="middle">0.75×</text>
+<rect x="12" y="150" width="876" height="40" rx="8" fill="#4f5bff" fill-opacity=".07"/>
+<text x="28" y="175.0" font-size="14.5" font-weight="700" fill="#222a40">AxiomCode</text>
+<rect x="190" y="162.0" width="294.2" height="16" rx="3" fill="#4f5bff"/>
+<text x="477.2" y="174.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="end">94.9%</text>
+<rect x="560" y="162.0" width="235.2" height="16" rx="3" fill="#4f5bff"/>
+<text x="788.2" y="174.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="end">0.98×</text>
+<text x="28" y="215.0" font-size="14.5" font-weight="500" fill="#222a40">GitNexus</text>
+<rect x="190" y="202.0" width="202.1" height="16" rx="3" fill="#9aa3b5"/>
+<text x="398.1" y="214.5" font-size="12.5" font-weight="500" fill="#222a40">65.2%</text>
+<rect x="560" y="202.0" width="156.0" height="16" rx="3" fill="#9aa3b5"/>
+<text x="722.0" y="214.5" font-size="12.5" font-weight="500" fill="#222a40">0.65×</text>
+<text x="28" y="255.0" font-size="14.5" font-weight="500" fill="#222a40">codegraph</text>
+<rect x="190" y="242.0" width="162.4" height="16" rx="3" fill="#9aa3b5"/>
+<text x="358.4" y="254.5" font-size="12.5" font-weight="500" fill="#222a40">52.4%</text>
+<rect x="560" y="242.0" width="60.0" height="16" rx="3" fill="#9aa3b5"/>
+<text x="626.0" y="254.5" font-size="12.5" font-weight="500" fill="#222a40">0.25×</text>
+<text x="28" y="295.0" font-size="14.5" font-weight="500" fill="#222a40">Slug-graph</text>
+<rect x="190" y="282.0" width="151.0" height="16" rx="3" fill="#9aa3b5"/>
+<text x="347.0" y="294.5" font-size="12.5" font-weight="500" fill="#222a40">48.7%</text>
+<rect x="560" y="282.0" width="26.4" height="16" rx="3" fill="#9aa3b5"/>
+<text x="592.4" y="294.5" font-size="12.5" font-weight="500" fill="#222a40">0.11×</text>
+<text x="28" y="335.0" font-size="14.5" font-weight="500" fill="#222a40">code-review-graph</text>
+<rect x="190" y="322.0" width="67.9" height="16" rx="3" fill="#9aa3b5"/>
+<text x="263.9" y="334.5" font-size="12.5" font-weight="500" fill="#222a40">21.9%</text>
+<rect x="560" y="322.0" width="1.5" height="16" rx="3" fill="#9aa3b5"/>
+<text x="567.5" y="334.5" font-size="12.5" font-weight="500" fill="#222a40">0.00×</text>
+<text x="28" y="375.0" font-size="14.5" font-weight="500" fill="#222a40">name match (grep)</text>
+<rect x="190" y="362.0" width="145.1" height="16" rx="3" fill="#9aa3b5"/>
+<text x="341.1" y="374.5" font-size="12.5" font-weight="500" fill="#222a40">46.8%</text>
+<rect x="560" y="362.0" width="7.2" height="16" rx="3" fill="#9aa3b5"/>
+<text x="573.2" y="374.5" font-size="12.5" font-weight="500" fill="#222a40">0.03×</text>
+<line x1="500.0" y1="144" x2="500.0" y2="396" stroke="#2f7d8c" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="500.0" y="414" font-size="12" font-weight="600" fill="#2f7d8c" text-anchor="middle">Defects4J observed: 100%</text>
+<line x1="800.0" y1="144" x2="800.0" y2="396" stroke="#2f7d8c" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="800.0" y="414" font-size="12" font-weight="600" fill="#2f7d8c" text-anchor="middle">Defects4J observed: 1.00×</text>
+<text x="28" y="448" font-size="12" fill="#59657a">Running the whole suite also catches 100%, at 2.07× the tests. Source: 748 held-out bugs, scored once after the evaluation rules were frozen.</text>
+</svg>

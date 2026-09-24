@@ -49,34 +49,35 @@ AI coding agent can ask **"what breaks if I change this?"** and get the real lis
 callers that never spell the name because they go through an interface, a subclass or a callback.
 
 <p align="center">
-  <img src="docs/images/call-resolution-accuracy.svg" width="900" alt="Call resolution accuracy. Java: AxiomCode 96.5%, GitNexus 78.9%, codegraph 78.5%, code-review-graph 71.9%, Slug-graph 67.5%. TypeScript: AxiomCode 88.8%, code-review-graph 71.6%, codegraph 65.4%, GitNexus 65.1%, Slug-graph 49.8%.">
+  <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 65.2%, codegraph 52.4%, Slug-graph 48.7%, code-review-graph 21.9%, name match 46.8%. Tests selected per bug against Defects4J's run-time observation, median: AxiomCode 0.98x, GitNexus 0.65x, codegraph 0.25x, Slug-graph 0.11x, code-review-graph 0.00x, name match 0.03x.">
 </p>
-
-The chart above scores every call in five open-source projects per language against the compiler's own answer:
-compiled bytecode for Java, the type checker for TypeScript. AxiomCode links **96.5%** of Java calls and **88.8%**
-of TypeScript calls to their exact target, more than 17 points ahead of the best CST-based graph builder.
-**Across files**, it recovers which files call into which with an F1 of **0.974** in Java and **0.898** in
-TypeScript (best CST-based: 0.870 and 0.661), and finds the call path from one method to another
-**96.1%** and **87.7%** of the time (78.6% and 65.7%). Full tables in
-[Measured cross-file coverage](#measured-cross-file-coverage).
 
 **On real bugs.** 748 held-out Java bugs from [Defects4J](https://github.com/rjust/defects4j), scored once after
 the evaluation rules were frozen. Defects4J's own selection is the ground truth: it runs the test suite and records
-which tests load the changed code. AxiomCode works from source alone, without running anything:
+which tests load the changed code. Every graph builder above works statically, from source. Without running a
+test, AxiomCode selects a median of **0.98×** as many tests as the run-time observation, and they include every
+bug-revealing test for **94.9%** of bugs. The best tree-sitter (CST) builder selects 0.65× and catches them all for
+65.2%. AxiomCode's selection is not the same set: on average, 71.2% of the tests Defects4J observes are in it, and
+in 38 of the 748 bugs it missed at least one bug-revealing test.
 
-| | Defects4J<br><sub>observed by running the tests</sub> | **AxiomCode**<br><sub>static, from source</sub> | best tree-sitter (CST) builder<br><sub>static, from source</sub> |
-|---|---:|---:|---:|
-| **tests selected per bug, vs Defects4J (median)** | **1.00×** | **0.98×** | **0.65×** |
-| share of the suite selected (mean) | 47.6% | 52.2% | 30.8% |
-| bugs with every bug-revealing test selected | 100% | **94.9%** | 65.2% |
+**Why: types.** Choosing tests means following calls several hops back from a change, and one wrong link loses
+every test beyond it. A CST-based builder matches a call to a declaration by name; AxiomCode resolves it the way
+the compiler does, from the receiver's type. Scored against the compiler's own answer, compiled bytecode for Java
+and the type checker for TypeScript, over five open-source projects per language:
 
-So without running a test, AxiomCode selects about as many tests as the run-time observation does, and they
-include every bug-revealing test for 94.9% of bugs. The best tree-sitter builder selects a third fewer and misses a
-bug-revealing test on a third of the bugs. AxiomCode's selection is not the same
-set: on average, 71.2% of the tests Defects4J observes are in AxiomCode's selection, and in 38 of the 748 bugs it missed at
-least one bug-revealing test.
+| share of calls linked to their exact target | **AxiomCode** | GitNexus | codegraph | code-review-graph | Slug-graph |
+|---|---:|---:|---:|---:|---:|
+| Java, 33,257 calls (bytecode) | **96.5%** | 78.9% | 78.5% | 71.9% | 67.5% |
+| TypeScript, 9,829 calls (type checker) | **88.8%** | 65.1% | 65.4% | 71.6% | 49.8% |
 
-Details in [Benchmark results](#benchmark-results) and [Measured cross-file coverage](#measured-cross-file-coverage).
+**Across files**, it recovers which files call into which with an F1 of **0.974** in Java and **0.898** in
+TypeScript (best CST-based: 0.870 and 0.661), and finds the call path from one method to another **96.1%** and
+**87.7%** of the time (78.6% and 65.7%).
+
+AxiomCode supports **Java, TypeScript and Python**, with **JavaScript and C#** in beta
+([Language and skill maturity](#language-and-skill-maturity)). These benchmarks are Java and TypeScript, the
+languages where a compiler gives an independent ground truth to score against. Details in
+[Benchmark results](#benchmark-results) and [Measured cross-file coverage](#measured-cross-file-coverage).
 
 ## Why AxiomCode Graph?
 
@@ -307,6 +308,11 @@ Every edge has a tier, so a consumer picks its own risk tolerance:
 Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 
 ## Measured cross-file coverage
+
+<p align="center">
+  <img src="docs/images/call-resolution-accuracy.svg" width="900" alt="Call resolution accuracy. Java: AxiomCode 96.5%, GitNexus 78.9%, codegraph 78.5%, code-review-graph 71.9%, Slug-graph 67.5%. TypeScript: AxiomCode 88.8%, code-review-graph 71.6%, codegraph 65.4%, GitNexus 65.1%, Slug-graph 49.8%.">
+</p>
+
 
 Scored against the compiler's ground truth on five open-source projects per language. *Call resolution* is the
 share of calls with exactly one possible target that the tool links to that target. *File → file* is the F1 of
