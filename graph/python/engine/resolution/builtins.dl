@@ -147,6 +147,23 @@ py_builtin_callable(n) :-
     n != "",
     !py_builtin_noncallable(n).
 
+// ── py_str_concat_operator(Operator) ─────────────────────────────────────────
+// The operator that joins two str values with the left one as a PREFIX. `%` and an
+// f-string also build names, but `"as_%s" % x` puts the literal around the value rather
+// than before it, so its literal text is not a prefix of the result (name-resolution.dl,
+// computed_name_prefix).
+py_str_concat_operator("+").
+
+// ── py_copy_module(Module) / py_copy_function(Name) ──────────────────────────
+// The standard library's `copy` module, whose two functions return an object of their
+// argument's type. They are the clone idiom: `def copy(self): return copy.copy(self)`,
+// then `clone = self.copy(); clone.set_sources(...)`. The module is never
+// staged in a client-only run, so without this the clone is untyped at every such site
+// (expression-resolution/expr-type.dl).
+py_copy_module("copy").
+py_copy_function("copy").
+py_copy_function("deepcopy").
+
 // ── py_builtin_dynamic(Name) — the escape hatches ────────────────────────────
 // These do not merely lack Python source; they make the PROGRAM unanalysable at that
 // point. A call to getattr/eval/exec means the engine cannot know what runs, and the

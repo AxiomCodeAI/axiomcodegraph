@@ -1,0 +1,36 @@
+distinct call sites emitted: 40
+
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      4 rows      4 sites  ambiguous_unknown
+      9 rows      9 sites  boundary_lib
+     26 rows     26 sites  known_edge
+      2 rows      1 sites  multi_inferred
+
+--- edge rows by call kind ---
+      5  CHAINED_CALL
+      1  DECORATOR_BARE
+      1  DYNAMIC_CALL
+      7  METHOD_CALL
+      3  PROPERTY_READ
+      6  SELF_CALL
+     18  SIMPLE_CALL
+
+--- unresolved reasons ---
+      1  dynamic_call
+      1  untyped_receiver:attribute_object_untyped
+      1  untyped_receiver:callee_return_untyped
+      1  untyped_receiver:local_from_callee_return_untyped
+
+--- the engine's own conservation ledger ---
+     37  _total_sites
+      4  ambiguous_unknown
+      9  boundary_lib
+     23  known_edge
+      1  multi_inferred
+
+--- reconciling rows against the conserved site count ---
+  edge rows                                  41
+  minus extra rows from multi-target sites    1
+  = tier/site pairs                          40
+  engine's conserved site total              37
+  of which 3 are PROPERTY_READ, an edge with no call site (README decision 5)

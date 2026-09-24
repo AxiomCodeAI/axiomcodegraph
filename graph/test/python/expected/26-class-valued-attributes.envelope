@@ -1,0 +1,2 @@
+mro	store.backend.compiler.Compiler.execute -> store.backend.compiler.InsertCompiler.execute
+mro	store.backend.compiler.Node.as_sql -> store.backend.compiler.Where.as_sql

@@ -177,6 +177,16 @@ expr_call_candidate(site, m) :-
     call_name(site, n),
     type_attr_method_value("client", t, n, m).
 
+// ── a CLASS-VALUED ATTRIBUTE — `self.factory(x)` where `self.factory = Widget` ─
+// Construction, not a method call: the attribute holds the class object, so this builds a
+// Widget and argument 0 lands on __init__'s first parameter after `self`
+// (call_arg_offset (c)). Without it the constructor's argument flow missed this caller.
+call_constructs_type(site, c) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_type(site, t),
+    call_name(site, n),
+    type_attr_class_value("client", t, n, c).
+
 // ── A CALLABLE INSTANCE — `m(5)` where m is an object with __call__ ───────────
 // The call site names the instance and never names __call__. Both receiver shapes
 // occur: a bare name holding an instance (`m(5)`) and a construction called directly
@@ -287,6 +297,22 @@ call_unresolvable(site, cat("untyped_receiver:", reason)) :-
     call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
     call_receiver_object(site, obj),
     expr_type_untypable("client", obj, reason).
+// (c2) the callee is `getattr(obj, "as_" + x)`, directly or through the local it was
+//      stored in, and obj has no type: the attribute name is computed at run time. The
+//      reason names the literal prefix, so a reader sees WHICH family of methods this
+//      site dispatches into (`computed_attribute_name:as_*`), not a bare `no_rule`.
+call_unresolvable(site, cat("computed_attribute_name:", pre, "*")) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    getattr_computed_name(callee, _, pre).
+call_unresolvable(site, cat("computed_attribute_name:", pre, "*")) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, ctx, callee), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    expr_binding("client", b2, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    getattr_computed_name(val, _, pre).
 // (d) the MRO winner for the name is a decorator-replaced def.
 call_unresolvable(site, "decorator_replaced_target") :-
     call_recv_type(site, t), call_name(site, n), mro_lookup_opaque("client", t, n).

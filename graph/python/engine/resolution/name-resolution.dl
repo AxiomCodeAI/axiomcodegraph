@@ -818,6 +818,33 @@ expr_denotes_method("client", e, m) :-
     expr_type("client", obj, t),
     mro_lookup("client", t, n, m).
 
+// ── getattr(obj, "as_" + vendor) — a name BUILT from a literal prefix ─────────
+//     vendor_impl = getattr(node, "as_" + self.connection.vendor, None)
+//     if vendor_impl: sql, params = vendor_impl(self, self.connection)
+// The suffix is only known at run time, but the prefix is written down, and whatever runs
+// is an attribute of obj's type whose name starts with it. So the candidates are exactly
+// those members: a SOUND set (the target is in it), an over-approximation (a vendor the
+// deployment never selects is in it too), and never a single edge, because nothing says
+// which suffix it is. Where obj has no type the site keeps a reason naming the prefix
+// (callee-resolution.dl) instead of `no_rule`.
+computed_name_prefix(nameArg, pre) :-
+    expr_node("client", "BINARY_OPERATION", _, _, nameArg),
+    expr_operator("client", op, nameArg), py_str_concat_operator(op),
+    expr_parent("client", nameArg, "OPERAND_LEFT", _, l),
+    expr_node("client", "LITERAL", _, pre, l), pre != "".
+getattr_computed_name(e, obj, pre) :-
+    call_of_expr(e, site),
+    call_name(site, "getattr"),
+    call_arg(site, "0", obj),
+    call_arg(site, "1", nameArg),
+    computed_name_prefix(nameArg, pre).
+expr_denotes_method("client", e, m) :-
+    getattr_computed_name(e, obj, pre),
+    expr_type("client", obj, t),
+    mro_lookup("client", t, n, m),
+    strlen(n) > strlen(pre),
+    substr(n, 0, strlen(pre)) = pre.
+
 // ── getattr(obj, name, default) IS AT LEAST the default ──────────────────────
 //     h = getattr(record, "highlighter", self.highlighter)
 //     if h: text = h(text)
