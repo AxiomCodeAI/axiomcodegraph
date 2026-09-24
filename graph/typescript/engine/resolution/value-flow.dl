@@ -326,3 +326,64 @@ fn_value_call(caller, m) :- call_runs(ce, m),
     call_site("client", _, _, _, _, ce, cs),
     call_caller_method(cs, caller),
     caller != m.
+
+// ============================================================================
+// AN OBJECT LITERAL IMPLEMENTS THE TYPE IT IS WRITTEN AS, AND A CALL ON AN EXPRESSION RUNS
+// WHAT EACH OF ITS BRANCHES HOLDS  (#1208)
+//
+// `createPool(): Pool { return { run, size() {…} } }` then `pool.run(() => work())`. The call
+// resolves to Pool.run, a member SIGNATURE with no body, and nothing implements it: there is no
+// class, so no nominal or structural candidate, and the functions in the literal had no caller.
+// A factory returning an object literal typed by an interface is the ordinary way to build a
+// pool, a client, a store or a plugin, so this was the commonest of the shapes.
+//
+// The literal's type comes from where it is written (contextual-params.dl, objlit_ctx_scope).
+// Each function member is a `value` dispatch candidate of the member signature of the same name;
+// a property whose member is a FIELD of function type is stored in that field, exactly as an
+// initializer or an assignment is, so the holder rules above take it from there. Envelope only:
+// no call-site answer moves.
+// ============================================================================
+objlit_member_value(l, name, val) :- objlit_prop(l, name, val).
+
+objlit_implements(sig, m) :- objlit_member_fn(l, name, m),
+    objlit_ctx_scope(l, s),
+    method_in_scope(s, name, _, sig).
+// `{ run }` and `{ run: runImpl }`: the property names a holder, and what the holder holds runs
+objlit_implements(sig, m) :- objlit_member_value(l, name, val),
+    objlit_ctx_scope(l, s),
+    method_in_scope(s, name, _, sig),
+    expr_referenced("client", k, h, val),
+    holder_ref_kind(k),
+    holder_holds_function(h, m).
+objlit_implements(sig, m) :- objlit_member_value(l, name, val),
+    objlit_ctx_scope(l, s),
+    method_in_scope(s, name, _, sig),
+    !expr_anon_decl("client", _, val),
+    expr_callable(val, m).
+method_dispatch_candidate(sig, m, "value") :- objlit_implements(sig, m),
+    method_kind(_, k, _, sig),
+    method_kind_is_member_signature(k),
+    m != sig.
+method_kind_is_member_signature("METHOD_SIGNATURE").
+method_kind_is_member_signature("TYPE_LITERAL_METHOD_SIGNATURE").
+method_kind_is_member_signature(k) :- method_kind_is_call_signature(k).
+
+// a property stored into a field-typed member: `get(url, { fetch: customFetch })` stores
+// customFetch in Options.fetch, and a call through `opt.fetch` runs it
+holder_value(f, val) :- objlit_member_value(l, name, val),
+    objlit_ctx_scope(l, s),
+    field_in_scope(s, name, _, f).
+holder_holds_function(f, m) :- objlit_member_fn(l, name, m),
+    method_kind(_, "OBJECT_LITERAL_METHOD", _, m),
+    objlit_ctx_scope(l, s),
+    field_in_scope(s, name, _, f).
+
+// ── a call on an expression callee runs what each branch is or holds ──
+call_runs(ce, m) :- callee_branch(ce, x), expr_callable(x, m).
+call_runs(ce, m) :- callee_branch(ce, x),
+    expr_referenced("client", k, h, x),
+    holder_ref_kind(k),
+    holder_holds_function(h, m).
+call_runs(ce, m) :- callee_branch(ce, x),
+    ts_field_access_target(x, f),
+    holder_holds_function(f, m).

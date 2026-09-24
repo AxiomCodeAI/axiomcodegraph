@@ -1,9 +1,1 @@
-oracle=14 engine=14 agree=10 missing=4 (known 4, NEW 0) extra=4
-  known    exec#<arrow@12>(?,?) -> MakerConstructor#<arrow@12>(T)
-  known    exec#<arrow@12>(?,?) -> MakerConstructor#<arrow@12>(string)
-  known    exec#<arrow@20>(?,?) -> MakerConstructor#<arrow@12>(T)
-  known    exec#<arrow@20>(?,?) -> MakerConstructor#<arrow@12>(string)
-  extra    exec#<arrow@12>(?,?) -> globals#<arrow@12>(T)
-  extra    exec#<arrow@12>(?,?) -> globals#<arrow@12>(string)
-  extra    exec#<arrow@20>(?,?) -> globals#<arrow@12>(T)
-  extra    exec#<arrow@20>(?,?) -> globals#<arrow@12>(string)
+oracle=14 engine=14 agree=14 missing=0 (known 0, NEW 0) extra=0

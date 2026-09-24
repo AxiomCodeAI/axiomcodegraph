@@ -15,15 +15,17 @@
 # ENCLOSING NAMED declaration and the module otherwise. A shape has no name, so the
 # engine side asks what the shape is the TYPE OF — a method's `tsTypeLinkHash` points at
 # its own `ts_type_reference` row, which records the entity the type was written for.
-# A FIELD owner yields that field's declaring type; a TYPE owner is a type ALIAS and a
-# METHOD_PARAM owner is an inline annotation, neither of which the compiler side treats
-# as an owner either, so both fall through to the module.
+# A FIELD owner yields that field's declaring type; a TYPE owner is a type ALIAS, which the
+# compiler side does not treat as an owner either, so it falls through to the module. A
+# METHOD_PARAM owner is an inline annotation, and the compiler side walks PAST it to the
+# method: a member of a named interface or class takes that type (`run(fn: () => number)`
+# in `interface Pool` is `Pool`), a free function's parameter takes the module (#1208).
 #
-# FOUR OF THE NINE CHECKS ARE CONTROLS. Three assert a label that must NOT move — an
-# ordinary declaring type, a type alias, an inline parameter annotation — because a rule
-# that reaches for an owner too eagerly is as wrong as one that never reaches, and would
-# show up as a NEW disagreement rather than as a fixed one. The fourth removes the
-# relation the rule reads and asserts the answer DEGRADES to the module rather than
+# FIVE OF THE TWELVE CHECKS ARE CONTROLS. Four assert a label that must NOT move (an
+# ordinary declaring type, a type alias, a free function's parameter, a nameless literal
+# method's parameter), because a rule that reaches for an owner too eagerly is as wrong as
+# one that never reaches, and would show up as a NEW disagreement rather than as a fixed
+# one. The fifth removes the relation the rule reads and asserts the answer DEGRADES to the module rather than
 # crashing or staying right, which is what says the CSV is where the answer comes from.
 #
 # SYNTHESISED IR, so this needs neither the parser nor the solver and cannot skip.
@@ -57,10 +59,14 @@ M_IFACE_ARROW=TS_METHOD_IFACEARROW; M_ALIAS_ARROW=TS_METHOD_ALIASARROW
 M_PARAM_ARROW=TS_METHOD_PARAMARROW
 M_LIT_METHOD=TS_METHOD_LITRUN;      M_NESTED=TS_METHOD_NESTEDDEEP
 M_LIT_IN_LIT=TS_METHOD_LITINLIT;    M_CLASS=TS_METHOD_CLASSGO
+M_FREE_F=TS_METHOD_FREEF;           M_POOL_RUN=TS_METHOD_POOLRUN
+M_MEMBER_ARROW=TS_METHOD_MEMBERARROW; M_LITPARAM_ARROW=TS_METHOD_LITPARAMARROW
+M_LIT_SIG=TS_METHOD_LITSIG
 
 R_IFACE=TS_TYPE_REFERENCE_IFACE;    R_ALIAS=TS_TYPE_REFERENCE_ALIAS
 R_PARAM=TS_TYPE_REFERENCE_PARAM;    R_LIT=TS_TYPE_REFERENCE_LIT
 R_NESTED=TS_TYPE_REFERENCE_NESTED;  R_LITINLIT=TS_TYPE_REFERENCE_LITINLIT
+R_MEMBER=TS_TYPE_REFERENCE_MEMBERPARAM; R_LITPARAM=TS_TYPE_REFERENCE_LITPARAM
 
 F_IFACE=TS_FIELD_HOLDERRUN;  F_OUTER=TS_FIELD_OUTERDEEP;  F_LITPROP=TS_FIELD_LITPROP
 
@@ -89,6 +95,15 @@ printf 'name\tmethodKind\tstartLine\townerTypeName\ttsTypeLinkHash\ttsModuleLink
   printf 'inner\tTYPE_LITERAL_METHOD_SIGNATURE\t17\t{ inner(): void }\t%s\t%s\t%s\n' \
       "$R_LITINLIT" "$MODH" "$M_LIT_IN_LIT"
   printf 'go\tMETHOD_DECLARATION\t25\tC\t\t%s\t%s\n' "$MODH" "$M_CLASS"
+  # The owners of the parameters below: a free function, a member of `interface Pool`, and
+  # a method of an anonymous literal, whose own owner is the literal's text and so no name.
+  printf 'f\tFUNCTION_DECLARATION\t19\t\t\t%s\t%s\n' "$MODH" "$M_FREE_F"
+  printf 'run\tMETHOD_SIGNATURE\t29\tPool\t\t%s\t%s\n' "$MODH" "$M_POOL_RUN"
+  printf 'go\tTYPE_LITERAL_METHOD_SIGNATURE\t31\t{ go(fn: () => void): void }\t\t%s\t%s\n' "$MODH" "$M_LIT_SIG"
+  # `run(fn: () => number)` in `interface Pool`: the parameter's type is owned by Pool.
+  printf '<function-type>\tFUNCTION_TYPE_SIGNATURE\t30\t\t%s\t%s\t%s\n' "$R_MEMBER" "$MODH" "$M_MEMBER_ARROW"
+  # `{ go(fn: () => void): void }`: a nameless literal's method owns nothing.
+  printf '<function-type>\tFUNCTION_TYPE_SIGNATURE\t32\t\t%s\t%s\t%s\n' "$R_LITPARAM" "$MODH" "$M_LITPARAM_ARROW"
 } >> "$W/ir/all-typescript-methods.csv"
 
 printf 'referenceOwnerKind\ttypeReferenceOwnerHash\ttsTypeReferenceUniqueHash\n' \
@@ -100,7 +115,16 @@ printf 'referenceOwnerKind\ttypeReferenceOwnerHash\ttsTypeReferenceUniqueHash\n'
   printf 'TYPE\tTS_TYPE_ALIAS2\t%s\n'                            "$R_LIT"
   printf 'FIELD\t%s\t%s\n'                          "$F_OUTER"   "$R_NESTED"
   printf 'FIELD\t%s\t%s\n'                          "$F_LITPROP" "$R_LITINLIT"
+  printf 'METHOD_PARAM\tTS_METHOD_PARAMETER_Q\t%s\n'             "$R_MEMBER"
+  printf 'METHOD_PARAM\tTS_METHOD_PARAMETER_R\t%s\n'             "$R_LITPARAM"
 } >> "$W/ir/all-typescript-type-references.csv"
+
+printf 'name\tposition\ttsMethodLinkHash\ttsMethodParameterUniqueHash\n' > "$W/ir/all-typescript-method-parameters.csv"
+{
+  printf 'p\t0\t%s\tTS_METHOD_PARAMETER_P\n' "$M_FREE_F"
+  printf 'fn\t0\t%s\tTS_METHOD_PARAMETER_Q\n' "$M_POOL_RUN"
+  printf 'fn\t0\t%s\tTS_METHOD_PARAMETER_R\n' "$M_LIT_SIG"
+} >> "$W/ir/all-typescript-method-parameters.csv"
 
 printf 'name\tmemberKind\townerTypeName\ttsFieldUniqueHash\n' > "$W/ir/all-typescript-fields.csv"
 {
@@ -110,7 +134,8 @@ printf 'name\tmemberKind\townerTypeName\ttsFieldUniqueHash\n' > "$W/ir/all-types
 } >> "$W/ir/all-typescript-fields.csv"
 
 for t in "$M_IFACE_ARROW" "$M_ALIAS_ARROW" "$M_PARAM_ARROW" \
-         "$M_LIT_METHOD" "$M_NESTED" "$M_LIT_IN_LIT" "$M_CLASS"; do
+         "$M_LIT_METHOD" "$M_NESTED" "$M_LIT_IN_LIT" "$M_CLASS" \
+         "$M_MEMBER_ARROW" "$M_LITPARAM_ARROW"; do
   printf 'S\t%s\tx\t%s\tx\tknown_edge\tFUNCTION_CALL\n' "$M_CALLER" "$t"
 done > "$W/out/call-chain-edges.csv"
 
@@ -126,11 +151,13 @@ want 'Holder#<arrow@5>()' "an arrow that is an interface property's type is owne
 want 'm#run()'            "a method of an anonymous literal is owned by the module, not by the literal's text"
 want 'Outer#deep()'       "a literal nested in an interface property takes the interface"
 want 'm#inner()'          "a literal inside a literal falls through: a nameless field owns nothing"
+want 'Pool#<arrow@30>()'  "a function type that is a PARAMETER's type takes the method's declaring type (#1208)"
 
 # ── CONTROLS: labels that must NOT move ──────────────────────────────────────
 want 'C#go()'             "CONTROL: a real declaring type is untouched"
 want 'm#<arrow@9>()'      "CONTROL: a type ALIAS is not an owner, on either side"
-want 'm#<arrow@20>()'     "CONTROL: an inline parameter annotation is not an owner"
+want 'm#<arrow@20>()'     "CONTROL: a free function's parameter annotation is owned by the module"
+want 'm#<arrow@32>()'     "CONTROL: a parameter of a nameless literal's method is owned by the module"
 
 if printf '%s\n' "$got" | grep -q '{'; then
   bad "a label still carries an anonymous shape's source text:$(show)"
