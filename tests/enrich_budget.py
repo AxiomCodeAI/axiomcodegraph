@@ -91,6 +91,33 @@ with tempfile.TemporaryDirectory() as repo:
     check('control: that read of D is annotated in a session with budget left',
           'graph:' in read(repo, 's3b', 'D.java', budget=1))
 
+    # ── a graph answer the agent already has is not repeated by the next read ───────────────────────────
+    def answered(session, text):
+        ev = {'hook_event_name': 'PostToolUse', 'tool_name': 'mcp__plugin_axiomcode_axiomcode__axiomcode_path',
+              'tool_input': {'from_': 'A.a', 'to': '*'}, 'tool_response': text, 'cwd': repo, 'session_id': session}
+        return subprocess.run([sys.executable, HOOK], input=json.dumps(ev), capture_output=True, text=True, timeout=120).stdout.strip()
+    said = answered('s4', 'A.a   src/app/A.java:3\n  → [known_edge] B.b   src/app/B.java:3')
+    check('a graph answer itself gets no block', said == '', said[:200])
+    check('a read of what that answer already showed gets nothing', read(repo, 's4', 'B.java') == '')
+    check('control: the same read in a session without that answer is annotated',
+          'graph:' in read(repo, 's4b', 'B.java'))
+    def via_cli(session, text):
+        ev = {'hook_event_name': 'PostToolUse', 'tool_name': 'Bash', 'tool_input': {'command': 'axiomcode path A.a "*"'},
+              'tool_response': {'stdout': text}, 'cwd': repo, 'session_id': session}
+        return subprocess.run([sys.executable, HOOK], input=json.dumps(ev), capture_output=True, text=True, timeout=120).stdout.strip()
+    via_cli('s5', 'C.c   src/app/C.java:3')
+    check('the same holds for an answer asked through the CLI', read(repo, 's5', 'C.java') == '')
+
+    # ── the prompt hook speaks only when the prompt names the code ──────────────────────────────────────
+    ORIENT = os.path.join(ROOT, 'plugins', 'axiomcode', 'hooks', 'orient.py')
+    def orient(session, prompt):
+        ev = {'hook_event_name': 'UserPromptSubmit', 'prompt': prompt, 'cwd': repo, 'session_id': session}
+        return subprocess.run([sys.executable, ORIENT], input=json.dumps(ev), capture_output=True, text=True, timeout=120).stdout.strip()
+    meta = orient('o1', 'also are hooks polluting the context when the plugin is used, and is it merged to main?')
+    check('a prompt that names no code gets nothing from the prompt hook', meta == '', meta[:200])
+    named = orient('o2', 'why does B.b never reach D when it is called from the other class?')
+    check('control: a prompt that names a declaration the graph holds is oriented', 'graph:' in named, named[:200])
+
 print()
 print(f"{len(checked) - len(fails)} of {len(checked)} check(s) held" if not fails else f"{len(fails)} FAILED: " + '; '.join(fails))
 sys.exit(1 if fails else 0)

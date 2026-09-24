@@ -17,7 +17,7 @@ Rules it holds itself to:
   · It never says it is certain. When several roots match it offers them instead of choosing, because
     picking the wrong package confidently is the failure this skill has already been bitten by.
 """
-import json, os, subprocess, sys
+import json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _host
 
@@ -102,6 +102,39 @@ if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
         print("graph: this repository has no call graph yet, so callers, change impact and test selection are "
               "unavailable until one is built.")
         print(f"  `{entry} index` builds it (minutes on a large tree, once per commit); every other verb needs it.")
+    sys.exit(0)
+
+# SPEAK ONLY WHEN SURE. Every prompt of 25 characters in a repository with a graph used to get the ranked answer for its
+# words, and a prompt that is not about the code still has words: asked whether hooks pollute the context, the words
+# `plugin` and `info` were matched to a CLI's plugin loader and a script-info class, about 20 lines that every later turn
+# re-reads. The prompt must name the code before this says anything about it:
+#   an identifier-shaped word (camelCase, snake_case, dotted, called `f()`, in backticks, or a Capitalised word inside a
+#   sentence) or a file path, that the graph declares exactly.
+# Plain English words are not enough however rare: a large codebase declares functions named `when`, `used`, `safe`,
+# `main`, `loop` and `parser`, so any sentence about anything matched two of them.
+IDENT = re.compile(r'`([^`]+)`|\b([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\b|\b([a-z]+[A-Z]\w*|[A-Za-z]+_\w+)\b|\b(\w+)\(\)|(?<![.!?]\s)(?<!^)\b([A-Z][a-z]\w+)\b')
+PATHISH = re.compile(r'\b[\w./-]+\.(?:java|ts|tsx|js|jsx|mjs|py|cs)(?::\d+)?\b')
+
+def names_code(prompt, db):
+    import sqlite3
+    try:
+        con = sqlite3.connect(db)
+        count = lambda n: con.execute("SELECT count(*) FROM symbols WHERE name = ? OR display = ?", (n, n)).fetchone()[0]
+        if PATHISH.search(prompt):
+            f = PATHISH.search(prompt).group(0).split(':')[0]
+            if con.execute("SELECT 1 FROM symbols WHERE file = ? OR file LIKE ? LIMIT 1", (f, '%/' + f.lstrip('/'))).fetchone():
+                return True
+        for m in IDENT.finditer(prompt):
+            tok = next(g for g in m.groups() if g)
+            # the whole token as written (`B.b`, `QuerySet.filter`) at any length; its parts only when long enough to mean something
+            for part in dict.fromkeys([tok] + [x for x in re.split(r'[.\s(),]+', tok) if len(x) >= 3]):
+                if part and count(part):
+                    return True
+        return False
+    except Exception:
+        return False
+
+if not names_code(prompt, os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
     sys.exit(0)
 
 here = os.path.dirname(os.path.abspath(__file__))

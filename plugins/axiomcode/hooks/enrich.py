@@ -61,6 +61,30 @@ def edges(mid, sid):
     s = f"← {len(up)}" + (" (" + ', '.join(r['d'].split('.')[-1] for r in up[:2]) + (', …' if len(up) > 2 else '') + ")" if up else '') + f"  → {len(dn)}"
     return s + (f"  ? {un}" if un else '')
 
+# where the agent IS: the callables it read most recently (per session, last 6 reads). A later grep for a common name is
+# read against them — the `close` that the method you were just reading calls is the one you mean
+STATE = os.path.join(cwd, '.axiomcode', f"hooks-state-{ev.get('session_id', 'x')}.json")
+def load_state():
+    try: return json.load(open(STATE))
+    except Exception: return {'reads': []}
+def save_state(st):
+    try: json.dump(st, open(STATE, 'w'))
+    except OSError: pass
+
+# A GRAPH ANSWER THE AGENT ALREADY HAS IS NOT REPEATED. `context` / `path` / `impact` print the declarations they are about
+# as `file:line`; a Read of one of them right after would get the same callers and callees again as a `graph:` block. Those
+# declarations are marked annotated, so a later block carries only what the answer did not. Nothing is emitted here.
+_cmd = str(inp.get('command', '')) if tool == 'Bash' else ''
+if tool.startswith('mcp__plugin_axiomcode_') or re.match(r'\s*(?:\S*/)?axiomcode(?:-\w+)?\s+(context|path|impact|changed|test-impact)\b', _cmd):
+    text = json.dumps(ev.get('tool_response', ''))
+    locs = set(re.findall(r'([\w./-]+\.\w+):(\d+)', text))
+    ids = []
+    for f, ln in locs:
+        ids += [r['id'] for r in q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND line = ? AND method_id IS NOT NULL", f, '%/' + f.lstrip('/'), int(ln))]
+    if ids:
+        st = load_state(); st['annotated_ids'] = list(dict.fromkeys(st.get('annotated_ids', []) + ids)); save_state(st)
+    sys.exit(0)
+
 # a grep / sed / cat run through Bash is the same action — in a session where the Grep tool is deferred, that is what the agent does
 if tool == 'Bash':
     c = str(inp.get('command', ''))
@@ -111,15 +135,6 @@ def reach_counts(mid):
         return f"  tests {n}" if n and n < 0.25 * tot else ''
     except Exception: return ''
 
-# where the agent IS: the callables it read most recently (per session, last 6 reads). A later grep for a common name is
-# read against them — the `close` that the method you were just reading calls is the one you mean
-STATE = os.path.join(cwd, '.axiomcode', f"hooks-state-{ev.get('session_id', 'x')}.json")
-def load_state():
-    try: return json.load(open(STATE))
-    except Exception: return {'reads': []}
-def save_state(st):
-    try: json.dump(st, open(STATE, 'w'))
-    except OSError: pass
 def context_ids():
     return [i for r in load_state()['reads'] for i in r['ids']]
 
