@@ -229,7 +229,7 @@ CONTAINER = frozenset('items keys values get pop popitem append extend add updat
                       'length size isEmpty contains equals hashCode'.split())
 
 
-def flow(g, roots, depth_cap=FLOW_DEPTH):
+def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     """The call flow from `roots`, in the order the calls are written. Nothing here is ranked or scored.
 
     Where a flow STARTS is the reader's decision (--from) or the entry points this verb already chose; which of a
@@ -265,9 +265,22 @@ def flow(g, roots, depth_cap=FLOW_DEPTH):
     for x in list(gaps):
         gaps[x] = sorted({(l, n_) for l, n_ in gaps[x] if 0 < declared[n_] <= GAP_DECLS and n_ not in CONTAINER})
 
+    # WHICH steps are shown is chosen breadth-first: the entry point's own calls are the outline of the mechanism and
+    # their callees are detail, so the budget goes to every call of the root before any call of a call. Chosen
+    # depth-first, one helper's subtree took the whole budget before the flow reached the root's later calls.
+    keep, frontier = set(roots), list(roots)
+    for _d in range(depth_cap):
+        nxt = []
+        for x in frontier:
+            for _l, y, _t, _f in out.get(x, ()):
+                if y not in keep and len(keep) < max_steps:
+                    keep.add(y); nxt.append(y)
+        frontier = nxt
+        if not frontier or len(keep) >= max_steps: break
+
     steps, seen = [], {}
     def walk(x, depth, via):
-        if len(steps) >= FLOW_STEPS: return
+        if len(steps) >= max_steps * 2: return
         if x in seen:
             steps.append((depth, x, via, seen[x])); return
         seen[x] = sum(1 for st in steps if st[3] is None) + 1       # the printed step number
@@ -275,7 +288,7 @@ def flow(g, roots, depth_cap=FLOW_DEPTH):
         if depth >= depth_cap: return
         done = set()
         for l, y, t, f in out.get(x, ()):
-            if y in done: continue
+            if y in done or y not in keep: continue
             done.add(y)
             walk(y, depth + 1, (l, t, f))
     for r in roots:
@@ -283,7 +296,9 @@ def flow(g, roots, depth_cap=FLOW_DEPTH):
     return roots, steps, gaps
 
 
-FLOW_SOURCE_STEPS, FLOW_SOURCE_LINES = 16, 10     # with --source: fewer steps, each with its code
+# with --source: fewer steps, each with its code, sized to ONE page. The flow is a reading order; split across pages,
+# its second half went unread in every measured run that was split (no agent asked for page 2).
+FLOW_SOURCE_STEPS, FLOW_SOURCE_LINES, FLOW_SOURCE_CHARS = 16, 8, 3800   # code for the earliest steps until the budget, then names only
 
 
 def print_flow(g, roots, steps, gaps, chosen, show_source=False):
@@ -295,6 +310,7 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False):
         print("  started at the entry points this task's words matched; if the mechanism begins elsewhere, "
               "`--from <name>` starts the flow there")
     n = 0
+    code_left, code_cut = [FLOW_SOURCE_CHARS], [False]
     for depth, x, via, again in steps:
         pad = '  ' * depth
         if again:
@@ -316,15 +332,22 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False):
         if gs:
             print(f"     {pad}   ⚠ unresolved here: " + ', '.join(f"{nm}() L{l}" for l, nm in gs))
         sy = g.sym.get(x) or {}
-        if show_source and sy.get('line') and not (sy.get('file') or '').startswith('<'):
+        if show_source and code_left[0] <= 0 and not code_cut[0]:
+            code_cut[0] = True
+        if show_source and not code_cut[0] and sy.get('line') and not (sy.get('file') or '').startswith('<'):
             a, b = sy['line'], sy.get('end_line') or sy['line']
             body = source_lines(g.repo, sy['file'])[a - 1:min(b, a + FLOW_SOURCE_LINES - 1)]
             for k, ln in enumerate(body, a):
-                print(f"     {pad}   {k:5} | {ln.rstrip()[:100]}")
+                row = f"     {pad}   {k:5} | {ln.rstrip()[:100]}"
+                code_left[0] -= len(row) + 1
+                print(row)
             if b > a + FLOW_SOURCE_LINES - 1:
                 print(f"     {pad}   {'':5} | … +{b - a - FLOW_SOURCE_LINES + 1} more line(s) — open {sy['file']}:{a} for the rest")
-    if len(steps) >= FLOW_STEPS:
-        print(f"    … the flow is cut at {FLOW_STEPS} steps; `path <step> '*'` continues from any step")
+    if code_cut[0]:
+        print("    the later steps are named without their code, to keep this answer to one page; "
+              "`--from <step>` shows any of them with its code")
+    if sum(1 for st in steps if st[3] is None) >= (FLOW_SOURCE_STEPS if show_source else FLOW_STEPS):
+        print(f"    … the flow is cut at {(FLOW_SOURCE_STEPS if show_source else FLOW_STEPS)} steps; `path <step> '*'` continues from any step")
     return True
 
 
@@ -448,7 +471,7 @@ def main(argv):
     if explain is None: explain = explain_intent(task)
     # explaining: the flow below starts at its own roots and IS the answer, so the lexical entry points (a word
     # match per term) and the long file list are what a reader would spend the page on instead of the flow
-    if explain: budget = min(budget, 5)
+    if explain: budget = min(budget, 0 if show_source else 5)   # with the code shown, the flow is the whole answer
     if not explain: print(f"\nentry points ({len(seeds)}, best match per term — the graph's own words, not a guess):")
     for sid, term, sc in (seeds if not explain else ()):
         why = f"matches '{term}'" if term else "best overall match"
@@ -459,8 +482,7 @@ def main(argv):
         if not roots_:
             # no --from: the entry points this verb already chose, the callable ones, first FLOW_ROOTS of them
             roots_ = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')][:FLOW_ROOTS]
-        roots, steps, gaps = flow(g, roots_)
-        if show_source: steps = steps[:FLOW_SOURCE_STEPS]
+        roots, steps, gaps = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS)
         RESULT['flow'] = [{'step': k + 1, 'depth': d, 'name': g.disp(x), 'at': g.loc(x),
                            'called_at_line': (via[0] if via else None), 'certainty': (ax_edges.direct_cert(via[1]) if via else 'entry'),
                            'repeat_of': again, 'unresolved': [f"{nm} L{l}" for l, nm in gaps.get(x, ())[:4]]}
@@ -511,8 +533,11 @@ def main(argv):
     if scopes and not scope_offered: files = {f: v for f, v in files.items() if in_scope(f)}
     order = sorted(files.items(), key=file_rank)
     shown, foot = budgeted([x for x in order if not TESTY.search(x[0])], budget, "file")
-    print(f"\nwhere the work is ({len(files)} file(s) within 3 hops of those entry points; "
-          f"nearest first, then by how much of the task each matches):")
+    if budget > 0:
+        print(f"\nwhere the work is ({len(files)} file(s) within 3 hops of those entry points; "
+              f"nearest first, then by how much of the task each matches):")
+    else:
+        print(f"\n{len(files)} file(s) lie within 3 hops of the entry points; `--budget N` lists them")
     # Name the DECLARATIONS, not only the file. Every symbol here was already scored — that is how the file
     # got its rank — and then discarded, so the answer said "look in this file" where it could have said
     # which functions to look at. Measured over 31 real commits, naming two declarations per file roughly
@@ -556,7 +581,7 @@ def main(argv):
                 for k, ln in enumerate(body, a):
                     print(f"    {'':22}   {k:5} | {ln.rstrip()[:110]}")
                 if b > a + SOURCE_LINES: print(f"    {'':22}   {'':5} | … +{b - a - SOURCE_LINES} more line(s)")
-    if foot: print(foot + ", tests and benchmarks not listed")
+    if foot and budget > 0: print(foot + ", tests and benchmarks not listed")
 
     print("\n" + BOUND)
     print("  narrow with `impact <name> --in <path>` or `path '*' <name> --in <path>`.")

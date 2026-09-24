@@ -91,6 +91,23 @@
     "next: answer from the steps' code shown above"
    ],
    "avoid": []
+  },
+  {
+   "why": "which steps are shown is chosen breadth-first: a deep helper chain under the first call does not crowd out the entry point's later calls, and the explanation comes back on one page",
+   "run": [
+    "context",
+    "How does the Pipeline run a job?",
+    "--source"
+   ],
+   "want": [
+    "→ Tokenizer.tokenize",
+    "→ Planner.plan",
+    "→ Executor.execute"
+   ],
+   "avoid": [
+    "page 1 of",
+    "helper20"
+   ]
   }
  ]
 }
