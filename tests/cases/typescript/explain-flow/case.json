@@ -77,6 +77,20 @@
    "avoid": [
     "how it runs —"
    ]
+  },
+  {
+   "why": "with --source each flow step carries its code, and next says to answer from it, opening a file only for a cut body or a lost call",
+   "run": [
+    "context",
+    "How does the Pipeline run a job?",
+    "--source"
+   ],
+   "want": [
+    "how it runs —",
+    "|     const tokens = this.tokenizer.tokenize(job.text)",
+    "next: answer from the steps' code shown above"
+   ],
+   "avoid": []
   }
  ]
 }
