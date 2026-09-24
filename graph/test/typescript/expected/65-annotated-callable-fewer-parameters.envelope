@@ -1,3 +1,4 @@
 value	fewer#TwoArgs.<call-signature> -> fewer#<arrow>@46
 value	fewer#TwoArgs.<call-signature> -> fewer#<arrow>@53
 value	fewer#TwoArgs.<call-signature> -> fewer#Holder.<arrow>
+value_call	fewer#callHolderRun -> fewer#Holder.<arrow>

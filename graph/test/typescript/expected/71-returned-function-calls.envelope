@@ -1,0 +1,4 @@
+value_call	use#immediately -> make#<arrow>@8
+value_call	use#twoLevels -> make#<arrow>@10
+value_call	use#viaBlock -> make#<arrow>@5
+value_call	use#viaConcise -> make#<arrow>@8

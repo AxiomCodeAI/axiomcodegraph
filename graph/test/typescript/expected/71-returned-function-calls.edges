@@ -1,0 +1,9 @@
+ambiguous_unknown	FUNCTION_CALL	use#immediately() @L16 -> -
+ambiguous_unknown	FUNCTION_CALL	use#twoLevels() @L22 -> -
+ambiguous_unknown	FUNCTION_CALL	use#viaBlock() @L6 -> -
+ambiguous_unknown	FUNCTION_CALL	use#viaConcise() @L11 -> -
+known_edge	METHOD_CALL	use#immediately() @L16 -> make#conciseMake(number)
+known_edge	METHOD_CALL	use#shadowed(Monoid) @L26 -> make#compact(Monoid)
+known_edge	METHOD_CALL	use#twoLevels() @L21 -> make#curried(number)
+known_edge	METHOD_CALL	use#viaBlock() @L5 -> make#blockMake(number)
+known_edge	METHOD_CALL	use#viaConcise() @L10 -> make#conciseMake(number)

@@ -1,0 +1,2 @@
+known_edge	METHOD_PARAM	0	make [METHOD_PARAM] -> Monoid
+known_edge	METHOD_PARAM	0	use [METHOD_PARAM] -> Monoid

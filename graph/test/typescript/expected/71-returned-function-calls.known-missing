@@ -1,0 +1,7 @@
+# A call on a function another call RETURNED has no signature for the per-site resolver to bind,
+# so the site stays unresolved. The route is answered by fn_value_call instead (value_call rows in
+# the .envelope golden), which is what impact and path walk.
+use#immediately() -> make#<arrow@8>(number)
+use#twoLevels() -> make#<arrow@10>(number)
+use#viaBlock() -> make#<arrow@5>(number)
+use#viaConcise() -> make#<arrow@8>(number)
