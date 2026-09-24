@@ -284,6 +284,10 @@ Every edge has a tier, so a consumer picks its own risk tolerance:
 | `multi_inferred` | a sound set of possible targets (virtual dispatch over instantiated subtypes) |
 | `boundary_lib` | the target is in a library: named, not expanded |
 | `ambiguous_unknown` | the engine could not resolve the site; kept as a row with a NULL target |
+| *language-specific* | Java: `fan_capped`, `ambiguous_anon` · TypeScript: `ambient_terminal`, `intrinsic_terminal` · JavaScript: `callback_registered`, `event_dispatch`, `ambient_terminal`, `implicit_constructor`, `dynamic_terminal`, `fan_capped` · C#: `known_implicit_ctor`, `known_builtin_operator`, `boundary_generated`, `ambiguous_dynamic`, `fan_capped`, `runtime_observed` |
+
+The `ambiguous_*` tiers are the blind spots; the rest are resolved or deliberate ends. Each tier is described in
+`schema_vocab` inside the graph.
 
 Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 
