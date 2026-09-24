@@ -87,6 +87,32 @@ expr_external_type_name(prov, e, n) :-
     property_decl(prov, _, t, p), type_module(prov, t, mod),
     external_type_name(prov, mod, n, _).
 
+// A METHOD WHOSE DECLARED RETURN TYPE IS UNSTAGED: `List<Item> Items()`. Named by the
+// ROOT reference (`List`), not by the written text (`List<Item>`), so the label is the
+// same whatever the type argument, as it is for a parameter or a field of that type.
+method_return_external_name(prov, m, n) :-
+    method_return_type_ref(prov, m, tr), type_ref_name(prov, tr, n),
+    type_ref_module(prov, tr, mod), external_type_name(prov, mod, n, _).
+
+// A `var` local initialised from such a call, `var items = s.Items(); items.Clear()`, and
+// the call used directly as a receiver, `s.Items().Clear()`. The local was typed by
+// nothing (the return type does not resolve), so `items.Clear()` was ambiguous_unknown
+// and `items.Count` and `items[0]` reached the output as no row at all (#1279).
+expr_external_type_name(prov, e, n) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v),
+    var_is_implicit(prov, v),
+    var_value_initializer(prov, v, init),
+    expr_target_any(prov, init, m),
+    method_return_external_name(prov, m, n).
+// The call used directly as a receiver is named here only for a property read or an
+// indexer (external_recv_name below). An INVOCATION on it is already named through
+// call_recv_type_name, whose label rule defers to an in-source extension candidate;
+// feeding it to expr_external_type_name as well would add a label beside every such
+// extension and turn a resolved `f().Ext()` into a set.
+expr_external_call_name(prov, e, n) :-
+    expr_target_any(prov, e, m),
+    method_return_external_name(prov, m, n).
+
 // A `var` local initialised with `new SomeUnstagedType()`: the written type name on
 // the creation is what the local holds.
 expr_external_type_name(prov, e, n) :-
@@ -421,6 +447,7 @@ expr_recv_is_array("client", e) :-
 external_recv_name(prov, e, tn) :- expr_predefined_recv_name(prov, e, tn).
 external_recv_name(prov, e, tn) :-
     expr_external_type_name(prov, e, tn).
+external_recv_name(prov, e, tn) :- expr_external_call_name(prov, e, tn).
 
 // AND A TYPE THAT IS STAGED, WHOSE MEMBER IS NOT. A library IR is a signature
 // SUBSET, so a property it does not carry is one the engine was not told about.

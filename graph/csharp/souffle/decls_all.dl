@@ -329,6 +329,8 @@
 .decl method_partial_impl(c0:symbol,c1:symbol)
 .decl method_return_type_group(c0:symbol,c1:symbol,c2:symbol)
 .decl method_return_type_name(c0:symbol,c1:symbol,c2:symbol)
+.decl expr_external_call_name(c0:symbol,c1:symbol,c2:symbol)
+.decl method_return_external_name(c0:symbol,c1:symbol,c2:symbol)
 .decl method_return_type_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl method_runtime_key(c0:symbol,c1:symbol,c2:symbol)
 .decl method_signature(c0:symbol,c1:symbol,c2:symbol)
