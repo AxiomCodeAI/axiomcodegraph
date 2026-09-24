@@ -16,8 +16,8 @@ shortest first, up to --paths N (default 20).
 
 The chains are computed in Datalog (dl/path.dl, Soufflé) over facts exported from graph.sqlite: the engine's resolved
 client edges, dispatch steps to instantiated overrides, and closures under the callable that defines them. Every
-answer is then checked twice before it is printed: each hop is looked up again in graph.sqlite, and a plain BFS over
-the same facts must find the same length. The line `verified …` says so; if either check fails the answer is marked.
+answer is then checked twice before it is printed: each hop is looked up again in the graph, and a second, independent
+traversal over the same facts must find the same length. The line `verified …` says so; if either check fails the answer is marked.
 
 Every hop is printed as `[tier · kind @ file:line]`: how certain the edge is, what kind of call it is in one
 vocabulary that means the same thing in all five languages (call · new · ctor · super · decorator · property ·
@@ -597,7 +597,7 @@ def verify(g, chain, srcs, dst, adj):
     # callee under DIFFERENT tiers — an ordinary call at one line, a callback_registered hand-off at
     # another — and a {(a,b): t} map keeps whichever row the export wrote last. The solver sees every
     # row, so the chain could legitimately be read back through the tier the map had discarded, and
-    # every such hop was then reported "NOT in graph.sqlite" against a fact file that does contain it.
+    # every such hop was then reported "NOT in the graph" against a fact file that does contain it.
     edge_set = getattr(g, '_edge_triples', None)
     if edge_set is None: edge_set = g._edge_triples = {(a, b, t) for a, b, t in g.edges()}
     bad = [h for h in hops if h not in edge_set]
@@ -883,7 +883,7 @@ def closure(g, sel, upstream, limit=40, depth=40):
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * (len(rows) + len(ids)))})", *[m for m, _ in rows], *ids)[0]['n']
     RESULT['reached'] = [{'name': g.disp(m), 'at': g.loc(m), 'hops': int(d)} for m, d in sorted(rows, key=lambda x: (int(x[1]), g.sym[x[0]]['display'], x[0]))]
     RESULT['verified'] = bool(agree)
-    print(f"  verified: a plain BFS over the same facts gives the same {len(rows)} methods at the same depths" if agree else f"  ✗ BFS disagrees with Datalog ({len(bfs)} vs {len(rows)}) — report this")
+    print(f"  verified: a second, independent traversal over the same facts gives the same {len(rows)} methods at the same depths" if agree else f"  ✗ the second traversal disagrees with Datalog ({len(bfs)} vs {len(rows)}) — report this")
     # A BOUND NOBODY CAN ACT ON IS NOT A BOUND. Counted over every method in the closure this reached four
     # figures on a large tree, which reads as "unknown" and is skipped. The reader can only check the rows
     # actually in front of them, so the actionable number is the unresolved calls inside THOSE; the closure-wide
@@ -928,13 +928,13 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             bad, bfs = verify(g, chain, srcs, m, adj); vbad += len(bad); vlen += (bfs != d)
             ncall, nother = chain_size(chain); seen_tiers.update(t for _, t in chain[1:])
             print(f"  {ncall} call(s)" + (f" + {nother} containment hop(s)" if nother else '') +
-                  ":" + (f"   ✗ {len(bad)} hop(s) NOT in graph.sqlite" if bad else '') + (f"   ✗ BFS says {bfs}" if bfs != d else ''))
+                  ":" + (f"   ✗ {len(bad)} hop(s) NOT in the graph" if bad else '') + (f"   ✗ the second traversal says {bfs}" if bfs != d else ''))
             print(print_chain(g, chain)); shown += 1
             RESULT['answers'].append(dict(chain_json(g, chain), direction=q, unverified_hops=len(bad)))
             if shown >= limit and not show_all: print(f"  … +{len(hits) - shown} more targets (--all)"); break
         blind = {n for n, _ in (read_back(res['parent'], q, hits[0][0], srcs) or [])}
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(blind))})", *blind)[0]['n'] if blind else 0
-        print(f"  verified: every printed hop is an edge in graph.sqlite and a plain BFS finds the same length" if not (vbad or vlen) else f"  ✗ verification failed on {vbad} hop(s) / {vlen} length(s) — report this")
+        print(f"  verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length" if not (vbad or vlen) else f"  ✗ verification failed on {vbad} hop(s) / {vlen} length(s) — report this")
         if seen_tiers:
             print("  what the hops are:"); [print(l) for l in ax_edges.legend(seen_tiers)]
         print_boundary(g, [m for m, _ in hits[:limit]], "the target(s) call into libraries", "the target(s) also make")
