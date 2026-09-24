@@ -302,14 +302,34 @@ every language** and its documentation inside it (`schema_guide`, `schema_querie
 tables are `call_edges` (one row per call site and possible target), `methods`, `types`, `call_sites`,
 `field_access`, `type_use`, and `unresolved_sites`, the calls the engine declares it could not resolve.
 
-Every edge has a tier, so a consumer picks its own risk tolerance:
+Every edge has a tier, so a consumer picks its own risk tolerance. The tiers fall into five families, and
+not every front end emits every tier:
 
-| tier | meaning |
-|---|---|
-| `known_edge` | exactly one resolved target |
-| `multi_inferred` | a sound set of possible targets (virtual dispatch over instantiated subtypes) |
-| `boundary_lib` | the target is in a library: named, not expanded |
-| `ambiguous_unknown` | the engine could not resolve the site; kept as a row with a NULL target |
+| family | tier | meaning | callee | Java | TypeScript | JavaScript | Python | C# |
+|---|---|---|---|:-:|:-:|:-:|:-:|:-:|
+| **resolved** | `known_edge` | exactly one resolved target | set | ✓ | ✓ | ✓ | ✓ | ✓ |
+| | `multi_inferred` | a sound set of possible targets (virtual dispatch over instantiated subtypes); one row each | set | ✓ | ✓ | ✓ | ✓ | ✓ |
+| | `boundary_lib` | the target is in a library: named, not expanded | set with `--library`, else NULL and named in `callee_label` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| | `ambient_terminal` | an ambient declaration (a `.d.ts` signature with no body anywhere) | set | | ✓ | | | |
+| | `fan_capped` | more targets than `--dispatch-cap`: the fan is refused, and the row names the declared base | set | ✓ | | | | ✓ |
+| | `runtime_observed` | an edge a supplied runtime trace saw and the static pass did not; added only, never removes | set | | | | | ✓ |
+| **handed over** | `callback_registered` | the site passes the function on (`xs.forEach(f)`, `p.then(f)`); whoever holds it may call it | set | | | ✓ | | |
+| | `event_dispatch` | `x.emit('name')` reaching a handler registered with `x.on('name', h)` | set | | | ✓ | | |
+| **correct end** | `ambient_terminal` | the callee or receiver is the platform (`console.log`, `path.join`) | NULL | | | ✓ | | |
+| | `intrinsic_terminal` | a JSX intrinsic element or a dynamic `import()` | NULL | | ✓ | | | |
+| | `implicit_constructor` | `new C()` / `super()` with no constructor up the chain: the synthesized default runs | NULL | | | ✓ | | |
+| | `known_implicit_ctor` | `new Foo()` where Foo declares no constructor: the compiler supplies one | NULL | | | | | ✓ |
+| | `known_builtin_operator` | an operator or conversion with no user-defined declaration: no user code runs | NULL | | | | | ✓ |
+| | `boundary_generated` | a read of a compiler-generated property (a record's); `callee_label` names it | NULL | | | | | ✓ |
+| | `dynamic_terminal` | `obj[expr]()`, `eval`, `import()`: no static target by construction | NULL | | | ✓ | | |
+| **capped** | `fan_capped` | more targets than `--dispatch-cap`: the fan is refused and no target is named | NULL | | | ✓ | | |
+| **blind spot** | `ambiguous_unknown` | the engine could not resolve the site; kept as a row with a NULL target | NULL | ✓ | ✓ | ✓ | ✓ | ✓ |
+| | `ambiguous_anon` | an anonymous-class creation the engine has no rule for yet | NULL | ✓ | | | | |
+| | `ambiguous_dynamic` | a call through C# `dynamic`: undecidable from source by design | NULL | | | | | ✓ |
+
+The blind spots are exactly the `ambiguous_*` tiers, and `unresolved_sites` lists every site that has one. A
+filter such as `tier IN ('known_edge', 'multi_inferred')` drops resolved edges in every language except Python.
+Build the set from this table or from `schema_vocab` in the graph, not from a hard-coded list.
 
 Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 
