@@ -49,13 +49,26 @@ AI coding agent can ask **"what breaks if I change this?"** and get the real lis
 callers that never spell the name because they go through an interface, a subclass or a callback.
 
 <p align="center">
-  <img src="docs/images/call-resolution-accuracy.svg" width="900" alt="Call resolution accuracy. Java: AxiomCode 96.5%, GitNexus 78.9%, codegraph 78.5%, code-review-graph 71.9%, Graphify 67.5%. TypeScript: AxiomCode 88.8%, code-review-graph 71.6%, codegraph 65.4%, GitNexus 65.1%, Graphify 49.8%.">
+  <img src="docs/images/call-resolution-accuracy.svg" width="900" alt="Call resolution accuracy. Java: AxiomCode 96.5%, GitNexus 78.9%, codegraph 78.5%, code-review-graph 71.9%, Slug-graph 67.5%. TypeScript: AxiomCode 88.8%, code-review-graph 71.6%, codegraph 65.4%, GitNexus 65.1%, Slug-graph 49.8%.">
 </p>
 
-Every call is scored against the compiler's own answer: compiled bytecode for Java, the type checker for
-TypeScript, five open-source projects per language. AxiomCode links **96.5%** of calls to their exact target in
-Java and **88.8%** in TypeScript, more than 17 points ahead of the best of the other graph builders in both.
-Details in [Measured cross-file coverage](#measured-cross-file-coverage).
+The chart above scores every call in five open-source projects per language against the compiler's own answer:
+compiled bytecode for Java, the type checker for TypeScript. AxiomCode links **96.5%** of Java calls and **88.8%**
+of TypeScript calls to their exact target, more than 17 points ahead of the best of the other graph builders.
+
+**On real bugs.** 748 held-out Java bugs from [Defects4J](https://github.com/rjust/defects4j), scored once after
+the evaluation rules were frozen. A bug counts only when every test that reveals it is selected.
+
+| method | bugs with every triggering test selected | share of the suite selected |
+|---|---:|---:|
+| **AxiomCode** | **94.9%** | 52.2% |
+| GitNexus | 65.2% | 30.8% |
+| codegraph | 52.4% | 21.2% |
+| Slug-graph | 48.7% | 17.0% |
+| string search | 46.8% | 2.8% |
+| code-review-graph | 21.9% | 5.4% |
+
+Details in [Benchmark results](#benchmark-results) and [Measured cross-file coverage](#measured-cross-file-coverage).
 
 ## Why AxiomCode Graph?
 
@@ -191,14 +204,7 @@ the tests AxiomCode selects include every bug-revealing test for **94.9%** of bu
 best of the other graph builders, while selecting a median of 0.98× as many tests as Defects4J's own
 selection, which it gets by running the suite.
 
-| method | bugs with every triggering test selected | share of the suite selected |
-|---|---:|---:|
-| **AxiomCode** | **94.9%** | 52.2% |
-| GitNexus | 65.2% | 30.8% |
-| codegraph | 52.4% | 21.2% |
-| Graphify | 48.7% | 17.0% |
-| string search | 46.8% | 2.8% |
-| code-review-graph | 21.9% | 5.4% |
+The table is at the [top of this page](#what-it-does).
 
 **Change impact.** On five real commits of a large JVM project (181,355 methods), the direct callers AxiomCode
 reports have precision **0.980** against 0.397 for tree-sitter name matching, at the same recall. An agent asked
@@ -254,7 +260,7 @@ the cross-file call relation: which files call into which.
 | GitNexus | 78.9% | 0.870 | 0.853 | 0.786 |
 | codegraph | 78.5% | 0.735 | 0.807 | 0.716 |
 | code-review-graph | 71.9% | 0.636 | 0.708 | 0.580 |
-| Graphify | 67.5% | 0.671 | 0.717 | 0.585 |
+| Slug-graph | 67.5% | 0.671 | 0.717 | 0.585 |
 
 **TypeScript** (ground truth: the TypeScript type checker, 9,829 one-target call groups)
 
@@ -264,7 +270,7 @@ the cross-file call relation: which files call into which.
 | code-review-graph | 71.6% | 0.605 | 0.660 | 0.576 |
 | codegraph | 65.4% | 0.661 | 0.663 | 0.657 |
 | GitNexus | 65.1% | 0.639 | 0.582 | 0.514 |
-| Graphify | 49.8% | 0.616 | 0.564 | 0.436 |
+| Slug-graph | 49.8% | 0.616 | 0.564 | 0.436 |
 
 Coverage is not resolution precision: a tool that lists every candidate target of a call also recovers the
 expected link, so these numbers are read alongside the tier of each edge.

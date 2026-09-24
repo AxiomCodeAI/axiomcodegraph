@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" role="img" aria-labelledby="t d">
 <title id="t">Call resolution accuracy</title>
-<desc id="d">Share of one-target call groups each tool links to the compiler's target. Java (bytecode ground truth): AxiomCode 96.5%; GitNexus 78.9%; codegraph 78.5%; code-review-graph 71.9%; Graphify 67.5%. TypeScript (type-checker ground truth): AxiomCode 88.8%; GitNexus 65.1%; codegraph 65.4%; code-review-graph 71.6%; Graphify 49.8%.</desc>
+<desc id="d">Share of one-target call groups each tool links to the compiler's target. Java (bytecode ground truth): AxiomCode 96.5%; GitNexus 78.9%; codegraph 78.5%; code-review-graph 71.9%; Slug-graph 67.5%. TypeScript (type-checker ground truth): AxiomCode 88.8%; GitNexus 65.1%; codegraph 65.4%; code-review-graph 71.6%; Slug-graph 49.8%.</desc>
 <rect x="0.5" y="0.5" width="899" height="469" rx="14" fill="#ffffff" stroke="#d5dce8"/>
 <text x="28" y="44" font-size="22" font-weight="700" fill="#222a40">Call resolution accuracy</text>
 <text x="28" y="68" font-size="13.5" fill="#59657a">Share of one-target call groups linked to the exact target · five open-source projects per language</text>
@@ -55,7 +55,7 @@
 <circle cx="776.28" cy="311.0" r="6.5" fill="#2f7d8c" stroke="#fff" stroke-width="1.5"/>
 <text x="302.72999999999996" y="299.0" font-size="12.5" font-weight="500" fill="#222a40" text-anchor="middle">71.9%</text>
 <text x="776.28" y="299.0" font-size="12.5" font-weight="500" fill="#222a40" text-anchor="middle">71.6%</text>
-<text x="28" y="362.0" font-size="14.5" font-weight="500" fill="#222a40">Graphify</text>
+<text x="28" y="362.0" font-size="14.5" font-weight="500" fill="#222a40">Slug-graph</text>
 <line x1="317.25" y1="357.0" x2="704.34" y2="357.0" stroke="#aab0be" stroke-width="2" stroke-linecap="round"/>
 <circle cx="317.25" cy="357.0" r="6.5" fill="#b0621c" stroke="#fff" stroke-width="1.5"/>
 <circle cx="704.34" cy="357.0" r="6.5" fill="#2f7d8c" stroke="#fff" stroke-width="1.5"/>
