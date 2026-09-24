@@ -205,7 +205,10 @@ plugin from `PLUGIN_ROOT`, `CLAUDE_PLUGIN_ROOT` or its working directory, whiche
 
 Cursor reads its own `.cursor-plugin/` manifest, which names the server with `${CURSOR_PLUGIN_ROOT}` (it
 does not expand `${PLUGIN_ROOT}`), and loads `rules/axiomcode.mdc`, `AGENTS.md` as an always-applied rule. It
-converts `hooks/hooks.json` to its own events, except `Glob`, which it has no tool for.
+converts `hooks/hooks.json` to its own events, except `Glob`, which it has no tool for, and the hooks answer
+in Cursor's own output shape. Context after a tool call and with a prompt reaches the model; the directive
+before a tool call does not, because Cursor's `preToolUse` carries no context. `python3 tests/hosts.py`
+fires each hook as both hosts and compares what the model receives.
 
 Gemini installs the repository root and reads skills only from `skills/` there, so `skills/axiomcode/` is a
 copy of the skill's text. After editing the skill or `AGENTS.md`, run `python3 packaging/copies.py`;

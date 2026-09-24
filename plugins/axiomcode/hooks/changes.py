@@ -16,8 +16,10 @@ those, the tests) — ≤ 3 declarations per event, in parallel, a few lines eac
 import concurrent.futures, json, os, re, subprocess, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
 import graph_sql
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _host
 
-ev = json.load(sys.stdin); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
+ev = _host.read(); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')): sys.exit(0)
 SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
 SRC = re.compile(r'\.(java|ts|tsx|js|mjs|cjs|py)$'); TEST = re.compile(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_')
@@ -143,4 +145,4 @@ elif event == 'UserPromptSubmit':
 try:
     with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'event': event, 'tool': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines), 'input': {k: v for k, v in inp.items() if k in ('file_path', 'command', 'old_string', 'new_string')}, 'text': '\n'.join(lines)}) + '\n')
 except OSError: pass
-if lines: print(json.dumps({'hookSpecificOutput': {'hookEventName': event, 'additionalContext': '\n'.join(lines)}}))
+_host.emit(event, '\n'.join(lines))
