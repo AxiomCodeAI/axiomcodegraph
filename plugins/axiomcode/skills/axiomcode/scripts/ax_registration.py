@@ -12,8 +12,9 @@ Both backends read this module, so the Datalog side (the `registration` input fa
 A route registration is NOT recognised by the verb alone. `get`, `set`, `delete`, `head` and `options` are Map, Set,
 Headers, Reflect, URLSearchParams and every cache in this ecosystem, so the site must ALSO carry a string that looks
 like a path — one that begins with `/`. That is the discriminator the engine's own TypeScript rules use, and it is
-what keeps `cache.get(key)` out of the answer. Everything else that takes the declaration as an argument is reported
-as a callback, which claims only what is written: this call receives it, and calls it where the graph cannot follow.
+what keeps `cache.get(key)` out of the answer. A declaration handed to anything else is not given a registration
+here: the reference alone says it is passed as a value (`valueref` in dl/impact.dl), and naming the receiving call as
+one that "calls it where the graph cannot follow" was wrong for every synchronous collection operation (#1166).
 """
 
 ROUTE_VERB = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'connect', 'all', 'use', 'route'}

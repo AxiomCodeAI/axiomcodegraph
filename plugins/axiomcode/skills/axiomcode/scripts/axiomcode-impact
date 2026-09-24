@@ -1821,7 +1821,11 @@ def main(argv):
             byf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in hidden)
             print(f"    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--limit N for all of them)")
         if tst and not want_tests:
-            print(f"    +{len({c for c, *_ in tst})} test callable(s) also reach it, not listed here — `axiomcode test-impact` names them and the command that runs them (--tests lists them by file)")
+            # the count names its files: a pointer that says only "+31" leaves the reader not knowing what was cut or
+            # where, which is what the crowding rule exists to prevent (tests/cases/typescript/anonymous-crowding)
+            tbyf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in tst if r[4])
+            where = (f" in {len(tbyf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in tbyf.most_common(4)) + (' …' if len(tbyf) > 4 else '')) if tbyf else ''
+            print(f"    +{len({c for c, *_ in tst})} test callable(s){where} also reach it, not listed here — `axiomcode test-impact` names them and the command that runs them (--tests lists them by file)")
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
