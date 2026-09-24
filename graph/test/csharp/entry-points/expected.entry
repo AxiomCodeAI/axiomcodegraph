@@ -1,0 +1,18 @@
+entry	http	App.OrdersController.List
+entry	lifecycle	App.Poller.ExecuteAsync
+entry	main	App.Program.Main
+entry	test	App.MsTests.Runs
+entry	test	App.NunitTests.Before
+entry	test	App.NunitTests.Works
+entry	test	App.XunitTests.Lists
+entry	test	App.XunitTests.Many
+reachable	App.MsTests.Runs
+reachable	App.NunitTests.Before
+reachable	App.NunitTests.Works
+reachable	App.OrdersController.List
+reachable	App.Poller.ExecuteAsync
+reachable	App.Program.Main
+reachable	App.Worker.Helper
+reachable	App.Worker.Run
+reachable	App.XunitTests.Lists
+reachable	App.XunitTests.Many
