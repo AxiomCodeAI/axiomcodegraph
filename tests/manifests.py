@@ -4,12 +4,11 @@
 One plugin directory, plugins/axiomcode/, is installed by every host below, each reading the first manifest
 it knows:
 
-  Claude Code, Cursor, Devin      .claude-plugin/marketplace.json -> plugins/axiomcode/.claude-plugin/plugin.json + .mcp.json
-  Codex, Copilot CLI, VS Code,    plugins/axiomcode/plugin.json + mcp.json, the portable Agent Plugins format;
-  Kiro                            Codex finds it through .agents/plugins/marketplace.json, Copilot through the
-                                  Claude marketplace, and each prefers it to its own manifest
-  Codex before the portable       plugins/axiomcode/.codex-plugin/plugin.json
-  format
+  Claude Code, Copilot CLI,       .claude-plugin/marketplace.json -> plugins/axiomcode/.claude-plugin/plugin.json + .mcp.json
+  VS Code, Devin
+  Codex                           .agents/plugins/marketplace.json -> plugins/axiomcode/.codex-plugin/plugin.json, whose
+                                  skills, mcpServers and hooks name the shared files. There is deliberately no root
+                                  plugin.json: Codex prefers one to .codex-plugin/ and then loads no plugin hooks
   Gemini CLI                      gemini-extension.json and skills/, at the repository root
   Cursor                          .cursor-plugin/marketplace.json -> plugins/axiomcode/.cursor-plugin/plugin.json,
                                   which it prefers to .claude-plugin/; skills/, rules/ and hooks/ by folder
@@ -21,15 +20,11 @@ host resolves it and must exist, and the name and version must agree everywhere:
   Claude Code and Copilot expand ${CLAUDE_PLUGIN_ROOT} to the plugin directory.
   Codex reading .codex-plugin/ expands nothing in a plugin's MCP config, sets no variable, and resolves a
   relative `cwd` against the plugin directory, so that server is started by a relative path from `"cwd": "."`.
-  Reading the portable format, it expands ${PLUGIN_ROOT} and sets PLUGIN_ROOT, as the format requires.
-  Cursor expands ${CURSOR_PLUGIN_ROOT} and ${CLAUDE_PLUGIN_ROOT}, but not the portable format's
-  ${PLUGIN_ROOT}, so its manifest names the server itself. Its logo and every path are relative to the
+  Its hooks run with CLAUDE_PLUGIN_ROOT, PLUGIN_ROOT and PLUGIN_DATA set, so hooks.json serves it unchanged.
+  Cursor expands ${CURSOR_PLUGIN_ROOT} and ${CLAUDE_PLUGIN_ROOT}, and its manifest names the server itself. Its logo and every path are relative to the
   plugin directory, with no `..`, as its marketplace review requires.
   Gemini expands ${extensionPath} to the repository root and ${/} to the path separator, and finds skills
   only in skills/ at that root, so skills/axiomcode/ holds a copy of the skill's text (packaging/copies.py).
-  The portable format's schema is closed and its mcp.json takes a single executable as `command`; hosts
-  reject a manifest that breaks either rule. How a host says where the plugin is differs (PLUGIN_ROOT,
-  CLAUDE_PLUGIN_ROOT, or only the working directory), which tests/mcp.py runs.
   No server is started by `bash` or `python3`: on Windows a bare `bash` is WSL's or nothing and `python3`
   is a Store placeholder, and a manifest has no per-platform variant, so every one starts `node` (#1233).
 
@@ -100,30 +95,17 @@ def main():
         if root and os.path.normpath(gemini_path(root)) != PLUGIN:
             bad.append(f"gemini mcp {name}: AXIOMCODE_PLUGIN_ROOT {root} is not plugins/axiomcode")
 
-    # The portable format: a closed manifest schema, the fields Kiro requires to list a Power, and an
-    # mcp.json whose server is a single executable with no host variable the format does not define.
-    portable = load('plugins', 'axiomcode', 'plugin.json')
-    allowed = {'$schema', 'name', 'version', 'description', 'author', 'homepage', 'repository', 'license',
-               'keywords', 'extensions'}
-    if portable.get('$schema') != 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json':
-        bad.append(f"plugin.json: $schema {portable.get('$schema')!r} is not Agent Plugins 1.0.0")
-    for key in sorted(set(portable) - allowed):
-        bad.append(f"plugin.json: {key} is not a field of the portable manifest")
-    for key in ('name', 'version', 'description', 'author', 'keywords'):
-        if not portable.get(key):
-            bad.append(f"plugin.json: {key} is missing (Kiro requires it)")
-    if portable.get('name') != 'axiomcode' or portable.get('version') != package['version']:
-        bad.append(f"plugin.json: name/version {portable.get('name')!r} {portable.get('version')!r} do not match")
-    mcp = load('plugins', 'axiomcode', 'mcp.json')
-    if mcp.get('$schema') != 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json' or set(mcp) != {'$schema', 'mcpServers'}:
-        bad.append("mcp.json: needs exactly $schema (Agent Plugins 1.0.0) and mcpServers")
-    for name, server in mcp.get('mcpServers', {}).items():
-        if server.get('type') != 'stdio' or set(server) - {'type', 'command', 'args', 'env', 'cwd'}:
-            bad.append(f"mcp.json {name}: not a stdio server of the portable format")
-        if not re.fullmatch(r'[\w.-]+', server.get('command', '')):
-            bad.append(f"mcp.json {name}: command {server.get('command')!r} is not a single executable name")
-        if {'PLUGIN_ROOT', 'PLUGIN_DATA'} & set(server.get('env', {})):
-            bad.append(f"mcp.json {name}: env must not set PLUGIN_ROOT or PLUGIN_DATA; the host does")
+    # Codex loads plugin hooks only from .codex-plugin/plugin.json, and only when no root plugin.json exists.
+    if 'hooks' not in codex:
+        bad.append("codex plugin.json: no hooks field, so Codex runs none of the hooks")
+    if os.path.exists(os.path.join(PLUGIN, 'plugin.json')):
+        bad.append("plugins/axiomcode/plugin.json exists: Codex would read it instead of .codex-plugin/ and load no hooks")
+    for event, groups in load('plugins', 'axiomcode', 'hooks', 'hooks.json')['hooks'].items():
+        for group in groups:
+            for hook in group['hooks']:
+                script = re.search(r'\$\{CLAUDE_PLUGIN_ROOT\}(/[^"\s]+)', hook['command'])
+                if not script or not os.path.isfile(PLUGIN + script.group(1)):
+                    bad.append(f"hooks.json {event}: {hook['command']!r} names no script that exists")
 
     # Cursor: its marketplace leads to the plugin, and its manifest agrees with the others and names files
     # that exist once ${CURSOR_PLUGIN_ROOT} is the plugin directory.
@@ -131,9 +113,10 @@ def main():
     cursor = load('plugins', 'axiomcode', '.cursor-plugin', 'plugin.json')
     if os.path.normpath(os.path.join(ROOT, cursor_market['plugins'][0]['source'])) != PLUGIN:
         bad.append(f"cursor marketplace: source {cursor_market['plugins'][0]['source']!r} is not plugins/axiomcode")
-    for key in ('name', 'version', 'license', 'keywords'):
-        if cursor.get(key) != portable.get(key):
-            bad.append(f"cursor plugin.json: {key} {cursor.get(key)!r} differs from plugin.json {portable.get(key)!r}")
+    if cursor.get('name') != 'axiomcode' or cursor.get('version') != package['version']:
+        bad.append(f"cursor plugin.json: name/version {cursor.get('name')!r} {cursor.get('version')!r} do not match")
+    if cursor.get('license') != package.get('license'):
+        bad.append(f"cursor plugin.json: license {cursor.get('license')!r} differs from package.json")
     logo = cursor.get('logo', '')
     if not logo or '..' in logo or os.path.isabs(logo) or not os.path.isfile(os.path.join(PLUGIN, logo)):
         bad.append(f"cursor plugin.json: logo {logo!r} is not a file relative to the plugin")
@@ -146,7 +129,7 @@ def main():
             bad.append(f"cursor plugin.json {name}: Cursor does not expand ${{PLUGIN_ROOT}}")
 
     # One command name that means the same program on every platform (#1233).
-    servers = [('.mcp.json', load('plugins', 'axiomcode', '.mcp.json')), ('mcp.json', mcp),
+    servers = [('.mcp.json', load('plugins', 'axiomcode', '.mcp.json')),
                ('codex mcp', load('plugins', 'axiomcode', codex['mcpServers'])), ('gemini-extension.json', gemini),
                ('cursor plugin.json', cursor)]
     for label, m in servers:

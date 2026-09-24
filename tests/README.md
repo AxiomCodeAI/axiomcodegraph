@@ -19,10 +19,9 @@ One check needs no graph and is its own script:
                                          index taken with uncommitted edits reports only later edits (#1222)
     python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,
                                          directly, through an npm-style symlink to bin/axiomcode.js, on the SDK-free
-                                         fallback, from .mcp.json and .cursor-plugin, and
-                                         as plugins/axiomcode/mcp.json starts it under each way a host names
-                                         the plugin directory
-    python3 tests/manifests.py           every agent's manifest (Claude, portable, Codex, Cursor, Gemini) names the same
+                                         fallback, and from .mcp.json, .codex-plugin/mcp.json and .cursor-plugin
+                                         as each host starts it
+    python3 tests/manifests.py           every agent's manifest (Claude, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
                                          them, and Gemini's skill and Cursor's rule are current copies
     python3 tests/hosts.py               each hook tells Cursor and Gemini CLI what it tells the original host,

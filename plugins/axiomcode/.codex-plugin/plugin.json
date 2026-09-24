@@ -7,12 +7,13 @@
   "repository": "https://github.com/AxiomCodeAI/axiomcodegraph",
   "skills": "./skills/",
   "mcpServers": "./.codex-plugin/mcp.json",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "AxiomCode",
     "shortDescription": "Ask your repository how its code connects",
     "developerName": "AxiomCode",
     "category": "Developer Tools",
-    "capabilities": ["Skills", "MCP tools"],
+    "capabilities": ["Skills", "MCP tools", "Lifecycle hooks"],
     "websiteURL": "https://github.com/AxiomCodeAI/axiomcodegraph"
   }
 }
