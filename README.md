@@ -54,7 +54,7 @@ callers that never spell the name because they go through an interface, a subcla
 
 The chart above scores every call in five open-source projects per language against the compiler's own answer:
 compiled bytecode for Java, the type checker for TypeScript. AxiomCode links **96.5%** of Java calls and **88.8%**
-of TypeScript calls to their exact target, more than 17 points ahead of the best of the other graph builders.
+of TypeScript calls to their exact target, more than 17 points ahead of the best CST-based graph builder.
 
 **On real bugs.** 748 held-out Java bugs from [Defects4J](https://github.com/rjust/defects4j), scored once after
 the evaluation rules were frozen. A bug counts only when every test that reveals it is selected.
@@ -72,7 +72,7 @@ Details in [Benchmark results](#benchmark-results) and [Measured cross-file cove
 
 ## Why AxiomCode Graph?
 
-**A typed graph is a more accurate graph.** Most code graphs are built from the syntax tree: they see that a
+**A typed graph is a more accurate graph.** Most code graphs are built from the concrete syntax tree (CST): they see that a
 method named `save` is called and match it to a declaration by name and nearby imports. Wherever the code
 dispatches through an interface, an override, a generic or a callback, that match is a guess, and every wrong
 guess is a missing or invented edge. AxiomCode resolves each call the way the compiler does, from the declared
@@ -104,57 +104,95 @@ Requirements: **Node ≥ 22.5** and **`python3`**. Until the prebuilt engine pac
 ### Installation
 
 ```bash
-npm i -g @axiomcode/code-graph                # the engine and the axiomcode command
-claude plugin marketplace add AxiomCodeAI/axiomcodegraph
-claude plugin install axiomcode@axiomcode     # the plugin, in Claude Code; other agents below
+# 1. the engine and the axiomcode command
+npm i -g @axiomcode/code-graph
+
+# 2. the plugin, in your agent
+# Claude Code
+claude plugin marketplace add AxiomCodeAI/axiomcodegraph && claude plugin install axiomcode@axiomcode
+# Codex CLI and desktop app
+codex plugin marketplace add AxiomCodeAI/axiomcodegraph && codex plugin add axiomcode@axiomcode
+# Copilot CLI (VS Code agent mode loads Copilot CLI's plugins too)
+copilot plugin marketplace add AxiomCodeAI/axiomcodegraph && copilot plugin install axiomcode@axiomcode
+# Gemini CLI
+gemini extensions install https://github.com/AxiomCodeAI/axiomcodegraph
+# Cursor
+cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiomcodegraph
+# Windsurf, Devin CLI
+devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode
 ```
 
-Start a new agent session afterwards: plugins are loaded at startup. Add `.axiomcode/` to your `.gitignore`;
-the graph is built there on first use.
+Any other agent that speaks MCP (OpenCode, Amp, Cline, Antigravity, …) takes one entry in its MCP config; see
+[Support for agents](#support-for-agents). Start a new agent session afterwards: plugins are loaded at startup.
+Add `.axiomcode/` to your `.gitignore`; the graph is built there on first use.
 
 ### Uninstallation
 
 ```bash
-claude plugin uninstall axiomcode@axiomcode   # or your agent's uninstall command below
+# 1. the plugin, in your agent
+# Claude Code
+claude plugin uninstall axiomcode@axiomcode && claude plugin marketplace remove axiomcode
+# Codex CLI
+codex plugin remove axiomcode@axiomcode && codex plugin marketplace remove axiomcode
+# Copilot CLI
+copilot plugin uninstall axiomcode@axiomcode && copilot plugin marketplace remove axiomcode
+# Gemini CLI
+gemini extensions uninstall axiomcode
+
+# 2. the engine, and the graphs it built
 npm uninstall -g @axiomcode/code-graph
 rm -rf <your-project>/.axiomcode ~/.cache/axiomcode
 ```
+
+In Cursor, remove the plugin from the Plugins panel; in Devin CLI, from its plugin manager; in VS Code, take the
+repository out of `chat.plugins.marketplaces`; in any other MCP client, delete the `axiomcode` entry.
 
 ### Examples
 
 From the shell, in any Java, TypeScript, Python, JavaScript or C# project. There is no setup step: the first
 command builds the graph and later ones read it.
 
+In this TypeScript project, `OrderService` holds a `Store`, an interface, and `SqlStore` implements it in another
+folder. Nothing in `orderService.ts` names `SqlStore`, so searching for it never reaches the caller. The graph
+follows the call through the interface, across files:
+
 ```bash
 cd <your-project>
-axiomcode path main Store.put
+axiomcode path main SqlStore.put
 ```
 
 ```
-main → Store.put: 1 of 1 target(s) reached through resolved calls; nearest at 2 hop(s)
+main → SqlStore.put: 1 of 1 target(s) reached through resolved calls; nearest at 2 hop(s)
   2 call(s):
-    main   src/app.py:17
-      → [known_edge · call @ src/app.py:19] Service.add   src/app.py:12
-      → [known_edge · call @ src/app.py:13] Store.put     src/app.py:4
+    main   src/main.ts:4
+      → [known_edge · call @ src/main.ts:6] OrderService.place   src/orders/orderService.ts:6
+      → [multi_inferred · call @ src/orders/orderService.ts:7] SqlStore.put   src/storage/sqlStore.ts:6
   verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length
   what the hops are:
     [known_edge] resolved to one declaration
+    [multi_inferred] several declarations fit; each is a real candidate
 ```
 
 From an agent, ask in plain words. The skill tells the agent to query the graph instead of grepping:
 
 ```
-> What breaks if I change Store.put?
+> What breaks if I change SqlStore.put?
 
-  axiomcode_impact("Store.put")
-  reads or uses it (4 callable(s): 1 resolved, 4 alongside):
-      [resolved] Service.add   src/app.py:9   — calls it
-      [alongside] Service.__init__   src/app.py:6   — declared in the same file
+  axiomcode_impact("SqlStore.put")
+  must change with it (1: bound by a contract the engine resolved):
+      Store.put   src/storage/store.ts:2   — it implements this
+  reads or uses it (3 callable(s): 1 one of a set, 2 alongside):
+      [one of a set] OrderService.place   src/orders/orderService.ts:7   — calls it
       ...
-  tests: 0 of 0 test method(s) reach the change
-  verified: 1 printed edge(s) looked up again in the graph, all present
-  next: read src/app.py:2, then only these 1 place(s) bound to it: src/app.py:9
+  reaches those through resolved calls: 4 more callable(s) in 3 file(s)
+      src/main.ts: main → OrderService.place
+  tests: 1 of 1 test method(s) reach the change
+      test files: test/orderService.test.ts (1)
+  verified: 2 printed edge(s) looked up again in the graph, all present
 ```
+
+Four files, and one of them, the interface, is the reason text search stops: the change reaches the entry point
+and the test through a call that never names `SqlStore`.
 
 Each hop carries the line the call is on, how certain the edge is, and what kind of call it is. Every printed
 edge is looked up again in the graph before you see it; the `verified:` line is that check reporting.
@@ -203,13 +241,13 @@ the chart above and [Measured cross-file coverage](#measured-cross-file-coverage
 
 **Test selection.** On 748 held-out bugs from Defects4J, scored once after the evaluation rules were frozen,
 the tests AxiomCode selects include every bug-revealing test for **94.9%** of bugs, against **65.2%** for the
-best of the other graph builders, while selecting a median of 0.98× as many tests as Defects4J's own
+best CST-based graph builder, while selecting a median of 0.98× as many tests as Defects4J's own
 selection, which it gets by running the suite.
 
 The table is at the [top of this page](#what-it-does).
 
 **Change impact.** On five real commits of a large JVM project (181,355 methods), the direct callers AxiomCode
-reports have precision **0.980** against 0.397 for tree-sitter name matching, at the same recall. An agent asked
+reports have precision **0.980** against 0.397 for CST-based name matching, at the same recall. An agent asked
 about one change had to read 95 of 43,793 methods, and every true direct caller was among them.
 
 ## CLI commands
