@@ -212,6 +212,51 @@ type_attr_method_value(p, t, n, m) :-
 type_attr_class_value(p, t, n, c) :-
     type_attr_field(p, t, n, f), field_type_holds_class(p, f, c).
 
+// ── instance_attr_method_value(Prov, TypeHash, Name, MethodHash) ─────────────
+// A function ASSIGNED ONTO AN INSTANCE from outside its class (issue #1283):
+//
+//     def init(inst: Schema, checked: bool):
+//         inst._i.parse = lambda x: x + 1
+//         inst._i.run = inst._i.parse
+//
+// The instance attribute shadows the class's `def parse`, so `schema._i.parse(x)` runs
+// the lambda. The parser records no py_field row for a write through anything but `self`
+// (a foreign write, schema §4.1), so field_holds_method never saw it, and a call through
+// the member reached only the class body's `def` -- the assigned functions had no callers.
+//
+// Keyed on the written-through object's TYPE, as type_attr_method_value is: a call whose
+// receiver may be that type may run the assigned function. The write is not ordered
+// against the call, so the class's own method stays a candidate and the site is a set,
+// never a single edge to the assigned value. `self.x = ...` is left to the field rules,
+// which see it with its write count.
+instance_attr_method_value(p, t, n, m) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_name_context(p, "STORE", e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    !expr_node(p, "SELF_REFERENCE", _, _, obj),
+    expr_type(p, obj, t),
+    assign_pair(p, e, val),
+    expr_denotes_method(p, val, m).
+
+// Read back as a VALUE -- the alias `inst._i.run = inst._i.parse` -- the attribute
+// denotes what was assigned to it, beside the bound class method expr_denotes_bound_method
+// already gives it.
+expr_denotes_method(p, e, m) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    !expr_name_context(p, "STORE", e),
+    !call_callee_expr(_, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, t),
+    instance_attr_method_value(p, t, n, m).
+
+// ── the dispatch envelope: the class member, and a function that may run instead ──
+// Basis `value`, as the other front ends record a function held where a member is
+// called: flow-derived, not declared.
+method_dispatch_candidate(base, m, "value") :-
+    instance_attr_method_value(p, t, n, m),
+    mro_lookup(p, t, n, base),
+    m != base.
+
 // Read as a value -- `k = self._row_class` -- the attribute denotes the class, so a
 // call on it or through it resolves like any other class object.
 expr_type_class_object(p, e, c) :-

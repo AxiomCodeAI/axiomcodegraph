@@ -177,6 +177,15 @@ expr_call_candidate(site, m) :-
     call_name(site, n),
     type_attr_method_value("client", t, n, m).
 
+// ── a function ASSIGNED onto an instance — `inst._i.run = _run`, then
+//    `schema._i.run(value)` (resolution/value-flow.dl). The same no-`self` argument
+//    offset, and the class member stays a candidate beside it.
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_type(site, t),
+    call_name(site, n),
+    instance_attr_method_value("client", t, n, m).
+
 // ── a CLASS-VALUED ATTRIBUTE — `self.factory(x)` where `self.factory = Widget` ─
 // Construction, not a method call: the attribute holds the class object, so this builds a
 // Widget and argument 0 lands on __init__'s first parameter after `self`

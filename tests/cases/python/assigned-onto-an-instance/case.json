@@ -1,0 +1,11 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a function assigned onto an instance's member from outside its class (`inst._i.run = _run`, `inst._i.parse = lambda ...`) runs when that member is called, so a walk from the caller reaches it and not only the class body's def (#1283)",
+   "run": ["path", "parse_typed", "*"],
+   "want": ["_run   app.py:27", "<lambda>   app.py:23", "Internals.run   app.py:12"]},
+  {"why": "the alias `inst._i.run = inst._i.parse` carries what `parse` was assigned, so a call through `run` also reaches the parse lambda — through a bounded TypeVar parameter as through a plain annotation (#1283)",
+   "run": ["path", "parse_bound", "*"],
+   "want": ["<lambda>   app.py:23", "_run   app.py:27"]},
+  {"why": "the assigned function has callers: every call through the member, including the lambdas typed only by the callable annotation of the name they are assigned to (an alias, inline, dotted, a bounded TypeVar alias, a callback Protocol) (#1283)",
+   "run": ["impact", "_run"],
+   "want": ["parse_typed   app.py:34", "parse_bound   app.py:42", "<lambda>   app.py:48", "<lambda>   app.py:50", "<lambda>   app.py:51", "<lambda>   app.py:54", "<lambda>   app.py:61"]}]}
