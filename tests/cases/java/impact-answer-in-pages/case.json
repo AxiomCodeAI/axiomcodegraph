@@ -144,6 +144,24 @@
     "next: read",
     "not a reading list"
    ]
+  },
+  {
+   "why": "context's --budget is how many files it lists, not the page size: --budget 1 lists one file and the rest as a count, unpaged (#1202)",
+   "run": [
+    "context",
+    "the rate a quote total uses",
+    "--budget",
+    "1"
+   ],
+   "want": [
+    "src/app/Quote.java",
+    "+4 more file(s)"
+   ],
+   "avoid": [
+    "page 1 of",
+    "tokens a page",
+    "src/app/Invoice.java  ("
+   ]
   }
  ]
 }

@@ -27,6 +27,9 @@ LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 TOOLS = {'axiomcode_index', 'axiomcode_context', 'axiomcode_path', 'axiomcode_impact',
          'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph'}
+# every verb whose prose is paged (ax_pages.install) ends a long answer with "ask for page=2 (MCP)", so its tool has
+# to accept one: a footer that points at a parameter the tool does not have strands the agent on page 1 (#1202)
+PAGED = {'axiomcode_context', 'axiomcode_path', 'axiomcode_impact', 'axiomcode_changed', 'axiomcode_test_impact'}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
@@ -127,6 +130,10 @@ def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
     names = {t['name'] for t in replies.get(2, {}).get('result', {}).get('tools', [])}
     if names != TOOLS:
         bad.append(f"{label}: tools/list gave {sorted(names)}, want {sorted(TOOLS)}")
+    unpaged = sorted(t['name'] for t in replies.get(2, {}).get('result', {}).get('tools', [])
+                     if t['name'] in PAGED and 'page' not in (t.get('inputSchema') or {}).get('properties', {}))
+    if unpaged:
+        bad.append(f"{label}: paged answers whose tool takes no page: {unpaged}")
     content = replies.get(3, {}).get('result', {}).get('content', [])
     if not any(c.get('type') == 'text' and c.get('text') for c in content):
         bad.append(f"{label}: tools/call returned no text: {replies.get(3)}")

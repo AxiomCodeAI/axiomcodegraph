@@ -124,6 +124,9 @@ def context_ids():
     return [i for r in load_state()['reads'] for i in r['ids']]
 
 lines = []
+# what the block below is worth under the session's budget (#1199): the declarations it annotates, so no later read
+# annotates them again, and whether any edge it shows leads into a file the agent has not opened yet
+block_ids, novel = [], True
 if tool in ('Edit', 'Write', 'MultiEdit'):
     # the agent changed a file: WHICH declarations, and HOW (a signature, a field's type, a body) — from `axiomcode changed`, the
     # file against the commit the graph was built from — then the blast radius of each from `axiomcode impact`: what must change
@@ -200,6 +203,9 @@ elif tool == 'Read':
     except Exception: pass
     if rows:
         st = load_state(); ctx = set(context_ids())
+        done = set(st.get('annotated_ids', []))                                    # declarations a block already annotated
+        opened = set(st.get('opened', [])) | {rel}
+        st['opened'] = sorted(opened)
         st['reads'] = ([{'file': rel, 'ids': [r['id'] for r in rows[:12]], 'names': [r['display'] for r in rows[:12]]}] + st['reads'])[:6]; save_state(st)
         # the model has the text it read; the block carries only what that text cannot show: an edge whose other end is in
         # another file, or in this file but OUTSIDE the range read (a whole-file read shows every intra-file call already);
@@ -233,6 +239,14 @@ elif tool == 'Read':
             u, d = up[r['method_id']], dn[r['id']]
             su, sd = [x for x in u if x['id'] in ctx], [x for x in d if x['id'] in ctx]
             if u or d or ov_in[r['method_id']] or ov_out[r['method_id']] or unres[r['id']]: info.append(dict(r=r, up=u, dn=d, ovi=ov_in[r['method_id']], ovo=ov_out[r['method_id']], un=unres[r['id']], su=su, sd=sd, star=su + sd))
+        # A DECLARATION IS ANNOTATED ONCE A SESSION, however its lines are reached again: the same range, an overlapping
+        # one, the whole file after a range of it, or the same file through another spelling of its path. A key on the
+        # read's own arguments caught only the first of those.
+        had = bool(info); info = [x for x in info if x['r']['id'] not in done]
+        block_ids = [x['r']['id'] for x in info]
+        # an edge into a file the agent has not opened is what a read cannot show it; one into a file it has read is
+        # something it may already have seen from the other end
+        novel = any(y['f'] not in opened for x in info for y in x['up'] + x['dn']) or any(x['ovo'] for x in info)
         short = lambda d: d.split('.')[-1] if d.count('.') > 1 else d
         def nm(y): return y['d'] + (f" L{y['ln']}" if y['f'] == rel else '')       # a same-file end outside the range: say where
         def line(x):
@@ -256,10 +270,11 @@ elif tool == 'Read':
             k = tuple(sorted({y['id'] for y in x['star']}))
             if seen[k] < 2: picked.append(x); seen[k] += 1
         few = [x for x in info if x not in picked and (1 <= len(x['up']) <= 3 or x['ovi'] or x['ovo'])]
-        lines.append(f"graph: {os.path.basename(rel)}:{lo}-{hi} — {len(rows)} callable(s); edges the text does not show (cross-file, outside the range, overrides, unresolved)" + (" ★ = what you read before" if picked else '') + ":" + stale)
-        shown = (picked + few)[:5]
+        if had and not info: rows = []                                              # everything here was said before
+        if rows: lines.append(f"graph: {os.path.basename(rel)}:{lo}-{hi} — {len(rows)} callable(s); edges the text does not show (cross-file, outside the range, overrides, unresolved)" + (" ★ = what you read before" if picked else '') + ":" + stale)
+        shown = (picked + few)[:5] if rows else []
         for x in shown: lines.append(line(x))
-        left = [x for x in info if x not in shown]
+        left = [x for x in info if x not in shown] if rows else []
         if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{len(x['up'])}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
 elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(os.path.join(cwd, os.path.expanduser(str(inp['path'])))), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
     # (a Grep of a path outside this tree is about another codebase — nothing here to add)
@@ -313,6 +328,8 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
     if idents:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(idents))) as ex: found = list(ex.map(lookup, idents))
         found = [(n, rows, out) for n, rows, out in found if rows]
+        opened = set(load_state().get('opened', []))
+        novel = any(r['file'] not in opened for _, rows, _ in found for r in rows)
         if found:
             lines.append(f"graph: {len(found)}/{len(idents)} name(s) are callables (← callers → callees ? unresolved)")
             budget = 6
@@ -335,6 +352,9 @@ elif tool == 'Glob':
 # every block stays in the agent's context for the rest of it: in three runs of an implementation task these blocks
 # came to 23k-27k characters a run, more than any graph answer in the same runs. The edges of an EDIT (what the change
 # just made reaches) are a different signal and stay outside the budget.
+# THE MOST USEFUL BLOCKS GET THE BUDGET. A block whose every edge ends in a file the agent has already opened competes
+# for the first half only; the second half is kept for blocks that point somewhere it has not been, which is the one
+# thing a read cannot show.
 ENRICH_BUDGET = int(os.environ.get('AXIOMCODE_ENRICH_BUDGET', '6000'))
 if lines and tool in ('Read', 'Grep', 'Glob'):
     st = load_state()
@@ -346,8 +366,11 @@ if lines and tool in ('Read', 'Grep', 'Glob'):
     elif spent >= ENRICH_BUDGET:
         lines = [] if st.get('budget_said') else [f"graph: this session's enrichment budget ({ENRICH_BUDGET} characters) is spent, so reads and searches get no more of these blocks; ask `axiomcode impact` / `path` directly for a declaration's edges"]
         st['budget_said'] = True
+    elif not novel and spent >= ENRICH_BUDGET // 2:
+        lines = []                                            # only edges into files already opened: the rest is kept for new ones
     else:
         st['enriched_chars'] = spent + sum(len(l) + 1 for l in lines); seen.append(key)
+        st['annotated_ids'] = st.get('annotated_ids', []) + block_ids
     save_state(st)
 # every invocation is logged next to the graph — stream-json does not carry additionalContext, so this is how a run proves the
 # hook fired and what it added

@@ -24,7 +24,7 @@ LABEL = (('reads or uses it', 'users'), ('produces or writes it', 'writers'), ('
          ('tests:', 'tests'), ('depends on', 'dependencies'), ('where the work is', 'files'))
 
 
-def paginate(text, page, budget):
+def paginate(text, page, budget, budget_flag='--budget'):
     lines = text.rstrip('\n').split('\n')
     if page == 'all' or len(text) <= budget * 4:
         return text
@@ -70,7 +70,7 @@ def paginate(text, page, budget):
     if cur: pages.append(cur)
     n = len(pages)
     if page < 1 or page > n:
-        return f"page {page} does not exist: this answer has {n} page(s) at --budget {budget}\n"
+        return f"page {page} does not exist: this answer has {n} page(s) at {budget_flag} {budget}\n"
     body = pages[page - 1]; rest = totals_for({l for l in body if not l.startswith(' ')})
     out = head + [f'page {page} of {n}:'] + body + ([''] + ['also in this answer (counts are for the whole answer):'] + rest if rest else []) + [''] + quals
 
@@ -84,7 +84,7 @@ def paginate(text, page, budget):
     rows_left = sum(1 for pg in left for l in pg if l.startswith('    '))
     nxt = (f"{len(left)} more page(s) left, {rows_left} row(s): {', '.join(held) or 'the rest of the rows above'} — ask for them with "
            f"page={page + 1} (MCP) or --page {page + 1} (CLI), or all of it with --page all") if left else "this is the last page"
-    out.append(f"page {page} of {n} (~{budget} tokens a page): {nxt}; --budget N changes the page size;"
+    out.append(f"page {page} of {n} (~{budget} tokens a page): {nxt}; {budget_flag} N changes the page size;"
                " narrow instead with --in <path>, --depth N or --tests-only")
     return '\n'.join(out) + '\n'
 
@@ -129,14 +129,20 @@ def next_test_impact(text):
 NEXT = {'path': next_path, 'context': next_context, 'changed': next_changed, 'test-impact': next_test_impact}
 
 
+# a verb that already has a --budget of its own keeps it, and its page size is --page-budget: `context --budget N` is
+# how many FILES to list, and taking it here turned `--budget 5` into a 5-token page of the default 12 files
+OWN_BUDGET = {'context'}
+
+
 def install(verb):
     """Capture this process's prose output; on exit, add the verb's next step and page it."""
     argv = sys.argv
+    flag = '--page-budget' if verb in OWN_BUDGET else '--budget'
     page, budget = 1, PAGE_BUDGET                     # taken out of argv in every mode, --json included:
     if '--page' in argv:                              # the verb itself does not know these flags
         i = argv.index('--page'); v = argv[i + 1]; page = 'all' if v == 'all' else int(v); del argv[i:i + 2]
-    if '--budget' in argv:
-        i = argv.index('--budget'); budget = int(argv[i + 1]); del argv[i:i + 2]
+    if flag in argv:
+        i = argv.index(flag); budget = int(argv[i + 1]); del argv[i:i + 2]
     if '--json' in argv:
         return
     real, buf = sys.stdout, io.StringIO()
@@ -149,6 +155,6 @@ def install(verb):
             return
         step = NEXT.get(verb, lambda t: '')(text) if not re.search(r'^\s{0,2}next:', text, re.M) else ''
         if step: text = text.rstrip('\n') + '\n' + step + '\n'
-        real.write(paginate(text, page, budget))
+        real.write(paginate(text, page, budget, flag))
         real.flush()
     atexit.register(flush)

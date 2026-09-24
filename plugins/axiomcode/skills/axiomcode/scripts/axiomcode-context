@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json]
+"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--page N|all] [--page-budget N] [--json]
 
 THE FRONT DOOR — the context an agent needs before it can ask anything precise. Every other verb needs a name you already have — a method, a type, a file:line. That is
 the wrong first question on an unfamiliar repository, and it is measurably where an agent gives up: in a
