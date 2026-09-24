@@ -141,9 +141,13 @@ if refused:
         # rather than restating that there was a match, which told the reader nothing about WHICH match
         _, _, hits = rest.partition('<- ')
         print(f"  {path}" + (f"   <- {hits.strip()}" if hits.strip() else ''))
-    print('  `axiomcode context "<the task>" --in <one of these>` ranks the files and declarations inside it.')
+    print('  `axiomcode context "<the task>" --in <one of these>` (the axiomcode_context tool) ranks the files and '
+          'declarations inside it; call it directly, no skill needs loading first.')
 else:
     print("graph: where this task's own words land in the index —")
     for l in lines[:MAX_LINES]:
         print("  " + l[:150])
-    print('  a starting point, not a conclusion: `impact <name> --in <path>` for what a change reaches.')
+    # the first call, named: an agent that only has the plugin otherwise spends two turns loading the skill and then
+    # the tool schemas before it asks anything (#1202)
+    print('  a starting point, not a conclusion: next, `axiomcode impact <name> --in <path>` (the axiomcode_impact tool) '
+          'for what a change reaches; call it directly, no skill needs loading first.')

@@ -26,6 +26,9 @@ One check needs no graph and is its own script:
                                          them, and Gemini's skill and Cursor's rule are current copies
     python3 tests/hosts.py               each hook tells Cursor and Gemini CLI what it tells the original host,
                                          in their own event names and output shape (indexes one case, so it needs the engine)
+    python3 tests/enrich_budget.py       what a Read or a Grep adds to a session is capped: a declaration annotated once,
+                                         the budget said spent once, its second half kept for edges into unopened files
+                                         (#1199; indexes a small project, so it needs the engine)
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
 
 A case is `tests/cases/<language>/<name>/` with its sources and a `case.json`:
