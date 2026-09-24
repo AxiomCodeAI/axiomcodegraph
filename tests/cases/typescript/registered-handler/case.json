@@ -8,8 +8,8 @@
    "run": ["impact", "listOrders", "--delete"],
    "want": ["NOT SAFE"],
    "avoid": ["no dependent at any certainty"]},
-  {"why": "a declaration passed to anything else is a callback: the call happens where the graph cannot follow, and the answer says that rather than claiming a route",
+  {"why": "a declaration passed to anything else is reported as handed over as a value, never as a route: the receiving call is not named as one that calls it later, since that was wrong for every synchronous collection operation (#1166)",
    "run": ["impact", "auditLog"],
-   "want": ["handed to setTimeout(…) as a callback"],
-   "avoid": ["registered as a"]}
+   "want": ["names it as a value", "src/server.ts:7"],
+   "avoid": ["registered as a", "the graph can see: nothing"]}
  ]}
