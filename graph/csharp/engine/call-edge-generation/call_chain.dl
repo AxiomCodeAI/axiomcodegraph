@@ -250,7 +250,11 @@ call_chain_edge(e, caller, "-", acc, "lib", "boundary_lib", kind) :-
 // The tier of an accessor site, by the same rule as a call site: one target is
 // known_edge, several is a sound set. A property accessor can be virtual, so the fan
 // is real rather than theoretical.
-accessor_tier(prov, e, "known_edge") :- accessor_edge_count(prov, e, 1).
+// An indexer that also carries an external label (an unstaged base may declare the
+// indexer that binds) is one of two, exactly as a call site with an incomplete receiver
+// hierarchy is never known_edge.
+accessor_tier(prov, e, "known_edge") :- accessor_edge_count(prov, e, 1), !external_element_access(prov, e, _).
+accessor_tier(prov, e, "multi_inferred") :- accessor_edge_count(prov, e, 1), external_element_access(prov, e, _).
 accessor_tier(prov, e, "multi_inferred") :- accessor_edge_count(prov, e, c), c >= 2.
 
 // call_from_expr: the caller of an ARBITRARY expression, not only of a call site.

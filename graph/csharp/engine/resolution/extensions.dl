@@ -98,6 +98,9 @@ call_recv_type_name(prov, e, tn) :-
     ref_denotes(prov, r, "LOCAL_VARIABLE", v), var_type_name(prov, v, tn, _).
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
+    ref_denotes(prov, r, "PATTERN_BINDING", v), var_type_name(prov, v, tn, _).
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
     ref_denotes(prov, r, "PARAMETER", p), param_type_name(prov, p, tn, _).
 call_recv_type_name(prov, e, tn) :-
     call_receiver_expr(prov, e, r),
