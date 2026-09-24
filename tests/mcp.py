@@ -10,10 +10,15 @@ run one:
   <link>/axiomcode mcp         through a symlink, the way node_modules/.bin and a global install reach it
   python3 -S server.py         without site-packages, so the SDK cannot import and the built-in fallback
                                serves — the path a clean machine takes
+  plugins/axiomcode/mcp.json   the portable plugin's own command, exactly as written, the three ways a host
+                               can tell it where the plugin is: PLUGIN_ROOT in the environment (the portable
+                               format's rule, Codex and Copilot), CLAUDE_PLUGIN_ROOT only, or nothing but the
+                               plugin directory as the working directory (the format's default). The plugin sits
+                               under a path with a space, which splits an unquoted path into two words
 
     python3 tests/mcp.py
 """
-import json, os, subprocess, sys, tempfile, threading
+import json, os, shutil, subprocess, sys, tempfile, threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')
@@ -22,7 +27,7 @@ TOOLS = {'axiomcode_index', 'axiomcode_context', 'axiomcode_path', 'axiomcode_im
          'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph'}
 
 
-def exchange(cmd, cwd):
+def exchange(cmd, cwd, env=None, workdir=None):
     """initialize, the initialized notification, tools/list and one tools/call, as a client sends them"""
     frames = [
         {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
@@ -37,7 +42,7 @@ def exchange(cmd, cwd):
     # Stdin stays open until the last reply is in, as a real client keeps it: the SDK server stops
     # reading at EOF and drops a call still in flight, which is not how any client drives it.
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         cwd=cwd, text=True)
+                         cwd=workdir or cwd, env=env, text=True)
     timer = threading.Timer(120, p.kill)
     timer.start()
     replies = {}
@@ -64,8 +69,8 @@ def exchange(cmd, cwd):
     return replies, p.stderr.read()
 
 
-def check(label, cmd, cwd):
-    replies, err = exchange(cmd, cwd)
+def check(label, cmd, cwd, env=None, workdir=None):
+    replies, err = exchange(cmd, cwd, env, workdir)
     if replies is None:
         return [f"{label}: {err}"]
     bad = []
@@ -94,6 +99,18 @@ def main():
         bad += check('symlinked axiomcode mcp', [link, 'mcp'], repo)
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)
+
+        # The portable manifest's server, run as its hosts run it. Hosts differ in how they say where the
+        # plugin is, and a command that relies on one of them starts in that host only.
+        plugin = os.path.join(work, 'plugin cache', 'axiomcode')
+        shutil.copytree(os.path.join(ROOT, 'plugins', 'axiomcode'), plugin, symlinks=True)
+        with open(os.path.join(plugin, 'mcp.json')) as f:
+            server = json.load(f)['mcpServers']['axiomcode']
+        cmd = [server['command'], *server['args']]
+        base = {k: v for k, v in os.environ.items() if not k.endswith('PLUGIN_ROOT')}
+        bad += check('mcp.json, PLUGIN_ROOT set', cmd, repo, dict(base, PLUGIN_ROOT=plugin), repo)
+        bad += check('mcp.json, CLAUDE_PLUGIN_ROOT set', cmd, repo, dict(base, CLAUDE_PLUGIN_ROOT=plugin), repo)
+        bad += check('mcp.json, plugin directory as cwd', cmd, repo, base, plugin)
     for b in bad:
         print('FAIL', b)
     print('ok' if not bad else f'{len(bad)} failure(s)')

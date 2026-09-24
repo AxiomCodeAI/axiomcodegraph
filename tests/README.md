@@ -18,9 +18,12 @@ One check needs no graph and is its own script:
     python3 tests/indexed_tree.py        changed compares against the tree the graph was indexed from, so an
                                          index taken with uncommitted edits reports only later edits (#1222)
     python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,
-                                         directly, through an npm-style symlink, and on the SDK-free fallback
-    python3 tests/manifests.py           every agent's manifest (Claude, Codex, Gemini) names the same plugin
-                                         and points at files that exist, the way that agent resolves them
+                                         directly, through an npm-style symlink, on the SDK-free fallback, and
+                                         as plugins/axiomcode/mcp.json starts it under each way a host names
+                                         the plugin directory
+    python3 tests/manifests.py           every agent's manifest (Claude, portable, Codex, Gemini) names the same
+                                         plugin and points at files that exist, the way that agent resolves
+                                         them, and Gemini's copy of the skill is current
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
 
 A case is `tests/cases/<language>/<name>/` with its sources and a `case.json`:

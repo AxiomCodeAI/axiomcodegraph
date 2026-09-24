@@ -1,24 +1,34 @@
 #!/usr/bin/env python3
 """tests/manifests.py — every agent's manifest names the same plugin and points at files that exist.
 
-One plugin directory, plugins/axiomcode/, is installed by four hosts, each reading its own manifest:
+One plugin directory, plugins/axiomcode/, is installed by every host below, each reading the first manifest
+it knows:
 
-  Claude Code, Copilot CLI   .claude-plugin/marketplace.json -> plugins/axiomcode/.claude-plugin/plugin.json + .mcp.json
-  Codex                      .agents/plugins/marketplace.json -> plugins/axiomcode/.codex-plugin/plugin.json
-  Gemini CLI, Antigravity    gemini-extension.json, at the repository root
+  Claude Code, Cursor, Devin      .claude-plugin/marketplace.json -> plugins/axiomcode/.claude-plugin/plugin.json + .mcp.json
+  Codex, Copilot CLI, VS Code,    plugins/axiomcode/plugin.json + mcp.json, the portable Agent Plugins format;
+  Kiro                            Codex finds it through .agents/plugins/marketplace.json, Copilot through the
+                                  Claude marketplace, and each prefers it to its own manifest
+  Codex before the portable       plugins/axiomcode/.codex-plugin/plugin.json
+  format
+  Gemini CLI                      gemini-extension.json and skills/, at the repository root
 
 The hosts start the MCP server differently, and a manifest that points at a moved file installs cleanly and
 fails only when the agent first calls a tool. So every path each manifest names is resolved the way that
 host resolves it and must exist, and the name and version must agree everywhere:
 
   Claude Code and Copilot expand ${CLAUDE_PLUGIN_ROOT} to the plugin directory.
-  Codex expands nothing in a plugin's MCP config, sets no variable, and resolves a relative `cwd` against
-  the plugin directory, so its server is started by a relative path from `"cwd": "."`.
-  Gemini expands ${extensionPath} to the repository root and ${/} to the path separator.
+  Codex reading .codex-plugin/ expands nothing in a plugin's MCP config, sets no variable, and resolves a
+  relative `cwd` against the plugin directory, so that server is started by a relative path from `"cwd": "."`.
+  Reading the portable format, it expands ${PLUGIN_ROOT} and sets PLUGIN_ROOT, as the format requires.
+  Gemini expands ${extensionPath} to the repository root and ${/} to the path separator, and finds skills
+  only in skills/ at that root, so skills/axiomcode/ holds a copy of the skill's text (packaging/root-skill.py).
+  The portable format's schema is closed and its mcp.json takes a single executable as `command`; hosts
+  reject a manifest that breaks either rule. How a host says where the plugin is differs (PLUGIN_ROOT,
+  CLAUDE_PLUGIN_ROOT, or only the working directory), which tests/mcp.py runs.
 
     python3 tests/manifests.py
 """
-import json, os, re, sys
+import json, os, re, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN = os.path.join(ROOT, 'plugins', 'axiomcode')
@@ -82,6 +92,45 @@ def main():
         root = server.get('env', {}).get('AXIOMCODE_PLUGIN_ROOT')
         if root and os.path.normpath(gemini_path(root)) != PLUGIN:
             bad.append(f"gemini mcp {name}: AXIOMCODE_PLUGIN_ROOT {root} is not plugins/axiomcode")
+
+    # The portable format: a closed manifest schema, the fields Kiro requires to list a Power, and an
+    # mcp.json whose server is a single executable with no host variable the format does not define.
+    portable = load('plugins', 'axiomcode', 'plugin.json')
+    allowed = {'$schema', 'name', 'version', 'description', 'author', 'homepage', 'repository', 'license',
+               'keywords', 'extensions'}
+    if portable.get('$schema') != 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json':
+        bad.append(f"plugin.json: $schema {portable.get('$schema')!r} is not Agent Plugins 1.0.0")
+    for key in sorted(set(portable) - allowed):
+        bad.append(f"plugin.json: {key} is not a field of the portable manifest")
+    for key in ('name', 'version', 'description', 'author', 'keywords'):
+        if not portable.get(key):
+            bad.append(f"plugin.json: {key} is missing (Kiro requires it)")
+    if portable.get('name') != 'axiomcode' or portable.get('version') != package['version']:
+        bad.append(f"plugin.json: name/version {portable.get('name')!r} {portable.get('version')!r} do not match")
+    mcp = load('plugins', 'axiomcode', 'mcp.json')
+    if mcp.get('$schema') != 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json' or set(mcp) != {'$schema', 'mcpServers'}:
+        bad.append("mcp.json: needs exactly $schema (Agent Plugins 1.0.0) and mcpServers")
+    for name, server in mcp.get('mcpServers', {}).items():
+        if server.get('type') != 'stdio' or set(server) - {'type', 'command', 'args', 'env', 'cwd'}:
+            bad.append(f"mcp.json {name}: not a stdio server of the portable format")
+        if not re.fullmatch(r'[\w.-]+', server.get('command', '')):
+            bad.append(f"mcp.json {name}: command {server.get('command')!r} is not a single executable name")
+        if {'PLUGIN_ROOT', 'PLUGIN_DATA'} & set(server.get('env', {})):
+            bad.append(f"mcp.json {name}: env must not set PLUGIN_ROOT or PLUGIN_DATA; the host does")
+
+    # Gemini: skills/axiomcode/ at the repository root is a current copy of the plugin's skill text.
+    sync = subprocess.run([sys.executable, os.path.join(ROOT, 'packaging', 'root-skill.py'), '--check'],
+                          capture_output=True, text=True)
+    if sync.returncode:
+        bad += [line for line in sync.stdout.splitlines() if line] or ["skills/axiomcode/: stale"]
+
+    # Hook commands run through a shell. An unquoted ${CLAUDE_PLUGIN_ROOT} splits at a space in the install
+    # path, python3 exits 2, and exit 2 from PreToolUse blocks the tool call it was meant to enrich.
+    for event, groups in load('plugins', 'axiomcode', 'hooks', 'hooks.json')['hooks'].items():
+        for group in groups:
+            for hook in group['hooks']:
+                if re.search(r'(?<!")\$\{CLAUDE_PLUGIN_ROOT\}', hook['command']):
+                    bad.append(f"hooks.json {event}: {hook['command']!r} leaves ${{CLAUDE_PLUGIN_ROOT}} unquoted")
 
     # Every host is told about the same seven tools.
     server = open(os.path.join(PLUGIN, 'mcp', 'server.py')).read()

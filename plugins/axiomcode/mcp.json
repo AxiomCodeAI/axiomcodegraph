@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "axiomcode": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["-c", "exec bash \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-.}}}/mcp/launch.sh\""]
+    }
+  }
+}
