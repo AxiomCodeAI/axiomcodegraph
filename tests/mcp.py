@@ -15,6 +15,7 @@ run one:
                                format's rule, Codex and Copilot), CLAUDE_PLUGIN_ROOT only, or nothing but the
                                plugin directory as the working directory (the format's default). The plugin sits
                                under a path with a space, which splits an unquoted path into two words
+  .cursor-plugin/plugin.json   Cursor's own server entry, with ${CURSOR_PLUGIN_ROOT} replaced as Cursor does
 
     python3 tests/mcp.py
 """
@@ -111,6 +112,15 @@ def main():
         bad += check('mcp.json, PLUGIN_ROOT set', cmd, repo, dict(base, PLUGIN_ROOT=plugin), repo)
         bad += check('mcp.json, CLAUDE_PLUGIN_ROOT set', cmd, repo, dict(base, CLAUDE_PLUGIN_ROOT=plugin), repo)
         bad += check('mcp.json, plugin directory as cwd', cmd, repo, base, plugin)
+
+        # Cursor's own manifest names the server with ${CURSOR_PLUGIN_ROOT}, which Cursor replaces with the
+        # plugin directory before it starts the command, and starts it in the user's project.
+        with open(os.path.join(plugin, '.cursor-plugin', 'plugin.json')) as f:
+            server = json.load(f)['mcpServers']['axiomcode']
+        expand = lambda v: v.replace('${CURSOR_PLUGIN_ROOT}', plugin)
+        cmd = [server['command'], *map(expand, server['args'])]
+        env = dict(base, **{k: expand(v) for k, v in server.get('env', {}).items()})
+        bad += check('.cursor-plugin/plugin.json', cmd, repo, env, repo)
     for b in bad:
         print('FAIL', b)
     print('ok' if not bad else f'{len(bad)} failure(s)')

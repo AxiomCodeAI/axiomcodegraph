@@ -1,0 +1,14 @@
+{
+  "name": "axiomcode",
+  "owner": {
+    "name": "AxiomCode"
+  },
+  "plugins": [
+    {
+      "name": "axiomcode",
+      "source": "plugins/axiomcode",
+      "description": "Ask a repository how its code connects, from a resolved call graph rather than text search.",
+      "category": "Developer Tools"
+    }
+  ]
+}

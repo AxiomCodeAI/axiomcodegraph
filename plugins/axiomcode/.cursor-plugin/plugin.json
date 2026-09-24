@@ -1,0 +1,18 @@
+{
+  "name": "axiomcode",
+  "version": "0.1.0",
+  "description": "Ask your repository how its code connects: who calls this, what breaks if I change it, which tests an edit reaches, how A reaches B. Answers come from a resolved call graph and are verified against it; nothing is guessed. Java, TypeScript, Python, JavaScript.",
+  "author": { "name": "AxiomCode" },
+  "homepage": "https://github.com/AxiomCodeAI/axiom-code-graph",
+  "repository": "https://github.com/AxiomCodeAI/axiom-code-graph",
+  "license": "FSL-1.1-Apache-2.0",
+  "keywords": ["call graph", "callers", "change impact", "test impact", "code navigation", "refactoring", "java", "typescript", "python", "javascript"],
+  "logo": "assets/logo.svg",
+  "mcpServers": {
+    "axiomcode": {
+      "command": "bash",
+      "args": ["${CURSOR_PLUGIN_ROOT}/mcp/launch.sh"],
+      "env": { "AXIOMCODE_PLUGIN_ROOT": "${CURSOR_PLUGIN_ROOT}" }
+    }
+  }
+}
