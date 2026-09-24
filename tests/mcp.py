@@ -9,7 +9,8 @@ run one:
   bin/axiomcode mcp            the command itself
   <link>/axiomcode mcp         through a symlink to bin/axiomcode.js, the `bin` entry, the way
                                node_modules/.bin and a global install reach it
-  .mcp.json                    Claude Code's server entry, with ${CLAUDE_PLUGIN_ROOT} replaced
+  .mcp.json                    Claude Code's server entry, with ${CLAUDE_PLUGIN_ROOT} replaced, and again with
+                               a uv on PATH that fails or hangs, which must fall through to the fallback
   python3 -S server.py         without site-packages, so the SDK cannot import and the built-in fallback
                                serves — the path a clean machine takes; it also has to refuse a call whose
                                arguments do not fit the schema it advertised, as the SDK does (#1243)
@@ -113,11 +114,13 @@ def check_arguments(label, cmd, cwd):
     return bad
 
 
-def check(label, cmd, cwd, env=None, workdir=None):
+def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
     replies, err = exchange(cmd, cwd, env, workdir)
     if replies is None:
         return [f"{label}: {err}"]
     bad = []
+    if want_err and want_err not in err:
+        bad.append(f"{label}: stderr does not say {want_err!r}: {err.strip()[:300]!r}")
     init = replies.get(1, {}).get('result')
     if not init or 'serverInfo' not in init:
         bad.append(f"{label}: no initialize result (stderr: {err.strip()[:200]})")
@@ -173,6 +176,31 @@ def main():
         cmd = [server['command'], *map(expand, server['args'])]
         env = dict(base, **{k: expand(v) for k, v in server.get('env', {}).items()})
         bad += check('.mcp.json', cmd, repo, env, repo)
+
+        # A uv on PATH that cannot build its environment is passed over for the fallback, rather than started
+        # and left to exit before `initialize` (#1249). python3 and python are shadowed by interpreters without
+        # site-packages, so no SDK is found first and the launcher does reach uv; the fake uv records that it
+        # was asked, so the case cannot pass without the uv branch having run.
+        if os.name != 'nt':
+            for label, uv_run, want in (('fails', 'echo "error: Failed to build cryptography" >&2; exit 1', 'Failed to build'),
+                                        ('hangs', 'sleep 30', 'no answer within')):
+                fake = os.path.join(work, f'uv-{label}')
+                os.mkdir(fake)
+                asked = os.path.join(fake, 'asked')
+                shims = {'uv': f'#!/bin/sh\n[ "$1" = --version ] && {{ echo "uv 0.0.0"; exit 0; }}\n'
+                               f'echo "$@" >> "{asked}"\n{uv_run}\n',
+                         'python3': f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n'}
+                shims['python'] = shims['python3']
+                for name, text in shims.items():
+                    with open(os.path.join(fake, name), 'w') as f:
+                        f.write(text)
+                    os.chmod(os.path.join(fake, name), 0o755)
+                uv_env = {k: v for k, v in env.items() if k != 'AXIOMCODE_PYTHON'}
+                uv_env.update(PATH=fake + os.pathsep + env.get('PATH', ''), AXIOMCODE_UV_TIMEOUT_MS='2000')
+                bad += check(f'.mcp.json with a uv that {label}', cmd, repo, uv_env, repo,
+                             want_err=f'uv could not provide the MCP SDK ({want}' if label == 'hangs' else want)
+                if not os.path.exists(asked):
+                    bad.append(f'.mcp.json with a uv that {label}: the launcher never asked uv, so nothing was tested')
 
         # A bash named by AXIOMCODE_BASH that is not there is an error that says so, exit 127, rather than
         # a quiet fall back to whatever `bash` PATH holds, which on Windows is the wrong one (#1229).
