@@ -50,46 +50,59 @@
 
 ## What it does
 
-Give it a repository. It builds a knowledge graph of your code using formal methods: for every function, exactly
-who calls it and what it calls, derived by logical rules rather than guessed. Your AI agents, and you, then
-understand, explore, search and edit the code from that map instead of grepping, including the links text search
-cannot see: calls through an interface, a subclass or a callback, pruning 99.9% of the codebase for better
-execution of long-horizon tasks.
+Give it a repository. It works out, for every function, exactly who calls it and what it calls. Then you or your
+AI coding agent can ask **"what breaks if I change this?"** and get the real list, not a guess, including the
+callers that never spell the name because they go through an interface, a subclass or a callback.
 
 <p align="center">
   <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 65.2%, CodeGraph 52.4%, Graphify 48.7%, Code-Review-Graph 21.9%, name match 46.8%. F1 against Defects4J's own selection. Run-time observation, median: AxiomCode 0.98x, GitNexus 0.65x, CodeGraph 0.25x, Graphify 0.11x, Code-Review-Graph 0.00x, name match 0.03x.">
 </p>
 
-**On real bugs.** On 748 held-out Java bugs from [Defects4J](https://github.com/rjust/defects4j), scored once
-after the evaluation rules were frozen, the tests AxiomCode picks from source, without running anything, include
-every bug-revealing test for **94.9%** of bugs (best tree-sitter builder: 65.2%), at a median of **0.98×** as many
-tests as Defects4J observes by running the suite. The sets are not identical: 71.2% of the observed tests are in
-it, and 38 bugs had a bug-revealing test missed.
+**On real bugs.** 748 held-out bugs from [Defects4J](https://github.com/rjust/defects4j), every tool static and
+from source to tests, scored once after
+the evaluation rules were frozen. Defects4J's own selection is the ground truth: it runs the test suite and records
+which tests load the changed code. Every graph builder above works statically, from source. Without running a
+test, AxiomCode's selection includes every bug-revealing test for **94.9%** of bugs, at an F1 of **72.4** against
+that run-time observation. The best tree-sitter (CST) builder catches them all for 65.2%, at an F1 of 57.5. AxiomCode's selection is not the same set: on average, 71.2% of the tests Defects4J observes are in it, and
+in 38 of the 748 bugs it missed at least one bug-revealing test.
 
-**Why: types.** Share of calls linked to their exact target, scored against the compiler's own answer over five
-open-source projects per language:
+**Why: types.** Choosing tests means following calls several hops back from a change, and one wrong link loses
+every test beyond it. A CST-based builder matches a call to a declaration by name; AxiomCode resolves it the way
+the compiler does, from the receiver's type. Scored against the compiler's own answer, compiled bytecode for Java
+and the type checker for TypeScript, over five open-source projects per language:
 
 | share of calls linked to their exact target | **AxiomCode** | GitNexus | CodeGraph | Code-Review-Graph | Graphify |
 |---|---:|---:|---:|---:|---:|
 | Java, 33,257 calls (bytecode) | **96.5%** | 78.9% | 78.5% | 71.9% | 67.5% |
 | TypeScript, 9,829 calls (type checker) | **88.8%** | 65.1% | 65.4% | 71.6% | 49.8% |
 
-Supports **Java, TypeScript and Python**, with **JavaScript and C#** in beta
-([maturity](#language-and-skill-maturity)). More in [Benchmark results](#benchmark-results).
+**Across files**, it recovers which files call into which with an F1 of **0.974** in Java and **0.898** in
+TypeScript (best CST-based: 0.870 and 0.661), and finds the call path from one method to another **96.1%** and
+**87.7%** of the time (78.6% and 65.7%).
+
+AxiomCode supports **Java, TypeScript and Python**, with **JavaScript and C#** in beta
+([Language and skill maturity](#language-and-skill-maturity)). These benchmarks are Java and TypeScript, the
+languages where a compiler gives an independent ground truth to score against. Details in
+[Benchmark results](#benchmark-results) and [Measured cross-file coverage](#measured-cross-file-coverage).
 
 ## Why AxiomCode Graph?
 
-**Typed, not name-matched.** Most code graphs match a call to a declaration by name. Through an interface, an
-override, a generic or a callback, that match is a guess. AxiomCode resolves each call from the receiver's type, as
-the compiler does, so every edge is a call the program makes. That matters because an agent follows edges several
-hops deep, and one missed link loses everything beyond it.
+**Typed, not name-matched.** A tree-sitter based CST graph builder matches a call to a declaration by name and
+nearby imports. Through an interface, an override, a generic or a callback, that match is a guess, and every wrong
+guess is a missing or invented edge. AxiomCode resolves each call from the receiver's declared and inferred type,
+as the compiler does, so every edge is a call the program actually makes. That matters because an agent follows
+edges several hops deep, and one missed link loses everything beyond it.
 
-**The whole scope, before acting.** Instead of piecing a codebase together from scattered files, an agent sees
-what a task touches, from the implementation to downstream effects and affected tests, and uses up to 50% fewer
-tool calls to explore a new codebase in our benchmarks.
+AI agents often work with an incomplete picture of a codebase. They spend time piecing together scattered files,
+yet can still miss dependencies that lead to incomplete changes and repeated fixes.
 
-**Inspectable.** Every edge carries its source location and a confidence tier. Calls the engine cannot resolve
-stay in the graph, marked as unresolved.
+AxiomCode Graph makes the structure behind the code queryable. Agents can understand a task's scope, from the
+implementation to downstream effects and affected tests, before acting. This supports more reliable changes, more
+complete task execution, and up to 50% fewer tool calls to explore a new codebase in our benchmarks.
+
+The graph is grounded in formal methods, using deterministic, language-aware rules. Source locations and confidence
+tiers make its results inspectable, while unresolved calls remain explicit rather than being presented as
+established relationships.
 
 ## Get Started
 
@@ -152,9 +165,10 @@ repository out of `chat.plugins.marketplaces`; in any other MCP client, delete t
 From the shell, in any Java, TypeScript, Python, JavaScript or C# project. There is no setup step: the first
 command builds the graph and later ones read it.
 
-In this TypeScript project, `main` calls `OrderService.place`, which writes to a `Ledger` and to a `Store`
-interface that `SqlStore` and `MemoryStore` implement. Nothing in `orderService.ts` names `SqlStore`, so text
-search never connects it to the caller.
+In this TypeScript project, `main` builds an `OrderService` and calls `place`, which writes to two things in two
+other folders: a `Ledger`, a concrete class, and a `Store`, an interface that `SqlStore` and `MemoryStore`
+implement. Both chains cross files; the second goes through the interface, where nothing in `orderService.ts`
+names `SqlStore`, so searching for it never reaches the caller.
 
 ```bash
 cd <your-project>
@@ -181,8 +195,9 @@ main → SqlStore.put: 1 of 1 target(s) reached through resolved calls; nearest 
     [multi_inferred] several declarations fit; each is a real candidate
 ```
 
-`known_edge` means one target. `multi_inferred` means several fit: `store.put` can run `SqlStore.put` or
-`MemoryStore.put`, so the graph keeps both.
+The first chain is `known_edge` all the way: each call has exactly one target. The second ends in
+`multi_inferred`, because `store.put` can run `SqlStore.put` or `MemoryStore.put`, depending on which store `main`
+built; the graph keeps both as candidates instead of picking one.
 
 From an agent, ask in plain words. The skill tells the agent to query the graph instead of grepping:
 
@@ -202,8 +217,10 @@ From an agent, ask in plain words. The skill tells the agent to query the graph 
   verified: 2 printed edge(s) looked up again in the graph, all present
 ```
 
-The change reaches the entry point and the test through a call that never names `SqlStore`. Every printed edge is
-looked up again in the graph first; the `verified:` line reports that check.
+The change reaches the entry point and the test through a call that never names `SqlStore`.
+
+Each hop carries the line the call is on, how certain the edge is, and what kind of call it is. Every printed
+edge is looked up again in the graph before you see it; the `verified:` line is that check reporting.
 
 ### Support for agents
 
@@ -244,12 +261,19 @@ language.
 
 ## Benchmark results
 
-- **Call resolution:** 96.5% of Java and 88.8% of TypeScript calls linked to the compiler's exact target
-  ([breakdown](#measured-cross-file-coverage)).
-- **Test selection:** every bug-revealing test for 94.9% of 748 Defects4J bugs, against 65.2% for the best
-  CST-based builder, at an F1 of **72.4** against Defects4J's own selection ([chart](#what-it-does)).
-- **Change impact:** on five commits of a large JVM project (181,355 methods), direct callers at precision
-  **0.980** against 0.397 for name matching, at the same recall.
+**Call resolution.** 96.5% of Java calls and 88.8% of TypeScript calls linked to the compiler's exact target;
+the chart above and [Measured cross-file coverage](#measured-cross-file-coverage) break this down.
+
+**Test selection.** On 748 held-out bugs from Defects4J, scored once after the evaluation rules were frozen,
+the tests AxiomCode selects include every bug-revealing test for **94.9%** of bugs, against **65.2%** for the
+best CST-based graph builder, at an F1 of **72.4** against Defects4J's own selection, which it gets by
+running the suite.
+
+The table is at the [top of this page](#what-it-does).
+
+**Change impact.** On five real commits of a large JVM project (181,355 methods), the direct callers AxiomCode
+reports have precision **0.980** against 0.397 for CST-based name matching, at the same recall. An agent asked
+about one change had to read 95 of 43,793 methods, and every true direct caller was among them.
 
 ## CLI commands
 
@@ -284,10 +308,6 @@ Every edge has a tier, so a consumer picks its own risk tolerance:
 | `multi_inferred` | a sound set of possible targets (virtual dispatch over instantiated subtypes) |
 | `boundary_lib` | the target is in a library: named, not expanded |
 | `ambiguous_unknown` | the engine could not resolve the site; kept as a row with a NULL target |
-| *language-specific* | Java: `fan_capped`, `ambiguous_anon` · TypeScript: `ambient_terminal`, `intrinsic_terminal` · JavaScript: `callback_registered`, `event_dispatch`, `ambient_terminal`, `implicit_constructor`, `dynamic_terminal`, `fan_capped` · C#: `known_implicit_ctor`, `known_builtin_operator`, `boundary_generated`, `ambiguous_dynamic`, `fan_capped`, `runtime_observed` |
-
-The `ambiguous_*` tiers are the blind spots; the rest are resolved or deliberate ends. Each tier is described in
-`schema_vocab` inside the graph.
 
 Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 
