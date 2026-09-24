@@ -1,0 +1,96 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a task that asks HOW something works gets the call flow in call order: the front door first, then what it calls in the order the calls are written",
+   "run": [
+    "context",
+    "How does the Pipeline run a job?"
+   ],
+   "want": [
+    "how it runs —",
+    "Pipeline.run",
+    "→ Tokenizer.tokenize",
+    "→ Planner.plan",
+    "→ Executor.execute",
+    "called at L"
+   ],
+   "avoid": [
+    "entry points (",
+    "→ Pipeline.log"
+   ]
+  },
+  {
+   "why": "a call the graph could not resolve, to a name the project declares, is marked on its step so the reader follows it; a container method on the same value is not",
+   "run": [
+    "context",
+    "How does the Pipeline run a job?"
+   ],
+   "want": [
+    "⚠ unresolved here: dispatch()"
+   ],
+   "avoid": [
+    "items()"
+   ]
+  },
+  {
+   "why": "explaining, the next step says to read each step's body in order — not 'read only these' — because the body is the explanation",
+   "run": [
+    "context",
+    "How does the Pipeline run a job?"
+   ],
+   "want": [
+    "next: read the flow's steps in order",
+    "read each step's BODY"
+   ],
+   "avoid": [
+    "The other files are ranked context, not a reading list"
+   ]
+  },
+  {
+   "why": "--from starts the flow where the caller says, and a question that does not ask how keeps the ranked answer with no flow",
+   "run": [
+    "context",
+    "where is the pipeline tokenizer",
+    "--from",
+    "Planner.plan"
+   ],
+   "want": [
+    "how it runs —",
+    "Planner.plan"
+   ],
+   "avoid": [
+    "→ Tokenizer.tokenize"
+   ]
+  },
+  {
+   "why": "a question that does not ask how something works gets the ranked files, unchanged",
+   "run": [
+    "context",
+    "where is the pipeline tokenizer"
+   ],
+   "want": [
+    "entry points (",
+    "where the work is"
+   ],
+   "avoid": [
+    "how it runs —"
+   ]
+  },
+  {
+   "why": "with --source each flow step carries its code, and next says to answer from it, opening a file only for a cut body or a lost call",
+   "run": [
+    "context",
+    "How does the Pipeline run a job?",
+    "--source"
+   ],
+   "want": [
+    "how it runs —",
+    "|     const tokens = this.tokenizer.tokenize(job.text)",
+    "next: answer from the steps' code shown above"
+   ],
+   "avoid": []
+  }
+ ]
+}
