@@ -1,0 +1,7 @@
+72-object-literal-and-expression-callees [types]
+  precision 1.0000   (8 correct, 0 wrong)
+  recall    1.0000   (8 of 8 the compiler resolved)
+  sites 10   resolved 10 (100.0%)
+  tiers known_edge=10
+  contexts FIELD_TYPE=2  METHOD_PARAM=2  METHOD_RETURN=1  TYPE_ELEMENT=2  VARIABLE_TYPE=3
+  not scored: 0 rows whose target is not a client declaration

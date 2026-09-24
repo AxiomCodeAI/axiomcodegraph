@@ -1,7 +1,6 @@
 # Accepted gaps for 09-generics-substitution — each line is an edge the TypeScript compiler
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
-Box#map((t: T) =) -> Box#<arrow@15>(T)
 # generic#fromReceiver() -> Item#ping() RESOLVES since #587: `new Box<Item>(new Item())`
 # writes its type argument on the `new`, and that now binds T.
 generic#inferredFromArgument() -> Item#ping()

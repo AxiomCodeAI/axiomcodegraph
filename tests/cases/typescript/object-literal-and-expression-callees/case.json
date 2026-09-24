@@ -1,0 +1,48 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a factory returns an object literal typed by an interface; a call to the interface member reaches the literal's property, because the literal implements the member it is named after (#1208)",
+   "run": ["path", "usePool", "src/pool.ts:11"],
+   "want": ["[known_edge · call @ src/pool.ts:21] Pool.run", "[dispatch] run   src/pool.ts:11"],
+   "avoid": ["no chain of resolved calls"]
+  },
+  {
+   "why": "and an object-literal METHOD implements the member the same way",
+   "run": ["path", "usePool", "src/pool.ts:12"],
+   "want": ["Pool.size", "[dispatch] size   src/pool.ts:12"],
+   "avoid": ["no chain of resolved calls"]
+  },
+  {
+   "why": "a literal bound to a const declared as the interface implements it too",
+   "run": ["path", "usePool", "src/pool.ts:16"],
+   "want": ["[dispatch] <arrow>   src/pool.ts:16"],
+   "avoid": ["no chain of resolved calls"]
+  },
+  {
+   "why": "a function read out of an array of tuples into a local and called: the call is typed through the element type, and the function written as that type is what runs",
+   "run": ["impact", "logger"],
+   "want": ["dispatch", "calls it through a field, variable or parameter that holds it", "boot"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "a call on an expression callee runs every branch: an object-literal property passed as the argument reaches the call through the field it is stored in",
+   "run": ["impact", "customFetch"],
+   "want": ["[one of a set] get", "load"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "and the other branch, a declared function, is run by the same call",
+   "run": ["impact", "defaultFetch"],
+   "want": ["[one of a set] get   src/fetcher.ts:16"],
+   "avoid": []
+  },
+  {
+   "why": "a call through a STATIC function-typed field resolves to the field's function type, as the compiler says; it resolved to nothing, so the type had no caller",
+   "run": ["impact", "src/registry.ts:3"],
+   "want": ["[resolved] price   src/registry.ts:14   — calls it"],
+   "avoid": ["directly touches it: nothing"]
+  }
+ ]
+}

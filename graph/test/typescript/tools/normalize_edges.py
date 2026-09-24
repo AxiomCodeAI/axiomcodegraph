@@ -144,7 +144,12 @@ class Names:
         #                 compiler side either — an alias is not a class or an interface —
         #                 so falling through to the module is what MATCHES it.
         #   * METHOD_PARAM an inline annotation, `f(p: { run(): string })`. The compiler
-        #                 side walks past it to the module too.
+        #                 side walks past the parameter to the nearest NAMED declaration:
+        #                 the module for a free function like `f`, and the interface or
+        #                 class for a member, so `run(fn: () => number)` in `interface Pool`
+        #                 is `Pool`. Stopping at the parameter called both of those the
+        #                 module, and a call through `fn` scored one missing plus one extra
+        #                 on the right declaration (#1208).
         # A field that is ITSELF a type-literal member has the same non-name problem and
         # so cannot supply an owner either — otherwise `{ p: { run(): string } }` would
         # hand back the outer literal's text, trading one unstable owner for another.
@@ -158,6 +163,16 @@ class Names:
             if h:
                 typeref_owner[h] = (t.get('referenceOwnerKind') or '',
                                     t.get('typeReferenceOwnerHash') or '')
+        param_method = {}
+        for pr in rows(f'{ir}/all-typescript-method-parameters.csv'):
+            h = pr.get('tsMethodParameterUniqueHash') or ''
+            if h:
+                param_method[h] = pr.get('tsMethodLinkHash') or ''
+        method_owner = {}
+        for mr in rows(f'{ir}/all-typescript-methods.csv'):
+            h = mr.get('tsMethodUniqueHash') or ''
+            if h:
+                method_owner[h] = (mr.get('ownerTypeName') or '', mr.get('methodKind') or '')
         field_owner = {}
         for fl in rows(f'{ir}/all-typescript-fields.csv'):
             h = fl.get('tsFieldUniqueHash') or ''
@@ -170,6 +185,9 @@ class Names:
             if not type_hash:
                 return ''
             kind, owner_hash = typeref_owner.get(type_hash, ('', ''))
+            if kind == 'METHOD_PARAM' and owner_hash:
+                name, method_kind = method_owner.get(param_method.get(owner_hash, ''), ('', ''))
+                return '' if method_kind.startswith('TYPE_LITERAL_') or method_kind == 'FUNCTION_TYPE_SIGNATURE' else name
             if kind != 'FIELD' or not owner_hash:
                 return ''
             name, member_kind = field_owner.get(owner_hash, ('', ''))

@@ -636,3 +636,49 @@ var_shape(v, sh) :- for_binding_iterable(v, e),
 expr_shape(e, sh) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
     expr_child("client", e, "RECEIVER", _, q),
     expr_element_shape(q, sh).
+
+// ── AN ELEMENT OF AN ELEMENT: `middleware[i][0][0]`  (#1208) ─────────────────
+// The rules above type ONE index, and only when the element is itself a function type. A
+// nested access reads an array of arrays of tuples, and each level is typed by the level
+// before it, so what has to travel is the element's type REFERENCE, not a resolved type:
+// the reference of `m[i]` is the element reference of `m`'s, and so on down. An alias is
+// followed to its right-hand side (`type Entry = [Handler, number]`), and a tuple read at
+// a literal index takes the member at that position, any other index every member.
+ref_via_alias(ref, rhs) :- type_ref_resolves(prov, ref, t), type_alias_target(prov, rhs, t).
+
+ref_elem_ref(ref, child) :- type_ref(rp, "ARRAY", _, _, _, _, _, ref), type_ref_parent(rp, ref, _, child).
+ref_elem_ref(ref, child) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_container(tn),
+    type_ref_parent(rp, ref, "0", child).
+ref_elem_ref(parent, x) :- ref_is_readonly_operator(parent),
+    type_ref_parent(_, parent, _, child),
+    ref_elem_ref(child, x).
+ref_elem_ref(ref, x) :- ref_via_alias(ref, rhs), ref_elem_ref(rhs, x).
+
+ref_tuple_member(ref, pos, child) :- type_ref(rp, "TUPLE", _, _, _, _, _, ref), type_ref_parent(rp, ref, pos, child).
+ref_tuple_member(ref, pos, x) :- ref_via_alias(ref, rhs), ref_tuple_member(rhs, pos, x).
+
+elem_index_literal(e, pos) :- expr_child("client", e, "INDEX_ARGUMENT", _, idx),
+    expr_kind("client", "LITERAL", _, idx),
+    expr_literal_value("client", pos, idx).
+elem_index_computed(e) :- expr_child("client", e, "INDEX_ARGUMENT", _, idx),
+    !expr_kind("client", "LITERAL", _, idx).
+
+expr_decl_ref(e, c) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_decl_ref(q, r),
+    ref_elem_ref(r, c).
+expr_decl_ref(e, c) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
+    elem_index_literal(e, pos),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_decl_ref(q, r),
+    ref_tuple_member(r, pos, c).
+expr_decl_ref(e, c) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
+    elem_index_computed(e),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_decl_ref(q, r),
+    ref_tuple_member(r, _, c).
+// …and an element whose reference names a function type is callable through that type
+expr_shape(e, sh) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
+    expr_decl_ref(e, r),
+    ref_shape_target(r, sh).

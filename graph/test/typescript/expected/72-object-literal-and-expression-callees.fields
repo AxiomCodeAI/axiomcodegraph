@@ -1,0 +1,1 @@
+known_edge	read	fetcher#get(string,Options) -> Options#fetch

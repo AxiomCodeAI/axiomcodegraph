@@ -458,3 +458,81 @@ instanceof_narrowed_var(v, prov, t) :- instanceof_test(s, prov, t),
 
 param_type(p, prov, t) :- instanceof_narrowed_param(p, prov, t).
 var_type(v, prov, t) :- instanceof_narrowed_var(v, prov, t).
+
+// ── AN OBJECT LITERAL TYPED BY WHERE IT IS WRITTEN  (#1208) ──────────────────
+// `const fixed: Pool = { run: (fn) => fn() }`, `createPool(): Pool { return { run, size() {…} } }`,
+// `usePool({ run: (fn) => fn() * 2 })`: an object literal is an implementation of the type it is
+// written as, and the functions in it take their parameter types from the members they implement.
+// The rule above covers one of the four places (a METHOD of a literal bound to an annotated
+// variable); an arrow PROPERTY, a returned literal and an argument had nothing, so `fn()` inside
+// each resolved to nothing though the compiler names the member's parameter type.
+//
+// Below the expression fixpoint on purpose, like the rules above: the literal's type comes from an
+// annotation, a declared return type, or the parameter of a call CANDIDATE, never from the overload
+// a call finally selects (expr_resolves_to_method negates, so reading it here would not stratify).
+objlit_ctx_ref(l, r) :- var_initializer("client", _, l, v),
+    expr_kind("client", "OBJECT_LITERAL", _, l),
+    var_type_ref(_, r, v).
+objlit_ctx_ref(l, r) :- field_initializer("client", l, f),
+    expr_kind("client", "OBJECT_LITERAL", _, l),
+    field_type_ref(_, r, f).
+objlit_ctx_ref(l, r) :- method_returns_expr(f, l),
+    expr_kind("client", "OBJECT_LITERAL", "ROOT", l),
+    method_return_ref(_, r, f).
+objlit_ctx_ref(l, r) :- expr_child("client", ce, "ARGUMENT", pos, l),
+    expr_kind("client", "OBJECT_LITERAL", _, l),
+    expr_call_candidate(ce, callee),
+    param_decl(_, _, pos, _, callee, p),
+    param_type_ref(_, r, p).
+objlit_ctx_scope(l, s) :- objlit_ctx_ref(l, r), ref_type_target(r, _, s).
+objlit_ctx_scope(l, s) :- objlit_ctx_ref(l, r), ref_shape_target(r, s).
+
+// a property is a KEY and a VALUE at the same position under the literal; a method is its own row
+objlit_prop(l, name, val) :- expr_child("client", l, "OBJECT_PROPERTY_KEY", pos, key),
+    expr_literal_value("client", name, key),
+    expr_child("client", l, "OBJECT_PROPERTY_VALUE", pos, val).
+objlit_member_fn(l, name, lm) :- objlit_prop(l, name, val), expr_anon_decl("client", lm, val).
+objlit_member_fn(l, name, m) :- method_owner(_, l, m),
+    method_kind(_, "OBJECT_LITERAL_METHOD", _, m),
+    method_decl(_, _, name, _, m).
+
+// ── a function written where a member signature, or a function type, is expected ──
+fn_written_as_sig(lm, sig) :- objlit_member_fn(l, name, lm),
+    objlit_ctx_scope(l, s),
+    method_in_scope(s, name, _, sig).
+fn_written_as_fnref(lm, fref) :- objlit_member_fn(l, name, lm),
+    objlit_ctx_scope(l, s),
+    field_in_scope(s, name, _, f),
+    field_type_ref(_, r, f),
+    ref_shape_target(r, fref).
+// …and an arrow bound to a variable annotated with a function type, whose parameters the rule
+// above types only where they name a declaration: `next: () => void` is itself a function type,
+// so `const logger: Handler = (ctx, next) => next()` left `next()` unresolved
+fn_written_as_fnref(lm, fref) :- var_initializer("client", _, e, v),
+    e != "",
+    expr_anon_decl("client", lm, e),
+    var_type_ref(_, r, v),
+    ref_shape_target(r, fref).
+
+// an unannotated parameter only; one the author annotated keeps its own type
+lambda_param_type(lp, prov, t) :- fn_written_as_fnref(lm, fref),
+    fn_param_type(fref, k, prov, t),
+    param_decl(_, _, k, _, lm, lp),
+    !param_type_ref(_, _, lp).
+lambda_param_shape(lp, sh) :- fn_written_as_fnref(lm, fref),
+    type_ref_parent(_, fref, k, child),
+    ref_shape_target(child, sh),
+    param_decl(_, _, k, _, lm, lp),
+    !param_type_ref(_, _, lp).
+lambda_param_type(lp, prov, t) :- fn_written_as_sig(lm, sig),
+    param_decl(_, _, k, _, sig, sp),
+    param_type_ref(_, r, sp),
+    ref_type_target(r, prov, t),
+    param_decl(_, _, k, _, lm, lp),
+    !param_type_ref(_, _, lp).
+lambda_param_shape(lp, sh) :- fn_written_as_sig(lm, sig),
+    param_decl(_, _, k, _, sig, sp),
+    param_type_ref(_, r, sp),
+    ref_shape_target(r, sh),
+    param_decl(_, _, k, _, lm, lp),
+    !param_type_ref(_, _, lp).

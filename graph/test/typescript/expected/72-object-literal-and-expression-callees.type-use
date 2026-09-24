@@ -1,0 +1,10 @@
+known_edge	FIELD_TYPE	0	Options [FIELD] -> Fetch
+known_edge	FIELD_TYPE	0	Registry [FIELD] -> Format
+known_edge	METHOD_PARAM	0	fetcher [METHOD_PARAM] -> Options
+known_edge	METHOD_PARAM	0	pool [METHOD_PARAM] -> Pool
+known_edge	METHOD_RETURN	0	pool [METHOD] -> Pool
+known_edge	TYPE_ELEMENT	1	Entry [TYPE] -> Handler
+known_edge	TYPE_ELEMENT	2	middleware [METHOD_PARAM] -> Entry
+known_edge	VARIABLE_TYPE	0	fetcher [VARIABLE] -> Fetch
+known_edge	VARIABLE_TYPE	0	middleware [VARIABLE] -> Handler
+known_edge	VARIABLE_TYPE	0	pool [VARIABLE] -> Pool

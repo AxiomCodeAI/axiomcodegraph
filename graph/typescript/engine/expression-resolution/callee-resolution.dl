@@ -249,6 +249,68 @@ expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
     expr_static_type(recv, _, t),
     method_in_scope(t, cn, "true", m).
 
+// (7b) …AND A STATIC FIELD HOLDING A FUNCTION: `Registry.format(n)` where the class
+// declares `static format: Format = money`. (7) searches static METHODS and (5) reaches a
+// callable field only through an instance receiver, so the call resolved to nothing though
+// the compiler names Format's call signature. The static twin of field_is_callable (#1208).
+static_field_is_callable(t, name, m) :- field_in_scope(t, name, "true", f),
+    field_type_ref(_, r, f),
+    ref_shape_target(r, sh),
+    call_signature_in_scope(sh, m).
+static_field_is_callable(t, name, m) :- field_in_scope(t, name, "true", f),
+    field_type_ref(_, r, f),
+    ref_type_target(r, _, ft),
+    call_signature_in_scope(ft, m).
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_static_type(recv, _, t),
+    static_field_is_callable(t, cn, m).
+
+// (7c) A CALL ON AN EXPRESSION CALLEE: `(opt?.fetch || defaultFetch)(url)`, `(a ? f : g)(x)`.
+// The callee names no holder and no declaration, so every rule above passes it by. Each value
+// the callee can evaluate to is a branch (both operands of `||` and `??`, the right one of
+// `&&`, both arms of a ternary, through `!`, `as` and `satisfies`), and a branch typed by a
+// function type contributes that type's call signature: the compiler's answer for the union.
+// A branch that is a declared function contributes nothing here; which function RUNS is the
+// envelope's question (value-flow.dl), not the call site's (#1208).
+callee_branch(ce, ne) :- call_callee_expr(_, ce, ne),
+    expr_kind("client", k, _, ne),
+    callee_kind_is_expression(k).
+callee_branch(ce, x) :- callee_branch(ce, e),
+    expr_kind("client", "TERNARY_EXPRESSION", _, e),
+    expr_child("client", e, r, _, x),
+    edge_role_is_ternary_branch(r).
+callee_branch(ce, x) :- callee_branch(ce, e),
+    expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    binary_op_yields_operand(op, r),
+    expr_child("client", e, r, _, x).
+callee_branch(ce, x) :- callee_branch(ce, e),
+    expr_kind("client", k, _, e),
+    expr_kind_is_transparent(k),
+    expr_child("client", e, r, _, x),
+    edge_role_is_operand(r).
+callee_kind_is_expression("BINARY_EXPRESSION").
+callee_kind_is_expression("TERNARY_EXPRESSION").
+callee_kind_is_expression(k) :- expr_kind_is_transparent(k).
+
+expr_call_candidate(ce, m) :- callee_branch(ce, x),
+    expr_shape(x, s),
+    call_signature_in_scope(s, m).
+expr_call_candidate(ce, m) :- callee_branch(ce, x),
+    expr_kind("client", "PROPERTY_ACCESS", _, x),
+    property_access_name(x, n),
+    expr_child("client", x, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_is_callable(qt, n, m).
+expr_call_candidate(ce, m) :- callee_branch(ce, x),
+    expr_kind("client", "PROPERTY_ACCESS", _, x),
+    property_access_name(x, n),
+    expr_child("client", x, "RECEIVER", _, q),
+    expr_shape(q, s),
+    field_is_callable(s, n, m).
+
 // (8) NAMESPACE-qualified — `fs.readFile(...)`, `ts.createSourceFile(...)`. The
 // receiver is a MODULE, so the callee comes from its export table. Every Node
 // builtin call in the corpus takes this shape, and there is no type anywhere in the
