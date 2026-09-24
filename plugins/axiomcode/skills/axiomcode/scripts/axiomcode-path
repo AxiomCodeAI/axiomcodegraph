@@ -781,7 +781,31 @@ def closure(g, sel, upstream, limit=40, depth=40):
     bfs = {m: dd for m, dd in seen.items() if 0 < dd <= depth and m in g.sym and (not g.IN or g.IN in (g.sym[m]['file'] or '')) and (upstream or g.sym[m]['kind'] not in ('library', 'written'))}
     agree = bfs == dict(rows)
     word = 'can reach' if upstream else 'is reached from'
-    print(f"{'everything that ' + word + ' ' if upstream else 'everything reached from '}{label}: {len(rows)} method(s) in {len({g.sym[m]['file'] for m, _ in rows})} file(s)" + (" through resolved calls" if rows else '') + (f" within {depth} hop(s)" if depth < 40 else ''))
+    print(f"{'everything that ' + word + ' ' if upstream else 'everything reached from '}{label}: {len(rows)} method(s) in {len({g.sym[m]['file'] for m, _ in rows})} file(s)" + (f" within {depth} hop(s)" if depth < 40 else ''))
+    # HOW MUCH OF IT IS CERTAIN. The closure follows every edge the graph holds, and most of a large one arrives through a
+    # dispatch choice: a call to an interface method "reaches" every implementation's callers, so one repository interface
+    # turned 3 exact callers into 342 methods. Both numbers are true -- the first is what must run it, the second what may --
+    # and a count that does not say which it is reads as the first. Walk the same direction again over exact calls only.
+    if rows:
+        exact_adj = collections.defaultdict(set)
+        for a, b, t in g.edges():
+            if t != 'dispatch' and ax_edges.direct_cert(t) == 'resolved': (exact_adj[b].add(a) if upstream else exact_adj[a].add(b))
+        ex, fr = set(ids), list(ids)
+        for _ in range(depth):
+            nxt = []
+            for x in fr:
+                for y in exact_adj.get(x, ()):
+                    if y not in ex: ex.add(y); nxt.append(y)
+            fr = nxt
+            if not fr: break
+        in_rows = {m for m, _ in rows}
+        exact = (ex - set(ids)) & in_rows
+        prod = lambda ms: sum(1 for m in ms if not g.sym[m]['is_test'])
+        n_prod, n_test = prod(in_rows), len(in_rows) - prod(in_rows)
+        e_prod, e_test = prod(exact), len(exact) - prod(exact)
+        print(f"  {n_prod} production, {n_test} test. Through exact calls only: {e_prod} production, {e_test} test; the other "
+              f"{len(in_rows) - len(exact)} only through a dispatch choice (an interface or override with several implementations, "
+              "a call with several candidates) — they MAY run it, not must")
     if not upstream:
         print_boundary(g, ids, "it calls into libraries directly", "it also makes")
     if not rows:
