@@ -290,22 +290,24 @@ about one change had to read 95 of 43,793 methods, and every true direct caller 
 | `axiomcode mcp` | serve the graph to an agent as MCP tools over stdio |
 
 A target is written the way it appears in the code: `Owner.method`, `method`, `Type`, `Owner.field`, or
-`file.py:123`. It is resolved exactly; a miss lists the nearest names. `changed` and `test-impact` compare the
-working tree with a baseline: the tree of the last `axiomcode index`, and the new commit whenever HEAD moves (a
-commit, a merge, a pull, a checkout), so committed edits drop out and nothing accumulates;
-`--range <a>..<b>` compares two commits. The query commands take `--json`. `axiomcode help <command>` prints one
-command's usage.
+`file.py:123`. It is resolved exactly; a miss lists the nearest names. `--range <a>..<b>` compares two commits. The
+query commands take `--json`. `axiomcode help <command>` prints one command's usage.
+
+> [!NOTE]
+> `changed` and `test-impact` compare the working tree with a **baseline**: the last commit (right after an explicit
+> `axiomcode index`, the tree it indexed). The background refresh (below) resets it whenever HEAD moves (a commit, a
+> merge, a pull, a checkout), so committed edits drop out and nothing accumulates; the two commands wait up to 30 s
+> for that. While edits are uncommitted they read the baseline's own graph, kept in `.axiomcode/base`, so a removed
+> method still shows its callers.
 
 The graph stays current on its own. Every file the parser reads is recorded with its hash at build time; after an
 edit, a shell command, a finished turn, at session start and before a query, anything that differs starts one
 background rebuild per repository, with the language, `--src` and `--library` of the graph it replaces. Every
 command keeps reading the previous graph until the new one is indexed and swapped in. A query waits up to
 `AXIOMCODE_FRESH_WAIT` seconds (default 10) for it, then answers from the previous graph with a `graph refresh:` line
-naming the files it predates. `changed` and `test-impact` ask about an edit, so they read the graph of their
-baseline, which a refresh keeps in `.axiomcode/base` while the current graph is ahead of it: a removed method keeps
-its callers there. The MCP server also checks every repository it has answered for once 15 minutes have passed since
-its last update (`AXIOMCODE_REFRESH_INTERVAL`, seconds; 0 turns it off), which catches edits made while a session
-sits idle. The graph records when and why it was built in `index_meta` (`refreshed_at`, `refresh_reason`).
+naming the files it predates. The MCP server also checks every repository it has answered for once 15 minutes have
+passed since its last update (`AXIOMCODE_REFRESH_INTERVAL`, seconds; 0 turns it off), which catches edits made while
+a session sits idle. The graph records when and why it was built in `index_meta` (`refreshed_at`, `refresh_reason`).
 `AXIOMCODE_NO_REFRESH=1` turns all of this off; the log is `.axiomcode/refresh.log`.
 
 ## Graph output
