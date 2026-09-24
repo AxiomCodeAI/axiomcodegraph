@@ -155,7 +155,17 @@ expr_call_candidate(site, m) :-
     call_receiver_object(site, obj),
     expr_names_module("client", obj, mod),
     call_name(site, n),
-    module_member_method("client", mod, n, m).
+    module_member_method("client", mod, n, m),
+    !method_target_replaced("client", m).
+// ── `mod.f()` where mod's `f` is decorator-replaced: what the decorator returned (#1248) ──
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_module("client", obj, mod),
+    call_name(site, n),
+    module_member_method("client", mod, n, def),
+    method_target_replaced("client", def),
+    decorated_name_target(def, m).
 
 // ── a FUNCTION-VALUED ATTRIBUTE — `self.op(1, 2)` where `self.op = add` ───────
 // The attribute holds a plain function, so NO `self` is bound and argument 0 lands on
@@ -280,6 +290,28 @@ call_unresolvable(site, cat("untyped_receiver:", reason)) :-
 // (d) the MRO winner for the name is a decorator-replaced def.
 call_unresolvable(site, "decorator_replaced_target") :-
     call_recv_type(site, t), call_name(site, n), mro_lookup_opaque("client", t, n).
+// (d2) the callee NAMES a decorator-replaced def, here or through an import, or as a
+//      module attribute, and the decorator chain could not be followed: the name denotes
+//      something the engine cannot see. Without this the bare name was `no_rule` and the
+//      module attribute blamed its (perfectly typed) module receiver (#1248).
+call_unresolvable(site, "decorator_replaced_target") :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, ctx, callee), ctx != "STORE", binding_lookup("client", b, b2),
+    binding_binds_replaced_method("client", b2, def), !decorated_name_target(def, _).
+call_unresolvable(site, "decorator_replaced_target") :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, ctx, callee), ctx != "STORE", binding_lookup("client", b, b2),
+    import_binds_method("client", b2, def), method_target_replaced("client", def),
+    !decorated_name_target(def, _).
+call_unresolvable(site, "decorator_replaced_target") :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_module("client", obj, mod),
+    call_name(site, n),
+    module_member_method("client", mod, n, def),
+    method_target_replaced("client", def), !decorated_name_target(def, _).
 // (e) the receiver type is known but nothing in its MRO defines the name, AND the
 //     hierarchy has a hole (unresolved base, dynamic base, metaclass, __getattr__).
 call_unresolvable(site, "escape_hatch") :-

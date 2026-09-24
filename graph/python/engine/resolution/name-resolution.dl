@@ -423,7 +423,7 @@ binding_lookup_unresolved(p, b, n, kind) :-
 expr_names_type_direct(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_binds_type(p, b2, t).
 expr_names_type_direct(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), import_binds_type(p, b2, t).
 expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_binds_method(p, b2, m).
-expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), import_binds_method(p, b2, m).
+expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), import_binds_method(p, b2, m), !method_target_replaced(p, m).
 
 // ── binding_alias_type(Prov, BindingHash, TypeHash) ──────────────────────────
 // `_Aliased = Base` — a name bound to a CLASS by assignment, not by class statement
@@ -462,7 +462,10 @@ name_binding_type(p, b, t) :- binding_binds_type(p, b, t).
 name_binding_type(p, b, t) :- import_binds_type(p, b, t).
 name_binding_type(p, b, t) :- binding_alias_type(p, b, t).
 name_binding_method(p, b, m) :- binding_binds_method(p, b, m).
-name_binding_method(p, b, m) :- import_binds_method(p, b, m).
+// An imported name is the IMPORTED MODULE'S binding, so a def its own module's decorator
+// replaced is no more what the name means here than it is there (#1248). The same guard
+// binding_binds_method applies; resolution/value-flow.dl follows the chain instead.
+name_binding_method(p, b, m) :- import_binds_method(p, b, m), !method_target_replaced(p, m).
 name_binding_method(p, b, m) :- binding_alias_method(p, b, m).
 name_binding_module(p, b, mod) :- import_binds_module(p, b, mod).
 

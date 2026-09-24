@@ -182,7 +182,10 @@ type_attr_method_value(p, t, n, m) :-
 // (a) the static name.
 expr_denotes_method(p, e, m) :- expr_names_method(p, e, m).
 // (b) a dotted module member.
-expr_denotes_method(p, e, m) :- expr_attr_names_method(p, e, m).
+//     A decorator-replaced def is not what `mod.f` denotes; (g) below follows the chain.
+//     expr_attr_names_method itself keeps the def, because the task and decorator rules
+//     that read it want the declaration, not the value.
+expr_denotes_method(p, e, m) :- expr_attr_names_method(p, e, m), !method_target_replaced(p, m).
 // (c) a parameter that some call site put a function into.
 expr_denotes_method(p, e, m) :- expr_names_param(p, e, ph), param_arg_method(ph, m).
 // (d) a single-binding local or module name holding a function.
@@ -193,6 +196,18 @@ expr_denotes_method(p, e, m) :-
 expr_denotes_method(p, e, m) :-
     expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2),
     binding_binds_replaced_method(p, b2, def), decorated_name_target(def, m).
+// (f) the same decorated name, IMPORTED into another module (#1248). `from pkg.lib import
+//     f` binds what pkg.lib's `f` denotes, which is the decorator's output: without this
+//     the importer reached the undecorated `def` while a call in pkg.lib itself reached
+//     the wrapper.
+expr_denotes_method(p, e, m) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2),
+    import_binds_method(p, b2, def), method_target_replaced(p, def),
+    decorated_name_target(def, m).
+// (g) and reached as a module attribute: `import pkg.lib as lib; lib.f(...)`.
+expr_denotes_method(p, e, m) :-
+    expr_attr_names_method(p, e, def), method_target_replaced(p, def),
+    decorated_name_target(def, m).
 
 // ── expr_type from a parameter ───────────────────────────────────────────────
 // The duck-typing answer, and the reason it is a DISPATCH SET rather than a guess: the
