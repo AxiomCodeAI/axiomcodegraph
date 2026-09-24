@@ -48,6 +48,7 @@ EXACT, PREFIX, SUBSTR, PATH = 1000.0, 100.0, 1.0, 0.5
 # the ranker cannot tell the two apart and picks whichever has more methods.
 PATH_TOKEN = 60.0
 TEST_PENALTY = 0.05          # demoted by 20x, never dropped: sometimes the test IS where the answer lives
+COMMON_PATH = 0.25           # a word in more than a quarter of the file paths earns no path bonus
 
 
 def score_symbols(g, terms, use_path=True):
@@ -346,7 +347,12 @@ def main(argv):
     # basenames exist under runtime-core/ — so without scoring the path at the FILE level the ranker keeps
     # choosing the wrong package's twin. Hop still orders, but a file in the named package outranks a
     # nearer one outside it.
-    tset = set(terms)
+    # A word in most of the repository's paths cannot tell one file from another: the project's own name
+    # (`excalidraw` in excalidraw-app/ and packages/excalidraw/) matched nearly every path, so asked how Excalidraw
+    # renders, the path bonus went to whichever file carried the name -- a debug overlay ranked first.
+    all_files = [x for x in {(v or {}).get('file') or '' for v in g.sym.values()} if x and not x.startswith('<')]
+    path_df = collections.Counter(t for x in all_files for t in set(subtokens(x)))
+    tset = {t for t in terms if path_df.get(t, 0) <= COMMON_PATH * max(len(all_files), 1)}
     def file_rank(item):
         f, (d, hit, n) = item
         ptoks = set(subtokens(f))
