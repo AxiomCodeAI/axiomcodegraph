@@ -186,30 +186,31 @@ protocol it uses, and says so on stderr.
 ## Using it from other agents
 
 `plugins/axiomcode/` installs into each of these agents from this repository. Every agent in the table gets the
-seven MCP tools and the skill. The hooks run in Claude Code, Gemini CLI and Cursor, each in its own event and
-output format. Building a graph needs the engine, as
+seven MCP tools and the skill. The hooks run in Claude Code, Codex, Gemini CLI and Cursor, each in its own
+event and output format. Building a graph needs the engine, as
 above: `npm i -g @axiomcode/code-graph`.
 
 | Agent | Install | Reads | Checked |
 |---|---|---|---|
-| Codex CLI and desktop app | `codex plugin marketplace add AxiomCodeAI/axiomcodegraph` then `codex plugin add axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
-| Copilot CLI | `copilot plugin marketplace add AxiomCodeAI/axiomcodegraph` then `copilot plugin install axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
-| VS Code (Copilot agent mode) | add `"chat.plugins.marketplaces": ["AxiomCodeAI/axiomcodegraph"]` to settings, or install with Copilot CLI, whose plugins VS Code also loads | `plugin.json`, `mcp.json` | from VS Code's docs |
+| Codex CLI and desktop app | `codex plugin marketplace add AxiomCodeAI/axiomcodegraph` then `codex plugin add axiomcode@axiomcode` | `.codex-plugin/`: skill, server, hooks | installed; server, skill and hook context reached the model |
+| Copilot CLI | `copilot plugin marketplace add AxiomCodeAI/axiomcodegraph` then `copilot plugin install axiomcode@axiomcode` | `.claude-plugin/`, `.mcp.json` | installed, server and skill loaded |
+| VS Code (Copilot agent mode) | add `"chat.plugins.marketplaces": ["AxiomCodeAI/axiomcodegraph"]` to settings, or install with Copilot CLI, whose plugins VS Code also loads | `.claude-plugin/`, `.mcp.json` | from VS Code's docs |
 | Cursor | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiomcodegraph`, or a team marketplace imported from this repository | `.cursor-plugin/`, `rules/`, hooks | from Cursor's loader |
 | Windsurf, Devin CLI | `devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode` | `.claude-plugin/`, `.mcp.json`, hooks | from Devin's loader |
-| Kiro | Powers panel: Add Custom Power, Import power from GitHub, this repository's URL | `plugin.json`, `mcp.json` | from Kiro's docs |
 | Gemini CLI | `gemini extensions install https://github.com/AxiomCodeAI/axiomcodegraph` | `gemini-extension.json`, `skills/`, `hooks/` | installed; server, skill and hook context reached the model |
 
-`plugin.json` and `mcp.json` are the portable Agent Plugins format. Codex, Copilot and VS Code prefer them to
-their own manifests; `.codex-plugin/` is kept for Codex versions from before it. Their server command finds the
-plugin from `PLUGIN_ROOT`, `CLAUDE_PLUGIN_ROOT` or its working directory, whichever the agent provides.
+Codex reads `.codex-plugin/plugin.json`, which names the skill, the server and `hooks/hooks.json`. Codex runs the
+hooks with `CLAUDE_PLUGIN_ROOT` set, so the same file serves it; it asks the user to trust them under `/hooks`
+first. The plugin has no portable Agent Plugins `plugin.json` on purpose: Codex prefers one to
+`.codex-plugin/` and then loads no plugin hooks, as of Codex 0.156.1. Kiro, which installs only that format,
+is not supported until Codex loads hooks from it.
 
 Cursor reads its own `.cursor-plugin/` manifest, which names the server with `${CURSOR_PLUGIN_ROOT}` (it
 does not expand `${PLUGIN_ROOT}`), and loads `rules/axiomcode.mdc`, `AGENTS.md` as an always-applied rule. It
 converts `hooks/hooks.json` to its own events, except `Glob`, which it has no tool for, and the hooks answer
 in Cursor's own output shape. Context after a tool call and with a prompt reaches the model; the directive
 before a tool call does not, because Cursor's `preToolUse` carries no context. `python3 tests/hosts.py`
-fires each hook as both hosts and compares what the model receives.
+fires each hook as each host and compares what the model receives.
 
 Gemini installs the repository root and reads skills and hooks only there. `hooks/hooks.json` at the root runs
 the plugin's hook scripts under Gemini's event and tool names (`BeforeAgent`, `AfterTool`, `read_file`, …), and

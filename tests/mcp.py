@@ -12,11 +12,7 @@ run one:
   .mcp.json                    Claude Code's server entry, with ${CLAUDE_PLUGIN_ROOT} replaced
   python3 -S server.py         without site-packages, so the SDK cannot import and the built-in fallback
                                serves — the path a clean machine takes
-  plugins/axiomcode/mcp.json   the portable plugin's own command, exactly as written, the three ways a host
-                               can tell it where the plugin is: PLUGIN_ROOT in the environment (the portable
-                               format's rule, Codex and Copilot), CLAUDE_PLUGIN_ROOT only, or nothing but the
-                               plugin directory as the working directory (the format's default). The plugin sits
-                               under a path with a space, which splits an unquoted path into two words
+  .codex-plugin/mcp.json       Codex's server entry, a relative path run from the plugin directory
   .cursor-plugin/plugin.json   Cursor's own server entry, with ${CURSOR_PLUGIN_ROOT} replaced as Cursor does
 
     python3 tests/mcp.py
@@ -104,17 +100,18 @@ def main():
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)
 
-        # The portable manifest's server, run as its hosts run it. Hosts differ in how they say where the
-        # plugin is, and a command that relies on one of them starts in that host only.
+        # The plugin's own server entries, run as their hosts run them, from a copy of the plugin under a path
+        # with a space, which splits an unquoted path into two words.
         plugin = os.path.join(work, 'plugin cache', 'axiomcode')
         shutil.copytree(os.path.join(ROOT, 'plugins', 'axiomcode'), plugin, symlinks=True)
-        with open(os.path.join(plugin, 'mcp.json')) as f:
-            server = json.load(f)['mcpServers']['axiomcode']
-        cmd = [server['command'], *server['args']]
         base = {k: v for k, v in os.environ.items() if not k.endswith('PLUGIN_ROOT')}
-        bad += check('mcp.json, PLUGIN_ROOT set', cmd, repo, dict(base, PLUGIN_ROOT=plugin), repo)
-        bad += check('mcp.json, CLAUDE_PLUGIN_ROOT set', cmd, repo, dict(base, CLAUDE_PLUGIN_ROOT=plugin), repo)
-        bad += check('mcp.json, plugin directory as cwd', cmd, repo, base, plugin)
+
+        # Codex's entry: a relative path, started with the plugin directory as cwd, since Codex expands nothing
+        # in a plugin's MCP config.
+        with open(os.path.join(plugin, '.codex-plugin', 'mcp.json')) as f:
+            server = json.load(f)['mcpServers']['axiomcode']
+        bad += check('.codex-plugin/mcp.json', [server['command'], *server['args']], repo, base,
+                     os.path.join(plugin, server.get('cwd', '.')))
 
         # Cursor's own manifest names the server with ${CURSOR_PLUGIN_ROOT}, which Cursor replaces with the
         # plugin directory before it starts the command, and starts it in the user's project.
