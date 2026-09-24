@@ -108,9 +108,8 @@ AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) pa
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
 agent-facing frontend: a skill, seven MCP tools and hooks. Install the engine first.
 
-Requirements: **Node ≥ 22.5** and **`python3`**. Until the prebuilt engine packages are published,
-the first run per language also needs [Soufflé](https://souffle-lang.github.io) 2.5
-(`brew install souffle`) and a C++ compiler.
+Requirements: **Node ≥ 22.5** and **`python3`**. The engine ships as a prebuilt binary and `npm install`
+takes the one for your platform; there is nothing else to install.
 
 ### Installation
 
@@ -133,7 +132,7 @@ cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiomcodegrap
 devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode
 ```
 
-Any other agent that speaks MCP (OpenCode, Amp, Cline, Antigravity, …) takes one entry in its MCP config; see
+Any other agent that speaks MCP takes one entry in its MCP config; see
 [Support for agents](#support-for-agents). Start a new agent session afterwards: plugins are loaded at startup.
 Add `.axiomcode/` to your `.gitignore`; the graph is built there on first use.
 
@@ -234,7 +233,7 @@ own file reads and searches, run where the last column says so.
 | **Cursor** | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiomcodegraph` | the Plugins panel | yes |
 | **Gemini CLI** | `gemini extensions install https://github.com/AxiomCodeAI/axiomcodegraph` | `gemini extensions uninstall axiomcode` | yes |
 | **Windsurf**, **Devin CLI** | `devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode` | Devin's plugin manager | no |
-| **Any MCP client** (OpenCode, Amp, Cline, Antigravity, …) | the JSON below in its MCP config | remove the entry | no |
+| **Any MCP client** and others | the JSON below in its MCP config | remove the entry | no |
 
 ```json
 { "mcpServers": { "axiomcode": { "command": "npx", "args": ["-y", "@axiomcode/code-graph", "mcp"] } } }
