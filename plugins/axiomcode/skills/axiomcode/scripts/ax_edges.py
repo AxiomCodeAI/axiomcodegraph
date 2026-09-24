@@ -7,13 +7,14 @@ per language, `call_edges` carries 11 distinct tiers and 30 distinct kinds:
 
     java        known_edge multi_inferred ambiguous_unknown boundary_lib ambiguous_anon
                 method new ctor_delegate anon_new ref
-    typescript  + ambient_terminal            FUNCTION_CALL METHOD_CALL CONSTRUCTOR_CALL SUPER_CALL OPTIONAL_CALL
+    typescript  + ambient_terminal intrinsic_terminal FUNCTION_CALL METHOD_CALL CONSTRUCTOR_CALL SUPER_CALL OPTIONAL_CALL
     javascript  + callback_registered implicit_constructor dynamic_terminal fan_capped event_dispatch
                 + COMPUTED_CALL IIFE_CALL DYNAMIC_IMPORT_CALL DYNAMIC_CODE_CALL TAGGED_TEMPLATE_CALL
                   FUNCTION_CALL_APPLY FUNCTION_CALL_CALL FUNCTION_CALL_BIND
     python      SIMPLE_CALL METHOD_CALL SELF_CALL SUPER_CALL CHAINED_CALL SUBSCRIPT_CALL CONTEXT_MANAGER
                 PROPERTY_READ METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
-    csharp      known_edge boundary_generated · new property_read property_write
+    csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped
+                  runtime_observed (only with a runtime trace) · new property_read property_write
 
 Two rules hold here, and they are the reason this module exists rather than a dict at the top of
 each verb:
@@ -38,15 +39,20 @@ TIER_RANK = {
     'boundary_lib': 0,
     'boundary_generated': 0,
     'implicit_constructor': 0,  # the constructor the language supplies when none is written
+    'known_implicit_ctor': 0,   # the same, in C#: the compiler supplies it, no user code runs
+    'known_builtin_operator': 0,  # a built-in operator or conversion: no user code runs
+    'runtime_observed': 1,      # seen in a runtime trace; real, but no call site stands behind it
     'multi_inferred': 1,        # several declarations fit; each one is a real candidate
     'dispatch': 2,              # a base method to an override that is actually instantiated
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
     'event_dispatch': 3,        # emitted here, handled there
     'defines': 4,               # NOT a call: the callee is written inside the caller's body
     'ambient_terminal': 6,      # into the platform or an ambient declaration: terminal
+    'intrinsic_terminal': 6,    # a JSX intrinsic element or a dynamic import(): nothing the graph can name
     'dynamic_terminal': 6,      # the callee is computed at run time and cannot be named
     'fan_capped': 7,            # the candidate set was too large to enumerate; this is a sample
     'ambiguous_anon': 8,
+    'ambiguous_dynamic': 8,     # a call through C# `dynamic`: undecidable from source by design
     'ambiguous_unknown': 8,
     'by-name': 9,               # not resolved at all: the names simply match
 }
@@ -63,6 +69,13 @@ TIER_NOTE = {
     'boundary_lib':         'into a dependency; the chain ends there',
     'boundary_generated':   'into a generated member of a dependency',
     'implicit_constructor': 'the constructor the language supplies when none is written',
+    'known_implicit_ctor':  'the constructor the compiler supplies when none is written; no user code runs',
+    'known_builtin_operator': 'a built-in operator or conversion; no user code runs',
+    'runtime_observed':     'seen in a runtime trace; no call site in the source stands behind it',
+    'intrinsic_terminal':   'a JSX intrinsic element or a dynamic import(); the chain ends there',
+    'ambiguous_dynamic':    'a call through `dynamic`, undecidable from the source',
+    'ambiguous_anon':       'an anonymous-class creation the engine has no rule for yet',
+    'ambiguous_unknown':    'the engine could not resolve this site',
     'ambient_terminal':     'into the platform or an ambient declaration; the chain ends there',
     'dynamic_terminal':     'the callee is computed at run time and cannot be named',
     'fan_capped':           'the candidate set was too large to enumerate — a sample, not the set',
@@ -141,9 +154,10 @@ def legend(tiers):
 DIRECT_CERT = {
     'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved',
     'implicit_constructor': 'resolved', 'written': 'resolved',
+    'known_implicit_ctor': 'resolved', 'known_builtin_operator': 'resolved', 'runtime_observed': 'resolved',
     'multi_inferred': 'one of a set',
     'callback_registered': 'registered', 'event_dispatch': 'registered',
-    'ambient_terminal': 'registered', 'dynamic_terminal': 'registered',
+    'ambient_terminal': 'registered', 'dynamic_terminal': 'registered', 'intrinsic_terminal': 'registered',
     'fan_capped': 'capped set',
 }
 DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and this table cannot name — never `resolved`
