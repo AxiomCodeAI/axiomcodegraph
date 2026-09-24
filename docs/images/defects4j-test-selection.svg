@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" role="img" aria-labelledby="t d">
 <title id="t">Test selection on 748 held-out Defects4J bugs</title>
-<desc id="d">Bugs with every bug-revealing test selected, and F1 against the selection Defects4J observed by running the tests. AxiomCode 94.9%, F1 72.4; GitNexus 65.2%, F1 57.5; CodeGraph 52.4%, F1 44.8; Graphify 48.7%, F1 41.3; Code-Review-Graph 21.9%, F1 18.7; Name-Match 46.8%, F1 32.5. Defects4J observed by running the tests: 100%, F1 100.</desc>
+<desc id="d">Bugs with every bug-revealing test selected, and F1 against the selection Defects4J observed by running the tests. AxiomCode 94.9%, F1 72.4; GitNexus 61.5%, F1 54.3; CodeGraph 52.3%, F1 44.8; Graphify 48.7%, F1 41.3; Code-Review-Graph 21.9%, F1 18.7; Name-Match 46.8%, F1 32.5. Defects4J observed by running the tests: 100%, F1 100.</desc>
 <rect x="0.5" y="0.5" width="899" height="469" rx="14" fill="#ffffff" stroke="#d5dce8"/>
 <text x="28" y="44" font-size="22" font-weight="700" fill="#222a40">Test selection on real bugs: Defects4J</text>
 <text x="28" y="68" font-size="13.5" fill="#59657a">748 held-out Defects4J bugs · every static tool, from source to tests · Defects4J's own answer is observed by running the tests</text>
@@ -33,13 +33,13 @@
 <rect x="560" y="162.0" width="173.8" height="16" rx="3" fill="#4f5bff"/>
 <text x="726.8" y="174.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="end">72.4%</text>
 <text x="28" y="215.0" font-size="14.5" font-weight="500" fill="#222a40">GitNexus</text>
-<rect x="190" y="202.0" width="202.1" height="16" rx="3" fill="#9aa3b5"/>
-<text x="398.1" y="214.5" font-size="12.5" font-weight="500" fill="#222a40">65.2%</text>
-<rect x="560" y="202.0" width="138.0" height="16" rx="3" fill="#9aa3b5"/>
-<text x="704.0" y="214.5" font-size="12.5" font-weight="500" fill="#222a40">57.5%</text>
+<rect x="190" y="202.0" width="190.7" height="16" rx="3" fill="#9aa3b5"/>
+<text x="386.7" y="214.5" font-size="12.5" font-weight="500" fill="#222a40">61.5%</text>
+<rect x="560" y="202.0" width="130.3" height="16" rx="3" fill="#9aa3b5"/>
+<text x="696.3" y="214.5" font-size="12.5" font-weight="500" fill="#222a40">54.3%</text>
 <text x="28" y="255.0" font-size="14.5" font-weight="500" fill="#222a40">CodeGraph</text>
-<rect x="190" y="242.0" width="162.4" height="16" rx="3" fill="#9aa3b5"/>
-<text x="358.4" y="254.5" font-size="12.5" font-weight="500" fill="#222a40">52.4%</text>
+<rect x="190" y="242.0" width="162.1" height="16" rx="3" fill="#9aa3b5"/>
+<text x="358.1" y="254.5" font-size="12.5" font-weight="500" fill="#222a40">52.3%</text>
 <rect x="560" y="242.0" width="107.5" height="16" rx="3" fill="#9aa3b5"/>
 <text x="673.5" y="254.5" font-size="12.5" font-weight="500" fill="#222a40">44.8%</text>
 <text x="28" y="295.0" font-size="14.5" font-weight="500" fill="#222a40">Graphify</text>

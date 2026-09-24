@@ -61,12 +61,12 @@ cannot see: calls through an interface, a subclass or a callback, pruning 99.9% 
 their context for the task, not the search.
 
 <p align="center">
-  <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 65.2%, CodeGraph 52.4%, Graphify 48.7%, Code-Review-Graph 21.9%, name match 46.8%. F1 against Defects4J's own selection. Run-time observation, median: AxiomCode 0.98x, GitNexus 0.65x, CodeGraph 0.25x, Graphify 0.11x, Code-Review-Graph 0.00x, name match 0.03x.">
+  <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 61.5%, CodeGraph 52.3%, Graphify 48.7%, Code-Review-Graph 21.9%, name match 46.8%. F1 against Defects4J's own selection. Run-time observation, median: AxiomCode 0.98x, GitNexus 0.56x, CodeGraph 0.25x, Graphify 0.11x, Code-Review-Graph 0.00x, name match 0.03x.">
 </p>
 
 **On real bugs.** On 748 held-out [Defects4J](https://github.com/rjust/defects4j) bugs, scored once after the rules
 were frozen, the tests AxiomCode picks from source include every bug-revealing test for **94.9%** of bugs (best
-tree-sitter builder: 65.2%), at an **F1 of 72.4** against what Defects4J observes by running the suite.
+tree-sitter builder: 61.5%), at an **F1 of 72.4** against what Defects4J observes by running the suite.
 
 **Why: types make a better graph.** Choosing tests means following calls several hops back from a change, and one
 wrong link loses every test beyond it. A tree-sitter based CST builder matches a call to a declaration by name;
@@ -266,7 +266,7 @@ language.
 the chart above and [Measured cross-file coverage](#measured-cross-file-coverage) break this down.
 
 **Test selection.** On 748 held-out bugs from Defects4J, scored once after the evaluation rules were frozen,
-the tests AxiomCode selects include every bug-revealing test for **94.9%** of bugs, against **65.2%** for the
+the tests AxiomCode selects include every bug-revealing test for **94.9%** of bugs, against **61.5%** for the
 best CST-based graph builder, at an F1 of **72.4** against Defects4J's own selection, which it gets by
 running the suite.
 
