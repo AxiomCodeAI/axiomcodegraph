@@ -20,7 +20,7 @@
   from a source to a target (from Datalog, polynomial — `301 methods and 935 calls` for `Parser.parse → Lexer.emit`),
   by file, then the simple paths through it, shortest first, up to `--paths N` (default 20; the count is exponential,
   so the set is the complete answer and the list is a sample of it). The `verified:` line means every hop was looked up
-  again in graph.sqlite and a plain BFS found the same length; a `✗` means the answer is wrong — report it, do not use it.
+  again in the graph and a second, independent traversal found the same length; a `✗` means the answer is wrong — report it, do not use it.
 - **Every hop reads `[tier · kind @ file:line]`.** The *tier* is how certain the edge is; the *kind* is what sort of
   call it is, in one vocabulary that means the same thing in all five languages (`call` · `new` · `ctor` · `super` ·
   `decorator` · `property` · `method-ref` · `with` · `import` · `eval` · `dynamic`); and the *line* is where the call
@@ -75,7 +75,7 @@
   calls it (the caller is outside the graph: a framework, a runner, reflection) or it is a test; a decoration on it is
   shown as information, never used to decide. `path X '*'` is everything X reaches, and the library calls X makes itself
   (the platform methods where the client graph ends), listed but never traversed. `--in src/main` keeps only the part
-  under that path; `--depth N` bounds the hops. Each closure is cross-checked against a plain BFS (the `verified:` line)
+  under that path; `--depth N` bounds the hops. Each closure is cross-checked against a second, independent traversal (the `verified:` line)
   and bounded by the unresolved calls inside it.
 - **An empty answer names the framework that owns it.** `path '*' <handler>` for a live route used to print "0
   method(s)", which is true of calls and false of the program. When the upstream closure is empty the registration is

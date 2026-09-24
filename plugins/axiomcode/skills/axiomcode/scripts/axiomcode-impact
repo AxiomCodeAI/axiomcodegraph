@@ -44,7 +44,7 @@ The answer has the same shape for every kind and every language:
                             --tests-in <path> narrows the listing (not the closure) to test files containing it
     bound                   the unresolved calls inside the impacted set: the graph cannot see what those reach, so the
                             set is a lower bound on the real one
-Every closure is cross-checked against a plain BFS over the same facts (the `verified:` line). The tool infers nothing
+Every closure is cross-checked against a second, independent traversal over the same facts (the `verified:` line). The tool infers nothing
 about values: a callable that is reached may or may not change behaviour; a callable that is NOT listed either has no
 resolved chain to the change or reaches it through something the graph cannot see (reflection, a framework, a library
 callback) — the bound line says how many such sites there are.
@@ -2053,7 +2053,7 @@ def main(argv):
               + (". A configuration binding, a dependency injection and a @Value placeholder are each recorded by the"
                  " engine and resolved, and none of them has a call site." if mix.get('resolved') else ""))
     else:
-        print(f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
+        print(f"verified: {hops} printed edge(s) looked up again in the graph" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
     # AN EMPTY CLOSURE HAS MORE THAN ONE CAUSE, and this line used to assert one of them. It fires on
     # "the closure is empty" and then said every dependent was reached by something other than a resolved
     # call — which, printed one line under `verified: 2 printed edge(s) … all present`, contradicts the

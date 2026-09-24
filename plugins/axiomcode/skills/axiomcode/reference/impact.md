@@ -220,7 +220,7 @@ line and names the constructor query to run; take that suggestion before acting 
   targets and carry 0.802 recall at 0.566 precision, against 0.792 / 0.569 with every framework hop turned off,
   because its tests reach its code by CALLING it. The framework hops pay where a framework is in between and very
   nearly cancel where it is not: on the CLI library the decorator hop alone adds 3 true pairs and 4 false ones.
-- **verified** — every printed edge looked up again in graph.sqlite; **bound** counts the unresolved calls inside the impacted
+- **verified** — every printed edge looked up again in the graph; **bound** counts the unresolved calls inside the impacted
   set, so the set is a lower bound on the real one; a **note** counts the entries matched by name or text.
 
 `--delete` adds a verdict: **is it safe to delete** — the callers and contracts that say no, or, when there are none, exactly
