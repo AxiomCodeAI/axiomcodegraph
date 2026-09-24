@@ -1,0 +1,39 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · ENTRY POINTS
+//
+// entry_point(Method, Reason): a method the RUNTIME calls, which is why nothing in the
+// project does. The bundle's entry_points table and entry_reachable are built from it,
+// and impact and context read it to name a dependent as a declared root. Same relation
+// and the same reason vocabulary as java/, python/ and typescript/.
+//
+// Every framework name is in knobs.dl. The route, rpc and consumer rules reuse what
+// destinations.dl already derives, so an entry point and a remote edge cannot disagree
+// about which method is the handler.
+// ============================================================================
+
+// main: a static Main, and the method top-level statements compile to
+entry_point(m, "main") :- method_name("client", m, "Main"), method_modifier("client", m, "static").
+entry_point(m, "main") :- method_is_top_level_entry("client", m).
+
+// test: a test method, and the set-up and tear-down around it
+entry_point(m, "test") :- attr_on(m, "METHOD", n, _), cs_test_attr(n).
+entry_point(m, "test") :- attr_on(m, "METHOD", n, _), cs_test_lifecycle_attr(n).
+entry_point(m, "test") :- attr_on(m, "METHOD", n0, _), cs_attr_suffix(n0, n), cs_test_attr(n).
+entry_point(m, "test") :- attr_on(m, "METHOD", n0, _), cs_attr_suffix(n0, n), cs_test_lifecycle_attr(n).
+// `[FactAttribute]` is the same attribute as `[Fact]`
+cs_attr_suffix(n0, n) :- attr_on(_, "METHOD", n0, _), strlen(n0) > 9,
+    substr(n0, strlen(n0) - 9, 9) = "Attribute", n = substr(n0, 0, strlen(n0) - 9).
+
+// http, grpc_service, queue: the handlers the destination rules found
+entry_point(m, "http") :- serves_destination(m, tr, _), cs_remote_transport_http(tr).
+entry_point(m, "grpc_service") :- serves_destination(m, tr, _), cs_remote_transport_grpc(tr).
+entry_point(m, "queue") :- serves_destination(m, tr, _), !cs_remote_transport_http(tr), !cs_remote_transport_grpc(tr).
+
+// lifecycle: a hosted service's methods, on a type deriving from the host's base
+entry_point(m, "lifecycle") :- heritage_slot("client", t, _, bn0, _, _), last_segment(bn0, bn), cs_hosted_base(bn),
+    method_owner("client", t, m), method_name("client", m, mn), cs_hosted_method(mn).
+last_segment_demand(n) :- heritage_slot("client", _, _, n, _, _).
+
+// Everything the runtime can reach from an entry point over resolved in-source calls.
+entry_reachable(m) :- entry_point(m, _).
+entry_reachable(callee) :- entry_reachable(caller), call_chain_edge(_, caller, _, callee, "client", _, _).

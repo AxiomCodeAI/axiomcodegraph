@@ -188,3 +188,21 @@ cs_msg_request_send("GetResponse").
 // holds the type named by the call's type argument.
 cs_di_resolve("GetRequiredService").
 cs_di_resolve("GetService").
+
+// ── ENTRY POINTS (entry-points.dl) ─────────────────────────────────────────
+// A test framework runs these methods; nothing in the project calls them.
+cs_test_attr("Fact").          cs_test_attr("Theory").                        // xUnit
+cs_test_attr("Test").          cs_test_attr("TestCase").  cs_test_attr("TestCaseSource").  // NUnit
+cs_test_attr("TestMethod").    cs_test_attr("DataTestMethod").                // MSTest
+// set-up and tear-down hooks the same runners call around them
+cs_test_lifecycle_attr("SetUp").            cs_test_lifecycle_attr("TearDown").
+cs_test_lifecycle_attr("OneTimeSetUp").     cs_test_lifecycle_attr("OneTimeTearDown").
+cs_test_lifecycle_attr("TestInitialize").   cs_test_lifecycle_attr("TestCleanup").
+cs_test_lifecycle_attr("ClassInitialize").  cs_test_lifecycle_attr("ClassCleanup").
+cs_test_lifecycle_attr("AssemblyInitialize"). cs_test_lifecycle_attr("AssemblyCleanup").
+// A hosted service: the host calls these on the type it registered.
+cs_hosted_base("BackgroundService").
+cs_hosted_base("IHostedService").
+cs_hosted_method("ExecuteAsync").
+cs_hosted_method("StartAsync").
+cs_hosted_method("StopAsync").

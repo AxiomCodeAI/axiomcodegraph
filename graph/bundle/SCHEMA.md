@@ -635,16 +635,16 @@ Methods the runtime invokes without a client call site — process roots, test m
 
 | value | languages | meaning |
 |---|---|---|
-| `main` | java | A static `main`. |
-| `test` | java, typescript | Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), inline or named, which the runner invokes. |
-| `http` | java, python, typescript | A route handler a web framework invokes on a request. Java: a JAX-RS / Spring MVC handler. Python: a function registered with a decorator naming an HTTP verb and a URL path. TypeScript: a handler passed to a route registration (`app.get('/x', h)`), inline or named, or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`). |
+| `main` | java, csharp | A static `main`. C#: a static `Main`, or the method top-level statements compile to. |
+| `test` | java, typescript, csharp | Java: a JUnit test or lifecycle method. TypeScript: a function body handed to a test registrar (`it`, `describe`), inline or named, which the runner invokes. C#: an xUnit, NUnit or MSTest test method, or a set-up or tear-down hook of one. |
+| `http` | java, python, typescript, csharp | A route handler a web framework invokes on a request. Java: a JAX-RS / Spring MVC handler. Python: a function registered with a decorator naming an HTTP verb and a URL path. TypeScript: a handler passed to a route registration (`app.get('/x', h)`), inline or named, or a method carrying a route decorator inside a container-owned class (`@Controller` + `@Get`). |
 | `cli` | java | A CLI command method (picocli etc.). |
 | `bean_ctor` | java, typescript | Constructor of a container-managed class. TypeScript: the class carries a framework decorator (`@Injectable`, `@Component`, `@Module`), so the container constructs it and nothing in the repository does. |
 | `factory` | java | A `@Bean` factory method. |
-| `lifecycle` | java, typescript | Java: `@PostConstruct` / `@PreDestroy` and similar hooks. TypeScript: a hook the container calls by name on a decorated class (`ngOnInit`, `onModuleInit`), which has no call site anywhere. |
-| `queue` | java | A message-listener method. |
+| `lifecycle` | java, typescript, csharp | Java: `@PostConstruct` / `@PreDestroy` and similar hooks. TypeScript: a hook the container calls by name on a decorated class (`ngOnInit`, `onModuleInit`), which has no call site anywhere. C#: `ExecuteAsync`, `StartAsync` or `StopAsync` on a hosted service. |
+| `queue` | java, csharp | A message-listener method. C#: a broker consumer or a bus message handler. |
 | `scheduled` | java | A `@Scheduled` method. |
-| `grpc_service` | java, python | A gRPC service implementation the server invokes on a request, with no call site reaching it: a generated `ImplBase` override (Java); a class deriving from a generated `*Servicer` base in a `_pb2_grpc` module, overriding a method that base declares (Python). |
+| `grpc_service` | java, python, csharp | A gRPC service implementation the server invokes on a request, with no call site reaching it: a generated `ImplBase` override (Java); a class deriving from a generated `*Servicer` base in a `_pb2_grpc` module, overriding a method that base declares (Python). |
 | `web_servlet` | java | A servlet class named in `web.xml` (`<servlet-class>`): its container callbacks (`doGet`, `service`, …) and the library methods it overrides are invoked by the container. |
 | `web_filter` | java | A filter class named in `web.xml` (`<filter-class>`); the container calls its callbacks. |
 | `web_listener` | java | A listener class named in `web.xml` (`<listener-class>`); the container calls its callbacks (`contextInitialized`, `sessionCreated`, …). |
