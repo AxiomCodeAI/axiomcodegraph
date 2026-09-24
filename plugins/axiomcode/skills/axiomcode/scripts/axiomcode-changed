@@ -3,7 +3,7 @@
    which declarations an edit changed, and HOW — then (--impact) what that reaches.
 
 The graph describes the tree as it was when it was built (the build stamps the commit). An edit is read against that version:
-by default the working tree against the graph's commit (falling back to HEAD), `--range a..b` two commits, `--staged` the
+by default the working tree against the tree the graph was indexed from (its commit plus any edits uncommitted at index time; the commit, then HEAD, for a graph that did not record one), `--range a..b` two commits, `--staged` the
 index, or `--old/--new/--file` two texts of one file (what a hook has). Each changed line is mapped onto the declarations
 the graph knows at that line, and the change is classified — the same way in every language, from the text:
 
@@ -52,6 +52,12 @@ class Changed:
         self.g = G(repo); self.repo = self.g.repo
         st = os.path.join(self.repo, '.axiomcode', 'out', 'stamp')
         self.built_at = open(st).read().split('-')[0] if os.path.exists(st) else None            # the commit the graph describes
+        # the exact tree the graph was built from, uncommitted edits included (#1222): compared against, spans always line
+        # up. A graph built before it was recorded has none, and falls back to the commit.
+        it = os.path.join(self.repo, '.axiomcode', 'out', 'indexed-tree')
+        t = open(it).read().strip() if os.path.exists(it) else ''
+        self.indexed_tree = t if t and sh('git', 'cat-file', '-e', t, cwd=self.repo) is not None else None
+        self.tree_differs = bool(self.indexed_tree) and (sh('git', 'rev-parse', 'HEAD^{tree}', cwd=self.repo) or '').strip() != self.indexed_tree
         self.spans = {}                                                                           # file -> [(line, end, id, kind)]
         for r in self.g.sym.values():
             if r.get('file') and r.get('line'): self.spans.setdefault(r['file'], []).append((r['line'], r['end_line'] or r['line'], r['id'], r['kind'], r['display'], r['name']))
@@ -66,7 +72,7 @@ class Changed:
     def texts(self, rel, mode, rng):
         if mode == 'range':
             a, b = rng.split('..'); return sh('git', 'show', f'{a}:{rel}', cwd=self.repo) or '', sh('git', 'show', f'{b}:{rel}', cwd=self.repo) or ''
-        base = self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD'
+        base = self.indexed_tree or (self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD')
         old = sh('git', 'show', f'{base}:{rel}', cwd=self.repo) or ''
         if mode == 'staged': new = sh('git', 'show', f':{rel}', cwd=self.repo) or ''
         else:
@@ -76,9 +82,9 @@ class Changed:
     def files(self, mode, rng, given):
         if given: return [self.rel(f) for f in given]
         if mode == 'range': out = sh('git', 'diff', '--name-only', rng, cwd=self.repo)
-        elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', cwd=self.repo)
+        elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', *([self.indexed_tree] if self.indexed_tree else []), cwd=self.repo)
         else:
-            base = self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD'
+            base = self.indexed_tree or (self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD')
             out = sh('git', 'diff', '--name-only', base, cwd=self.repo)
             if out is None: out = sh('git', 'diff', '--name-only', 'HEAD', cwd=self.repo)
         # the extension list is the ONLY gate on what a diff can contain, so a language missing from it is
@@ -189,10 +195,20 @@ class Changed:
         for (a, b, i, k, d, n), decs in decorated.items():
             key = ('field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'signature', (a, b, i, k, d, n))
             hits.setdefault(key, set()); hits[key].add(-1)                                                # -1: the decoration line, outside the header
+        # A GRAPH INDEXED FROM A DIFFERENT TEXT. The graph's spans are line numbers in the text it was indexed from, which
+        # is the working tree at index time, not necessarily the commit it is stamped with. When uncommitted edits were
+        # indexed, a span can run past the end of the committed file this compares against, and reading the committed
+        # file at those numbers crashed `changed` (and `test-impact`, which calls it) with an IndexError. Spans are read
+        # clamped to the file, and the answer says the positions may be off until a re-index.
+        overrun = [d for (_k, (a, b, _i, _kk, d, _n)) in hits if b > len(OL) or a > len(OL)]
+        overrun_note = ('', f"{rel}: the graph's spans run past the end of this file's committed version ({len(OL)} lines): it was "
+                        "indexed from a working tree with uncommitted edits, so positions here may be off; re-index "
+                        "(`axiomcode index`) for exact answers", None) if overrun else None
         for (kind, (a, b, i, k, d, n)), lines in hits.items():
             decs = decorated.get((a, b, i, k, d, n))
+            if a > len(OL): continue                                             # starts past the committed file: nothing of it is there
             entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(x for x in lines if x > 0), target_kind=('param' if kind == 'signature' else KIND(k)))
-            span_lines = [x for x in range(a, b + 1) if not noise(OL[x - 1])]
+            span_lines = [x for x in range(a, min(b, len(OL)) + 1) if not noise(OL[x - 1])]
             gone = a in removed_lines and span_lines and sum(1 for x in span_lines if x in removed_lines) >= 0.6 * len(span_lines) and \
                    not any(re.search(rf'\b{re.escape(n)}\s*\(', NL[j - 1]) and ndepth_ok(j) for j in range(max(1, (new_of.get(a) or a) - 3), min(len(NL), (new_of.get(a) or a) + 3) + 1))
             if gone: entry['kind'] = 'removed'; entry['target'] = self.target(kind, d, k, n); out.append(entry); continue
@@ -346,6 +362,7 @@ class Changed:
         # An added OVERLOAD keeps its row: the old declaration is untouched there, so no signature row names it.
         sigged = {(e['file'], e['symbol']) for e in out if e['kind'] in ('signature', 'field', 'type')}
         out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in sigged)]
+        if overrun_note: adds.append(overrun_note)
         return out, adds
     @staticmethod
     def target(kind, d, k, n):
@@ -397,10 +414,14 @@ def main(argv):
         if flipped: notes.append(('', f"the graph is built at the newer commit {C.built_at[:10]}: declarations are the new text's; a declaration the range removed is not in it", None))
     if as_json: print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes]}, indent=1)); return 0
     if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 0
-    print(f"changed declarations ({len(results)})" + (f" — against the graph's commit {C.built_at[:10]}" if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
+    against = (f" — against the tree the graph was indexed from (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
+               else f" — against the graph's commit {C.built_at[:10]}")
+    print(f"changed declarations ({len(results)})" + (against if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
     for e in results:
         print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ('   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else '')))
-    for _, n, _ in notes: print(f"  {'added':<10} {n}")
+    # a note with a file is an addition in that file; one without is a caveat about the whole answer, and printing it
+    # under `added` made "the graph is built at the newer commit …" read as a new declaration
+    for f, n, _ in notes: print(f"  {'added':<10} {n}" if f else f"note: {n}")
     groups = {}
     for e in results:
         if e.get('target') and e['kind'] != 'added':
