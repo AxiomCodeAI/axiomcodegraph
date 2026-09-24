@@ -1,0 +1,12 @@
+def scan(root,  # the directory
+         depth):
+    return root * depth
+
+
+def resolve(name, strict="#"):
+    return name
+
+
+def main():
+    scan(".", 1)
+    resolve("x")

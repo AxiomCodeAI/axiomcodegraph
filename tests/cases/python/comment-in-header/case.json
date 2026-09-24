@@ -1,0 +1,9 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a `#` comment inside a def header is not a signature change",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new.txt", "--file", "lib.py"],
+   "want": ["scan"],
+   "avoid": ["signature  scan", "header text changed"]},
+  {"why": "a parameter whose default is a string holding `#` is still a signature change: the `#` in a string is not a comment",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new.txt", "--file", "lib.py"],
+   "want": ["signature  resolve", "+strict"]}]}

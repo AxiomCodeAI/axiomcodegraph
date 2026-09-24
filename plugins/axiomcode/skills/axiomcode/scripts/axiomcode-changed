@@ -29,13 +29,15 @@ G, die = P.G, P.die
 def sh(*a, cwd=None):
     r = subprocess.run(a, capture_output=True, text=True, cwd=cwd); return r.stdout if r.returncode == 0 else None
 
-def strip_code(t):
-    """the text with comments and string literals blanked, same length and line breaks — a brace in a string is not a brace"""
+def strip_code(t, strings=True, hash_comments=True):
+    """the text with comments and string literals blanked, same length and line breaks — a brace in a string is not a brace.
+    strings=False blanks only the comments: a string is still skipped, so a `//` or `/*` inside one is not a comment.
+    hash_comments=False for a language where `#` starts a name (a TypeScript private member), not a comment"""
     out = []; i = 0; n = len(t)
     while i < n:
         c = t[i]
         if t.startswith('/*', i): j = t.find('*/', i + 2); j = n if j < 0 else j + 2
-        elif t.startswith('//', i) or c == '#': j = t.find('\n', i); j = n if j < 0 else j
+        elif t.startswith('//', i) or (c == '#' and hash_comments): j = t.find('\n', i); j = n if j < 0 else j
         elif c in '"\'`':
             q = t[i:i + 3] if t[i:i + 3] in ('"""', "\'\'\'") else c; j = i + len(q)
             while j < n and not t.startswith(q, j):
@@ -43,6 +45,7 @@ def strip_code(t):
                 if t[j] == '\n' and len(q) == 1 and c != '`': break
                 j += 1
             j = min(n, j + len(q))
+            if not strings: out.append(t[i:j]); i = j; continue
         else: out.append(c); i += 1; continue
         out.append(''.join('\n' if ch == '\n' else ' ' for ch in t[i:j])); i = j
     return ''.join(out)
@@ -213,13 +216,17 @@ class Changed:
                    not any(re.search(rf'\b{re.escape(n)}\s*\(', NL[j - 1]) and ndepth_ok(j) for j in range(max(1, (new_of.get(a) or a) - 3), min(len(NL), (new_of.get(a) or a) + 3) + 1))
             if gone: entry['kind'] = 'removed'; entry['target'] = self.target(kind, d, k, n); out.append(entry); continue
             if kind == 'signature':
-                oh = ' '.join(x.strip() for x in OL[a - 1:self.header_end(OL, a)])
+                # compared with comments removed: `f( /* note */ a)` is `f(a)`. Strings stay, so an edited route in a
+                # decoration is still a header change
+                uncomment = lambda lines: re.sub(r'\s+', ' ', strip_code('\n'.join(lines), strings=False, hash_comments=rel.endswith('.py'))).strip()
+                oh_raw = ' '.join(x.strip() for x in OL[a - 1:self.header_end(OL, a)]); oh = uncomment(OL[a - 1:self.header_end(OL, a)])
                 na = new_of.get(a) or (new_of.get(max((x for x in new_of if x < a), default=0), 0) + 1)
-                nh = ''
+                nh = nh_raw = ''
                 if na and na <= len(NL):
                     # the new header: from the mapped line, the first line holding the name, to its end
                     for s in range(max(1, na - 2), min(len(NL), na + 6) + 1):
-                        if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]): nh = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); break
+                        if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]):
+                            nh_raw = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); nh = uncomment(NL[s - 1:self.header_end(NL, s)]); break
                 # the header may start on an annotation line: its arguments are not a parameter list, and its text is
                 # not a return type. Read the signature from the first line that is not a decoration
                 sig = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()
@@ -243,7 +250,7 @@ class Changed:
                 if not detail and not nh: detail.append('header changed (the new header could not be located — renamed?)')
                 if decs: detail.append('decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — what the framework does with it (a proxy, a transaction, a cache, a route) is NOT in the graph; only the code that names it is')
                 if not detail: entry['kind'] = 'body'                                                  # whitespace or a comment in the header
-                entry['detail'] = ', '.join(detail); entry['old_header'] = oh; entry['new_header'] = nh
+                entry['detail'] = ', '.join(detail); entry['old_header'] = oh_raw; entry['new_header'] = nh_raw
                 changed_params = [x for x, _ in op if any(dd.startswith(f'{x}:') or dd == f'-{x}' for dd in detail)]
                 entry['target'] = (f"{d}({changed_params[0]})" if len(changed_params) == 1 and entry['kind'] == 'signature' else d)
                 entry['target_kind'] = 'param' if '(' in entry['target'] else 'method'
