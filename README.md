@@ -50,9 +50,11 @@
 
 ## What it does
 
-Give it a repository. It works out, for every function, exactly who calls it and what it calls. Then you or your
-AI coding agent can ask **"what breaks if I change this?"** and get the real list, not a guess, including the
-callers that never spell the name because they go through an interface, a subclass or a callback.
+Give it a repository. It builds a knowledge graph of your code using formal methods: for every function, exactly
+who calls it and what it calls, derived by logical rules rather than guessed. Your AI agents, and you, then
+understand, explore, search and edit the code from that map instead of grepping, including the links text search
+cannot see: calls through an interface, a subclass or a callback, pruning 99.9% of the codebase for better
+execution of long-horizon tasks.
 
 <p align="center">
   <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 65.2%, CodeGraph 52.4%, Graphify 48.7%, Code-Review-Graph 21.9%, name match 46.8%. F1 against Defects4J's own selection. Run-time observation, median: AxiomCode 0.98x, GitNexus 0.65x, CodeGraph 0.25x, Graphify 0.11x, Code-Review-Graph 0.00x, name match 0.03x.">
