@@ -25,6 +25,12 @@ METHOD_KINDS = ('function', 'method', 'constructor', 'module')
 TYPE_KINDS = ('class', 'interface', 'enum', 'type', 'namespace')
 
 
+def _b36(n):
+    s = ''
+    while n: n, r = divmod(n, 36); s = '0123456789abcdefghijklmnopqrstuvwxyz'[r] + s
+    return s
+
+
 def export(repo, page=None):
     repo = os.path.realpath(repo or '.')
     gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode')
@@ -102,6 +108,12 @@ def export(repo, page=None):
         else:
             e['w'] += 1
             if r['tier'] == 'known_edge': e['tier'] = 'known_edge'
+    # a call through a holder the engine could name (#1206): the caller reaches every function the holder may hold. The call
+    # site itself resolves to the holder's bodiless base (Function.apply), so without these the stored function has no caller
+    if has('ext_fn_value_call'):
+        for r in q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call"):
+            c, t = r[0], r[1]
+            if c in nodes and t in nodes and (c, t) not in E: E[(c, t)] = dict(s=c, t=t, tier='fn_value', w=1)
     for m, n in unresolved.items(): nodes[m]['u'] = n
     for m, ss in sites.items(): nodes[m]['cs'] = ss
     for owner, b in boxes.items():
@@ -121,6 +133,13 @@ def export(repo, page=None):
     for n in nodes.values():
         if deg[n['id']]: n['d'] = deg[n['id']]
 
+    # two shapes share the name: the bundle's (file_path, reason, construct, start_line, …) and the index's (file, reason), which
+    # the index writes over the bundle's — read whichever is there
+    skipped = None
+    if has('skipped'):
+        cols = {r[1] for r in q("PRAGMA table_info(skipped)")}; col = lambda c: c if c in cols else 'NULL'
+        fc = 'file_path' if 'file_path' in cols else 'file'
+        skipped = [dict(f=rel(r[0]), r=r[1] or '', a=r[2], d=r[3] or '') for r in q(f"SELECT {fc}, reason, {col('start_line')}, {col('detail')} FROM skipped WHERE {fc} <> '' ORDER BY reason, {fc}")]
     tiers = collections.Counter(r[0] for r in q("SELECT tier FROM call_edges"))
     sites = sum(tiers.values()); unres = sum(v for t, v in tiers.items() if t.startswith('ambiguous'))
     client = tiers.get('known_edge', 0) + tiers.get('multi_inferred', 0); external = sum(b['sites'] for b in boxes.values())
@@ -129,7 +148,19 @@ def export(repo, page=None):
                           client_sites=client, external_sites=external, terminal_sites=terminal_n, unresolved=unres, boxes=len(boxes),
                           client_rate=round(100 * client / max(1, sites - external - terminal_n)), overall_rate=round(100 * (sites - unres) / max(1, sites)),
                           tiers=dict(tiers), library_roots=run.get('library_roots', '') or (run.get('language') != 'java' and 'n/a') or '', counts=dict(collections.Counter(n['k'] for n in nodes.values())), edges=len(E)),
-                nodes=list(nodes.values()), calls=list(E.values()), libcalls=list(LE.values()), extends=X)
+                nodes=list(nodes.values()), calls=list(E.values()), libcalls=list(LE.values()), extends=X, skipped=skipped)
+    data['meta']['fn_value_edges'] = sum(1 for e in E.values() if e['tier'] == 'fn_value')
+    short = {}
+    def key(i):
+        k = short.get(i)
+        if k is None: n = len(short); k = short[i] = ('L:' if i.startswith('L:') else '') + (_b36(n) or '0')
+        return k
+    for n in data['nodes']:
+        n['id'] = key(n['id'])
+        if n.get('p'): n['p'] = key(n['p'])
+        if n['k'] == 'file': n.pop('l', None)   # a file's label is its path, already in f
+        for s in n.get('cs', ()): s[2] = key(s[2]) if s[2] else ''
+    for e in data['calls'] + data['libcalls'] + data['extends']: e['s'], e['t'] = key(e['s']), key(e['t'])
     if page and (os.path.isdir(page) or not page.lower().endswith('.html')): page = os.path.join(page, os.path.basename(repo) + '.html')   # --out <folder> → <folder>/<repo>.html
     page = page or os.path.join(gdir, 'graph', 'graph.html'); os.makedirs(os.path.dirname(page), exist_ok=True)
     # the sources, so the page can show the code a node points at (one file, still no network); skipped past 40 MB
