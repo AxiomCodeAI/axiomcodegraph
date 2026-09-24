@@ -23,6 +23,8 @@ Rules it holds itself to, in the spirit of orient.py:
     `ls`, a build or a test run does not, and a directive in front of one is noise.
 """
 import json, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _host
 
 MARK = '.axiomcode/.directed-{}'               # once per session: keyed by session id, not once per repo forever
 SRC = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs', '.cs')
@@ -41,7 +43,7 @@ FULL = (
 )
 
 def main():
-    ev = json.load(sys.stdin)
+    ev = _host.read()
     tool = ev.get('tool_name') or ''
     inp = ev.get('tool_input') or {}
     cwd = ev.get('cwd') or os.getcwd()
@@ -89,8 +91,7 @@ def main():
                                           if k in ('file_path', 'pattern', 'command')}}) + '\n')
     except OSError:
         pass
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
-                                             'additionalContext': text}}))
+    _host.emit('PreToolUse', text)
 
 
 # THIS HOOK RUNS BEFORE EVERY Read, Grep, Glob AND Bash THE AGENT MAKES. A hook that raises on one of them

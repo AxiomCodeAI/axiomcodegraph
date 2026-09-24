@@ -18,14 +18,17 @@ Rules it holds itself to:
     picking the wrong package confidently is the failure this skill has already been bitten by.
 """
 import json, os, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _host
 
 MARK = '.axiomcode/.oriented-{}'       # once per session: keyed by session id (one stamp per repo never fired again)
 MAX_LINES = 14
 
 try:
-    ev = json.load(sys.stdin)
+    ev = _host.read()
 except Exception:
     sys.exit(0)
+_host.capture('UserPromptSubmit')
 
 def repo_root(start):
     """The repository the prompt is about, which is not always where the shell happens to be.

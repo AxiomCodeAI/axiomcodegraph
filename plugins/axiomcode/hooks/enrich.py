@@ -12,8 +12,10 @@ what a graph knows and a file does not — the edges. Nothing when the repo has 
 import collections, json, os, re, sqlite3, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
 import graph_sql, ax_contract as _ax
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _host
 
-ev = json.load(sys.stdin); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
+ev = _host.read(); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 def rel_of(fp):
     """the graph stores repo-relative paths; the tool's file_path may reach the tree through a symlink while cwd is resolved (or the
     reverse) — compare real paths, and if the file still is not under the tree, fall back to the graph's own suffix match"""
@@ -352,4 +354,4 @@ if lines and tool in ('Read', 'Grep', 'Glob'):
 try:
     with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'tool': ev.get('tool_name'), 'as': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines), 'input': {k: v for k, v in inp.items() if k in ('file_path', 'offset', 'limit', 'pattern', 'old_string', 'new_string')}, 'text': '\n'.join(lines)}) + '\n')
 except OSError: pass
-if lines: print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': '\n'.join(lines)}}))
+_host.emit('PostToolUse', '\n'.join(lines))

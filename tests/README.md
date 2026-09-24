@@ -25,6 +25,8 @@ One check needs no graph and is its own script:
     python3 tests/manifests.py           every agent's manifest (Claude, portable, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
                                          them, and Gemini's skill and Cursor's rule are current copies
+    python3 tests/hosts.py               each hook tells Cursor what it tells the original host, in Cursor's
+                                         output shape (indexes one case, so it needs the engine)
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
 
 A case is `tests/cases/<language>/<name>/` with its sources and a `case.json`:
