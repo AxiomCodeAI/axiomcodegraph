@@ -188,6 +188,25 @@ re-blessing when an unrelated relation changes shape.
 sits beside one that must not. That is what makes the suite able to fail an
 over-eager rule, which otherwise reads as a recall win.
 
+## Cross-process edges (`remote/`)
+
+`remote_edge` joins a client to the handler that serves it in another process: a gRPC
+call to the service override, an HTTP call to its route, a queue send to its consumer
+(`graph/csharp/engine/framework-behavior/`). Each directory under `remote/` is a small
+multi-service tree, and `tools/remote-edge-test.sh` renders `remote_edge`,
+`remote_unserved` and `remote_unsent` with both ends named (`tools/normalize_remote.py`)
+and diffs them against `<case>/expected.remote`. `--bless` rewrites the goldens.
+
+These are NOT under `cases/`, because the Roslyn oracle compiles those and these trees
+reference framework types (`Grpc.Core`, `Microsoft.AspNetCore`, a broker client) that are
+not staged. That is the real shape: a project never has them, or its generated gRPC
+code, in the source tree, and stubbing them into the fixture would test a program where
+they resolve. No compiler adjudicates a cross-process hop; the golden is the contract.
+
+| case | what it pins |
+|---|---|
+| `01-grpc` | a call on a `<S>.<S>Client` (an injected field, a local built with `new`, a parameter, a using alias through a primary constructor; blocking, `Async` and streaming) reaches the `override` of the same rpc on a `<S>.<S>Base` subclass. Two services with an rpc of the same name stay apart. An rpc nothing serves is `unserved`, one nothing calls is `unsent`. Controls: `System.Net.Http.HttpClient` and `ControllerBase` have the generated SHAPE through their namespace and are not gRPC; a non-override helper on a service is not an rpc |
+
 ## The corpus
 
 ```

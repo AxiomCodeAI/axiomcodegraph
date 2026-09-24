@@ -1,0 +1,7 @@
+edge	grpc	exact	Admin/SayHello	Client.GreeterCaller.Admin/1 -> Server.Services.AdminService.SayHello/2
+edge	grpc	exact	Greeter/SayHello	Client.AliasedCaller.Hello/0 -> Server.Services.GreeterService.SayHello/2
+edge	grpc	exact	Greeter/SayHello	Client.GreeterCaller.Greet/1 -> Server.Services.GreeterService.SayHello/2
+edge	grpc	exact	Greeter/SayHello	Client.GreeterCaller.GreetBlocking/1 -> Server.Services.GreeterService.SayHello/2
+edge	grpc	exact	Greeter/SayHellos	Client.GreeterCaller.Stream/1 -> Server.Services.GreeterService.SayHellos/3
+unsent	grpc	-	Greeter/SayGoodnight	Server.Services.GreeterService.SayGoodnight/2
+unserved	grpc	-	Greeter/SayGoodbye	Client.GreeterCaller.Missing/1
