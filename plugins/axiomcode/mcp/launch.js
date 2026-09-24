@@ -15,6 +15,13 @@
 // protocol it uses and says on stderr which half it is running (#1105). An interpreter is taken only if
 // it actually runs, so the WindowsApps placeholders, which exist on PATH and exit 9009, are passed over.
 //
+// uv is taken only once it has built its environment, not merely because it is on PATH (#1249). A failed
+// resolve (offline, a proxy, a transitive dependency with no wheel for the host, such as an x86_64 uv under
+// Rosetta asked for `cryptography`) makes the real start exit before `initialize`, and the client sees only
+// CONNECTION_CLOSED while the fallback that would have served is never tried. So uv is first asked to import
+// the SDK in that same environment, within a time limit; on success its cache is warm and the real start
+// reuses it, on failure the launcher says why and moves on to the fallback.
+//
 // The server shells out to the CLI, a bash script, so the bash find-bash.js chose is handed to it as
 // AXIOMCODE_BASH; a bare `bash` from server.py would hit the same Windows lookup this file avoids.
 'use strict';
@@ -29,12 +36,28 @@ const args = require.main === module ? process.argv.slice(2) : [];
 
 const runs = (cmd, argv) => spawnSync(cmd[0], [...cmd.slice(1), ...argv], { stdio: 'ignore', windowsHide: true }).status === 0;
 
+const UV = ['uv', 'run', '--quiet', '--with', 'mcp', 'python'];
+// A first resolve on a clean machine downloads the SDK and its dependencies, so the limit is generous; a
+// probe that is still resolving when it runs out counts as failed rather than holding the client longer.
+const UV_PROBE_MS = Number(process.env.AXIOMCODE_UV_TIMEOUT_MS) || 60000;
+
+function uvWorks() {
+  if (!runs(['uv'], ['--version'])) return false;
+  const r = spawnSync(UV[0], [...UV.slice(1), '-c', 'import mcp'],
+                      { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', timeout: UV_PROBE_MS, windowsHide: true });
+  if (r.status === 0) return true;
+  const why = r.error ? (r.error.code === 'ETIMEDOUT' ? `no answer within ${UV_PROBE_MS / 1000}s` : r.error.message)
+                      : (String(r.stderr || '').trim().split('\n').pop() || `exit ${r.status}`);
+  process.stderr.write(`axiomcode mcp: uv could not provide the MCP SDK (${why}); trying the SDK-free server.\n`);
+  return false;
+}
+
 const pythons = [process.env.AXIOMCODE_PYTHON && [process.env.AXIOMCODE_PYTHON], ['python3'], ['python'],
                  process.platform === 'win32' && ['py', '-3']].filter(Boolean);
 
 function choose() {
   for (const py of pythons) if (runs(py, ['-c', 'import mcp'])) return [...py, SERVER];
-  if (runs(['uv'], ['--version'])) return ['uv', 'run', '--quiet', '--with', 'mcp', 'python', SERVER];
+  if (uvWorks()) return [...UV, SERVER];
   for (const py of pythons) if (runs(py, ['-c', 'pass'])) return [...py, SERVER];
   return null;
 }
