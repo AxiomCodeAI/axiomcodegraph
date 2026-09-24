@@ -143,6 +143,55 @@ external_target(prov, e, label) :-
     !expr_new_type(prov, e, _),
     label = cat("external:", cat(n, ".<constructor>")).
 
+// ── A TARGET-TYPED `new()` OF AN EXTERNAL TYPE ──────────────────────────────
+// `private readonly List<Item> _items = new();` writes no type name, so the rule above
+// has nothing to match, and target-typed-new.dl types the creation only where the
+// target type RESOLVES. Where it is unstaged the site was ambiguous_unknown: a blind
+// spot for what is plainly a construction of List (#1290). The same contexts
+// target-typed-new.dl reads, each giving the declared type NAME and the module it is
+// written in; the label is the one an explicit `new List<Item>()` already gets.
+new_target_decl_name(prov, e, mod, n) :-
+    field_initializer(prov, f, e), field_type_name(prov, f, n, _),
+    field_decl(prov, _, t, f), type_module(prov, t, mod).
+new_target_decl_name(prov, e, mod, n) :-
+    field_initializer(prov, f, root), expr_value_descendant(prov, root, e),
+    field_type_name(prov, f, n, _), field_decl(prov, _, t, f), type_module(prov, t, mod).
+new_target_decl_name(prov, e, mod, n) :-
+    property_initializer(prov, p, e), property_type_name(prov, p, n, _),
+    property_decl(prov, _, t, p), type_module(prov, t, mod).
+new_target_decl_name(prov, e, mod, n) :-
+    property_initializer(prov, p, root), expr_value_descendant(prov, root, e),
+    property_type_name(prov, p, n, _), property_decl(prov, _, t, p), type_module(prov, t, mod).
+new_target_decl_name(prov, e, mod, n) :-
+    var_value_initializer(prov, v, e), !var_is_implicit(prov, v),
+    var_type_name(prov, v, n, _), var_method(prov, v, m), method_module(prov, m, mod).
+new_target_decl_name(prov, e, mod, n) :-
+    var_value_initializer(prov, v, root), expr_value_descendant(prov, root, e), !var_is_implicit(prov, v),
+    var_type_name(prov, v, n, _), var_method(prov, v, m), method_module(prov, m, mod).
+// a return and an expression body: the enclosing method's declared return, by its root
+new_target_decl_name(prov, e, mod, n) :-
+    expr_root_context(prov, e, "RETURN_VALUE"), expr_ultimate_method(prov, e, m),
+    method_return_type_ref(prov, m, tr), type_ref_name(prov, tr, n), type_ref_module(prov, tr, mod).
+new_target_decl_name(prov, e, mod, n) :-
+    expr_root_context(prov, e, "EXPRESSION_BODY"), expr_ultimate_method(prov, e, m),
+    method_return_type_ref(prov, m, tr), type_ref_name(prov, tr, n), type_ref_module(prov, tr, mod).
+
+new_target_external_name(prov, e, n) :-
+    new_target_decl_name(prov, e, mod, n), external_type_name(prov, mod, n, _).
+new_target_external_name(prov, e, n) :-
+    new_target_decl_name(prov, e, _, n), predefined_boundary_alias(n).
+// an assignment: whatever names the left side's type as external already
+new_target_external_name(prov, e, n) :-
+    expr_role(prov, e, "ASSIGNMENT_VALUE"),
+    expr_parent(prov, e, asg, _, _), expr_child(prov, asg, "ASSIGNMENT_TARGET", _, lhs),
+    external_recv_name(prov, lhs, n).
+
+external_target(prov, e, label) :-
+    expr_is_implicit_new(prov, e),
+    !expr_target_type(prov, e, _),
+    new_target_external_name(prov, e, n),
+    label = cat("external:", cat(n, ".<constructor>")).
+
 // ── A CALL ON A FRAMEWORK-TYPED RECEIVER ────────────────────────────────────
 // `someString.Trim()`, `list.Add(x)`, `dict.TryGetValue(k, out v)`. The receiver's
 // declared type is a C# keyword alias or an unstaged framework type, so it resolves
