@@ -232,7 +232,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | # | column | type | key | null | idx | meaning |
 |---|---|---|---|---|---|---|
 | 0 | `id` | TEXT | yes |  |  | The parser's unique hash for the method (METHOD_REGISTRY_… / TS_METHOD_… / PY_METHOD_…). The value every other table uses to refer to a method. |
-| 1 | `name` | TEXT |  |  | yes | Simple name as written (`render`, `__init__`, `<init>` for a Java constructor). |
+| 1 | `name` | TEXT |  |  | yes | Simple name as written (`render`, `__init__`). A constructor is named after its class in Java (`Circle`) and `<constructor>` in TypeScript, JavaScript and C#. |
 | 2 | `qualified_name` | TEXT |  |  | yes | Parser-qualified name — package/module path plus owner plus name. Unique only together with the signature. |
 | 3 | `signature` | TEXT |  |  |  | Parameter-type signature as the parser prints it, e.g. `main(String[])`; language-native formatting. |
 | 4 | `kind` | TEXT |  |  |  | The parser's methodKind — see vocabulary; the sets differ per language. |
@@ -271,13 +271,13 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `STATIC_METHOD` | java | Static method. |
 | `ABSTRACT_METHOD` | java | Abstract or interface method without a body. |
 | `DEFAULT_METHOD` | java | Interface default method. |
-| `CONSTRUCTOR` | java, typescript | Constructor (Java `<init>`; TypeScript `constructor`). |
+| `CONSTRUCTOR` | java, typescript | A declared constructor. Java names it after the class (`Circle`, qualified `shapes.Circle.Circle`); TypeScript names it `<constructor>`. |
 | `STATIC_INITIALIZER` | java | `static { … }` block. |
 | `GENERATED_METHOD` | java, csharp | Synthesised for a member no IR declares, so it has no real methodKind: in Java one an annotation processor declares, in C# the Invoke of the delegate a field or property holds. Always paired with provenance `generated`. |
 | `ENUM_CONSTANT_METHOD` | java | Method body declared on an enum constant. |
 | `RECORD_ACCESSOR` | java | A record component accessor. |
 | `COMPACT_CONSTRUCTOR` | java | A record's compact canonical constructor. |
-| `DEFAULT_CONSTRUCTOR` | java, typescript | The implicit no-arg constructor the parser synthesises for a class that declares none (TypeScript: and extends nothing; a subclass runs the nearest declared base constructor). |
+| `DEFAULT_CONSTRUCTOR` | java, typescript | The implicit no-arg constructor the parser synthesises for a class that declares none (TypeScript: and extends nothing; a subclass runs the nearest declared base constructor). Named as a declared one is. |
 | `INSTANCE_INITIALIZER` | java | `{ … }` instance initializer block. |
 | `ANNOTATION_ELEMENT` | java | An element of an annotation interface. |
 | `RECORD_EQUALS` | java | A record's implicit equals. |
@@ -324,7 +324,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `FUNCTION_EXPRESSION` | javascript | `function () {}` value, including an object literal's `m() {}`. |
 | `ARROW` | javascript | Arrow function value; `this` is lexical. |
 | `CLASS_METHOD` | javascript | A class member, syntactic or declared by assignment (`F.prototype.m = …`, `F.s = …`). |
-| `CONSTRUCTOR` | javascript | `constructor()` of a class, or a constructor function. |
+| `CONSTRUCTOR` | javascript | `constructor()` of a class, named `<constructor>`. A pre-ES6 constructor function is not a CONSTRUCTOR: its row keeps the kind and name of its syntax (`function F() {}` is FUNCTION_DECLARATION `F`; `var F = function () {}` and `exports.F = function () {}` are FUNCTION_EXPRESSION `<function-expression>`, or the expression's own name if it has one), and the type it introduces, `F`, is CONSTRUCTOR_FUNCTION. |
 | `GETTER` | javascript | `get x()`. |
 | `SETTER` | javascript | `set x(v)`. |
 | `STATIC_BLOCK` | javascript | `static {}` block of a class. |
