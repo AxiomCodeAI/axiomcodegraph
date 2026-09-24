@@ -2,9 +2,9 @@
   "name": "axiomcode",
   "version": "0.1.0",
   "description": "Ask your repository how its code connects: who calls this, what breaks if I change it, which tests an edit reaches, how A reaches B. Answers come from a resolved call graph and are verified against it; nothing is guessed.",
-  "author": { "name": "AxiomCode", "url": "https://github.com/AxiomCodeAI/axiom-code-graph" },
-  "homepage": "https://github.com/AxiomCodeAI/axiom-code-graph",
-  "repository": "https://github.com/AxiomCodeAI/axiom-code-graph",
+  "author": { "name": "AxiomCode", "url": "https://github.com/AxiomCodeAI/axiomcodegraph" },
+  "homepage": "https://github.com/AxiomCodeAI/axiomcodegraph",
+  "repository": "https://github.com/AxiomCodeAI/axiomcodegraph",
   "skills": "./skills/",
   "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
@@ -13,6 +13,6 @@
     "developerName": "AxiomCode",
     "category": "Developer Tools",
     "capabilities": ["Skills", "MCP tools"],
-    "websiteURL": "https://github.com/AxiomCodeAI/axiom-code-graph"
+    "websiteURL": "https://github.com/AxiomCodeAI/axiomcodegraph"
   }
 }

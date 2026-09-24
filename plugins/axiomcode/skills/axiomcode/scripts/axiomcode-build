@@ -2,7 +2,7 @@
 # axiomcode-build [repo-dir] — build the AxiomCode graph for a repository into <repo>/.axiomcode/out/graph.sqlite
 # (parser + engine via bin/axiomcode all, tests INCLUDED), then index it for the query frontend (axiomcode-index:
 # symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
-#   AXIOMCODE_ENGINE  checkout of axiom-code-graph (default: the one this skill lives in)
+#   AXIOMCODE_ENGINE  checkout of axiomcodegraph (default: the one this skill lives in)
 #   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
 #   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp (default: the language with the most files)
 #   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
@@ -41,7 +41,7 @@ ENGINE="$AXIOMCODE_ENGINE"
   echo "  native solver binaries. Installed from a marketplace the plugin is copied outside any" >&2
   echo "  checkout, so there is nothing to find above it. Fix with ONE of:" >&2
   echo "    npm i -g @axiomcode/code-graph        (then this resolves it automatically)" >&2
-  echo "    AXIOMCODE_ENGINE=/path/to/axiom-code-graph" >&2
+  echo "    AXIOMCODE_ENGINE=/path/to/axiomcodegraph" >&2
   echo "  Looked in: $H upwards, \`command -v axiomcode\`, and \$(npm root -g)/@axiomcode/code-graph" >&2
   exit 1; }
 # no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently

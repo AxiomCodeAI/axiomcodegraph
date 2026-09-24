@@ -4,7 +4,7 @@
   "description": "AxiomCode code graph: parser (IR extraction) + type-directed reasoning engine + language-neutral graph.sqlite output. bin/axiomcode runs the whole pipeline.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AxiomCodeAI/axiom-code-graph.git"
+    "url": "git+https://github.com/AxiomCodeAI/axiomcodegraph.git"
   },
   "main": "dist/reason.js",
   "types": "dist/reason.d.ts",

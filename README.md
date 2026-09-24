@@ -34,9 +34,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/pull/418"><img alt="Nightly: not yet enabled" src="https://img.shields.io/badge/nightly-not%20yet%20enabled-lightgrey"></a>
+  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
+  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/418"><img alt="Nightly: not yet enabled" src="https://img.shields.io/badge/nightly-not%20yet%20enabled-lightgrey"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
@@ -149,12 +149,12 @@ InheritanceOverride.main  src/InheritanceOverride.java  40          known_edge  
 From a clone rather than npm:
 
 ```bash
-git clone https://github.com/AxiomCodeAI/axiom-code-graph.git && cd axiom-code-graph
+git clone https://github.com/AxiomCodeAI/axiomcodegraph.git && cd axiomcodegraph
 npm install                                   # builds the parser and the engine
 bin/axiomcode path main Store.put <your-project>
 ```
 
-Requirements: **Node ≥ 22.5** and a POSIX shell (Git Bash on Windows). Until the prebuilt engine packages are published ([#478](https://github.com/AxiomCodeAI/axiom-code-graph/pull/478)), the first solve per language also needs [Soufflé](https://souffle-lang.github.io) 2.5 and a C++ compiler to compile the engine once; after that, `npm install` fetches it prebuilt and neither is needed.
+Requirements: **Node ≥ 22.5** and a POSIX shell (Git Bash on Windows). Until the prebuilt engine packages are published ([#478](https://github.com/AxiomCodeAI/axiomcodegraph/pull/478)), the first solve per language also needs [Soufflé](https://souffle-lang.github.io) 2.5 and a C++ compiler to compile the engine once; after that, `npm install` fetches it prebuilt and neither is needed.
 
 ## Using it from Claude Code (the plugin)
 
@@ -166,13 +166,13 @@ with, and it cannot find one by itself once installed, so the order matters.
 npm i -g @axiomcode/code-graph
 #    ... or from a checkout. parser/dist is NOT in git, so a clone has no parser until the build runs --
 #    "parser not built" from bin/axiomcode means this step was skipped.
-git clone https://github.com/AxiomCodeAI/axiom-code-graph.git
-cd axiom-code-graph && npm install && npm run build
+git clone https://github.com/AxiomCodeAI/axiomcodegraph.git
+cd axiomcodegraph && npm install && npm run build
 npm i -g .                                    # then nothing else is needed
 export AXIOMCODE_ENGINE="$PWD"                # ... or this, per shell
 
 # 2. install the plugin
-claude plugin marketplace add AxiomCodeAI/axiom-code-graph
+claude plugin marketplace add AxiomCodeAI/axiomcodegraph
 claude plugin install axiomcode@axiomcode
 ```
 
@@ -191,13 +191,13 @@ above: `npm i -g @axiomcode/code-graph`.
 
 | Agent | Install | Reads | Checked |
 |---|---|---|---|
-| Codex CLI and desktop app | `codex plugin marketplace add AxiomCodeAI/axiom-code-graph` then `codex plugin add axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
-| Copilot CLI | `copilot plugin marketplace add AxiomCodeAI/axiom-code-graph` then `copilot plugin install axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
-| VS Code (Copilot agent mode) | add `"chat.plugins.marketplaces": ["AxiomCodeAI/axiom-code-graph"]` to settings, or install with Copilot CLI, whose plugins VS Code also loads | `plugin.json`, `mcp.json` | from VS Code's docs |
-| Cursor | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiom-code-graph`, or a team marketplace imported from this repository | `.cursor-plugin/`, `rules/`, hooks | from Cursor's loader |
-| Windsurf, Devin CLI | `devin plugins install AxiomCodeAI/axiom-code-graph#plugins/axiomcode` | `.claude-plugin/`, `.mcp.json`, hooks | from Devin's loader |
+| Codex CLI and desktop app | `codex plugin marketplace add AxiomCodeAI/axiomcodegraph` then `codex plugin add axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
+| Copilot CLI | `copilot plugin marketplace add AxiomCodeAI/axiomcodegraph` then `copilot plugin install axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
+| VS Code (Copilot agent mode) | add `"chat.plugins.marketplaces": ["AxiomCodeAI/axiomcodegraph"]` to settings, or install with Copilot CLI, whose plugins VS Code also loads | `plugin.json`, `mcp.json` | from VS Code's docs |
+| Cursor | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiomcodegraph`, or a team marketplace imported from this repository | `.cursor-plugin/`, `rules/`, hooks | from Cursor's loader |
+| Windsurf, Devin CLI | `devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode` | `.claude-plugin/`, `.mcp.json`, hooks | from Devin's loader |
 | Kiro | Powers panel: Add Custom Power, Import power from GitHub, this repository's URL | `plugin.json`, `mcp.json` | from Kiro's docs |
-| Gemini CLI | `gemini extensions install https://github.com/AxiomCodeAI/axiom-code-graph` | `gemini-extension.json`, `skills/` | installed, server and skill loaded |
+| Gemini CLI | `gemini extensions install https://github.com/AxiomCodeAI/axiomcodegraph` | `gemini-extension.json`, `skills/` | installed, server and skill loaded |
 
 `plugin.json` and `mcp.json` are the portable Agent Plugins format. Codex, Copilot and VS Code prefer them to
 their own manifests; `.codex-plugin/` is kept for Codex versions from before it. Their server command finds the
@@ -221,7 +221,7 @@ skills directory:
 - **OpenCode:** in `opencode.json`, `"mcp": {"axiomcode": {"type": "local", "command": ["axiomcode", "mcp"]}}`.
   It reads skills from `~/.agents/skills/` and `~/.claude/skills/`.
 - **Amp:** `amp mcp add axiomcode -- axiomcode mcp`, and
-  `amp skill add --global AxiomCodeAI/axiom-code-graph/plugins/axiomcode/skills/axiomcode` for the skill.
+  `amp skill add --global AxiomCodeAI/axiomcodegraph/plugins/axiomcode/skills/axiomcode` for the skill.
 - **Cline, Antigravity:** the JSON below, in Cline's MCP settings or Antigravity's `mcp_config.json`.
 
 ### Any MCP client
@@ -300,7 +300,7 @@ Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 2. **Solve.** Each language's rule set (~40 Soufflé Datalog files) applies the rules until nothing new can be derived: type resolution, hierarchy, generics, overload applicability, virtual dispatch, closure and function-value flow. No model, no scoring, no sampling: the same input yields the same graph.
 3. **Bundle.** The raw relations are joined to the IR and written as `graph.sqlite`, with the schema, vocabularies and canonical queries as tables.
 
-The rules compile to one self-contained executable per language and platform. CI builds them (Linux x64/arm64, macOS arm64, Windows x64) and publishes them on npm as `@axiomcode/engine-<os>-<cpu>`, which `npm install` selects by platform ([#478](https://github.com/AxiomCodeAI/axiom-code-graph/pull/478)). With Soufflé installed, the engine compiles locally instead; a checkout whose rules differ from the published engine never runs a stale binary.
+The rules compile to one self-contained executable per language and platform. CI builds them (Linux x64/arm64, macOS arm64, Windows x64) and publishes them on npm as `@axiomcode/engine-<os>-<cpu>`, which `npm install` selects by platform ([#478](https://github.com/AxiomCodeAI/axiomcodegraph/pull/478)). With Soufflé installed, the engine compiles locally instead; a checkout whose rules differ from the published engine never runs a stale binary.
 
 ### What "formal" means here
 

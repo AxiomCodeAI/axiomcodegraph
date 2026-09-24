@@ -1,6 +1,6 @@
 {
   "name": "axiomcode",
-  "owner": { "name": "AxiomCode", "url": "https://github.com/AxiomCodeAI/axiom-code-graph" },
+  "owner": { "name": "AxiomCode", "url": "https://github.com/AxiomCodeAI/axiomcodegraph" },
   "metadata": {
     "description": "Ask a repository how its code connects, from a resolved call graph rather than text search."
   },
