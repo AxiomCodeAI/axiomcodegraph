@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="plugins/axiomcode/assets/logo.svg" width="96" height="96" alt="AxiomCode Graph logo">
+  <img src="docs/images/axiomcode-logo.jpeg" width="56" height="56" alt="AxiomCode Graph logo">
 </p>
 
 <h1 align="center">AxiomCode Graph</h1>
