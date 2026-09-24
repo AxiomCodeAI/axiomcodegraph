@@ -579,3 +579,5 @@
 .decl decorator_system(c0:symbol,c1:symbol,c2:symbol)
 .decl decorator_expr(c0:symbol,c1:symbol,c2:symbol)
 .decl decorator_module(c0:symbol,c1:symbol,c2:symbol)
+.decl member_sig_access(c0:symbol,c1:symbol)
+.decl method_kind_is_assignable_signature(c0:symbol)

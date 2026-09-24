@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  exported_from_entry_module schema#init   schema.ts:14
+  exported_from_entry_module schema#parseTyped   schema.ts:27
+  unimported_module schema#<module>   schema.ts:1

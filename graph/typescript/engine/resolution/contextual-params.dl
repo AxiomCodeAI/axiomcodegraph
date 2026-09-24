@@ -67,6 +67,24 @@ fn_param_tvar(fref, k, pname) :- type_ref_parent(_, fref, k, child),
     pname != "".
 fn_param_type(fref, k, prov, t) :- type_ref_parent(_, fref, k, child),
     ref_type_target(child, prov, t).
+// …AND WHERE THE FUNCTION TYPE IS ITSELF GENERIC — `type Parse = <T extends Schema>(schema:
+// T, value: number) => number` (#1283). `T` is declared by the function type's own
+// FUNCTION_TYPE_SIGNATURE, not by anything ref_type_target walks: the parser writes the
+// parameter's reference as a plain name with no type-parameter link, and its owner is the
+// ALIAS, so neither the exact link nor the name-keyed scope reaches the declaration. The
+// signature is owned by the FUNCTION_TYPE reference, and it declares the variable, so the
+// member lookup a call on `schema` needs goes through the constraint, as it does for a
+// `<T extends Schema>` parameter of a named function.
+//
+// Only here, where a lambda is being typed, and not in ref_type_target: a constraint is a
+// lower bound, which is right for lookup and wrong for overload rejection (param_untestable).
+fn_param_type(fref, k, prov, t) :- type_ref_parent(_, fref, k, child),
+    type_ref(_, _, _, tn, _, _, _, child),
+    method_owner(p, fref, sig),
+    method_kind(p, "FUNCTION_TYPE_SIGNATURE", _, sig),
+    type_param(p, tn, _, _, sig, tp),
+    type_param_constraint(p, cref, tp),
+    ref_type_target(cref, prov, t).
 
 // ── bind the callback's parameters ──────────────────────────────────────────
 // (a) CONCRETE — the signature names a real type, so no substitution is needed.

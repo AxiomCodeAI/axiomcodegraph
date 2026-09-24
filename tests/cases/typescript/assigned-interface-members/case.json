@@ -1,0 +1,30 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a parameter typed only by the generic function type of the const it is written in takes the type's constraint, so the call through it resolves as it does for an annotated parameter (#1283)",
+   "run": ["path", "parse", "*"],
+   "want": ["Internals.run   src/schema.ts:7"],
+   "avoid": ["its body has 1 unresolved call(s)"]
+  },
+  {
+   "why": "a function assigned to an interface's method member through a property chain implements it: the walk from a call to the member reaches both assigned arrows, one of them through `run = parse`",
+   "run": ["path", "parse", "*"],
+   "want": ["<arrow>   src/schema.ts:15", "<arrow>   src/schema.ts:19"],
+   "avoid": []
+  },
+  {
+   "why": "the assigned arrow has the callers that call through the member, and is bound to the members that hold it",
+   "run": ["impact", "src/schema.ts:15"],
+   "want": ["[one of a set] parse   src/schema.ts:24", "[one of a set] parseTyped   src/schema.ts:27", "Internals.run   src/schema.ts:7"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "explaining the entry point, the flow goes on through the member into what it holds instead of stopping at a signature with no body",
+   "run": ["context", "how does parse work", "--from", "parse"],
+   "want": ["→ Internals.run", "held by the step above", "src/schema.ts:15", "src/schema.ts:19"],
+   "avoid": ["⚠ unresolved here: run()"]
+  }
+ ]
+}

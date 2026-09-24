@@ -1,0 +1,8 @@
+73-assigned-interface-members [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    0.7500   (3 of 4 the compiler resolved)
+  sites 6   resolved 5 (83.3%)
+  tiers ambiguous_unknown=1  known_edge=5
+  contexts FIELD_TYPE=1  METHOD_PARAM=3  METHOD_TYPE_PARAM_BOUND=1  VARIABLE_TYPE=1
+  not scored: 2 rows whose target is not a client declaration
+    MISSING Parse USES Schema
