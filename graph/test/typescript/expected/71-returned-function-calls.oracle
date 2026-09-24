@@ -1,0 +1,5 @@
+oracle=9 engine=5 agree=5 missing=4 (known 4, NEW 0) extra=0
+  known    use#immediately() -> make#<arrow@8>(number)
+  known    use#twoLevels() -> make#<arrow@10>(number)
+  known    use#viaBlock() -> make#<arrow@5>(number)
+  known    use#viaConcise() -> make#<arrow@8>(number)

@@ -1,1 +1,2 @@
 value	generic#<function-type>@27:48 -> generic#<arrow>
+value_call	generic#fromArgument -> generic#<arrow>

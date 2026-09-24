@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  exported_from_entry_module use#immediately   use.ts:15
+  exported_from_entry_module use#twoLevels   use.ts:20
+  exported_from_entry_module use#viaBlock   use.ts:4
+  exported_from_entry_module use#viaConcise   use.ts:9
+  unimported_module use#<module>   use.ts:1

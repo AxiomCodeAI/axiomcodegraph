@@ -43,6 +43,7 @@ call_signature_in_scope	diag-call-sig.csv
 ref_shape_target	diag-ref-shape.csv
 alias_step	diag-alias-step.csv
 method_dispatch_candidate	dispatch-candidates.csv
+fn_value_call	function-value-call.csv
 type_instantiated	resolution-type-instantiated.csv
 field_access	field-access.csv
 type_use	type-use.csv

@@ -178,6 +178,9 @@
 .decl binary_op_yields_operand(c0:symbol,c1:symbol)
 .decl holder_holds_function(c0:symbol,c1:symbol)
 .decl called_through(c0:symbol,c1:symbol)
+.decl method_enclosing_member(c0:symbol,c1:symbol)
+.decl call_runs(c0:symbol,c1:symbol)
+.decl fn_value_call(c0:symbol,c1:symbol)       // (caller, fn): caller makes a call that runs fn, a function a holder holds or a call returned
 .decl holder_ref_kind(c0:symbol)
 .decl field_in_scope(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl field_initializer(c0:symbol,c1:symbol,c2:symbol)

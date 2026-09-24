@@ -279,8 +279,50 @@ method_dispatch_candidate(sig, m, "value") :- typed_holder_signature(h, sig),
 // what a function returns is held by it, for this purpose: `makeCb(): CB { return (n) => … }`
 // the ROOT of the returned expression only: method_returns_expr also holds every sub-expression under a `return`
 // (the callee identifier of `return make(x)` among them), and those are not what the function returns
-holder_value(f, e) :- method_returns_expr(f, e), expr_kind("client", _, "ROOT", e), method_return_ref("client", r, f), ref_call_signature(r, _).
+holder_value(f, e) :- method_returns_expr(f, e), expr_kind("client", _, "ROOT", e).
+// …and the concise body of an arrow that is itself a function: `(n) => (x) => x + n`. That body has no call site and
+// no block, so method_returns_expr has no row for it; the inner arrow's method row names the arrow it is written in.
+holder_value(f, e) :- expr_root_context("client", "ARROW_BODY_EXPRESSION", e), expr_kind("client", _, "ROOT", e),
+    expr_anon_decl("client", m, e), method_enclosing_member(m, f).
 method_dispatch_candidate(sig, m, "value") :- method_return_ref("client", r, f),
     ref_call_signature(r, sig),
     holder_holds_function(f, m),
     m != sig.
+
+// ============================================================================
+// A FUNCTION A CALL HANDS BACK, AND THE CALL THAT RUNS IT  (fn_value_call, as Java has it)
+//
+// `const f = make(1); f(2)`, `make(1)(2)`, and the curried chains of a functional library
+// (`const unionS = union(S); unionS(second)(first)`) call a function that no name at the call
+// site spells: it is what another call RETURNED. The call has no signature to resolve to, so
+// the envelope rules above (keyed on the signature a call resolved to) never see it, and the
+// function it runs had no caller at all.
+//
+//   * a holder holds what a call stored in it RETURNS: the functions the call's target returns;
+//   * a call RUNS what it resolved to, what its holder holds, and, when the callee is itself a
+//     call, what that inner call's target returns.
+//
+// fn_value_call(Caller, Fn) is the pair a walk uses, exactly as Java's: it keeps the call
+// that runs the function, so a caller gets only the functions its own calls can run. An
+// output only, like method_dispatch_candidate: no call-site answer moves.
+// ============================================================================
+method_enclosing_member(m, p) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m), p != "".
+
+holder_holds_function(h, m) :- holder_value(h, e),
+    value_branch(e, x),
+    expr_kind("client", "CALL_EXPRESSION", _, x),
+    call_runs(x, f),
+    holder_holds_function(f, m).
+
+call_runs(ce, f) :- expr_resolves_to_method(ce, f).
+call_runs(ce, m) :- called_through(ce, h), holder_holds_function(h, m).
+call_runs(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_kind("client", "CALL_EXPRESSION", _, ne),
+    call_runs(ne, f),
+    holder_holds_function(f, m).
+
+fn_value_call(caller, m) :- call_runs(ce, m),
+    !expr_resolves_to_method(ce, m),
+    call_site("client", _, _, _, _, ce, cs),
+    call_caller_method(cs, caller),
+    caller != m.

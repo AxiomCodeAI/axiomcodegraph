@@ -28,6 +28,13 @@ import {
   unwrapParentheses,
 } from '@/parsers/typescript/extractors/ts-expression-extractor';
 
+/** Declarations with no value meaning: an expression's identifier never refers to one. */
+const TYPE_ONLY_KINDS: ReadonlySet<TsBoundKind> = new Set([
+  TsBoundKind.TypeParameter,
+  TsBoundKind.InterfaceDeclaration,
+  TsBoundKind.TypeAliasDeclaration,
+]);
+
 /**
  * Fills the SAME-FILE resolution links, and stops there.
  *
@@ -265,7 +272,7 @@ export class TsLocalResolver {
         || row.edgeRole === TsEdgeRole.OBJECT_PROPERTY_KEY) {
         continue;
       }
-      const binding = this.lookup(node, node.text);
+      const binding = this.lookup(node, node.text, 'value');
       if (!binding) {
         if (AMBIENT_GLOBALS.has(node.text)) {
           // Declared outside this analysis. An honest terminal, and the engine
@@ -298,18 +305,28 @@ export class TsLocalResolver {
     return this.input.binder.fileScope;
   }
 
-  /** Walks the scope chain outward. Block table first: a `let` shadows a `var` of one name. */
-  private lookup(node: ts.Node, name: string): BoundDeclaration | undefined {
+  /**
+   * Walks the scope chain outward. Block table first: a `let` shadows a `var` of one name.
+   *
+   * A VALUE lookup (an identifier in an expression: a reference, a callee, a receiver) skips
+   * declarations that exist only in type space. TypeScript keeps the two meanings apart, so in
+   * `import * as E from './e'; const f = <E>(m: Monoid<E>) => E.compact(m)` the receiver `E`
+   * is the namespace, not the type parameter. Stopping at the type parameter left the receiver
+   * unresolved and dropped every call through it.
+   */
+  private lookup(node: ts.Node, name: string, meaning: 'value' | 'any' = 'any'): BoundDeclaration | undefined {
     const escaped = escapeName(name);
+    const visible = (matches: BoundDeclaration[] | undefined): BoundDeclaration | undefined =>
+      matches?.find((m) => meaning === 'any' || !TYPE_ONLY_KINDS.has(m.kind));
     let scope = this.scopeFor(node);
     while (scope) {
-      const blockMatch = scope.blockTable.get(escaped);
-      if (blockMatch && blockMatch.length > 0) {
-        return blockMatch[0];
+      const blockMatch = visible(scope.blockTable.get(escaped));
+      if (blockMatch) {
+        return blockMatch;
       }
-      const varMatch = scope.varTable.get(escaped);
-      if (varMatch && varMatch.length > 0) {
-        return varMatch[0];
+      const varMatch = visible(scope.varTable.get(escaped));
+      if (varMatch) {
+        return varMatch;
       }
       scope = scope.parent;
     }
@@ -470,7 +487,7 @@ export class TsLocalResolver {
     callSite: TsCallSiteRegistry,
     argumentCount: number
   ): void {
-    const binding = this.lookup(callee, callee.text);
+    const binding = this.lookup(callee, callee.text, 'value');
     if (!binding) {
       if (AMBIENT_GLOBALS.has(callee.text)) {
         callSite.setExternalTarget(TsResolvedTargetKind.LIB_SIGNATURE,
@@ -568,7 +585,7 @@ export class TsLocalResolver {
     if (!ts.isIdentifier(callee)) {
       return;
     }
-    const binding = this.lookup(callee, callee.text);
+    const binding = this.lookup(callee, callee.text, 'value');
     if (!binding) {
       if (AMBIENT_GLOBALS.has(callee.text)) {
         callSite.setExternalTarget(TsResolvedTargetKind.LIB_SIGNATURE,
@@ -760,7 +777,7 @@ export class TsLocalResolver {
       return;
     }
 
-    const binding = this.lookup(receiver, receiver.text);
+    const binding = this.lookup(receiver, receiver.text, 'value');
     if (!binding) {
       if (AMBIENT_GLOBALS.has(receiver.text)) {
         callSite.setReceiverTypeName(receiver.text);

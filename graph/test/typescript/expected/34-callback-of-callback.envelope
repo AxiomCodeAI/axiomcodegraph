@@ -2,3 +2,4 @@ value	exec#<function-type>@28:31 -> exec#<arrow>@32
 value	globals#<function-type>@12:21 -> exec#<arrow>@12
 value	globals#<function-type>@12:21 -> exec#<arrow>@20
 value	globals#<function-type>@17:14 -> exec#<arrow>@40
+value_call	exec#withSink -> exec#<arrow>@32

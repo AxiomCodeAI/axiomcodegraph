@@ -1,3 +1,6 @@
 value	core/core#<function-type>@3:78 -> classic/schemas#<arrow>@4
 value	core/core#<function-type>@3:78 -> classic/schemas#<arrow>@5
 value	core/core#<function-type>@3:78 -> core/schemas#<arrow>
+value_call	core/core#$constructor -> classic/schemas#<arrow>@4
+value_call	core/core#$constructor -> classic/schemas#<arrow>@5
+value_call	core/core#$constructor -> core/schemas#<arrow>
