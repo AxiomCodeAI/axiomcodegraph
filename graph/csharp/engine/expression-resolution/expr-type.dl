@@ -39,7 +39,14 @@ param_type(prov, p, gk) :-
     name_to_type(prov, mod, tn, gk).
 
 // A parameter's type reference, found through the reference's own owner link.
-param_type_ref(prov, p, tr) :- type_ref_owner(prov, tr, p, "METHOD_PARAMETER").
+// THE ROOT REFERENCE ONLY, for the reason expr_new_type_ref gives below: `List<Bag> bags`
+// owns two references, `List<Bag>` and its argument `Bag`, and taking both typed `bags`
+// as a Bag. Where List is not staged the root resolves to nothing and the argument was
+// the only answer, so `bags.Clear()` committed to Bag.Clear at known_edge (#1168). The
+// argument is still reached through the root by expr_element_type.
+param_type_ref(prov, p, tr) :-
+    type_ref_owner(prov, tr, p, "METHOD_PARAMETER"),
+    !type_ref_parent(prov, tr, _, _, _).
 
 // ── ANCHOR 2: A FIELD'S AND PROPERTY'S DECLARED TYPE ────────────────────────
 field_type(prov, f, gk) :- field_type_ref(prov, f, tr), type_ref_resolves(prov, tr, gk).
@@ -219,7 +226,11 @@ expr_type_via_ref(prov, e, tr) :-
 // type for any `var` local initialised from a call, which means no receiver, which
 // means no edge. The symptom was a foreach over a locally-constructed collection
 // resolving to nothing while the same loop over a parameter resolved fine.
-method_return_type_ref(prov, m, tr) :- type_ref_owner(prov, tr, m, "METHOD"), type_ref_context(prov, tr, "METHOD_RETURN").
+//
+// The root only, as for a parameter: `List<Bag> Make()` owns `Bag` too (#1168).
+method_return_type_ref(prov, m, tr) :-
+    type_ref_owner(prov, tr, m, "METHOD"), type_ref_context(prov, tr, "METHOD_RETURN"),
+    !type_ref_parent(prov, tr, _, _, _).
 
 // ── EXPRESSION TYPES, BY EXPRESSION KIND ────────────────────────────────────
 

@@ -356,7 +356,6 @@ external_element_access(prov, e, label) :-
     expr_kind(prov, e, "ELEMENT_ACCESS"),
     !indexer_access(prov, e, _),
     expr_child(prov, e, "RECEIVER", _, q),
-    !expr_element_type(prov, q, _),
     !expr_recv_is_array(prov, q),
     external_recv_name(prov, q, tn),
     !expr_is_write_target(prov, e),
@@ -365,7 +364,6 @@ external_element_access(prov, e, label) :-
     expr_kind(prov, e, "ELEMENT_ACCESS"),
     !indexer_access(prov, e, _),
     expr_child(prov, e, "RECEIVER", _, q),
-    !expr_element_type(prov, q, _),
     !expr_recv_is_array(prov, q),
     external_recv_name(prov, q, tn),
     expr_is_write_target(prov, e),
@@ -377,6 +375,17 @@ external_element_access(prov, e, label) :-
 // be recognised from the reference's own rank.
 expr_recv_is_array(prov, e) :-
     expr_type_via_ref(prov, e, tr), type_ref_array_rank(prov, tr, _).
+// ...and an array a staged method returns, which expr_element_type (d) reads.
+expr_recv_is_array("client", e) :-
+    expr_target_any("client", e, m),
+    method_return_type_ref("lib", m, tr), type_ref_array_rank("lib", tr, _).
+
+// NOT GATED ON THE RECEIVER HAVING AN ELEMENT TYPE. `List<Bag> bags` has one, Bag, read
+// off the type argument, and that says nothing about whether List is staged: the gate
+// labelled `ints[0]` on a List<int> and left `bags[0]` on a List<Bag> with no row at
+// all (#1168). The element type is what `bags[0]` HOLDS; the indexer it calls is still
+// List's. Arrays, the case an element type did imply, are excluded by
+// expr_recv_is_array.
 
 // The receiver's type name, where that type is not staged. Both spellings: a C#
 // keyword alias, and a named type the project does not declare.
