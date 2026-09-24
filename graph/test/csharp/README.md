@@ -5,7 +5,7 @@ than the numbers.
 
 | | what it is | what it proves | cost |
 |---|---|---|---|
-| `run-tests.sh` | 12 cases, scored against Roslyn | a construct resolves, and its control does not over-resolve | seconds |
+| `run-tests.sh` | 16 cases, scored against Roslyn | a construct resolves, and its control does not over-resolve | seconds |
 | `corpus/run-corpus.sh` | 10 real projects, dev and holdout | the rules generalise beyond what they were written against | ~30 min |
 | `runtime-oracle/` | the subject's own test suite, traced | an edge was actually taken, and which taken edge was missed | ~5 min per subject |
 
@@ -33,6 +33,7 @@ run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 | `14-pattern-bindings` | a call on a binding from `is`, `is not`, a `case` label and a switch-expression arm, each typed by its declared pattern type: `o is Shape s; s.Area()` must still fan to the overrides, and `o is List<Circle> cs` is labelled external (#1277). With them, an indexer over an unstaged base, `IOrderedMap<K, V> : IDictionary<K, V>` declaring `this[int]`: `map[key]` binds to the base's `this[K]`, so the site is a set of the in-source indexer and `external:IDictionary.get_Item`, reached through a pattern binding and through a parameter. Control: the same call on a parameter |
 | `15-external-generic-return` | in-source methods whose declared return type is an unstaged generic (`List<Item>`, `Dictionary<string, Item>`): a `var` holding the result and the call used directly as a receiver, for an invocation, a property read and an indexer, are each labelled `external:List.*` by the ROOT type name, never `external:List<Item>.*` (#1279). Controls: the element (`items[0].Clear()`, a `foreach`, an `await`) still resolves to `Item.Clear`, and an in-source extension on the returned type stays `known_edge` |
 | `16-target-typed-new-external` | a target-typed `new(...)` whose target type is unstaged, in each context `target-typed-new.dl` reads (a field, a property, an explicit local, a return statement, an expression body, an assignment) and with a keyword-alias target (`string s = new('a', 3)`): each is `external:<Type>.<constructor>`, as the explicit `new List<Item>()` already is (#1290). Controls: an in-source target type still resolves to its constructor |
+| `17-lambda-parameters` | a lambda parameter with no written type, typed by the delegate the lambda is converted to: a generic delegate declared in source closed at the field (`ParseFn<ISchema>`), a non-generic one, `Func` and `Action`, through a field, property and local initializer, `=`, `??=` and the branches of `?:`; and a value typed by a constrained type parameter, as a parameter and as the argument closing a delegate (`ParseFn<T>` where `T : ISchema`) (#1283). Controls: two type arguments of different types on a declared delegate and on `Func`, whose parameters call a member of the same name on each, so crossed positions fan; an explicitly typed lambda and method. The calls THROUGH a delegate member (`inst.I.Run = inst.I.Parse`) are in `tools/assigned-delegate-member-test.sh` |
 
 ### The acceptance bar's own self-test
 

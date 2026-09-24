@@ -39,9 +39,11 @@
 // member (bare `f`, `this.f`, `obj.f`, `Type.f`); and through the branches of `?:`,
 // both operands of `??`, parentheses, a cast, the null-forgiving `!`, and the
 // argument of `new D(M)`. WHAT IS STORED: a lambda or anonymous method (its own
-// cs_method row), or a method group -- a name that is a method on the type it is
-// looked up in, bare, `this.M` or `Type.M`. A CALL on the right-hand side
-// (`f = Make()`) stores the call's return value, which is not followed.
+// cs_method row), a method group -- a name that is a method on the type it is
+// looked up in, bare, `this.M` or `Type.M` -- or ANOTHER field or property, whose
+// functions it then holds too (`inst.I.Run = inst.I.Parse`, #1283). A CALL on the
+// right-hand side (`f = Make()`) stores the call's return value, which is not
+// followed.
 //
 // NOT HANDLED, and left exactly as before: a delegate that reaches the field from a
 // parameter or a local (`this.f = f`), a local or parameter of delegate type invoked
@@ -147,6 +149,14 @@ delegate_value_method(prov, e, m) :-
 delegate_member_holds(prov, mem, m) :-
     delegate_store(prov, mem, e), delegate_value_method(prov, e, m),
     method_decl(prov, _, _, _, m).
+
+// A MEMBER COPIED FROM ANOTHER: `inst.I.Run = inst.I.Parse` stores whatever Parse
+// holds, so a call through Run may run it (#1283). The value names a field or
+// property, looked up the way a target is, and what it holds is followed to a
+// fixpoint, so a chain of copies composes.
+delegate_member_holds(prov, mem, m) :-
+    delegate_store(prov, mem, e), delegate_member_ref(prov, e, src), src != mem,
+    delegate_member_holds(prov, src, m).
 
 delegate_member_holds_any(prov, mem) :- delegate_member_holds(prov, mem, _).
 

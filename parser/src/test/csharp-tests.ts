@@ -3991,6 +3991,77 @@ public class Gear { public string? Name { get; set; } }
   });
 }
 
+async function aDelegateSignatureIsATypeReference(): Promise<number> {
+  return withTempDir(async (dir) => {
+    const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-delegate-sig-'));
+    const source = `namespace Acme.DelegateSignature;
+
+public interface ISchema { int Check(); }
+
+public delegate int ParseFn<T>(T schema, int value) where T : ISchema;
+public delegate int PlainFn(ISchema schema, int value);
+
+public static class Parsers
+{
+    public static int Closed<T>(T s) where T : ISchema
+    {
+        ParseFn<T> p = (schema, value) => schema.Check();
+        return s.Check();
+    }
+}
+`;
+    await fsp.writeFile(path.join(corpus, 'DelegateSignature.cs'), source, 'utf-8');
+    await runAnalyzer(corpus, dir);
+    const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
+    const types = relations.get('all-csharp-types.csv');
+    const refs = relations.get('all-csharp-type-references.csv');
+    const typeParameters = relations.get('all-csharp-type-parameters.csv');
+    if (types === undefined || refs === undefined || typeParameters === undefined) {
+      return fail('a relation this check reads is missing');
+    }
+    const r = (n: string): number => refs.header.indexOf(n);
+    const pkOf = (rel: Relation, name: string, col: string): string =>
+      rel.rows.find((row) => row[rel.header.indexOf(col)] === name)?.[rel.header.length - 1] ?? '';
+    let bad = 0;
+    // THE SIGNATURE: one root reference per parameter, owned by the delegate TYPE,
+    // at the parameter's index. `T schema` is the delegate's own type parameter.
+    for (const [delegate, expected] of [
+      ['ParseFn', [['0', 'T', true], ['1', 'int', false]]],
+      ['PlainFn', [['0', 'ISchema', false], ['1', 'int', false]]],
+    ] as const) {
+      const owner = pkOf(types, delegate, 'name');
+      const got = refs.rows
+        .filter((row) => row[r('context')] === 'DELEGATE_PARAMETER' && row[r('ownerLinkHash')] === owner)
+        .filter((row) => row[r('parentReferenceHash')] === '')
+        .map((row) => [row[r('position')], row[r('typeName')], row[r('typeParameterLinkHash')] !== ''] as const)
+        .sort((a, b) => Number(a[0]) - Number(b[0]));
+      if (JSON.stringify(got) !== JSON.stringify(expected)) {
+        bad += fail(
+          `${delegate}'s DELEGATE_PARAMETER references are ${JSON.stringify(got)}, expected ` +
+            `${JSON.stringify(expected)} -- a lambda converted to it has no other source for its parameter types`
+        );
+      }
+    }
+    // A METHOD'S OWN TYPE PARAMETER IS IN SCOPE IN ITS BODY: `ParseFn<T>` on a local
+    // inside `Closed<T>` links its `T` to Closed's parameter, as the signature's does.
+    const closedT = typeParameters.rows.find(
+      (row) =>
+        row[typeParameters.header.indexOf('ownerKind')] === 'METHOD' &&
+        row[typeParameters.header.indexOf('name')] === 'T'
+    )?.[typeParameters.header.length - 1];
+    const localT = refs.rows.find(
+      (row) => row[r('context')] === 'LOCAL_VARIABLE' && row[r('typeName')] === 'T'
+    );
+    if (closedT === undefined || localT === undefined || localT[r('typeParameterLinkHash')] !== closedT) {
+      bad += fail(
+        `the T in a local's \`ParseFn<T>\` links to '${localT?.[r('typeParameterLinkHash')] ?? '(no row)'}', ` +
+          `expected the method's own T '${closedT ?? '(no row)'}' -- read as a type named T instead`
+      );
+    }
+    return bad;
+  });
+}
+
 async function aPragmaAtTheEndIsNotAGap(): Promise<number> {
   return withTempDir(async (dir) => {
     const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-pragma-'));
@@ -13968,6 +14039,15 @@ async function main(): Promise<number> {
           'carries `async` as a parameter, the real lambda keeps its own, and the same call ' +
           'with a first argument that is not a contextual keyword is unchanged',
         run: () => aCallIsNotALambda(),
+      },
+      {
+        name: 'a delegate signature is a type reference',
+        proves:
+          'a delegate declares no cs_method row, so its parameter types are emitted as ' +
+          'DELEGATE_PARAMETER references owned by the delegate type at the parameter index -- ' +
+          'where a lambda converted to it gets its implicit parameter types (#1283) -- and a ' +
+          'method`s own type parameter is in scope in its body, so `ParseFn<T>` on a local links T',
+        run: () => aDelegateSignatureIsATypeReference(),
       },
       {
         name: 'a pragma at the end is not a gap',

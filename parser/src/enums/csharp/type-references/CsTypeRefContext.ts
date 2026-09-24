@@ -94,4 +94,13 @@ export enum CsTypeRefContext {
    * lambda parameter is the fact that matters: the parameter is inferred.
    */
   LAMBDA_PARAMETER = 'LAMBDA_PARAMETER',
+
+  /**
+   * ★ A parameter's type in a delegate's signature — `delegate int D<T>(T a,
+   * int b)`. Owned by the delegate TYPE, and the root's `position` is the
+   * parameter's index. A lambda converted to the delegate takes its implicit
+   * parameter types from here, so without it `D<Foo> d = (a, b) => a.M()` has
+   * no type for `a`.
+   */
+  DELEGATE_PARAMETER = 'DELEGATE_PARAMETER',
 }
