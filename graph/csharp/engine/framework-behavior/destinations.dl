@@ -45,6 +45,13 @@ call_recv_written_name(e, n) :-
     ref_denotes("client", r, "LOCAL_VARIABLE", v), var_is_implicit("client", v),
     var_value_initializer("client", v, init), expr_new_type_ref("client", init, tr),
     type_ref_name("client", tr, n).
+// …and a `var` from the service locator, which holds its type argument
+call_recv_written_name(e, n) :-
+    call_receiver_expr("client", e, r),
+    ref_denotes("client", r, "LOCAL_VARIABLE", v), var_initializer("client", v, init),
+    csite("client", init), call_callee_name("client", init, f), cs_di_resolve(f),
+    type_ref_owner("client", tr, init, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_name("client", tr, n).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. gRPC
@@ -554,7 +561,213 @@ remote_undetermined(from, tr, "unresolved_destination") :- cs_remote_transport_h
 http_send_has_literal(e) :- http_send_tmpl(e, _, _, s), chas_literal(s).
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. THE EDGE, AND THE TWO HALVES IT CANNOT JOIN
+// 4. MESSAGING
+// ─────────────────────────────────────────────────────────────────────────────
+// Two kinds of key. A BROKER client names a topic or a queue as a string: Kafka,
+// RabbitMQ, Azure Service Bus. A BUS names nothing: the message's TYPE is the
+// destination, and a handler declares the type it handles (MassTransit, NServiceBus, an
+// event bus). Every client, method and interface name is in knobs.dl.
+
+// ── the client a call is made on ────────────────────────────────────────────
+// matched on the LAST segment: `MassTransit.IRequestClient` is written qualified as often as not
+msg_recv_name(e, n) :- call_recv_written_name(e, tn), last_segment(tn, n).
+last_segment_demand(n) :- call_recv_written_name(_, n).
+last_segment_demand(n) :- heritage_slot("client", _, _, n, "1", _).
+msg_client(e, fam) :- msg_recv_name(e, tn), cs_msg_client_type(tn, fam).
+// a channel from its connection's factory, awaited or not, held in a local
+msg_client(e, fam) :- call_receiver_expr("client", e, r), ref_denotes("client", r, "LOCAL_VARIABLE", v),
+    var_initializer("client", v, init), msg_factory_call(init, f), cs_msg_factory(f, fam).
+msg_factory_call(c, f) :- csite("client", c), call_callee_name("client", c, f), cs_msg_factory(f, _).
+msg_factory_call(a, f) :- expr_kind("client", a, "AWAIT"), expr_child("client", a, "AWAIT_OPERAND", _, c),
+    csite("client", c), call_callee_name("client", c, f), cs_msg_factory(f, _).
+// a local built by a client builder, through any fluent calls before Build(). Read off any
+// initializer, `using (var producer = ...)` included.
+msg_client(e, fam) :- call_receiver_expr("client", e, r), ref_denotes("client", r, "LOCAL_VARIABLE", v),
+    var_initializer("client", v, init), msg_builder_root(init, bn), cs_msg_builder(bn, fam).
+mb_demand(init) :- call_receiver_expr("client", _, r), ref_denotes("client", r, "LOCAL_VARIABLE", v),
+    var_initializer("client", v, init).
+mb_demand(r) :- mb_demand(x), csite("client", x), call_receiver_expr("client", x, r).
+msg_builder_root(x, n) :- mb_demand(x), expr_kind("client", x, "OBJECT_CREATION"), call_callee_name("client", x, n).
+msg_builder_root(x, n) :- mb_demand(x), csite("client", x), call_receiver_expr("client", x, r), msg_builder_root(r, n).
+// a string argument's value: a literal, or a constant, field or local holding one
+msg_arg_value(e, k, v) :- msg_call(e), http_arg(e, k, a), expr_literal("client", a, _, raw), str_value(raw, v).
+msg_arg_value(e, k, v) :- msg_call(e), http_arg(e, k, a), hole_literal(a, v).
+// `string.Empty` is the empty string: the default exchange is usually written this way
+msg_arg_value(e, k, "") :- msg_call(e), http_arg(e, k, a), expr_kind("client", a, "MEMBER_ACCESS"),
+    expr_qualifier_child("client", a, q), expr_written_name("client", q, qn), cs_string_type(qn),
+    expr_member_name_child("client", a, nm), expr_written_name("client", nm, "Empty").
+// the `string` KEYWORD as a qualifier carries no written name (`Guid.Empty` does, and is excluded)
+msg_arg_value(e, k, "") :- msg_call(e), http_arg(e, k, a), expr_kind("client", a, "MEMBER_ACCESS"),
+    expr_qualifier_child("client", a, q), !expr_written_name("client", q, _),
+    expr_member_name_child("client", a, nm), expr_written_name("client", nm, "Empty").
+str_demand(raw) :- msg_call(e), http_arg(e, _, a), expr_literal("client", a, _, raw).
+str_demand(raw) :- msg_call(e), http_arg(e, _, a), ref_denotes("client", a, "FIELD", f),
+    field_initializer("client", f, i), expr_literal("client", i, _, raw).
+str_demand(raw) :- msg_call(e), http_arg(e, _, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    var_initializer("client", v, i), expr_literal("client", i, _, raw).
+// …and each element of an array or collection written in place: Subscribe(new[] { "a", "b" })
+msg_arg_value(e, k, v) :- msg_call(e), http_arg(e, k, a), expr_child("client", a, _, _, c),
+    expr_literal("client", c, _, raw), str_value(raw, v).
+msg_arg_value(e, k, v) :- msg_call(e), http_arg(e, k, a), expr_child("client", a, _, _, c),
+    expr_child("client", c, _, _, d), expr_literal("client", d, _, raw), str_value(raw, v).
+str_demand(raw) :- msg_call(e), http_arg(e, _, a), expr_child("client", a, _, _, c), expr_literal("client", c, _, raw).
+str_demand(raw) :- msg_call(e), http_arg(e, _, a), expr_child("client", a, _, _, c),
+    expr_child("client", c, _, _, d), expr_literal("client", d, _, raw).
+msg_call(e) :- msg_client(e, _).
+
+// ── brokers: a name on each end ─────────────────────────────────────────────
+msg_name_send_site(e, from, tr) :- msg_client(e, fam), call_callee_name("client", e, n),
+    cs_msg_name_send(fam, n, _, tr), call_from("client", e, from).
+msg_name_send(e, from, tr, d) :- msg_client(e, fam), call_callee_name("client", e, n),
+    cs_msg_name_send(fam, n, k, tr), msg_arg_value(e, k, d), call_from("client", e, from).
+msg_name_serve_site(e, m, tr, d) :- msg_client(e, fam), call_callee_name("client", e, n),
+    cs_msg_name_serve(fam, n, k, tr), msg_arg_value(e, k, d), call_from("client", e, m).
+
+// Service Bus: the processor's handler is the method added to ProcessMessageAsync, when
+// it can be named; otherwise the method that built the processor.
+sb_processor_local(v, e) :- msg_name_serve_site(e, _, "azure_servicebus", _),
+    var_value_initializer("client", v, e).
+sb_handler(e, h) :- sb_processor_local(v, e),
+    expr_kind("client", asg, "COMPOUND_ASSIGNMENT"),
+    expr_child("client", asg, "ASSIGNMENT_TARGET", _, tgt), expr_kind("client", tgt, "MEMBER_ACCESS"),
+    expr_qualifier_child("client", tgt, q), ref_denotes("client", q, "LOCAL_VARIABLE", v),
+    expr_member_name_child("client", tgt, nm), expr_written_name("client", nm, evn), cs_servicebus_handler_event(evn),
+    expr_child("client", asg, "ASSIGNMENT_VALUE", _, val),
+    expr_kind("client", val, "NAME_REFERENCE"), expr_ref_unknown("client", val),
+    expr_written_name("client", val, hn), !local_binds("client", val, _),
+    expr_ultimate_type_group("client", val, gk), member_lookup("client", gk, hn, "method", h).
+sb_has_handler(e) :- sb_handler(e, _).
+msg_name_serves(m, tr, d) :- msg_name_serve_site(e, m0, tr, d), tr != "azure_servicebus", m = m0.
+msg_name_serves(m, tr, d) :- msg_name_serve_site(e, _, tr, d), tr = "azure_servicebus", sb_handler(e, m).
+msg_name_serves(m, tr, d) :- msg_name_serve_site(e, m, tr, d), tr = "azure_servicebus", !sb_has_handler(e).
+
+remote_edge_via(e, from, to, tr, d, conf) :- msg_name_send(e, from, tr, d), msg_name_serves(to, tr, d),
+    cs_remote_confidence_exact(conf), from != to.
+serves_destination(m, tr, d) :- msg_name_serves(m, tr, d).
+remote_send_at(e, from, tr, d) :- msg_name_send(e, from, tr, d).
+remote_undetermined(from, tr, "unresolved_destination") :- msg_name_send_site(e, from, tr), !msg_name_send_named(e).
+msg_name_send_named(e) :- msg_name_send(e, _, _, _).
+
+// ── RabbitMQ: exchange and routing key, through the binding ─────────────────
+// The default exchange ("") delivers straight to the queue named by the routing key.
+// Any other exchange delivers to the queues bound to it with that key.
+amqp_publish(e, from, x, rk) :- msg_client(e, "amqp_channel"), call_callee_name("client", e, n),
+    cs_amqp_publish(n), msg_arg_value(e, 0, x), msg_arg_value(e, 1, rk), call_from("client", e, from).
+amqp_publish_site(e, from) :- msg_client(e, "amqp_channel"), call_callee_name("client", e, n),
+    cs_amqp_publish(n), call_from("client", e, from).
+amqp_binding(q, x, rk) :- msg_client(e, "amqp_channel"), call_callee_name("client", e, n), cs_amqp_bind(n),
+    msg_arg_value(e, 0, q), msg_arg_value(e, 1, x), msg_arg_value(e, 2, rk).
+amqp_route(e, from, q, d, conf) :- amqp_publish(e, from, "", q), d = q, cs_remote_confidence_exact(conf).
+amqp_route(e, from, q, d, conf) :- amqp_publish(e, from, x, rk), x != "", amqp_binding(q, x, rk),
+    d = cat(x, cat("/", rk)), cs_remote_confidence_binding(conf).
+remote_edge_via(e, from, to, "amqp", d, conf) :- amqp_route(e, from, q, d, conf),
+    msg_name_serves(to, "amqp", q), from != to.
+// A binding with an EMPTY key is a fanout: every key published to the exchange arrives.
+amqp_route(e, from, q, d, conf) :- amqp_publish(e, from, x, rk), x != "", rk != "", amqp_binding(q, x, ""),
+    d = cat(x, cat("/", rk)), cs_remote_confidence_binding(conf).
+// A SERVER-NAMED queue, `var q = (await ch.QueueDeclareAsync()).QueueName`, has no name to
+// write, so the binding and the consume meet through the variable holding it.
+amqp_queue_var_arg(e, k, v) :- msg_client(e, "amqp_channel"), http_arg(e, k, a), ref_denotes("client", a, "LOCAL_VARIABLE", v).
+amqp_bind_var(v, x, rk) :- msg_client(e, "amqp_channel"), call_callee_name("client", e, n), cs_amqp_bind(n),
+    amqp_queue_var_arg(e, 0, v), msg_arg_value(e, 1, x), msg_arg_value(e, 2, rk).
+amqp_consume_var(m, v) :- msg_client(e, "amqp_channel"), call_callee_name("client", e, n),
+    cs_msg_name_serve("amqp_channel", n, 0, _), amqp_queue_var_arg(e, 0, v), call_from("client", e, m).
+remote_edge_via(e, from, to, "amqp", d, conf) :- amqp_publish(e, from, x, rk), x != "",
+    amqp_bind_var(v, x, brk), amqp_consume_var(to, v), amqp_key_matches(rk, brk),
+    d = cat(x, cat("/", rk)), cs_remote_confidence_binding(conf), from != to.
+amqp_key_matches(rk, rk) :- amqp_publish(_, _, _, rk).
+amqp_key_matches(rk, "") :- amqp_publish(_, _, _, rk).
+serves_destination(m, "amqp", d) :- amqp_consume_var(m, v), amqp_bind_var(v, x, brk), d = cat(x, cat("/", brk)).
+remote_send_at(e, from, "amqp", d) :- amqp_publish(e, from, "", d).
+remote_send_at(e, from, "amqp", d) :- amqp_publish(e, from, x, rk), x != "", d = cat(x, cat("/", rk)).
+remote_undetermined(from, "amqp", "unresolved_destination") :- amqp_publish_site(e, from), !amqp_publish_named(e).
+amqp_publish_named(e) :- amqp_publish(e, _, _, _).
+
+// ── buses: the message type is the destination ──────────────────────────────
+// A handler: a type that implements <Iface><T>, and its <Method>. T is read off the
+// heritage reference, by name and, where it resolves, by type.
+msg_handler(m, tr, tn, tgk) :- heritage_slot("client", t, _, bn0, "1", href), last_segment(bn0, bn), cs_msg_handler_iface(bn, mn, tr),
+    type_ref_arg("client", href, "0", ar), type_ref_name("client", ar, tn0), last_segment(tn0, tn),
+    method_owner("client", t, m), method_name("client", m, mn), type_ref_group_or_none(ar, tgk).
+type_ref_group_or_none(ar, gk) :- heritage_slot("client", _, _, _, "1", href), type_ref_arg("client", href, "0", ar),
+    type_ref_resolves("client", ar, gk).
+type_ref_group_or_none(ar, "-") :- heritage_slot("client", _, _, _, "1", href), type_ref_arg("client", href, "0", ar),
+    !type_ref_resolves("client", ar, _).
+
+// A send: <method> on a bus receiver, with the message as its first argument.
+msg_bus_send_site(e, from, tr) :- msg_recv_name(e, rn), cs_msg_bus_type(rn, tr),
+    call_callee_name("client", e, n), cs_msg_bus_send(n), call_from("client", e, from).
+// request/response: the send site, whose message type is the client's type argument
+msg_request_site(e, from, tr) :- msg_recv_name(e, rn), cs_msg_request_client(rn, tr),
+    call_callee_name("client", e, n), cs_msg_request_send(n), call_from("client", e, from).
+msg_bus_send_site(e, from, tr) :- msg_request_site(e, from, tr).
+msg_bus_arg(e, a) :- msg_bus_send_site(e, _, _), http_arg(e, 0, a), !msg_first_is_address(e).
+// `Send("destination", message)`: an explicit address first, the message second
+msg_bus_arg(e, a) :- msg_bus_send_site(e, _, _), msg_first_is_address(e), http_arg(e, 1, a).
+msg_first_is_address(e) :- msg_bus_send_site(e, _, _), http_arg(e, 0, a0), http_arg(e, 1, _),
+    expr_literal("client", a0, k, _), k != "NULL".
+// the message's type NAME, however it is written
+msg_arg_type_name(a, n) :- msg_bus_arg(_, a), expr_new_type_ref("client", a, tr), type_ref_name("client", tr, n0), last_segment(n0, n).
+msg_arg_type_name(a, n) :- msg_bus_arg(_, a), expr_kind("client", a, "OBJECT_CREATION"),
+    call_callee_name("client", a, n0), last_segment(n0, n).
+msg_arg_type_name(a, n) :- msg_bus_arg(_, a), expr_type("client", a, gk), type_group("client", t, gk),
+    type_decl("client", n, _, _, _, t).
+msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    var_type_name("client", v, n0, _), n0 != "", last_segment(n0, n).
+msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "PARAMETER", p),
+    param_type_name("client", p, n0, _), n0 != "", last_segment(n0, n).
+// A local declared as a BASE is usually assigned a concrete message on each branch,
+//     Notice evt;  if (ok) evt = new Accepted(..); else evt = new Rejected(..);
+// and those constructions, in the same method, are what it can hold.
+msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    msg_local_assigned(v, c), msg_creation_name(c, n).
+msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    var_value_initializer("client", v, c), msg_creation_name(c, n).
+msg_local_assigned(v, c) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    expr_kind("client", asg, "ASSIGNMENT"), expr_child("client", asg, "ASSIGNMENT_TARGET", _, t),
+    ref_denotes("client", t, "LOCAL_VARIABLE", v), expr_child("client", asg, "ASSIGNMENT_VALUE", _, c).
+msg_creation_name(c, n) :- expr_kind("client", c, "OBJECT_CREATION"), expr_new_type_ref("client", c, tr),
+    type_ref_name("client", tr, n0), last_segment(n0, n).
+
+// A name is a BASE when some handled message type derives from it: the send could be
+// any of them, which is a run-time fact. It is not linked to every subtype (that fanned
+// one outbox publish out to every handler in the system) and not reported as unserved;
+// with no concrete type beside it the send is undetermined.
+msg_base_name(tr, n) :- msg_handler(_, tr, _, hgk), hgk != "-", type_ancestor("client", hgk, bgk),
+    type_group("client", t, bgk), type_decl("client", n, _, _, _, t).
+msg_bus_send(e, from, tr, n) :- msg_bus_send_site(e, from, tr), !msg_request_site(e, _, _),
+    !msg_has_type_arg(e), msg_bus_arg(e, a), msg_arg_type_name(a, n), !msg_base_name(tr, n).
+// `Publish<OrderPlaced>(new { ... })`: the TYPE ARGUMENT is the message, and the
+// argument is an anonymous object with no type of its own
+msg_type_arg(e, n) :- msg_bus_send_site(e, _, _), !msg_request_site(e, _, _),
+    type_ref_owner("client", tr, e, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_name("client", tr, n0), last_segment(n0, n).
+msg_has_type_arg(e) :- msg_type_arg(e, _).
+msg_bus_send(e, from, tr, n) :- msg_bus_send_site(e, from, tr), msg_type_arg(e, n), !msg_base_name(tr, n).
+// the request client's own type argument, through the receiver's declared type
+msg_bus_send(e, from, tr, n) :- msg_request_site(e, from, tr), call_receiver_expr("client", e, r),
+    expr_type_via_ref("client", r, rtr), type_ref_arg("client", rtr, "0", ar),
+    type_ref_name("client", ar, n0), last_segment(n0, n).
+
+remote_edge_via(e, from, to, tr, d, conf) :- msg_bus_send(e, from, tr, d), msg_handler(to, tr, d, _),
+    cs_remote_confidence_exact(conf), from != to.
+serves_destination(m, tr, d) :- msg_handler(m, tr, d, _).
+remote_send_at(e, from, tr, d) :- msg_bus_send(e, from, tr, d).
+remote_undetermined(from, tr, "unresolved_destination") :- msg_bus_send_site(e, from, tr), !msg_bus_send_typed(e).
+msg_bus_send_typed(e) :- msg_bus_send(e, _, _, _).
+
+// the simple name of a possibly qualified type name
+last_segment_demand(n) :- type_ref_name("client", _, n).
+last_segment_demand(n) :- call_callee_name("client", _, n).
+last_segment_demand(n) :- var_type_name("client", _, n, _).
+last_segment_demand(n) :- param_type_name("client", _, n, _).
+ls_dot(n, i) :- last_segment_demand(n), contains(".", n), i = range(0, strlen(n)), substr(n, i, 1) = ".".
+last_segment(n, n) :- last_segment_demand(n), !contains(".", n).
+last_segment(n, s) :- last_segment_demand(n), contains(".", n), l = max i : ls_dot(n, i),
+    s = substr(n, l + 1, strlen(n) - l - 1).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. THE EDGE, AND THE TWO HALVES IT CANNOT JOIN
 // ─────────────────────────────────────────────────────────────────────────────
 remote_edge(from, to, tr, d, conf) :- remote_edge_via(_, from, to, tr, d, conf).
 
@@ -564,4 +777,16 @@ remote_unserved(m, tr, d) :- remote_send_at(e, m, tr, d), !remote_edge_via(e, _,
 
 // A handler nothing here sends to: the client is in another repository, or the rpc has
 // not been adopted.
-remote_unsent(m, tr, d) :- serves_destination(m, tr, d), !remote_edge(_, m, tr, d, _).
+remote_unsent(m, tr, d) :- serves_destination(m, tr, d), !remote_edge(_, m, tr, d, _), !served_via_binding(m, tr, d),
+    !msg_covered_by_base_send(m, tr, d).
+// A handler whose message derives from a base that some send here publishes AS the
+// base (an outbox): that send may well reach it, so "nothing here sends to it" would be
+// a claim the engine cannot make.
+msg_base_send(tr, n) :- msg_bus_send_site(e, _, tr), msg_bus_arg(e, a), msg_arg_type_name(a, n), msg_base_name(tr, n).
+msg_covered_by_base_send(m, tr, d) :- msg_handler(m, tr, d, hgk), hgk != "-", type_ancestor("client", hgk, bgk),
+    type_group("client", t, bgk), type_decl("client", n, _, _, _, t), msg_base_send(tr, n).
+// A queue reached through an exchange binding is reported on the edge under the
+// exchange and key the publisher wrote, not under the queue's own name.
+served_via_binding(m, "amqp", q) :- amqp_route(_, _, q, _, _), msg_name_serves(m, "amqp", q).
+served_via_binding(m, "amqp", d) :- amqp_consume_var(m, v), amqp_bind_var(v, x, brk), d = cat(x, cat("/", brk)),
+    remote_edge_via(_, _, m, "amqp", _, _).

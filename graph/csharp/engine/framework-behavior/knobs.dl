@@ -117,3 +117,74 @@ cs_string_type("System.String").
 // characters that start a query or a fragment, never a path segment
 cs_url_not_path_start("&"). cs_url_not_path_start("?"). cs_url_not_path_start("#").
 cs_url_not_path_start("="). cs_url_not_path_start(":").
+
+// ── MESSAGING: brokers keyed on a topic or queue NAME ───────────────────────
+// A receiver's written type decides which client it is: `IProducer<K, V>` is written
+// with typeName `IProducer`. (Family, used below.)
+cs_msg_client_type("IProducer", "kafka_producer").
+cs_msg_client_type("IConsumer", "kafka_consumer").
+cs_msg_client_type("IModel", "amqp_channel").
+cs_msg_client_type("IChannel", "amqp_channel").
+cs_msg_client_type("ServiceBusClient", "servicebus_client").
+// (family, method, argument index of the name, transport)
+cs_msg_name_send("kafka_producer", "Produce", 0, "kafka").
+cs_msg_name_send("kafka_producer", "ProduceAsync", 0, "kafka").
+cs_msg_name_send("servicebus_client", "CreateSender", 0, "azure_servicebus").
+cs_msg_name_serve("kafka_consumer", "Subscribe", 0, "kafka").
+cs_msg_name_serve("amqp_channel", "BasicConsume", 0, "amqp").
+cs_msg_name_serve("amqp_channel", "BasicConsumeAsync", 0, "amqp").
+cs_msg_name_serve("servicebus_client", "CreateProcessor", 0, "azure_servicebus").
+// RabbitMQ publishes to (exchange, routing key) and a binding maps that to a queue
+cs_amqp_publish("BasicPublish").
+cs_amqp_publish("BasicPublishAsync").
+cs_amqp_bind("QueueBind").
+cs_amqp_bind("QueueBindAsync").
+// Service Bus hands messages to the handler added to this event
+cs_servicebus_handler_event("ProcessMessageAsync").
+
+// ── MESSAGING: buses keyed on the message TYPE ──────────────────────────────
+// A handler implements (interface, method) for its message type; a sender calls one
+// of these methods on one of these receivers with a message instance. MediatR's
+// INotificationHandler and IMediator are deliberately ABSENT: they dispatch in
+// process, and a remote edge there would be a wrong answer.
+cs_msg_handler_iface("IConsumer", "Consume", "masstransit").
+cs_msg_handler_iface("IHandleMessages", "Handle", "nservicebus").
+cs_msg_handler_iface("IIntegrationEventHandler", "Handle", "event_bus").
+cs_msg_bus_type("IBus", "masstransit").
+cs_msg_bus_type("IBusControl", "masstransit").
+cs_msg_bus_type("IPublishEndpoint", "masstransit").
+cs_msg_bus_type("ISendEndpoint", "masstransit").
+cs_msg_bus_type("ConsumeContext", "masstransit").
+cs_msg_bus_type("IMessageSession", "nservicebus").
+cs_msg_bus_type("IEndpointInstance", "nservicebus").
+cs_msg_bus_type("IMessageHandlerContext", "nservicebus").
+cs_msg_bus_type("IPipelineContext", "nservicebus").
+cs_msg_bus_type("IEventBus", "event_bus").
+cs_msg_bus_send("Publish").
+cs_msg_bus_send("Send").
+cs_msg_bus_send("SendLocal").
+cs_msg_bus_send("PublishAsync").
+cs_msg_bus_send("SendAsync").
+
+cs_remote_confidence_binding("amqp_binding").
+
+// Kafka clients are built, `new ProducerBuilder<K, V>(config).Build()`, usually into a
+// `var`: the builder's name is what says which client the local holds.
+cs_msg_builder("ProducerBuilder", "kafka_producer").
+cs_msg_builder("DependentProducerBuilder", "kafka_producer").
+cs_msg_builder("ConsumerBuilder", "kafka_consumer").
+
+// A RabbitMQ channel comes from the connection, `await conn.CreateChannelAsync()` in v7
+// and `conn.CreateModel()` before it, usually into a `var`.
+cs_msg_factory("CreateModel", "amqp_channel").
+cs_msg_factory("CreateChannel", "amqp_channel").
+cs_msg_factory("CreateChannelAsync", "amqp_channel").
+// MassTransit request/response: the REQUEST type is the client's own type argument,
+// `IRequestClient<StockChanged>`, and GetResponse<TResponse> names only the reply.
+cs_msg_request_client("IRequestClient", "masstransit").
+cs_msg_request_send("GetResponse").
+
+// The service locator: `var session = services.GetRequiredService<IMessageSession>()`
+// holds the type named by the call's type argument.
+cs_di_resolve("GetRequiredService").
+cs_di_resolve("GetService").
