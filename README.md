@@ -87,11 +87,11 @@ languages where a compiler gives an independent ground truth to score against. D
 
 ## Why AxiomCode Graph?
 
-**Typed, not name-matched.** A tree-sitter based CST graph builder matches a call to a declaration by name and
-nearby imports. Through an interface, an override, a generic or a callback, that match is a guess, and every wrong
-guess is a missing or invented edge. AxiomCode resolves each call from the receiver's declared and inferred type,
-as the compiler does, so every edge is a call the program actually makes. That matters because an agent follows
-edges several hops deep, and one missed link loses everything beyond it.
+**A typed graph is a more accurate graph.** Compared with a tree-sitter based CST graph builder, which matches a
+call to a declaration by name and nearby imports, AxiomCode resolves each call from the receiver's declared and
+inferred type, as the compiler does. Through an interface, an override, a generic or a callback, a name match is a
+guess, and every wrong guess is a missing or invented edge; a resolved edge is a call the program actually makes.
+That matters because an agent follows edges several hops deep, and one missed link loses everything beyond it.
 
 AI agents often work with an incomplete picture of a codebase. They spend time piecing together scattered files,
 yet can still miss dependencies that lead to incomplete changes and repeated fixes.
