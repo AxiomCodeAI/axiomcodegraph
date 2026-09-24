@@ -185,19 +185,37 @@ protocol it uses, and says so on stderr.
 
 ## Using it from other agents
 
-The same plugin directory installs into these agents, each from this repository. Each gets the seven MCP
-tools and the skill or an instructions file; only Claude Code runs the hooks so far.
+`plugins/axiomcode/` installs into each of these agents from this repository. Every agent in the table gets the
+seven MCP tools and the skill; only Claude Code runs the hooks so far. Building a graph needs the engine, as
+above: `npm i -g @axiomcode/code-graph`.
 
-```bash
-codex plugin marketplace add AxiomCodeAI/axiom-code-graph           # Codex
-codex plugin add axiomcode@axiomcode
-copilot plugin marketplace add AxiomCodeAI/axiom-code-graph         # Copilot CLI
-copilot plugin install axiomcode@axiomcode
-gemini extensions install https://github.com/AxiomCodeAI/axiom-code-graph   # Gemini CLI
-```
+| Agent | Install | Reads | Checked |
+|---|---|---|---|
+| Codex CLI and desktop app | `codex plugin marketplace add AxiomCodeAI/axiom-code-graph` then `codex plugin add axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
+| Copilot CLI | `copilot plugin marketplace add AxiomCodeAI/axiom-code-graph` then `copilot plugin install axiomcode@axiomcode` | `plugin.json`, `mcp.json` | installed, server and skill loaded |
+| VS Code (Copilot agent mode) | add `"chat.plugins.marketplaces": ["AxiomCodeAI/axiom-code-graph"]` to settings, or install with Copilot CLI, whose plugins VS Code also loads | `plugin.json`, `mcp.json` | from VS Code's docs |
+| Cursor | `cursor-agent plugin marketplace add https://github.com/AxiomCodeAI/axiom-code-graph`, or a team marketplace imported from this repository | `.claude-plugin/`, `.mcp.json` | from Cursor's loader |
+| Windsurf, Devin CLI | `devin plugins install AxiomCodeAI/axiom-code-graph#plugins/axiomcode` | `.claude-plugin/`, `.mcp.json`, hooks | from Devin's loader |
+| Kiro | Powers panel: Add Custom Power, Import power from GitHub, this repository's URL | `plugin.json`, `mcp.json` | from Kiro's docs |
+| Gemini CLI | `gemini extensions install https://github.com/AxiomCodeAI/axiom-code-graph` | `gemini-extension.json`, `skills/` | installed, server and skill loaded |
 
-As with Claude Code, building a graph needs the engine: `npm i -g @axiomcode/code-graph`.
-`python3 tests/manifests.py` checks that each manifest points at files that exist.
+`plugin.json` and `mcp.json` are the portable Agent Plugins format. Codex, Copilot and VS Code prefer them to
+their own manifests; `.codex-plugin/` is kept for Codex versions from before it. Their server command finds the
+plugin from `PLUGIN_ROOT`, `CLAUDE_PLUGIN_ROOT` or its working directory, whichever the agent provides.
+
+Gemini installs the repository root and reads skills only from `skills/` there, so `skills/axiomcode/` is a
+copy of the skill's text. After editing the skill, run `python3 packaging/root-skill.py`;
+`python3 tests/manifests.py` fails while the copy is stale, and checks that every manifest points at files
+that exist. The Codex IDE extension does not load plugins; use the MCP config below there.
+
+Agents with no plugin install take the server from their MCP config (next section) and the skill from a
+skills directory:
+
+- **OpenCode:** in `opencode.json`, `"mcp": {"axiomcode": {"type": "local", "command": ["axiomcode", "mcp"]}}`.
+  It reads skills from `~/.agents/skills/` and `~/.claude/skills/`.
+- **Amp:** `amp mcp add axiomcode -- axiomcode mcp`, and
+  `amp skill add --global AxiomCodeAI/axiom-code-graph/plugins/axiomcode/skills/axiomcode` for the skill.
+- **Cline, Antigravity:** the JSON below, in Cline's MCP settings or Antigravity's `mcp_config.json`.
 
 ### Any MCP client
 
