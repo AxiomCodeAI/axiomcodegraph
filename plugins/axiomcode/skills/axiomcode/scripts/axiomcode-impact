@@ -1344,6 +1344,30 @@ def rank_targets(I, g, text, top=5):
     out = sorted(byl.values(), key=lambda x: (-x[0], x[5]))
     return [(a, b, c, d, e) for a, b, c, d, e, _ in out][:top]
 
+WEAK_TIERS = {'multi_inferred', 'dispatch', 'ambiguous_unknown', 'by name', 'text'}
+def route_per_file(g, reached, hop0, files):
+    """the shortest route from each file's nearest reached callable down to a direct user: [display →/⇢ display …]"""
+    out = collections.defaultdict(list)
+    for a, b, t in g.edges():
+        out[a].append((b, t))
+    rank = dict(reached); rank.update({h: 0 for h in hop0})
+    def name(m):                                   # an anonymous step is only checkable with its line
+        d = g.disp(m); sy = g.sym.get(m) or {}
+        return f"{d}@{sy['line']}" if d.split('.')[-1].startswith('<') and sy.get('line') else d
+    res = {}
+    for f in files:
+        start = min((m for m in reached if g.sym[m]['file'] == f), key=lambda m: (reached[m], g.disp(m)), default=None)
+        if start is None: continue
+        chain, cur, seen = [name(start)], start, {start}
+        while rank.get(cur, 0) > 0 and len(chain) < 16:
+            nxt = sorted(((b, t) for b, t in out.get(cur, ()) if rank.get(b, 10 ** 9) < rank[cur] and b not in seen),
+                         key=lambda bt: (rank[bt[0]], bt[1] in WEAK_TIERS, g.disp(bt[0])))
+            if not nxt: break
+            b, t = nxt[0]
+            chain.append(('⇢ ' if t in WEAK_TIERS else '→ ') + name(b)); cur = b; seen.add(b)
+        res[f] = ' '.join(chain)
+    return res
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
     # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
@@ -1819,6 +1843,15 @@ def main(argv):
         ntest = len(near) - len(src)
         CAP = 60
         if src: print(f"    source files ({len(src)}, nearest first): " + ', '.join(f"{f} ({near[f]})" for f in src[:CAP]) + (f" … +{len(src) - CAP} (--page all)" if len(src) > CAP else ''))
+        # ONE ROUTE PER SOURCE FILE, EACH HOP LABELLED. A reach list that says `one of a set` is honest, and an agent
+        # handed one rebuilt every chain by hand ("the reach lists are noisy") -- because the answer said a file was
+        # reached but not HOW. The shortest route, with its uncertain hops marked, is checked by reading the one call
+        # site a ⇢ names, not by searching again. Routes are read back from the same edges the walk used.
+        file_routes = route_per_file(g, reached, {c for c, *_ in D} | set(seeds), src[:CAP])
+        if file_routes:
+            print("    how each is reached (→ an exact call, ⇢ one of a set / a dispatch choice; nearest first):")
+            for f in src[:CAP]:
+                if f in file_routes: print(f"      {f}: " + file_routes[f])
         if ntest: print(f"    test files: {ntest} — listed under tests below (--tests-only for all of them)")
     if ent:
         # (hop, display) is NOT a total order: several distinct declarations share both — a `cli` test command
