@@ -129,6 +129,9 @@ oracles/
 # four binaries into the tree.
 [Oo]bj/
 [Bb]in/
+# ...except the repository's own bin/, which is the CLI and not build output: without this every new
+# file there, bin/axiomcode.js included, is silently left out of a commit (#1229).
+!/bin/
 *.user
 
 reports/

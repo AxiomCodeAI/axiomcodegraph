@@ -30,6 +30,8 @@ host resolves it and must exist, and the name and version must agree everywhere:
   The portable format's schema is closed and its mcp.json takes a single executable as `command`; hosts
   reject a manifest that breaks either rule. How a host says where the plugin is differs (PLUGIN_ROOT,
   CLAUDE_PLUGIN_ROOT, or only the working directory), which tests/mcp.py runs.
+  No server is started by `bash` or `python3`: on Windows a bare `bash` is WSL's or nothing and `python3`
+  is a Store placeholder, and a manifest has no per-platform variant, so every one starts `node` (#1233).
 
     python3 tests/manifests.py
 """
@@ -81,7 +83,7 @@ def main():
         if '${' in json.dumps(server):
             bad.append(f"codex mcp {name}: Codex does not expand ${{…}} in a plugin's MCP config")
         cwd = os.path.join(PLUGIN, server.get('cwd', ''))
-        script = next((a for a in server.get('args', []) if a.endswith('.sh') or a.endswith('.py')), None)
+        script = next((a for a in server.get('args', []) if a.endswith(('.js', '.sh', '.py'))), None)
         if not script or not os.path.isfile(os.path.join(cwd, script)):
             bad.append(f"codex mcp {name}: {script} does not exist relative to cwd {server.get('cwd')!r}")
 
@@ -142,6 +144,16 @@ def main():
                 bad.append(f"cursor plugin.json {name}: {arg} does not exist")
         if '${PLUGIN_ROOT}' in json.dumps(server):
             bad.append(f"cursor plugin.json {name}: Cursor does not expand ${{PLUGIN_ROOT}}")
+
+    # One command name that means the same program on every platform (#1233).
+    servers = [('.mcp.json', load('plugins', 'axiomcode', '.mcp.json')), ('mcp.json', mcp),
+               ('codex mcp', load('plugins', 'axiomcode', codex['mcpServers'])), ('gemini-extension.json', gemini),
+               ('cursor plugin.json', cursor)]
+    for label, m in servers:
+        for name, server in m.get('mcpServers', {}).items():
+            if server.get('command') != 'node':
+                bad.append(f"{label} {name}: command {server.get('command')!r}, want 'node'; bash and python3 "
+                           "resolve to the wrong program or none on Windows")
 
     # Gemini's copy of the skill and Cursor's rule are current copies of their sources.
     sync = subprocess.run([sys.executable, os.path.join(ROOT, 'packaging', 'copies.py'), '--check'],

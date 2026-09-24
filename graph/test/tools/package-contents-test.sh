@@ -56,12 +56,17 @@ try{
 let files;
 try{
   files=JSON.parse(execFileSync("npm",["pack","--dry-run","--json","--ignore-scripts"],
-    {cwd:root, encoding:"utf8", stdio:["ignore","pipe","ignore"], maxBuffer:64*1024*1024}))[0].files.map(f=>f.path);
+    {cwd:root, encoding:"utf8", stdio:["ignore","pipe","ignore"], maxBuffer:64*1024*1024,
+     // npm is npm.cmd on Windows, which execFileSync neither resolves nor, since the CVE-2024-27980 fix,
+     // runs without a shell (#1230). The arguments are fixed literals, so the shell adds no quoting risk.
+     shell:process.platform==="win32"}))[0].files.map(f=>f.path);
 }catch(e){ console.log("  FAIL  npm pack --dry-run failed: "+e.message.split("\n")[0]); process.exit(1); }
 const has=(p)=>files.includes(p);
 const count=(re)=>files.filter(f=>re.test(f)).length;
 
 has("bin/axiomcode") ? ok("ships bin/axiomcode") : bad("does NOT ship bin/axiomcode");
+has("bin/axiomcode.js") ? ok("ships bin/axiomcode.js") : bad("does NOT ship bin/axiomcode.js, the command npm links");
+has("plugins/axiomcode/mcp/find-bash.js") ? ok("ships mcp/find-bash.js") : bad("does NOT ship plugins/axiomcode/mcp/find-bash.js, which bin/axiomcode.js requires");
 // The corpora are the bulk of the repository and run nothing for a consumer.
 count(/^graph\/test\//)===0 ? ok("does not ship graph/test") : bad("ships "+count(/^graph\/test\//)+" files under graph/test");
 count(/^parser\/src\/test-data\//)===0 ? ok("does not ship parser test-data") : bad("ships "+count(/^parser\/src\/test-data\//)+" files under parser/src/test-data");

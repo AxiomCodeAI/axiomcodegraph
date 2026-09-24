@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "axiomcode": {
-      "command": "bash",
-      "args": ["mcp/launch.sh"],
+      "command": "node",
+      "args": ["mcp/launch.js"],
       "cwd": "."
     }
   }

@@ -10,8 +10,8 @@
   "logo": "assets/logo.svg",
   "mcpServers": {
     "axiomcode": {
-      "command": "bash",
-      "args": ["${CURSOR_PLUGIN_ROOT}/mcp/launch.sh"],
+      "command": "node",
+      "args": ["${CURSOR_PLUGIN_ROOT}/mcp/launch.js"],
       "env": { "AXIOMCODE_PLUGIN_ROOT": "${CURSOR_PLUGIN_ROOT}" }
     }
   }

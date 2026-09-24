@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "axiomcode": {
-      "command": "bash",
+      "command": "node",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/mcp/launch.sh"
+        "${CLAUDE_PLUGIN_ROOT}/mcp/launch.js"
       ],
       "env": {
         "AXIOMCODE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
