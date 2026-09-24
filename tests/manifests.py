@@ -155,6 +155,18 @@ def main():
                 bad.append(f"{label} {name}: command {server.get('command')!r}, want 'node'; bash and python3 "
                            "resolve to the wrong program or none on Windows")
 
+    # Gemini runs <root>/hooks/hooks.json under its own event names; every script it names must exist once
+    # ${extensionPath} is the repository root.
+    gemini_hooks = load('hooks', 'hooks.json')['hooks']
+    for event in sorted(set(gemini_hooks) - {'BeforeAgent', 'BeforeTool', 'AfterTool', 'SessionStart', 'AfterAgent'}):
+        bad.append(f"hooks/hooks.json: {event} is not a Gemini CLI event")
+    for event, groups in gemini_hooks.items():
+        for group in groups:
+            for hook in group['hooks']:
+                script = re.search(r'"([^"]+\.py)"', hook['command'])
+                if not script or not os.path.isfile(gemini_path(script.group(1))):
+                    bad.append(f"hooks/hooks.json {event}: {hook['command']!r} names no script that exists")
+
     # Gemini's copy of the skill and Cursor's rule are current copies of their sources.
     sync = subprocess.run([sys.executable, os.path.join(ROOT, 'packaging', 'copies.py'), '--check'],
                           capture_output=True, text=True)

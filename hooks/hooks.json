@@ -1,0 +1,34 @@
+{
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}changes.py\"", "timeout": 25000 },
+          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}orient.py\"", "timeout": 20000 }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "replace|write_file",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}changes.py\"", "timeout": 25000 }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "read_file|grep_search|glob|run_shell_command|replace|write_file",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}enrich.py\"", "timeout": 20000 }
+        ]
+      },
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}changes.py\"", "timeout": 25000 }
+        ]
+      }
+    ]
+  }
+}
