@@ -259,6 +259,17 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
             out[r['c']].append((r['l'] or 0, r['m'], r['t'], r['f']))
         elif not r['m'] and r['t'] == 'ambiguous_unknown' and r['n']:
             gaps[r['c']].append((r['l'] or 0, r['n']))
+    # a step that ends on a signature with no body — an interface member implemented by assignment, a function-typed
+    # field — runs what the signature HOLDS (#1283). Those are `value` dispatch candidates, which call_edges does not
+    # carry, so the flow stopped at the signature while `path` went on through it. The same FLOW_FAN bound applies.
+    held = collections.defaultdict(list)
+    if g.q("SELECT 1 FROM sqlite_master WHERE name='dispatch_candidates'"):
+        for r in g.q("""SELECT DISTINCT base_method_id b, candidate_method_id m FROM dispatch_candidates
+                        WHERE basis='value' AND base_method_id<>candidate_method_id"""):
+            sy = g.sym.get(r['m'])
+            if sy and not (sy.get('file') or '').startswith('<') and not sy.get('is_test'): held[r['b']].append(r['m'])
+    for b, ms in held.items():
+        if len(ms) <= FLOW_FAN: out[b] += [(0, m, 'value', None) for m in ms]
     for x in out: out[x].sort(key=lambda r: r[0])
     declared = collections.Counter((sy.get('name') or '') for sy in g.sym.values()
                                    if sy.get('method_id') and not (sy.get('file') or '').startswith('<') and not sy.get('is_test'))
@@ -323,6 +334,8 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False):
                 ln = source_lines(g.repo, g.site_file(f))
                 src = ln[l - 1].strip()[:70] if 0 < l <= len(ln) else ''
             head, where = f"{pad}{arrow} {g.disp(x)}", (f"called at L{l}: {src}" if src else f"called at L{l}")
+            if t == 'value':
+                where = "held by the step above: assigned or passed where it is expected, so a call to it runs this"
         else:
             head, where = g.disp(x), "entry point"
         n += 1

@@ -1,0 +1,5 @@
+ambiguous_unknown	METHOD_PARAM	1	Parse [TYPE] -> -
+known_edge	FIELD_TYPE	0	Schema [FIELD] -> Internals
+known_edge	METHOD_PARAM	0	schema [METHOD_PARAM] -> Schema
+known_edge	METHOD_TYPE_PARAM_BOUND	0	- [TYPE_PARAMETER] -> Schema
+known_edge	VARIABLE_TYPE	0	schema [VARIABLE] -> Parse

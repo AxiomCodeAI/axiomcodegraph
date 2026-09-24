@@ -1,0 +1,10 @@
+73-assigned-interface-members [fields]
+  precision 0.6667   (2 correct, 1 wrong)
+  recall    0.5000   (2 of 4 the compiler resolved)
+  sites 7   resolved 7 (100.0%)
+  tiers known_edge=7
+  access read=7
+  not scored: 0 rows whose target is not a client declaration
+    WRONG   schema#<module-init>() READ Schema#_i
+    MISSING schema#<arrow@19>(?) READ Schema#_i
+    MISSING schema#parse(?,?) READ Schema#_i

@@ -1,0 +1,3 @@
+known_edge	read	schema#<module-init>() -> Schema#_i
+known_edge	read	schema#init(Schema,boolean) -> Schema#_i
+known_edge	read	schema#parseTyped(Schema,number) -> Schema#_i

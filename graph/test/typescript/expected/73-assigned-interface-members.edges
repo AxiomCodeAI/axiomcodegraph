@@ -1,0 +1,3 @@
+known_edge	METHOD_CALL	schema#<arrow@19>(?) @L19 -> Internals#parse(number)
+known_edge	METHOD_CALL	schema#parse(?,?) @L24 -> Internals#run(number)
+known_edge	METHOD_CALL	schema#parseTyped(Schema,number) @L28 -> Internals#run(number)

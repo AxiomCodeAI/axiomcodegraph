@@ -387,3 +387,54 @@ call_runs(ce, m) :- callee_branch(ce, x),
 call_runs(ce, m) :- callee_branch(ce, x),
     ts_field_access_target(x, f),
     holder_holds_function(f, m).
+
+// ============================================================================
+// A FUNCTION ASSIGNED TO AN INTERFACE'S METHOD MEMBER IMPLEMENTS IT  (#1283)
+//
+// `inst._i.run = (x) => x + 1`, `inst._i.run = inst._i.parse`: the object's methods are declared
+// on an interface and IMPLEMENTED BY ASSIGNMENT at run time, then called as `schema._i.run(v)`.
+// The call resolves to the member signature, which has no body, and nothing implemented it:
+// there is no class and no literal, and the holder rules above only take a FIELD as the target
+// of an assignment. So the assigned functions had no caller, and a walk stopped at the call.
+//
+// The member signature an assignment writes through is the holder here, exactly as a field is
+// for `this.f = …`, and the receiver may be any chain the resolver types (`inst._i`). A read of
+// the member is what the member holds, so `inst._i.run = inst._i.parse` hands over what
+// `parse` was given. Each function a member holds is a `value` dispatch candidate of it, and a
+// call through the member runs it. Envelope only: no call-site answer moves.
+// ============================================================================
+member_sig_access(e, sig) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    method_in_scope(qt, n, "false", sig),
+    method_kind(_, k, _, sig),
+    method_kind_is_assignable_signature(k).
+member_sig_access(e, sig) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_shape(q, qs),
+    method_in_scope(qs, n, _, sig),
+    method_kind(_, k, _, sig),
+    method_kind_is_assignable_signature(k).
+method_kind_is_assignable_signature("METHOD_SIGNATURE").
+method_kind_is_assignable_signature("TYPE_LITERAL_METHOD_SIGNATURE").
+
+holder_value(sig, v) :- expr_kind("client", "ASSIGNMENT_EXPRESSION", _, a),
+    expr_child("client", a, "LEFT_OPERAND", _, tgt),
+    member_sig_access(tgt, sig),
+    expr_child("client", a, "RIGHT_OPERAND", _, v).
+holder_value(sig, v) :- expr_kind("client", "COMPOUND_ASSIGNMENT", _, a),
+    expr_operator("client", op, a),
+    compound_op_keeps_value(op),
+    expr_child("client", a, "LEFT_OPERAND", _, tgt),
+    member_sig_access(tgt, sig),
+    expr_child("client", a, "RIGHT_OPERAND", _, v).
+holder_holds_function(h, m) :- holder_value(h, e),
+    value_branch(e, x),
+    member_sig_access(x, sig),
+    holder_holds_function(sig, m).
+
+called_through(ce, sig) :- call_callee_expr(_, ce, ne), member_sig_access(ne, sig).
+
+method_dispatch_candidate(sig, m, "value") :- member_sig_access(_, sig),
+    holder_holds_function(sig, m),
+    m != sig.
