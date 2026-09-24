@@ -104,12 +104,16 @@ expr_call_candidate(prov, e, m) :-
 // case in C#, where dispatch is opt-in.
 expr_resolves_to_method(prov, e, declared) :-
     expr_call_candidate(prov, e, declared),
-    dispatch_is_exact(prov, e).
+    dispatch_is_exact(prov, e),
+    !ovl_drop(prov, e, declared).
 expr_resolves_to_method(prov, e, target) :-
     expr_call_candidate(prov, e, declared),
     !dispatch_is_exact(prov, e),
     dispatch_concrete_target(prov, declared, target),
     !call_fan_refused(prov, e),
+    // Narrowed by the argument types (overload-args.dl) at the DECLARATION, so an
+    // overload the arguments rule out takes its whole fan with it.
+    !ovl_drop(prov, e, declared),
     // The fan is already arity-matched against the DECLARATION, and the declaration
     // is arity-matched against the site, so this is redundant in principle. It is
     // kept because the two matches use different relations and a future change to
@@ -422,7 +426,7 @@ expr_exact_target(prov, e, getter) :-
 // dispatch_is_exact, expr_call_candidate, expr_resolves_to_method, expr_target_any,
 // expr_type, ...}. The direction of these two rules is the fix.
 expr_target_any(prov, e, m) :- expr_exact_target(prov, e, m).
-expr_resolves_to_method(prov, e, m) :- expr_exact_target(prov, e, m).
+expr_resolves_to_method(prov, e, m) :- expr_exact_target(prov, e, m), !ovl_drop(prov, e, m).
 expr_target_any(prov, e, m) :- expr_call_candidate(prov, e, m).
 
 // ── THE DYNAMIC BLIND SPOT, DECLARED ────────────────────────────────────────

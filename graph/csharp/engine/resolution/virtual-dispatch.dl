@@ -81,13 +81,13 @@ overrides_transitive(prov, derived, base) :-
 //   EXPLICIT: `void IFoo.Bar()`. NOT a member of the class, reachable only through
 //     an IFoo-typed receiver, which is why member-lookup.dl excludes it and this
 //     rule includes it.
-implements_member(prov, impl, ifaceM) :-
+implements_shape(prov, impl, ifaceM) :-
     type_satisfies(prov, gk, igk),
     interface_member(prov, igk, n, "method", ifaceM),
     member_method(prov, gk, n, impl),
     method_paramc(prov, impl, pc), method_paramc(prov, ifaceM, pc),
     method_type_arity(prov, impl, ar), method_type_arity(prov, ifaceM, ar).
-implements_member("client", impl, ifaceM) :-
+implements_shape("client", impl, ifaceM) :-
     type_satisfies("client", gk, igk),
     interface_member("lib", igk, n, "method", ifaceM),
     member_method("client", gk, n, impl),
@@ -95,7 +95,7 @@ implements_member("client", impl, ifaceM) :-
     method_type_arity("client", impl, ar), method_type_arity("lib", ifaceM, ar).
 
 // The explicit form, matched by the interface NAME written on the declaration.
-implements_member(prov, impl, ifaceM) :-
+implements_shape(prov, impl, ifaceM) :-
     method_explicit_interface(prov, impl, ifaceName),
     method_in_type(prov, gk, impl),
     type_satisfies(prov, gk, igk),
@@ -104,6 +104,19 @@ implements_member(prov, impl, ifaceM) :-
     interface_member(prov, igk, n, "method", ifaceM),
     method_name(prov, impl, n),
     method_paramc(prov, impl, pc), method_paramc(prov, ifaceM, pc).
+
+// AND NOT WHERE A PARAMETER TYPE PROVES THEM DIFFERENT (#1246). Name and count alone
+// paired an explicit `IKeyed.K(string)` with `IKeyed.K(int)`, so the fan of a call the
+// arguments had narrowed to K(int) still reached K(string). An implementation repeats
+// the member's parameter types exactly, so two PREDEFINED types that differ at one
+// position cannot be a pair. A type parameter, a source type or a nullable form is
+// not compared.
+implements_member(prov, impl, ifaceM) :-
+    implements_shape(prov, impl, ifaceM),
+    !implements_params_conflict(impl, ifaceM).
+implements_params_conflict(impl, ifaceM) :-
+    implements_shape(_, impl, ifaceM),
+    method_param_predef(impl, k, x), method_param_predef(ifaceM, k, y), x != y.
 
 // ── THE DISPATCH TARGET SET ─────────────────────────────────────────────────
 // dispatch_target(Prov, DeclaredMethod, RuntimeMethod, Reason) -- given the declared
@@ -198,7 +211,18 @@ dispatch_is_exact(prov, e) :- call_recv_exact_type(prov, e, _).
 //   inherited           Square -> Shape.Describe
 //   interface impl      any implementor -> its own member
 //   `new`-hidden        member_lookup already returns the nearest declaration
+//
+// The lookup matches name, count and generic arity, so a runtime type's `Area(string)`
+// answered for a call bound to `Area(int)`. Two predefined parameter types that
+// differ at one position cannot be the same member (#1246), so that pairing is
+// refused; see implements_member for what is not compared.
 dispatch_runtime_target(prov, m, t) :-
+    dispatch_runtime_shape(prov, m, t),
+    !runtime_params_conflict(m, t).
+runtime_params_conflict(m, t) :-
+    dispatch_runtime_shape(_, m, t), m != t,
+    method_param_predef(m, k, x), method_param_predef(t, k, y), x != y.
+dispatch_runtime_shape(prov, m, t) :-
     method_in_type(prov, ogk, m),
     method_name(prov, m, n),
     type_self_or_ancestor(prov, cgk, ogk),
@@ -208,7 +232,7 @@ dispatch_runtime_target(prov, m, t) :-
     method_type_arity(prov, m, ar), method_type_arity(prov, t, ar).
 // The same across the provenance boundary: a client type deriving from a staged
 // library base, and a client implementor of a library interface.
-dispatch_runtime_target("client", m, t) :-
+dispatch_runtime_shape("client", m, t) :-
     method_in_type("lib", ogk, m),
     method_name("lib", m, n),
     type_self_or_ancestor("client", cgk, ogk),

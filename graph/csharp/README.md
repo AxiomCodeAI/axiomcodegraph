@@ -130,6 +130,13 @@ doing it.
 - **An argument-position `new()`** stays unresolved. Its target type is the
   parameter's, and the overload is chosen partly by the argument's type, so the two
   are circular. `implicit_new_untargeted` counts what is left.
+- **Overloads are narrowed by argument type, not ranked.** A literal, or a name
+  declared with a predefined type, removes the overloads it has no implicit
+  conversion to, and an overload whose every parameter is identical to its argument
+  removes its siblings in the same type (`expression-resolution/overload-args.dl`).
+  Two overloads the argument converts to (`M('c')` against `M(int)` and `M(double)`)
+  both stay: ranking conversions needs the rest of C#'s better-conversion rules, and
+  a wrong rank deletes the true edge.
 - **`type_instantiated` does not filter the fan.** A type is also constructed by
   reflection, by a DI container, by a deserializer and by a source generator, so
   narrowing by observed instantiation is unsound on most real applications. The
