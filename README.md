@@ -43,7 +43,7 @@
 </p>
 
 <p align="center">
-  <b>AxiomCode goes live soon.</b> &nbsp;<a href="https://axiomcode.ai/updates"><b>Get developer updates →</b></a>
+  <b>AxiomCode goes live soon.</b> &nbsp;<a href="https://axiomcode.ai/updates"><b>Get updates ↗</b></a>
 </p>
 
 ---
@@ -303,7 +303,7 @@ every language** and its documentation inside it (`schema_guide`, `schema_querie
 tables are `call_edges` (one row per call site and possible target), `methods`, `types`, `call_sites`,
 `field_access`, `type_use`, and `unresolved_sites`, the calls the engine declares it could not resolve.
 
-Every edge has a tier, so a consumer picks its own risk tolerance. Four tiers are emitted by every front end:
+Every edge has a tier, so a consumer picks its own risk tolerance:
 
 | tier | meaning |
 |---|---|
@@ -311,19 +311,6 @@ Every edge has a tier, so a consumer picks its own risk tolerance. Four tiers ar
 | `multi_inferred` | a sound set of possible targets (virtual dispatch over instantiated subtypes) |
 | `boundary_lib` | the target is in a library: named, not expanded |
 | `ambiguous_unknown` | the engine could not resolve the site; kept as a row with a NULL target |
-
-Some front ends add tiers for what only their language has. Python uses only the four above.
-
-| language | additional tiers |
-|---|---|
-| Java | `fan_capped` more targets than `--dispatch-cap`, so the fan is refused and the declared base is named · `ambiguous_anon` an anonymous-class creation with no rule yet |
-| TypeScript | `ambient_terminal` a `.d.ts` declaration with no body · `intrinsic_terminal` a JSX intrinsic element or a dynamic `import()` |
-| JavaScript | `callback_registered` the function is passed on (`xs.forEach(f)`, `p.then(f)`) · `event_dispatch` `emit('x')` reaching an `on('x', h)` handler · `ambient_terminal` a platform call (`console.log`) · `implicit_constructor` the synthesized default constructor · `dynamic_terminal` `obj[expr]()`, `eval` · `fan_capped` more targets than `--dispatch-cap`, and none is named |
-| C# | `known_implicit_ctor` the constructor the compiler supplies · `known_builtin_operator` a built-in operator or conversion · `boundary_generated` a compiler-generated property (a record's) · `ambiguous_dynamic` a call through `dynamic` · `fan_capped` more targets than `--dispatch-cap`, so the declared base is named · `runtime_observed` an edge a supplied runtime trace saw |
-
-The blind spots are exactly the `ambiguous_*` tiers, and `unresolved_sites` lists them. A filter such as
-`tier IN ('known_edge', 'multi_inferred')` therefore drops resolved edges in every language but Python. Build the
-set from `schema_vocab` in the graph instead.
 
 Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 
