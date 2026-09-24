@@ -1,4 +1,4 @@
-<h1 align="center">AxiomCode Code Graph</h1>
+<h1 align="center"><img src="docs/images/axiomcode-mark.png" height="40" alt="" align="middle">&nbsp;AxiomCode Graph</h1>
 
 <p align="center">
   <strong>A god's-eye view of your codebase for AI agents. Stop grepping. Ensure correctness and completeness for any task your AI agent performs.</strong>
