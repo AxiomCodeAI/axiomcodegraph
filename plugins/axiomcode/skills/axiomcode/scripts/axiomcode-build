@@ -86,6 +86,18 @@ python3 "$H/dl_program.py" || true   # compile the query rules once, here where 
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
 echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
+# THE TREE THE GRAPH IS BUILT FROM (#1222). The graph's spans are line numbers in the working tree as the parser reads
+# it, and that tree need not be the commit in the stamp: uncommitted edits are indexed too. `changed` compared the
+# working tree against the COMMIT, so after an index with edits every position was off, and a span past the end of the
+# committed file crashed it. Recorded here, before the parser reads anything, as a git tree object written through a
+# throwaway index: the user's index and checkout are not touched, and .axiomcode is excluded above. Kept only if the
+# build succeeds.
+INDEXED_TREE=""
+if [ -n "$GD" ]; then
+  TMPIDX="$(mktemp "${TMPDIR:-/tmp}/axiomcode-index.XXXXXX")"
+  INDEXED_TREE="$(cd "$REPO" && GIT_INDEX_FILE="$TMPIDX" git read-tree HEAD 2>/dev/null && GIT_INDEX_FILE="$TMPIDX" git add -A -- . 2>/dev/null && GIT_INDEX_FILE="$TMPIDX" git write-tree 2>/dev/null || true)"
+  rm -f "$TMPIDX"
+fi
 # A REBUILD THAT FAILS MUST NOT COST THE GRAPH THAT IS ALREADY THERE (#1077). The engine wants an
 # empty $OUT/$LANG_ARG, but "empty it first" also empties it for the failure path, and the next verb
 # then reports no graph at all although the last good one was complete a second earlier. So the old
@@ -103,6 +115,7 @@ DB="$(find "$OUT" -name graph.sqlite -path "*/$LANG_ARG/*" | head -1)"; [ -n "$D
 # only now, with a graph in hand, is the old one gone and the pointer moved
 rm -rf "$PREV"
 ln -sfn "$DB" "$OUT/graph.sqlite"; echo "$STAMP" > "$OUT/stamp"
+if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
 python3 "$H/axiomcode-index" "$REPO"
 sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
 python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first

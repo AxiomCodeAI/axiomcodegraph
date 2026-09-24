@@ -3,7 +3,7 @@
    which declarations an edit changed, and HOW — then (--impact) what that reaches.
 
 The graph describes the tree as it was when it was built (the build stamps the commit). An edit is read against that version:
-by default the working tree against the graph's commit (falling back to HEAD), `--range a..b` two commits, `--staged` the
+by default the working tree against the tree the graph was indexed from (its commit plus any edits uncommitted at index time; the commit, then HEAD, for a graph that did not record one), `--range a..b` two commits, `--staged` the
 index, or `--old/--new/--file` two texts of one file (what a hook has). Each changed line is mapped onto the declarations
 the graph knows at that line, and the change is classified — the same way in every language, from the text:
 
@@ -52,6 +52,12 @@ class Changed:
         self.g = G(repo); self.repo = self.g.repo
         st = os.path.join(self.repo, '.axiomcode', 'out', 'stamp')
         self.built_at = open(st).read().split('-')[0] if os.path.exists(st) else None            # the commit the graph describes
+        # the exact tree the graph was built from, uncommitted edits included (#1222): compared against, spans always line
+        # up. A graph built before it was recorded has none, and falls back to the commit.
+        it = os.path.join(self.repo, '.axiomcode', 'out', 'indexed-tree')
+        t = open(it).read().strip() if os.path.exists(it) else ''
+        self.indexed_tree = t if t and sh('git', 'cat-file', '-e', t, cwd=self.repo) is not None else None
+        self.tree_differs = bool(self.indexed_tree) and (sh('git', 'rev-parse', 'HEAD^{tree}', cwd=self.repo) or '').strip() != self.indexed_tree
         self.spans = {}                                                                           # file -> [(line, end, id, kind)]
         for r in self.g.sym.values():
             if r.get('file') and r.get('line'): self.spans.setdefault(r['file'], []).append((r['line'], r['end_line'] or r['line'], r['id'], r['kind'], r['display'], r['name']))
@@ -66,7 +72,7 @@ class Changed:
     def texts(self, rel, mode, rng):
         if mode == 'range':
             a, b = rng.split('..'); return sh('git', 'show', f'{a}:{rel}', cwd=self.repo) or '', sh('git', 'show', f'{b}:{rel}', cwd=self.repo) or ''
-        base = self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD'
+        base = self.indexed_tree or (self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD')
         old = sh('git', 'show', f'{base}:{rel}', cwd=self.repo) or ''
         if mode == 'staged': new = sh('git', 'show', f':{rel}', cwd=self.repo) or ''
         else:
@@ -76,9 +82,9 @@ class Changed:
     def files(self, mode, rng, given):
         if given: return [self.rel(f) for f in given]
         if mode == 'range': out = sh('git', 'diff', '--name-only', rng, cwd=self.repo)
-        elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', cwd=self.repo)
+        elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', *([self.indexed_tree] if self.indexed_tree else []), cwd=self.repo)
         else:
-            base = self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD'
+            base = self.indexed_tree or (self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD')
             out = sh('git', 'diff', '--name-only', base, cwd=self.repo)
             if out is None: out = sh('git', 'diff', '--name-only', 'HEAD', cwd=self.repo)
         # the extension list is the ONLY gate on what a diff can contain, so a language missing from it is
@@ -408,7 +414,9 @@ def main(argv):
         if flipped: notes.append(('', f"the graph is built at the newer commit {C.built_at[:10]}: declarations are the new text's; a declaration the range removed is not in it", None))
     if as_json: print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes]}, indent=1)); return 0
     if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 0
-    print(f"changed declarations ({len(results)})" + (f" — against the graph's commit {C.built_at[:10]}" if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
+    against = (f" — against the tree the graph was indexed from (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
+               else f" — against the graph's commit {C.built_at[:10]}")
+    print(f"changed declarations ({len(results)})" + (against if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
     for e in results:
         print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ('   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else '')))
     # a note with a file is an addition in that file; one without is a caveat about the whole answer, and printing it
