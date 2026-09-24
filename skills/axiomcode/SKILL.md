@@ -31,8 +31,10 @@ Read / Grep results as `graph: …` lines.
 
 Rules that decide whether an answer means anything:
 
-- **Never re-run `index` on an existing graph** "to make sure" or after your own edit. It takes minutes, and flags
-  that differ from the build's (e.g. dropping `--library`) rebuild a worse graph over the good one.
+- **Never re-run `index` on an existing graph** "to make sure" or after your own edit. The graph refreshes itself in
+  the background after edits, with the flags it was built with; a query waits a few seconds for it. An answer that
+  still predates an edit says so on a `graph refresh:` line naming the files: read those for their current text.
+  A manual `index` with different flags (e.g. dropping `--library`) rebuilds a worse graph over the good one.
 - When building: `--lang typescript --src src` on a mixed repo; `--library <roots>` so calls into dependencies
   resolve (without it they are `ambiguous_unknown` — do not quote that resolution rate).
 - An unresolved call is *unknown, not absent* — **never report it as "no callers"**.

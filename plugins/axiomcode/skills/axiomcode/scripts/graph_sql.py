@@ -41,7 +41,7 @@ def _tables(con):
 
 def certain(repo):
     """True when this graph carries every relation the answer needs; False means the caller should use impact.dl."""
-    db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
+    db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     if not os.path.exists(db): return False
     try:
         con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
@@ -53,7 +53,7 @@ def certain(repo):
 
 def impact(repo, target, depth=DEPTH):
     """{contract, reads, byname, reached, tests, overloads} for one declaration, or None when it is not in the graph."""
-    db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
+    db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     if not os.path.exists(db): return None
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
     try:
@@ -258,7 +258,7 @@ def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
     them; only the first few tests carry names, which is all it prints."""
     r = impact(repo, target, depth)
     if r is None: return None
-    db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
+    db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
     try:
         q = con.execute
@@ -298,7 +298,7 @@ def _ids(q, name):
 
 def path(repo, src, dst, max_hops=8, tiers=TRAVERSE):
     """the shortest chain src -> dst as [(display, tier_into_it)], or None. BFS from src, one indexed frontier a hop."""
-    db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
+    db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     if not os.path.exists(db): return None
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
     try:

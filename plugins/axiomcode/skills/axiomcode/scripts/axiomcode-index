@@ -25,7 +25,9 @@ INDEX_VERSION = '4'      # bump when the tables' CONTENT changes shape (v2: Java
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
 GDIR = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(REPO, '.axiomcode')
-DB = os.path.join(GDIR, 'out', 'graph.sqlite')
+# AXIOMCODE_INDEX_DB: a database not yet behind graph.sqlite. axiomcode-build indexes the NEW graph there before
+# re-pointing graph.sqlite at it, so no query ever reads a graph without symbols, refs and views (#1305)
+DB = os.environ.get('AXIOMCODE_INDEX_DB') or os.path.join(GDIR, 'out', 'graph.sqlite')
 if not os.path.exists(DB): sys.exit(f"axiomcode-index: no graph at {DB} — run axiomcode-build first")
 REPO = os.path.realpath(os.path.join(GDIR, '..'))   # the repository root: .axiomcode/ lives directly under it
 

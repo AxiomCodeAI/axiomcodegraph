@@ -24,9 +24,11 @@ import io, json, os, sys
 
 CURSOR = bool(os.environ.get('CURSOR_VERSION'))
 EVENTS = {'beforeSubmitPrompt': 'UserPromptSubmit', 'preToolUse': 'PreToolUse', 'postToolUse': 'PostToolUse',
-          'sessionStart': 'SessionStart'}
+          'sessionStart': 'SessionStart', 'stop': 'Stop'}
 TOOLS = {'Shell': 'Bash'}
-GEMINI_EVENTS = {'BeforeAgent': 'UserPromptSubmit', 'BeforeTool': 'PreToolUse', 'AfterTool': 'PostToolUse'}
+# SessionStart is not listed: Gemini uses the same name as the others, and a name listed here marks the host as Gemini
+GEMINI_EVENTS = {'BeforeAgent': 'UserPromptSubmit', 'BeforeTool': 'PreToolUse', 'AfterTool': 'PostToolUse',
+                 'AfterAgent': 'Stop'}
 GEMINI_TOOLS = {'read_file': 'Read', 'grep_search': 'Grep', 'grep': 'Grep', 'glob': 'Glob',
                 'run_shell_command': 'Bash', 'replace': 'Edit', 'write_file': 'Write'}
 GEMINI = None        # the Gemini event name this hook was called for, once read() has seen one

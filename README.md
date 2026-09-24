@@ -291,8 +291,18 @@ about one change had to read 95 of 43,793 methods, and every true direct caller 
 
 A target is written the way it appears in the code: `Owner.method`, `method`, `Type`, `Owner.field`, or
 `file.py:123`. It is resolved exactly; a miss lists the nearest names. `changed` and `test-impact` compare the
-working tree with the tree the graph was built from; `--range <a>..<b>` compares two commits. The query commands
-take `--json`. `axiomcode help <command>` prints one command's usage.
+working tree with the tree of the last `axiomcode index` (moved to the new commit when HEAD moves);
+`--range <a>..<b>` compares two commits. The query commands take `--json`. `axiomcode help <command>` prints one
+command's usage.
+
+The graph stays current on its own. Every file the parser reads is recorded with its hash at build time; after an
+edit, a shell command, a finished turn, at session start and before a query, anything that differs starts one
+background rebuild per repository, with the language, `--src` and `--library` of the graph it replaces. Every
+command keeps reading the previous graph until the new one is indexed and swapped in. A query waits up to
+`AXIOMCODE_FRESH_WAIT` seconds (default 10) for it, then answers from the previous graph with a `graph refresh:` line
+naming the files it predates. `changed` and `test-impact` ask about an edit, so they read the graph of their
+baseline, which a refresh keeps in `.axiomcode/base` while the current graph is ahead of it: a removed method keeps
+its callers there. `AXIOMCODE_NO_REFRESH=1` turns this off; the log is `.axiomcode/refresh.log`.
 
 ## Graph output
 

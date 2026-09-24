@@ -29,6 +29,8 @@ def run(args, cwd=None, timeout=900):
         return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
                 "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")
     out = (r.stdout or '') + (('\n' + r.stderr.strip()) if r.returncode and r.stderr.strip() else '')
+    # an answer given from a graph that predates some edit says so, and names the files (#1305)
+    if not r.returncode: out += ''.join('\n' + l for l in (r.stderr or '').splitlines() if l.startswith('graph refresh:'))
     return out.strip() or f"(no output, exit {r.returncode})"
 
 @srv.tool()
@@ -73,4 +75,9 @@ def axiomcode_graph(repo: str = ".", out: str = '') -> str:
     return run(['graph', repo] + (['--out', out] if out else []))
 
 if __name__ == '__main__':
+    # catch up on whatever changed while no session was running (#1305): started, never waited on
+    try:
+        sys.path.insert(0, os.path.dirname(AX)); import ax_fresh; ax_fresh.kick(os.getcwd())
+    except Exception:
+        pass
     srv.run()

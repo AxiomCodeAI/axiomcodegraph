@@ -56,6 +56,14 @@ if [ -z "$LANG_ARG" ]; then
   [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
 fi
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
+# ONE BUILD AT A TIME PER REPOSITORY. The background refresher (ax_fresh.py) and an explicit `axiomcode index` both
+# write $OUT/$LANG_ARG; two at once clobber each other's graph. The lock is on fd 9, which this shell holds for its
+# whole life, so the OS drops it when the build ends however it ends: no stale lock to time out.
+exec 9>"$REPO/.axiomcode/build.lock"
+if ! python3 "$H/ax_fresh.py" lock 9 --try; then
+  [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO (the background refresh); waiting for it …"
+  python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
+fi
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
 STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
@@ -75,15 +83,56 @@ if [ -z "${AXIOMCODE_LIBRARY:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ] && [ -f "$
     echo "graph already built for this commit WITH library roots (${PREV##*-}); keeping it — a bare index would"
     echo "  rebuild it client-only, which resolves less. AXIOMCODE_REINDEX=1 to force, or pass --library to change them."
     STAMP="$PREV"
+    # and a rebuild of it, when the tree changed, keeps the roots too: the stamp said them while the build used none
+    AXIOMCODE_LIBRARY="${PREV#"$PREFIX"}"; export AXIOMCODE_LIBRARY
   fi
 fi
-if [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
+HEAD_SHA="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)"
+OLD_INDEXED="$(cat "$OUT/indexed-tree" 2>/dev/null || true)"; OLD_COMMIT="$(cut -d- -f1 "$OUT/stamp" 2>/dev/null || true)"
+# the baseline `changed` diffs against (base-tree). An explicit index moves it to the tree it indexed (#1222); a
+# BACKGROUND refresh keeps it, or every edit would drop out of `changed` and `test-impact` a minute after it was made,
+# and moves it only when HEAD moved (a commit, a checkout), to the tree of the new HEAD.
+set_base(){
+  [ -n "$GD" ] || return 0
+  if [ -n "${AXIOMCODE_BACKGROUND:-}" ] && [ -f "$OUT/base-tree" ] && [ "$(cat "$OUT/base-commit" 2>/dev/null)" = "$HEAD_SHA" ]; then :
+  elif [ -n "${AXIOMCODE_BACKGROUND:-}" ] && [ ! -f "$OUT/base-tree" ] && [ -n "$OLD_INDEXED" ] && [ "$OLD_COMMIT" = "$HEAD_SHA" ]; then
+    echo "$OLD_INDEXED" > "$OUT/base-tree"                    # a graph from before base-tree: its baseline was the tree it indexed
+  elif [ -n "$1" ]; then echo "$1" > "$OUT/base-tree"
+  else rm -f "$OUT/base-tree"; fi
+  echo "$HEAD_SHA" > "$OUT/base-commit"
+}
+# THE BASELINE GRAPH. `changed`, `test-impact` and the change reports ask about an EDIT: which declarations it touched and
+# who depended on them before it, a removed method's callers included. After a background refresh the graph no longer
+# has the removed method, and its spans are in the new text. So the graph that describes the baseline is kept, moved
+# (not copied) to .axiomcode/base when a background refresh replaces it, and those verbs read it (ax_fresh.py
+# baseline_graph); it is dropped when the baseline catches up with the graph. Mapping the new graph's spans onto the
+# baseline's text by a line diff was tried first: on 7 real commits it changed the answer on 3.
+keep_base_graph(){
+  local B="$REPO/.axiomcode/base" BT; BT="$(cat "$OUT/base-tree" 2>/dev/null || true)"
+  if [ -z "$BT" ] || [ "$BT" = "$INDEXED_TREE" ]; then rm -rf "$B"; return 0; fi
+  if [ "$BT" = "$OLD_INDEXED" ] && [ -f "$PREV/graph.sqlite" ] && [ ! -L "$PREV/graph.sqlite" ]; then
+    rm -rf "$B"; mkdir -p "$B/out"; mv "$PREV/graph.sqlite" "$B/out/graph.sqlite"; echo "$BT" > "$B/tree"; BASE_SAVED=1
+  fi
+}
+BASE_SAVED=""
+# FRESH IS "THE FILES THE GRAPH WAS BUILT FROM", NOT "A CLEAN GIT STATUS". The file table (ax_fresh.py) records every
+# file the parser reads with its hash; when none differs the graph is current whatever git says: a dirty tree whose
+# edits are already indexed is not rebuilt, and a tree edited and restored, which git calls clean against a graph built
+# from the edit, is. A commit that changed no file moves the stamp, not the graph.
+if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
+  if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; fi
+  sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
+  echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0
+fi
+if [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
   python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
 python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
 # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
+  # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
+  python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
 echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
 # THE TREE THE GRAPH IS BUILT FROM (#1222). The graph's spans are line numbers in the working tree as the parser reads
@@ -92,6 +141,9 @@ echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · pytho
 # committed file crashed it. Recorded here, before the parser reads anything, as a git tree object written through a
 # throwaway index: the user's index and checkout are not touched, and .axiomcode is excluded above. Kept only if the
 # build succeeds.
+# THE FILE TABLE, taken now for the same reason: an edit made while the parser runs must leave the graph stale, so the
+# next refresh picks it up. Committed only if the build succeeds.
+python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null || rm -f "$OUT/.files.json.new"
 INDEXED_TREE=""
 if [ -n "$GD" ]; then
   TMPIDX="$(mktemp "${TMPDIR:-/tmp}/axiomcode-index.XXXXXX")"
@@ -106,21 +158,40 @@ fi
 # way and is left where it is — which is also what $OUT/graph.sqlite still points at.
 PREV="$OUT/.previous-$LANG_ARG"
 rm -rf "$PREV"
-if [ -d "$OUT/$LANG_ARG" ]; then mv "$OUT/$LANG_ARG" "$PREV"; [ -f "$PREV/graph.sqlite" ] && ln -sfn "$PREV/graph.sqlite" "$OUT/graph.sqlite"; fi
-restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && ln -sfn "$OUT/$LANG_ARG/graph.sqlite" "$OUT/graph.sqlite"; fi; return 0; }
+# graph.sqlite NEVER DANGLES (#1305). With a refresher running after every edit, queries arrive mid-build all the time.
+# Moving the directory first and re-pointing after left a moment with no graph.sqlite at all, and a verb that finds
+# none BUILDS one (ax_contract.ensure_graph) -- a second, full build racing this one. So the live database gets a hard
+# link that survives the move, the pointer goes there first, and every re-point is a rename, which is atomic
+# (`ln -sfn` unlinks and then links).
+point(){ ln -sfn "$1" "$OUT/.graph.sqlite.new" && mv -f "$OUT/.graph.sqlite.new" "$OUT/graph.sqlite"; }
+if [ -d "$OUT/$LANG_ARG" ]; then
+  if [ -f "$OUT/$LANG_ARG/graph.sqlite" ]; then ln -f "$OUT/$LANG_ARG/graph.sqlite" "$OUT/.live.sqlite" && point "$OUT/.live.sqlite"; fi
+  mv "$OUT/$LANG_ARG" "$PREV"
+fi
+restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && point "$OUT/$LANG_ARG/graph.sqlite"; fi; rm -f "$OUT/.live.sqlite"; return 0; }
 LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
 "$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
-DB="$(find "$OUT" -name graph.sqlite -path "*/$LANG_ARG/*" | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -name graph.sqlite -not -path "$PREV/*" | head -1)"
+# the new database: a FILE under $OUT/$LANG_ARG. Matched as `*/$LANG_ARG/*` it was any path with the language's name
+# in it, the repository's own included: a repository at .../python/app matched the graph.sqlite SYMLINK, the link was
+# pointed at itself, the previous graph deleted, and every verb after it reported no graph.
+DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -type f -name graph.sqlite -not -path "$PREV/*" | head -1)"
 [ -n "$DB" ] || { restore; echo "build produced no graph.sqlite — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; exit 1; }
-# only now, with a graph in hand, is the old one gone and the pointer moved
-rm -rf "$PREV"
-ln -sfn "$DB" "$OUT/graph.sqlite"; echo "$STAMP" > "$OUT/stamp"
+# A QUERY NEVER READS A HALF-BUILT GRAPH. The new database gets its symbols, refs and views BEFORE graph.sqlite points
+# at it; until the pointer moves, every verb (and the hooks) keeps answering from the previous graph. Only then is the
+# old one removed: a reader that opened it keeps the file it opened.
+AXIOMCODE_INDEX_DB="$DB" python3 "$H/axiomcode-index" "$REPO" || { restore; echo "indexing the new graph failed — the graph that was there is untouched"; exit 1; }
+echo "$STAMP" > "$OUT/stamp"
 if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
-python3 "$H/axiomcode-index" "$REPO"
+set_base "$INDEXED_TREE"
+point "$DB"; rm -f "$OUT/.live.sqlite"
+if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
+keep_base_graph
+rm -rf "$PREV"
 sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
 python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
 python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
 # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
+[ -n "$BASE_SAVED" ] && AXIOMCODE_GRAPH="$REPO/.axiomcode/base" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
 echo "graph at $OUT/graph.sqlite"
