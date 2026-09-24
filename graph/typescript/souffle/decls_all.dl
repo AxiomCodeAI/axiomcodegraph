@@ -171,6 +171,8 @@
 .decl field_has_declared_type(c0:symbol)
 .decl field_in_enclosing(c0:symbol,c1:symbol,c2:symbol)
 .decl holder_value(c0:symbol,c1:symbol)
+.decl ref_call_signature(c0:symbol,c1:symbol)
+.decl typed_holder_signature(c0:symbol,c1:symbol)
 .decl compound_op_keeps_value(c0:symbol)
 .decl value_branch(c0:symbol,c1:symbol)
 .decl binary_op_yields_operand(c0:symbol,c1:symbol)

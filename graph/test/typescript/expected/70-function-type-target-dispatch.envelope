@@ -1,0 +1,5 @@
+value	globals#<function-type>@4:14 -> targets#<arrow>@14
+value	globals#<function-type>@4:14 -> targets#<arrow>@19
+value	globals#<function-type>@4:14 -> targets#<arrow>@31
+value	targets#<function-type>@6:18 -> targets#<arrow>@10
+value	targets#<function-type>@6:18 -> targets#<arrow>@8

@@ -1,0 +1,6 @@
+known_edge	METHOD_RETURN	0	targets [METHOD] -> CB
+known_edge	METHOD_TYPE_ARGUMENT	0	targets [EXPRESSION] -> CB
+known_edge	TYPE_ELEMENT	1	targets [EXPRESSION] -> CB
+known_edge	TYPE_ELEMENT	1	targets [METHOD] -> CB
+known_edge	TYPE_ELEMENT	1	targets [METHOD_PARAM] -> CB
+known_edge	VARIABLE_TYPE	0	targets [VARIABLE] -> CB
