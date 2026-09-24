@@ -1,0 +1,30 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · KNOBS
+//
+// Every framework NAME the destination rules key on, in one place, as facts. Adding a
+// broker, an HTTP client or a generated-code convention is a fact here, not a rule in
+// destinations.dl -- the same split the Java engine keeps in config-resolution/knobs.dl.
+// ============================================================================
+
+// ── gRPC: what Grpc.Tools generates ─────────────────────────────────────────
+// For `service Greeter` in a .proto, Grpc.Tools emits a static class `Greeter` holding a
+// nested `GreeterBase` (the server's base) and `GreeterClient` (the client). Both are
+// written into obj/ and are never in the source tree, so they are recognised by the
+// SHAPE of the name a project writes: `Greeter.GreeterBase`, `Greeter.GreeterClient`.
+cs_grpc_server_suffix("Base").
+cs_grpc_client_suffix("Client").
+// Every unary rpc has a blocking method and an `<Rpc>Async` twin on the client.
+cs_grpc_async_suffix("Async").
+// Members every generated client carries that are not rpcs.
+cs_grpc_client_member_not_rpc("WithHost").
+cs_grpc_client_member_not_rpc("NewInstance").
+
+// Namespace roots no generated gRPC type lives under. Grpc.Tools puts the generated
+// classes in the .proto's own (csharp_)namespace, which is the project's. Without this,
+// `System.Net.Http.HttpClient` has the generated SHAPE -- the segment before the last is
+// `Http` and the last is `Http` + `Client` -- and read as a gRPC service called Http.
+cs_framework_namespace_root("System").
+cs_framework_namespace_root("Microsoft").
+
+cs_remote_transport_grpc("grpc").
+cs_remote_confidence_exact("exact").

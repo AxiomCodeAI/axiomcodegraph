@@ -78,7 +78,7 @@ PROG="$WORK/program.dl"
     r=$(basename "$ff" .facts)
     printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t", rfc4180=true)\n' "$r" "$r"
   done
-  for d in projections containment resolution expression-resolution call-edge-generation; do
+  for d in projections containment resolution config-resolution expression-resolution call-edge-generation framework-behavior; do
     for f in "$ENG/$d/"*.dl; do [ -f "$f" ] && echo "#include \"$f\""; done
   done
   while IFS=$'\t' read -r pred file; do

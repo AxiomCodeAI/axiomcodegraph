@@ -1,0 +1,135 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · DESTINATIONS  (the cross-process edge)
+//
+// The C# counterpart of java/ and python/engine/framework-behavior/destinations.dl,
+// under the same contract:
+//   - a rule here models a LIBRARY's run-time behaviour, and every framework name it
+//     keys on lives in knobs.dl beside it;
+//   - a rule here may only ADD relations. It never changes call_chain_edge or anything
+//     the resolution phases own: a framework model is weaker knowledge than a resolved
+//     call;
+//   - it runs AFTER call-edge-generation because it consumes the resolved graph;
+//   - no compiler can adjudicate it. Its oracle is a running system.
+//
+// A client and the server that answers it are in different processes. Neither calls
+// the other, so every rule in call-edge-generation is silent across that boundary and
+// an impact question stops at the send. What ties the two ends together is a NAME both
+// ends spell. The result is `remote_edge`, deliberately NOT a call_chain_edge:
+//
+//   remote_edge(FromMethod, ToMethod, Transport, Destination, Confidence)
+//
+// and the two halves that could not be joined, which are reported rather than dropped:
+//   remote_unserved(Method, Transport, Destination)   a send nothing here serves
+//   remote_unsent(Method, Transport, Destination)     a handler nothing here sends to
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. THE TYPE NAME A PROJECT WROTE
+// ─────────────────────────────────────────────────────────────────────────────
+// The framework types these rules key on are almost never staged: a gRPC client is
+// generated into obj/, an HTTP client and a broker are NuGet packages. So a receiver is
+// identified by the name its declaration WROTE, not by a resolved type.
+//
+// call_recv_type_name (resolution/extensions.dl) already names a local, a parameter, a
+// field, a property, a pattern binding and a call's return. The one shape it leaves out
+// is a `var` initialised with `new`, whose declared type is on the creation's reference.
+call_recv_written_name(e, n) :- call_recv_type_name("client", e, n), n != "".
+// A using alias names the type by another spelling: `using RemoteGreeter =
+// Greet.Greeter.GreeterClient;` then `RemoteGreeter client`. The alias carries none of
+// the generated shape, so the target it stands for is the name to read.
+call_recv_written_name(e, target) :- call_recv_type_name("client", e, n), n != "",
+    call_module("client", e, mod), using_alias("client", mod, n, target).
+call_recv_written_name(e, n) :-
+    call_receiver_expr("client", e, r),
+    ref_denotes("client", r, "LOCAL_VARIABLE", v), var_is_implicit("client", v),
+    var_value_initializer("client", v, init), expr_new_type_ref("client", init, tr),
+    type_ref_name("client", tr, n).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. gRPC
+// ─────────────────────────────────────────────────────────────────────────────
+// The key is `<Service>/<Rpc>`. Both ends spell the service in the generated nested
+// name, `Greeter.GreeterBase` on the server and `Greeter.GreeterClient` on the client,
+// and requiring the LAST TWO segments to agree (`Greeter` and `Greeter` + suffix) is
+// what keeps an ordinary `HttpClient` or `ControllerBase` from being read as gRPC: those
+// have no enclosing segment spelling the same service.
+
+// every name that could be a generated gRPC type, and the positions of its dots. A name
+// rooted in a framework namespace is never one (knobs.dl): the namespace segments of
+// `System.Net.Http.HttpClient` spell the generated shape by coincidence.
+grpc_name_demand(n) :- call_recv_written_name(_, n), contains(".", n), !framework_rooted(n).
+grpc_name_demand(n) :- heritage_slot("client", _, _, n, _, _), contains(".", n), !framework_rooted(n).
+framework_rooted(n) :- call_recv_written_name(_, n), cs_framework_namespace_root(r),
+    strlen(n) > strlen(r), substr(n, 0, strlen(r) + 1) = cat(r, ".").
+framework_rooted(n) :- heritage_slot("client", _, _, n, _, _), cs_framework_namespace_root(r),
+    strlen(n) > strlen(r), substr(n, 0, strlen(r) + 1) = cat(r, ".").
+grpc_name_dot(n, i) :- grpc_name_demand(n), i = range(0, strlen(n)), substr(n, i, 1) = ".".
+grpc_name_last_dot(n, l) :- grpc_name_dot(n, _), l = max i : grpc_name_dot(n, i).
+// the segment before the last one starts after the previous dot, or at 0 if there is none
+grpc_name_prev_dot(n, p) :- grpc_name_last_dot(n, l), grpc_name_dot(n, j), j < l,
+    p = max i : { grpc_name_dot(n, i), i < l }.
+grpc_name_has_prev(n) :- grpc_name_prev_dot(n, _).
+grpc_name_segs(n, seg, tail) :- grpc_name_prev_dot(n, p), grpc_name_last_dot(n, l),
+    seg = substr(n, p + 1, l - p - 1), tail = substr(n, l + 1, strlen(n) - l - 1).
+grpc_name_segs(n, seg, tail) :- grpc_name_last_dot(n, l), !grpc_name_has_prev(n),
+    seg = substr(n, 0, l), tail = substr(n, l + 1, strlen(n) - l - 1).
+
+// `Greeter.GreeterBase` -> Greeter, `Greet.Greeter.GreeterClient` -> Greeter
+grpc_service_of_name(n, svc, sfx) :- grpc_name_segs(n, svc, tail), svc != "",
+    cs_grpc_server_suffix(sfx), tail = cat(svc, sfx).
+grpc_service_of_name(n, svc, sfx) :- grpc_name_segs(n, svc, tail), svc != "",
+    cs_grpc_client_suffix(sfx), tail = cat(svc, sfx).
+
+// ── the server end ──────────────────────────────────────────────────────────
+// A method a service class OVERRIDES from `<S>.<S>Base` serves `<S>/<name>`. Only an
+// override: every rpc is a virtual on the generated base, and a helper written beside
+// the rpcs is not one.
+grpc_serves(m, d) :-
+    heritage_slot("client", t, _, bn, _, _),
+    cs_grpc_server_suffix(sfx), grpc_service_of_name(bn, svc, sfx),
+    method_owner("client", t, m), method_modifier("client", m, "override"),
+    method_name("client", m, n), d = cat(svc, cat("/", n)).
+
+// ── the client end ──────────────────────────────────────────────────────────
+// A call on a receiver written `<S>.<S>Client`. The call name is the rpc, or the rpc
+// plus `Async`; both are candidates, because an rpc may itself end in Async and the
+// server's name is what decides which one it was.
+grpc_send_site(e, from, svc, n) :-
+    call_recv_written_name(e, rn),
+    cs_grpc_client_suffix(sfx), grpc_service_of_name(rn, svc, sfx),
+    call_callee_name("client", e, n), !cs_grpc_client_member_not_rpc(n),
+    call_from("client", e, from).
+grpc_send_cand(e, from, d) :- grpc_send_site(e, from, svc, n), d = cat(svc, cat("/", n)).
+grpc_send_cand(e, from, d) :- grpc_send_site(e, from, svc, n),
+    cs_grpc_async_suffix(a), strlen(n) > strlen(a),
+    substr(n, strlen(n) - strlen(a), strlen(a)) = a,
+    d = cat(svc, cat("/", substr(n, 0, strlen(n) - strlen(a)))).
+// the destination to REPORT for a send nothing serves: the rpc without Async
+grpc_send_primary(e, from, d) :- grpc_send_site(e, from, svc, n),
+    cs_grpc_async_suffix(a), strlen(n) > strlen(a),
+    substr(n, strlen(n) - strlen(a), strlen(a)) = a,
+    d = cat(svc, cat("/", substr(n, 0, strlen(n) - strlen(a)))).
+grpc_send_primary(e, from, d) :- grpc_send_site(e, from, svc, n),
+    !grpc_name_ends_async(n),
+    d = cat(svc, cat("/", n)).
+grpc_name_ends_async(n) :- grpc_send_site(_, _, _, n), cs_grpc_async_suffix(a),
+    strlen(n) > strlen(a), substr(n, strlen(n) - strlen(a), strlen(a)) = a.
+
+remote_edge_via(e, from, to, tr, d, conf) :-
+    cs_remote_transport_grpc(tr), cs_remote_confidence_exact(conf),
+    grpc_send_cand(e, from, d), grpc_serves(to, d), from != to.
+remote_send_at(e, from, tr, d) :- cs_remote_transport_grpc(tr), grpc_send_primary(e, from, d).
+serves_destination(m, tr, d) :- cs_remote_transport_grpc(tr), grpc_serves(m, d).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE EDGE, AND THE TWO HALVES IT CANNOT JOIN
+// ─────────────────────────────────────────────────────────────────────────────
+remote_edge(from, to, tr, d, conf) :- remote_edge_via(_, from, to, tr, d, conf).
+
+// Judged per SEND SITE: a site that linked is not also reported under another
+// spelling of its destination.
+remote_unserved(m, tr, d) :- remote_send_at(e, m, tr, d), !remote_edge_via(e, _, _, _, _, _).
+
+// A handler nothing here sends to: the client is in another repository, or the rpc has
+// not been adopted.
+remote_unsent(m, tr, d) :- serves_destination(m, tr, d), !remote_edge(_, m, tr, d, _).
