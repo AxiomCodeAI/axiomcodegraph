@@ -6,6 +6,7 @@ nothing usable, the graph never touched again.
 
 ```
 axiomcode context "<the task, in your own words>" [<repo>] [--in <path>] [--budget N] [--source]
+                  [--explain | --no-explain] [--from <name>]…
 ```
 
 Deterministic — no model, no embedding index, no network. The task text is split into content terms
@@ -27,3 +28,17 @@ because that one is its guess and not your knowledge.
 
 It ends by saying what it could not see. A partial list that reads as complete is what turns a five-file
 change into a one-file patch.
+
+## How something works: the call flow
+
+A task that asks how something works ("how does …", "explain …", "walk through …", "what happens when …", or
+`--explain`) also gets the call flow. It starts at `--from <name>` (repeatable) when you know where the mechanism
+begins, and otherwise at the entry points above. The steps are chosen breadth-first, so the entry point's own
+calls come before any call of a call, and they print as a tree in the order the calls are written. Each step shows
+its edge's certainty (`→` resolved, `⇢` one of a set) and the line that makes the call. A `⚠` marks a call in the
+step's body that the graph could not resolve, when the project declares that name, so the reader continues
+through it instead of stopping. A one-of-a-set site with many candidates is not a step.
+
+With `--source`, the earliest steps carry their code within a budget and the later ones are named only, so the
+answer comes back on one page. Answer from that code, and open a file only for a step whose body was cut or at a
+`⚠`. A question that does not ask how something works gets the ranked answer above, unchanged.
