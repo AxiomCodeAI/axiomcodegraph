@@ -7,8 +7,12 @@ reads only its own output: one JSON object, {"additional_context": …}, plus "c
 beforeSubmitPrompt. Plain text is a parse error there and hookSpecificOutput is ignored, so a hook that
 answers in the original shape runs in Cursor, costs a process, and reaches no one.
 
-Each check fires one hook twice, as the original host and as Cursor (CURSOR_VERSION set, Cursor's names),
-and compares what the model would receive. It indexes one case, so it needs the engine, as run.py does.
+Gemini CLI runs the repository root's hooks/hooks.json with its own names (BeforeAgent / BeforeTool /
+AfterTool, read_file, run_shell_command, …) and requires stdout to be JSON only; its context field is the
+same hookSpecificOutput.additionalContext, under its own event name.
+
+Each check fires one hook as the original host and as the other hosts, with their names, and compares what
+the model would receive. It indexes one case, so it needs the engine, as run.py does.
 
     python3 tests/hosts.py
 """
@@ -44,6 +48,25 @@ def original(event, tool, inp, repo, session, **extra):
 def cursor(event, tool, inp, repo, session, **extra):
     return dict({'hook_event_name': event, 'tool_name': tool, 'tool_input': inp, 'workspace_roots': [repo],
                  'conversation_id': session, 'cursor_version': '3.2.0'}, **extra)
+
+
+def gemini(event, tool, inp, repo, session, **extra):
+    return dict({'hook_event_name': event, 'tool_name': tool, 'tool_input': inp, 'cwd': repo,
+                 'session_id': session, 'timestamp': '2026-09-23T00:00:00Z'}, **extra)
+
+
+def said_gemini(out, event):
+    """what Gemini passes on: empty, or one JSON object whose context is under Gemini's event name"""
+    if not out:
+        return ''
+    try:
+        o = json.loads(out)
+        h = o['hookSpecificOutput']
+    except (ValueError, KeyError, TypeError):
+        check(f'{event}: Gemini output is one JSON object with hookSpecificOutput', False, out[:160])
+        return None
+    check(f'{event}: Gemini output names its own event', h.get('hookEventName') == event, str(h)[:160])
+    return h.get('additionalContext', '')
 
 
 def said_original(out):
@@ -90,6 +113,9 @@ with tempfile.TemporaryDirectory() as work:
           out[:160])
     check('orient: Cursor hears the same words, wrapped as additional_context',
           rc2 == 0 and first and said_cursor(out2, 'beforeSubmitPrompt') == first, out2[:160])
+    rc3, out3 = fire('orient.py', gemini('BeforeAgent', None, {}, bare, 'o3', prompt=task))
+    check('orient: Gemini hears the same words, as JSON under BeforeAgent',
+          rc3 == 0 and first and said_gemini(out3, 'BeforeAgent') == first, out3[:160])
 
     repo = os.path.join(work, 'repo')
     shutil.copytree(CASE, repo)
@@ -108,6 +134,10 @@ with tempfile.TemporaryDirectory() as work:
     check('enrich after a Read: Cursor hears the same lines', rc2 == 0 and first and said_cursor(out2, 'postToolUse') == first,
           out2[:160])
 
+    rc3, out3 = fire('enrich.py', gemini('AfterTool', 'read_file', {'file_path': lib}, repo, 'e3'))
+    check('enrich after read_file: Gemini hears the same lines',
+          rc3 == 0 and first and said_gemini(out3, 'AfterTool') == first, out3[:160])
+
     # PostToolUse on a shell read: Cursor calls the tool Shell. `cat` of a source file is enriched as a Read.
     grep = {'command': 'cat lib.py'}
     rc, out = fire('enrich.py', original('PostToolUse', 'Bash', grep, repo, 'g1'))
@@ -117,6 +147,10 @@ with tempfile.TemporaryDirectory() as work:
           out[:160])
     check("enrich after `cat` in a shell: Cursor's Shell is the same tool as Bash",
           rc2 == 0 and first and said_cursor(out2, 'postToolUse') == first, out2[:160])
+
+    rc3, out3 = fire('enrich.py', gemini('AfterTool', 'run_shell_command', grep, repo, 'g3'))
+    check("enrich after `cat` in a shell: Gemini's run_shell_command is the same tool as Bash",
+          rc3 == 0 and first and said_gemini(out3, 'AfterTool') == first, out3[:160])
 
     # PreToolUse: Cursor's preToolUse output has no context field, so the directive stays silent there.
     rc, out = fire('direct.py', original('PreToolUse', 'Grep', {'pattern': 'greet'}, repo, 'd1'))
@@ -130,6 +164,15 @@ with tempfile.TemporaryDirectory() as work:
                          cursor=True)
         said = said_cursor(out2, 'beforeSubmitPrompt')
         check(f'{hook} on beforeSubmitPrompt: exit 0 and Cursor-shaped', rc2 == 0 and said is not None, out2[:160])
+
+    for hook in ('changes.py', 'orient.py'):
+        rc3, out3 = fire(hook, gemini('BeforeAgent', None, {}, repo, 'p3', prompt='what calls greet'))
+        said = said_gemini(out3, 'BeforeAgent')
+        check(f'{hook} on BeforeAgent: exit 0 and JSON only', rc3 == 0 and said is not None, out3[:160])
+    rc3, out3 = fire('changes.py', gemini('BeforeTool', 'replace', {'file_path': lib, 'old_string': 'hi ',
+                                                                     'new_string': 'hello '}, repo, 'b3'))
+    check('changes.py on BeforeTool: exit 0 and silent, since BeforeTool carries no context',
+          rc3 == 0 and out3 == '', out3[:160])
 
 print('ok' if not fails else f'{len(fails)} failure(s)')
 sys.exit(1 if fails else 0)
