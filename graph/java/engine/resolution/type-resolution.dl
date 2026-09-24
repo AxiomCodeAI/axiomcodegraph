@@ -102,8 +102,9 @@ type_resolves_in_file("lib", name, fp, th) :- java_import("SINGLE_STATIC", _, ou
 
 // Case 2 — same file (no import needed): a type declared in the same file as the
 // reference. Suppressed when an explicit import for the same name wins.
-type_resolves_in_file("client", name, fp, t) :- java_type(name, _, _, _, _, _, _, fp, _, _, _, _, _, t),
+type_resolves_same_file("client", name, fp, t) :- java_type(name, _, _, _, _, _, _, fp, _, _, _, _, _, t),
     !type_has_explicit_import(name, fp).
+type_resolves_in_file(prov, name, fp, t) :- type_resolves_same_file(prov, name, fp, t).
 
 // type_has_same_pkg_match(Name, FilePath) — a TOP_LEVEL type of this simple name is
 // visible in the referencing file's OWN package (i.e. Case 4 resolves it). Per JLS
@@ -127,17 +128,15 @@ type_has_same_pkg_match(name, fp) :- file_pkg(fp, pkg),
 // each type's precomputed package (type_pkg / lib_type_pkg, which already carry the dot).
 import_pkg_dot(fp, pkgDot) :- java_import("TYPE_ON_DEMAND", _, pkg, _, fp, _, _, _, _, _, _),
     pkgDot = cat(pkg, ".").
-type_resolves_in_file("client", name, fp, t) :- import_pkg_dot(fp, pkgDot),
+type_resolves_below_same_file("client", name, fp, t) :- import_pkg_dot(fp, pkgDot),
     type_pkg(t, pkgDot),
     java_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t),
     !type_has_explicit_import(name, fp),
-    !type_has_same_file_type(name, fp),
     !type_has_same_pkg_match(name, fp).
-type_resolves_in_file("lib", name, fp, t) :- import_pkg_dot(fp, pkgDot),
+type_resolves_below_same_file("lib", name, fp, t) :- import_pkg_dot(fp, pkgDot),
     lib_type_pkg(t, pkgDot),
     lib_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t),
     !type_has_explicit_import(name, fp),
-    !type_has_same_file_type(name, fp),
     !type_has_same_pkg_match(name, fp).
 
 // Case 4 — same-package visibility (no import): a type in the same package as the
@@ -176,11 +175,10 @@ file_pkg(fp, pkg) :- java_type(_, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", fp, _, _
 // target whose package equals the referencing file's package. Suppressed when a
 // single-type import or a same-file type wins (same-file is Case 2). Client-only:
 // a client reference never resolves to a library type by same-package.
-type_resolves_in_file("client", target, fp, th) :- file_pkg(fp, pkg),
+type_resolves_below_same_file("client", target, fp, th) :- file_pkg(fp, pkg),
     type_pkg(th, pkg),
     java_type(target, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, th),
-    !type_has_explicit_import(target, fp),
-    !type_has_same_file_type(target, fp).
+    !type_has_explicit_import(target, fp).
 
 // Case 3b — type-member wildcard (import a.b.Outer.*): a wildcard whose
 // packageOrTypeName is a TYPE (not a package) brings that type's nested types into
@@ -188,41 +186,43 @@ type_resolves_in_file("client", target, fp, th) :- file_pkg(fp, pkg),
 // a type; the nested member is located by line-range containment, which holds for a
 // library IR whose nested names are flattened as well as for the client. Suppressed
 // when a single-type import or a same-file type wins.
-type_resolves_in_file("client", name, fp, th) :- java_import("TYPE_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
+type_resolves_below_same_file("client", name, fp, th) :- java_import("TYPE_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
     java_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
     java_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
     java_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
     is > os,
     ie <= oe,
-    !type_has_explicit_import(name, fp),
-    !type_has_same_file_type(name, fp).
-type_resolves_in_file("lib", name, fp, th) :- java_import("TYPE_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
+    !type_has_explicit_import(name, fp).
+type_resolves_below_same_file("lib", name, fp, th) :- java_import("TYPE_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
     lib_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
     lib_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
     lib_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
     is > os,
     ie <= oe,
-    !type_has_explicit_import(name, fp),
-    !type_has_same_file_type(name, fp).
+    !type_has_explicit_import(name, fp).
 
 // Case 3c — static on-demand import (import static a.b.Outer.*): brings Outer's static
 // members into scope by simple name, and its static nested types are among them
 // (JLS 7.5.4). Same shape as Case 3b, keyed on the STATIC_ON_DEMAND kind.
-type_resolves_in_file("client", name, fp, th) :- java_import("STATIC_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
+type_resolves_below_same_file("client", name, fp, th) :- java_import("STATIC_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
     java_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
     java_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
     java_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
     is > os,
     ie <= oe,
-    !type_has_explicit_import(name, fp),
-    !type_has_same_file_type(name, fp).
-type_resolves_in_file("lib", name, fp, th) :- java_import("STATIC_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
+    !type_has_explicit_import(name, fp).
+type_resolves_below_same_file("lib", name, fp, th) :- java_import("STATIC_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
     lib_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
     lib_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
     lib_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
     is > os,
     ie <= oe,
-    !type_has_explicit_import(name, fp),
+    !type_has_explicit_import(name, fp).
+
+// Everything below the same-file case yields to a same-file type of the name. Kept as its
+// own relation because a supertype in a class header cannot see that class's own member
+// types (below), and there the same-file type that suppressed these may not be visible.
+type_resolves_in_file(prov, name, fp, t) :- type_resolves_below_same_file(prov, name, fp, t),
     !type_has_same_file_type(name, fp).
 
 // ── type_resolves_java_lang(Prov, Name, TypeHash) ───────────────────────────
@@ -244,11 +244,51 @@ ref_unqualified(ref) :- java_type_reference(_, _, _, _, _, _, _, _, tn, tn, _, _
 
 type_ref_file_resolved(ref) :- ref_file(ref, name, fp),
     ref_unqualified(ref),
+    !header_hides_own_member(ref),
     type_resolves_in_file(_, name, fp, _).
+type_ref_file_resolved(ref) :- header_resolves(_, ref, _).
 
 type_ref_resolves(prov, ref, t) :- ref_file(ref, name, fp),
     ref_unqualified(ref),
+    !header_hides_own_member(ref),
     type_resolves_in_file(prov, name, fp, t).
+type_ref_resolves(prov, ref, t) :- header_resolves(prov, ref, t).
+
+// ── A class header cannot see the class's own member types (JLS 6.3) ─────────
+// The scope of a member type is the BODY of the type that declares it, and the
+// extends / implements clause is not part of the body. So in
+//     class DiffLike implements Builder<String> { static class Builder { … } }
+// the header's `Builder` is the top-level (imported / same-package) Builder, never
+// DiffLike.Builder, though both sit in the same file. Case 2 matches any type in the
+// file by simple name, so it took the nested one and, by suppressing every case below
+// it, lost the real supertype: the implements edge vanished, and with it the override
+// and the dispatch through the interface (#1244). A type nested inside the one whose
+// header holds the reference is excluded; if no other same-file type of that name is
+// left, the cases below same-file answer as they would for a file without it. A class
+// cannot extend its own member (cyclic inheritance), so nothing correct is dropped.
+header_ref(ref, owner) :- java_type_reference(_, "SUPER_TYPE", owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
+    owner != "".
+header_ref(ref, owner) :- java_type_reference(_, "IMPLEMENTS_INTERFACE", owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
+    owner != "".
+header_own_member(ref, t) :- header_ref(ref, owner),
+    ref_unqualified(ref),
+    ref_file(ref, name, fp),
+    type_resolves_same_file(_, name, fp, t),
+    type_in_type("client", t, owner).
+header_hides_own_member(ref) :- header_own_member(ref, _).
+header_sees_same_file(ref) :- header_hides_own_member(ref),
+    header_ref(ref, owner),
+    ref_file(ref, name, fp),
+    type_resolves_same_file(_, name, fp, t),
+    !type_in_type("client", t, owner).
+header_resolves(prov, ref, t) :- header_hides_own_member(ref),
+    ref_file(ref, name, fp),
+    type_resolves_in_file(prov, name, fp, t),
+    !header_own_member(ref, t).
+header_resolves(prov, ref, t) :- header_hides_own_member(ref),
+    !header_sees_same_file(ref),
+    ref_file(ref, name, fp),
+    type_resolves_below_same_file(prov, name, fp, t).
 
 type_ref_resolves(prov, ref, t) :- ref_file(ref, name, _),
     ref_unqualified(ref),
@@ -267,7 +307,12 @@ type_ref_resolves(prov, ref, t) :- ref_file(ref, name, _),
 // compiler applies the other way round is rare enough that the cheaper order is kept), and
 // before the implicit java.lang, which a member type shadows.
 ref_scope_type(ref, owner) :- java_type_reference(_, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
-    owner != "".
+    owner != "",
+    !header_ref(ref, owner).
+// A header reference starts one level out: the owner's own member types are not in
+// scope there (see header_ref above), those of the types enclosing it are.
+ref_scope_type(ref, outer) :- header_ref(ref, owner),
+    type_in_type("client", owner, outer).
 ref_scope_type(ref, outer) :- ref_scope_type(ref, inner),
     type_in_type("client", inner, outer).
 type_ref_resolves("client", ref, inner) :- ref_file(ref, name, _),

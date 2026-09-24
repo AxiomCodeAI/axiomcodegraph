@@ -1,0 +1,9 @@
+60-header-names-a-supertype-shadowed-by-a-member
+  precision 1.0000   (15 correct, 0 wrong)
+  recall    0.8824   (15 of 17 in the bytecode)
+  references 34   resolved 15 (44.1%)
+  tiers ambiguous_unknown=19  known_edge=15
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=4  IMPLEMENTS_INTERFACE=5  METHOD_PARAM=4  METHOD_RETURN=12  OBJECT_CREATION_TYPE=8  SUPER_TYPE=1
+    MISSING a.DiffLike SUPER_TYPE a.Builder
+    MISSING a.PlainImpl SUPER_TYPE a.Builder

@@ -413,6 +413,13 @@
 .decl type_ref_file_resolved(c0:symbol)
 .decl type_ref_resolves(c0:symbol,c1:symbol,c2:symbol)
 .decl type_resolves_in_file(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl type_resolves_same_file(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl type_resolves_below_same_file(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl header_ref(c0:symbol,c1:symbol)   // (ref, owner): a reference in the owner's extends / implements clause
+.decl header_own_member(c0:symbol,c1:symbol)
+.decl header_hides_own_member(c0:symbol)
+.decl header_sees_same_file(c0:symbol)
+.decl header_resolves(c0:symbol,c1:symbol,c2:symbol)
 .decl type_resolves_java_lang(c0:symbol,c1:symbol,c2:symbol)
 .decl type_value_name(c0:symbol,c1:symbol)
 .decl value_compatible(c0:symbol,c1:symbol)
