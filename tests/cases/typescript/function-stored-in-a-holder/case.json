@@ -88,6 +88,20 @@
    "avoid": [
     "no chain of resolved calls"
    ]
+  },
+  {
+   "why": "the source files that can end up calling the change are listed in full, nearest first, and the test files are counted: ranked by callable count the test files filled the window and every source file sat behind '… +N', so agents rebuilt the list with grep",
+   "run": [
+    "impact",
+    "getPath"
+   ],
+   "want": [
+    "source files (",
+    "src/app.ts ("
+   ],
+   "avoid": [
+    "    files: "
+   ]
   }
  ]
 }
