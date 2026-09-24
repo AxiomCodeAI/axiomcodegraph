@@ -2,7 +2,7 @@
  "hooks": {
   "PostToolUse": [
    {
-    "matcher": "Read|Grep|Glob|Bash|Edit|Write|MultiEdit",
+    "matcher": "Read|Grep|Glob|Bash|Edit|Write|MultiEdit|mcp__plugin_axiomcode_axiomcode__.*",
     "hooks": [
      {
       "type": "command",
