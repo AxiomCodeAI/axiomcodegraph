@@ -20,6 +20,16 @@
       "timeout": 25
      }
     ]
+   },
+   {
+    "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/refresh.py\"",
+      "timeout": 5
+     }
+    ]
    }
   ],
   "PreToolUse": [
@@ -60,6 +70,37 @@
      {
       "type": "command",
       "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/orient.py\""
+     }
+    ]
+   },
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/refresh.py\"",
+      "timeout": 5
+     }
+    ]
+   }
+  ],
+  "Stop": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/refresh.py\"",
+      "timeout": 5
+     }
+    ]
+   }
+  ],
+  "SessionStart": [
+   {
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/refresh.py\"",
+      "timeout": 5
      }
     ]
    }

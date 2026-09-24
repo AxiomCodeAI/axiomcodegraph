@@ -51,7 +51,7 @@ def strip_code(t, strings=True, hash_comments=True):
     return ''.join(out)
 
 class Changed:
-    def __init__(self, repo):
+    def __init__(self, repo, baseline=False):
         self.g = G(repo); self.repo = self.g.repo
         st = os.path.join(self.repo, '.axiomcode', 'out', 'stamp')
         self.built_at = open(st).read().split('-')[0] if os.path.exists(st) else None            # the commit the graph describes
@@ -60,13 +60,60 @@ class Changed:
         it = os.path.join(self.repo, '.axiomcode', 'out', 'indexed-tree')
         t = open(it).read().strip() if os.path.exists(it) else ''
         self.indexed_tree = t if t and sh('git', 'cat-file', '-e', t, cwd=self.repo) is not None else None
-        self.tree_differs = bool(self.indexed_tree) and (sh('git', 'rev-parse', 'HEAD^{tree}', cwd=self.repo) or '').strip() != self.indexed_tree
+        # THE BASELINE IS NOT ALWAYS THE GRAPH'S TREE (#1305). The graph now refreshes itself in the background after
+        # edits; were the baseline the tree it was indexed from, every edit would drop out of `changed` and `test-impact`
+        # a minute after it was made. axiomcode-build keeps a separate base-tree: the tree of the last explicit index,
+        # moved to HEAD's tree when HEAD moves. The graph's spans are in the indexed text and are mapped onto the
+        # baseline's text file by file (decl_spans).
+        b = os.path.join(self.repo, '.axiomcode', 'out', 'base-tree')
+        b = open(b).read().strip() if os.path.exists(b) else ''
+        self.base_tree = b if b and sh('git', 'cat-file', '-e', b, cwd=self.repo) is not None else self.indexed_tree
+        self.tree_differs = bool(self.base_tree) and (sh('git', 'rev-parse', 'HEAD^{tree}', cwd=self.repo) or '').strip() != self.base_tree
+        if baseline: self.indexed_tree = self.base_tree                                          # reading the baseline's own graph: its spans ARE the baseline's
+        self._mapped = {}
         self.spans = {}                                                                           # file -> [(line, end, id, kind)]
         for r in self.g.sym.values():
             if r.get('file') and r.get('line'): self.spans.setdefault(r['file'], []).append((r['line'], r['end_line'] or r['line'], r['id'], r['kind'], r['display'], r['name']))
         for r in self.g.q("SELECT rowid, display, name, kind, file, line, end_line, owner FROM symbols WHERE method_id IS NULL AND type_id IS NULL AND kind IN ('field','const','enum_member','variable')"):
             if r['file'] and r['line']: self.spans.setdefault(r['file'], []).append((r['line'], r['end_line'] or r['line'], f"f:{r['rowid']}", r['kind'], r['display'], r['name']))
         for v in self.spans.values(): v.sort()
+    def decl_spans(self, rel, mode='worktree'):
+        """the graph's declarations in `rel`, with their lines in the BASELINE text. They are recorded in the text the
+        graph was indexed from; when a background refresh indexed a later text than the baseline, each start and end
+        line is carried across a line diff of the two. A declaration whose header exists only in the indexed text
+        (added after the baseline) is dropped here: the diff of baseline against working tree reports it as added."""
+        spans = self.spans.get(rel, [])
+        if mode in ('range', 'files') or not spans or not self.indexed_tree or not self.base_tree or self.indexed_tree == self.base_tree: return spans
+        if rel in self._mapped: return self._mapped[rel]
+        G = (sh('git', 'show', f'{self.indexed_tree}:{rel}', cwd=self.repo) or '').split('\n')
+        B = (sh('git', 'show', f'{self.base_tree}:{rel}', cwd=self.repo) or '').split('\n')
+        if G == B: self._mapped[rel] = spans; return spans
+        gmap, near, blocks = {}, {}, []                                                          # indexed line -> baseline line
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, B, G, autojunk=False).get_opcodes():
+            for k in range(j2 - j1):
+                if tag == 'equal': gmap[j1 + k + 1] = near[j1 + k + 1] = i1 + k + 1
+                # a rewritten line: the line in the same position; an inserted one: the baseline line it follows
+                elif tag == 'replace': near[j1 + k + 1] = i1 + min(k + 1, i2 - i1)
+                else: near[j1 + k + 1] = max(1, i1)
+            if tag == 'replace': blocks.append((j1, j2, i1, i2))
+        def at(ln, name=None):
+            if ln in gmap: return gmap[ln]
+            if name is None: return near.get(ln)                                                  # an end line: wherever it fell
+            # a header on a rewritten line maps to the baseline line in the same position only if that line declares
+            # the same name. Positions in a rewritten block pair a changed header with its old self and an INSERTED
+            # header with whatever old line happens to sit there, which made a new function read as one the
+            # baseline already had
+            for j1, j2, i1, i2 in blocks:
+                if j1 < ln <= j2:
+                    k = i1 + (ln - j1)
+                    return k if k <= i2 and re.search(rf'\b{re.escape(name)}\b', B[k - 1]) else None
+            return None
+        out = []
+        for a, b, *rest in spans:
+            a2, b2 = at(a, rest[-1] or ''), at(b)
+            if a2 is not None: out.append((a2, max(a2, b2 or a2), *rest))
+        out.sort(); self._mapped[rel] = out
+        return out
     def rel(self, f):
         f = os.path.realpath(f) if os.path.exists(f) else f
         r = os.path.relpath(f, self.repo) if os.path.isabs(f) else f
@@ -75,7 +122,7 @@ class Changed:
     def texts(self, rel, mode, rng):
         if mode == 'range':
             a, b = rng.split('..'); return sh('git', 'show', f'{a}:{rel}', cwd=self.repo) or '', sh('git', 'show', f'{b}:{rel}', cwd=self.repo) or ''
-        base = self.indexed_tree or (self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD')
+        base = self.base_tree or (self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD')
         old = sh('git', 'show', f'{base}:{rel}', cwd=self.repo) or ''
         if mode == 'staged': new = sh('git', 'show', f':{rel}', cwd=self.repo) or ''
         else:
@@ -85,9 +132,9 @@ class Changed:
     def files(self, mode, rng, given):
         if given: return [self.rel(f) for f in given]
         if mode == 'range': out = sh('git', 'diff', '--name-only', rng, cwd=self.repo)
-        elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', *([self.indexed_tree] if self.indexed_tree else []), cwd=self.repo)
+        elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', *([self.base_tree] if self.base_tree else []), cwd=self.repo)
         else:
-            base = self.indexed_tree or (self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD')
+            base = self.base_tree or (self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD')
             out = sh('git', 'diff', '--name-only', base, cwd=self.repo)
             if out is None: out = sh('git', 'diff', '--name-only', 'HEAD', cwd=self.repo)
         # the extension list is the ONLY gate on what a diff can contain, so a language missing from it is
@@ -154,7 +201,7 @@ class Changed:
                 got = {i + 1 for i in range(i1, i2) if not noise(OL[i])}; old_changed |= got; removed_lines |= got
             elif tag == 'insert':
                 if any(not noise(NL[j]) for j in range(j1, j2)): added.append((i1, j1 + 1, j2))               # after old line i1, new lines j1+1..j2
-        decls = self.spans.get(rel, [])
+        decls = self.decl_spans(rel, getattr(self, 'mode', 'worktree'))
         if not decls and not old.strip() and new.strip():                                                # a new file: its declarations, all added
             decls = []; added = [(0, 1, len(NL))]; old_changed = set(); removed_lines = set(); new_of = {}; replaced = []
         elif not decls: return [], [(rel, 'no declarations known here (not in the graph, or a different file spelling)', None)]
@@ -389,7 +436,18 @@ def main(argv):
     if '--staged' in a: mode = 'staged'; a.remove('--staged')
     repo = '.'
     if a and os.path.isdir(a[0]): repo = a.pop(0)
-    C = Changed(repo)
+    # an EDIT is measured against the baseline, and read from the graph that describes it (#1305): after a background
+    # refresh that is the graph kept in .axiomcode/base, not the current one. Given two texts (--old/--new, the edit
+    # hook's before-the-edit check) the current graph is the one whose spans are in the current file's lines.
+    # A caller that already chose it (test-impact, the change hook) passes it in AXIOMCODE_GRAPH; either way it is the
+    # baseline's graph, and its spans are not mapped again.
+    baseline = None
+    if mode != 'range' and not (old_f or new_f):
+        sys.path.insert(0, HERE); import ax_fresh
+        bg = ax_fresh.baseline_graph(os.path.realpath(repo)); given = os.environ.get('AXIOMCODE_GRAPH')
+        if bg and (not given or os.path.realpath(given) == os.path.realpath(bg)):
+            baseline = bg; os.environ['AXIOMCODE_GRAPH'] = bg                 # also for --impact, which runs impact below
+    C = Changed(repo, baseline=bool(baseline)); C.mode = 'files' if (old_f or new_f) else mode
     results = []; notes = []
     if old_f or new_f:
         if not one: die("--old/--new need --file <path in the repo>")
@@ -421,7 +479,7 @@ def main(argv):
         if flipped: notes.append(('', f"the graph is built at the newer commit {C.built_at[:10]}: declarations are the new text's; a declaration the range removed is not in it", None))
     if as_json: print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes]}, indent=1)); return 0
     if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 0
-    against = (f" — against the tree the graph was indexed from (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
+    against = (f" — against the tree the graph was indexed from at the last `axiomcode index` (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
                else f" — against the graph's commit {C.built_at[:10]}")
     print(f"changed declarations ({len(results)})" + (against if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
     for e in results:

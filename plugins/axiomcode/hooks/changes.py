@@ -126,7 +126,14 @@ if event == 'PreToolUse' and tool in ('Edit', 'Write', 'MultiEdit'):
     if risky:
         lines = summarize(risky, f"graph: this edit is about to change {len(risky)} declaration(s) in {rel} in a way that reaches callers — before it lands:")
         st = load_state(); st['reported'] = list(dict.fromkeys(st.get('reported', []) + [key(d) for d in risky])); save_state(st)
-elif event == 'PostToolUse' and tool == 'Bash':
+elif event in ('PostToolUse', 'UserPromptSubmit'):
+    # after the fact, an edit is measured against the baseline graph, where what it removed still has its callers;
+    # after a background refresh (#1305) that graph is the one kept in .axiomcode/base. Before an edit (above), the
+    # current graph is right: its lines are the file's as it is now.
+    import ax_fresh
+    bg = ax_fresh.baseline_graph(cwd)
+    if bg: os.environ['AXIOMCODE_GRAPH'] = bg
+if event == 'PostToolUse' and tool == 'Bash':
     c = str(inp.get('command', ''))
     if not re.search(r'\bsed\s+-i|\bpatch\b|\bgit\s+(apply|checkout|switch|pull|merge|rebase|revert|cherry-pick|stash\s+pop|reset\s+--hard|restore)\b|>>?\s*\S+\.(java|ts|tsx|js|py)\b|\b(python3?|node|bash|sh)\s+\S+|\bmv\b|\bcp\b|\brm\b', c): sys.exit(0)
     j = changed([], timeout=18)

@@ -210,11 +210,15 @@ elif tool == 'Read':
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
     # a member the language synthesises (an enum's values() / valueOf(), a default constructor) is not declared on any line: not listed as one
     rows = q("SELECT s.id, s.method_id, s.display, s.line, s.end_line FROM symbols s JOIN methods m ON m.id = s.method_id WHERE (s.file = ? OR s.file LIKE ?) AND s.method_id IS NOT NULL AND s.kind <> 'module' AND m.kind NOT IN ('ENUM_VALUES', 'ENUM_VALUE_OF', 'DEFAULT_CONSTRUCTOR') AND s.line <= ? AND s.end_line >= ? ORDER BY s.line", rel, '%/' + rel.lstrip('/'), b, a)
-    # the graph describes the tree at the commit it was built from: a file edited since has moved lines and maybe other declarations
+    # the graph describes the tree it was indexed from: a file edited since has moved lines and maybe other declarations.
+    # That tree is the recorded indexed-tree, uncommitted edits included, and after a background refresh (#1305) it holds
+    # edits the commit does not: compared against the commit, a file the graph is current for read as stale.
     stale = ''
     try:
         built = open(os.path.join(cwd, '.axiomcode', 'out', 'stamp')).read().split('-')[0]
-        if built != 'nogit' and subprocess.run(['git', 'diff', '--quiet', built, '--', rel], cwd=cwd, capture_output=True).returncode == 1: stale = f" — this file changed since the graph was built at {built[:10]}: lines are the graph's, not the file's"
+        try: against = open(os.path.join(cwd, '.axiomcode', 'out', 'indexed-tree')).read().strip() or built
+        except OSError: against = built
+        if against != 'nogit' and subprocess.run(['git', 'diff', '--quiet', against, '--', rel], cwd=cwd, capture_output=True).returncode == 1: stale = f" — this file changed since the graph was built at {built[:10]}: lines are the graph's, not the file's"
     except Exception: pass
     if rows:
         st = load_state(); ctx = set(context_ids())

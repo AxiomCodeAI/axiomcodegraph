@@ -84,6 +84,20 @@ done
 # build a repository called `--help`. One branch is cheaper than three, and a verb added tomorrow gets
 # it without anyone remembering to.
 case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; then verbhelp "$cmd"; exit $?; fi ;; esac
+# A QUERY READS A CURRENT GRAPH (#1305). Before a query verb runs, the graph is checked against the files it was built
+# from; when one differs, the background refresher is started and the answer waits for it up to AXIOMCODE_FRESH_WAIT
+# seconds (default 10, enough for a small repository's rebuild). Past that it is given from the previous graph, with
+# one line on stderr naming the files that graph predates. The repository is the last argument that is a directory,
+# as the verbs themselves take it, else the working directory. No graph: nothing here, the verb builds its first one.
+# `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they
+# start the refresher but do not wait for it.
+FR=.; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ -d "$a" ] && FR="$a"; done
+if [ -f "$FR/.axiomcode/out/graph.sqlite" ]; then
+  case "$cmd" in
+    context|path|impact|graph) python3 "$H/ax_fresh.py" wait "$FR" "${AXIOMCODE_FRESH_WAIT:-10}" || true ;;
+    changed|test-impact|tests) python3 "$H/ax_fresh.py" kick "$FR" || true ;;
+  esac
+fi
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
   context) exec python3 "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;

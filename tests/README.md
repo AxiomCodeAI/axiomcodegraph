@@ -15,6 +15,9 @@ One check needs no graph and is its own script:
     python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape
     python3 tests/directive.py           the PreToolUse directive hook keeps its promises (never blocks,
                                          never raises, silent without a graph)
+    python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
+                                         edit, `changed` answers the same before and after, a burst costs one rebuild
+                                         and queries during it answer (#1305; builds real graphs, needs the engine)
     python3 tests/indexed_tree.py        changed compares against the tree the graph was indexed from, so an
                                          index taken with uncommitted edits reports only later edits (#1222)
     python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,
