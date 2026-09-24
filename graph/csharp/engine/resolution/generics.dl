@@ -1,0 +1,45 @@
+// ============================================================================
+// RESOLUTION · A VALUE TYPED BY A TYPE PARAMETER  (#1283)
+//
+// `static int Size<T>(T schema) where T : ISchema => schema.I.Size();` -- `schema`
+// is a T, and a reference naming a type parameter resolves to no type, on purpose
+// (type-resolution.dl): T denotes whatever it is instantiated with, and a type
+// called T does not exist. What T DOES have is its constraint. `where T : ISchema`
+// is the compiler's own licence to look `schema.I` up on ISchema, and the member it
+// binds to is ISchema's, whatever T is instantiated with. Before this file nothing
+// read the constraint, so every member access on a constrained T was unresolved.
+//
+// THE TYPE IS THE CONSTRAINT, AND IT IS A DECLARED TYPE, NOT AN EXACT ONE. A call
+// on it fans to the overrides exactly as a call on an ISchema parameter does.
+// Several constraints are several types, as the language says: the members of each
+// are visible. A constraint that is itself a type parameter (`where T : U`), and the
+// special ones (`class`, `struct`, `new()`, `notnull`, `unmanaged`), name no type
+// and give none.
+//
+// WHERE: a parameter, a local, a field, and (lambda-parameters.dl) a lambda
+// parameter that takes a T from the delegate it is converted to.
+// ============================================================================
+
+// The module a constraint is written in is its owner's -- a type's or a method's.
+type_ref_module(prov, tr, mod) :-
+    type_ref_owner(prov, tr, tp, "TYPE_PARAMETER"),
+    type_param_owner(prov, tp, t, "TYPE"), type_module(prov, t, mod).
+type_ref_module(prov, tr, mod) :-
+    type_ref_owner(prov, tr, tp, "TYPE_PARAMETER"),
+    type_param_owner(prov, tp, m, "METHOD"), method_module(prov, m, mod).
+
+// type_param_bound(Prov, TypeParam, GroupKey): a type the parameter's constraint
+// names. The root reference only: `where T : IRepo<Order>` owns `Order` too.
+type_param_bound(prov, tp, gk) :-
+    type_ref_owner(prov, cr, tp, "TYPE_PARAMETER"),
+    type_ref_context(prov, cr, "TYPE_PARAMETER_CONSTRAINT"),
+    !type_ref_parent(prov, cr, _, _, _),
+    type_ref_resolves(prov, cr, gk).
+
+// A value declared T has the types T is bounded by.
+param_type(prov, p, gk) :-
+    param_type_ref(prov, p, tr), type_ref_type_param(prov, tr, tp), type_param_bound(prov, tp, gk).
+var_type(prov, v, gk) :-
+    var_type_ref(prov, v, tr), type_ref_type_param(prov, tr, tp), type_param_bound(prov, tp, gk).
+field_type(prov, f, gk) :-
+    field_type_ref(prov, f, tr), type_ref_type_param(prov, tr, tp), type_param_bound(prov, tp, gk).

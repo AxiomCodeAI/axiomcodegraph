@@ -856,8 +856,32 @@ function emitCallable(
     options,
     result
   );
-  const boundaries = emitBody(node, method, parameters, options, result);
-  emitLocalFunctions(node, options, result, boundaries);
+  const bodyOptions = withOwnTypeParameters(options, ownTypeParameters);
+  const boundaries = emitBody(node, method, parameters, bodyOptions, result);
+  emitLocalFunctions(node, bodyOptions, result, boundaries);
+}
+
+/**
+ * The options a callable's BODY is walked under: the enclosing scope plus the
+ * callable's own type parameters.
+ *
+ * The signature already saw them (emitSignatureTypeReferences), the body did
+ * not, so `ParseFn<T> p = ...` inside `M<T>()` recorded `T` as a reference to a
+ * type named T -- which resolves to nothing, or to the wrong type -- while the
+ * same `T` in the parameter list was the type variable it is.
+ */
+function withOwnTypeParameters(
+  options: CsMemberExtractionOptions,
+  ownTypeParameters: readonly CsTypeParameterRegistry[]
+): CsMemberExtractionOptions {
+  if (ownTypeParameters.length === 0) {
+    return options;
+  }
+  const scope = new Map(options.typeParametersInScope);
+  for (const parameter of ownTypeParameters) {
+    scope.set(parameter.name, parameter.getHash());
+  }
+  return { ...options, typeParametersInScope: scope };
 }
 
 /**
@@ -2039,8 +2063,9 @@ function emitLocalFunction(
   // because the enclosing method's walk stops at the function boundary and
   // nothing picked the body up on the other side. A tree rooted at a node that
   // emits nothing dies before its children are enqueued.
-  const boundaries = emitBody(node, method, parameters, options, result, enclosing);
-  emitLocalFunctions(node, options, result, boundaries);
+  const bodyOptions = withOwnTypeParameters(options, ownTypeParameters);
+  const boundaries = emitBody(node, method, parameters, bodyOptions, result, enclosing);
+  emitLocalFunctions(node, bodyOptions, result, boundaries);
 }
 
 /**
@@ -2452,6 +2477,45 @@ function parameterListItems(
     }
   }
   return out;
+}
+
+/**
+ * The parameter types of a delegate's signature, as references owned by the
+ * delegate TYPE with context DELEGATE_PARAMETER and the parameter's index as the
+ * root position.
+ *
+ * A delegate declares no cs_method row -- its Invoke is the compiler's -- so its
+ * signature had nowhere to go, and a lambda converted to it (`D<Foo> d = (a, b)
+ * => a.M()`) had no source for the types of its implicit parameters. The
+ * delegate's own type parameters are in `typeParametersInScope`, so `T a` is
+ * marked as the type variable it is.
+ */
+export function extractDelegateSignatureReferences(options: {
+  readonly declarationNode: Parser.SyntaxNode;
+  readonly csTypeLinkHash: string;
+  readonly serviceVersionLinkHash: string;
+  readonly typeParametersInScope: ReadonlyMap<string, string>;
+  readonly activeSymbols: ReadonlySet<string>;
+}): CsTypeReferenceRegistry[] {
+  const list = childOfType(options.declarationNode, 'parameter_list');
+  const rows: CsTypeReferenceRegistry[] = [];
+  readParameters(list, options.activeSymbols).forEach((facts, position) => {
+    if (facts.typeNode === undefined) {
+      return;
+    }
+    rows.push(
+      ...extractTypeReferences({
+        typeNode: facts.typeNode,
+        ownerLinkHash: options.csTypeLinkHash,
+        referenceOwnerKind: CsReferenceOwnerKind.TYPE,
+        context: CsTypeRefContext.DELEGATE_PARAMETER,
+        serviceVersionLinkHash: options.serviceVersionLinkHash,
+        rootPosition: position,
+        typeParametersInScope: options.typeParametersInScope,
+      })
+    );
+  });
+  return rows;
 }
 
 function readParameters(

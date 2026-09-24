@@ -1,0 +1,111 @@
+// ============================================================================
+// RESOLUTION · A LAMBDA PARAMETER TYPED BY THE DELEGATE IT IS CONVERTED TO  (#1283)
+//
+// `ParseFn<ISchema> parse = (schema, value) => schema.I.Size();` -- `schema` has
+// no written type. C# gives it one from the delegate the lambda is converted to:
+// the type of ParseFn's parameter 0, with ParseFn's T replaced by ISchema. An
+// implicitly typed lambda parameter is the ordinary way to write one, so before
+// this file every member access on one was unresolved, while the same body with
+// `(ISchema schema, int value)` written out resolved.
+//
+// THE DELEGATE COMES FROM WHERE THE LAMBDA IS WRITTEN, and only from a place whose
+// type is written down: a field's, a property's or an explicitly typed local's
+// initializer; `=`, `??=` and `+=` to such a field, property or local; a cast. The
+// branches of `?:`, `??` and parentheses carry it through, as they carry a stored
+// function in delegates.dl. A lambda passed as an ARGUMENT is not typed here: which
+// parameter it binds to depends on which overload the call picks, which depends on
+// the lambda -- the compiler's own two-phase inference, not a lookup.
+//
+// THE PARAMETER'S TYPE, by what the delegate is:
+//   - `Func<A, B, R>` and `Action<A, B>`: the type argument at the parameter's
+//     position (Func's last argument is the return). Only where the name is not
+//     a type declared in source, which would be a different Func.
+//   - a delegate declared in source: its signature (DELEGATE_PARAMETER references,
+//     parameter index = position). A parameter declared as one of the delegate's
+//     own type parameters takes the argument the reference supplies at that
+//     type parameter's position -- by position, as type_arg_for does, so a
+//     two-parameter delegate cannot have its arguments crossed.
+// An argument that is itself a type parameter (`ParseFn<T>` inside a method
+// `where T : ISchema`) is typed by its constraint (generics.dl).
+//
+// ONLY A PARAMETER WITH NO WRITTEN TYPE. An explicit one keeps its own, and the
+// two cannot disagree in a program that compiles.
+// ============================================================================
+
+// ── WHAT A LAMBDA IS CONVERTED TO ───────────────────────────────────────────
+// lambda_target_ref(Prov, Expr, TypeRef): Expr's value is converted to the type
+// the root reference TypeRef names.
+lambda_target_ref(prov, e, tr) :- field_initializer(prov, f, e), field_type_ref(prov, f, tr).
+lambda_target_ref(prov, e, tr) :- property_initializer(prov, p, e), lambda_property_type_ref(prov, p, tr).
+lambda_target_ref(prov, e, tr) :- var_value_initializer(prov, v, e), var_type_ref(prov, v, tr).
+lambda_target_ref(prov, v, tr) :-
+    expr_kind(prov, a, "ASSIGNMENT"), expr_operator(prov, a, "="),
+    expr_child(prov, a, "ASSIGNMENT_TARGET", _, t), lambda_assigned_type_ref(prov, t, tr),
+    expr_child(prov, a, "ASSIGNMENT_VALUE", _, v).
+lambda_target_ref(prov, v, tr) :-
+    expr_kind(prov, a, "COMPOUND_ASSIGNMENT"), expr_operator(prov, a, op), delegate_storing_op(op),
+    expr_child(prov, a, "ASSIGNMENT_TARGET", _, t), lambda_assigned_type_ref(prov, t, tr),
+    expr_child(prov, a, "ASSIGNMENT_VALUE", _, v).
+// `(Func<ISchema, int>)(s => ...)` -- the cast names the delegate itself.
+lambda_target_ref(prov, c, tr) :- expr_cast_ref(prov, e, tr), expr_child(prov, e, "CAST_OPERAND", _, c).
+// Through `?:`, `??`, parentheses and `!`.
+lambda_target_ref(prov, c, tr) :- lambda_target_ref(prov, p, tr), delegate_value_branch(prov, p, c).
+
+// A property's declared type, as a reference. property_type reads the NAME, which
+// drops the arguments `Func<ISchema, int>` is made of.
+lambda_property_type_ref(prov, p, tr) :-
+    type_ref_owner(prov, tr, p, "PROPERTY"), type_ref_context(prov, tr, "PROPERTY_TYPE"),
+    !type_ref_parent(prov, tr, _, _, _).
+
+// The target of an assignment: a field or property (delegates.dl names it the same
+// way for a stored function), or a local.
+lambda_assigned_type_ref(prov, t, tr) :- delegate_member_ref(prov, t, f), field_type_ref(prov, f, tr).
+lambda_assigned_type_ref(prov, t, tr) :- delegate_member_ref(prov, t, p), lambda_property_type_ref(prov, p, tr).
+lambda_assigned_type_ref(prov, t, tr) :- ref_denotes(prov, t, "LOCAL_VARIABLE", v), var_type_ref(prov, v, tr).
+
+// ── THE IMPLICIT PARAMETERS ─────────────────────────────────────────────────
+// lambda_param_slot(Prov, Param, TypeRef, Position): Param is the Position'th
+// parameter, with no written type, of a lambda converted to TypeRef.
+lambda_param_slot(prov, p, tr, pos) :-
+    lambda_target_ref(prov, e, tr), expr_anon_decl(prov, e, m),
+    param_decl(prov, m, pos, _, p), param_type_name(prov, p, "", _).
+
+// lambda_param_arg_ref(Prov, Param, TypeRef): the reference that types Param.
+//
+// Func and Action, not declared in source.
+lambda_param_arg_ref(prov, p, ar) :-
+    lambda_param_slot(prov, p, tr, pos),
+    type_ref_name(prov, tr, "Func"), !lambda_delegate_in_source(prov, tr),
+    type_ref_argc(prov, tr, n), to_number(pos) < to_number(n) - 1,
+    type_ref_arg(prov, tr, pos, ar).
+lambda_param_arg_ref(prov, p, ar) :-
+    lambda_param_slot(prov, p, tr, pos),
+    type_ref_name(prov, tr, "Action"), !lambda_delegate_in_source(prov, tr),
+    type_ref_arg(prov, tr, pos, ar).
+lambda_delegate_in_source(prov, tr) :- type_ref_resolves(prov, tr, gk), type_group(prov, _, gk).
+
+// A delegate declared in source: its signature, where the parameter is written as
+// a type...
+lambda_param_arg_ref(prov, p, dr) :-
+    lambda_param_slot(prov, p, tr, pos),
+    lambda_delegate_signature(prov, tr, pos, dr),
+    !type_ref_type_param(prov, dr, _).
+// ...and, where it is written as one of the delegate's own type parameters, the
+// argument the target reference supplies at that type parameter's position.
+lambda_param_arg_ref(prov, p, ar) :-
+    lambda_param_slot(prov, p, tr, pos),
+    lambda_delegate_signature(prov, tr, pos, dr),
+    type_ref_type_param(prov, dr, tp),
+    type_ref_resolves(prov, tr, gk), type_group(prov, d, gk),
+    type_param_decl(prov, d, "TYPE", k, _, tp),
+    type_ref_arg(prov, tr, k, ar).
+
+lambda_delegate_signature(prov, tr, pos, dr) :-
+    type_ref_resolves(prov, tr, gk), type_group(prov, d, gk),
+    type_ref_owner(prov, dr, d, "TYPE"), type_ref_context(prov, dr, "DELEGATE_PARAMETER"),
+    type_ref_root_position(prov, dr, pos).
+
+// ── THE TYPE ────────────────────────────────────────────────────────────────
+param_type(prov, p, gk) :- lambda_param_arg_ref(prov, p, ar), type_ref_resolves(prov, ar, gk).
+param_type(prov, p, gk) :-
+    lambda_param_arg_ref(prov, p, ar), type_ref_type_param(prov, ar, tp), type_param_bound(prov, tp, gk).

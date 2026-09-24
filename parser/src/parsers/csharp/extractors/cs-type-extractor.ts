@@ -43,7 +43,10 @@ import {
   addDeclarationOwner,
   countAttributes,
 } from '@/parsers/csharp/extractors/cs-attribute-extractor';
-import { extractMembers } from '@/parsers/csharp/extractors/cs-member-extractor';
+import {
+  extractDelegateSignatureReferences,
+  extractMembers,
+} from '@/parsers/csharp/extractors/cs-member-extractor';
 import { extractTypeParameters } from
   '@/parsers/csharp/extractors/cs-type-parameter-extractor';
 import {
@@ -271,6 +274,20 @@ export function extractTypes(options: CsTypeExtractionOptions): CsTypeExtraction
       });
       heritages.push(...heritage.heritages);
       typeReferences.push(...heritage.typeReferences);
+
+      // A delegate's SIGNATURE, which is where a lambda converted to it gets
+      // the types of its implicit parameters.
+      if (child.type === 'delegate_declaration') {
+        typeReferences.push(
+          ...extractDelegateSignatureReferences({
+            declarationNode: header,
+            csTypeLinkHash: row.getHash(),
+            serviceVersionLinkHash: options.serviceVersionLinkHash,
+            typeParametersInScope: typeParameterScope,
+            activeSymbols: options.activeSymbols,
+          })
+        );
+      }
 
       // MEMBERS, keyed off this declaration site. A property emits its own row
       // AND one cs_method per accessor, which is 68% of that relation — the

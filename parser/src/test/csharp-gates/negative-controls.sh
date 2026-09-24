@@ -806,7 +806,7 @@ run_break "walk a lambda body with the enclosing method as owner" \
 run_break "stop walking local function bodies" \
   src/parsers/csharp/extractors/cs-member-extractor.ts \
   "blocks and locals" \
-  "s = s.replace('  const boundaries = emitBody(node, method, parameters, options, result, enclosing);\n  emitLocalFunctions(node, options, result, boundaries);', '  emitLocalFunctions(node, options, result, new Map());')"
+  "s = s.replace('  const boundaries = emitBody(node, method, parameters, bodyOptions, result, enclosing);\n  emitLocalFunctions(node, bodyOptions, result, boundaries);', '  emitLocalFunctions(node, bodyOptions, result, new Map());')"
 run_break "write var as a type name" \
   src/parsers/csharp/extractors/cs-block-extractor.ts \
   "blocks and locals" \
@@ -1554,7 +1554,7 @@ run_break "let a delegate lookup miss fall through to DELEGATE_INVOKE" \
 run_break "hide the enclosing scope's local functions from a local function body" \
   src/parsers/csharp/extractors/cs-member-extractor.ts \
   "adjudicated shapes" \
-  "s = s.replace('  const boundaries = emitBody(node, method, parameters, options, result, enclosing);', '  const boundaries = emitBody(node, method, parameters, options, result, { localNames: new Set(), localFunctionNames: new Set() });')"
+  "s = s.replace('  const boundaries = emitBody(node, method, parameters, bodyOptions, result, enclosing);', '  const boundaries = emitBody(node, method, parameters, bodyOptions, result, { localNames: new Set(), localFunctionNames: new Set() });')"
 run_break "ignore a single-parameter lambda's parameter" \
   src/parsers/csharp/extractors/cs-member-extractor.ts \
   "adjudicated shapes" \

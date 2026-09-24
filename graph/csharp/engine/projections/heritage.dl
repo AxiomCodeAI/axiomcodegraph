@@ -95,6 +95,14 @@ type_ref_parent("lib", tr, parent, pos, d) :-
     lib_cs_type_reference(_, _, _, _, parent, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr),
     parent != "".
 
+// type_ref_root_position(Prov, RefHash, Position) -- where a ROOT reference sits
+// among its owner's references of one context: a delegate's parameter index for
+// DELEGATE_PARAMETER.
+type_ref_root_position("client", tr, pos) :-
+    cs_type_reference(_, _, _, _, "", pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr).
+type_ref_root_position("lib", tr, pos) :-
+    lib_cs_type_reference(_, _, _, _, "", pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr).
+
 // type_ref_arg(Prov, ParentRefHash, Position, ArgRefHash) -- the same edge downward.
 type_ref_arg(prov, parent, pos, tr) :- type_ref_parent(prov, tr, parent, pos, _).
 
