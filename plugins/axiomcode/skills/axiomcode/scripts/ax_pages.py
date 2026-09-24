@@ -28,6 +28,11 @@ def paginate(text, page, budget, budget_flag='--budget'):
     lines = text.rstrip('\n').split('\n')
     if page == 'all' or len(text) <= budget * 4:
         return text
+    # AN EXPLANATION IS NOT SPLIT. Its flow is a reading order, sized when it is built (bounded steps, a code budget);
+    # split, the second half is what nobody reads — no measured run ever asked for page 2 — and it holds the later
+    # steps of the mechanism. Kept whole up to half a page over, never beyond.
+    if 'how it runs —' in text and len(text) <= budget * 6:
+        return text
     head = []
     # a note printed BEFORE the answer says how to read all of it (a name that merged two declarations, a name that is
     # a field and a method): it stays on top of every page instead of sinking into the footer with the qualifiers

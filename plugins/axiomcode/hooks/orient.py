@@ -149,5 +149,11 @@ else:
         print("  " + l[:150])
     # the first call, named: an agent that only has the plugin otherwise spends two turns loading the skill and then
     # the tool schemas before it asks anything (#1202)
-    print('  a starting point, not a conclusion: next, `axiomcode impact <name> --in <path>` (the axiomcode_impact tool) '
-          'for what a change reaches; call it directly, no skill needs loading first.')
+    if 'how it runs —' in out:
+        # a how-question: the flow is the answer's spine, and the call that returns it with each step's code is the
+        # one to make — named here so no turn goes to loading the skill or the tool schemas first
+        print('  next: `axiomcode context "<the question>" --source --from <where it starts>` returns the call flow with '
+              "each step's code; call it directly, no skill needs loading first.")
+    else:
+        print('  a starting point, not a conclusion: next, `axiomcode impact <name> --in <path>` (the axiomcode_impact tool) '
+              'for what a change reaches; call it directly, no skill needs loading first.')
