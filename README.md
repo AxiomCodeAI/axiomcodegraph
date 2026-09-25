@@ -107,7 +107,7 @@ complete task execution, and up to 50% fewer tool calls to explore a new codebas
 
 The graph is grounded in formal methods, using deterministic, language-aware rules. Source locations and confidence
 tiers make its results inspectable, while unresolved calls remain explicit rather than being presented as
-established relationships.
+established relationships that could lead to false positive.
 
 ## Get Started
 
