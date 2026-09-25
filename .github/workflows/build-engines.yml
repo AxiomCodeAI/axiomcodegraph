@@ -185,10 +185,12 @@ jobs:
         with:
           path: engines
           key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+      # publish-npm ships these binaries from the release's CI run, whenever the draft is published
       - uses: actions/upload-artifact@v4
         with:
           name: engines-${{ matrix.target.platform }}
           path: engines
+          retention-days: 90
           if-no-files-found: error
 
   build-macos:
@@ -248,4 +250,4 @@ jobs:
           path: engines
           key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
       - uses: actions/upload-artifact@v4
-        with: { name: 'engines-${{ matrix.target.platform }}', path: engines, if-no-files-found: error }
+        with: { name: 'engines-${{ matrix.target.platform }}', path: engines, retention-days: 90, if-no-files-found: error }

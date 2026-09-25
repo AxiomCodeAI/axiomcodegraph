@@ -2,23 +2,26 @@
 # Every version that lands on main gets a tag and a draft release, and dev is
 # brought up to date with main (the sync-dev job at the end).
 #
-# The version gate (ci.yml) makes a pull request that reaches users bump the
-# version. When that bump merges, this workflow tags the merge commit v<version>
-# and opens a DRAFT GitHub release with notes generated from the pull requests
-# since the previous tag. Nothing is published here.
+# A push to main whose version has no tag yet is a release. CI on that push builds
+# the engines on all five platforms and runs the five-platform e2e; only when that
+# run is GREEN does this workflow tag the commit it tested v<version> and open a
+# DRAFT GitHub release with notes generated
+# from the pull requests since the previous tag. Nothing is published here.
 #
 # Publishing is a person's decision: review the draft, then press Publish. That
-# `release: published` event is what runs publish-npm.yml, which builds the
-# engines, checks that the tag and every manifest agree, publishes to npm and
-# attaches the tarballs to the release.
+# `release: published` event runs publish-npm.yml, which ships the binaries and
+# the tarball of that same green CI run: nothing is compiled twice (#1350).
 #
-# A push that does not move the version finds its tag already present and does
-# nothing, so this runs on every push to main without a path filter.
+# A version that is already tagged finds its tag present and does nothing.
 # ─────────────────────────────────────────────────────────────────────────────
 name: release
 
 on:
   push:
+    branches: [main]      # sync-dev
+  workflow_run:           # tag: after CI on main finished
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -31,10 +34,18 @@ permissions:
 
 jobs:
   tag:
+    # the CI run of a PUSH to main, and only a green one: a red release build drafts nothing
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.SHA }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
@@ -67,7 +78,7 @@ jobs:
           # a person to publish the draft.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "$tag" "$GITHUB_SHA"
+          git tag -a "$tag" -m "$tag" "$SHA"
           git push origin "refs/tags/$tag"
           gh release create "$tag" --draft --verify-tag --title "$tag" \
             --generate-notes $start $prerelease
@@ -81,6 +92,7 @@ jobs:
   # that went straight to main and touches lines dev has since changed does not,
   # and then nothing is pushed: an issue says how to resolve it by hand.
   sync-dev:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
