@@ -1,7 +1,7 @@
 {
   "name": "@axiomcode/parser",
   "version": "0.1.0",
-  "description": "AxiomCode Parser — extracts Java/Python/TypeScript/Gradle/XML/YAML/Properties facts from a codebase.",
+  "description": "AxiomCode Parser — compiles source code and build configuration into a relational intermediate representation.",
   "main": "dist/extract.js",
   "types": "dist/extract.d.ts",
   "scripts": {
