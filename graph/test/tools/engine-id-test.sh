@@ -12,7 +12,7 @@ set -u
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
 RUN="graph/pipeline/run-souffle.sh"
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)"; SHADOW=""; trap 'rm -rf "$W" ${SHADOW:+"$SHADOW"}' EXIT
 
 # a copy of the tree, at a different path, with souffle hidden from PATH
 mkdir -p "$W/copy"
@@ -28,11 +28,21 @@ cp -R "$ROOT/graph" "$W/copy/graph"; cp "$ROOT/package.json" "$W/copy/package.js
 # leaves every other tool where the system expects to find it.
 SOUFFLE_BIN="$(command -v souffle 2>/dev/null || true)"
 if [ -n "$SOUFFLE_BIN" ]; then
-  SOUFFLE_DIR="$(cd "$(dirname "$SOUFFLE_BIN")" && pwd)"
+  # Compared PHYSICALLY (pwd -P): on a merged-/usr system /bin is a symlink to /usr/bin,
+  # so a logical compare keeps /bin and souffle stays reachable through it. And when
+  # souffle shares its directory with the system tools (/usr/bin on Linux), dropping that
+  # directory would take bash and sed with it — so it is REPLACED by a shadow directory
+  # holding every entry except souffle's own.
+  SOUFFLE_DIR="$(cd "$(dirname "$SOUFFLE_BIN")" && pwd -P)"
+  SHADOW="$(mktemp -d)"
+  for e in "$SOUFFLE_DIR"/*; do
+    case "$(basename "$e")" in souffle*) continue;; esac
+    ln -s "$e" "$SHADOW/$(basename "$e")" 2>/dev/null || true
+  done
   SANDBOX_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
     [ -n "$d" ] || continue
-    rd="$(cd "$d" 2>/dev/null && pwd)" || continue
-    [ "$rd" = "$SOUFFLE_DIR" ] || printf '%s:' "$d"
+    rd="$(cd "$d" 2>/dev/null && pwd -P)" || continue
+    if [ "$rd" = "$SOUFFLE_DIR" ]; then printf '%s:' "$SHADOW"; else printf '%s:' "$d"; fi
   done)"
   SANDBOX_PATH="${SANDBOX_PATH%:}"
 else

@@ -188,7 +188,7 @@ holder_value(v, e) :- var_initializer("client", _, e, v), e != "".
 holder_value(v, e) :- var_reassigned_value(v, e).
 holder_value(p, a) :- expr_child("client", ce, "ARGUMENT", pos, a),
     expr_resolves_to_method(ce, callee),                 # the overload the call SELECTS, not every candidate:
-    param_decl("client", _, pos, _, callee, p).          # an arrow passed to on("close", …) is not every on's listener
+    param_decl("client", _, pos, _, callee, p).          # an arrow passed to on("close", …) is not a listener of every on
 
 // ── value_branch(Root, Expr): Expr is a value Root can evaluate to ──
 value_branch(e, e) :- holder_value(_, e).
