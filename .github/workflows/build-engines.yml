@@ -10,9 +10,9 @@
 # C++ runtime. Same flags as the local compile (no OpenMP/zlib/sqlite), portable targets.
 #
 # Artifacts: engines-<platform>/  holding <lang>/axiomcode-engine-<lang>[.exe] + <lang>/ENGINE_ID
-# Platforms are named the npm way (process.platform-process.arch): darwin-arm64, linux-x64,
-# linux-arm64, win32-x64, each on a standard GitHub-hosted runner (free for a public
-# repository; darwin-arm64 is the Apple Silicon macos-15 image).
+# Platforms are named the npm way (process.platform-process.arch): darwin-arm64, darwin-x64,
+# linux-x64, linux-arm64, win32-x64, each on a standard GitHub-hosted runner (free for a
+# public repository; macOS builds on macos-15 for Apple Silicon and macos-15-intel for Intel).
 # ─────────────────────────────────────────────────────────────────────────────
 name: build-engines
 
@@ -157,7 +157,14 @@ jobs:
 
   build-macos:
     needs: generate
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          # each on its own architecture's runner, so the smoke step runs the binary natively
+          - { os: macos-15,       arch: arm64,  platform: darwin-arm64 }
+          - { os: macos-15-intel, arch: x86_64, platform: darwin-x64 }
+    runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/download-artifact@v4
         with: { name: generated, path: gen }
@@ -167,17 +174,20 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: engines
-          key: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
-          restore-keys: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-
-      - name: Compile every language (macOS arm64)
+          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+          restore-keys: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-
+      - name: Compile every language (macOS ${{ matrix.target.arch }})
+        env:
+          ARCH: ${{ matrix.target.arch }}
         run: |
           set -e
           for lang in $LANGUAGES; do
             if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
             mkdir -p "engines/$lang"
-            c++ -std=c++17 -O3 -w -arch arm64 -mmacosx-version-min=12.0 -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            c++ -std=c++17 -O3 -w -arch "$ARCH" -mmacosx-version-min=12.0 -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
+          file engines/java/axiomcode-engine-java
           otool -L engines/java/axiomcode-engine-java
       - name: Smoke — every binary starts on empty inputs
         run: |
@@ -192,6 +202,6 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: engines
-          key: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
       - uses: actions/upload-artifact@v4
-        with: { name: engines-darwin-arm64, path: engines, if-no-files-found: error }
+        with: { name: 'engines-${{ matrix.target.platform }}', path: engines, if-no-files-found: error }
