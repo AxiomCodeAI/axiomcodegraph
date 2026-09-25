@@ -1,0 +1,1 @@
+ENTRY=entry HELPER=helper LEAF=leaf TEST=ServiceTest LEAF_FILE=src/main/java/app/Service.java
