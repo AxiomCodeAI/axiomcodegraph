@@ -26,7 +26,7 @@ the previous graph. Three pieces:
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 10) is how long a query verb waits."""
-import hashlib, json, os, subprocess, sys, time
+import errno, hashlib, json, os, subprocess, sys, time
 
 H = os.path.dirname(os.path.abspath(__file__))
 
@@ -166,7 +166,10 @@ def _flock(fd, block):
         import msvcrt
         while True:
             try: msvcrt.locking(fd, msvcrt.LK_NBLCK, 1); return True
-            except OSError:
+            except OSError as e:
+                # Git Bash's fd 9 is not a descriptor in a native python.exe, which inherits only 0-2 (#1331). There is
+                # no lock to take; waiting for one looped forever, so the build runs unlocked, as a single build did.
+                if e.errno == errno.EBADF: return True
                 if not block: return False
                 time.sleep(0.5)
     except OSError: return False
