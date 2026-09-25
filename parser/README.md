@@ -302,6 +302,15 @@ the detector cannot see, and it is recorded as an open exposure rather than a cl
 no resolved target. Overload resolution, extension method reduction and `dynamic` are decided by the
 compiler with the full reference set, and are left to the engine rather than approximated.
 
+**Nested type names have more than one spelling.** Every type, method, field and variable row names
+a nested type by its full enclosing chain: `B` declared inside `pkg.A` is `pkg.A.B`, its methods are
+`pkg.A.B.m`, and a field of that type has `potentialQualifiedName` `pkg.A.B`, in Java and C# alike.
+Three other spellings of the same type still reach a query. A library IR extracted before nested
+names carried the chain holds the flattened `pkg.B`. A type reference row keeps the name as it was
+written, `B` or `A.B`, and is never qualified. A `META-INF/services` file names a nested provider by
+its binary name, `pkg.A$B`, as `ServiceLoader` requires. A query that joins on a nested type's name
+from any of those sources has to allow for its spelling there rather than assume `pkg.A.B`.
+
 **Grammar level hazards.** tree-sitter-python applies the PEP 695 soft `type` keyword greedily, so
 `type(obj).attr = value` parses cleanly as a type alias and the call node disappears. That statement
 is recovered, and the part that cannot be is recorded in the parse gap relation so its absence is
