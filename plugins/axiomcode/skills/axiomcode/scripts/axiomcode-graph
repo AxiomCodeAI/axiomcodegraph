@@ -187,7 +187,7 @@ def build(repo, page, library=None):
     cands = [os.path.join(HERE, 'axiomcode-build'), os.path.join(os.environ.get('AXIOMCODE_ENGINE', ''), 'skills', 'axiomcode', 'scripts', 'axiomcode-build')]
     b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
     if not b: sys.exit("axiomcode-build not found beside this script (set AXIOMCODE_ENGINE to the engine checkout)")
-    r = subprocess.run([b, repo])
+    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', b, repo])   # a bash script: Windows cannot exec it itself
     if r.returncode: sys.exit(r.returncode)
     export(repo, page)
 

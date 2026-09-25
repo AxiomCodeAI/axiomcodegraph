@@ -385,7 +385,7 @@ def ensure_graph(repo, db):
     build = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-build')
     if not os.path.exists(build): return False
     print(f"no graph for {repo} yet — building one (this is the only slow call; later ones read it) …", file=sys.stderr)
-    r = subprocess.run(['bash', build, repo])
+    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', build, repo])
     return r.returncode == 0 and os.path.exists(db)
 
 

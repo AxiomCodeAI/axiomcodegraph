@@ -47,6 +47,22 @@
 # .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
 H="$(cd "$(dirname "$0")" && pwd)"
 
+# PYTHON UNDER ANOTHER NAME (#1331). Every verb runs `python3`, which a python.org install on Windows does not
+# provide, and which on a desktop Windows is the Store placeholder. Started from node (the `axiomcode` command, the
+# MCP server, the hooks) find-python.js has already put pyshim/python3 first on PATH and set AXIOMCODE_PYTHON_EXE.
+# Run straight from a shell, as the skill says to when there are no MCP tools, this makes the same choice: the
+# first of AXIOMCODE_PYTHON, python and py -3 that runs. Off Windows a python3 on PATH is taken without a probe.
+if [ -z "${AXIOMCODE_PYTHON_EXE:-}" ] &&
+   case "${OSTYPE:-}" in msys*|cygwin*) ! python3 -c '' >/dev/null 2>&1;; *) ! command -v python3 >/dev/null 2>&1;; esac; then
+  for p in "${AXIOMCODE_PYTHON:-}" python py; do
+    [ -n "$p" ] || continue; a=(); [ "$p" = py ] && a=(-3)
+    e="$("$p" ${a[@]+"${a[@]}"} -c 'import sys; print(sys.executable)' 2>/dev/null | tr -d '\r')" || e=""
+    if [ -n "$e" ]; then export AXIOMCODE_PYTHON_EXE="${e//\\//}" PATH="$H/pyshim:$PATH"; break; fi
+  done
+fi
+# and in UTF-8 mode, as find-python.js sets it: otherwise a piped answer is written in cp1252 and the first → raises
+case "${OSTYPE:-}" in msys*|cygwin*) : "${PYTHONUTF8:=1}"; export PYTHONUTF8;; esac
+
 # A VERB ANSWERS; IT DOES NOT HAND BACK AN INSTRUCTION. Reached through this dispatcher — which is
 # what `axiomcode` on $PATH and the MCP server both go through — a query on a repository with no
 # graph builds one and then answers, instead of exiting with "run `axiomcode index` first". That

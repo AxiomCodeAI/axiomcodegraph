@@ -1,0 +1,5 @@
+#!/bin/sh
+# python3 for a machine whose Python has another name: python.exe or py.exe from python.org on Windows (#1331).
+# find-python.js, or the fallback at the head of scripts/axiomcode, puts this directory first on PATH only after
+# setting AXIOMCODE_PYTHON_EXE to an interpreter that ran.
+exec "${AXIOMCODE_PYTHON_EXE:?pyshim/python3 is on PATH but AXIOMCODE_PYTHON_EXE is not set}" "$@"
