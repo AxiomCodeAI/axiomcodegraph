@@ -139,7 +139,7 @@ const PREFIX = (() => { if (dirs.length < 2) return ''; const parts = dirs.map(d
 
 // ── what is shown: type toggles · only-flags · edge toggles · focus depth · search filter ──────────────────────
 const only = { u: false, e: false, t: false }, edges = { known: true, inf: true, lib: true, ext: true, tree: true };
-let hops = 0, filter = null /* Set of ids from search or focus depth */, sel = null, hover = null, focus = null, layoutSet = null;
+let K0 = 1 /* the zoom fitAll chose */, hops = 0, filter = null /* Set of ids from search or focus depth */, sel = null, hover = null, focus = null, layoutSet = null;
 const isEntry = n => n.e && !(n.e.length === 1 && n.e[0] === 'test');
 const passes = n => show[KIND(n)] && (show.test || !n.t) && (!only.u || n.u) && (!only.e || isEntry(n)) && (!only.t || n.t) && (!filter || filter.has(n.id));
 let VIS = DATA.nodes, VISSET = null;
@@ -169,7 +169,8 @@ function fitVisible() { const xs = VIS.map(n => n.x), ys = VIS.map(n => n.y); if
 function centre(n, k) { view.k = k || Math.max(view.k, 3); view.x = wrap.clientWidth / 2 - n.x * view.k; view.y = wrap.clientHeight / 2 - n.y * view.k; mark(); }
 function pick(px, py) { const x = (px - view.x) / view.k, y = (py - view.y) / view.k, gx = (x / CELL) | 0, gy = (y / CELL) | 0; let best = null, bd = 1e9; const tol = 7 / view.k; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const n of (grid.get((gx + i) + ',' + (gy + j)) || [])) { const d = Math.hypot(n.x - x, n.y - y) - rad(n); if (d < tol && d < bd) { bd = d; best = n; } } return best; }
 const neighbours = n => { const s = new Set([n.id]); for (const e of (OUT.get(n.id) || [])) s.add(e.t); for (const e of (IN.get(n.id) || [])) s.add(e.s); for (const e of (LOUT.get(n.id) || [])) s.add(e.t); for (const e of (LIN.get(n.id) || [])) s.add(e.s); for (const t of (XOUT.get(n.id) || [])) s.add(t); for (const t of (XIN.get(n.id) || [])) s.add(t); if (n.p) s.add(n.p); for (const c of (KIDS.get(n.id) || [])) s.add(c.id); return s; };
-function chip(n, k, colour, big) { const t = short(n); ctx.font = `${big ? '600 ' : ''}${(big ? 11.5 : 10.5) / k}px ui-monospace, Menlo, monospace`; const w = ctx.measureText(t).width + 12 / k, h = 16 / k, x = n.x - w / 2, y = n.y - rad(n) - 14 / k - h;
+function chip(n, k, colour, big, taken, rim) { const t = short(n); ctx.font = `${big ? '600 ' : ''}${(big ? 11.5 : 10.5) / k}px ui-monospace, Menlo, monospace`; const w = ctx.measureText(t).width + 12 / k, h = 16 / k, x = n.x - w / 2, y = n.y - rad(n) - 14 / k - h;
+  const g = 3 / k; const hit = r => x < r[2] + g && r[0] < x + w + g && y < r[3] + g && r[1] < y + h + g; if (!big && (taken.some(hit) || (rim && rim.some(hit)))) return; taken.push([x, y, x + w, y + h]);   // a label that would cover another is not drawn: the hover and the selection always are, and only ambient chips give way to the rim
   ctx.strokeStyle = colour; ctx.lineWidth = 1 / k; ctx.beginPath(); ctx.moveTo(n.x, n.y - rad(n)); ctx.lineTo(n.x, y + h); ctx.stroke();
   ctx.fillStyle = 'rgba(11,13,20,.92)'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4 / k); ctx.fill(); ctx.stroke();
   ctx.fillStyle = colour; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, n.x, y + h / 2); }
@@ -200,6 +201,7 @@ function draw() { const k = view.k; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.
     else { ctx.fillStyle = colour; ctx.fill(); } }
   ctx.globalAlpha = 1;
   // directory names around the rim of the full disc
+  const rim = [];
   if (!filter) { const R = (libs.length ? R4 : R3) + 90, MODS = new Set(dirs.map(d => MOD(d.l))), placed = [];
     const name = d => { const s = d.vsegs, m = MOD(d.l), rest = m ? s.slice(1) : s; return [MODS.size > 1 && m ? m + ' · ' : '', (rest.slice(-2).join('/') || m || d.l) + (show.test && /\/src\/test/.test('/' + d.l) ? ' (test)' : '')]; };
     const cand = dirs.filter(d => on(d.id) && (d.span * R * k >= 12 || d === hover || d === sel)).sort((a, b) => (b === sel || b === hover) - (a === sel || a === hover) || W(b) - W(a));
@@ -207,16 +209,16 @@ function draw() { const k = view.k; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.
     for (const d of cand) { const a = Math.atan2(d.dy, d.dx); const right = Math.cos(a) >= 0, y = R * Math.sin(a) * k; if (placed.some(p => p.right === right && Math.abs(p.y - y) < 14)) continue;
       let [pre, main] = name(d); const x = R * Math.cos(a) + (right ? 4 : -4) / k, dim = F && !F.has(d.id), sx = view.x + x * k, CW = wrap.clientWidth, fits = t => right ? sx + ctx.measureText(t).width * k < CW - 6 : sx - ctx.measureText(t).width * k > 6;
       if (!fits(pre + main)) { if (fits(main)) pre = ''; else continue; } placed.push({ right, y }); const wp = ctx.measureText(pre).width, wm = ctx.measureText(main).width; ctx.textAlign = 'left';
-      const x0 = right ? x : x - wp - wm; ctx.fillStyle = dim ? 'rgba(129,140,248,.18)' : 'rgba(129,140,248,.45)'; ctx.fillText(pre, x0, R * Math.sin(a)); ctx.fillStyle = dim ? 'rgba(129,140,248,.3)' : 'rgba(165,180,252,.9)'; ctx.fillText(main, x0 + wp, R * Math.sin(a)); } }
+      const x0 = right ? x : x - wp - wm; ctx.fillStyle = dim ? 'rgba(129,140,248,.18)' : 'rgba(129,140,248,.45)'; ctx.fillText(pre, x0, R * Math.sin(a)); ctx.fillStyle = dim ? 'rgba(129,140,248,.3)' : 'rgba(165,180,252,.9)'; ctx.fillText(main, x0 + wp, R * Math.sin(a)); rim.push([x0, R * Math.sin(a) - 7 / k, x0 + wp + wm, R * Math.sin(a) + 7 / k]); } }
   // chips: only what matters — the selection and its neighbours, matches, hover, and the big things when zoomed in
   const chips = []; const TOPLIB = new Set(libs.filter(b => on(b.id)).sort((a, b) => b.sites - a.sites).slice(0, 4));
   if (hover && on(hover.id)) chips.push([hover, '#e5e7eb', true]);
   if (sel && on(sel.id) && sel !== hover) chips.push([sel, '#f59e0b', true]);
   if (F && (mode === 'select' || mode === 'chain' || (mode === 'impact' && F.size <= 60))) for (const id of F) { if (chips.length > 70) break; const n = N.get(id); if (n !== sel && n !== hover && on(id)) chips.push([n, mode === 'impact' ? '#fb7185' : mode === 'chain' ? '#f59e0b' : '#22d3ee', false]); }
   if (search && !F) for (const id of search.matches) { if (chips.length > 70) break; const n = N.get(id); if (on(id) && n !== hover) chips.push([n, '#22d3ee', false]); }
-  if (!F && !search) for (const n of VIS) { if (chips.length > 90) break; if ((n.k === 'dir' && k > 1.2) || (n.k === 'file' && k > 2.2) || (n.k === 'type' && k > 3.2) || (n.k === 'method' && k > 7) || (n.k === 'lib' && (k > 1.6 || TOPLIB.has(n)))) chips.push([n, n.k === 'lib' ? LIBC : colOf(n), false]); }
-  if (few && !F && !search) for (const n of VIS) { if (chips.length > 120) break; if (!chips.some(c => c[0] === n)) chips.push([n, colOf(n), false]); }
-  for (const [n, c, big] of chips) chip(n, k, c, big);
+  const z = k / K0;   // zoom relative to the fitted view: absolute thresholds labelled every node of a small repo on open
+  if (!F && !search) for (const n of VIS) { if (chips.length > 90) break; if ((n.k === 'dir' && z > 1.2) || (n.k === 'file' && z > 2.2) || (n.k === 'type' && z > 3.2) || (n.k === 'method' && z > 7) || (n.k === 'lib' && (z > 1.6 || TOPLIB.has(n)))) chips.push([n, n.k === 'lib' ? LIBC : colOf(n), false, true]); }
+  const taken = []; for (const [n, c, big, ambient] of chips) chip(n, k, c, big, taken, ambient ? rim : null);
   status(); }
 function status() { const S = document.getElementById('status'); if (!focus || focus.mode === 'hover' || focus.mode === 'select') { S.textContent = ''; return; } const n = N.get(focus.id); S.textContent = focus.mode === 'impact' ? `impact of ${n.l}: ${focus.set.size - 1} methods in ${focus.files} files can reach it through resolved calls` + (n.u ? ` · ${n.u} unresolved sites in its body make that a lower bound` : '') : `chain from ${n.l}: ${focus.path.length} hops, the heaviest resolved callee at each`; }
 function counts() { const c = {}; for (const n of VIS) { c[KIND(n)] = (c[KIND(n)] || 0) + 1; if (n.t) c.test = (c.test || 0) + 1; } document.getElementById('counts').textContent = `${VIS.length} of ${DATA.nodes.length} nodes shown` + (filter ? ' · filtered' : ''); document.querySelectorAll('#types .tog').forEach(t => t.querySelector('.n').textContent = c[t.dataset.k] || 0); }
@@ -310,7 +312,7 @@ const ED = document.getElementById('edges'); ED.innerHTML = `<div class="tog edg
 ED.querySelectorAll('.tog').forEach(t => t.onclick = () => { edges[t.dataset.e] = !edges[t.dataset.e]; t.classList.toggle('off', !edges[t.dataset.e]); mark(); });
 const H = document.getElementById('hops'); H.innerHTML = ['all', 1, 2, 3].map(h => `<span data-h="${h === 'all' ? 0 : h}" class="${h === 'all' ? 'on' : ''}">${h === 'all' ? 'all' : h + ' hop' + (h > 1 ? 's' : '')}</span>`).join('');
 H.querySelectorAll('span').forEach(s => s.onclick = () => { hops = +s.dataset.h; H.querySelectorAll('span').forEach(x => x.classList.toggle('on', x === s)); applyFilter(); if (!filter) fitAll(); panel(); });
-function fitAll() { for (const n of DATA.nodes) { n.x = n.dx; n.y = n.dy; } rebuildGrid(); const w = wrap.clientWidth, h = wrap.clientHeight, ext = (libs.length ? R4 : R3) + 90; view.k = Math.max(.02, Math.min((w / 2 - Math.min(150, w * .12)) / ext, (h / 2 - 24) / ext)); /* room for the rim labels, drawn at a fixed screen size */ view.x = w / 2; view.y = h / 2; mark(); }
+function fitAll() { for (const n of DATA.nodes) { n.x = n.dx; n.y = n.dy; } rebuildGrid(); const w = wrap.clientWidth, h = wrap.clientHeight, ext = (libs.length ? R4 : R3) + 90; view.k = Math.max(.02, Math.min((w / 2 - Math.min(150, w * .12)) / ext, (h / 2 - 24) / ext)); /* room for the rim labels, drawn at a fixed screen size */ view.x = w / 2; view.y = h / 2; K0 = view.k; mark(); }
 
 // ── search (right): type to see matches; Enter or a click shows ONLY the matches (and their hops) ─────────────
 const q = document.getElementById('q'), hits = document.getElementById('hits'), sbox = document.getElementById('search'); let cur = [];
