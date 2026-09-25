@@ -306,14 +306,11 @@ jobs:
   # Every language's engine, every platform: the reusable build that publish-npm
   # ships from, run here WITHOUT publishing. A rule that solves on Ubuntu but does
   # not compile with MSVC, or that no longer generates for a language, fails the
-  # gate here rather than at release time. macOS builds on a self-hosted runner and
-  # is left to the publish workflow.
+  # gate here rather than at release time.
   engines:
     name: engines build on every platform
     needs: [build]
     uses: ./.github/workflows/build-engines.yml
-    with:
-      macos: false
 
   # A single job the branch ruleset can require. Without it, every new matrix
   # entry has to be added to the protection rules by hand, and a matrix job that

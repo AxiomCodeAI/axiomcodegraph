@@ -31,10 +31,6 @@ on:
         description: pack and print, publish nothing
         type: boolean
         default: true
-      macos:
-        description: include darwin-arm64 (needs the self-hosted macOS runner)
-        type: boolean
-        default: true
 
 concurrency:
   group: publish-npm-${{ github.ref }}
@@ -74,8 +70,6 @@ jobs:
   engines:
     needs: check
     uses: ./.github/workflows/build-engines.yml
-    with:
-      macos: ${{ github.event_name == 'release' || inputs.macos }}
 
   publish:
     needs: [check, engines]

@@ -29,7 +29,7 @@ npm will not republish one. Before the first tag, changes simply join the unrele
 ## One-time setup
 
 - `CLI_BINARY_PUBLISH` repository secret: an npm token with publish rights on `@axiomcode`.
-- A self-hosted macOS arm64 runner (labels `self-hosted, macOS, ARM64`) for `darwin-arm64`.
-  A real publish refuses to run without every platform `package.json` pins.
+- The repository must be public: every platform, macOS included, builds on GitHub's standard
+  hosted runners, which are free only for public repositories.
 - `bash .github/scripts/protect-main.sh` (admin): requires the `CI` check on `main` and
   makes `v*` tags immutable.

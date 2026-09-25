@@ -11,24 +11,14 @@
 #
 # Artifacts: engines-<platform>/  holding <lang>/axiomcode-engine-<lang>[.exe] + <lang>/ENGINE_ID
 # Platforms are named the npm way (process.platform-process.arch): darwin-arm64, linux-x64,
-# linux-arm64, win32-x64. macOS builds on a SELF-HOSTED Apple Silicon runner (hosted macOS
-# minutes bill at 10x); pass macos=false to skip it while no runner is registered.
+# linux-arm64, win32-x64, each on a standard GitHub-hosted runner (free for a public
+# repository; darwin-arm64 is the Apple Silicon macos-15 image).
 # ─────────────────────────────────────────────────────────────────────────────
 name: build-engines
 
 on:
   workflow_call:
-    inputs:
-      macos:
-        description: build the darwin-arm64 engines on the self-hosted macOS runner
-        type: boolean
-        default: true
   workflow_dispatch:
-    inputs:
-      macos:
-        description: build the darwin-arm64 engines on the self-hosted macOS runner
-        type: boolean
-        default: false
 
 env:
   LANGUAGES: java typescript python javascript csharp
@@ -117,8 +107,7 @@ jobs:
 
   build-macos:
     needs: generate
-    if: inputs.macos
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-15
     steps:
       - uses: actions/download-artifact@v4
         with: { name: generated, path: gen }
