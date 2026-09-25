@@ -13,7 +13,7 @@ set -u
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
 [ -x "$ROOT/node_modules/.bin/tsx" ] || { echo "engine-package: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)"; SHADOW=""; trap 'rm -rf "$W" ${SHADOW:+"$SHADOW"}' EXIT
 mkdir -p "$W/bin" "$W/ir" "$W/int" "$W/out" "$W/tree"
 # a copy of the tree with its own node_modules dir (the real one linked in for the bundler)
 cp -R "$ROOT/graph" "$W/tree/graph"; cp "$ROOT/package.json" "$ROOT/tsconfig.json" "$W/tree/"
@@ -21,25 +21,7 @@ mkdir -p "$W/tree/node_modules"; ln -s "$ROOT/node_modules/.bin" "$W/tree/node_m
 for d in "$ROOT"/node_modules/*/; do n="$(basename "$d")"; [ "$n" = "@axiomcode" ] && continue; ln -s "${d%/}" "$W/tree/node_modules/$n"; done
 RUN="$W/tree/graph/pipeline/run-souffle.sh"
 # a PATH with everything the driver and the bundler need, and no souffle
-# SOUFFLE IS HIDDEN BY REMOVING ITS DIRECTORY from PATH, not by rebuilding a minimal
-# PATH from a whitelist of symlinks. The whitelist cannot work on macOS: /usr/bin/shasum
-# is a perl script and the system perl dispatches on the script's CANONICAL path, so a
-# symlink to it, or a copy of it, is refused with "perl version 5.30.3 can't run <path>".
-# The sandbox was then left with no digest tool, the library cache key came back empty,
-# and the run refused to proceed -- a failure with nothing to do with packaging.
-# Same reasoning as engine-id-test.sh; keep the two in step.
-SOUFFLE_BIN="$(command -v souffle 2>/dev/null || true)"
-if [ -n "$SOUFFLE_BIN" ]; then
-  SOUFFLE_DIR="$(cd "$(dirname "$SOUFFLE_BIN")" && pwd)"
-  SANDBOX_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
-    [ -n "$d" ] || continue
-    rd="$(cd "$d" 2>/dev/null && pwd)" || continue
-    [ "$rd" = "$SOUFFLE_DIR" ] || printf '%s:' "$d"
-  done)"
-  SANDBOX_PATH="${SANDBOX_PATH%:}"
-else
-  SANDBOX_PATH="$PATH"
-fi
+. "$(dirname "$0")/hide-souffle.sh"   # sets SANDBOX_PATH (and SHADOW, removed on exit)
 for t in ; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$W/bin/$t"
 done

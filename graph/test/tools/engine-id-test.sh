@@ -18,36 +18,7 @@ W="$(mktemp -d)"; SHADOW=""; trap 'rm -rf "$W" ${SHADOW:+"$SHADOW"}' EXIT
 mkdir -p "$W/copy"
 cp -R "$ROOT/graph" "$W/copy/graph"; cp "$ROOT/package.json" "$W/copy/package.json"
 
-# SOUFFLE IS HIDDEN BY REMOVING ITS DIRECTORY, not by rebuilding a minimal PATH from a
-# whitelist of symlinks. The whitelist cannot work on macOS: /usr/bin/shasum is a perl
-# script and the system perl dispatches on the script's CANONICAL path, so a symlink to
-# it, or even a copy of it, is refused with "perl version 5.30.3 can't run <path>".
-# The sandbox was then left with no digest tool at all -- and on a machine without
-# coreutils there is no sha256sum to fall back to -- so every check failed for a reason
-# that had nothing to do with the engine id. Dropping one directory hides souffle and
-# leaves every other tool where the system expects to find it.
-SOUFFLE_BIN="$(command -v souffle 2>/dev/null || true)"
-if [ -n "$SOUFFLE_BIN" ]; then
-  # Compared PHYSICALLY (pwd -P): on a merged-/usr system /bin is a symlink to /usr/bin,
-  # so a logical compare keeps /bin and souffle stays reachable through it. And when
-  # souffle shares its directory with the system tools (/usr/bin on Linux), dropping that
-  # directory would take bash and sed with it — so it is REPLACED by a shadow directory
-  # holding every entry except souffle's own.
-  SOUFFLE_DIR="$(cd "$(dirname "$SOUFFLE_BIN")" && pwd -P)"
-  SHADOW="$(mktemp -d)"
-  for e in "$SOUFFLE_DIR"/*; do
-    case "$(basename "$e")" in souffle*) continue;; esac
-    ln -s "$e" "$SHADOW/$(basename "$e")" 2>/dev/null || true
-  done
-  SANDBOX_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
-    [ -n "$d" ] || continue
-    rd="$(cd "$d" 2>/dev/null && pwd -P)" || continue
-    if [ "$rd" = "$SOUFFLE_DIR" ]; then printf '%s:' "$SHADOW"; else printf '%s:' "$d"; fi
-  done)"
-  SANDBOX_PATH="${SANDBOX_PATH%:}"
-else
-  SANDBOX_PATH="$PATH"
-fi
+. "$(dirname "$0")/hide-souffle.sh"   # sets SANDBOX_PATH (and SHADOW, removed on exit)
 command -v souffle >/dev/null 2>&1 && PATH="$SANDBOX_PATH" command -v souffle >/dev/null 2>&1 \
   && { echo "  ✗ sandbox PATH still finds souffle"; fail=$((fail+1)); }
 
