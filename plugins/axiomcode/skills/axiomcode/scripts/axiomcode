@@ -60,6 +60,8 @@ if [ -z "${AXIOMCODE_PYTHON_EXE:-}" ] &&
     if [ -n "$e" ]; then export AXIOMCODE_PYTHON_EXE="${e//\\//}" PATH="$H/pyshim:$PATH"; break; fi
   done
 fi
+# and in UTF-8 mode, as find-python.js sets it: otherwise a piped answer is written in cp1252 and the first → raises
+case "${OSTYPE:-}" in msys*|cygwin*) : "${PYTHONUTF8:=1}"; export PYTHONUTF8;; esac
 
 # A VERB ANSWERS; IT DOES NOT HAND BACK AN INSTRUCTION. Reached through this dispatcher — which is
 # what `axiomcode` on $PATH and the MCP server both go through — a query on a repository with no

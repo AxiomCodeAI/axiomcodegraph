@@ -40,6 +40,9 @@ function findPython() {
 // probe from here can still be a Store alias that Git Bash cannot run.
 function withPython(env, py) {
   const out = { ...env, AXIOMCODE_PYTHON_EXE: py.exe.replace(/\\/g, '/') };
+  // Windows Python writes a pipe in the ANSI code page and opens files in it, so the first → in an answer raised
+  // UnicodeEncodeError, and a source file in UTF-8 read wrong. UTF-8 mode fixes both; a user's own setting stands.
+  if (process.platform === 'win32' && out.PYTHONUTF8 === undefined) out.PYTHONUTF8 = '1';
   if (process.platform !== 'win32' && py.cmd.length === 1 && py.cmd[0] === 'python3') return out;
   // Windows keeps it as Path, and a second PATH key beside it would be one of two the child picks from.
   const key = Object.keys(out).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
