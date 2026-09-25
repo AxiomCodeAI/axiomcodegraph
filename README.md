@@ -89,9 +89,9 @@ languages where a compiler gives an independent ground truth to score against. D
 
 ## Why AxiomCode Graph?
 
-**A typed graph is a more accurate graph.** Compared with a tree-sitter based graph builder, which guesses a call's
+**A typed graph is a more accurate graph.** Compared with a tree-sitter-based graph builder, which guesses a call's
 target from syntax (the name, the imports, a variable's declared type), AxiomCode resolves each call from the
-receiver's declared and inferred type, as the compiler does. Through an interface, an override, a generic or a
+receiver's declared and inferred type, as the compiler does. Through an interface, an override, a generic, or a
 callback, syntax alone cannot decide the target, and every wrong guess is a missing or invented edge; a resolved
 edge is a call the program actually makes.
 That matters because an agent follows edges several hops deep, and one missed link loses everything beyond it.
@@ -107,13 +107,13 @@ complete task execution, and up to 50% fewer tool calls to explore a new codebas
 
 The graph is grounded in formal methods, using deterministic, language-aware rules. Source locations and confidence
 tiers make its results inspectable, while unresolved calls remain explicit rather than being presented as
-established relationships that could lead to false positive.
+established relationships that could lead to false positives.
 
 ## Get Started
 
 AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) parses a repository and builds its
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
-agent-facing frontend: a skill, seven MCP tools and hooks. Install the engine first.
+agent-facing frontend: a skill, seven MCP tools, and hooks. Install the engine first.
 
 Requirements: **Node ≥ 22.5** and **`python3`**. The engine ships as a prebuilt binary and `npm install`
 takes the one for your platform; there is nothing else to install.
@@ -140,7 +140,7 @@ devin plugins install AxiomCodeAI/axiomcodegraph#plugins/axiomcode
 ```
 
 Any other agent that speaks MCP takes one entry in its MCP config; see
-[Support for agents](#support-for-agents). Start a new agent session afterwards: plugins are loaded at startup.
+[Support for agents](#support-for-agents). Start a new agent session afterward: plugins are loaded at startup.
 Add `.axiomcode/` to your `.gitignore`; the graph is built there on first use.
 
 ### Uninstallation
@@ -166,8 +166,8 @@ repository out of `chat.plugins.marketplaces`; in any other MCP client, delete t
 
 ### Examples
 
-From the shell, in any Java, TypeScript, Python, JavaScript or C# project. There is no setup step: the first
-command builds the graph and later ones read it.
+From the shell, in any Java, TypeScript, Python, JavaScript, or C# project. There is no setup step: the first
+command builds the graph, and later ones read it.
 
 In this TypeScript project, `main` builds an `OrderService` and calls `place`, which writes to two things in two
 other folders: a `Ledger`, a concrete class, and a `Store`, an interface that `SqlStore` and `MemoryStore`
@@ -363,7 +363,7 @@ the cross-file call relation: which files call into which.
 | Graphify | 49.8% | 0.616 | 0.564 | 0.436 |
 
 Coverage is not resolution precision: a tool that lists every candidate target of a call also recovers the
-expected link, so these numbers are read alongside the tier of each edge.
+expected link, so read these numbers alongside each edge's tier.
 
 ## How to run locally
 
