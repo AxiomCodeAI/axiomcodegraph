@@ -4,7 +4,7 @@
 //
 // The release version is package.json's `version`. It is repeated in the engine
 // pins (optionalDependencies — each engine package is published under the same
-// version as this one), the vendored parser, and every agent plugin manifest a
+// version as this one) and every agent plugin manifest a
 // marketplace reads. A release where they disagree ships a plugin that reports a
 // version nobody can install, or an install that pins engines that were never
 // published.
@@ -24,7 +24,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 // reading the file, so a fifth platform is covered without editing this list.
 const MANIFESTS = [
   'package.json',
-  'parser/package.json',
   'gemini-extension.json',
   'plugins/axiomcode/.claude-plugin/plugin.json',
   'plugins/axiomcode/.codex-plugin/plugin.json',
