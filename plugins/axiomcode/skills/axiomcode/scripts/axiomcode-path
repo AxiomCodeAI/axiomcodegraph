@@ -617,6 +617,8 @@ def verify(g, chain, srcs, dst, adj):
     if dst in srcs: found = 0
     return bad, found
 
+EVERY_BUDGET = int(os.environ.get('AXIOMCODE_EVERY_BUDGET') or 200000)
+
 def every_route(g, res, q, srcs, dsts, max_paths, adj):
     """the subgraph of every method on ANY chain from a source to a target, and the simple paths through it (bounded)"""
     E = collections.defaultdict(list); nodes = set()
@@ -635,14 +637,20 @@ def every_route(g, res, q, srcs, dsts, max_paths, adj):
     starts = sorted(n for n in nodes if n in srcs); ends = {n for n in nodes if n in dsts}
     import heapq
     pq = [(0, i, [s0], None) for i, s0 in enumerate(starts)]; cnt = len(starts)
+    # the route count alone does not bound this: through a cycle the partial paths multiply with every hop, and when
+    # fewer than max_paths short routes exist the heap grows until memory runs out (#1341). Bound the work as well.
+    budget = EVERY_BUDGET; spent = False
     while pq and len(out) < max_paths:
+        if cnt >= budget: spent = True; break
         d, _, pth, _ = heapq.heappop(pq)
         if pth[-1] in ends and len(pth) > 1: out.append(pth); continue
         if pth[-1] in ends and len(pth) == 1 and pth[-1] in dsts and len(starts) == 1: pass
         for b, t in E.get(pth[-1], []):
             if b in pth: continue                                   # simple: no node twice
             cnt += 1; heapq.heappush(pq, (d + 1, cnt, pth + [b], t))
-    print(f"  {len(out)} simple path(s)" + (f" (first {max_paths}; --paths N for more)" if len(pq) and len(out) >= max_paths else '') + ", shortest first:")
+    print(f"  {len(out)} simple path(s)" + (f" (first {max_paths}; --paths N for more)" if len(pq) and len(out) >= max_paths else '')
+          + (f" (the search stopped after {budget:,} partial routes: the methods between the endpoints form cycles, so longer"
+             f" routes multiply without end — narrow an endpoint, e.g. Owner.method or --in <path>)" if spent else '') + ", shortest first:")
     for pth in out:
         hops = [(pth[i], pth[i + 1]) for i in range(len(pth) - 1)]
         bad = [h for h in hops if h not in edge_set]
