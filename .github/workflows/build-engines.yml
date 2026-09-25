@@ -109,7 +109,7 @@ jobs:
           - { os: windows-2025,     platform: win32-x64 }
     runs-on: ${{ matrix.target.os }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: generated, path: gen }
       - name: restore the engines built from these rules last time
         id: restore
@@ -204,7 +204,7 @@ jobs:
           - { os: macos-15-intel, arch: x86_64, platform: darwin-x64 }
     runs-on: ${{ matrix.target.os }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: generated, path: gen }
       - name: restore the engines built from these rules last time
         id: restore
