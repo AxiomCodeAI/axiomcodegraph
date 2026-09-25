@@ -1,0 +1,26 @@
+name: Test harness or CI
+description: A suite, golden, oracle or workflow that measures the wrong thing.
+labels: [test]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A measurement fault outranks an engine fault: while it stands, every number the
+        suite reports is unsafe to act on. Say what the harness claims and why that claim
+        is not true.
+
+  - type: textarea
+    id: claim
+    attributes:
+      label: What the harness reports, and why it is wrong
+    validations: { required: true }
+
+  - type: textarea
+    id: isolate
+    attributes:
+      label: How you isolated it
+      description: |
+        The rows you read, the A/B you ran, the commit on both arms. A regression that
+        was really the harness looks identical to one that was really the engine until
+        this part exists.
+    validations: { required: true }

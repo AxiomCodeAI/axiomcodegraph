@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Every commit on `main` should have arrived through a pull request.
+#
+# This reports when one did not. It is a backstop and not the rule itself: a
+# workflow runs after the push has already been accepted, so it can record a
+# direct push but never refuse one. The rule that refuses lives in
+# .github/scripts/protect-main.sh.
+# ─────────────────────────────────────────────────────────────────────────────
+name: main-guard
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  direct-push:
+    name: every commit on main came from a pull request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: check the pushed commits
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          set -uo pipefail
+
+          # A branch created or force-updated from nothing has no usable range.
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "branch created — nothing to compare"; exit 0
+          fi
+
+          orphans=()
+          while IFS= read -r sha; do
+            [ -n "$sha" ] || continue
+            n="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/pulls" --jq 'length' 2>/dev/null || echo 0)"
+            if [ "$n" = "0" ]; then
+              orphans+=("$sha  $(git log -1 --format=%s "$sha")")
+            fi
+          done < <(git rev-list "${BEFORE}..${AFTER}" 2>/dev/null)
+
+          if [ ${#orphans[@]} -eq 0 ]; then
+            echo "all pushed commits arrived through a pull request"
+            exit 0
+          fi
+
+          {
+            echo "### Direct push to \`main\` detected"
+            echo
+            echo "These commits are on \`main\` without a pull request:"
+            echo
+            printf -- '- %s\n' "${orphans[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          printf '%s\n' "${orphans[@]}" > /tmp/orphans.txt
+          echo "found=1" >> "$GITHUB_OUTPUT"
+          echo "::error::${#orphans[@]} commit(s) reached main without a pull request"
+          exit 1
+
+      - name: record it as an issue
+        if: failure() && steps.check.outputs.found == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          title="Direct push to main on $(date -u +%Y-%m-%d)"
+          # One issue per day, not one per push.
+          existing="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number' || true)"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="$(printf "Commits reached \`main\` without a pull request:\n\n\`\`\`\n%s\n\`\`\`\n\nRun: %s\n\nReported after the fact: a workflow runs once the push has been accepted, so it can record a direct push but not refuse one. See .github/scripts/protect-main.sh\n" \
+            "$(cat /tmp/orphans.txt)" "$run_url")"
+          if [ -n "${existing:-}" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label platform || \
+              gh issue create --title "$title" --body "$body"
+          fi

@@ -57,6 +57,14 @@ done
 [ -n "$WORK" ] || WORK="$REPO/.cs-case-work"
 mkdir -p "$WORK"; WORK="$(cd "$WORK" && pwd)"
 
+# ONE compiled engine for the whole run. devrun.sh keeps its binary cache beside the
+# work dir it is given, and every case below gets a fresh one (rm -rf "$w"), so left
+# to its default each case recompiled the same engine — about 70s apiece. The cache
+# is content-addressed by the rule text, so sharing it is safe; under CI it lives in
+# the compiled-engine cache directory the workflow saves and restores.
+export AXIOM_CS_DEV_CACHE="${AXIOM_CS_DEV_CACHE:-${AXIOM_SOUFFLE_CACHE:-$WORK}/cs-dev}"
+mkdir -p "$AXIOM_CS_DEV_CACHE"
+
 command -v souffle >/dev/null || { echo "souffle is not installed (brew install souffle)" >&2; exit 77; }
 [ -f "$REPO/parser/dist/index.js" ] || { echo "the parser is not built (npm run build)" >&2; exit 77; }
 [ -x "$ORACLE" ] || {

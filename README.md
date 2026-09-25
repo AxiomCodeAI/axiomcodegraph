@@ -40,8 +40,8 @@
 
 <p align="center">
   <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
-  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/418"><img alt="Nightly: not yet enabled" src="https://img.shields.io/badge/nightly-not%20yet%20enabled-lightgrey"></a>
+  <a href="https://www.npmjs.com/package/@axiomcode/code-graph"><img alt="npm" src="https://img.shields.io/npm/v/@axiomcode/code-graph?label=npm"></a>
+  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml"><img alt="Nightly (dev)" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml/badge.svg?branch=dev"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
@@ -257,7 +257,7 @@ A language is usable end to end when both the **parser** (source → relational 
 | **TypeScript** | stable | stable | **stable**. Structural typing, overload sets, the module graph, `.d.ts` libraries |
 | **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection |
 | **JavaScript** | stable | beta | **beta**. JSDoc as the type channel, CommonJS and ESM; being scored against the TypeScript compiler |
-| **C#** | stable | beta | **beta**. Regression cases, ground truth and a runtime oracle; not yet in the published engine packages |
+| **C#** | stable | beta | **beta**. Regression cases, ground truth and a runtime oracle |
 
 XML, YAML, `.properties` and `META-INF/services` are part of the Java graph, so a change to a property key or a
 wiring declaration has a blast radius into methods. A repository with several languages gets one graph per

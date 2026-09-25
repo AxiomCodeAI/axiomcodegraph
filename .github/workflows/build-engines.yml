@@ -1,0 +1,197 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Build the engine binaries — every language, every platform — as artifacts.
+#
+# Reusable (workflow_call) so publish-npm.yml can build then publish in one run, and
+# dispatchable on its own to check that the rules still compile everywhere without
+# publishing anything. Soufflé is a BUILD-time dependency only: `souffle -g` turns each
+# language's rules into portable C++ once on Ubuntu (the pinned .deb), and every platform
+# compiles that C++ with its own C++17 compiler against Soufflé's headers. The result is
+# one self-contained executable per language per platform, linked against nothing but the
+# C++ runtime. Same flags as the local compile (no OpenMP/zlib/sqlite), portable targets.
+#
+# Artifacts: engines-<platform>/  holding <lang>/axiomcode-engine-<lang>[.exe] + <lang>/ENGINE_ID
+# Platforms are named the npm way (process.platform-process.arch): darwin-arm64, linux-x64,
+# linux-arm64, win32-x64, each on a standard GitHub-hosted runner (free for a public
+# repository; darwin-arm64 is the Apple Silicon macos-15 image).
+# ─────────────────────────────────────────────────────────────────────────────
+name: build-engines
+
+on:
+  workflow_call:
+    inputs:
+      # fresh: compile every engine, restore nothing. The nightly and a release use it.
+      fresh:
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      fresh:
+        type: boolean
+        default: false
+
+# COMPILED ENGINES ARE CACHED BY ENGINE_ID. Compiling one language's C++ at -O3 takes
+# about three minutes, and a run that changed no rules used to recompile all five on
+# every platform. Each platform now restores its last engines and recompiles only the
+# languages whose ENGINE_ID — a hash of that language's rules and the Soufflé version —
+# differs from the one the restored binary records. A binary is therefore reused only
+# for exactly the rules it was built from; the smoke step still runs every one.
+
+env:
+  LANGUAGES: java typescript python javascript csharp
+  # Same pin and checksum as ci.yml: the tool that produces the published binaries is
+  # verified against what upstream published for that release.
+  SOUFFLE_SHA512: '6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c'
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    outputs:
+      key: ${{ steps.gen.outputs.key }}
+      flags: ${{ steps.gen.outputs.flags }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Soufflé
+        run: |
+          . graph/pipeline/engine.conf
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          curl -fsSL --retry 3 -o "/tmp/$deb" "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/$deb"
+          echo "${SOUFFLE_SHA512}  /tmp/$deb" | sha512sum -c -
+          sudo apt-get update -qq && sudo apt-get install -y -qq "/tmp/$deb"
+          souffle --version | head -2
+          test -f /usr/include/souffle/CompiledSouffle.h
+      - name: Generate portable C++ per language
+        id: gen
+        run: |
+          set -e
+          mkdir -p gen
+          for lang in $LANGUAGES; do
+            id="$(bash graph/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
+            echo "$lang: $id"; printf '%s' "$id" > "gen/$lang.id"
+            bash graph/pipeline/run-souffle.sh --language "$lang" --emit-program "gen/$lang.dl"
+            souffle -I graph -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
+            awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "gen/$lang.gen.log"
+          done
+          cp -r /usr/include/souffle gen/souffle
+          # one key for the whole set; a partial match restores the previous set
+          echo "key=$(cat gen/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
+          # hash prefixes the key AND the restore prefix: a flag change restores nothing.
+          # Computed here because the build jobs never check the repository out.
+          echo "flags=$(sha256sum .github/workflows/build-engines.yml | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: { name: generated, path: gen, retention-days: 3, if-no-files-found: error }
+
+  build:
+    needs: generate
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: ubuntu-24.04,     platform: linux-x64 }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { os: windows-2025,     platform: win32-x64 }
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: generated, path: gen }
+      - name: restore the engines built from these rules last time
+        id: restore
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@v4
+        with:
+          path: engines
+          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+          restore-keys: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-
+      - name: Compile every language (Linux)
+        if: startsWith(matrix.target.platform, 'linux')
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
+            mkdir -p "engines/$lang"
+            c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
+          done
+          ls -la engines/*; ldd engines/java/axiomcode-engine-java || true
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: startsWith(matrix.target.platform, 'win32')
+        with: { arch: x64 }
+      - name: Compile every language (Windows, MSVC)
+        if: startsWith(matrix.target.platform, 'win32')
+        shell: cmd
+        run: |
+          for %%L in (java typescript python javascript csharp) do (
+            fc /b gen\%%L.id engines\%%L\ENGINE_ID >nul 2>&1
+            if errorlevel 1 (
+              if not exist engines\%%L mkdir engines\%%L
+              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
+              if errorlevel 1 exit /b 1
+              copy /y gen\%%L.id engines\%%L\ENGINE_ID
+            ) else (
+              echo %%L: cached, rules unchanged
+            )
+          )
+          dir /s engines
+      - name: Smoke — every binary starts on empty inputs
+        shell: bash
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            bin="$(ls engines/$lang/axiomcode-engine-$lang* )"; chmod +x "$bin" 2>/dev/null || true
+            mkdir -p "facts-$lang" "out-$lang"
+            sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
+            "./$bin" -F "facts-$lang" -D "out-$lang"
+            echo "$lang: ok ($(ls out-$lang | wc -l) relations written)"
+          done
+      - name: save the engines for the next run
+        if: ${{ !inputs.fresh && steps.restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: engines
+          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engines-${{ matrix.target.platform }}
+          path: engines
+          if-no-files-found: error
+
+  build-macos:
+    needs: generate
+    runs-on: macos-15
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: generated, path: gen }
+      - name: restore the engines built from these rules last time
+        id: restore
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@v4
+        with:
+          path: engines
+          key: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+          restore-keys: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-
+      - name: Compile every language (macOS arm64)
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
+            mkdir -p "engines/$lang"
+            c++ -std=c++17 -O3 -w -arch arm64 -mmacosx-version-min=12.0 -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
+          done
+          otool -L engines/java/axiomcode-engine-java
+      - name: Smoke — every binary starts on empty inputs
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            mkdir -p "facts-$lang" "out-$lang"
+            sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
+            "./engines/$lang/axiomcode-engine-$lang" -F "facts-$lang" -D "out-$lang"
+          done
+      - name: save the engines for the next run
+        if: ${{ !inputs.fresh && steps.restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: engines
+          key: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+      - uses: actions/upload-artifact@v4
+        with: { name: engines-darwin-arm64, path: engines, if-no-files-found: error }
