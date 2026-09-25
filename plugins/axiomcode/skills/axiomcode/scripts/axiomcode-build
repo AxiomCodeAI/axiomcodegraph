@@ -24,6 +24,9 @@ if [ -z "${AXIOMCODE_ENGINE:-}" ]; then E="$H"; while [ "$E" != "/" ] && [ ! -x 
 # not, since it is not in git -- and that clone was taken over the built engine `npm i -g` installed. An
 # unbuilt checkout is still used when nothing else is found, so a developer keeps the "parser not built"
 # advice; an engine named in AXIOMCODE_ENGINE is used as given whenever it is one.
+# python3's sqlite3 module, not the sqlite3 CLI: python3 is a stated requirement, the CLI is not, and stock Ubuntu
+# and Git for Windows ship without it.
+has_symbols() { python3 -c 'import sqlite3, sys; sys.exit(0 if sqlite3.connect(sys.argv[1]).execute("SELECT 1 FROM sqlite_master WHERE name=?", ("symbols",)).fetchone() else 1)' "$1" 2>/dev/null; }
 engine_ok() { [ -x "$1/bin/axiomcode" ] && [ -d "$1/graph" ] && [ -f "$1/package.json" ]; }
 engine_built() { engine_ok "$1" && [ -f "$1/parser/dist/index.js" ]; }
 if ! { if [ -n "$ENGINE_SET" ]; then engine_ok "$AXIOMCODE_ENGINE"; else engine_built "$AXIOMCODE_ENGINE"; fi; }; then
@@ -150,11 +153,11 @@ BASE_SAVED=""
 # from the edit, is. A commit that changed no file moves the stamp, not the graph.
 if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
-  sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
+  has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0
 fi
 if [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
-  sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
+  has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
 python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
@@ -214,8 +217,14 @@ AXIOMCODE_INDEX_DB="$DB" python3 "$H/axiomcode-index" "$REPO" || { restore; echo
 # the tree and commit it describes. Written before the swap: a write to the live graph later would change its mtime,
 # which keys the impact-facts cache, and cost the next query a re-export.
 REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
-sqlite3 "$DB" "DELETE FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_tree','refreshed_commit');
-  INSERT INTO index_meta VALUES ('refreshed_at','$(date -u +%Y-%m-%dT%H:%M:%SZ)'),('refresh_reason','$REASON'),('refreshed_tree','$INDEXED_TREE'),('refreshed_commit','$HEAD_SHA');" 2>/dev/null || true
+python3 - "$DB" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
+import sqlite3, sys
+db, at, reason, tree, commit = sys.argv[1:6]
+with sqlite3.connect(db) as c:
+    c.execute("DELETE FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_tree','refreshed_commit')")
+    c.executemany("INSERT INTO index_meta VALUES (?,?)", [('refreshed_at', at), ('refresh_reason', reason),
+                  ('refreshed_tree', tree), ('refreshed_commit', commit)])
+PY
 echo "$STAMP" > "$OUT/stamp"
 if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
 set_base "$INDEXED_TREE"
@@ -223,7 +232,13 @@ point "$DB"; rm -f "$OUT/.live.sqlite"
 if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
 keep_base_graph; commit_base
 rm -rf "$PREV"
-sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
+python3 - "$OUT/graph.sqlite" <<'PY'
+import sqlite3, sys
+rows = sqlite3.connect(sys.argv[1]).execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC").fetchall()
+w = max([len('tier')] + [len(t) for t, _ in rows])
+print(f"{'tier':<{w}}  edges")
+for t, n in rows: print(f"{t:<{w}}  {n}")
+PY
 python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
 python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
