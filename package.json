@@ -21,7 +21,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.10.0",
+    "@types/node": "^26.6.2",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.7.0"
   },
