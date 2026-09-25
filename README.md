@@ -56,9 +56,9 @@
 
 Give it a repository. It builds a knowledge graph of your code using formal methods: for every function, exactly
 who calls it and what it calls, derived by logical rules rather than guessed. Your AI agents, and you, then
-understand, explore, search and edit the code from that map instead of grepping, including the links text search
-cannot see: calls through an interface, a subclass or a callback, pruning 99.9% of the codebase so agents keep
-their context for the task, not the search. Grep output also gets truncated, so agents silently miss what was cut.
+understand, explore, search and edit the code from that map instead of grepping. Grep cannot see calls through an
+interface, a subclass or a callback, and its output gets truncated, so agents silently miss what was cut. The map
+prunes 99.9% of the codebase, so agents keep their context for the task, not the search.
 
 <p align="center">
   <img src="docs/images/defects4j-test-selection.svg" width="900" alt="Test selection on 748 held-out Defects4J bugs. Bugs with every bug-revealing test selected: AxiomCode 94.9%, GitNexus 61.5%, CodeGraph 52.3%, Graphify 48.7%, Code-Review-Graph 21.9%, Name-Match (grep) 46.8%. F1 against Defects4J's own selection: AxiomCode 72.4, GitNexus 54.3, CodeGraph 44.8, Graphify 41.3, Code-Review-Graph 18.7, Name-Match (grep) 32.5.">
