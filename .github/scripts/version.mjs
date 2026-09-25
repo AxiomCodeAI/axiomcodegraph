@@ -4,9 +4,10 @@
 //
 // The release version is package.json's `version`. It is repeated in the engine
 // pins (optionalDependencies — each engine package is published under the same
-// version as this one) and every agent plugin manifest a
-// marketplace reads. A release where they disagree ships a plugin that reports a
-// version nobody can install, or an install that pins engines that were never
+// version as this one) and every agent plugin manifest a marketplace reads. The
+// vendored parser keeps its own version: it moves only when the parser changes.
+// A release where they disagree ships a plugin that reports a version nobody can
+// install, or an install that pins engines that were never
 // published.
 //
 //   node .github/scripts/version.mjs check            every manifest agrees
