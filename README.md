@@ -257,7 +257,7 @@ A language is usable end to end when both the **parser** (source → relational 
 | **TypeScript** | stable | stable | **stable**. Structural typing, overload sets, the module graph, `.d.ts` libraries |
 | **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection |
 | **JavaScript** | stable | beta | **beta**. JSDoc as the type channel, CommonJS and ESM; being scored against the TypeScript compiler |
-| **C#** | stable | beta | **beta**. Regression cases, ground truth and a runtime oracle; not yet in the published engine packages |
+| **C#** | stable | beta | **beta**. Regression cases, ground truth and a runtime oracle |
 
 XML, YAML, `.properties` and `META-INF/services` are part of the Java graph, so a change to a property key or a
 wiring declaration has a blast radius into methods. A repository with several languages gets one graph per

@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Every version that lands on main gets a tag and a draft release.
+#
+# The version gate (ci.yml) makes a pull request that reaches users bump the
+# version. When that bump merges, this workflow tags the merge commit v<version>
+# and opens a DRAFT GitHub release with notes generated from the pull requests
+# since the previous tag. Nothing is published here.
+#
+# Publishing is a person's decision: review the draft, then press Publish. That
+# `release: published` event is what runs publish-npm.yml, which builds the
+# engines, checks that the tag and every manifest agree, publishes to npm and
+# attaches the tarballs to the release.
+#
+# A push that does not move the version finds its tag already present and does
+# nothing, so this runs on every push to main without a path filter.
+# ─────────────────────────────────────────────────────────────────────────────
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: every manifest carries the same version
+        run: node .github/scripts/version.mjs check
+
+      - name: tag and draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node .github/scripts/version.mjs get)"
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "$tag already exists — this push did not change the version"
+            exit 0
+          fi
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease";; esac
+          # The previous tag bounds the generated notes; the first release has none.
+          prev="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+          start=""; [ -n "$prev" ] && start="--notes-start-tag $prev"
+          # The tag is pushed here rather than left to the release: a DRAFT release
+          # does not create its tag until it is published, so the check above would
+          # never see it and every later push would draft again. A tag pushed with
+          # GITHUB_TOKEN starts no workflow, which is intended: publishing waits for
+          # a person to publish the draft.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "$tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$tag"
+          gh release create "$tag" --draft --verify-tag --title "$tag" \
+            --generate-notes $start $prerelease
+          echo "::notice::drafted $tag — review it under Releases and publish it to ship to npm"
