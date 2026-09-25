@@ -66,7 +66,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { pattern: engines-*, path: artifacts }
 
       - name: every language, installed from the tarballs, no Soufflé
@@ -134,7 +134,7 @@ jobs:
           npm install --no-audit --no-fund
 
       - if: steps.v.outputs.skip == 'false'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with: { pattern: engines-*, path: artifacts }
 
       # Engines first: the root package pins them at its own version.
