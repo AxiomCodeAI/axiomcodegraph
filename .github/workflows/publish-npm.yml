@@ -103,6 +103,15 @@ jobs:
               echo "::warning::no engines were built for $platform"
               missing=1
             fi
+            # and every query program the CLI runs, or impact/path need soufflé there (#1330)
+            for dl in plugins/axiomcode/skills/axiomcode/scripts/dl/*.dl; do
+              q="$(basename "$dl" .dl)"
+              if ! cmp -s <(python3 plugins/axiomcode/skills/axiomcode/scripts/dl_program.py --print-id "$dl") \
+                          <(cat "artifacts/engines-$platform/queries/$q.id" 2>/dev/null; echo); then
+                echo "::warning::$platform has no query program for these $q.dl rules"
+                missing=1
+              fi
+            done
           done
           if [ "$missing" = 1 ] && [ "$DRY" != true ]; then
             echo "::error::a real publish needs every platform package.json pins"; exit 1

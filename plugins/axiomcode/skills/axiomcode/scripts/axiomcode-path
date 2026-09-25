@@ -554,7 +554,8 @@ def run_dl(g, queries, programs=('path.dl',)):
     # is only needed for the ones that fall back to the interpreter.
     progs = {p: dl_program.program(p) for p in programs}
     if any(v[0] == 'souffle' for v in progs.values()) and not shutil.which('souffle'):
-        die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
+        die(f"no compiled path rules for this version on this machine: the {dl_program.SCOPE}/engine-{dl_program.npm_platform()} package\n"
+            "  ships them for each release (reinstall @axiomcode/code-graph), or install soufflé (brew install souffle-lang/souffle/souffle)")
     F = tempfile.mkdtemp(prefix='axpath-'); O = tempfile.mkdtemp(prefix='axpath-out-')
     for n in ('byname', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
     if g.EXTRA:

@@ -9,7 +9,12 @@
 # one self-contained executable per language per platform, linked against nothing but the
 # C++ runtime. Same flags as the local compile (no OpenMP/zlib/sqlite), portable targets.
 #
-# Artifacts: engines-<platform>/  holding <lang>/axiomcode-engine-<lang>[.exe] + <lang>/ENGINE_ID
+# Artifacts: engines-<platform>/  holding <lang>/axiomcode-engine-<lang>[.exe] + <lang>/ENGINE_ID,
+# and queries/axiomcode-query-<name>[.exe] + queries/<name>.id for every query program the CLI
+# runs (plugins/axiomcode/skills/axiomcode/scripts/dl/<name>.dl: impact, path, path-opt,
+# path-every). Without those, `axiomcode impact` needs Soufflé and a C++ compiler on the user's
+# machine (#1330). A query binary's id is dl_program.py's own key, so the CLI finds it by the
+# same hash it would cache a local compile under.
 # Platforms are named the npm way (process.platform-process.arch): darwin-arm64, darwin-x64,
 # linux-x64, linux-arm64, win32-x64, each on a standard GitHub-hosted runner (free for a
 # public repository; macOS builds on macos-15 for Apple Silicon and macos-15-intel for Intel).
@@ -71,9 +76,21 @@ jobs:
             souffle -I graph -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
             awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "gen/$lang.gen.log"
           done
+          # the query programs: self-contained (no #include), keyed by dl_program.py itself
+          mkdir -p gen/queries
+          for dl in plugins/axiomcode/skills/axiomcode/scripts/dl/*.dl; do
+            q="$(basename "$dl" .dl)"
+            python3 plugins/axiomcode/skills/axiomcode/scripts/dl_program.py --print-id "$dl" | tr -d '\n' > "gen/queries/$q.id"
+            echo "query $q: $(cat "gen/queries/$q.id")"
+            cp "$dl" "gen/queries/$q.dl"
+            souffle -g "gen/queries/$q.cpp" "$dl" 2> "gen/queries/$q.gen.log" || { cat "gen/queries/$q.gen.log"; exit 1; }
+          done
+          # the fixture and what the interpreter derives from it; each platform's binaries must match
+          bash .github/scripts/query-smoke.sh expect gen/queries
+          cp .github/scripts/query-smoke.sh gen/queries/smoke.sh
           cp -r /usr/include/souffle gen/souffle
           # one key for the whole set; a partial match restores the previous set
-          echo "key=$(cat gen/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "key=$(cat gen/*.id gen/queries/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
           # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
           # hash prefixes the key AND the restore prefix: a flag change restores nothing.
           # Computed here because the build jobs never check the repository out.
@@ -112,6 +129,13 @@ jobs:
             c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
+          mkdir -p engines/queries
+          for cpp in gen/queries/*.cpp; do
+            q="$(basename "$cpp" .cpp)"
+            if cmp -s "gen/queries/$q.id" "engines/queries/$q.id"; then echo "query $q: cached, rules unchanged"; continue; fi
+            c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "$cpp" -o "engines/queries/axiomcode-query-$q"
+            cp "gen/queries/$q.id" "engines/queries/$q.id"
+          done
           ls -la engines/*; ldd engines/java/axiomcode-engine-java || true
       - uses: ilammy/msvc-dev-cmd@v1
         if: startsWith(matrix.target.platform, 'win32')
@@ -131,6 +155,17 @@ jobs:
               echo %%L: cached, rules unchanged
             )
           )
+          if not exist engines\queries mkdir engines\queries
+          for %%Q in (gen\queries\*.cpp) do (
+            fc /b gen\queries\%%~nQ.id engines\queries\%%~nQ.id >nul 2>&1
+            if errorlevel 1 (
+              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen %%Q /Fe:engines\queries\axiomcode-query-%%~nQ.exe
+              if errorlevel 1 exit /b 1
+              copy /y gen\queries\%%~nQ.id engines\queries\%%~nQ.id
+            ) else (
+              echo query %%~nQ: cached, rules unchanged
+            )
+          )
           dir /s engines
       - name: Smoke — every binary starts on empty inputs
         shell: bash
@@ -143,6 +178,7 @@ jobs:
             "./$bin" -F "facts-$lang" -D "out-$lang"
             echo "$lang: ok ($(ls out-$lang | wc -l) relations written)"
           done
+          bash gen/queries/smoke.sh check gen/queries engines/queries
       - name: save the engines for the next run
         if: ${{ !inputs.fresh && steps.restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
@@ -187,6 +223,13 @@ jobs:
             c++ -std=c++17 -O3 -w -arch "$ARCH" -mmacosx-version-min=12.0 -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
+          mkdir -p engines/queries
+          for cpp in gen/queries/*.cpp; do
+            q="$(basename "$cpp" .cpp)"
+            if cmp -s "gen/queries/$q.id" "engines/queries/$q.id"; then echo "query $q: cached, rules unchanged"; continue; fi
+            c++ -std=c++17 -O3 -w -arch "$ARCH" -mmacosx-version-min=12.0 -I gen "$cpp" -o "engines/queries/axiomcode-query-$q"
+            cp "gen/queries/$q.id" "engines/queries/$q.id"
+          done
           file engines/java/axiomcode-engine-java
           otool -L engines/java/axiomcode-engine-java
       - name: Smoke — every binary starts on empty inputs
@@ -197,6 +240,7 @@ jobs:
             sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
             "./engines/$lang/axiomcode-engine-$lang" -F "facts-$lang" -D "out-$lang"
           done
+          bash gen/queries/smoke.sh check gen/queries engines/queries
       - name: save the engines for the next run
         if: ${{ !inputs.fresh && steps.restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4

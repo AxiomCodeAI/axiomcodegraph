@@ -47,6 +47,7 @@
     "plugins/axiomcode/",
     "!plugins/axiomcode/validate/",
     "!plugins/**/__pycache__/",
+    "!plugins/**/dl/.cache/",
     "parser/dist/",
     "parser/package.json",
     "README.md",
