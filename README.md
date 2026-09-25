@@ -96,6 +96,13 @@ callback, syntax alone cannot decide the target, and every wrong guess is a miss
 edge is a call the program actually makes.
 That matters because an agent follows edges several hops deep, and one missed link loses everything beyond it.
 
+<p align="center">
+  <img src="docs/images/graph-selected-method.png" width="900" alt="axiomcode graph on an open-source Spring application: one service method selected, with every resolved call into and out of it drawn across the packages of the codebase">
+</p>
+
+*`axiomcode graph` on an open-source Spring application. Selecting a method shows every resolved call into and
+out of it, across packages and modules; the dashed line is a call into a library.*
+
 AI agents work from an incomplete picture of a codebase, and the reason is structural: what a call reaches is
 usually decided somewhere else. The type comes from another file, the implementation from another module, the
 binding from a dependency or a configuration key. Reading the file in front of you cannot show any of that, so a
