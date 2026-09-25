@@ -14,7 +14,7 @@
 #   • manually (Actions → publish-npm → Run workflow) with dry_run, which packs
 #     every package and prints exactly what would be uploaded, uploading nothing.
 #
-# Needs the NPM_TOKEN secret (an npm token with publish rights on @axiomcode)
+# Needs the CLI_BINARY_PUBLISH secret (an npm token with publish rights on @axiomcode)
 # for a real publish; a dry run needs nothing.
 #
 # Re-running is safe: a package whose version is already on the registry is
@@ -128,7 +128,7 @@ jobs:
 
       - name: publish (or dry-run)
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.CLI_BINARY_PUBLISH }}
         run: |
           set -euo pipefail
           flag=""; [ "$DRY" = true ] && flag="--dry-run"
