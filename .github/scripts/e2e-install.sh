@@ -9,8 +9,8 @@
 # package exactly as publish-npm.yml would, installs both into an empty project, and
 # runs `axiomcode` on <source-dir> with souffle NOT on PATH. It passes only if the
 # installed package found its engine package, used it, and wrote a graph with edges —
-# and then indexed that source and answered `impact` and `path` from the query programs
-# the engine package ships (#1330), still with no souffle to compile or interpret them.
+# and then, on .github/e2e/<language>, every query verb returned the answer that tiny
+# project makes true (e2e-queries.sh), from the query programs the engine package ships.
 #
 # CODEGRAPH_TGZ, when set, is an already packed @axiomcode/code-graph to install instead of
 # packing this checkout: the tarball is platform-independent, so ci.yml packs it once and every
@@ -69,41 +69,10 @@ edges="$(node -e '
 ' "$db" 2>/dev/null)"
 [ -n "$edges" ] && [ "$edges" -gt 0 ] || fail "the graph has no call edges (${edges:-unreadable})"
 
-echo "── every query verb on a copy of $(basename "$src") under src/, no souffle"
-# under src/, as a repository lays its code out: context names a directory to look in, and a tree with every file
-# at its root offers none
-mkdir -p "$W/repo"; cp -R "$src" "$W/repo/src"
-PATH="$SANDBOX_PATH" "$bin" index "$W/repo" > "$W/index.log" 2>&1 || { tail -15 "$W/index.log"; fail "axiomcode index exited non-zero"; }
-ready="$(grep 'datalog rules ready' "$W/index.log" || true)"; echo "   $ready"
+echo "── every query verb on the $lang fixture, answers checked, no souffle"
+PATH="$SANDBOX_PATH" bash "$root/.github/scripts/e2e-queries.sh" "$bin" "$root/.github/e2e/$lang" "$W/q" || fail "a query verb answered wrongly (above)"
 # every program from the engine package: not compiled here (no souffle), not left to the interpreter
+ready="$(grep 'datalog rules ready' "$W/q/.index.log" || true)"
 echo "$ready" | grep -Eq 'ready: ([0-9]+)/\1 compiled' && ! echo "$ready" | grep -Eq '=(cached|interpreter)' \
   || fail "the query programs did not all come from the engine package: $ready"
-# one resolved call in the graph: its caller and its callee, by simple name
-pair="$(node -e '
-  const { DatabaseSync } = require("node:sqlite");
-  const db = new DatabaseSync(process.argv[1], { readOnly: true });
-  const r = db.prepare(`SELECT c.name AS a, m.name AS b FROM call_edges e JOIN methods m ON m.id = e.callee_method_id
-    JOIN methods c ON c.id = e.caller_id WHERE e.tier = ? AND m.name NOT LIKE ? AND c.name NOT LIKE ? AND c.name <> m.name
-    ORDER BY c.name, m.name LIMIT 1`).get("known_edge", "%<%", "%<%");
-  if (r) console.log(r.a + " " + r.b);
-' "$W/repo/.axiomcode/out/graph.sqlite" 2>/dev/null)"
-[ -n "$pair" ] || fail "the indexed graph has no resolved call to ask about"
-caller="${pair% *}"; callee="${pair#* }"
-# verb | the backend (path answers from SQL unless AXIOMCODE_DATALOG=1 runs the shipped programs) | what its answer must say
-checks=(
-  "impact $callee||"
-  "test-impact $callee||"
-  "path $caller $callee||reached"
-  "path $caller $callee|1|reached"
-  "path $caller $callee --every||simple path"
-  "path $caller $callee --every|1|simple path"
-  "context $callee||"
-)
-for c in "${checks[@]}"; do
-  IFS='|' read -r verb dl want <<< "$c"
-  ( cd "$W/repo" && PATH="$SANDBOX_PATH" AXIOMCODE_DATALOG="$dl" "$bin" $verb ) > "$W/q.log" 2>&1; rc=$?
-  echo "   $verb${dl:+ (datalog)}: rc=$rc"
-  [ "$rc" -eq 0 ] || { sed 's/^/     /' "$W/q.log" | head -12; fail "axiomcode $verb${dl:+ (datalog)} exited $rc"; }
-  [ -z "$want" ] || grep -q "$want" "$W/q.log" || { sed 's/^/     /' "$W/q.log" | head -12; fail "axiomcode $verb${dl:+ (datalog)} did not say '$want'"; }
-done
-echo "e2e: ok — installed from the tarballs, used the packaged $platform engine, $edges call edges; every query verb answered from the package"
+echo "e2e: ok — installed from the tarballs, used the packaged $platform engine, $edges call edges; every query verb answered correctly from the package"

@@ -96,7 +96,7 @@ jobs:
           # ENGINES: what the platform build compiles or packages.
           engines="$(printf '%s\n' "$files" | grep -E \
             -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' -e 'scripts/dl_program\.py$' -e '^\.github/scripts/query-smoke\.sh$' \
-            -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' -e '^\.github/scripts/e2e-install\.sh$' || true)"
+            -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' -e '^\.github/scripts/e2e-' -e '^\.github/e2e/' || true)"
           [ -n "$code" ] && echo "code=true" >> "$GITHUB_OUTPUT" || echo "code=false" >> "$GITHUB_OUTPUT"
           # Only a pull request INTO main builds the platform engines; into dev they wait.
           [ "${{ github.base_ref }}" = main ] || engines=""
