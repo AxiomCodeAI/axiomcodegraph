@@ -386,7 +386,7 @@ def main(argv):
         elif a == '--seeds' and i + 1 < len(argv): seeds_wanted = int(argv[i + 1]); i += 2
         # --in is REPEATABLE and takes a comma-separated list: a change that spans two roots has to be
         # askable in one call (#1029). They are combined, never intersected.
-        elif a == '--in' and i + 1 < len(argv): scopes += [x.strip() for x in argv[i + 1].split(',') if x.strip()]; i += 2
+        elif a == '--in' and i + 1 < len(argv): scopes += [x.strip().replace('\\', '/') for x in argv[i + 1].split(',') if x.strip()]; i += 2   # the index stores '/'; a Windows user may type a backslash
         elif a == '--in-offered': scope_offered = True; i += 1
         elif a == '--source': show_source = True; i += 1
         elif a == '--json': as_json = True; i += 1

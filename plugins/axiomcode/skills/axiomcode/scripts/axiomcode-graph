@@ -46,7 +46,7 @@ def export(repo, page=None):
     def rel(p):
         a = p if os.path.isabs(p) else os.path.join(src, p)
         a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
-        r = os.path.relpath(a, repo); return p.lstrip('/') if r.startswith('..') else r
+        r = os.path.relpath(a, repo).replace(os.sep, '/'); return p.lstrip('/') if r.startswith('..') else r
 
     # ── declarations: types and methods, with the display names the query skill uses when the index is there ──
     nodes = {}
