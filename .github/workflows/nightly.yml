@@ -1,0 +1,142 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Nightly: build dev from scratch, every platform, and install it the way a user would.
+#
+# Publishes NOTHING. It answers one question each morning: if dev were promoted and
+# released today, would it work? Pull requests into dev skip the four-platform engine
+# build to stay fast; this is where that build still happens for dev, once a night.
+#
+#   1. CI with fresh=true: a clean checkout, no restored engine cache, every engine
+#      compiled from the rules, the five suites, and all four platforms' engines.
+#   2. End to end: pack @axiomcode/code-graph and the linux-x64 engine package exactly
+#      as publish-npm.yml would, install them into an empty project with no Soufflé,
+#      and run axiomcode on a test project (.github/scripts/e2e-install.sh).
+#   3. `npm publish --dry-run` for every package: the registry's own checks, no upload.
+#   4. A failure opens an issue (or comments on the open one) naming what broke; the
+#      next green night closes it.
+#
+# Skipped on a night when dev has no new commits. Run it by hand from Actions any time.
+# Scheduled runs use the default branch — dev — for both the workflow and the code.
+# ─────────────────────────────────────────────────────────────────────────────
+name: nightly
+
+on:
+  schedule:
+    - cron: '0 8 * * *'    # 08:00 UTC, after the US workday
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: did dev change
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.g.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: g
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "started by hand"; exit 0
+          fi
+          recent="$(git log --since='25 hours ago' --format='%h %s' HEAD | head -20)"
+          if [ -n "$recent" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            printf 'new on %s since yesterday:\n%s\n' "${GITHUB_REF_NAME}" "$recent"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "no new commits on ${GITHUB_REF_NAME} — nothing to build"
+          fi
+
+  ci:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      fresh: true
+
+  e2e:
+    name: install and run, as a user
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - uses: actions/download-artifact@v4
+        with: { pattern: engines-*, path: artifacts }
+
+      - name: every language, installed from the tarballs, no Soufflé
+        run: |
+          set -euo pipefail
+          for pair in java:java typescript:typescript python:python javascript:javascript; do
+            lang="${pair%%:*}"
+            case_dir="$(ls -d graph/test/$lang/cases/*/src | head -1)"
+            bash .github/scripts/e2e-install.sh artifacts/engines-linux-x64 linux-x64 "$lang" "$case_dir"
+          done
+
+      - name: npm publish --dry-run, every package
+        run: |
+          set -euo pipefail
+          version="$(node .github/scripts/version.mjs get)"
+          for d in artifacts/engines-*; do
+            platform="${d#artifacts/engines-}"
+            bash packaging/assemble-engine-package.sh "$platform" "$version" "$d" "packages/engine-$platform" >/dev/null
+            ( cd "packages/engine-$platform" && npm publish --dry-run --access public 2>&1 | tail -3 )
+          done
+          npm publish --dry-run --ignore-scripts --access public 2>&1 | tail -3
+
+  report:
+    name: report
+    needs: [gate, ci, e2e]
+    if: always() && needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_RESULT: ${{ needs.ci.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          set -uo pipefail
+          title="nightly build of dev is failing"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          existing="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number' || true)"
+          if [ "$CI_RESULT" = success ] && [ "$E2E_RESULT" = success ]; then
+            echo "nightly green"
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --comment "Green again at ${GITHUB_SHA::8}: $run_url"
+            fi
+            exit 0
+          fi
+          {
+            echo "Nightly build of \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA::8} failed."
+            echo
+            echo "| stage | result |"
+            echo "|---|---|"
+            echo "| build, tests, every platform's engines (fresh) | $CI_RESULT |"
+            echo "| install from tarballs and run; npm publish dry-run | $E2E_RESULT |"
+            echo
+            echo "Run: $run_url"
+            echo
+            echo "Nothing was published. This closes itself on the next green night."
+          } > /tmp/body.md
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file /tmp/body.md
+          else
+            gh issue create --title "$title" --body-file /tmp/body.md
+          fi
+          exit 1

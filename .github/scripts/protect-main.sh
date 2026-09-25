@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Apply the branch ruleset for `main`.
+# Apply the rulesets for `main`, `dev` and release tags.
 #
 #   bash .github/scripts/protect-main.sh            # apply
 #   bash .github/scripts/protect-main.sh --dry-run  # print the payload only
@@ -34,7 +34,7 @@ payload="$(cat <<'JSON'
   "target": "branch",
   "enforcement": "active",
   "conditions": {
-    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
+    "ref_name": { "include": ["refs/heads/main"], "exclude": [] }
   },
   "bypass_actors": [],
   "rules": [
@@ -73,13 +73,34 @@ merge_payload="$(cat <<'JSON'
   "target": "branch",
   "enforcement": "active",
   "conditions": {
-    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
+    "ref_name": { "include": ["refs/heads/main"], "exclude": [] }
   },
   "bypass_actors": [
     { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }
   ],
   "rules": [
     { "type": "update" }
+  ]
+}
+JSON
+)"
+
+# dev is the DEFAULT branch: every pull request lands there, and main moves only by
+# promotion. Its one rule is that it cannot be deleted; direct pushes, force-pushes and
+# the sync-dev bot's merges from main are all allowed, because dev is where work is
+# tried. The rulesets above name refs/heads/main rather than ~DEFAULT_BRANCH for the
+# same reason: the default branch is dev, and main's protection must not follow it.
+dev_payload="$(cat <<'JSON'
+{
+  "name": "protect-dev",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["refs/heads/dev"], "exclude": [] }
+  },
+  "bypass_actors": [],
+  "rules": [
+    { "type": "deletion" }
   ]
 }
 JSON
@@ -106,6 +127,7 @@ JSON
 if [ "$DRY" = "1" ]; then
   echo "$payload"
   echo "$merge_payload"
+  echo "$dev_payload"
   echo "$tag_payload"
   exit 0
 fi
@@ -129,6 +151,7 @@ apply_ruleset() {
 }
 apply_ruleset protect-main "$payload"
 apply_ruleset main-merge-admins "$merge_payload"
+apply_ruleset protect-dev "$dev_payload"
 apply_ruleset protect-release-tags "$tag_payload"
 
 # Merge-method hygiene lives on the repository, not the ruleset: squash-only, and

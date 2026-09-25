@@ -14,8 +14,13 @@
 # never report can never merge. Instead the workflow always starts, the `changes`
 # job classifies the diff, and the expensive jobs skip THEMSELVES: a docs-only pull
 # request runs build and hygiene (which carries the version gate) and nothing else,
-# and the platform engine build runs only when what it compiles changed. The `CI`
-# job reports either way. Pushes to main, merge queues and manual runs run it all.
+# and the platform engine build runs only for main, and only when what it compiles
+# changed. The `CI` job reports either way.
+#
+# dev is the default branch: every pull request lands there and gets build, hygiene
+# and the five suites. The four-platform engine build is the slow part and no test
+# uses its output, so it runs on the way INTO main (a promotion pull request, a push
+# to main) and in the nightly, not on every change to dev.
 # ─────────────────────────────────────────────────────────────────────────────
 name: CI
 
@@ -25,6 +30,13 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+  # nightly.yml calls this with fresh=true: no restored engine cache, so every engine
+  # is compiled from the rules as they are, and the platform build always runs.
+  workflow_call:
+    inputs:
+      fresh:
+        type: boolean
+        default: false
 
 # One run per ref. A new push to a pull request cancels the previous run, but a
 # run on main is always allowed to finish — main's history is the record.
@@ -58,9 +70,17 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          if [ "${{ inputs.fresh }}" = true ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=true" >> "$GITHUB_OUTPUT"
+            echo "nightly: everything runs"; exit 0
+          fi
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/dev ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=false" >> "$GITHUB_OUTPUT"
+            echo "push to dev: suites run, platform engines wait for main"; exit 0
+          fi
           if [ "${{ github.event_name }}" != pull_request ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=true" >> "$GITHUB_OUTPUT"
-            echo "not a pull request: everything runs"; exit 0
+            echo "${{ github.event_name }} on ${{ github.ref }}: everything runs"; exit 0
           fi
           files="$(git diff --name-only "$BASE"...HEAD)"
           printf '%s\n' "$files" | sed 's/^/  /'
@@ -78,6 +98,8 @@ jobs:
             -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' \
             -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' || true)"
           [ -n "$code" ] && echo "code=true" >> "$GITHUB_OUTPUT" || echo "code=false" >> "$GITHUB_OUTPUT"
+          # Only a pull request INTO main builds the platform engines; into dev they wait.
+          [ "${{ github.base_ref }}" = main ] || engines=""
           [ -n "$engines" ] && echo "engines=true" >> "$GITHUB_OUTPUT" || echo "engines=false" >> "$GITHUB_OUTPUT"
           echo "suites: $([ -n "$code" ] && echo run || echo skip)   platform engines: $([ -n "$engines" ] && echo run || echo skip)"
 
@@ -335,17 +357,26 @@ jobs:
       # run-souffle.sh caches the compiled solver under a content hash of the
       # .dl program text. Mirroring that key here skips a multi-minute C++ build
       # on every run whose rules did not change.
+      # Keyed by this language's ENGINE_ID — the hash the driver itself names its
+      # compiled binary by (its rules and the Soufflé version) — so a rule change in
+      # one language recompiles that language only, and an unchanged one never does.
+      - name: this language's engine id
+        id: eid
+        run: echo "id=$(bash graph/pipeline/run-souffle.sh --language ${{ matrix.lang }} --print-engine-id)" >> "$GITHUB_OUTPUT"
+
       - name: cache the compiled Soufflé engine
+        if: ${{ !inputs.fresh }}
         uses: actions/cache@v4
         with:
           path: .souffle-cache
-          key: souffle-${{ env.SOUFFLE_VERSION }}-${{ matrix.lang }}-${{ hashFiles('graph/**/*.dl', 'graph/**/*.map', 'graph/**/*.tsv') }}
-          restore-keys: |
-            souffle-${{ env.SOUFFLE_VERSION }}-${{ matrix.lang }}-
+          key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}
 
       - name: ${{ matrix.lang }} regression suite
         env:
           AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          # The driver's default cache is ~/.cache/axiomcode/souffle; point it at the
+          # directory the cache step above saves and restores, or it never hits.
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
 
   # Every language's engine, every platform: the reusable build that publish-npm
@@ -357,6 +388,8 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.engines == 'true'
     uses: ./.github/workflows/build-engines.yml
+    with:
+      fresh: ${{ inputs.fresh == true }}
 
   # A single job the branch ruleset can require. Without it, every new matrix
   # entry has to be added to the protection rules by hand, and a matrix job that

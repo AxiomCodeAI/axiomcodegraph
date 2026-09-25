@@ -70,6 +70,8 @@ jobs:
   engines:
     needs: check
     uses: ./.github/workflows/build-engines.yml
+    with:
+      fresh: true      # what ships is compiled from scratch, never restored
 
   publish:
     needs: [check, engines]

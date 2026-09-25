@@ -36,9 +36,26 @@ npm will not republish one. Before the first tag, changes simply join the unrele
 
 ## dev and main
 
-`dev` has no rules: push to it directly and CI runs on every push. Promote with a pull request
-`dev → main`, which needs a green `CI` and an admin to merge. main only squash-merges, so after
-every push to main the `sync-dev` job in `release.yml` merges main back into dev; otherwise the
-next promotion would show the old work again. A hotfix that went straight to main and touches
-lines dev has since changed cannot merge automatically: nothing is pushed, and an issue gives the
-commands to resolve it on dev by hand.
+`dev` is the default branch: every pull request lands there, and CI runs build, repo checks and
+the five language suites on it (a docs-only change runs only the first two). Its one rule is that
+it cannot be deleted, so direct pushes are fine too.
+
+`main` moves only by promotion: a pull request `dev → main`, which also builds every platform's
+engines, needs a green `CI`, and only an admin can merge. Every version released is a tag on
+`main`. main only squash-merges, so after every push to main the `sync-dev` job in `release.yml`
+merges main back into dev; a hotfix that conflicts with dev pushes nothing and opens an issue with
+the commands to resolve it by hand.
+
+## Nightly
+
+`nightly.yml` builds `dev` from scratch each night it has new commits: no cached engines, the five
+suites, all four platforms' engines, then `e2e-install.sh` packs the npm tarballs, installs them
+into an empty project without Soufflé and runs `axiomcode` in every language, and `npm publish
+--dry-run` checks each package. It publishes nothing. A failure opens an issue; the next green
+night closes it. Run it by hand from Actions at any time.
+
+## Caches
+
+Compiled engines are cached by ENGINE_ID, the hash of a language's rules and the Soufflé version,
+so a change that touches no rules reuses every engine and a rule change recompiles only its own
+language. The nightly and every real publish build fresh.
