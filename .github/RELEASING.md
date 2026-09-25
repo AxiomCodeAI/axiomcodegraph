@@ -31,5 +31,5 @@ npm will not republish one. Before the first tag, changes simply join the unrele
 - `CLI_BINARY_PUBLISH` repository secret: an npm token with publish rights on `@axiomcode`.
 - The repository must be public: every platform, macOS included, builds on GitHub's standard
   hosted runners, which are free only for public repositories.
-- `bash .github/scripts/protect-main.sh` (admin): requires the `CI` check on `main` and
+- `bash .github/scripts/protect-main.sh` (admin): PR + green `CI` for everyone, only admins merge,
   makes `v*` tags immutable.

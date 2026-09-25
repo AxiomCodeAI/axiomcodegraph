@@ -10,16 +10,17 @@
 # What it enforces
 #   - no direct push to main, and no force-push
 #   - main cannot be deleted
-#   - every change arrives by pull request, with an approving review
-#   - a review is dismissed when new commits are pushed
-#   - review from a code owner
+#   - every change arrives by pull request; no approving review is required
 #   - the `CI` check must pass, evaluated against an up-to-date branch
+#   - only the repository ADMIN role may merge into main (ruleset main-merge-admins):
+#     anyone can open a pull request, an admin merges it, their own included
 #   - linear history: squash or rebase, no merge bubbles
 #   - a release tag (v*) can be created but never moved or deleted: npm will not
 #     republish a version, so a tag that moved would name a tree nobody installed
 #
-# `bypass_actors` is empty on purpose. A rule that some accounts can step around
-# is a convention rather than a control, and the point of this file is the control.
+# protect-main has no bypass: the PR and CI rules hold for admins too. The merge
+# restriction is a separate ruleset so that its bypass (admins, and only through a
+# pull request) exempts nobody from those.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -43,9 +44,9 @@ payload="$(cat <<'JSON'
     {
       "type": "pull_request",
       "parameters": {
-        "required_approving_review_count": 1,
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": true,
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": true,
         "allowed_merge_methods": ["squash", "rebase"]
@@ -61,6 +62,24 @@ payload="$(cat <<'JSON'
         ]
       }
     }
+  ]
+}
+JSON
+)"
+
+merge_payload="$(cat <<'JSON'
+{
+  "name": "main-merge-admins",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
+  },
+  "bypass_actors": [
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }
+  ],
+  "rules": [
+    { "type": "update" }
   ]
 }
 JSON
@@ -86,6 +105,7 @@ JSON
 
 if [ "$DRY" = "1" ]; then
   echo "$payload"
+  echo "$merge_payload"
   echo "$tag_payload"
   exit 0
 fi
@@ -108,6 +128,7 @@ apply_ruleset() {
   fi
 }
 apply_ruleset protect-main "$payload"
+apply_ruleset main-merge-admins "$merge_payload"
 apply_ruleset protect-release-tags "$tag_payload"
 
 # Merge-method hygiene lives on the repository, not the ruleset: squash-only, and
@@ -120,5 +141,5 @@ gh api -X PATCH "repos/$REPO" \
   -F delete_branch_on_merge=true \
   -F allow_auto_merge=true >/dev/null
 
-echo "done. main now requires a pull request and a green CI check."
+echo "done. main requires a pull request and a green CI check; only admins merge."
 gh api "repos/$REPO/rulesets" --jq '.[] | "  ruleset: \(.name)  enforcement=\(.enforcement)"'
