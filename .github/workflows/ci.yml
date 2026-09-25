@@ -9,9 +9,13 @@
 #   engines   every language's engine builds on every platform (the reusable
 #             build-engines workflow — the same artifacts publish-npm ships)
 #
-# NO PATH FILTERS, deliberately. A required check that is skipped by a path
-# filter never reports, and a pull request waiting on a check that will never
-# report can never merge. Correctness beats the saved minutes.
+# NO WORKFLOW-LEVEL PATH FILTERS, deliberately. A required check that is skipped
+# by a path filter never reports, and a pull request waiting on a check that will
+# never report can never merge. Instead the workflow always starts, the `changes`
+# job classifies the diff, and the expensive jobs skip THEMSELVES: a docs-only pull
+# request runs build and hygiene (which carries the version gate) and nothing else,
+# and the platform engine build runs only when what it compiles changed. The `CI`
+# job reports either way. Pushes to main, merge queues and manual runs run it all.
 # ─────────────────────────────────────────────────────────────────────────────
 name: CI
 
@@ -38,6 +42,45 @@ env:
   SOUFFLE_SHA512: '6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c'
 
 jobs:
+  changes:
+    name: what changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.c.outputs.code }}
+      engines: ${{ steps.c.outputs.engines }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: c
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=true" >> "$GITHUB_OUTPUT"
+            echo "not a pull request: everything runs"; exit 0
+          fi
+          files="$(git diff --name-only "$BASE"...HEAD)"
+          printf '%s\n' "$files" | sed 's/^/  /'
+          # DOCS: prose nothing executes. Markdown under graph/ or parser/ is NOT
+          # docs: graph/bundle/SCHEMA.md is generated, and a suite checks it is current.
+          code="$(printf '%s\n' "$files" | grep -vE \
+            -e '^$' \
+            -e '^(graph|parser)/' -e '^[^/]+\.md$' -e '^docs/' -e '^paper/' \
+            -e '^\.github/(ISSUE_TEMPLATE/|pull_request_template\.md$|CODEOWNERS$|RELEASING\.md$)' \
+            -e '^LICENSE' -e '\.(png|jpe?g|gif|svg)$' || true)"
+          # graph/ and parser/ are code even when the file is markdown
+          code="$code$(printf '%s\n' "$files" | grep -E '^(graph|parser)/' || true)"
+          # ENGINES: what the platform build compiles or packages.
+          engines="$(printf '%s\n' "$files" | grep -E \
+            -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' \
+            -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' || true)"
+          [ -n "$code" ] && echo "code=true" >> "$GITHUB_OUTPUT" || echo "code=false" >> "$GITHUB_OUTPUT"
+          [ -n "$engines" ] && echo "engines=true" >> "$GITHUB_OUTPUT" || echo "engines=false" >> "$GITHUB_OUTPUT"
+          echo "suites: $([ -n "$code" ] && echo run || echo skip)   platform engines: $([ -n "$engines" ] && echo run || echo skip)"
+
   build:
     name: build & typecheck
     runs-on: ubuntu-24.04
@@ -143,6 +186,8 @@ jobs:
 
   engine:
     name: engine (${{ matrix.lang }})
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -309,7 +354,8 @@ jobs:
   # gate here rather than at release time.
   engines:
     name: engines build on every platform
-    needs: [build]
+    needs: [build, changes]
+    if: needs.changes.outputs.engines == 'true'
     uses: ./.github/workflows/build-engines.yml
 
   # A single job the branch ruleset can require. Without it, every new matrix
@@ -319,7 +365,7 @@ jobs:
   ci:
     name: CI
     runs-on: ubuntu-24.04
-    needs: [build, hygiene, engine, engines]
+    needs: [changes, build, hygiene, engine, engines]
     if: always()
     steps:
       - name: every required job succeeded
@@ -328,9 +374,22 @@ jobs:
           # the only string delimiter a GitHub expression has. A double quote there
           # is a lex error that invalidates the entire workflow file, and the run
           # then fails in zero seconds with no job having started.
-          results="${{ join(needs.*.result, ' ') }}"
-          echo "upstream results: $results"
-          for r in $results; do
+          # changes, build and hygiene always run and must succeed. engine and
+          # engines may be SKIPPED, but only when `changes` said so; any other
+          # skip (a job that never started) is a failure.
+          always="${{ needs.changes.result }} ${{ needs.build.result }} ${{ needs.hygiene.result }}"
+          echo "always-run jobs: $always"
+          for r in $always; do
             [ "$r" = "success" ] || { echo "::error::a required job reported '$r'"; exit 1; }
           done
+          check() {  # name result expected-to-run
+            if [ "$3" = true ]; then
+              [ "$2" = success ] || { echo "::error::$1 reported '$2'"; exit 1; }
+            else
+              [ "$2" = skipped ] || { echo "::error::$1 reported '$2' though nothing it tests changed"; exit 1; }
+            fi
+            echo "$1: $2"
+          }
+          check "engine suites" "${{ needs.engine.result }}" "${{ needs.changes.outputs.code }}"
+          check "platform engines" "${{ needs.engines.result }}" "${{ needs.changes.outputs.engines }}"
           echo "all required jobs passed"
