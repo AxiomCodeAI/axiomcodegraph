@@ -270,8 +270,6 @@ the tests AxiomCode selects include every bug-revealing test for **94.9%** of bu
 best CST-based graph builder, at an F1 of **72.4** against Defects4J's own selection, which it gets by
 running the suite.
 
-The table is at the [top of this page](#what-it-does).
-
 **Change impact.** On five real commits of a large JVM project (181,355 methods), the direct callers AxiomCode
 reports have precision **0.980** against 0.397 for CST-based name matching, at the same recall. An agent asked
 about one change had to read 95 of 43,793 methods, and every true direct caller was among them.
