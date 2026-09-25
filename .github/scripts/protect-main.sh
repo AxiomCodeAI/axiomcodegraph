@@ -49,6 +49,7 @@ payload="$(cat <<'JSON'
         "dismiss_stale_reviews_on_push": false,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
+        "require_extra_approval_for_unattributed_changes": false,
         "required_review_thread_resolution": true,
         "allowed_merge_methods": ["squash", "rebase"]
       }

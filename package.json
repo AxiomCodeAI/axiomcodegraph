@@ -1,7 +1,7 @@
 {
   "name": "@axiomcode/code-graph",
   "version": "0.1.0",
-  "description": "AxiomCode code graph: parser (IR extraction) + type-directed reasoning engine + language-neutral graph.sqlite output. bin/axiomcode runs the whole pipeline.",
+  "description": "AxiomCode Graph: a resolved call graph of your codebase grounded in formal methods, so you and your coding agents can see who calls what, what a change breaks, and which tests it reaches.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AxiomCodeAI/axiomcodegraph.git"
@@ -31,6 +31,7 @@
   "license": "FSL-1.1-Apache-2.0",
   "optionalDependencies": {
     "@axiomcode/engine-darwin-arm64": "0.1.0",
+    "@axiomcode/engine-darwin-x64": "0.1.0",
     "@axiomcode/engine-linux-x64": "0.1.0",
     "@axiomcode/engine-linux-arm64": "0.1.0",
     "@axiomcode/engine-win32-x64": "0.1.0"

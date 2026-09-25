@@ -12,14 +12,22 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 rm -rf "$out"; mkdir -p "$out"
 cp -R "$src"/. "$out/"
 langs="$(ls -d "$out"/*/ | xargs -n1 basename | tr '\n' ' ')"
+case "$platform" in
+  darwin-arm64) label="macOS (Apple Silicon)";; darwin-x64) label="macOS (Intel)";;
+  linux-x64) label="Linux x64";; linux-arm64) label="Linux arm64";; win32-x64) label="Windows x64";;
+  *) label="$os $cpu";;
+esac
 sed -e "s|@@SCOPE@@|$ENGINE_PACKAGE_SCOPE|g" -e "s|@@PLATFORM@@|$platform|g" -e "s|@@VERSION@@|$version|g" \
-    -e "s|@@OS@@|$os|g" -e "s|@@CPU@@|$cpu|g" -e "s|@@LANGS@@|${langs% }|g" \
+    -e "s|@@OS@@|$os|g" -e "s|@@CPU@@|$cpu|g" -e "s|@@LANGS@@|${langs% }|g" -e "s|@@LABEL@@|$label|g" \
     "$HERE/engine-package.json" > "$out/package.json"
 cp "$HERE/../LICENSE.md" "$out/LICENSE.md"
 { echo "# $ENGINE_PACKAGE_SCOPE/engine-$platform"; echo
-  echo "Prebuilt AxiomCode code-graph engines for $os/$cpu: ${langs% }. Installed automatically as an"
-  echo "optional dependency of the code-graph package on a matching machine; not meant to be used directly."
-  echo; for l in $langs; do echo "- $l: rules id \`$(cat "$out/$l/ENGINE_ID")\`"; done
+  echo "The $label engine for AxiomCode Graph ([$ENGINE_PACKAGE_SCOPE/code-graph](https://www.npmjs.com/package/$ENGINE_PACKAGE_SCOPE/code-graph)),"
+  echo "a resolved call graph of your codebase grounded in formal methods."; echo
+  echo "Installed automatically with \`$ENGINE_PACKAGE_SCOPE/code-graph\` on $label; you don't need to install it yourself."
+  echo; echo "Languages: ${langs% }."
+  echo; echo "Rules each engine was built from:"; echo
+  for l in $langs; do echo "- $l: \`$(cat "$out/$l/ENGINE_ID")\`"; done
 } > "$out/README.md"
 chmod +x "$out"/*/axiomcode-engine-* 2>/dev/null || true
 echo "assembled $out: $(ls "$out" | tr '\n' ' ')"

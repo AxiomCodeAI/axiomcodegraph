@@ -18,7 +18,7 @@
 # changed. The `CI` job reports either way.
 #
 # dev is the default branch: every pull request lands there and gets build, hygiene
-# and the five suites. The four-platform engine build is the slow part and no test
+# and the five suites. The every-platform engine build is the slow part and no test
 # uses its output, so it runs on the way INTO main (a promotion pull request, a push
 # to main) and in the nightly, not on every change to dev.
 # ─────────────────────────────────────────────────────────────────────────────

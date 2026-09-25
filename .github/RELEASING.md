@@ -49,7 +49,7 @@ the commands to resolve it by hand.
 ## Nightly
 
 `nightly.yml` is dev's status (the "nightly" badge in the README). Every night it builds `dev`
-from scratch: no cached engines, the five suites, all four platforms' engines, then
+from scratch: no cached engines, the five suites, every platform's engines, then
 `e2e-install.sh` packs the npm tarballs, installs them into an empty project without Soufflé and
 runs `axiomcode` in four languages, and `npm publish --dry-run` checks each package.
 
