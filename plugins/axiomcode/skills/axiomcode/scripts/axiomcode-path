@@ -462,7 +462,7 @@ class G:
         if self.has('paths'):
             r = self.q("SELECT rel FROM paths WHERE raw = ?", raw)
             if r: return r[0]['rel']
-        return os.path.relpath(raw, self.repo) if os.path.isabs(raw) and raw.startswith(self.repo) else raw
+        return os.path.relpath(raw, self.repo).replace(os.sep, '/') if os.path.isabs(raw) and raw.startswith(self.repo) else raw
 
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     def export(self):
@@ -1065,7 +1065,7 @@ if __name__ == '__main__':
     limit = 10; IN = None; every = '--every' in args; args = [a for a in args if a != '--every']; max_paths = 20
     if '--paths' in args: i = args.index('--paths'); max_paths = int(args[i + 1]); every = True; del args[i:i + 2]
     if '--limit' in args: i = args.index('--limit'); limit = int(args[i + 1]); del args[i:i + 2]
-    if '--in' in args: i = args.index('--in'); IN = args[i + 1]; del args[i:i + 2]
+    if '--in' in args: i = args.index('--in'); IN = args[i + 1].replace('\\', '/'); del args[i:i + 2]
     if len(args) < 2: die("usage: axiomcode path <from> <to> [<repo>] [--all] [--limit N] [--in <path fragment>]")
     if args[0] == '*' and args[1] == '*': die("one endpoint must be named: path '*' X (everything that reaches X) or path X '*' (everything X reaches)")
 

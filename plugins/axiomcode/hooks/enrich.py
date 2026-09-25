@@ -22,7 +22,7 @@ def rel_of(fp):
     fp = str(fp)
     for a, b in ((fp, cwd), (os.path.realpath(fp), os.path.realpath(cwd)), (os.path.realpath(fp), cwd), (fp, os.path.realpath(cwd))):
         r = os.path.relpath(a, b)
-        if not r.startswith('..'): return r
+        if not r.startswith('..'): return r.replace(os.sep, '/')   # the index stores '/' on every platform
     return fp
 db = os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')
 if not os.path.exists(db): sys.exit(0)
