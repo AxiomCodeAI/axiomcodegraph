@@ -21,6 +21,12 @@
 #                                  (javac + javap invoke instructions — no third-party analyzer):
 #                                  every bytecode-declared client->client edge must be present.
 #   ./run-tests.sh --keep          keep the per-case work dirs for debugging
+#   ./run-tests.sh --no-torture    skip the torture families.
+#                                  ONLY for an environment that cannot hold the JVM platform IR.
+#                                  The families call java.util.List, Map and the functional
+#                                  interfaces, so with the platform absent those receivers are
+#                                  unresolvable by construction, and the score measures the staging
+#                                  rather than the rules. Excluding them is stated in the output.
 #
 #   With --oracle, a case carrying a spring-oracle.conf ALSO boots its sources in a real
 #   AnnotationConfigApplicationContext and scores bean_def / di_edge against what Spring
@@ -144,9 +150,9 @@ PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 . "$HERE/tools/oracle-build.sh"
 ORACLE_FLAGS=""
 WORK="$HERE/.work"
-BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
+BLESS=0; KEEP=0; ORACLE=0; NO_TORTURE=0; FILTERS=()
 for a in "$@"; do case "$a" in
-  --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;;
+  --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;; --no-torture) NO_TORTURE=1;;
   -h|--help) sed -n '2,34p' "$0"; exit 0;; *) FILTERS+=("$a");; esac; done
 
 # ── PREFLIGHT: every relation the parser emits must actually reach the solver ──────────
@@ -543,7 +549,7 @@ done
 # The cases above each pin ONE rule. This asks what happens when a project uses everything at
 # once, and reports WHICH construct is the gap rather than one number. It stages the platform IR,
 # because half the families call java.util types and scoring them without it measures the staging.
-if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ]; then
+if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ] && [ "$NO_TORTURE" = 0 ]; then
   printf '%-34s ' "torture (10 families)"
   # --bless has to reach the torture harness too, or a run that regenerates every other golden
   # leaves this one stale and the very next run fails on a diff the operator just approved.
@@ -555,6 +561,9 @@ if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ]; then
   else
     echo "FAIL"; echo "$out" | sed 's/^/    /' | head -24; fail=$((fail+1)); failed+=("torture")
   fi
+fi
+if [ "$NO_TORTURE" = 1 ] && [ ${#FILTERS[@]} -eq 0 ]; then
+  echo "torture (10 families)              EXCLUDED (--no-torture)"
 fi
 
 echo "─────────────────────────────────────────────"

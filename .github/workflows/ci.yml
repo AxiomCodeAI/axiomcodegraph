@@ -1,0 +1,339 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI — the gate every change to main passes through.
+#
+# Four tiers, cheapest first, all required:
+#   build     the parser and the engine driver compile and typecheck
+#   hygiene   repo invariants that need no solver and catch silent breakage
+#   engine    the java / typescript / python / javascript / csharp regression suites, in
+#             parallel, each compiling its own engine from the rules
+#   engines   every language's engine builds on every platform (the reusable
+#             build-engines workflow — the same artifacts publish-npm ships)
+#
+# NO PATH FILTERS, deliberately. A required check that is skipped by a path
+# filter never reports, and a pull request waiting on a check that will never
+# report can never merge. Correctness beats the saved minutes.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+# One run per ref. A new push to a pull request cancels the previous run, but a
+# run on main is always allowed to finish — main's history is the record.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # bin/axiomcode and the parser need Node ≥ 22.5.
+  NODE_VERSION: '22'
+  SOUFFLE_VERSION: '2.5'
+  SOUFFLE_SHA512: '6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c'
+
+jobs:
+  build:
+    name: build & typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # No lock file is committed (#476), so this is `npm install`, not `npm ci`,
+      # and setup-node's npm cache (keyed on a lock file) is not used. The install
+      # runs the `prepare` script, which builds the parser workspace and the
+      # driver. Keeping the explicit build step anyway means a prepare-script
+      # change cannot silently stop compiling this repo.
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build
+      - name: the parser actually built
+        run: |
+          test -f parser/dist/index.js \
+            || { echo "::error::parser/dist/index.js is missing after build"; exit 1; }
+
+  hygiene:
+    name: repo invariants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # the version gate needs the merge base with the target branch
+
+      # A fixture input that .gitignore matches passes on the machine that wrote
+      # it and fails on every clone. The suites run this too; running it here as
+      # well means the answer arrives in seconds rather than after the engine.
+      - name: every fixture input is tracked by git
+        run: bash graph/test/tools/no-ignored-fixtures.sh
+
+      # A relation staged for the client but not for libraries is EMPTY on every
+      # run and nothing errors — no golden can see it. This is the only check
+      # that can.
+      - name: IR staging maps are consistent
+        run: |
+          fail=0
+          for lang in java typescript python javascript csharp; do
+            echo "── $lang"
+            python3 graph/test/tools/check_staging.py --lang "$lang" || fail=1
+          done
+          exit $fail
+
+      # The engine's base declarations are a COPY of the parser's generated
+      # schema (graph/<lang>/souffle/decls_base.dl ← parser/src/schema/<lang>/).
+      # A column appended on the parser side and not here is an arity error at
+      # solve time in every suite at once, with the cause two directories away.
+      # Compared on the `.decl` lines only: the copies carry their own preambles.
+      - name: engine declarations match the parser schema
+        run: |
+          fail=0
+          for pair in typescript:decls_base_ts.dl python:decls_base_py.dl javascript:decls_base_js.dl csharp:decls_base_cs.dl; do
+            lang="${pair%%:*}"; file="${pair#*:}"
+            if ! diff <(grep '^\.decl' "parser/src/schema/$lang/$file") \
+                      <(grep '^\.decl' "graph/$lang/souffle/decls_base.dl"); then
+              echo "::error::graph/$lang/souffle/decls_base.dl has drifted from parser/src/schema/$lang/$file"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # The client->library half is carried by a smaller set of fixtures than the
+      # client->client half, and it is the half that disappears silently: delete a
+      # golden and the case still runs, still passes, and simply stops claiming
+      # anything. A suite can only check the assertions it still has.
+      - name: client->library coverage has not shrunk
+        run: bash graph/test/tools/lib-coverage.sh
+
+      - name: shell scripts parse
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "::error file=$f::does not parse"; fail=1; }
+          done < <(git ls-files '*.sh')
+          exit $fail
+
+      # npm will not republish a version, so anything inside the tarball reaches
+      # nobody unless the version moves — README.md included, since `files` names
+      # it. The inverse is the error worth avoiding too: a bump demanded for a CI
+      # tweak or a test fixture teaches people to bump without asking why, and a
+      # version that moves for reasons users cannot observe stops meaning
+      # anything. The gate reads package.json's own `files` declaration to tell
+      # the two apart, and prints the files that decided it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # package.json's version is repeated in the engine pins, the parser and every
+      # plugin manifest. Checked on every event, not only pull requests, so main
+      # can never hold a tree whose manifests disagree about what it is.
+      - name: every manifest carries the same version
+        run: node .github/scripts/version.mjs check
+
+      - name: a change that reaches a user has a version
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/version-gate.sh "origin/${{ github.base_ref }}"
+
+  engine:
+    name: engine (${{ matrix.lang }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --oracle scores the engine against GROUND TRUTH, not only against the
+          # goldens. A golden says "the same as last time", which a wrong answer
+          # satisfies perfectly well as long as it was wrong last time too.
+          #
+          # The ground truth is built with the toolchain that defines the language:
+          # javac and javap for Java, the TypeScript compiler for TypeScript and —
+          # over allowJs/checkJs — for JavaScript. No third-party analyzer, and no
+          # third-party library is downloaded to do it. A case whose ground truth would need an external
+          # classpath reports itself unscored rather than pulling one in.
+          #
+          # --no-torture for java ONLY. Those families call java.util.List, Map and
+          # the functional interfaces, so they need the JVM platform IR staged as a
+          # library. That IR is 1.8 GB and is built from a JDK source checkout, so it
+          # cannot live in a repository or a cache. Without it those receivers are
+          # unresolvable BY CONSTRUCTION — the census goes from 10 missing edges to
+          # 23 and recall to 0.847 — which measures the staging, not the rules, and
+          # the resulting red would read as a regression in whatever PR met it.
+          #
+          # Java client->library resolution is still covered here: six cases ship
+          # their own stub library in lib-src/ and are solved with it as --library.
+          # The torture families remain a local gate until the platform IR can be
+          # produced reproducibly; the suite prints EXCLUDED so it is never mistaken
+          # for a family that passed.
+          - lang: java
+            oracle: '--oracle --no-torture'
+          - lang: typescript
+            oracle: '--oracle'
+          # Python's ground truth is frozen CPython output, authored by a separate
+          # harness checkout ($AXIOM_PY_ORACLE) that CI cannot reach yet, so this leg
+          # is goldens-only for now. That separation is deliberate —
+          # graph/test/python/run-tests.sh explains why the ability to re-bless
+          # ground truth must not sit beside the code under test — but it does mean
+          # the python leg is a weaker check than the other three until the harness
+          # is reachable from here.
+          - lang: python
+            oracle: ''
+          # JavaScript: 19 cases; the library case ships its dependency under
+          # src/node_modules and is solved twice. The execution oracles (torture/,
+          # realapp/) are separate harnesses and stay a local gate — realapp needs
+          # network for its own npm install.
+          - lang: javascript
+            oracle: '--oracle'
+          # C# has no goldens: every case is scored against the Roslyn oracle
+          # (graph/test/csharp/ground-truth), which the step below builds with the
+          # .NET 8 SDK. No flag — scoring against the compiler is all it does.
+          - lang: csharp
+            oracle: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Builds the in-repo parser (parser/dist) through the prepare script, and
+      # supplies the TypeScript compiler the typescript and javascript oracles run.
+      # `npm install`, not `npm ci`: no lock file is committed (#476).
+      - run: npm install
+
+      - name: the parser actually built
+        run: |
+          test -f parser/dist/index.js \
+            || { echo "::error::parser/dist/index.js is missing after npm install"; exit 1; }
+
+      # TWO interpreters, because the python suite needs two different things and
+      # they cannot be the same version.
+      #
+      #   3.10 — the tier-1 attribution preflight reads CPython OPCODES, whose
+      #          shapes are not stable across minor versions. It resolves
+      #          `python3.10` by name, so this only has to exist on PATH.
+      #   3.12 — the torture fixtures are SOURCE that has to import: one of them
+      #          uses `typing.Self`, which is 3.11+ (PEP 673), so on 3.10 the
+      #          tracer dies at import and the family scores nothing.
+      #
+      # The later setup-python wins for plain `python3`, so 3.12 must come second.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: both interpreters are on PATH
+        run: |
+          set -euo pipefail
+          echo "python3    -> $(python3 --version)"
+          echo "python3.10 -> $(python3.10 --version)"
+
+      # JDK 24, not the runner's default. The java torture harness reads class files
+      # with java.lang.classfile, which is not final before 24 — on an older JDK it
+      # exits 77 and the whole ten-family oracle silently does not run.
+      - uses: actions/setup-java@v4
+        if: matrix.lang == 'java'
+        with:
+          distribution: temurin
+          java-version: '24'
+
+      - uses: actions/setup-dotnet@v4
+        if: matrix.lang == 'csharp'
+        with:
+          dotnet-version: '8.0.x'
+
+      # Without the oracle binary the suite exits 77, which run-suite.sh turns into
+      # a failure — so a missing build is loud, never a silent skip.
+      - name: build the Roslyn oracle
+        if: matrix.lang == 'csharp'
+        run: dotnet build -c Release graph/test/csharp/ground-truth/AxiomCsOracle
+
+      - name: cache the Soufflé package
+        uses: actions/cache@v4
+        with:
+          path: ~/souffle-pkg
+          key: souffle-deb-${{ env.SOUFFLE_VERSION }}-ubuntu-2404
+
+      # Soufflé is the solver, not a library under test: the engine is compiled
+      # from .dl to C++ and linked against Soufflé's headers, so a build of it has
+      # to be present the way a compiler has to be present.
+      #
+      # It is pinned to an exact version AND verified against the checksum upstream
+      # published for that release, so what CI links against is decided in this
+      # file rather than by whatever the archive happens to serve today. The pin
+      # the driver reads is graph/pipeline/engine.conf; this must agree with it.
+      - name: install Soufflé ${{ env.SOUFFLE_VERSION }}
+        run: |
+          set -euo pipefail
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          dir="$HOME/souffle-pkg"; mkdir -p "$dir"
+          if [ ! -f "$dir/$deb" ]; then
+            curl -fsSL --retry 3 -o "$dir/$deb" \
+              "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/${deb}"
+          fi
+          echo "${SOUFFLE_SHA512}  ${dir}/${deb}" | sha512sum -c -
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "$dir/$deb"
+          souffle --version | head -2
+
+      # ── the compiled engine ────────────────────────────────────────────────
+      # run-souffle.sh caches the compiled solver under a content hash of the
+      # .dl program text. Mirroring that key here skips a multi-minute C++ build
+      # on every run whose rules did not change.
+      - name: cache the compiled Soufflé engine
+        uses: actions/cache@v4
+        with:
+          path: .souffle-cache
+          key: souffle-${{ env.SOUFFLE_VERSION }}-${{ matrix.lang }}-${{ hashFiles('graph/**/*.dl', 'graph/**/*.map', 'graph/**/*.tsv') }}
+          restore-keys: |
+            souffle-${{ env.SOUFFLE_VERSION }}-${{ matrix.lang }}-
+
+      - name: ${{ matrix.lang }} regression suite
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+        run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
+
+  # Every language's engine, every platform: the reusable build that publish-npm
+  # ships from, run here WITHOUT publishing. A rule that solves on Ubuntu but does
+  # not compile with MSVC, or that no longer generates for a language, fails the
+  # gate here rather than at release time. macOS builds on a self-hosted runner and
+  # is left to the publish workflow.
+  engines:
+    name: engines build on every platform
+    needs: [build]
+    uses: ./.github/workflows/build-engines.yml
+    with:
+      macos: false
+
+  # A single job the branch ruleset can require. Without it, every new matrix
+  # entry has to be added to the protection rules by hand, and a matrix job that
+  # fails to start reports nothing at all — which a ruleset reads as "not
+  # failing" rather than as "did not run".
+  ci:
+    name: CI
+    runs-on: ubuntu-24.04
+    needs: [build, hygiene, engine, engines]
+    if: always()
+    steps:
+      - name: every required job succeeded
+        run: |
+          # The expression quotes its separator with SINGLE quotes because that is
+          # the only string delimiter a GitHub expression has. A double quote there
+          # is a lex error that invalidates the entire workflow file, and the run
+          # then fails in zero seconds with no job having started.
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "upstream results: $results"
+          for r in $results; do
+            [ "$r" = "success" ] || { echo "::error::a required job reported '$r'"; exit 1; }
+          done
+          echo "all required jobs passed"
