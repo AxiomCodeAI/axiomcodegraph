@@ -33,3 +33,12 @@ npm will not republish one. Before the first tag, changes simply join the unrele
   hosted runners, which are free only for public repositories.
 - `bash .github/scripts/protect-main.sh` (admin): PR + green `CI` for everyone, only admins merge,
   makes `v*` tags immutable.
+
+## dev and main
+
+`dev` has no rules: push to it directly and CI runs on every push. Promote with a pull request
+`dev → main`, which needs a green `CI` and an admin to merge. main only squash-merges, so after
+every push to main the `sync-dev` job in `release.yml` merges main back into dev; otherwise the
+next promotion would show the old work again. A hotfix that went straight to main and touches
+lines dev has since changed cannot merge automatically: nothing is pushed, and an issue gives the
+commands to resolve it on dev by hand.
