@@ -27,6 +27,7 @@ host resolves it and must exist, and the name and version must agree everywhere:
   only in skills/ at that root, so skills/axiomcode/ holds a copy of the skill's text (packaging/copies.py).
   No server is started by `bash` or `python3`: on Windows a bare `bash` is WSL's or nothing and `python3`
   is a Store placeholder, and a manifest has no per-platform variant, so every one starts `node` (#1233).
+  Hooks too: each is `node hooks/run.js <hook>.py`, which finds the Python to run it under (#1331).
 
     python3 tests/manifests.py
 """
@@ -34,6 +35,13 @@ import json, os, re, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN = os.path.join(ROOT, 'plugins', 'axiomcode')
+HOOKS = os.path.join(PLUGIN, 'hooks')
+
+
+def runs_a_hook(command, runner, hooks):
+    """command is `node "<runner>" <hook>.py`, and the runner and the hook both exist"""
+    m = re.fullmatch(r'node "' + re.escape(runner) + r'" (\w+\.py)', command)
+    return bool(m) and os.path.isfile(os.path.join(hooks, 'run.js')) and os.path.isfile(os.path.join(hooks, m.group(1)))
 
 
 def load(*parts):
@@ -103,9 +111,9 @@ def main():
     for event, groups in load('plugins', 'axiomcode', 'hooks', 'hooks.json')['hooks'].items():
         for group in groups:
             for hook in group['hooks']:
-                script = re.search(r'\$\{CLAUDE_PLUGIN_ROOT\}(/[^"\s]+)', hook['command'])
-                if not script or not os.path.isfile(PLUGIN + script.group(1)):
-                    bad.append(f"hooks.json {event}: {hook['command']!r} names no script that exists")
+                if not runs_a_hook(hook['command'], '${CLAUDE_PLUGIN_ROOT}/hooks/run.js', HOOKS):
+                    bad.append(f"hooks.json {event}: {hook['command']!r} is not `node <plugin>/hooks/run.js <hook>.py` "
+                               "naming a hook that exists; python3 is not a program on Windows (#1331)")
 
     # Cursor: its marketplace leads to the plugin, and its manifest agrees with the others and names files
     # that exist once ${CURSOR_PLUGIN_ROOT} is the plugin directory.
@@ -146,9 +154,9 @@ def main():
     for event, groups in gemini_hooks.items():
         for group in groups:
             for hook in group['hooks']:
-                script = re.search(r'"([^"]+\.py)"', hook['command'])
-                if not script or not os.path.isfile(gemini_path(script.group(1))):
-                    bad.append(f"hooks/hooks.json {event}: {hook['command']!r} names no script that exists")
+                if not runs_a_hook(hook['command'], '${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js', HOOKS):
+                    bad.append(f"hooks/hooks.json {event}: {hook['command']!r} is not `node <root>/plugins/axiomcode/hooks/run.js "
+                               "<hook>.py` naming a hook that exists; python3 is not a program on Windows (#1331)")
 
     # Gemini's copy of the skill and Cursor's rule are current copies of their sources.
     sync = subprocess.run([sys.executable, os.path.join(ROOT, 'packaging', 'copies.py'), '--check'],

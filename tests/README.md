@@ -24,6 +24,9 @@ One check needs no graph and is its own script:
                                          directly, through an npm-style symlink to bin/axiomcode.js, on the SDK-free
                                          fallback, and from .mcp.json, .codex-plugin/mcp.json and .cursor-plugin
                                          as each host starts it
+    python3 tests/python_names.py        the CLI, the hooks and the skill's own entry point run on a machine whose
+                                         Python is `python` or `py -3` and whose python3 is the Store placeholder,
+                                         as on Windows with python.org's installer (#1331)
     python3 tests/manifests.py           every agent's manifest (Claude, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
                                          them, and Gemini's skill and Cursor's rule are current copies

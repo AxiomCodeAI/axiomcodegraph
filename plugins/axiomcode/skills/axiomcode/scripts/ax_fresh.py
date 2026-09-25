@@ -250,7 +250,7 @@ def worker(repo):
             t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
             else: print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
-            r = subprocess.run(['bash', os.path.join(H, 'axiomcode-build'), repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(H, 'axiomcode-build'), repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             took = round(time.time() - t0, 1)
             if r.returncode != 0:
                 write_state(repo, state='failed', finished=time.time(), seconds=took, failed_table=fp,
