@@ -1,9 +1,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Nightly: build dev from scratch, every platform, and install it the way a user would.
+# Nightly: is dev stable? Build it from scratch, every platform, and install it the
+# way a user would. The workflow's badge in the README is dev's status.
 #
-# Publishes NOTHING. It answers one question each morning: if dev were promoted and
-# released today, would it work? Pull requests into dev skip the four-platform engine
-# build to stay fast; this is where that build still happens for dev, once a night.
+# A green night is published to npm under the `nightly` dist-tag (never `latest`), so
+# `npm i @axiomcode/code-graph@nightly` installs dev as of that night. Pull request
+# runs test each change on its own; this is the only
+# full check of dev's head as it actually is — after several merges, after direct
+# pushes and sync-dev's merges from main, with the four-platform build and the
+# install-and-run check that dev's pull requests skip, and against whatever versions
+# of the dependencies a fresh install resolves today (no lock file is committed, so
+# those move without a commit here).
 #
 #   1. CI with fresh=true: a clean checkout, no restored engine cache, every engine
 #      compiled from the rules, the five suites, and all four platforms' engines.
@@ -11,11 +17,18 @@
 #      as publish-npm.yml would, install them into an empty project with no Soufflé,
 #      and run axiomcode on a test project (.github/scripts/e2e-install.sh).
 #   3. `npm publish --dry-run` for every package: the registry's own checks, no upload.
-#   4. A failure opens an issue (or comments on the open one) naming what broke; the
+#   4. Green: publish every package as <next>-nightly.<date>.g<sha> under `nightly`.
+#      The version is computed here and never committed or tagged. <next> is the
+#      version after the last release, so a nightly always sorts above what is out
+#      and below the release it leads to. Skipped when that commit is already the
+#      nightly, and until a first real release exists: npm makes a package's first
+#      publish its `latest`, whatever dist-tag it was published under.
+#   5. A failure opens an issue (or comments on the open one) naming what broke; the
 #      next green night closes it.
 #
-# Skipped on a night when dev has no new commits. Run it by hand from Actions any time.
-# Scheduled runs use the default branch — dev — for both the workflow and the code.
+# Runs every night, new commits or not: the status is daily, and a dependency release
+# can break a fresh install with nothing committed. Run it by hand from Actions any
+# time. Scheduled runs use the default branch — dev — for the workflow and the code.
 # ─────────────────────────────────────────────────────────────────────────────
 name: nightly
 
@@ -23,6 +36,11 @@ on:
   schedule:
     - cron: '0 8 * * *'    # 08:00 UTC, after the US workday
   workflow_dispatch:
+    inputs:
+      publish:
+        description: publish this run under the nightly dist-tag if it is green
+        type: boolean
+        default: false
 
 concurrency:
   group: nightly
@@ -32,33 +50,7 @@ permissions:
   contents: read
 
 jobs:
-  gate:
-    name: did dev change
-    runs-on: ubuntu-24.04
-    outputs:
-      run: ${{ steps.g.outputs.run }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: g
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"; echo "started by hand"; exit 0
-          fi
-          recent="$(git log --since='25 hours ago' --format='%h %s' HEAD | head -20)"
-          if [ -n "$recent" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            printf 'new on %s since yesterday:\n%s\n' "${GITHUB_REF_NAME}" "$recent"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "no new commits on ${GITHUB_REF_NAME} — nothing to build"
-          fi
-
   ci:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
     uses: ./.github/workflows/ci.yml
     with:
       fresh: true
@@ -97,10 +89,74 @@ jobs:
           done
           npm publish --dry-run --ignore-scripts --access public 2>&1 | tail -3
 
+  publish:
+    name: publish under nightly
+    needs: [ci, e2e]
+    if: github.event_name == 'schedule' || inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: decide the nightly version
+        id: v
+        run: |
+          set -euo pipefail
+          sha="g$(git rev-parse --short=7 HEAD)"
+          latest="$(npm view @axiomcode/code-graph dist-tags.latest 2>/dev/null || true)"
+          if [ -z "$latest" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "no release on npm yet: a first publish would become 'latest', so no nightly until one exists"
+            exit 0
+          fi
+          current="$(npm view @axiomcode/code-graph dist-tags.nightly 2>/dev/null || true)"
+          if [ "${current##*.}" = "$sha" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"; echo "$current is already this commit"; exit 0
+          fi
+          base="$(node .github/scripts/version.mjs get)"
+          # a released version moves on to the next patch; an unreleased one is previewed as itself
+          if git rev-parse --verify --quiet "refs/tags/v$base" >/dev/null || [ "$base" = "$latest" ]; then
+            base="$(node -p 'const [a,b,c]=process.argv[1].split("-")[0].split(".").map(Number); `${a}.${b}.${c+1}`' "$base")"
+          fi
+          version="$base-nightly.$(date -u +%Y%m%d).$sha"
+          echo "version=$version" >> "$GITHUB_OUTPUT"; echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "nightly version: $version (latest release: $latest)"
+
+      - if: steps.v.outputs.skip == 'false'
+        run: |
+          node .github/scripts/version.mjs set "${{ steps.v.outputs.version }}"
+          npm install --no-audit --no-fund
+
+      - if: steps.v.outputs.skip == 'false'
+        uses: actions/download-artifact@v4
+        with: { pattern: engines-*, path: artifacts }
+
+      # Engines first: the root package pins them at its own version.
+      - name: publish every package under nightly
+        if: steps.v.outputs.skip == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CLI_BINARY_PUBLISH }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          for d in artifacts/engines-*; do
+            platform="${d#artifacts/engines-}"
+            bash packaging/assemble-engine-package.sh "$platform" "$VERSION" "$d" "packages/engine-$platform" >/dev/null
+            ( cd "packages/engine-$platform" && npm publish --access public --tag nightly )
+          done
+          npm publish --ignore-scripts --access public --tag nightly
+          echo "::notice::published $VERSION under nightly — npm i @axiomcode/code-graph@nightly"
+
   report:
     name: report
-    needs: [gate, ci, e2e]
-    if: always() && needs.gate.outputs.run == 'true'
+    needs: [ci, e2e, publish]
+    if: always()
     runs-on: ubuntu-24.04
     permissions:
       issues: write
@@ -110,12 +166,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
           CI_RESULT: ${{ needs.ci.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
         run: |
           set -uo pipefail
           title="nightly build of dev is failing"
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           existing="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number' || true)"
-          if [ "$CI_RESULT" = success ] && [ "$E2E_RESULT" = success ]; then
+          if [ "$CI_RESULT" = success ] && [ "$E2E_RESULT" = success ] && [ "$PUBLISH_RESULT" != failure ]; then
             echo "nightly green"
             if [ -n "$existing" ]; then
               gh issue close "$existing" --comment "Green again at ${GITHUB_SHA::8}: $run_url"
@@ -129,10 +186,11 @@ jobs:
             echo "|---|---|"
             echo "| build, tests, every platform's engines (fresh) | $CI_RESULT |"
             echo "| install from tarballs and run; npm publish dry-run | $E2E_RESULT |"
+            echo "| publish under nightly | $PUBLISH_RESULT |"
             echo
             echo "Run: $run_url"
             echo
-            echo "Nothing was published. This closes itself on the next green night."
+            echo "A nightly is published only when every stage passes. This closes itself on the next green night."
           } > /tmp/body.md
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body-file /tmp/body.md

@@ -48,11 +48,18 @@ the commands to resolve it by hand.
 
 ## Nightly
 
-`nightly.yml` builds `dev` from scratch each night it has new commits: no cached engines, the five
-suites, all four platforms' engines, then `e2e-install.sh` packs the npm tarballs, installs them
-into an empty project without Soufflé and runs `axiomcode` in every language, and `npm publish
---dry-run` checks each package. It publishes nothing. A failure opens an issue; the next green
-night closes it. Run it by hand from Actions at any time.
+`nightly.yml` is dev's status (the "nightly" badge in the README). Every night it builds `dev`
+from scratch: no cached engines, the five suites, all four platforms' engines, then
+`e2e-install.sh` packs the npm tarballs, installs them into an empty project without Soufflé and
+runs `axiomcode` in four languages, and `npm publish --dry-run` checks each package.
+
+A green night is published under the `nightly` dist-tag, as `<next>-nightly.<date>.g<sha>`, where
+`<next>` is the patch after the last release (`npm i @axiomcode/code-graph@nightly`). The version
+is never committed or tagged, and plain `npm i` keeps getting `latest`. No nightly is published
+until a first real release exists, because npm makes a package's first publish its `latest`.
+
+A red night publishes nothing and opens an issue; the next green night closes it. Run it by hand
+from Actions at any time (it publishes only if you tick `publish`).
 
 ## Caches
 

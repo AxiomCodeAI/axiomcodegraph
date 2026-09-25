@@ -40,8 +40,8 @@
 
 <p align="center">
   <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
-  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/pull/418"><img alt="Nightly: not yet enabled" src="https://img.shields.io/badge/nightly-not%20yet%20enabled-lightgrey"></a>
+  <a href="https://www.npmjs.com/package/@axiomcode/code-graph"><img alt="npm" src="https://img.shields.io/npm/v/@axiomcode/code-graph?label=npm"></a>
+  <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml"><img alt="Nightly (dev)" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml/badge.svg?branch=dev"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
