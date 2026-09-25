@@ -12,6 +12,10 @@
 # and then indexed that source and answered `impact` and `path` from the query programs
 # the engine package ships (#1330), still with no souffle to compile or interpret them.
 #
+# CODEGRAPH_TGZ, when set, is an already packed @axiomcode/code-graph to install instead of
+# packing this checkout: the tarball is platform-independent, so ci.yml packs it once and every
+# platform installs the same file a user would download.
+#
 # The test suites cannot see any of this: they run from the checkout, where a missing
 # `files` entry, a broken bin, or an engine package the driver does not find all go
 # unnoticed until someone installs a release.
@@ -31,8 +35,12 @@ bash "$root/packaging/assemble-engine-package.sh" "$platform" "$version" "$engin
   || fail "the engine package did not assemble"
 mkdir -p "$W/tgz"
 ( cd "$W/engine" && npm pack --silent --pack-destination "$W/tgz" >/dev/null ) || fail "npm pack of the engine package failed"
-# --ignore-scripts: the tree is already built; the tarball must carry what the build produced
-( cd "$root" && npm pack --silent --ignore-scripts --pack-destination "$W/tgz" >/dev/null ) || fail "npm pack of code-graph failed"
+if [ -n "${CODEGRAPH_TGZ:-}" ]; then
+  cp "$CODEGRAPH_TGZ" "$W/tgz/" || fail "no code-graph tarball at $CODEGRAPH_TGZ"
+else
+  # --ignore-scripts: the tree is already built; the tarball must carry what the build produced
+  ( cd "$root" && npm pack --silent --ignore-scripts --pack-destination "$W/tgz" >/dev/null ) || fail "npm pack of code-graph failed"
+fi
 ls -1 "$W/tgz" | sed 's/^/   /'
 
 echo "── installing into an empty project"
@@ -61,8 +69,10 @@ edges="$(node -e '
 ' "$db" 2>/dev/null)"
 [ -n "$edges" ] && [ "$edges" -gt 0 ] || fail "the graph has no call edges (${edges:-unreadable})"
 
-echo "── axiomcode index, impact and path on a copy of $(basename "$src"), no souffle"
-cp -R "$src" "$W/repo"
+echo "── every query verb on a copy of $(basename "$src") under src/, no souffle"
+# under src/, as a repository lays its code out: context names a directory to look in, and a tree with every file
+# at its root offers none
+mkdir -p "$W/repo"; cp -R "$src" "$W/repo/src"
 PATH="$SANDBOX_PATH" "$bin" index "$W/repo" > "$W/index.log" 2>&1 || { tail -15 "$W/index.log"; fail "axiomcode index exited non-zero"; }
 ready="$(grep 'datalog rules ready' "$W/index.log" || true)"; echo "   $ready"
 # every program from the engine package: not compiled here (no souffle), not left to the interpreter
@@ -79,14 +89,21 @@ pair="$(node -e '
 ' "$W/repo/.axiomcode/out/graph.sqlite" 2>/dev/null)"
 [ -n "$pair" ] || fail "the indexed graph has no resolved call to ask about"
 caller="${pair% *}"; callee="${pair#* }"
-( cd "$W/repo" && PATH="$SANDBOX_PATH" "$bin" impact "$callee" ) > "$W/impact.log" 2>&1; rc=$?
-sed 's/^/   /' "$W/impact.log" | head -8
-[ "$rc" -eq 0 ] || fail "axiomcode impact $callee exited $rc"
-# path answers from SQL by default; AXIOMCODE_DATALOG=1 runs the shipped path programs instead
-for every in "" --every; do
-  ( cd "$W/repo" && PATH="$SANDBOX_PATH" AXIOMCODE_DATALOG=1 "$bin" path "$caller" "$callee" $every ) > "$W/path.log" 2>&1; rc=$?
-  sed 's/^/   /' "$W/path.log" | head -4
-  [ "$rc" -eq 0 ] || fail "axiomcode path $caller $callee $every exited $rc"
-  grep -q 'reached' "$W/path.log" || fail "axiomcode path $caller $callee $every found no route over a resolved call"
+# verb | the backend (path answers from SQL unless AXIOMCODE_DATALOG=1 runs the shipped programs) | what its answer must say
+checks=(
+  "impact $callee||"
+  "test-impact $callee||"
+  "path $caller $callee||reached"
+  "path $caller $callee|1|reached"
+  "path $caller $callee --every||simple path"
+  "path $caller $callee --every|1|simple path"
+  "context $callee||"
+)
+for c in "${checks[@]}"; do
+  IFS='|' read -r verb dl want <<< "$c"
+  ( cd "$W/repo" && PATH="$SANDBOX_PATH" AXIOMCODE_DATALOG="$dl" "$bin" $verb ) > "$W/q.log" 2>&1; rc=$?
+  echo "   $verb${dl:+ (datalog)}: rc=$rc"
+  [ "$rc" -eq 0 ] || { sed 's/^/     /' "$W/q.log" | head -12; fail "axiomcode $verb${dl:+ (datalog)} exited $rc"; }
+  [ -z "$want" ] || grep -q "$want" "$W/q.log" || { sed 's/^/     /' "$W/q.log" | head -12; fail "axiomcode $verb${dl:+ (datalog)} did not say '$want'"; }
 done
-echo "e2e: ok — installed from the tarballs, used the packaged $platform engine, $edges call edges; impact and path answered from the packaged query programs"
+echo "e2e: ok — installed from the tarballs, used the packaged $platform engine, $edges call edges; every query verb answered from the package"
