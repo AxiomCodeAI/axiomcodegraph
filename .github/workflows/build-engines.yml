@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       key: ${{ steps.gen.outputs.key }}
+      flags: ${{ steps.gen.outputs.flags }}
     steps:
       - uses: actions/checkout@v4
       - name: Install the pinned Soufflé
@@ -73,6 +74,10 @@ jobs:
           cp -r /usr/include/souffle gen/souffle
           # one key for the whole set; a partial match restores the previous set
           echo "key=$(cat gen/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
+          # hash prefixes the key AND the restore prefix: a flag change restores nothing.
+          # Computed here because the build jobs never check the repository out.
+          echo "flags=$(sha256sum .github/workflows/build-engines.yml | cut -c1-12)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with: { name: generated, path: gen, retention-days: 3, if-no-files-found: error }
 
@@ -95,8 +100,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: engines
-          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.key }}
-          restore-keys: engines-${{ matrix.target.platform }}-
+          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+          restore-keys: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-
       - name: Compile every language (Linux)
         if: startsWith(matrix.target.platform, 'linux')
         run: |
@@ -143,7 +148,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: engines
-          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.key }}
+          key: engines-${{ matrix.target.platform }}-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
       - uses: actions/upload-artifact@v4
         with:
           name: engines-${{ matrix.target.platform }}
@@ -162,8 +167,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: engines
-          key: engines-darwin-arm64-${{ needs.generate.outputs.key }}
-          restore-keys: engines-darwin-arm64-
+          key: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
+          restore-keys: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-
       - name: Compile every language (macOS arm64)
         run: |
           set -e
@@ -187,6 +192,6 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: engines
-          key: engines-darwin-arm64-${{ needs.generate.outputs.key }}
+          key: engines-darwin-arm64-${{ needs.generate.outputs.flags }}-${{ needs.generate.outputs.key }}
       - uses: actions/upload-artifact@v4
         with: { name: engines-darwin-arm64, path: engines, if-no-files-found: error }

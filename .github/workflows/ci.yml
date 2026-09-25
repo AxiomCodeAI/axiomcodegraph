@@ -360,16 +360,22 @@ jobs:
       # Keyed by this language's ENGINE_ID — the hash the driver itself names its
       # compiled binary by (its rules and the Soufflé version) — so a rule change in
       # one language recompiles that language only, and an unchanged one never does.
+      # Two things decide the binary that ENGINE_ID does not cover, so they are in the
+      # key too: the driver that compiles it (run-souffle.sh holds the compiler flags),
+      # and the runner's CPU, because the driver compiles with -march=native and a
+      # binary built on one CPU model can die with an illegal instruction on another.
       - name: this language's engine id
         id: eid
-        run: echo "id=$(bash graph/pipeline/run-souffle.sh --language ${{ matrix.lang }} --print-engine-id)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "id=$(bash graph/pipeline/run-souffle.sh --language ${{ matrix.lang }} --print-engine-id)" >> "$GITHUB_OUTPUT"
+          echo "cpu=$(grep -m1 'model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
       - name: cache the compiled Soufflé engine
         if: ${{ !inputs.fresh }}
         uses: actions/cache@v4
         with:
           path: .souffle-cache
-          key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}
+          key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}-${{ hashFiles('graph/pipeline/run-souffle.sh') }}-${{ steps.eid.outputs.cpu }}
 
       - name: ${{ matrix.lang }} regression suite
         env:
