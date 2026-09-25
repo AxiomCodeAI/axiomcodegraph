@@ -19,8 +19,9 @@
 #     republish a version, so a tag that moved would name a tree nobody installed
 #
 # protect-main has no bypass: the PR and CI rules hold for admins too. The merge
-# restriction is a separate ruleset so that its bypass (admins, and only through a
-# pull request) exempts nobody from those.
+# restriction is a separate ruleset so that its bypass exempts nobody from those. Its
+# bypass is `always`, not `pull_request`: in pull_request mode GitHub still refuses the
+# merge itself ("Cannot update this protected ref"), so no one could merge at all.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -76,7 +77,7 @@ merge_payload="$(cat <<'JSON'
     "ref_name": { "include": ["refs/heads/main"], "exclude": [] }
   },
   "bypass_actors": [
-    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" }
   ],
   "rules": [
     { "type": "update" }
