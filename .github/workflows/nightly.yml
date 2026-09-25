@@ -6,13 +6,13 @@
 # `npm i @axiomcode/code-graph@nightly` installs dev as of that night. Pull request
 # runs test each change on its own; this is the only
 # full check of dev's head as it actually is — after several merges, after direct
-# pushes and sync-dev's merges from main, with the four-platform build and the
+# pushes and sync-dev's merges from main, with the every-platform engine build and the
 # install-and-run check that dev's pull requests skip, and against whatever versions
 # of the dependencies a fresh install resolves today (no lock file is committed, so
 # those move without a commit here).
 #
 #   1. CI with fresh=true: a clean checkout, no restored engine cache, every engine
-#      compiled from the rules, the five suites, and all four platforms' engines.
+#      compiled from the rules, the five suites, and every platform's engines.
 #   2. End to end: pack @axiomcode/code-graph and the linux-x64 engine package exactly
 #      as publish-npm.yml would, install them into an empty project with no Soufflé,
 #      and run axiomcode on a test project (.github/scripts/e2e-install.sh).
