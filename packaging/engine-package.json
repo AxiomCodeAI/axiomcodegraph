@@ -5,7 +5,7 @@
   "license": "FSL-1.1-Apache-2.0",
   "os": ["@@OS@@"],
   "cpu": ["@@CPU@@"],
-  "files": ["*/axiomcode-engine-*", "*/ENGINE_ID", "README.md", "LICENSE.md"],
+  "files": ["*/axiomcode-engine-*", "*/ENGINE_ID", "queries/axiomcode-query-*", "queries/*.id", "README.md", "LICENSE.md"],
   "repository": { "type": "git", "url": "git+https://github.com/AxiomCodeAI/axiomcodegraph.git" },
   "publishConfig": { "access": "public" }
 }

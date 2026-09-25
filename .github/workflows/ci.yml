@@ -95,7 +95,7 @@ jobs:
           code="$code$(printf '%s\n' "$files" | grep -E '^(graph|parser)/' || true)"
           # ENGINES: what the platform build compiles or packages.
           engines="$(printf '%s\n' "$files" | grep -E \
-            -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' \
+            -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' -e 'scripts/dl_program\.py$' -e '^\.github/scripts/query-smoke\.sh$' \
             -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' || true)"
           [ -n "$code" ] && echo "code=true" >> "$GITHUB_OUTPUT" || echo "code=false" >> "$GITHUB_OUTPUT"
           # Only a pull request INTO main builds the platform engines; into dev they wait.
