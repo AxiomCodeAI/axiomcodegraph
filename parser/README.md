@@ -6,11 +6,13 @@
 
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python"/>
 &nbsp;&nbsp;
-<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — in development"/>
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript"/>
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript"/>
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java"/>
+&nbsp;&nbsp;
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C#"/>
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML"/>
 &nbsp;&nbsp;
@@ -18,7 +20,7 @@
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle"/>
 
-<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>JavaScript</b> with a binder and JSDoc as its type channel. <b>TypeScript</b> in development. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML, Properties and META-INF/services.</sub>
+<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> and <b>JavaScript</b> with a binder, from the compiler's syntax layer. <b>C#</b> with each file read under the framework and preprocessor symbols of the project that compiles it. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML, Properties and META-INF/services.</sub>
 
 [What it is](#what-this-is) &nbsp;|&nbsp;
 [The IR](#the-intermediate-representation) &nbsp;|&nbsp;
@@ -78,7 +80,9 @@ same tables and be compared.
 | Language | Maturity | Relations | Parser | What is extracted |
 |---|---|---|---|---|
 | **Python** | Stable | 19 | tree-sitter-python | Modules, scopes, bindings, types, base classes, methods, parameters, imports, expressions, call sites, type references, fields, decorators and their arguments, blocks, comments, parse gaps, PEP 695 type parameters. |
-| **JavaScript** | Stable | 16 | TypeScript compiler API, syntax only | Modules with their module system decided per file, scopes and bindings from a binder that models hoisting and the temporal dead zone, types including constructor functions and prototype members expressed as assignments and calls, methods, parameters, fields, variables, blocks, expressions as a tree, call sites by form, CommonJS and ESM edges wherever they sit, JSDoc types as trees, comments, directives and parse gaps. `.js`, `.mjs`, `.cjs`, `.jsx`. Flow is rejected, not parsed. |
+| **JavaScript** | Stable | 17 | TypeScript compiler API, syntax only | Modules with their module system decided per file, scopes and bindings from a binder that models hoisting and the temporal dead zone, types including constructor functions and prototype members expressed as assignments and calls, methods, parameters, fields, variables, blocks, expressions as a tree, call sites by form, CommonJS and ESM edges wherever they sit, JSDoc types as trees, comments, directives and parse gaps. `.js`, `.mjs`, `.cjs`, `.jsx`. Flow is rejected, not parsed. |
+| **TypeScript** | Stable | 21 | TypeScript compiler API, syntax only | Modules including `.d.ts`, types, heritage, type parameters, methods and their overload signatures, parameters, fields and their positions, enum members, variables, imports and exports, expressions, call sites with same-file resolution and the evidence for it, type references as trees, decorators and their arguments, `satisfies` checks, blocks, comments and parse gaps. `.ts`, `.tsx`, `.d.ts`. Module specifiers are resolved through the project's `tsconfig.json` paths. |
+| **C#** | Stable | 22 | tree-sitter-c-sharp | Modules, types and their heritage, type parameters, methods, parameters, properties, events, fields, enum members, locals, usings, attributes and their arguments, expressions, call sites including user-defined operators and explicit casts, LINQ query clauses, blocks, comments, parse gaps, and preprocessor regions. Classes, structs, records, interfaces, enums, delegates and C# 14 extension blocks. |
 | **Java** | Stable | 17 | tree-sitter-java | Types, methods, fields, annotations and their arguments, expressions, imports, local variables, blocks, comments, enum constants, generics and type parameters. Covers classes, interfaces, enums, records, and nested types. |
 | **XML** | Stable | 3 | sax | Element hierarchy with XPath and namespaces, attributes, and value references including property placeholders and SpEL. |
 | **Properties** | Stable | 2 | custom | Keys and typed value segments, with continuation and comment handling. |
@@ -86,7 +90,8 @@ same tables and be compared.
 | **META-INF/services** | Stable | 2 | custom | Provider-configuration files: the service each file configures, taken from its name, and every implementation class it names, with the file and line. |
 | **Gradle** | Beta | 8 | tree-sitter-groovy | Scripts and their role in the build, blocks, declarations, dependency coordinates split into group/artifact/version, version catalogs, value references with resolution, comments, and parse gaps. Groovy and Kotlin DSL. |
 
-Python and Java are the two languages with full semantic resolution. The configuration formats are
+Python and Java are the two languages with full semantic resolution. TypeScript and C# resolve what
+one file decides and leave the cross-file call graph to the engine, as Java does for type references. The configuration formats are
 extracted structurally so that configuration values can be correlated with the code that reads them.
 
 JavaScript is parsed by the TypeScript compiler's syntax layer and never by its type checker: no
@@ -101,6 +106,33 @@ in the sense Java is, but it is more than structural: the settings file's projec
 from:` edges, `project(':core')` dependencies and version catalog accessors are all resolved to the
 scripts and entries they name. "Which project declares this dependency, at which version, and where
 did that version come from" is a join rather than a text search.
+
+TypeScript is read the same way as JavaScript: `ts.createSourceFile`, never a `Program` or a
+`TypeChecker`. That also removes tree-sitter's 32,767-character buffer limit, which matters here
+because the largest files are the `.d.ts` declarations that hold most of a call graph's leaves. The
+exact compiler version is recorded on every module row rather than in any key, so a patch bump does
+not rewrite every hash in the fact base.
+
+### C# is read under the project that compiles it
+
+A C# file does not mean one thing on its own. `#if NET8_0_OR_GREATER`, `#if DEBUG` and every
+`<DefineConstants>` symbol decide which half of a file is source, and none of them are written in
+the file. The C# front end therefore reads each `.csproj` — its imports, `<Choose>` blocks and the
+framework inference the SDK performs — and extracts every file under the target framework and
+symbols of the project that governs it. A multi-targeting project is read under one framework, the
+newest .NET it targets, so rows do not multiply by the framework count. Inactive `#if` arms are
+blanked before parsing, preserving line count, and recorded in the preprocessor region relation, so
+"this code is inactive under this build" is a row rather than an absence.
+
+The published grammar fails some shapes in two ways. Where it produces an `ERROR` node, rows are
+lost and a parse gap row says so. Where it produces no error and the wrong tree — a generic creation
+in argument position, a ref-returning assignment, an extension header — nothing would report it, so
+each such misparse is recognised in one place and rebuilt, and each detector has a negative control
+asserting that the legitimate shape it resembles is left alone. What cannot be repaired is enumerated
+in `KNOWN_GRAMMAR_LIMITATIONS`. The parser asserts at
+startup that every enumerated limitation is still a limitation, because a wrong grammar fails
+silently: about 6% of declarations simply are not there. A UTF-8 byte-order mark is stripped before
+parsing so that positions match Roslyn's.
 
 ### Gradle is parsed by a grammar that is not its own
 
@@ -140,10 +172,10 @@ detection  ->  parsing  ->  extraction  ->  models  ->  resolution  ->  export
 | Layer | Directory | Responsibility |
 |---|---|---|
 | Detection | `language-detectors/` | Identify which languages and build systems a project uses. |
-| Parsing | `parsers/<lang>/` | Produce a syntax tree. tree-sitter for Java, Python and Gradle; sax for XML; the `yaml` package for YAML; a hand written scanner for Properties and for META-INF/services. |
+| Parsing | `parsers/<lang>/` | Produce a syntax tree. tree-sitter for Java, Python, C# and Gradle; the TypeScript compiler's syntax layer for TypeScript and JavaScript; sax for XML; the `yaml` package for YAML; a hand written scanner for Properties and for META-INF/services. |
 | Extraction | `parsers/<lang>/extractors/` | Walk the tree and emit rows. One extractor per relation family, implementing `BaseExtractor`. |
 | Models | `analysis-types/<lang>/` | One class per relation. Builder pattern, content addressed key, CSV serialisation. |
-| Resolution | `parsers/<lang>/*-resolution-linker.ts` | Fill in cross entity foreign keys, first within a file and then across the project. |
+| Resolution | `parsers/<lang>/**/*-resolution-linker.ts` | Fill in cross entity foreign keys, first within a file and then across the project. |
 | Export | `workflows/<lang>/` | Orchestrate discovery, run extractors, stream rows to disk. |
 
 ```
@@ -213,7 +245,10 @@ Every gate therefore uses something not written for this purpose.
 | CPython bytecode | Every call the compiler emitted, and how each name resolves | The compiler has already decided whether a name is local, global, a cell, or an attribute, and records it in the opcode. |
 | CPython `sys.settrace` | Which function a call actually reaches | Ground truth for target correctness, not merely call discovery. |
 | JVM bytecode | Java call edges | The same role for the Java front end. |
+| Roslyn, out of process | C# declarations, call sites, positions and preprocessor state | It is the C# compiler. The parser itself runs no .NET; Roslyn adjudicates from outside, so the extractor cannot lean on it. |
 | TypeScript compiler, with a `Program` | JavaScript call sites, module resolution, JSDoc tag structure, declaration kinds | It is the same compiler the parser reads syntax from, consulted with the type information the parser deliberately does not build. Where it declines — an `any` callee, an uninstalled package — the row is frozen for drift detection and reported separately, never counted as verified. |
+| TypeScript compiler, with a `Program` and `TypeChecker` | TypeScript call targets, module resolution, declaration kinds | The same arrangement as JavaScript, with the pinned compiler version the parser records. |
+| A runtime tracer | Which TypeScript declaration a call actually reaches | A source rewrite that records, as a project's own test suite runs, the declaration entered at each call site. The compiler says what it resolved; this says what ran, and the two disagree in ways that matter. |
 | Gradle `projects` | The build's project graph | Gradle is the implementation that decides which projects a settings file creates. On its first real run it found a directory this parser was reporting as a project and Gradle was not. |
 
 Call graph quality is measured at three increasing strictnesses, because each answers a question the
@@ -263,6 +298,19 @@ with a single module row saying so, because the compiler accepts Flow where it o
 and mis-parses it where it diverges, silently; a file that is Flow without a pragma is the one case
 the detector cannot see, and it is recorded as an open exposure rather than a clean result.
 
+**C# call targets.** A call site carries its callee name, receiver shape and argument counts, but
+no resolved target. Overload resolution, extension method reduction and `dynamic` are decided by the
+compiler with the full reference set, and are left to the engine rather than approximated.
+
+**Nested type names have more than one spelling.** Every type, method, field and variable row names
+a nested type by its full enclosing chain: `B` declared inside `pkg.A` is `pkg.A.B`, its methods are
+`pkg.A.B.m`, and a field of that type has `potentialQualifiedName` `pkg.A.B`, in Java and C# alike.
+Three other spellings of the same type still reach a query. A library IR extracted before nested
+names carried the chain holds the flattened `pkg.B`. A type reference row keeps the name as it was
+written, `B` or `A.B`, and is never qualified. A `META-INF/services` file names a nested provider by
+its binary name, `pkg.A$B`, as `ServiceLoader` requires. A query that joins on a nested type's name
+from any of those sources has to allow for its spelling there rather than assume `pkg.A.B`.
+
 **Grammar level hazards.** tree-sitter-python applies the PEP 695 soft `type` keyword greedily, so
 `type(obj).attr = value` parses cleanly as a type alias and the call node disappears. That statement
 is recovered, and the part that cannot be is recorded in the parse gap relation so its absence is
@@ -291,18 +339,23 @@ await extractProject({
 As a subprocess:
 
 ```bash
-node dist/index.js <projectsDir> <serviceVersionLink> <excludeTests:true|false> [outputDir]
+node dist/index.js <projectsDir> <serviceVersionLink> <excludeTests:true|false> [outputDir] \
+                   [--per-language] [--library]
 ```
 
 Both call the same core in `src/extract.ts`.
 
 ### Output
 
-Tab separated files, one per relation. Java relations are named `all-*.csv`, Python relations
-`all-python-*.csv`, Gradle relations `all-gradle-*.csv`, and the other configuration formats are
-prefixed by format. `skipped-files.csv` and
-`skipped-python-files.csv` record every file that was not analysed and why, so a consumer can
-distinguish an empty result from an unanalysed one.
+Tab separated files, one per relation. Java relations are named `all-*.csv`; every other language
+is prefixed by name: `all-python-*.csv`, `all-typescript-*.csv`, `all-javascript-*.csv`,
+`all-csharp-*.csv`, `all-gradle-*.csv`, `all-xml-*.csv` and so on. The `skipped-*-files.csv` files
+record every file that was not analysed and why, and a file the extractor loses part way leaves a row
+saying so, so a consumer can distinguish an empty result from an unanalysed one.
+
+`--per-language` writes `outputDir/<lang>/` instead of one flat folder. `--library` marks the tree as
+a dependency being staged rather than the project under analysis, so a build output directory its
+`package.json` ships from is walked as its source.
 
 ## Development
 
@@ -318,9 +371,13 @@ frozen schema, and referential integrity across every foreign key in the emitted
 ```bash
 npx tsx src/test/java-extractor-tests.ts
 npx tsx src/test/python-extractor-tests.ts
+npx tsx src/test/typescript-tests.ts
 npx tsx src/test/javascript-tests.ts
+npx tsx src/test/csharp-tests.ts
 npx tsx src/test/gradle-tests.ts
 npx tsx src/test/services-tests.ts
+npx tsx src/test/discovery-tests.ts
+npx tsx src/test/java-gates/source-walk.ts
 ```
 
 The JavaScript suite is written so that every check can fail, and each was made to fail on purpose
@@ -335,10 +392,20 @@ What ships is what Python and TypeScript ship: fixtures, in-repo gates, committe
 oracle harness that computes an expectation, and the `bless` command that writes it, live in a
 separate repository so that a suite cannot authorise its own expectations. One consequence is real
 and is not a defect: a contributor can run every gate and see a red, but cannot add a blessed fixture
-without the blessing tool. Java does not have that limitation because it has nothing to bless — its
+without the blessing tool. The TypeScript and C# suites follow the same split: TypeScript's
+expectations are frozen under `src/test-data/typescript/_oracle` and computed by a `Program` elsewhere,
+and C#'s are computed by Roslyn elsewhere; neither suite can rewrite them. Every C# check carries a
+negative control that runs in the same pass, so a check that stops being able to fail is reported as
+a failure. `src/test/csharp-gates/release-gate.sh` runs the shipping suite, the scrub gate, the
+negative-control harness and the derived-column sweep, and prints the line a release merge records.
+
+Java does not have that limitation because it has nothing to bless — its
 tests assert properties in code — and for JavaScript the blessed rows are split into those the
 compiler independently confirmed and those it declined to decide, which are kept for drift detection
 and carry no authority.
+
+The discovery suite builds throwaway repositories and runs the real scanner over them, because a
+language that discovery misses is never extracted and nothing reports it.
 
 The Gradle suite adds a fourth layer: twenty checks written from the Gradle DSL's documented
 semantics rather than from parser output, so they do not move when the parser does.

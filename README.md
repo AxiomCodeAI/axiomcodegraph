@@ -96,6 +96,16 @@ callback, syntax alone cannot decide the target, and every wrong guess is a miss
 edge is a call the program actually makes.
 That matters because an agent follows edges several hops deep, and one missed link loses everything beyond it.
 
+<p align="center">
+  <img src="docs/images/impact-graph.png" width="640" alt="axiomcode graph of an open-source TypeScript web framework, 366 files and 8,657 call edges. Source files form the inner ring, test files the outer ring. A change to basicAuth reaches 7 test files through resolved calls (solid blue); the other 130 test files have no chain to it (dashed red). basicAuth calls a shared compare function (green) that 11 other files also reach (gold).">
+</p>
+
+*`axiomcode graph` on an open-source TypeScript web framework, asked which tests a change to `basicAuth` can
+affect. Source files form the inner ring and test files the outer one. The solid blue paths are chains of resolved
+calls from `basicAuth` to the 7 test files that must run; the dashed red ones mark the other 130, which have no
+chain to it and can be skipped. Green is the shared `compare` that `basicAuth` calls, and gold the 11 other files
+that also reach it.*
+
 AI agents work from an incomplete picture of a codebase, and the reason is structural: what a call reaches is
 usually decided somewhere else. The type comes from another file, the implementation from another module, the
 binding from a dependency or a configuration key. Reading the file in front of you cannot show any of that, so a

@@ -243,7 +243,7 @@ def main(argv):
             if not e.get('text') or 'input' not in e: continue
             inp = e['input']
             if e.get('as') == 'Read' and inp.get('file_path'):
-                rel = os.path.relpath(os.path.realpath(inp['file_path']), V_.repo); a0 = int(inp.get('offset') or 1); V_.check_read(e['text'], rel, a0, a0 + int(inp.get('limit') or 100000))
+                rel = os.path.relpath(os.path.realpath(inp['file_path']), V_.repo).replace(os.sep, '/'); a0 = int(inp.get('offset') or 1); V_.check_read(e['text'], rel, a0, a0 + int(inp.get('limit') or 100000))
             elif e.get('as') == 'Grep' and inp.get('pattern'): V_.check_grep(e['text'], re.sub(r'\W.*', '', inp['pattern']))
     else:
         files = [r[0] for r in V_.q("SELECT DISTINCT file FROM symbols WHERE method_id IS NOT NULL AND kind <> 'module' AND is_test = 0")]

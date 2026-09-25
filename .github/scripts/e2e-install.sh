@@ -8,7 +8,13 @@
 # + <lang>/ENGINE_ID). This packs @axiomcode/code-graph and that platform's engine
 # package exactly as publish-npm.yml would, installs both into an empty project, and
 # runs `axiomcode` on <source-dir> with souffle NOT on PATH. It passes only if the
-# installed package found its engine package, used it, and wrote a graph with edges.
+# installed package found its engine package, used it, and wrote a graph with edges —
+# and then, on .github/e2e/<language>, every query verb returned the answer that tiny
+# project makes true (e2e-queries.sh), from the query programs the engine package ships.
+#
+# CODEGRAPH_TGZ, when set, is an already packed @axiomcode/code-graph to install instead of
+# packing this checkout: the tarball is platform-independent, so ci.yml packs it once and every
+# platform installs the same file a user would download.
 #
 # The test suites cannot see any of this: they run from the checkout, where a missing
 # `files` entry, a broken bin, or an engine package the driver does not find all go
@@ -29,8 +35,12 @@ bash "$root/packaging/assemble-engine-package.sh" "$platform" "$version" "$engin
   || fail "the engine package did not assemble"
 mkdir -p "$W/tgz"
 ( cd "$W/engine" && npm pack --silent --pack-destination "$W/tgz" >/dev/null ) || fail "npm pack of the engine package failed"
-# --ignore-scripts: the tree is already built; the tarball must carry what the build produced
-( cd "$root" && npm pack --silent --ignore-scripts --pack-destination "$W/tgz" >/dev/null ) || fail "npm pack of code-graph failed"
+if [ -n "${CODEGRAPH_TGZ:-}" ]; then
+  cp "$CODEGRAPH_TGZ" "$W/tgz/" || fail "no code-graph tarball at $CODEGRAPH_TGZ"
+else
+  # --ignore-scripts: the tree is already built; the tarball must carry what the build produced
+  ( cd "$root" && npm pack --silent --ignore-scripts --pack-destination "$W/tgz" >/dev/null ) || fail "npm pack of code-graph failed"
+fi
 ls -1 "$W/tgz" | sed 's/^/   /'
 
 echo "── installing into an empty project"
@@ -58,4 +68,11 @@ edges="$(node -e '
   console.log(db.prepare("SELECT COUNT(*) AS n FROM call_edges").get().n);
 ' "$db" 2>/dev/null)"
 [ -n "$edges" ] && [ "$edges" -gt 0 ] || fail "the graph has no call edges (${edges:-unreadable})"
-echo "e2e: ok — installed from the tarballs, used the packaged $platform engine, $edges call edges"
+
+echo "── every query verb on the $lang fixture, answers checked, no souffle"
+PATH="$SANDBOX_PATH" bash "$root/.github/scripts/e2e-queries.sh" "$bin" "$root/.github/e2e/$lang" "$W/q" || fail "a query verb answered wrongly (above)"
+# every program from the engine package: not compiled here (no souffle), not left to the interpreter
+ready="$(grep 'datalog rules ready' "$W/q/.index.log" || true)"
+echo "$ready" | grep -Eq 'ready: ([0-9]+)/\1 compiled' && ! echo "$ready" | grep -Eq '=(cached|interpreter)' \
+  || fail "the query programs did not all come from the engine package: $ready"
+echo "e2e: ok — installed from the tarballs, used the packaged $platform engine, $edges call edges; every query verb answered correctly from the package"

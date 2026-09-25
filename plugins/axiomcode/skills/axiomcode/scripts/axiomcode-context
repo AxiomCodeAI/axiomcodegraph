@@ -386,7 +386,7 @@ def main(argv):
         elif a == '--seeds' and i + 1 < len(argv): seeds_wanted = int(argv[i + 1]); i += 2
         # --in is REPEATABLE and takes a comma-separated list: a change that spans two roots has to be
         # askable in one call (#1029). They are combined, never intersected.
-        elif a == '--in' and i + 1 < len(argv): scopes += [x.strip() for x in argv[i + 1].split(',') if x.strip()]; i += 2
+        elif a == '--in' and i + 1 < len(argv): scopes += [x.strip().replace('\\', '/') for x in argv[i + 1].split(',') if x.strip()]; i += 2   # the index stores '/'; a Windows user may type a backslash
         elif a == '--in-offered': scope_offered = True; i += 1
         elif a == '--source': show_source = True; i += 1
         elif a == '--json': as_json = True; i += 1
@@ -419,7 +419,7 @@ def main(argv):
     # does not filter. It does not weight either: boosting seeds inside it and penalising files outside
     # it was swept over 57 real commits and was worth at most 0.012 recall@10 against not doing it, which
     # is noise at that sample size. The menu is worth printing for the reader; it is not worth ranking on.
-    rank = rank_dirs(g, scope_terms(g, task)) if not scopes else None
+    rank = rank_dirs(g, scope_terms(g, task)) if not scopes else None; flat = False
     if not scopes:
         # One candidate is not a choice: take it and SAY SO, rather than refusing and being handed back
         # the only path there was. This is NOT the offered-scope case above, so it is not marked
@@ -430,6 +430,11 @@ def main(argv):
         if sole:
             scopes = [sole]
             print(f"scope: {sole} (the only package this graph indexes; --in overrides)\n")
+        elif g.sym and not dirs_with_counts(g):
+            # every indexed file sits at the root, so the root is the one scope there is, and it narrows nothing.
+            # Refusing here offered an empty menu: a correction the reader could not act on (#1345)
+            flat = True
+            print("scope: the repository root (every indexed file sits there; --in overrides)\n")
         elif rank:
             # Several candidates, and a caller holding an issue and no symbol — which is the caller this
             # verb was written for, and by construction the one who cannot name the scope. Refusing here
@@ -452,7 +457,7 @@ def main(argv):
                       + ("…" if n > 4 else "") + ")")
                 print("  no --in was given, so NOTHING below is narrowed to it — "
                       "pass --in <path> to narrow.\n")
-    bad = require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
+    bad = None if flat else require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
     if bad is not None: return bad
 
     # a symbol is kept when it is under ANY of the scopes -- the union, because the caller naming two roots

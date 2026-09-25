@@ -95,8 +95,8 @@ jobs:
           code="$code$(printf '%s\n' "$files" | grep -E '^(graph|parser)/' || true)"
           # ENGINES: what the platform build compiles or packages.
           engines="$(printf '%s\n' "$files" | grep -E \
-            -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' \
-            -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' || true)"
+            -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' -e 'scripts/dl_program\.py$' -e '^\.github/scripts/query-smoke\.sh$' \
+            -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' -e '^\.github/scripts/e2e-' -e '^\.github/e2e/' || true)"
           [ -n "$code" ] && echo "code=true" >> "$GITHUB_OUTPUT" || echo "code=false" >> "$GITHUB_OUTPUT"
           # Only a pull request INTO main builds the platform engines; into dev they wait.
           [ "${{ github.base_ref }}" = main ] || engines=""
@@ -397,6 +397,70 @@ jobs:
     with:
       fresh: ${{ inputs.fresh == true }}
 
+  # THE RELEASE GATE: what a user installs, on every platform, answers every verb. The engines
+  # job only proves each binary compiles and starts; the suites run from the checkout. Neither
+  # installs the packages, so a missing `files` entry, an engine package the CLI does not find,
+  # a query program that needs Soufflé, or a verb that only breaks on Windows reached users.
+  # Runs wherever the platform engines are built: on the way into main, and in the nightly.
+  pack:
+    name: pack @axiomcode/code-graph
+    needs: [build, changes]
+    if: needs.changes.outputs.engines == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      # --ignore-scripts: `prepare` already built it; the tarball carries what the build produced
+      - run: mkdir -p tgz && npm pack --ignore-scripts --pack-destination tgz && ls -la tgz
+      - uses: actions/upload-artifact@v4
+        with: { name: code-graph-tgz, path: tgz, retention-days: 3, if-no-files-found: error }
+
+  e2e:
+    name: e2e on ${{ matrix.target.platform }}
+    needs: [changes, engines, pack]
+    if: needs.changes.outputs.engines == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: ubuntu-24.04,     platform: linux-x64 }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { os: windows-2025,     platform: win32-x64 }
+          - { os: macos-15,         platform: darwin-arm64 }
+          - { os: macos-15-intel,   platform: darwin-x64 }
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with: { name: 'engines-${{ matrix.target.platform }}', path: artifacts/engines }
+      - uses: actions/download-artifact@v4
+        with: { name: code-graph-tgz, path: artifacts/tgz }
+      - name: installed from the tarballs, no Soufflé, every language, every verb
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.target.platform }}
+        run: |
+          set -euo pipefail
+          command -v souffle && { echo "::error::this runner has souffle; the gate would not prove anything"; exit 1; }
+          export CODEGRAPH_TGZ="$(ls "$PWD"/artifacts/tgz/*.tgz)"
+          for lang in java typescript python javascript csharp; do
+            case_dir="$(ls -d graph/test/$lang/cases/*/src | head -1)"
+            echo "::group::$lang ($case_dir)"
+            bash .github/scripts/e2e-install.sh artifacts/engines "$PLATFORM" "$lang" "$case_dir"
+            echo "::endgroup::"
+          done
+
   # A single job the branch ruleset can require. Without it, every new matrix
   # entry has to be added to the protection rules by hand, and a matrix job that
   # fails to start reports nothing at all — which a ruleset reads as "not
@@ -404,7 +468,7 @@ jobs:
   ci:
     name: CI
     runs-on: ubuntu-24.04
-    needs: [changes, build, hygiene, engine, engines]
+    needs: [changes, build, hygiene, engine, engines, pack, e2e]
     if: always()
     steps:
       - name: every required job succeeded
@@ -431,4 +495,6 @@ jobs:
           }
           check "engine suites" "${{ needs.engine.result }}" "${{ needs.changes.outputs.code }}"
           check "platform engines" "${{ needs.engines.result }}" "${{ needs.changes.outputs.engines }}"
+          check "pack" "${{ needs.pack.result }}" "${{ needs.changes.outputs.engines }}"
+          check "e2e on every platform" "${{ needs.e2e.result }}" "${{ needs.changes.outputs.engines }}"
           echo "all required jobs passed"

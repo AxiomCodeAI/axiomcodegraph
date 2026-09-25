@@ -619,7 +619,7 @@ class Impact:
                     with open(fp, 'rb') as fh: head = fh.read(2048)
                     if b'\0' in head: continue
                 except OSError: continue
-                out.append(os.path.relpath(fp, self.g.repo))
+                out.append(os.path.relpath(fp, self.g.repo).replace(os.sep, '/'))
                 if len(out) > 4000: break
         self._nsf = sorted(out); return self._nsf
     def nonsource_hits(self, names):
@@ -1237,8 +1237,9 @@ class Impact:
         if os.environ.get('AXIOMCODE_BACKEND'): print('backend=datalog', file=sys.stderr)
         prog = self.program()                                                        # the compiled rules, or the interpreter
         if prog[0] == 'souffle' and not shutil.which('souffle'):
-            die("this query needs soufflé and none is installed (brew install souffle-lang/souffle/souffle) — or a compiled\n"
-                f"  rule binary in {os.path.relpath(os.path.join(HERE, 'dl', '.cache'))}/, which runs without it")
+            die(f"no compiled impact.dl for these rules on this machine: the {dl_program.SCOPE}/engine-{dl_program.npm_platform()} package\n"
+                "  ships one for each release (reinstall @axiomcode/code-graph so it is fetched), or install soufflé\n"
+                "  (brew install souffle-lang/souffle/souffle) to compile or interpret the rules here")
         prof('query facts written'); r = subprocess.run(prog + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
@@ -1389,7 +1390,7 @@ def main(argv):
             i = args.index(flag); v = conv(args[i + 1]); del args[i:i + 2]
             if flag == '--depth': depth = v
             elif flag == '--limit': limit = v
-            elif flag == '--in': IN = v
+            elif flag == '--in': IN = v.replace('\\', '/')          # the index stores '/'; a Windows user may type a backslash
             else: kind = v
     repo = '.'
     if args and os.path.isdir(args[-1]) and (len(args) > 1 or from_text is not None or want_warm): repo = args.pop()

@@ -23,11 +23,13 @@
 // reuses it, on failure the launcher says why and moves on to the fallback.
 //
 // The server shells out to the CLI, a bash script, so the bash find-bash.js chose is handed to it as
-// AXIOMCODE_BASH; a bare `bash` from server.py would hit the same Windows lookup this file avoids.
+// AXIOMCODE_BASH; a bare `bash` from server.py would hit the same Windows lookup this file avoids. That CLI
+// calls `python3`, so the server's environment also carries find-python.js's python3 for bash (#1331).
 'use strict';
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const { findBash } = require('./find-bash.js');
+const { candidates, findPython, withPython } = require('./find-python.js');
 
 const SERVER = path.join(__dirname, 'server.py');
 // Run as `node launch.js …` the rest of the command line is the server's; required from mcp.json's
@@ -52,8 +54,7 @@ function uvWorks() {
   return false;
 }
 
-const pythons = [process.env.AXIOMCODE_PYTHON && [process.env.AXIOMCODE_PYTHON], ['python3'], ['python'],
-                 process.platform === 'win32' && ['py', '-3']].filter(Boolean);
+const pythons = candidates();
 
 function choose() {
   for (const py of pythons) if (runs(py, ['-c', 'import mcp'])) return [...py, SERVER];
@@ -62,7 +63,8 @@ function choose() {
   return null;
 }
 
-const env = { ...process.env };
+const py = findPython();
+const env = py.exe ? withPython(process.env, py) : { ...process.env };
 const { bash, error } = findBash();
 if (bash) env.AXIOMCODE_BASH = bash;
 else process.stderr.write(`axiomcode mcp: ${error}\n  The server starts, but every tool will say it cannot run the CLI.\n`);

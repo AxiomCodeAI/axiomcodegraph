@@ -46,7 +46,7 @@ def export(repo, page=None):
     def rel(p):
         a = p if os.path.isabs(p) else os.path.join(src, p)
         a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
-        r = os.path.relpath(a, repo); return p.lstrip('/') if r.startswith('..') else r
+        r = os.path.relpath(a, repo).replace(os.sep, '/'); return p.lstrip('/') if r.startswith('..') else r
 
     # ── declarations: types and methods, with the display names the query skill uses when the index is there ──
     nodes = {}
@@ -187,7 +187,7 @@ def build(repo, page, library=None):
     cands = [os.path.join(HERE, 'axiomcode-build'), os.path.join(os.environ.get('AXIOMCODE_ENGINE', ''), 'skills', 'axiomcode', 'scripts', 'axiomcode-build')]
     b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
     if not b: sys.exit("axiomcode-build not found beside this script (set AXIOMCODE_ENGINE to the engine checkout)")
-    r = subprocess.run([b, repo])
+    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', b, repo])   # a bash script: Windows cannot exec it itself
     if r.returncode: sys.exit(r.returncode)
     export(repo, page)
 

@@ -117,7 +117,7 @@ class Changed:
     def rel(self, f):
         f = os.path.realpath(f) if os.path.exists(f) else f
         r = os.path.relpath(f, self.repo) if os.path.isabs(f) else f
-        return r
+        return r.replace(os.sep, '/')
     # ── the two texts of a file ────────────────────────────────────────────────────────────────────────────────
     def texts(self, rel, mode, rng):
         if mode == 'range':

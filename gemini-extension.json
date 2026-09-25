@@ -1,6 +1,6 @@
 {
   "name": "axiomcode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ask your repository how its code connects: who calls this, what breaks if I change it, which tests an edit reaches, how A reaches B. Answers come from a resolved call graph and are verified against it; nothing is guessed.",
   "contextFileName": "plugins/axiomcode/AGENTS.md",
   "mcpServers": {

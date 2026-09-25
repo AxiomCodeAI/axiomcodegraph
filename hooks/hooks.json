@@ -3,9 +3,9 @@
     "BeforeAgent": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}changes.py\"", "timeout": 25000 },
-          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}orient.py\"", "timeout": 20000 },
-          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}refresh.py\"", "timeout": 5000 }
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" changes.py", "timeout": 25000 },
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" orient.py", "timeout": 20000 },
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" refresh.py", "timeout": 5000 }
         ]
       }
     ],
@@ -13,7 +13,7 @@
       {
         "matcher": "replace|write_file",
         "hooks": [
-          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}changes.py\"", "timeout": 25000 }
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" changes.py", "timeout": 25000 }
         ]
       }
     ],
@@ -21,27 +21,27 @@
       {
         "matcher": "read_file|grep_search|glob|run_shell_command|replace|write_file",
         "hooks": [
-          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}enrich.py\"", "timeout": 20000 }
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" enrich.py", "timeout": 20000 }
         ]
       },
       {
         "matcher": "run_shell_command",
         "hooks": [
-          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}changes.py\"", "timeout": 25000 }
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" changes.py", "timeout": 25000 }
         ]
       },
       {
         "matcher": "replace|write_file|run_shell_command",
         "hooks": [
-          { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}refresh.py\"", "timeout": 5000 }
+          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" refresh.py", "timeout": 5000 }
         ]
       }
     ],
     "AfterAgent": [
-      { "hooks": [ { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}refresh.py\"", "timeout": 5000 } ] }
+      { "hooks": [ { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" refresh.py", "timeout": 5000 } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "python3 \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}refresh.py\"", "timeout": 5000 } ] }
+      { "hooks": [ { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" refresh.py", "timeout": 5000 } ] }
     ]
   }
 }

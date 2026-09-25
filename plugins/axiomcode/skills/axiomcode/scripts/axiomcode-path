@@ -462,7 +462,7 @@ class G:
         if self.has('paths'):
             r = self.q("SELECT rel FROM paths WHERE raw = ?", raw)
             if r: return r[0]['rel']
-        return os.path.relpath(raw, self.repo) if os.path.isabs(raw) and raw.startswith(self.repo) else raw
+        return os.path.relpath(raw, self.repo).replace(os.sep, '/') if os.path.isabs(raw) and raw.startswith(self.repo) else raw
 
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     def export(self):
@@ -554,7 +554,8 @@ def run_dl(g, queries, programs=('path.dl',)):
     # is only needed for the ones that fall back to the interpreter.
     progs = {p: dl_program.program(p) for p in programs}
     if any(v[0] == 'souffle' for v in progs.values()) and not shutil.which('souffle'):
-        die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
+        die(f"no compiled path rules for this version on this machine: the {dl_program.SCOPE}/engine-{dl_program.npm_platform()} package\n"
+            "  ships them for each release (reinstall @axiomcode/code-graph), or install soufflé (brew install souffle-lang/souffle/souffle)")
     F = tempfile.mkdtemp(prefix='axpath-'); O = tempfile.mkdtemp(prefix='axpath-out-')
     for n in ('byname', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
     if g.EXTRA:
@@ -617,6 +618,54 @@ def verify(g, chain, srcs, dst, adj):
     if dst in srcs: found = 0
     return bad, found
 
+ROUTE_CAP = 1000   # past this many routes --every says "1000+" and asks for a narrower endpoint
+
+def k_shortest_routes(E, starts, ends, k):
+    """the k shortest simple routes from any start to any end, shortest first, and whether more exist (Yen's algorithm).
+
+    Each route costs a bounded number of breadth-first searches over the subgraph, so the work grows with k, not with
+    the number of routes the subgraph holds. Enumerating partial paths best-first instead kept every one of them
+    alive: through a cycle they multiply with every hop, and a query with fewer than k short routes ran out of
+    memory (#1341). A route stops at the first end it reaches, and a start is never a route by itself."""
+    import heapq
+    SRC, DST = '\0src', '\0dst'                                      # never equal to a method id
+    adj = {n: [b for b, _ in bs] for n, bs in E.items()}
+    for n in ends: adj[n] = [DST]                                      # a route ends at the first end it reaches
+    adj[SRC] = list(starts)
+    def bfs(a, banned_nodes, banned_edges):
+        prev = {a: None}; frontier = [a]
+        while frontier:
+            nxt = []
+            for u in frontier:
+                for v in adj.get(u, ()):
+                    if v in prev or v in banned_nodes or (u, v) in banned_edges: continue
+                    prev[v] = u
+                    if v == DST:
+                        path = [v]
+                        while prev[path[-1]] is not None: path.append(prev[path[-1]])
+                        return path[::-1]
+                    nxt.append(v)
+            frontier = nxt
+        return None
+    first = bfs(SRC, set(), set())
+    if not first: return [], False
+    A, B, seen = [first], [], {tuple(first)}
+    real = lambda p: p[1:-1]
+    found = [real(first)] if len(real(first)) > 1 else []
+    while len(found) <= k:
+        last = A[-1]
+        for i in range(len(last) - 2):
+            spur, root = last[i], last[:i + 1]
+            banned_edges = {(p[i], p[i + 1]) for p in A if len(p) > i + 1 and p[:i + 1] == root}
+            tail = bfs(spur, set(root[:-1]), banned_edges)
+            if tail:
+                cand = root[:-1] + tail
+                if tuple(cand) not in seen: seen.add(tuple(cand)); heapq.heappush(B, (len(cand), cand))
+        if not B: break
+        _, nxt = heapq.heappop(B); A.append(nxt)
+        if len(real(nxt)) > 1: found.append(real(nxt))
+    return found[:k], len(found) > k
+
 def every_route(g, res, q, srcs, dsts, max_paths, adj):
     """the subgraph of every method on ANY chain from a source to a target, and the simple paths through it (bounded)"""
     E = collections.defaultdict(list); nodes = set()
@@ -633,16 +682,15 @@ def every_route(g, res, q, srcs, dsts, max_paths, adj):
     # enumerate simple paths, shortest first, up to max_paths — each one re-checked against the edge set like the nearest chain
     out = []; edge_set = {(a, b): t for a, b, t in g.edges()}
     starts = sorted(n for n in nodes if n in srcs); ends = {n for n in nodes if n in dsts}
-    import heapq
-    pq = [(0, i, [s0], None) for i, s0 in enumerate(starts)]; cnt = len(starts)
-    while pq and len(out) < max_paths:
-        d, _, pth, _ = heapq.heappop(pq)
-        if pth[-1] in ends and len(pth) > 1: out.append(pth); continue
-        if pth[-1] in ends and len(pth) == 1 and pth[-1] in dsts and len(starts) == 1: pass
-        for b, t in E.get(pth[-1], []):
-            if b in pth: continue                                   # simple: no node twice
-            cnt += 1; heapq.heappush(pq, (d + 1, cnt, pth + [b], t))
-    print(f"  {len(out)} simple path(s)" + (f" (first {max_paths}; --paths N for more)" if len(pq) and len(out) >= max_paths else '') + ", shortest first:")
+    # count the routes up to ROUTE_CAP so the reader knows how many there are, and print the first max_paths of them
+    cap = max(ROUTE_CAP, max_paths)
+    found, more = k_shortest_routes(E, starts, ends, cap)
+    out = found[:max_paths]
+    if more:
+        print(f"  {cap}+ simple paths — too many to list; narrow an endpoint (Owner.method, file:line or --in <path>) for a"
+              f" complete list. The {len(out)} shortest follow (--paths N for more):")
+    else:
+        print(f"  {len(found)} simple path(s)" + (f", the {len(out)} shortest follow (--paths N for more)" if len(out) < len(found) else '') + ", shortest first:")
     for pth in out:
         hops = [(pth[i], pth[i + 1]) for i in range(len(pth) - 1)]
         bad = [h for h in hops if h not in edge_set]
@@ -1065,7 +1113,7 @@ if __name__ == '__main__':
     limit = 10; IN = None; every = '--every' in args; args = [a for a in args if a != '--every']; max_paths = 20
     if '--paths' in args: i = args.index('--paths'); max_paths = int(args[i + 1]); every = True; del args[i:i + 2]
     if '--limit' in args: i = args.index('--limit'); limit = int(args[i + 1]); del args[i:i + 2]
-    if '--in' in args: i = args.index('--in'); IN = args[i + 1]; del args[i:i + 2]
+    if '--in' in args: i = args.index('--in'); IN = args[i + 1].replace('\\', '/'); del args[i:i + 2]
     if len(args) < 2: die("usage: axiomcode path <from> <to> [<repo>] [--all] [--limit N] [--in <path fragment>]")
     if args[0] == '*' and args[1] == '*': die("one endpoint must be named: path '*' X (everything that reaches X) or path X '*' (everything X reaches)")
 
