@@ -300,11 +300,11 @@ query commands take `--json`. `axiomcode help <command>` prints one command's us
 > `changed` and `test-impact` compare the working tree with a **baseline**: the last commit (right after an explicit
 > `axiomcode index`, the tree it indexed). The background refresh (below) resets it whenever HEAD moves (a commit, a
 > merge, a pull, a checkout), so committed edits drop out and nothing accumulates; the two commands wait up to 30 s
-> for that. While edits are uncommitted they read the baseline's own graph, kept in `.axiomcode/base`, so a removed
-> method still shows its callers.
+> for that. While edits are uncommitted, they read the baseline's own graph, kept in `.axiomcode/base`, so a removed
+> method still shows all its callers.
 
 The graph stays current on its own. Every file the parser reads is recorded with its hash at build time; after an
-edit, a shell command, a finished turn, at session start and before a query, anything that differs starts one
+edit, a shell command, a finished turn, at session start, and before a query, anything that differs starts one
 background rebuild per repository, with the language, `--src` and `--library` of the graph it replaces. Every
 command keeps reading the previous graph until the new one is indexed and swapped in. A query waits up to
 `AXIOMCODE_FRESH_WAIT` seconds (default 10) for it, then answers from the previous graph with a `graph refresh:` line
@@ -367,7 +367,7 @@ expected link, so these numbers are read alongside the tier of each edge.
 
 ## How to run locally
 
-From a checkout, to develop the parser, the rules or the plugin:
+From a checkout, to develop the parser, the rules, or the plugin:
 
 ```bash
 git clone https://github.com/AxiomCodeAI/axiomcodegraph.git
