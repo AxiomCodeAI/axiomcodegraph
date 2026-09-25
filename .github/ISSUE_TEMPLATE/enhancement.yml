@@ -1,0 +1,25 @@
+name: Enhancement
+description: Resolution power the engine does not have yet.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: language
+    attributes:
+      label: Front end
+      options: [java, python, typescript, all]
+    validations: { required: true }
+
+  - type: textarea
+    id: construct
+    attributes:
+      label: The construct
+      description: A synthetic example of the code shape that does not resolve today.
+      render: text
+    validations: { required: true }
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: What becomes answerable once this resolves. Mechanism, not corpus.
+    validations: { required: true }

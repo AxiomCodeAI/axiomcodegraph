@@ -1,0 +1,160 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Publish a release to npm: the engine packages, then @axiomcode/code-graph.
+#
+# @axiomcode/engine-<os>-<cpu> is one package per platform holding every
+# language's engine. @axiomcode/code-graph lists them as optionalDependencies
+# pinned to its own version, so `npm install` fetches exactly the one for the
+# machine — no Soufflé, no compiler. The engines therefore go first: publishing
+# the root before them would leave a window where the version it pins is not
+# on the registry.
+#
+# Runs when:
+#   • a GitHub release is PUBLISHED (release.yml drafts one for each new version
+#     on main; publishing the draft is the release decision). Real publish.
+#   • manually (Actions → publish-npm → Run workflow) with dry_run, which packs
+#     every package and prints exactly what would be uploaded, uploading nothing.
+#
+# Needs the CLI_BINARY_PUBLISH secret (an npm token with publish rights on @axiomcode)
+# for a real publish; a dry run needs nothing.
+#
+# Re-running is safe: a package whose version is already on the registry is
+# skipped, so a run that failed half way can simply be run again.
+# ─────────────────────────────────────────────────────────────────────────────
+name: publish-npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: pack and print, publish nothing
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Fails in seconds, before any engine is compiled, when the tag and the tree
+  # disagree about the version.
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      dist_tag: ${{ steps.v.outputs.dist_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: v
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = release ]; then
+            node .github/scripts/version.mjs check "${{ github.event.release.tag_name }}"
+          else
+            node .github/scripts/version.mjs check
+          fi
+          version="$(node .github/scripts/version.mjs get)"
+          # A prerelease never becomes `latest`: 0.2.0-rc.1 goes out as `next`.
+          case "$version" in *-*) dist_tag=next;; *) dist_tag=latest;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          echo "publishing $version as '$dist_tag'"
+
+  engines:
+    needs: check
+    uses: ./.github/workflows/build-engines.yml
+    with:
+      fresh: true      # what ships is compiled from scratch, never restored
+
+  publish:
+    needs: [check, engines]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write     # attach the tarballs to the release
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      DIST_TAG: ${{ needs.check.outputs.dist_tag }}
+      DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with: { pattern: engines-*, path: artifacts }
+
+      # A real release ships every platform the root package pins. Missing one
+      # means some machine installs a version whose engine does not exist.
+      - name: every pinned platform was built
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in $(node -p "Object.keys(require('./package.json').optionalDependencies||{}).join(' ')"); do
+            platform="${name#@axiomcode/engine-}"
+            if [ ! -d "artifacts/engines-$platform" ]; then
+              echo "::warning::no engines were built for $platform"
+              missing=1
+            fi
+          done
+          if [ "$missing" = 1 ] && [ "$DRY" != true ]; then
+            echo "::error::a real publish needs every platform package.json pins"; exit 1
+          fi
+
+      - name: assemble one engine package per platform
+        run: |
+          set -euo pipefail
+          for d in artifacts/engines-*; do
+            platform="${d#artifacts/engines-}"
+            bash packaging/assemble-engine-package.sh "$platform" "$VERSION" "$d" "packages/engine-$platform"
+            cat "packages/engine-$platform/package.json"
+          done
+
+      # `prepare` builds the parser and the driver, so the packed tarball holds
+      # parser/dist and dist exactly as a user installs them.
+      - name: build @axiomcode/code-graph
+        run: npm install --no-audit --no-fund
+
+      - name: publish (or dry-run)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CLI_BINARY_PUBLISH }}
+        run: |
+          set -euo pipefail
+          flag=""; [ "$DRY" = true ] && flag="--dry-run"
+          mkdir -p tarballs
+          publish() {
+            local dir="$1" name
+            name="$(node -p "require('./$dir/package.json').name")"
+            if [ -z "$flag" ] && npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "══ $name@$VERSION is already on the registry — skipped"
+              return
+            fi
+            echo "══ $name@$VERSION  tag=$DIST_TAG $flag"
+            ( cd "$dir" && npm pack --pack-destination "$GITHUB_WORKSPACE/tarballs" >/dev/null \
+                && npm publish --access public --tag "$DIST_TAG" $flag )
+          }
+          for p in packages/engine-*; do publish "$p"; done
+          publish .
+          ls -la tarballs
+          if [ "$DRY" = true ]; then
+            echo "DRY RUN — nothing was uploaded."
+          else
+            echo "published $VERSION"
+          fi
+
+      - name: attach the tarballs to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" tarballs/*.tgz --clobber
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with: { name: npm-tarballs, path: tarballs, retention-days: 7 }
