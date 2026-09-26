@@ -54,7 +54,7 @@ jobs:
       key: ${{ steps.gen.outputs.key }}
       flags: ${{ steps.gen.outputs.flags }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the pinned Soufflé
         run: |
           . graph/pipeline/engine.conf
