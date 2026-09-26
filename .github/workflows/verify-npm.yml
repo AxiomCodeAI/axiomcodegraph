@@ -1,0 +1,42 @@
+# Temporary: install the published release from npm on every platform and ask every CLI verb.
+# Runs on a push to a verify/* branch only; the branch is deleted when the results are in.
+name: verify-npm
+on:
+  push:
+    branches: ['verify/**']
+jobs:
+  npm:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, ubuntu-24.04, ubuntu-24.04-arm, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: .github }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: install @axiomcode/code-graph@0.1.2 from npm, no Souffle
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v souffle && { echo "::error::souffle is on this runner"; exit 1; } || true
+          npm i -g @axiomcode/code-graph@0.1.2 --no-audit --no-fund
+          echo "version: $(axiomcode --version)   arch: $(node -p process.arch)"
+          [ "$(axiomcode --version)" = 0.1.2 ] || { echo "::error::installed version is not 0.1.2"; exit 1; }
+          ls "$(npm root -g)/@axiomcode/code-graph/node_modules/@axiomcode/"
+      - name: every CLI verb, five languages
+        shell: bash
+        run: |
+          set -uo pipefail
+          Q=.github/scripts/e2e-queries.sh
+          pkg="$(npm root -g)/@axiomcode/code-graph/package.json"
+          sed -i.bak "s#\"\$(dirname \"\$bin\")/../@axiomcode/code-graph/package.json\"#\"$pkg\"#" "$Q"
+          bin="$(command -v axiomcode)"; fail=0
+          for lang in java python typescript javascript csharp; do
+            echo "::group::$lang"
+            bash "$Q" "$bin" ".github/e2e/$lang" "$RUNNER_TEMP/work-$lang" || fail=1
+            echo "::endgroup::"
+          done
+          exit $fail
