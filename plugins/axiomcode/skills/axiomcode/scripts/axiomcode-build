@@ -134,7 +134,7 @@ build_head_graph(){
     [ -d "$REPO/node_modules" ] && ln -s "$REPO/node_modules" "$T/node_modules"
     # library roots are given relative to the repository or absolute; from the scratch directory only absolute reach
     local LIBS="" r; if [ -n "${AXIOMCODE_LIBRARY:-}" ]; then
-      for r in $(printf %s "$AXIOMCODE_LIBRARY" | tr ',' ' '); do case "$r" in /*) ;; *) r="$REPO/$r" ;; esac; LIBS="${LIBS:+$LIBS,}$r"; done
+      local IFS=','; for r in $AXIOMCODE_LIBRARY; do case "$r" in /*|[A-Za-z]:*) ;; *) r="$REPO/$r" ;; esac; LIBS="${LIBS:+$LIBS,}$r"; done; unset IFS
     fi
     if env -u AXIOMCODE_BACKGROUND AXIOMCODE_NO_REFRESH=1 AXIOMCODE_LIBRARY="$LIBS" bash "$H/axiomcode-build" "$T" > "$REPO/.axiomcode/base-build.log" 2>&1; then
       D="$(readlink "$T/.axiomcode/out/graph.sqlite" 2>/dev/null || true)"

@@ -1,0 +1,35 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a class imported elsewhere with `const { C } = require(...)` is one declaration: neither its own binding nor the require destructuring is a second, variable declaration",
+   "run": [
+    "impact",
+    "Circle"
+   ],
+   "want": [
+    "class Circle",
+    "instantiates it"
+   ],
+   "avoid": [
+    "declared as more than one kind",
+    "variable Circle"
+   ]
+  },
+  {
+   "why": "a function declaration is a method, not also a variable of the same name",
+   "run": [
+    "impact",
+    "square"
+   ],
+   "want": [
+    "2 resolved"
+   ],
+   "avoid": [
+    "declared as more than one kind",
+    "by name"
+   ]
+  }
+ ]
+}

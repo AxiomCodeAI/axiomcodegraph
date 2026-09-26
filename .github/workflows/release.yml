@@ -48,6 +48,13 @@ jobs:
           ref: ${{ env.SHA }}
           fetch-depth: 0
 
+      - name: the bot this job writes as
+        id: bot
+        uses: ./.github/actions/bot
+        with:
+          app-id: ${{ vars.AXIOMCODE_BOT_APP_ID }}
+          private-key: ${{ secrets.AXIOMCODE_BOT_PRIVATE_KEY }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -57,7 +64,9 @@ jobs:
 
       - name: tag and draft the release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_NAME: ${{ steps.bot.outputs.name }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
         run: |
           set -euo pipefail
           version="$(node .github/scripts/version.mjs get)"
@@ -74,12 +83,12 @@ jobs:
           # The tag is pushed here rather than left to the release: a DRAFT release
           # does not create its tag until it is published, so the check above would
           # never see it and every later push would draft again. A tag pushed with
-          # GITHUB_TOKEN starts no workflow, which is intended: publishing waits for
-          # a person to publish the draft.
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # the bot's token starts no workflow here either: nothing runs on a tag push, and
+          # publishing waits for a person to publish the draft.
+          git config user.name "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
           git tag -a "$tag" -m "$tag" "$SHA"
-          git push origin "refs/tags/$tag"
+          git -c http.https://github.com/.extraheader= push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$tag"
           gh release create "$tag" --draft --verify-tag --title "$tag" \
             --generate-notes $start $prerelease
           echo "::notice::drafted $tag — review it under Releases and publish it to ship to npm"
@@ -102,18 +111,29 @@ jobs:
           ref: dev
           fetch-depth: 0
 
+      - name: the bot this job writes as
+        id: bot
+        uses: ./.github/actions/bot
+        with:
+          app-id: ${{ vars.AXIOMCODE_BOT_APP_ID }}
+          private-key: ${{ secrets.AXIOMCODE_BOT_PRIVATE_KEY }}
+
       - name: merge main into dev
         id: merge
+        env:
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_NAME: ${{ steps.bot.outputs.name }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
         run: |
           set -uo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
           git fetch origin main
           if git merge-base --is-ancestor origin/main HEAD; then
             echo "dev already contains main"; exit 0
           fi
           if git merge --no-edit -m "Merge main into dev (${GITHUB_SHA::8})" origin/main; then
-            git push origin HEAD:dev
+            git -c http.https://github.com/.extraheader= push "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:dev
             echo "dev now contains main at ${GITHUB_SHA::8}"
           else
             git diff --name-only --diff-filter=U > /tmp/conflicts.txt
@@ -127,7 +147,7 @@ jobs:
       - name: say how to resolve it
         if: failure() && steps.merge.outputs.conflict == '1'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
         run: |
           set -uo pipefail
           title="main does not merge cleanly into dev"

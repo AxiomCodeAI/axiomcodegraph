@@ -30,13 +30,15 @@ const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const { findBash } = require('./find-bash.js');
 const { candidates, findPython, withPython } = require('./find-python.js');
+const { which } = require('./which.js');
 
 const SERVER = path.join(__dirname, 'server.py');
 // Run as `node launch.js …` the rest of the command line is the server's; required from mcp.json's
 // `node -e` there is none.
 const args = require.main === module ? process.argv.slice(2) : [];
 
-const runs = (cmd, argv) => spawnSync(cmd[0], [...cmd.slice(1), ...argv], { stdio: 'ignore', windowsHide: true }).status === 0;
+// a bare name is resolved over PATH only (which.js): a python.exe or uv.exe in the client's working directory is not it
+const runs = (cmd, argv) => { const exe = which(cmd[0]); return !!exe && spawnSync(exe, [...cmd.slice(1), ...argv], { stdio: 'ignore', windowsHide: true, timeout: 15000 }).status === 0; };
 
 const UV = ['uv', 'run', '--quiet', '--with', 'mcp', 'python'];
 // A first resolve on a clean machine downloads the SDK and its dependencies, so the limit is generous; a
@@ -45,7 +47,7 @@ const UV_PROBE_MS = Number(process.env.AXIOMCODE_UV_TIMEOUT_MS) || 60000;
 
 function uvWorks() {
   if (!runs(['uv'], ['--version'])) return false;
-  const r = spawnSync(UV[0], [...UV.slice(1), '-c', 'import mcp'],
+  const r = spawnSync(which(UV[0]), [...UV.slice(1), '-c', 'import mcp'],
                       { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', timeout: UV_PROBE_MS, windowsHide: true });
   if (r.status === 0) return true;
   const why = r.error ? (r.error.code === 'ETIMEDOUT' ? `no answer within ${UV_PROBE_MS / 1000}s` : r.error.message)
@@ -78,7 +80,7 @@ if (!cmd) {
 
 // stdio is inherited, so the client talks to the server directly and this process only waits. A signal
 // sent to it is passed on, so stopping the launcher stops the server rather than orphaning it.
-const child = spawn(cmd[0], [...cmd.slice(1), ...args], { stdio: 'inherit', env, windowsHide: true });
+const child = spawn(which(cmd[0]) || cmd[0], [...cmd.slice(1), ...args], { stdio: 'inherit', env, windowsHide: true });
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig));
 child.on('error', (e) => { process.stderr.write(`axiomcode mcp: could not start ${cmd[0]}: ${e.message}\n`); process.exit(1); });
 child.on('exit', (code, signal) => {

@@ -13,6 +13,7 @@
 // Used by bin/axiomcode.js (the command npm links), mcp/launch.js (the MCP server) and hooks/run.js.
 'use strict';
 const { spawnSync } = require('child_process');
+const { which } = require('./which.js');
 const path = require('path');
 
 const SHIM = path.join(__dirname, '..', 'skills', 'axiomcode', 'scripts', 'pyshim');
@@ -25,8 +26,10 @@ function candidates() {
 // { cmd, exe } or { error }: cmd is how the candidate was named, exe the interpreter file it runs.
 function findPython() {
   for (const cmd of candidates()) {
-    const r = spawnSync(cmd[0], [...cmd.slice(1), '-c', 'import sys; print(sys.executable)'],
-                        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    const exe0 = which(cmd[0]);                                  // PATH only: never a python.exe in the current directory
+    if (!exe0) continue;
+    const r = spawnSync(exe0, [...cmd.slice(1), '-c', 'import sys; print(sys.executable)'],
+                        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 15000 });
     const exe = r.status === 0 && String(r.stdout).trim();
     if (exe) return { cmd, exe };
   }
@@ -40,6 +43,9 @@ function findPython() {
 // probe from here can still be a Store alias that Git Bash cannot run.
 function withPython(env, py) {
   const out = { ...env, AXIOMCODE_PYTHON_EXE: py.exe.replace(/\\/g, '/') };
+  // and every program started below — python, git, bash, the engine — skips the current directory when it looks a
+  // bare name up (see which.js); Windows reads this variable from the environment of the process that starts one
+  if (process.platform === 'win32' && out.NoDefaultCurrentDirectoryInExePath === undefined) out.NoDefaultCurrentDirectoryInExePath = '1';
   // Windows Python writes a pipe in the ANSI code page and opens files in it, so the first → in an answer raised
   // UnicodeEncodeError, and a source file in UTF-8 read wrong. UTF-8 mode fixes both; a user's own setting stands.
   if (process.platform === 'win32' && out.PYTHONUTF8 === undefined) out.PYTHONUTF8 = '1';
