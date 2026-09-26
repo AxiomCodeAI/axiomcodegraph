@@ -1,6 +1,6 @@
 {
   "name": "axiomcode",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Ask your repository how its code connects: who calls this, what breaks if I change it, which tests an edit reaches, how A reaches B. Answers come from a resolved call graph and are verified against it; nothing is guessed.",
   "author": { "name": "AxiomCode", "url": "https://github.com/AxiomCodeAI/axiomcodegraph" },
   "homepage": "https://github.com/AxiomCodeAI/axiomcodegraph",
