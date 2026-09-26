@@ -1,0 +1,153 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a module-qualified dotted name resolves in TypeScript as it does in Java and Python: `util.square` is src/util#square, not a configuration key",
+   "run": [
+    "impact",
+    "util.square"
+   ],
+   "want": [
+    "2 resolved",
+    "Circle.area",
+    "Square.area"
+   ],
+   "avoid": [
+    "configuration key"
+   ]
+  },
+  {
+   "why": "the whole dotted form, directory included (src/lib/util.ts is lib/util#square), resolves too",
+   "run": [
+    "impact",
+    "lib.util.square"
+   ],
+   "want": [
+    "2 resolved"
+   ],
+   "avoid": [
+    "configuration key"
+   ]
+  },
+  {
+   "why": "backward compatible: the native spelling `lib/util#square` still resolves, to the same declaration as the dotted form",
+   "run": [
+    "impact",
+    "lib/util#square"
+   ],
+   "want": [
+    "2 resolved",
+    "Circle.area",
+    "Square.area"
+   ],
+   "avoid": [
+    "configuration key",
+    "matches no package"
+   ]
+  },
+  {
+   "why": "backward compatible: the native spelling `util#square` still resolves, to the same declaration as the dotted form",
+   "run": [
+    "impact",
+    "util#square"
+   ],
+   "want": [
+    "2 resolved",
+    "Circle.area",
+    "Square.area"
+   ],
+   "avoid": [
+    "configuration key",
+    "matches no package"
+   ]
+  },
+  {
+   "why": "backward compatible: the native spelling `lib/util.square` still resolves, to the same declaration as the dotted form",
+   "run": [
+    "impact",
+    "lib/util.square"
+   ],
+   "want": [
+    "2 resolved",
+    "Circle.area",
+    "Square.area"
+   ],
+   "avoid": [
+    "configuration key",
+    "matches no package"
+   ]
+  },
+  {
+   "why": "a dotted module prefix on an Owner.member resolves",
+   "run": [
+    "impact",
+    "model.Circle.area"
+   ],
+   "want": [
+    "one of a set"
+   ],
+   "avoid": [
+    "matches no package"
+   ]
+  },
+  {
+   "why": "the dotted form works as a path endpoint as well",
+   "run": [
+    "path",
+    "service.main",
+    "util.square"
+   ],
+   "want": [
+    "reached through resolved calls"
+   ]
+  },
+  {
+   "why": "a wrong prefix on a name the code declares is a miss that names the close declarations, not a configuration key and not every reference to `square`",
+   "run": [
+    "impact",
+    "zzz.square"
+   ],
+   "expect_error": true,
+   "want": [
+    "nothing named 'zzz.square'",
+    "square"
+   ],
+   "avoid": [
+    "configuration key",
+    "referenced by name"
+   ]
+  },
+  {
+   "why": "a dotted key whose last segment the code does not declare is still read as a configuration key",
+   "run": [
+    "impact",
+    "app.server.prefix"
+   ],
+   "expect_error": true,
+   "want": [
+    "configuration key",
+    "NOT visible"
+   ]
+  },
+  {
+   "why": "changed hands impact the full dotted name of the edited declaration, so a hook answers for it alone, and still prints the short one",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/lib/util.ts",
+    "--json"
+   ],
+   "stdout_json": true,
+   "want": [
+    "\"target\": \"lib.util.square\"",
+    "\"shown_target\": \"square\""
+   ]
+  }
+ ]
+}
