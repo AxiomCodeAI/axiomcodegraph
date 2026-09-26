@@ -161,8 +161,19 @@ jobs:
     permissions:
       issues: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
+      - name: the bot this job writes as
+        id: bot
+        uses: ./.github/actions/bot
+        with:
+          app-id: ${{ vars.AXIOMCODE_BOT_APP_ID }}
+          private-key: ${{ secrets.AXIOMCODE_BOT_PRIVATE_KEY }}
+
       - env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
           GH_REPO: ${{ github.repository }}
           CI_RESULT: ${{ needs.ci.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
