@@ -81,7 +81,11 @@ def engine_roots():
     roots = [HERE]
     if os.environ.get('AXIOMCODE_ENGINE'): roots.append(os.environ['AXIOMCODE_ENGINE'])
     b = shutil.which('axiomcode')
-    if b: roots.append(os.path.dirname(os.path.dirname(os.path.realpath(b))))
+    if b:
+        roots.append(os.path.dirname(os.path.dirname(os.path.realpath(b))))
+        # on Windows npm links the command as axiomcode.cmd / .ps1 files beside node_modules, not as a symlink into
+        # the package, so realpath leads nowhere near it: the package is <that dir>/node_modules/@axiomcode/code-graph
+        roots.append(os.path.join(os.path.dirname(b), 'node_modules', SCOPE, 'code-graph'))
     return roots
 
 

@@ -33,7 +33,8 @@ def save_state(st):
 def rel_of(fp):
     fp = str(fp)
     for a, b in ((fp, cwd), (os.path.realpath(fp), os.path.realpath(cwd)), (os.path.realpath(fp), cwd), (fp, os.path.realpath(cwd))):
-        r = os.path.relpath(a, b)
+        try: r = os.path.relpath(a, b)
+        except ValueError: continue                                 # Windows: a file on another drive is not under the tree
         if not r.startswith('..'): return r.replace(os.sep, '/')   # the index stores '/' on every platform
     return fp
 

@@ -1129,8 +1129,8 @@ class Impact:
         for n in os.listdir(D):
             if not n.endswith('.facts'): continue
             if n[:-6] in skip: open(os.path.join(F, n), 'w').close()                  # an empty file: declared, never read
-            else: os.symlink(os.path.join(D, n), os.path.join(F, n))
-        for n in ('edge', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
+            else: P.link_facts(os.path.join(D, n), os.path.join(F, n))
+        for n in ('edge', 'named'): P.link_facts(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
         T = []; textuse = []; importuse = []; inside = []
         def type_query(qq, tid):
             t = g.sym[tid]; T.append((qq, 'type', tid, ''))

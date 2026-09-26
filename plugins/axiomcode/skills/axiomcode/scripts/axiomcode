@@ -62,6 +62,9 @@ if [ -z "${AXIOMCODE_PYTHON_EXE:-}" ] &&
 fi
 # and in UTF-8 mode, as find-python.js sets it: otherwise a piped answer is written in cp1252 and the first → raises
 case "${OSTYPE:-}" in msys*|cygwin*) : "${PYTHONUTF8:=1}"; export PYTHONUTF8;; esac
+# the builds Python starts need THIS bash: a bare `bash` from a native python.exe is WSL's (System32) or nothing.
+# The node launchers set it; a run from Git Bash itself does not, so it is set here from the bash that is running.
+if [ -z "${AXIOMCODE_BASH:-}" ] && command -v cygpath >/dev/null 2>&1; then AXIOMCODE_BASH="$(cygpath -m "$BASH")"; export AXIOMCODE_BASH; fi
 
 # A VERB ANSWERS; IT DOES NOT HAND BACK AN INSTRUCTION. Reached through this dispatcher — which is
 # what `axiomcode` on $PATH and the MCP server both go through — a query on a repository with no

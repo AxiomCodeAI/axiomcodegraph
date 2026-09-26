@@ -66,6 +66,15 @@ def chain_json(g, chain):
 BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE',
                   'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE'}
 
+def link_facts(src, dst):
+    """make a fact file visible under another directory. A symlink needs a privilege on Windows that an unelevated user
+    does not hold (WinError 1314), so a hard link is tried next and a copy last: the solver only reads the file."""
+    try: os.symlink(src, dst); return
+    except (OSError, NotImplementedError): pass
+    try: os.link(src, dst); return
+    except OSError: shutil.copyfile(src, dst)
+
+
 class G:
     def __init__(self, repo):
         self.repo = os.path.realpath(repo or '.')
@@ -557,12 +566,12 @@ def run_dl(g, queries, programs=('path.dl',)):
         die(f"no compiled path rules for this version on this machine: the {dl_program.SCOPE}/engine-{dl_program.npm_platform()} package\n"
             "  ships them for each release (reinstall @axiomcode/code-graph), or install soufflé (brew install souffle-lang/souffle/souffle)")
     F = tempfile.mkdtemp(prefix='axpath-'); O = tempfile.mkdtemp(prefix='axpath-out-')
-    for n in ('byname', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
+    for n in ('byname', 'named'): link_facts(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
     if g.EXTRA:
         shutil.copy(os.path.join(g.facts, 'edge.facts'), os.path.join(F, 'edge.facts'))
         with open(os.path.join(F, 'edge.facts'), 'a') as f:
             for a, b, t in g.EXTRA: f.write(f"{a}\t{b}\t{t}\n")
-    else: os.symlink(os.path.join(g.facts, 'edge.facts'), os.path.join(F, 'edge.facts'))
+    else: link_facts(os.path.join(g.facts, 'edge.facts'), os.path.join(F, 'edge.facts'))
     g.write('src', [(q, m) for q, (s, _) in queries.items() for m in s], F)
     g.write('dst', [(q, m) for q, (_, d) in queries.items() for m in d], F)
     out = {n: collections.defaultdict(list) for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist')}
