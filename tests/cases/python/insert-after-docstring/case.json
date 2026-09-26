@@ -1,0 +1,48 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a line inserted directly after a method's docstring is a change to THAT METHOD: the docstring is the first line of its body, not a blank line between declarations, so the edit used to be charged to the class and name no declaration",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new.txt",
+    "--file",
+    "lib.py"
+   ],
+   "want": [
+    "body",
+    "Scaler.scale"
+   ],
+   "avoid": [
+    "no changed declaration",
+    "inside Scaler"
+   ]
+  },
+  {
+   "why": "a line inserted one statement further into the body names the method and only the method: the insertion is already accounted for as a body change, so it is not also listed as unattributed new lines inside the class",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-later.txt",
+    "--file",
+    "lib.py"
+   ],
+   "want": [
+    "body",
+    "Scaler.scale"
+   ],
+   "avoid": [
+    "no changed declaration",
+    "inside Scaler"
+   ]
+  }
+ ]
+}
