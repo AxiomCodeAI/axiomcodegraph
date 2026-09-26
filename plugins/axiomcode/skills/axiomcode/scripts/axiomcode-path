@@ -66,6 +66,20 @@ def chain_json(g, chain):
 BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE',
                   'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE'}
 
+# ONE SPELLING FOR EVERY LANGUAGE. Each front end writes a qualified name its own way: Java and C# `pkg.Owner.m`,
+# Python `pkg.module.f`, TypeScript `src/util#square`, JavaScript `src/util.square`. canon() maps all of them onto the
+# dotted form (`src.util.square`), and the resolvers match it beside the native spellings, so `util.square` or
+# `src.util.square` names the same declaration in every language, and a name one verb prints another accepts.
+_CANON_SEP = re.compile(r'::|[/\\#$]')
+def canon(q):
+    if not q: return q
+    return re.sub(r'\.{2,}', '.', _CANON_SEP.sub('.', q)).strip('.')
+def canon_is(q, name):
+    """1 when `name`, in any spelling (`/`, `#`, `.`), is q or a whole-segment suffix of it. Case-sensitive, unlike LIKE."""
+    c, n = canon(q), canon(name)
+    return int(bool(c) and bool(n) and (c == n or c.endswith('.' + n)))
+
+
 class G:
     def __init__(self, repo):
         self.repo = os.path.realpath(repo or '.')
@@ -78,12 +92,12 @@ class G:
         # words the caller can act on.
         if not os.path.exists(self.db) and not ax_contract.ensure_graph(self.repo, self.db):
             die(ax_contract.no_graph(self.repo, self.db))
-        self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
+        self.connect()
         if not self.has('symbols'):
             # a graph that was built but never indexed: the index is this tool's own, and adding it
             # is seconds, so asking the caller to run one more command buys nothing.
             subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-index'), self.repo], capture_output=True)
-            self.con.close(); self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
+            self.con.close(); self.connect()
             if not self.has('symbols'): die(f"{self.db} has no index — run `axiomcode index {self.repo}`")
         # `sym` is the CALLABLE/type layer: it is what an endpoint may resolve to, so a field must stay out of it.
         # `all_sym` is every declaration the index holds, fields, constants and enum members included. A consumer that
@@ -96,6 +110,10 @@ class G:
         self.facts = os.path.join(gdir, 'out', 'dl')
         self.callers_ids = {r['caller_id'] for r in self.q("SELECT DISTINCT caller_id FROM call_edges")}   # a type whose field initializers call: a node too
         self.decorations_from_sites()
+
+    def connect(self):
+        self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
+        self.con.create_function('canon_is', 2, canon_is, deterministic=True)
 
     # ── decorations the front end records as calls, not as decorations ───────────────────────────────────────
     # A TypeScript or JavaScript graph has a `decorations` table with NOTHING IN IT, and the same decorators sitting
@@ -159,6 +177,19 @@ class G:
             if len(kept) < len(ids): label += f" [{len(kept)} under *{self.IN}*]"
             ids = kept
         return label, ids
+    def separator_collision(self, typed, rows):
+        """two declarations whose names differ only in separators (`a/b#c`, `a.b/c`) are the same dotted name. Neither
+        is the answer: the caller is told both, and the exact spelling of each still resolves to that one alone."""
+        by = collections.defaultdict(set)
+        for r in rows:
+            q = r['qualified_name']
+            if q: by[canon(q)].add(q)
+        clash = {c: sorted(n) for c, n in by.items() if len(n) > 1}
+        if not clash: return
+        where = {r['qualified_name']: f"{r['file']}:{r['line']}" for r in rows if r['qualified_name'] and r['file']}
+        lines = [f"  {n}   {where.get(n, '')}" for names in clash.values() for n in names]
+        die(f"'{typed}' names {sum(len(n) for n in clash.values())} declarations whose names differ only in separators "
+            f"(/ # .):\n" + '\n'.join(lines) + "\n  ask with the exact spelling of the one you mean")
     def method_kind(self, i):
         if not hasattr(self, '_mkind'):
             self._mkind = {r[0]: r[1] for r in self.q("SELECT id, kind FROM methods")} if self.has('methods') else {}
@@ -253,6 +284,13 @@ class G:
             cand = '.'.join(parts[k:])
             rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display = ? OR qualified_name = ? OR qualified_name LIKE ?", cand, cand, f"%.{cand}")
             if not rows: rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display LIKE ? OR display LIKE ?", f"%.{cand}", f"%#{cand}")
+            # the name as written matched nothing: only then is it compared in the one dotted spelling, so a name that
+            # resolved before resolves to the same declaration now, whatever a dotted lookalike elsewhere is called
+            if not rows:
+                # LIKE on the last segment first: C-speed, and a superset (it folds case, `_` is a wildcard), so the Python
+                # comparison sees a handful of rows instead of every symbol (2.3 s → 0.06 s on a million)
+                rows = self.q("SELECT id, kind, display, type_id, method_id, qualified_name, file, line FROM symbols WHERE qualified_name LIKE ? AND canon_is(qualified_name, ?)", '%' + cand.rsplit('.', 1)[-1], cand)
+                self.separator_collision(sel, rows)
             if rows: used = cand; break
         exact = [r for r in rows if r['display'] == used or (r['display'] or '').endswith('.' + used) and r['display'].count('.') == used.count('.') + 1] or rows
         methods = [r['id'] for r in exact if r['method_id'] and r['kind'] != 'module']
@@ -392,6 +430,10 @@ class G:
         references T where the parser gives a line (type references / identifier references). Java type references carry no
         line, so there the constructor calls and identifier uses are what is found; the answer says which kinds were matched."""
         name = s.split('.')[-1]; ids = []; parts = []
+        # a qualified name whose last segment the client itself declares is a declaration asked for under a wrong
+        # prefix, not a type from outside: answering for every reference to that short name is a different question
+        if '.' in s and self.q("SELECT 1 FROM symbols WHERE name = ? AND (method_id IS NOT NULL OR type_id IS NOT NULL) AND kind NOT IN ('library', 'written') LIMIT 1", name):
+            return None
         w = self.written('new ' + name)
         if w: ids += w[1]; parts.append(f"new {name} at {len(self.SITES[w[1][0]])} site(s)")
         lib = self.library(s + '.*') if '.' in s else self.library(name + '.*')

@@ -67,7 +67,8 @@ does not restrict. Detail: `reference/context.md`.
 
 `axiomcode impact <target>… [--depth N] [--in <path>] [--delete]`. Targets as written in the code:
 `Owner.method`, `Owner.field`, `Type`, `Owner.method(param)`, `Type<T>`, `Owner.method:local`, a config key, or
-`file.ts:123` — the declaration at that line. **When you know where the declaration is, target it by `file:line`**: a
+`file.ts:123` — the declaration at that line. Separators are interchangeable in every language: `util.square`,
+`src.util.square` and `src/util#square` are one name. **When you know where the declaration is, target it by `file:line`**: a
 bare name answers for EVERY declaration of that name, and two unrelated functions in different files come back as one.
 Sections: **must change with it** · **produces or writes it** · **reads or uses it** (by rung) · **reaches those**
 (transitively: what can reach a user, not where the value goes) · tests, counted by rung with the strong ones named · `verified:` · `bound:`. For the full test list ask second: `--tests-only` (grouped by rung and file), `--why` for routes, `--tests-in <file>` to narrow. A long answer comes in pages of ~2000 tokens with the whole answer's counts on every page; `--page 2` (MCP `page=2`) only when page 1's strongest rows are not enough. It finds config
