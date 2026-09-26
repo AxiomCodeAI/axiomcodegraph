@@ -33,6 +33,8 @@ One check needs no graph and is its own script:
                                          the budget said spent once, its second half kept for edges into unopened files
                                          (#1199; indexes a small project, so it needs the engine)
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
+    python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
+                                         unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

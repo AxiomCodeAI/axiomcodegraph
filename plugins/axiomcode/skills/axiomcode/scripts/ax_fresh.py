@@ -253,7 +253,10 @@ def worker(repo):
             t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
             else: print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
-            r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(H, 'axiomcode-build'), repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            # the worker is detached and has no console, so Windows would give the console program bash a new, visible
+            # window for the length of every rebuild; CREATE_NO_WINDOW keeps it hidden
+            r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(H, 'axiomcode-build'), repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               **(dict(creationflags=0x08000000) if os.name == 'nt' else {}))
             took = round(time.time() - t0, 1)
             if r.returncode != 0:
                 write_state(repo, state='failed', finished=time.time(), seconds=took, failed_table=fp,

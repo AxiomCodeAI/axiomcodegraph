@@ -118,7 +118,10 @@ A = {
               refKinds={'IDENTIFIER', 'PROPERTY_ACCESS'}, entityKind='referenceKind',
               litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='text'),
     comments=dict(file='all-javascript-comments.csv', text='text', kind='commentKind', line='startLine', fileVia=('modules', 'ownerModuleLinkHash')),
-    decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') != 'IMPORT_BINDING',
+    # a `function f` or `class C` is also a binding (FUNCTION_DECLARATION_HOISTED, CLASS_TDZ), and `const { C } =
+    # require('./m')` is an import in all but syntax (it carries an importLinkHash): none of them is a variable, and
+    # each made the function or class it names look declared as a second kind, so `impact C` refused as ambiguous
+    decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
                 kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
            dict(file='all-javascript-fields.csv', kind=lambda r: 'field', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
     # `const foo = () => …`: the variable's initializerExpressionLinkHash is the FUNCTION_EXPRESSION row whose

@@ -78,6 +78,20 @@ jobs:
             echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=false" >> "$GITHUB_OUTPUT"
             echo "push to dev: suites run, platform engines wait for main"; exit 0
           fi
+          # A push to main is a release when its version has no tag yet: that commit, and only that one,
+          # builds every platform and runs the five-platform e2e, and release.yml drafts from it once
+          # it is green. A push whose version is already tagged released nothing new and builds nothing.
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
+            v="$(node .github/scripts/version.mjs get)"
+            if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
+              echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=false" >> "$GITHUB_OUTPUT"
+              echo "push to main at v$v, already tagged: suites run, nothing to release"
+            else
+              echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=true" >> "$GITHUB_OUTPUT"
+              echo "push to main at v$v, not yet tagged: the release build runs on every platform"
+            fi
+            exit 0
+          fi
           if [ "${{ github.event_name }}" != pull_request ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=true" >> "$GITHUB_OUTPUT"
             echo "${{ github.event_name }} on ${{ github.ref }}: everything runs"; exit 0
@@ -98,8 +112,9 @@ jobs:
             -e '\.dl$' -e '^graph/pipeline/' -e '^packaging/' -e 'scripts/dl_program\.py$' -e '^\.github/scripts/query-smoke\.sh$' \
             -e '^\.github/workflows/build-engines\.yml$' -e '^package\.json$' -e '^\.github/scripts/e2e-' -e '^\.github/e2e/' || true)"
           [ -n "$code" ] && echo "code=true" >> "$GITHUB_OUTPUT" || echo "code=false" >> "$GITHUB_OUTPUT"
-          # Only a pull request INTO main builds the platform engines; into dev they wait.
-          [ "${{ github.base_ref }}" = main ] || engines=""
+          # No pull request builds the platform engines: a release builds them once, on the push that
+          # lands it on main, and publishes exactly that build (#1350).
+          engines=""
           [ -n "$engines" ] && echo "engines=true" >> "$GITHUB_OUTPUT" || echo "engines=false" >> "$GITHUB_OUTPUT"
           echo "suites: $([ -n "$code" ] && echo run || echo skip)   platform engines: $([ -n "$engines" ] && echo run || echo skip)"
 
@@ -205,6 +220,25 @@ jobs:
       - name: a change that reaches a user has a version
         if: github.event_name == 'pull_request'
         run: bash .github/scripts/version-gate.sh "origin/${{ github.base_ref }}"
+
+      # A push to main builds and releases only when its version is new (#1350). The gate above already
+      # refuses a pull request that changes what users get without a new version; a CI or docs change
+      # may keep main's version and then builds nothing when it lands. What is left to refuse here is a
+      # new version that was already released: its tag exists, so the push would build nothing and the
+      # change would never ship.
+      - name: a pull request into main does not reuse a released version
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: |
+          set -euo pipefail
+          head="$(node .github/scripts/version.mjs get)"
+          base="$(git show origin/main:package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).version))')"
+          if [ "$head" = "$base" ]; then
+            echo "main stays at $base: nothing in this change is released, and landing it builds nothing"; exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$head" >/dev/null; then
+            echo "::error::v$head is already released — pick the next version"; exit 1
+          fi
+          echo "main $base -> $head: landing this builds every platform and drafts v$head"
 
   engine:
     name: engine (${{ matrix.lang }})
@@ -385,10 +419,9 @@ jobs:
           AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
 
-  # Every language's engine, every platform: the reusable build that publish-npm
-  # ships from, run here WITHOUT publishing. A rule that solves on Ubuntu but does
-  # not compile with MSVC, or that no longer generates for a language, fails the
-  # gate here rather than at release time.
+  # Every language's engine, every platform, built once per release: on the push that
+  # lands a new version on main (and in the nightly). publish-npm ships these very
+  # artifacts, so what the e2e below tested is what users install (#1350).
   engines:
     name: engines build on every platform
     needs: [build, changes]
@@ -401,7 +434,7 @@ jobs:
   # job only proves each binary compiles and starts; the suites run from the checkout. Neither
   # installs the packages, so a missing `files` entry, an engine package the CLI does not find,
   # a query program that needs Soufflé, or a verb that only breaks on Windows reached users.
-  # Runs wherever the platform engines are built: on the way into main, and in the nightly.
+  # Runs wherever the platform engines are built: on the push that lands a release on main, and in the nightly.
   pack:
     name: pack @axiomcode/code-graph
     needs: [build, changes]
@@ -416,8 +449,9 @@ jobs:
       - run: npm install --no-audit --no-fund
       # --ignore-scripts: `prepare` already built it; the tarball carries what the build produced
       - run: mkdir -p tgz && npm pack --ignore-scripts --pack-destination tgz && ls -la tgz
+      # kept as long as the engines: publish-npm ships this exact tarball, whenever the draft is published
       - uses: actions/upload-artifact@v4
-        with: { name: code-graph-tgz, path: tgz, retention-days: 3, if-no-files-found: error }
+        with: { name: code-graph-tgz, path: tgz, retention-days: 90, if-no-files-found: error }
 
   e2e:
     name: e2e on ${{ matrix.target.platform }}

@@ -67,17 +67,16 @@ jobs:
           echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
           echo "publishing $version as '$dist_tag'"
 
-  engines:
-    needs: check
-    uses: ./.github/workflows/build-engines.yml
-    with:
-      fresh: true      # what ships is compiled from scratch, never restored
-
+  # Nothing is compiled here. The push that landed this version on main built every platform's
+  # engines, packed @axiomcode/code-graph and ran the five-platform e2e on exactly those files;
+  # release.yml drafted this release only after that run was green. Publishing ships that build,
+  # so what was tested is what users install, and a release costs one build, not three (#1350).
   publish:
-    needs: [check, engines]
+    needs: [check]
     runs-on: ubuntu-24.04
     permissions:
       contents: write     # attach the tarballs to the release
+      actions: read       # the release's CI run and its artifacts
     env:
       VERSION: ${{ needs.check.outputs.version }}
       DIST_TAG: ${{ needs.check.outputs.dist_tag }}
@@ -88,8 +87,33 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+      - name: the green CI run that built and tested this commit
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          run="$(gh run list --workflow ci.yml --commit "$sha" --event push --branch main --status success \
+                   --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run" ]; then
+            echo "::error::no green CI run of a push to main for ${sha::8}: nothing built and tested this commit, so nothing is published"
+            exit 1
+          fi
+          echo "id=$run" >> "$GITHUB_OUTPUT"
+          echo "shipping the build of CI run $run ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run)"
       - uses: actions/download-artifact@v4
-        with: { pattern: engines-*, path: artifacts }
+        with:
+          pattern: engines-*
+          path: artifacts
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: code-graph-tgz
+          path: artifacts/tgz
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
 
       # A real release ships every platform the root package pins. Missing one
       # means some machine installs a version whose engine does not exist.
@@ -126,10 +150,13 @@ jobs:
             cat "packages/engine-$platform/package.json"
           done
 
-      # `prepare` builds the parser and the driver, so the packed tarball holds
-      # parser/dist and dist exactly as a user installs them.
-      - name: build @axiomcode/code-graph
-        run: npm install --no-audit --no-fund
+      - name: the tested @axiomcode/code-graph tarball is this version
+        run: |
+          set -euo pipefail
+          tgz="$(ls artifacts/tgz/*.tgz)"
+          got="$(tar -xOzf "$tgz" package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).version))')"
+          [ "$got" = "$VERSION" ] || { echo "::error::the tested tarball is $got, this release is $VERSION"; exit 1; }
+          echo "TGZ=$tgz" >> "$GITHUB_ENV"
 
       - name: publish (or dry-run)
         env:
@@ -150,7 +177,14 @@ jobs:
                 && npm publish --access public --tag "$DIST_TAG" $flag )
           }
           for p in packages/engine-*; do publish "$p"; done
-          publish .
+          # the tarball the e2e installed, published as it is rather than packed again
+          if [ -z "$flag" ] && npm view "@axiomcode/code-graph@$VERSION" version >/dev/null 2>&1; then
+            echo "══ @axiomcode/code-graph@$VERSION is already on the registry — skipped"
+          else
+            echo "══ @axiomcode/code-graph@$VERSION  tag=$DIST_TAG $flag"
+            cp "$TGZ" tarballs/
+            npm publish "$TGZ" --access public --tag "$DIST_TAG" $flag
+          fi
           ls -la tarballs
           if [ "$DRY" = true ]; then
             echo "DRY RUN — nothing was uploaded."

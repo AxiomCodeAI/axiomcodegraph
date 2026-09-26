@@ -427,7 +427,22 @@ class Changed:
         sigged = {(e['file'], e['symbol']) for e in out if e['kind'] in ('signature', 'field', 'type')}
         out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in sigged)]
         if overrun_note: adds.append(overrun_note)
+        # THE TARGET NAMES THIS DECLARATION, NOT EVERY DECLARATION OF ITS NAME. `symbol` stays the short display; the
+        # target a hook hands to impact is the full dotted name, or `square` also answers for every other `square`.
+        for e in out:
+            t = e.get('target')
+            q = self.qualified(e.get('id'), e.get('kind'))
+            if t and q and t.startswith(e['symbol']): e['target'] = q + t[len(e['symbol']):]; e['shown_target'] = t
         return out, adds
+    def qualified(self, i, kind):
+        if i is None: return None
+        r = self.g.all_sym.get(i)
+        q = r.get('qualified_name') if r else None
+        if not q and kind == 'field':
+            row = self.g.q("SELECT qualified_name FROM symbols WHERE rowid = ?", i)
+            q = row[0][0] if row else None
+        q = P.canon(q) if q else None
+        return q if q and re.fullmatch(r'[\w$.]+', q) else None
     @staticmethod
     def target(kind, d, k, n):
         return d
@@ -493,7 +508,7 @@ def main(argv):
                else f" — against the graph's commit {C.built_at[:10]}")
     print(f"changed declarations ({len(results)})" + (against if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
     for e in results:
-        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ('   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else '')))
+        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e.get('shown_target') or e['target']}" if e.get('target') else ('   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else '')))
     # a note with a file is an addition in that file; one without is a caveat about the whole answer, and printing it
     # under `added` made "the graph is built at the newer commit …" read as a new declaration
     for f, n, _ in notes: print(f"  {'added':<10} {n}" if f else f"note: {n}")

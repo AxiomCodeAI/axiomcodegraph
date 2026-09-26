@@ -1,0 +1,10 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "the dotted module form resolves in JavaScript, whose own spelling mixes / and .",
+   "run": ["impact", "util.square"],
+   "want": ["2 resolved"],
+   "avoid": ["configuration key"]},
+  {"why": "backward compatible: the native spelling still resolves to the same function",
+   "run": ["impact", "util#square"],
+   "want": ["2 resolved"],
+   "avoid": ["configuration key", "matches no package"]}]}

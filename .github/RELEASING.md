@@ -42,8 +42,9 @@ it cannot be deleted, so direct pushes are fine too.
 
 `main` moves only by promotion: a pull request `dev → main`, which also builds every platform's
 engines, needs a green `CI`, and only an admin can merge. Every version released is a tag on
-`main`. main only squash-merges, so after every push to main the `sync-dev` job in `release.yml`
-merges main back into dev; a hotfix that conflicts with dev pushes nothing and opens an issue with
+`main`. A promotion is merged with a merge commit, never squashed, so main shares dev's history and
+"dev is N commits ahead" counts only unreleased work. Merge work into dev with squash. After every
+push to main the `sync-dev` job in `release.yml` merges main back into dev; a hotfix that conflicts with dev pushes nothing and opens an issue with
 the commands to resolve it by hand.
 
 ## Nightly

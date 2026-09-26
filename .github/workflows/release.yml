@@ -2,23 +2,26 @@
 # Every version that lands on main gets a tag and a draft release, and dev is
 # brought up to date with main (the sync-dev job at the end).
 #
-# The version gate (ci.yml) makes a pull request that reaches users bump the
-# version. When that bump merges, this workflow tags the merge commit v<version>
-# and opens a DRAFT GitHub release with notes generated from the pull requests
-# since the previous tag. Nothing is published here.
+# A push to main whose version has no tag yet is a release. CI on that push builds
+# the engines on all five platforms and runs the five-platform e2e; only when that
+# run is GREEN does this workflow tag the commit it tested v<version> and open a
+# DRAFT GitHub release with notes generated
+# from the pull requests since the previous tag. Nothing is published here.
 #
 # Publishing is a person's decision: review the draft, then press Publish. That
-# `release: published` event is what runs publish-npm.yml, which builds the
-# engines, checks that the tag and every manifest agree, publishes to npm and
-# attaches the tarballs to the release.
+# `release: published` event runs publish-npm.yml, which ships the binaries and
+# the tarball of that same green CI run: nothing is compiled twice (#1350).
 #
-# A push that does not move the version finds its tag already present and does
-# nothing, so this runs on every push to main without a path filter.
+# A version that is already tagged finds its tag present and does nothing.
 # ─────────────────────────────────────────────────────────────────────────────
 name: release
 
 on:
   push:
+    branches: [main]      # sync-dev
+  workflow_run:           # tag: after CI on main finished
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -31,11 +34,26 @@ permissions:
 
 jobs:
   tag:
+    # the CI run of a PUSH to main, and only a green one: a red release build drafts nothing
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.SHA }}
           fetch-depth: 0
+
+      - name: the bot this job writes as
+        id: bot
+        uses: ./.github/actions/bot
+        with:
+          app-id: ${{ vars.AXIOMCODE_BOT_APP_ID }}
+          private-key: ${{ secrets.AXIOMCODE_BOT_PRIVATE_KEY }}
 
       - uses: actions/setup-node@v4
         with:
@@ -46,7 +64,9 @@ jobs:
 
       - name: tag and draft the release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_NAME: ${{ steps.bot.outputs.name }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
         run: |
           set -euo pipefail
           version="$(node .github/scripts/version.mjs get)"
@@ -63,24 +83,24 @@ jobs:
           # The tag is pushed here rather than left to the release: a DRAFT release
           # does not create its tag until it is published, so the check above would
           # never see it and every later push would draft again. A tag pushed with
-          # GITHUB_TOKEN starts no workflow, which is intended: publishing waits for
-          # a person to publish the draft.
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "$tag" "$GITHUB_SHA"
-          git push origin "refs/tags/$tag"
+          # the bot's token starts no workflow here either: nothing runs on a tag push, and
+          # publishing waits for a person to publish the draft.
+          git config user.name "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
+          git tag -a "$tag" -m "$tag" "$SHA"
+          git -c http.https://github.com/.extraheader= push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$tag"
           gh release create "$tag" --draft --verify-tag --title "$tag" \
             --generate-notes $start $prerelease
           echo "::notice::drafted $tag — review it under Releases and publish it to ship to npm"
 
   # ── keep dev on top of main ─────────────────────────────────────────────────
-  # main only takes squash merges, so a promotion from dev lands on main as a NEW
-  # commit that dev does not have; without this, the next dev→main pull request
-  # shows the old work again. Merging main back into dev records that it is
-  # already there. A promotion merges cleanly (same content both sides); a hotfix
+  # A promotion from dev lands on main as a merge commit that dev does not have
+  # yet, and a hotfix straight to main is a commit dev lacks too; merging main
+  # back into dev records that they are already there. A promotion merges cleanly (same content both sides); a hotfix
   # that went straight to main and touches lines dev has since changed does not,
   # and then nothing is pushed: an issue says how to resolve it by hand.
   sync-dev:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -91,18 +111,29 @@ jobs:
           ref: dev
           fetch-depth: 0
 
+      - name: the bot this job writes as
+        id: bot
+        uses: ./.github/actions/bot
+        with:
+          app-id: ${{ vars.AXIOMCODE_BOT_APP_ID }}
+          private-key: ${{ secrets.AXIOMCODE_BOT_PRIVATE_KEY }}
+
       - name: merge main into dev
         id: merge
+        env:
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_NAME: ${{ steps.bot.outputs.name }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
         run: |
           set -uo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
           git fetch origin main
           if git merge-base --is-ancestor origin/main HEAD; then
             echo "dev already contains main"; exit 0
           fi
           if git merge --no-edit -m "Merge main into dev (${GITHUB_SHA::8})" origin/main; then
-            git push origin HEAD:dev
+            git -c http.https://github.com/.extraheader= push "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:dev
             echo "dev now contains main at ${GITHUB_SHA::8}"
           else
             git diff --name-only --diff-filter=U > /tmp/conflicts.txt
@@ -116,7 +147,7 @@ jobs:
       - name: say how to resolve it
         if: failure() && steps.merge.outputs.conflict == '1'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
         run: |
           set -uo pipefail
           title="main does not merge cleanly into dev"

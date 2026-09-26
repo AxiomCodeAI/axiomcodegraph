@@ -394,6 +394,9 @@ engine_platform(){
     x86_64|amd64) arch=x64;; arm64|aarch64) arch=arm64;;
     *) echo "unsupported architecture: $(uname -m)" >&2; return 1;;
   esac
+  # a bash started from an Intel python3 on an Apple Silicon Mac runs under Rosetta and reports x86_64; npm installed
+  # the arm64 engine, and an arm64 binary runs natively even from a translated process.
+  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; fi
   printf '%s-%s\n' "$os" "$arch"
 }
 # 1. the engine package npm installed for this machine, if it was built from exactly these
@@ -401,7 +404,15 @@ engine_platform(){
 #    node_modules and a global install both work.
 PACKAGED=""
 platform="$(engine_platform 2>/dev/null || true)"
+# this machine's package first, then the same OS's other architecture: npm installs exactly one per machine, so when
+# the first is absent the installed one is the one npm chose here.
 if [ -n "$platform" ]; then
+  case "$platform" in *-arm64) other="${platform%-arm64}-x64";; *) other="${platform%-x64}-arm64";; esac
+  for p in "$platform" "$other"; do
+    d="$PKG"
+    while [ "$d" != / ] && [ ! -d "$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$p" ]; do d="$(dirname "$d")"; done
+    if [ "$d" != / ]; then platform="$p"; break; fi
+  done
   d="$PKG"
   while [ "$d" != / ]; do
     pkgdir="$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$platform"

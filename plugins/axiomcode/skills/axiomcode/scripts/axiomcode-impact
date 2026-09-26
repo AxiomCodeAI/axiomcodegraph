@@ -2,7 +2,10 @@
 """axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--page N|all] [--budget N] [--json]
    what has to be looked at again when a declaration changes — and how sure each entry is.
 
-A target is a declaration, written as it appears in the code. Its kind is read from the index, never guessed:
+A target is a declaration, written as it appears in the code. Separators are interchangeable in every language:
+util.square, src.util.square and src/util#square name the same declaration; the spelling as written is tried first,
+and a dotted name that fits declarations differing only in separators is refused with each listed. Its kind is read
+from the index, never guessed:
     Owner.method  ·  method  ·  file.java:123          a method (or every declaration of that name — one impact per kind)
     Owner.field   ·  CONSTANT  ·  Enum.MEMBER          a field, constant or enum member
     Type                                               a class / interface / enum
@@ -233,6 +236,11 @@ class Impact:
 
     # ── targets ──────────────────────────────────────────────────────────────────────────────────────────────────
     CONFIG_RE = re.compile(r'^[a-z][\w-]*(\.[a-z0-9][\w-]*)+$')                              # server.error.path, spring.datasource.url
+    def declared_name(self, name):
+        return bool(self.g.q("SELECT 1 FROM symbols WHERE name = ? AND kind NOT IN ('library', 'written') LIMIT 1", name))
+    def has_config(self):
+        g = self.g
+        return any(g.q(f"SELECT 1 FROM {t} LIMIT 1") for t in ('ext_config_affects_method', 'ext_config_binding', 'ext_config_key_ref') if g.has(t))
     def config_target(self, s):
         """a configuration key: what the engine's framework extension bound it into. An unknown key stops with what is known —
         a key is never answered as a by-name match on code, which is what makes a wrong answer look like an answer."""
@@ -272,8 +280,8 @@ class Impact:
         low = typed.lower()
         for n in names:
             if not n: continue
-            n = str(n).replace('#', '.').lower()
-            if n == low or n.endswith('.' + low): return ''      # the prefix IS part of the name
+            for form in (str(n).replace('#', '.').lower(), P.canon(str(n)).lower()):
+                if form == low or form.endswith('.' + low) or form == P.canon(low) or form.endswith('.' + P.canon(low)): return ''      # the prefix IS part of the name
         return typed.rsplit('.', 2)[0]
 
     # `--kind` HAS ITS OWN VOCABULARY, AND IT IS NOT THE INDEX'S. The flag takes the seven words the
@@ -307,7 +315,8 @@ class Impact:
         if pre:
             tail = re.sub(r'\(.*\)$', '', sel).replace('#', '.').strip('.').rsplit('.', 2)[-2:]
             short = '.'.join(tail)
-            if self.CONFIG_RE.match(re.sub(r'\(.*\)$', '', sel).strip()):
+            key = re.sub(r'\(.*\)$', '', sel).strip()
+            if self.CONFIG_RE.match(key) and (self.has_config() or not self.declared_name(key.rsplit('.', 1)[-1])):
                 # a lowercase dotted key reaching a declaration only by its tail is the key, not the code
                 return self.config_target(re.sub(r'\(.*\)$', '', sel).strip())
             die(f"'{pre}' matches no package, type or declaration in this graph; '{sel}' was matched only by its\n"
@@ -342,7 +351,10 @@ class Impact:
                                     f"  properties file, a YAML, an XML). Do not read this as 'nothing uses it'.")
             return [('string', f"the string {raw} ({n} literal site(s), {d} decoration site(s))", v)]
         s = raw.strip('`"\'')
-        if (kind == 'config' or (not kind and self.CONFIG_RE.match(s) and not self.field_rows(s) and not self.types(s, soft=True) and not self.methods(s, soft=True))): return self.config_target(s)
+        # a lowercase dotted name is read as a configuration key when the graph has configuration facts, or when its last
+        # segment names nothing the code declares; `util.square` ending in a real function is a declaration that missed
+        if (kind == 'config' or (not kind and self.CONFIG_RE.match(s) and (self.has_config() or not self.declared_name(s.rsplit('.', 1)[-1]))
+                                  and not self.field_rows(s) and not self.types(s, soft=True) and not self.methods(s, soft=True))): return self.config_target(s)
         if s.startswith('@'):                                                          # an annotation: half of Java-touching commits change one (#758)
             pat = s[1:].replace('*', '%')
             rows = self.g.q("SELECT DISTINCT d.owner_id FROM decorations d JOIN symbols x ON x.id = d.owner_id WHERE d.name LIKE ? OR d.name LIKE ?", pat, f"%.{pat}")
@@ -478,12 +490,17 @@ class Impact:
             cand = '.'.join(parts[k:])
             r = self.g.q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR qualified_name = ?)", cand, cand) or \
                 [x for x in self.g.q("SELECT id, display FROM symbols WHERE type_id IS NOT NULL AND display LIKE ?", f"%.{cand}") if x['display'].endswith('.' + cand)]
+            if not r:                                                                  # the dotted spelling, only after the written one
+                r = self.g.q("SELECT id, qualified_name, file, line FROM symbols WHERE type_id IS NOT NULL AND qualified_name LIKE ? AND canon_is(qualified_name, ?)", '%' + cand.rsplit('.', 1)[-1], cand)
+                if r: self.g.separator_collision(s, r)
             if r: return [x[0] for x in r]
         if soft: return []
         die(f"no type named {s}")
     def field_rows(self, s):
         parts = s.split('.'); name = parts[-1]; owner = '.'.join(parts[:-1])
         rows = [f for f in self.fields.values() if f['name'] == name and (not owner or (f['owner'] or '') == owner or (f['owner'] or '').endswith('.' + owner) or (f['qualified_name'] or '').endswith('.' + s))]
+        if not rows and '.' in s:                                                     # the dotted spelling, only after the written one
+            rows = [f for f in self.fields.values() if f['name'] == name and P.canon_is(f['qualified_name'] or '', s)]
         return rows
     def refs_in(self, cid, name, kinds):
         s = self.g.sym[cid]
@@ -1129,8 +1146,8 @@ class Impact:
         for n in os.listdir(D):
             if not n.endswith('.facts'): continue
             if n[:-6] in skip: open(os.path.join(F, n), 'w').close()                  # an empty file: declared, never read
-            else: os.symlink(os.path.join(D, n), os.path.join(F, n))
-        for n in ('edge', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
+            else: P.link_facts(os.path.join(D, n), os.path.join(F, n))
+        for n in ('edge', 'named'): P.link_facts(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
         T = []; textuse = []; importuse = []; inside = []
         def type_query(qq, tid):
             t = g.sym[tid]; T.append((qq, 'type', tid, ''))
