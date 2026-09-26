@@ -15,12 +15,15 @@
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { which } = require('./which.js');
 
 function gitBash() {
   const candidates = [];
   try {
     // <git>/mingw64/libexec/git-core, or <git>/libexec/git-core on some layouts.
-    const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
+    const git = which('git');
+    if (!git) throw new Error('no git on PATH');
+    const exec = execFileSync(git, ['--exec-path'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 15000 }).trim();
     for (let d = path.resolve(exec), i = 0; i < 4; i++, d = path.dirname(d)) candidates.push(path.join(d, 'bin', 'bash.exe'));
   } catch { /* no git on PATH: fall through to the default locations */ }
   const env = process.env;
