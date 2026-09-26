@@ -67,10 +67,18 @@ jobs:
           echo "::error::${#orphans[@]} commit(s) reached main without a pull request"
           exit 1
 
+      - name: the bot this job writes as
+        id: bot
+        if: failure() && steps.check.outputs.found == '1'
+        uses: ./.github/actions/bot
+        with:
+          app-id: ${{ vars.AXIOMCODE_BOT_APP_ID }}
+          private-key: ${{ secrets.AXIOMCODE_BOT_PRIVATE_KEY }}
+
       - name: record it as an issue
         if: failure() && steps.check.outputs.found == '1'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
         run: |
           set -uo pipefail
           title="Direct push to main on $(date -u +%Y-%m-%d)"

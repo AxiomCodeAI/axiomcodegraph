@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Who the automation writes as. Releases, tags, the main → dev sync merge and the
+# issues the nightly and main-guard open are made with the token this returns, so
+# they read "axiomcode-bot released this" rather than "github-actions released this".
+#
+# GITHUB_TOKEN always acts as github-actions[bot]; the name cannot be set. An org-owned
+# GitHub App can: its token acts as <app-slug>[bot] with the app's avatar. It is minted
+# here per run from the app's id (repository variable AXIOMCODE_BOT_APP_ID) and private
+# key (secret AXIOMCODE_BOT_PRIVATE_KEY). Until those exist this returns github.token and
+# the github-actions identity, so nothing breaks before the app is set up (#1365).
+#
+# A push made with an app token starts workflows, which GITHUB_TOKEN's do not. No
+# workflow runs on a tag push and a draft release does not trigger publish-npm, so the
+# only new run is CI on dev after the sync merge.
+# ─────────────────────────────────────────────────────────────────────────────
+name: bot
+description: The token and git identity automated writes are made with.
+inputs:
+  app-id:
+    description: the AxiomCode app's id (vars.AXIOMCODE_BOT_APP_ID); empty falls back to github-actions[bot]
+    default: ''
+  private-key:
+    description: the app's private key (secrets.AXIOMCODE_BOT_PRIVATE_KEY)
+    default: ''
+outputs:
+  token:
+    description: the token to write with
+    value: ${{ steps.pick.outputs.token }}
+  name:
+    description: the git author name that goes with it
+    value: ${{ steps.pick.outputs.name }}
+  email:
+    description: the git author email that goes with it
+    value: ${{ steps.pick.outputs.email }}
+runs:
+  using: composite
+  steps:
+    - id: app
+      if: inputs.app-id != ''
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+    - id: pick
+      shell: bash
+      env:
+        APP_TOKEN: ${{ steps.app.outputs.token }}
+        SLUG: ${{ steps.app.outputs.app-slug }}
+        FALLBACK: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        if [ -n "$APP_TOKEN" ]; then
+          # the noreply address GitHub attributes to the app's bot user: <user id>+<slug>[bot]@…
+          id="$(GH_TOKEN="$APP_TOKEN" gh api "/users/${SLUG}%5Bbot%5D" --jq .id)"
+          { echo "token=$APP_TOKEN"; echo "name=${SLUG}[bot]"; echo "email=${id}+${SLUG}[bot]@users.noreply.github.com"; } >> "$GITHUB_OUTPUT"
+          echo "writing as ${SLUG}[bot]"
+        else
+          { echo "token=$FALLBACK"; echo "name=github-actions[bot]"; echo "email=41898282+github-actions[bot]@users.noreply.github.com"; } >> "$GITHUB_OUTPUT"
+          echo "writing as github-actions[bot] (AXIOMCODE_BOT_APP_ID is not set)"
+        fi
