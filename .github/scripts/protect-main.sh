@@ -14,7 +14,8 @@
 #   - the `CI` check must pass, evaluated against an up-to-date branch
 #   - only the repository ADMIN role may merge into main (ruleset main-merge-admins):
 #     anyone can open a pull request, an admin merges it, their own included
-#   - linear history: squash or rebase, no merge bubbles
+#   - a promotion lands as a merge commit, never a squash: main then shares dev's history, so
+#     "dev is N commits ahead" counts only what is not on main yet
 #   - a release tag (v*) can be created but never moved or deleted: npm will not
 #     republish a version, so a tag that moved would name a tree nobody installed
 #
@@ -41,7 +42,6 @@ payload="$(cat <<'JSON'
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
-    { "type": "required_linear_history" },
     {
       "type": "pull_request",
       "parameters": {
@@ -51,7 +51,7 @@ payload="$(cat <<'JSON'
         "require_last_push_approval": false,
         "require_extra_approval_for_unattributed_changes": false,
         "required_review_thread_resolution": true,
-        "allowed_merge_methods": ["squash", "rebase"]
+        "allowed_merge_methods": ["merge"]
       }
     },
     {
@@ -156,12 +156,13 @@ apply_ruleset main-merge-admins "$merge_payload"
 apply_ruleset protect-dev "$dev_payload"
 apply_ruleset protect-release-tags "$tag_payload"
 
-# Merge-method hygiene lives on the repository, not the ruleset: squash-only, and
+# Merge-method hygiene lives on the repository: squash for work into dev, merge commits allowed so that
+# protect-main can require them for a promotion (a repository setting cannot differ per branch), and
 # delete the branch once it has landed so the branch list stops accumulating the
 # stale aliases this repo has collected before.
 gh api -X PATCH "repos/$REPO" \
   -F allow_squash_merge=true \
-  -F allow_merge_commit=false \
+  -F allow_merge_commit=true \
   -F allow_rebase_merge=false \
   -F delete_branch_on_merge=true \
   -F allow_auto_merge=true >/dev/null

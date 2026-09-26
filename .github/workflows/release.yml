@@ -85,10 +85,9 @@ jobs:
           echo "::notice::drafted $tag — review it under Releases and publish it to ship to npm"
 
   # ── keep dev on top of main ─────────────────────────────────────────────────
-  # main only takes squash merges, so a promotion from dev lands on main as a NEW
-  # commit that dev does not have; without this, the next dev→main pull request
-  # shows the old work again. Merging main back into dev records that it is
-  # already there. A promotion merges cleanly (same content both sides); a hotfix
+  # A promotion from dev lands on main as a merge commit that dev does not have
+  # yet, and a hotfix straight to main is a commit dev lacks too; merging main
+  # back into dev records that they are already there. A promotion merges cleanly (same content both sides); a hotfix
   # that went straight to main and touches lines dev has since changed does not,
   # and then nothing is pushed: an issue says how to resolve it by hand.
   sync-dev:
