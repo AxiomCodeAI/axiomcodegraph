@@ -26,7 +26,7 @@ the previous graph. Three pieces:
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 10) is how long a query verb waits."""
-import errno, hashlib, json, os, subprocess, sys, time
+import re, errno, hashlib, json, os, subprocess, sys, time
 
 H = os.path.dirname(os.path.abspath(__file__))
 
@@ -60,12 +60,24 @@ def out_dir(repo): return os.path.join(repo, '.axiomcode', 'out')
 def table_path(repo): return os.path.join(out_dir(repo), 'files.json')
 def state_path(repo): return os.path.join(repo, '.axiomcode', 'refresh.json')
 
+PY_SHEBANG = re.compile(r'#![^\n]*\bpython[0-9.]*\b')
+
+def python_script(p, name=None):
+    """an executable Python script with no extension: its first line is a python shebang. The parser analyses it as a
+    module (#1376), so it is watched and counted like a .py file"""
+    if '.' in (name or os.path.basename(p)): return False
+    try:
+        with open(p, 'rb') as fh: head = fh.read(128)
+    except OSError: return False
+    return bool(PY_SHEBANG.match(head.decode('utf-8', 'replace')))
+
 def watched(root, lang):
     exts, names, prune = EXT.get(lang, ()), NAMES.get(lang, ()), PRUNE.get(lang, PRUNE_ALL)
     for d, subdirs, files in os.walk(root):
         subdirs[:] = [s for s in subdirs if s not in prune]
         for f in files:
-            if f.endswith(exts) or f in names or (lang == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d):
+            if f.endswith(exts) or f in names or (lang == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
+                    or (lang == 'python' and python_script(os.path.join(d, f), f)):
                 yield os.path.join(d, f)
 
 def digest(p):
@@ -337,6 +349,13 @@ def main(argv):
         lib = os.environ.get('AXIOMCODE_LIBRARY', '')
         json.dump(dict(lang=lang, src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
                        files=snapshot(repo, lang, os.path.join(repo, src_arg))), sys.stdout); return 0
+    if cmd == 'pyscripts':
+        # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language
+        n = 0
+        for d, subdirs, files in os.walk(repo):
+            subdirs[:] = [x for x in subdirs if x not in PRUNE_ALL]
+            n += sum(1 for f in files if python_script(os.path.join(d, f), f))
+        print(n); return 0
     if cmd == 'uptodate':
         # exit 0 when the recorded table was built with this language / --src / --library and no file differs
         lang, src_arg, lib = argv[3], argv[4] if len(argv) > 4 else '', argv[5] if len(argv) > 5 else ''

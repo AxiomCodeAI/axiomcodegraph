@@ -196,6 +196,7 @@ class Changed:
     # ── one file: the declarations touched and how ────────────────────────────────────────────────────────────
     def file_changes(self, rel, old, new):
         OL, NL = old.split('\n'), new.split('\n')
+        is_py = rel.endswith(('.py', '.pyi')) or bool(re.match(r'#![^\n]*\bpython[0-9.]*\b', new or old))   # a shebang script too (#1376)
         sm = difflib.SequenceMatcher(None, OL, NL, autojunk=False)
         old_changed = set(); new_of = {}; added = []; removed_lines = set(); replaced = []
         # a blank line, a comment line, a brace on its own: not a change to a declaration
@@ -275,7 +276,7 @@ class Changed:
             if kind == 'signature':
                 # compared with comments removed: `f( /* note */ a)` is `f(a)`. Strings stay, so an edited route in a
                 # decoration is still a header change
-                uncomment = lambda lines: re.sub(r'\s+', ' ', strip_code('\n'.join(lines), strings=False, hash_comments=rel.endswith('.py'))).strip()
+                uncomment = lambda lines: re.sub(r'\s+', ' ', strip_code('\n'.join(lines), strings=False, hash_comments=is_py)).strip()
                 oh_raw = ' '.join(x.strip() for x in OL[a - 1:self.header_end(OL, a)]); oh = uncomment(OL[a - 1:self.header_end(OL, a)])
                 na = new_of.get(a) or (new_of.get(max((x for x in new_of if x < a), default=0), 0) + 1)
                 nh = nh_raw = ''
@@ -352,7 +353,7 @@ class Changed:
             names = []; hdrs = {}
             # the type's body level in the NEW text: brace depth just after its header (indentation for Python); a declaration
             # the insertion introduces sits exactly there — a local inside a new method's body sits deeper
-            py = rel.endswith('.py'); tline = new_of.get(t[0]) if t else None
+            py = is_py; tline = new_of.get(t[0]) if t else None
             if t and not tline:                                                                       # the type's header line moved: find it in the new text by name
                 tline = next((j for j in range(1, len(NL) + 1) if re.search(rf'\b(class|interface|enum|record|trait|struct)\s+{re.escape(t[5])}\b', NL[j - 1])), None)
             if tline: body_depth = ndepth[self.header_end(NL, tline)] if not py else len(NL[tline - 1]) - len(NL[tline - 1].lstrip()) + 4
