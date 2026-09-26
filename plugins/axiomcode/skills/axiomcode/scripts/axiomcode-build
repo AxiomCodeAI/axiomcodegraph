@@ -49,7 +49,7 @@ ENGINE="$AXIOMCODE_ENGINE"
   exit 1; }
 # no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently
 count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
-py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx'); cs=$(count -name '*.cs')
+py=$(( $(count -name '*.py') + $(python3 "$H/ax_fresh.py" pyscripts "$SRC" 2>/dev/null || echo 0) )); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx'); cs=$(count -name '*.cs')
 LANG_ARG="${AXIOMCODE_LANG:-}"
 if [ -z "$LANG_ARG" ]; then
   LANG_ARG=java; best=$ja

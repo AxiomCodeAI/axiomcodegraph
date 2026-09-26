@@ -154,6 +154,28 @@ const CHUNK_SIZE = 50_000;
  * deferred set for the second freeze, so the rejection detail lives in the
  * skipped-files CSV until it is unfrozen.
  */
+
+/**
+ * A `.py`/`.pyi` file, or an executable script with no extension whose first
+ * line is a python shebang (`#!/usr/bin/env python3`): the interpreter runs it
+ * as a module, so it is analysed as one (#1376).
+ */
+const PYTHON_SHEBANG = /^#![^\n]*\bpython[0-9.]*\b/;
+export function isPythonSourceFile(full: string, name: string): boolean {
+  if (name.endsWith('.py') || name.endsWith('.pyi')) return true;
+  if (name.includes('.')) return false;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(full, 'r');
+    const head = Buffer.alloc(128);
+    const n = fs.readSync(fd, head, 0, head.length, 0);
+    return PYTHON_SHEBANG.test(head.subarray(0, n).toString('utf-8'));
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
 export class PythonProjectAnalyzer {
   private extractor: PythonFactExtractor;
   private resolutionLinker: PythonResolutionLinker;
@@ -568,7 +590,7 @@ export class PythonProjectAnalyzer {
         found.push(...(await this.collectPythonFiles(full, excludes, false)));
         continue;
       }
-      if (entry.name.endsWith('.py') || entry.name.endsWith('.pyi')) {
+      if (entry.isFile() && isPythonSourceFile(full, entry.name)) {
         found.push(full);
       }
     }
@@ -603,7 +625,7 @@ export class PythonProjectAnalyzer {
         found.push(...(await this.collectPythonFiles(full, excludes, false)));
         continue;
       }
-      if (entry.name.endsWith('.py') || entry.name.endsWith('.pyi')) {
+      if (entry.isFile() && isPythonSourceFile(full, entry.name)) {
         found.push(full);
       }
     }

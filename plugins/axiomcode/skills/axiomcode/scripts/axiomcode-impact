@@ -198,7 +198,7 @@ class Impact:
         """the source with comments and string literals blanked (same length, same line breaks): a name in a javadoc, a
         docstring or a string is not a use. Block /* */, line // and # (Python), '…' "…" `…` and triple-quoted strings."""
         if ('code', file) in self.src: return self.src[('code', file)]
-        t = '\n'.join(self.lines(file)); out = []; i = 0; n = len(t); py = file.endswith('.py')
+        t = '\n'.join(self.lines(file)); out = []; i = 0; n = len(t); py = file.endswith(('.py', '.pyi')) or bool(re.match(r'#![^\n]*\bpython[0-9.]*\b', t))
         triple = py or file.endswith(('.java', '.kt', '.scala', '.groovy'))      # a Java text block is """ too
         js = file.endswith(('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx'))
         prev = ''                                                                # the last code character seen
@@ -593,6 +593,9 @@ class Impact:
         out = set()
         for f in files:
             ext = os.path.splitext(f)[1].lower()
+            if not ext:                                                                  # a python shebang script (#1376)
+                try: ext = '.py' if re.match(r'#![^\n]*\bpython[0-9.]*\b', (self.lines(f) or [''])[0]) else ''
+                except Exception: ext = ''
             rx = self.IMPORT_RE.get(ext)
             if not rx: continue
             try: text = '\n'.join(self.lines(f))
@@ -625,12 +628,14 @@ class Impact:
         a services file, a properties file, a build script, a spec) breaks at run time and the compiler is silent."""
         if hasattr(self, '_nsf'): return self._nsf
         out = []
+        indexed = {sy['file'] for sy in self.g.sym.values() if sy.get('file')}         # a shebang script is source too (#1376)
         for root, dirs, files in os.walk(self.g.repo):
             dirs[:] = [d for d in dirs if d not in self.SKIP_DIR and not d.startswith('.axiomcode')]
             for fn in files:
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in self.SOURCE_EXT or ext in self.PROSE_EXT: continue
                 fp = os.path.join(root, fn)
+                if os.path.relpath(fp, self.g.repo).replace(os.sep, '/') in indexed: continue
                 try:
                     if os.path.getsize(fp) > 512 * 1024: continue
                     with open(fp, 'rb') as fh: head = fh.read(2048)

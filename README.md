@@ -125,18 +125,8 @@ AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) pa
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
 agent-facing frontend: a skill, seven MCP tools, and hooks. Install the engine first.
 
-Requirements: **Node ≥ 22.5** and **Python 3** (`python3`, or `python` / `py` on Windows). On Windows, also
-[Git for Windows](https://git-scm.com/download/win): the CLI runs under its bash. The engine ships as a prebuilt
-binary for macOS (Apple Silicon and Intel), Linux (x64 and arm64) and Windows x64, and `npm install` takes the one for
-your platform. No Soufflé and no compiler are needed, with one exception:
-
-> **Linux arm64** (Graviton or Ampere servers, Raspberry Pi, `node:*-slim` or Alpine containers on an Apple Silicon
-> Mac): the parser's native modules compile during `npm install`, so install build tools first, e.g.
-> `sudo apt install build-essential python3`. The full `node:*` Docker images already include them.
-
-Before every release, the exact packages that ship are installed without Soufflé and run end to end (every CLI verb,
-five languages) on macOS arm64 and x64, Linux x64 and arm64, and Windows x64. Check an install with
-`axiomcode --version`.
+Requirements: **Node ≥ 22.5** and **`python3`**. The engine ships as a prebuilt binary and `npm install`
+takes the one for your platform; there is nothing else to install.
 
 ### Installation
 
