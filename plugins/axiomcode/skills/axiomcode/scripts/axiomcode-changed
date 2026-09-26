@@ -241,6 +241,10 @@ class Changed:
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
             t = narrowest(ln, {'class', 'interface', 'enum', 'type', 'namespace'})
             key = None
+            # a callable that starts on the type's own header line and ends within the type is one the front end
+            # synthesised for it (an implicit constructor, a Python class body): the header is the TYPE's, or a new class
+            # is named by it (#1377). A file's module declaration also starts on line 1 but spans past the type
+            if m and t and m[0] == t[0] and m[1] <= t[1] and t[0] <= ln <= self.header_end(OL, t[0]): m = None
             if f: key = ('field', f)
             elif m and m[0] <= ln <= self.header_end(OL, m[0]): key = ('signature', m)
             elif m: key = ('body', m)
@@ -271,7 +275,10 @@ class Changed:
             span_lines = [x for x in range(a, min(b, len(OL)) + 1) if not noise(OL[x - 1])]
             gone = a in removed_lines and span_lines and sum(1 for x in span_lines if x in removed_lines) >= 0.6 * len(span_lines) and \
                    not any(re.search(rf'\b{re.escape(n)}\s*\(', NL[j - 1]) and ndepth_ok(j) for j in range(max(1, (new_of.get(a) or a) - 3), min(len(NL), (new_of.get(a) or a) + 3) + 1))
-            if gone: entry['kind'] = 'removed'; entry['target'] = self.target(kind, d, k, n); out.append(entry); continue
+            if gone:
+                # a header line and a body line of one declaration are two keys; it is removed once
+                if not any(e['kind'] == 'removed' and e['id'] == i for e in out): entry['kind'] = 'removed'; entry['target'] = self.target(kind, d, k, n); out.append(entry)
+                continue
             if kind == 'signature':
                 # compared with comments removed: `f( /* note */ a)` is `f(a)`. Strings stay, so an edited route in a
                 # decoration is still a header change
