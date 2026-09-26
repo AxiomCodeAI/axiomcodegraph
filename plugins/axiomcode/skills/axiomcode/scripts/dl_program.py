@@ -71,7 +71,24 @@ def npm_platform():
     """this machine in npm's spelling (process.platform-process.arch), which is how the engine packages are named"""
     o = {'darwin': 'darwin', 'win32': 'win32', 'cygwin': 'win32', 'msys': 'win32'}.get(sys.platform, 'linux' if sys.platform.startswith('linux') else None)
     a = {'x86_64': 'x64', 'amd64': 'x64', 'arm64': 'arm64', 'aarch64': 'arm64'}.get(platform.machine().lower())
+    # An Intel python3 on an Apple Silicon Mac runs under Rosetta and reports x86_64, while npm, going by Node's arch,
+    # installed the arm64 engine. The hardware decides: an arm64 binary runs natively even from a translated process.
+    if o == 'darwin' and a == 'x64' and _sysctl('hw.optional.arm64') == '1': a = 'arm64'
     return f'{o}-{a}' if o and a else None
+
+
+def _sysctl(key):
+    try: return subprocess.run(['/usr/sbin/sysctl', '-n', key], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError): return ''
+
+
+def candidate_platforms():
+    """the engine packages to look in, best first: this machine's, then the same OS's other architecture. npm installs
+    exactly one per machine, so when the first is absent the installed one is the one npm chose for this machine."""
+    plat = npm_platform()
+    if not plat: return []
+    o, a = plat.split('-')
+    return [plat, f"{o}-{'x64' if a == 'arm64' else 'arm64'}"]
 
 
 def engine_roots():
@@ -89,27 +106,26 @@ def packaged(stem, key):
     """the query binary the engine package for this machine ships, when it was built from exactly these rules. Walks
     up from each root the way node resolves a package, so a local node_modules and a global install both work. A
     package holding other rules is reported once and not used — running it would answer from rules this plugin is not."""
-    plat = npm_platform()
-    if not plat: return None
     seen = set()
-    for root in engine_roots():
-        d = os.path.abspath(root)
-        while True:
-            q = os.path.join(d, 'node_modules', SCOPE, f'engine-{plat}', 'queries')
-            if q not in seen and os.path.isdir(q):
-                seen.add(q)
-                binp = os.path.join(q, f'axiomcode-query-{stem}{EXE}')
-                try: have = open(os.path.join(q, f'{stem}.id')).read().strip()
-                except OSError: have = ''
-                if have == key and os.path.isfile(binp):
-                    if EXE == '' and not os.access(binp, os.X_OK):
-                        try: os.chmod(binp, 0o755)
-                        except OSError: pass
-                    return binp
-                if have: print(f"  ! {SCOPE}/engine-{plat} holds {stem}.dl at {have}, these rules are {key} — not using it", file=sys.stderr)
-            up = os.path.dirname(d)
-            if up == d: break
-            d = up
+    for plat in candidate_platforms():
+        for root in engine_roots():
+            d = os.path.abspath(root)
+            while True:
+                q = os.path.join(d, 'node_modules', SCOPE, f'engine-{plat}', 'queries')
+                if q not in seen and os.path.isdir(q):
+                    seen.add(q)
+                    binp = os.path.join(q, f'axiomcode-query-{stem}{EXE}')
+                    try: have = open(os.path.join(q, f'{stem}.id')).read().strip()
+                    except OSError: have = ''
+                    if have == key and os.path.isfile(binp):
+                        if EXE == '' and not os.access(binp, os.X_OK):
+                            try: os.chmod(binp, 0o755)
+                            except OSError: pass
+                        return binp
+                    if have: print(f"  ! {SCOPE}/engine-{plat} holds {stem}.dl at {have}, these rules are {key} — not using it", file=sys.stderr)
+                up = os.path.dirname(d)
+                if up == d: break
+                d = up
     return None
 
 
