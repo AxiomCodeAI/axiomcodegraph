@@ -3,6 +3,11 @@
 Every release of `@axiomcode/code-graph` and its `@axiomcode/engine-<platform>` packages. The same notes are on each
 [GitHub release](https://github.com/AxiomCodeAI/axiomcodegraph/releases).
 
+## 0.1.3 — 2026-09-26
+
+### Documentation
+- #1372 README: what installing needs on each platform. Python 3 can be `python` or `py` on Windows, which also needs Git for Windows. On Linux arm64 the parser's native modules compile during `npm install`, so install build tools first (`sudo apt install build-essential python3`); the full `node:*` Docker images already include them `docs`
+
 ## 0.1.2 — 2026-09-26
 
 ### Improvements
