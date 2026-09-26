@@ -29,12 +29,20 @@ function fail(msg) {
   process.exit(127);
 }
 
+// `axiomcode --version` is answered here, before bash is looked for: it is what a user runs to check an install,
+// including one whose bash cannot be found. bin/axiomcode answers it the same way when run from a checkout.
+const args = process.argv.slice(2);
+if (args.length === 1 && args[0] === '--version') {
+  process.stdout.write(`${require('../package.json').version}\n`);
+  process.exit(0);
+}
+
 const { bash, error } = findBash();
 if (error) fail(error);
 const py = findPython();
 // AXIOMCODE_BASH too, for the builds Python starts: a bare `bash` from Python on Windows is WSL's or nothing.
 const env = { ...(py.exe ? withPython(process.env, py) : process.env), AXIOMCODE_BASH: bash };
-const r = spawnSync(bash, [path.join(__dirname, 'axiomcode'), ...process.argv.slice(2)], { stdio: 'inherit', env });
+const r = spawnSync(bash, [path.join(__dirname, 'axiomcode'), ...args], { stdio: 'inherit', env });
 if (r.error) fail(`could not start bash: ${r.error.message}`);
 // Die of the same signal the CLI died of, so a caller sees what really happened.
 if (r.signal) process.kill(process.pid, r.signal);

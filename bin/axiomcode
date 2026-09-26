@@ -33,6 +33,8 @@
 #                          Run the test suites.
 #   mcp                    Serve the graph to an agent as MCP tools over stdio. Any MCP client
 #                          can start it as: npx -y @axiomcode/code-graph mcp
+#   --version              Print the installed version. (After <src-dir>, --version V is the
+#                          build option above.)
 # ─────────────────────────────────────────────────────────────────────────────
 set -eu
 # RESOLVE $0 THROUGH SYMLINKS BEFORE THE WALK. npm installs a `bin` entry as a link in
@@ -77,7 +79,7 @@ QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
 query_verbs(){ [ -f "$QUERY" ] && bash "$QUERY" --verbs 2>/dev/null | grep -vx tests || true; }
 is_query_verb(){ query_verbs | grep -qx -- "$1"; }
 usage(){
-  sed -n '3,35p' "$0" | sed 's/^# \{0,1\}//'
+  awk 'NR > 2 && /^# ─/ {exit} NR > 2' "$0" | sed 's/^# \{0,1\}//'
   if [ -f "$QUERY" ]; then
     echo
     echo 'ASKING THE GRAPH — `axiomcode help <verb>` for any one of them:'
@@ -88,6 +90,11 @@ die(){ echo "axiomcode: $*" >&2; exit 2; }
 need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
 
 cmd="${1:-}"
+# Alone, --version asks which release this is. With other arguments it stays the build option that stamps the
+# source version, which a build takes after <src-dir>, so the two never meet.
+if [ "$cmd" = --version ] && [ $# -eq 1 ]; then
+  sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json"; exit 0
+fi
 # A query verb goes to the frontend before anything else. `help <verb>` too, so one `help` covers
 # both halves of the command.
 case "$cmd" in
