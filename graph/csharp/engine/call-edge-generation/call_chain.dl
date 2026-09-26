@@ -178,6 +178,31 @@ call_chain_edge(e, caller, "-", callee, "lib", "boundary_lib", kind) :-
     call_from("client", e, caller),
     invocation_site("client", e, kind).
 
+// client -> THE BODILESS DECLARATION A FANNED CALL BINDS TO. `s.Area()` on an
+// IShape resolves to every implementation, and the declaration it is written
+// against -- the interface member, or an abstract method -- is in no resolved set,
+// because no body of it can run. Without this edge the declaration has no caller:
+// asking who depends on IShape.Area finds nothing while every caller of it is in the
+// graph. It is what the compiler binds the call to, and it takes the site's own class,
+// so the site keeps the tier its runtime targets gave it. Emitted here and not in
+// expr_resolves_to_method, which is the fan the oracle scores and the count the tier
+// is read from.
+call_chain_edge(e, caller, "-", declared, "client", cls, kind) :-
+    call_names_bodiless(e, declared),
+    call_from("client", e, caller),
+    call_class("client", e, cls),
+    invocation_site("client", e, kind).
+call_names_bodiless(e, declared) :-
+    expr_call_candidate("client", e, declared),
+    method_decl("client", _, _, _, declared),
+    method_is_bodiless("client", declared),
+    !dispatch_is_exact("client", e),
+    !ovl_drop("client", e, declared),
+    expr_resolves_to_method("client", e, _).
+method_is_bodiless(prov, m) :- method_is_abstract(prov, m).
+method_is_bodiless(prov, m) :-
+    interface_member(prov, _, _, "method", m), !interface_has_default_impl(prov, m).
+
 // client -> EXTERNAL. The target is outside every staged IR, so ToMethod is a LABEL
 // (`external:<Type>.<Member>`) rather than a method hash, and the bundle routes it to
 // callee_label by the "external" provenance -- the same convention Java and Python

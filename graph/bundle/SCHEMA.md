@@ -598,7 +598,7 @@ THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call
 
 | value | languages | meaning |
 |---|---|---|
-| `nominal` | java, typescript | A written extends/implements reaches the candidate's owner from the base's owner. The strongest evidence there is: the author declared the relationship. |
+| `nominal` | java, typescript, csharp | A written extends/implements reaches the candidate's owner from the base's owner. The strongest evidence there is: the author declared the relationship. |
 | `structural` | typescript | No declaration; the candidate's owner satisfies the base's owner by SHAPE. Emitted only for supertypes with no nominal implementor at all, so it never competes with a declared answer — but it is a heuristic, and a consumer that wants declarations only filters it out. |
 | `value` | java, typescript, csharp, python | A function stored in a field, variable or parameter whose type is the base's callable type; a call through that holder may run it. In TypeScript also a function written as an implementation of an interface's member signature: an object-literal member of a literal typed by the interface (#1208), or a function assigned to the member through a property chain, `inst.i.run = (x) => …` (#1283). In C# also what one delegate member is assigned from another (`a.Run = a.Parse`). In Python, a function assigned onto an instance's member from outside its class, which shadows the class's method of that name. The base is the signature the call resolves to (bodiless), so the pair is how a walk over callers reaches the function that runs. Flow-derived rather than declared: a consumer that wants declarations only filters it out. |
 | `mro` | python | The subtype's C3 linearisation picks the candidate for that attribute name. Not merely "the subtype declares this name" — a name a sibling base wins is attributed to that sibling. |
@@ -609,7 +609,7 @@ THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call
 
 ### `overrides`
 
-Virtual-dispatch pairs: (base method, overriding method) wherever a call to the base may run the override. Java only, and kept for compatibility — it is exactly `dispatch_candidates` filtered to `basis = nominal`. Prefer `dispatch_candidates`, which is populated in every language.
+Virtual-dispatch pairs: (base method, overriding method) wherever a call to the base may run the override. Java and C# only, and kept for compatibility — it is exactly `dispatch_candidates` filtered to `basis = nominal`. Prefer `dispatch_candidates`, which is populated in every language.
 
 | # | column | type | key | null | idx | meaning |
 |---|---|---|---|---|---|---|
@@ -620,7 +620,6 @@ Virtual-dispatch pairs: (base method, overriding method) wherever a call to the 
 
 - **typescript** — EMPTY — this table is Java-shaped. The TypeScript dispatch envelope is in dispatch_candidates, with basis `nominal` or `structural`.
 - **python** — EMPTY — this table is Java-shaped. The Python dispatch envelope is in dispatch_candidates with basis `mro`, and `value` for a function assigned onto an instance's member; the raw linearisation is in ext_mro_position.
-- **csharp** — EMPTY — C# records the dispatch envelope in dispatch_candidates, not as override rows.
 
 ### `entry_points`
 
