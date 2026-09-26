@@ -1,7 +1,7 @@
 #!/bin/bash
 # axiomcode — the one entry point. Every capability is a subcommand here; a new skill is a new subcommand, never a new tool.
 #
-#   axiomcode index [<repo>] [--lang java|typescript|python|javascript] [--src <subdir>] [--library <root>[,<root>…]]
+#   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
 #   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json]
 #       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name

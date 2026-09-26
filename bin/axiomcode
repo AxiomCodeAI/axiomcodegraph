@@ -17,8 +17,8 @@
 #                          (run.source_version). Defaults to the source's git commit, or
 #                          v1.0.0 outside a checkout.
 #   --exclude-tests        Exclude test code. Included by default.
-#   --language <L>         Restrict the run to one language: java, typescript, python or
-#                          javascript.
+#   --language <L>         Restrict the run to one language: java, typescript, python,
+#                          javascript or csharp.
 #   --debug                Also write csv/*.csv and keep raw/ beside each graph.
 #
 # Engine options:
