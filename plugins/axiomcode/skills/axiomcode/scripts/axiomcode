@@ -43,8 +43,9 @@
 #       write the preference into the repository's CLAUDE.md as one marked block: for a question about how code connects,
 #       prefer this over grep/Glob. States a preference, blocks nothing; re-running replaces, --remove takes it out.
 #
-# --lang picks the language when the repo mixes several (auto-detection counts files, so a TypeScript project with many
-# .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
+# A repo in several languages is indexed in all of them, one graph each, and the query verbs ask every graph (the main
+# language's, the one with the most files, first). --lang restricts it to one language or a comma list, the first the main one;
+# --src limits the analysed tree (e.g. src); --library names dependency roots.
 H="$(cd "$(dirname "$0")" && pwd)"
 
 # PYTHON UNDER ANOTHER NAME (#1331). Every verb runs `python3`, which a python.org install on Windows does not
@@ -117,13 +118,17 @@ if [ -f "$FR/.axiomcode/out/graph.sqlite" ]; then
     changed|test-impact|tests) python3 "$H/ax_fresh.py" baseline "$FR" "${AXIOMCODE_BASELINE_WAIT:-30}" || true ;;
   esac
 fi
+# A REPOSITORY IN SEVERAL LANGUAGES has one graph per language (.axiomcode/lang/<lang> beside the main one): a query
+# asks every one of them (ax_langs.py), so no language's code is left out of an answer. A graph named in
+# AXIOMCODE_GRAPH was chosen by the caller and is asked alone.
+Q=""; [ -d "$FR/.axiomcode/lang" ] && [ -z "${AXIOMCODE_GRAPH:-}" ] && Q="$H/ax_langs.py"
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
-  context) exec python3 "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
-  path)   exec python3 "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
-  impact) exec python3 "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
-  changed) exec python3 "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
-  test-impact|tests) exec python3 "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
+  context) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
+  path)   exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
+  impact) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
+  changed) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
+  test-impact|tests) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
   install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
   --verbs) verbs ;;                      # what this dispatcher answers to; bin/axiomcode asks, so the two cannot drift

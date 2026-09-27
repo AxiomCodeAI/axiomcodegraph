@@ -4,9 +4,13 @@
 # symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
 #   AXIOMCODE_ENGINE  checkout of axiomcodegraph (default: the one this skill lives in)
 #   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
-#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp (default: the language with the most files)
+#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp, or a comma list of them, the first being
+#                     the main one (default: every language with files; the main one is the language with the most)
 #   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
 #                     dependencies are declared unknown rather than guessed
+# A repository in several languages gets one graph per language. The main language's is the one it always had,
+# .axiomcode/out/graph.sqlite; every other language's is .axiomcode/lang/<lang>/out/graph.sqlite, and the query verbs
+# (the `axiomcode` dispatcher) ask each of them. Each graph is one language: no call is followed from one to another.
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
@@ -51,13 +55,25 @@ ENGINE="$AXIOMCODE_ENGINE"
 count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
 py=$(( $(count -name '*.py') + $(python3 "$H/ax_fresh.py" pyscripts "$SRC" 2>/dev/null || echo 0) )); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx'); cs=$(count -name '*.cs')
 LANG_ARG="${AXIOMCODE_LANG:-}"
+# EVERY LANGUAGE IN THE REPOSITORY IS INDEXED. Only the one with the most files used to be, and the rest were dropped
+# without a word: a Python edit in a TypeScript repository touched "no declaration the graph knows". LANG_ARG is the
+# main language (its graph is the one every older reader knows); LANGS is all of them, main first.
 if [ -z "$LANG_ARG" ]; then
   LANG_ARG=java; best=$ja
   [ "$ts" -gt "$best" ] && { LANG_ARG=typescript; best=$ts; }
   [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
   [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
   [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
+  LANGS="$LANG_ARG"
+  for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs; do
+    [ "${l%%:*}" != "$LANG_ARG" ] && [ "${l#*:}" -gt 0 ] && LANGS="$LANGS,${l%%:*}"
+  done
+  export AXIOMCODE_LANG_AUTO=1           # recorded in the file table: a refresh detects the languages again
+else
+  LANGS="$LANG_ARG"; LANG_ARG="${LANGS%%,*}"; unset AXIOMCODE_LANG_AUTO
 fi
+unset AXIOMCODE_GRAPH_LANG               # a build writes every language's graph, never one chosen for a query
+OTHER_LANGS=""; [ "$LANGS" != "$LANG_ARG" ] && OTHER_LANGS="${LANGS#*,}"
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
 # ONE BUILD AT A TIME PER REPOSITORY. The background refresher (ax_fresh.py) and an explicit `axiomcode index` both
 # write $OUT/$LANG_ARG; two at once clobber each other's graph. The lock is on fd 9, which this shell holds for its
@@ -69,7 +85,7 @@ if ! python3 "$H/ax_fresh.py" lock 9 --try; then
 fi
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
-STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
+STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANGS-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
 # ASKING FOR LESS IS NOT A CACHE MISS. The stamp includes the library roots, so a bare `index` on a repo whose
 # graph was built WITH roots does not match, and the rebuild that follows spends the full build cost to arrive
 # at a client-only graph: every call into a dependency ambiguous_unknown, the resolution rate understated,
@@ -79,7 +95,7 @@ STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-$
 # The library field is a list of PATHS, and paths contain hyphens (`other-lib`), so the stamp cannot be split
 # on its last hyphen -- that cuts inside the path and no two stamps ever compare equal. Split on the known
 # prefix instead: everything before the library field is fixed-format and built right here.
-PREFIX="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-"
+PREFIX="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANGS-${AXIOMCODE_SRC:-.}-"
 if [ -z "${AXIOMCODE_LIBRARY:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ] && [ -f "$OUT/stamp" ] && [ -f "$OUT/graph.sqlite" ]; then
   PREV="$(cat "$OUT/stamp")"
   if [ "${PREV#"$PREFIX"}" != "$PREV" ] && [ "${PREV#"$PREFIX"}" != nolib ]; then
@@ -122,8 +138,14 @@ keep_base_graph(){
   if [ -z "$BT" ] || [ "$BT" = "$INDEXED_TREE" ]; then rm -rf "$B"; return 0; fi
   if [ "$BT" = "$OLD_INDEXED" ] && [ -n "$PREV" ] && [ -f "$PREV/graph.sqlite" ] && [ ! -L "$PREV/graph.sqlite" ]; then
     rm -rf "$B"; mkdir -p "$B/out"; mv "$PREV/graph.sqlite" "$B/out/graph.sqlite"; echo "$BT" > "$B/tree"; BASE_SAVED=1
+    # every other language's graph still describes the same tree: it is replaced only after this, so a hard link keeps
+    # it for the baseline while the live one stays in place for the queries that arrive meanwhile
+    local l; for l in ${OTHER_LANGS//,/ }; do
+      [ -f "$LANGDIR/$l/out/graph.sqlite" ] && mkdir -p "$B/lang/$l/out" && ln -f "$LANGDIR/$l/out/graph.sqlite" "$B/lang/$l/out/graph.sqlite"
+    done
   elif [ "$(cat "$B/tree" 2>/dev/null)" != "$BT" ]; then build_head_graph "$BT"
   fi
+  return 0
 }
 # the baseline is HEAD and the working tree is not: no graph describes HEAD's text, so one is built from it, exported
 # with `git archive` into a scratch directory (the user's checkout and index are never touched). node_modules is not in
@@ -140,6 +162,10 @@ build_head_graph(){
       D="$(readlink "$T/.axiomcode/out/graph.sqlite" 2>/dev/null || true)"
       if [ -n "$D" ] && [ -f "$D" ]; then
         rm -rf "$REPO/.axiomcode/base"; mkdir -p "$REPO/.axiomcode/base/out"; mv "$D" "$REPO/.axiomcode/base/out/graph.sqlite"
+        for D in "$T"/.axiomcode/lang/*/out/graph.sqlite; do          # and every other language's, beside it
+          [ -f "$D" ] || continue; local L; L="$(basename "$(dirname "$(dirname "$D")")")"
+          mkdir -p "$REPO/.axiomcode/base/lang/$L/out"; mv "$D" "$REPO/.axiomcode/base/lang/$L/out/graph.sqlite"
+        done
         echo "$1" > "$REPO/.axiomcode/base/tree"; BASE_SAVED=1
       fi
     fi
@@ -147,14 +173,15 @@ build_head_graph(){
   rm -rf "$T"
 }
 BASE_SAVED=""
+LANGDIR="$REPO/.axiomcode/lang"      # one graph directory per language other than the main one: <lang>/out/graph.sqlite
 # FRESH IS "THE FILES THE GRAPH WAS BUILT FROM", NOT "A CLEAN GIT STATUS". The file table (ax_fresh.py) records every
 # file the parser reads with its hash; when none differs the graph is current whatever git says: a dirty tree whose
 # edits are already indexed is not rebuilt, and a tree edited and restored, which git calls clean against a graph built
 # from the edit, is. A commit that changed no file moves the stamp, not the graph.
-if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
+if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
-  echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0
+  echo "graph up to date (${LANGS//,/, }) at $OUT/graph.sqlite"; exit 0
 fi
 if [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
@@ -164,9 +191,10 @@ python3 "$H/dl_program.py" || true   # compile the query rules once, here where 
 # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
   # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
-  python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
+  python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
-echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
+if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
+else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"; fi
 # THE TREE THE GRAPH IS BUILT FROM (#1222). The graph's spans are line numbers in the working tree as the parser reads
 # it, and that tree need not be the commit in the stamp: uncommitted edits are indexed too. `changed` compared the
 # working tree against the COMMIT, so after an index with edits every position was off, and a span past the end of the
@@ -175,7 +203,7 @@ echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · pytho
 # build succeeds.
 # THE FILE TABLE, taken now for the same reason: an edit made while the parser runs must leave the graph stale, so the
 # next refresh picks it up. Committed only if the build succeeds.
-python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null || rm -f "$OUT/.files.json.new"
+python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null || rm -f "$OUT/.files.json.new"
 INDEXED_TREE=""
 if [ -n "$GD" ]; then
   TMPIDX="$(mktemp "${TMPDIR:-/tmp}/axiomcode-index.XXXXXX")"
@@ -200,13 +228,30 @@ if [ -d "$OUT/$LANG_ARG" ]; then
   if [ -f "$OUT/$LANG_ARG/graph.sqlite" ]; then ln -f "$OUT/$LANG_ARG/graph.sqlite" "$OUT/.live.sqlite" && point "$OUT/.live.sqlite"; fi
   mv "$OUT/$LANG_ARG" "$PREV"
 fi
+# the other languages' engine output goes to $OUT/<lang>, which the engine wants empty. Their live graphs are not there
+# (they are under .axiomcode/lang), but graph.sqlite may still point there, at a graph from a build whose main language
+# was that one: it gets the same hard link first
+for l in ${OTHER_LANGS//,/ }; do
+  if [ -d "$OUT/$l" ]; then
+    [ "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$OUT/graph.sqlite" 2>/dev/null)" = "$(cd "$OUT/$l" && pwd -P)/graph.sqlite" ] \
+      && ln -f "$OUT/$l/graph.sqlite" "$OUT/.live.sqlite" && point "$OUT/.live.sqlite"
+    rm -rf "$OUT/$l"
+  fi
+done
 restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && point "$OUT/$LANG_ARG/graph.sqlite"; fi; rm -f "$OUT/.live.sqlite"; return 0; }
 LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
-"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
+ENGINE_RC=0
+"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANGS" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || ENGINE_RC=$?
+# one language failing does not cost the others their graphs (the engine solves each on its own): only the MAIN
+# language's failure fails the build. Another language's is named below, never dropped in silence.
+if [ "$ENGINE_RC" != 0 ] && { [ -z "$OTHER_LANGS" ] || [ ! -f "$OUT/$LANG_ARG/graph.sqlite" ]; }; then
+  restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1
+fi
 # the new database: a FILE under $OUT/$LANG_ARG. Matched as `*/$LANG_ARG/*` it was any path with the language's name
 # in it, the repository's own included: a repository at .../python/app matched the graph.sqlite SYMLINK, the link was
 # pointed at itself, the previous graph deleted, and every verb after it reported no graph.
-DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -type f -name graph.sqlite -not -path "$PREV/*" | head -1)"
+DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; NOT_OTHER=(); for l in ${OTHER_LANGS//,/ }; do NOT_OTHER+=(-not -path "$OUT/$l/*"); done   # never another language's graph
+[ -n "$DB" ] || DB="$(find "$OUT" -type f -name graph.sqlite -not -path "$PREV/*" ${NOT_OTHER[@]+"${NOT_OTHER[@]}"} | head -1)"
 [ -n "$DB" ] || { restore; echo "build produced no graph.sqlite — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; exit 1; }
 # A QUERY NEVER READS A HALF-BUILT GRAPH. The new database gets its symbols, refs and views BEFORE graph.sqlite points
 # at it; until the pointer moves, every verb (and the hooks) keeps answering from the previous graph. Only then is the
@@ -217,7 +262,7 @@ AXIOMCODE_INDEX_DB="$DB" python3 "$H/axiomcode-index" "$REPO" || { restore; echo
 # the tree and commit it describes. Written before the swap: a write to the live graph later would change its mtime,
 # which keys the impact-facts cache, and cost the next query a re-export.
 REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
-python3 - "$DB" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
+stamp_meta(){ python3 - "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
 import sqlite3, sys
 db, at, reason, tree, commit = sys.argv[1:6]
 with sqlite3.connect(db) as c:
@@ -225,12 +270,31 @@ with sqlite3.connect(db) as c:
     c.executemany("INSERT INTO index_meta VALUES (?,?)", [('refreshed_at', at), ('refresh_reason', reason),
                   ('refreshed_tree', tree), ('refreshed_commit', commit)])
 PY
+}
+stamp_meta "$DB"
+# EVERY OTHER LANGUAGE'S GRAPH, indexed where the engine wrote it and only then moved into place, as the main one is.
+# One that did not build is NAMED: its previous graph, if any, keeps answering, and this build says it is behind.
+READY=(); FAILED=()
+for l in ${OTHER_LANGS//,/ }; do
+  LDB="$OUT/$l/graph.sqlite"
+  if [ -f "$LDB" ] && AXIOMCODE_INDEX_DB="$LDB" python3 "$H/axiomcode-index" "$REPO"; then stamp_meta "$LDB"; READY+=("$l"); else FAILED+=("$l"); fi
+done
 echo "$STAMP" > "$OUT/stamp"
 if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
 set_base "$INDEXED_TREE"
 point "$DB"; rm -f "$OUT/.live.sqlite"
 if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
-keep_base_graph; commit_base
+keep_base_graph
+for l in ${READY[@]+"${READY[@]}"}; do
+  mkdir -p "$LANGDIR/$l/out"; mv -f "$OUT/$l/graph.sqlite" "$LANGDIR/$l/out/graph.sqlite"   # a rename: atomic
+  rmdir "$OUT/$l" 2>/dev/null || true
+done
+# a language the repository no longer has (or that --lang left out) must not keep answering from an old graph
+for d in "$LANGDIR"/*/; do
+  [ -d "$d" ] || continue; l="$(basename "$d")"
+  case ",$OTHER_LANGS," in *",$l,"*) ;; *) rm -rf "$d" "$REPO/.axiomcode/base/lang/$l";; esac
+done
+commit_base
 rm -rf "$PREV"
 python3 - "$OUT/graph.sqlite" <<'PY'
 import sqlite3, sys
@@ -245,4 +309,19 @@ python3 "$H/dl_program.py" || true   # compile the query rules once, here where 
 # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
 [ -n "$BASE_SAVED" ] && AXIOMCODE_GRAPH="$REPO/.axiomcode/base" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
-echo "graph at $OUT/graph.sqlite"
+for l in ${READY[@]+"${READY[@]}"}; do
+  echo "$l: $(python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$LANGDIR/$l/out/graph.sqlite")"
+  AXIOMCODE_GRAPH="$LANGDIR/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
+  [ -n "$BASE_SAVED" ] && [ -f "$REPO/.axiomcode/base/lang/$l/out/graph.sqlite" ] && { AXIOMCODE_GRAPH="$REPO/.axiomcode/base/lang/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true; }
+done
+if [ ${#FAILED[@]} -gt 0 ]; then
+  for l in "${FAILED[@]}"; do
+    if [ -f "$LANGDIR/$l/out/graph.sqlite" ]; then echo "⚠️  the $l graph did not build: $l questions are answered from its PREVIOUS graph, which predates this tree; see $REPO/.axiomcode/build.log"
+    else echo "⚠️  the $l graph did not build: no query sees this repository's $l code; see $REPO/.axiomcode/build.log"; fi
+  done
+fi
+if [ ${#READY[@]} -gt 0 ]; then
+  echo "graph at $OUT/graph.sqlite ($LANG_ARG)$(for l in "${READY[@]}"; do printf ', %s' "$LANGDIR/$l/out/graph.sqlite ($l)"; done)"
+else
+  echo "graph at $OUT/graph.sqlite"
+fi

@@ -227,9 +227,12 @@ def main(argv):
 
     # the edit is measured against the baseline, and so is who reached it: after a background refresh that is the
     # graph kept in .axiomcode/base, where a removed method still has its callers (#1305)
-    if '--range' not in passthru and not os.environ.get('AXIOMCODE_GRAPH'):
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
-        bg = ax_fresh.baseline_graph(os.path.realpath(next((a for a in passthru if os.path.isdir(a)), '.')))
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
+    repo_ = os.path.realpath(next((a for a in passthru if os.path.isdir(a)), '.'))
+    given = os.environ.get('AXIOMCODE_GRAPH')
+    # the current graph of the language the dispatcher is asking is not a graph chosen for this edit (see changed)
+    if '--range' not in passthru and (not given or os.path.realpath(given) == os.path.realpath(ax_fresh.graph_dir(repo_))):
+        bg = ax_fresh.baseline_graph(repo_)
         if bg: os.environ['AXIOMCODE_GRAPH'] = bg
     rc, out, err = run('axiomcode-changed', passthru + ['--json'])
     if rc != 0:
