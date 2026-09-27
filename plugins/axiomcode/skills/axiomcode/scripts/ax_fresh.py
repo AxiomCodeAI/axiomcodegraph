@@ -40,6 +40,8 @@ EXT = {
     'python': ('.py', '.pyi'),
     'csharp': ('.cs', '.csproj', '.props', '.targets', '.sln'),
 }
+# the SOURCE files of each language: what makes a repository "have" that language (axiomcode-build counts the same)
+SOURCE = {'java': ('.java',), 'typescript': ('.ts', '.tsx'), 'python': ('.py',), 'javascript': ('.js', '.mjs', '.cjs', '.jsx'), 'csharp': ('.cs',)}
 NAMES = {
     'java': ('lombok.config',),
     'typescript': ('package.json',),
@@ -72,6 +74,14 @@ def python_script(p, name=None):
     return bool(PY_SHEBANG.match(head.decode('utf-8', 'replace')))
 
 def watched(root, lang):
+    """every file the parser of `lang` reads under root; `lang` may be a comma list (a repository in several
+    languages, each with its own graph), and a file two of them read is yielded once"""
+    if ',' in lang:
+        seen = set()
+        for l in lang.split(','):
+            for p in watched(root, l):
+                if p not in seen: seen.add(p); yield p
+        return
     exts, names, prune = EXT.get(lang, ()), NAMES.get(lang, ()), PRUNE.get(lang, PRUNE_ALL)
     for d, subdirs, files in os.walk(root):
         subdirs[:] = [s for s in subdirs if s not in prune]
@@ -117,6 +127,16 @@ def changes(repo, table=None):
         try:
             if digest(p) != o[2]: changed.append(rel)
         except OSError: changed.append(rel)
+    if 'lang_auto' not in t:
+        # A TABLE FROM BEFORE EVERY LANGUAGE WAS INDEXED watches its one language, so a repository whose other languages
+        # were dropped looked fresh until that language's files changed. Another language's source is new to it: the
+        # refresh that follows detects the languages again (worker), once, and records a table that knows them all.
+        mine = set(t.get('lang', '').split(','))
+        for l in SOURCE:
+            if l in mine: continue
+            for p in watched(src, l):
+                rel = os.path.relpath(p, repo)
+                if p.endswith(SOURCE[l]) and rel not in old: added.append(rel); break
     return sorted(changed), sorted(added), sorted(set(old) - seen)
 
 def read_state(repo):
@@ -132,15 +152,28 @@ def write_state(repo, **kv):
 
 def has_graph(repo): return os.path.exists(os.path.join(out_dir(repo), 'graph.sqlite'))
 
+def graph_lang():
+    """the language whose graph a verb reads when it is not the main one (AXIOMCODE_GRAPH_LANG, set by the dispatcher
+    as it asks each language's graph in turn), else ''"""
+    return os.environ.get('AXIOMCODE_GRAPH_LANG', '')
+
+def graph_dir(repo):
+    """the directory holding the current graph (<dir>/out/graph.sqlite) of the language being asked: .axiomcode for
+    the main language, .axiomcode/lang/<lang> for any other"""
+    l = graph_lang()
+    return os.path.join(repo, '.axiomcode', 'lang', l) if l else os.path.join(repo, '.axiomcode')
+
 def baseline_graph(repo):
     """the graph directory that describes the BASELINE `changed` measures edits against, when it is not the current
     graph: after a background refresh the current graph describes the edited tree, and the one it replaced is kept
-    in .axiomcode/base (axiomcode-build, keep_base_graph). None when the current graph is the baseline's."""
-    b = os.path.join(repo, '.axiomcode', 'base')
+    in .axiomcode/base (axiomcode-build, keep_base_graph); another language's beside it, in .axiomcode/base/lang/<lang>.
+    None when the current graph is the baseline's."""
+    root = os.path.join(repo, '.axiomcode', 'base')
+    b = os.path.join(root, 'lang', graph_lang()) if graph_lang() else root
     try:
         base = open(os.path.join(out_dir(repo), 'base-tree')).read().strip()
         indexed = open(os.path.join(out_dir(repo), 'indexed-tree')).read().strip()
-        if base and base != indexed and open(os.path.join(b, 'tree')).read().strip() == base and os.path.exists(os.path.join(b, 'out', 'graph.sqlite')):
+        if base and base != indexed and open(os.path.join(root, 'tree')).read().strip() == base and os.path.exists(os.path.join(b, 'out', 'graph.sqlite')):
             return b
     except OSError: pass
     return None
@@ -258,9 +291,13 @@ def worker(repo):
             if st.get('failed_table') == fp: return 0
             n = sum(len(x) for x in c)
             why = (f"{n} file(s) changed" if n else f"HEAD moved to {(head(repo) or '')[:10]}") + f", found by {os.environ.get('AXIOMCODE_REFRESH_TRIGGER') or 'an edit'}"
-            env = dict(os.environ, AXIOMCODE_LANG=t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''),
+            # languages DETECTED are detected again (a language the repository gained since gets its graph); only a
+            # --lang the user gave is kept. A table from before this was recorded counts as detected: it was built with
+            # one language even where the repository had several, and keeping that would keep the others out for good
+            env = dict(os.environ, AXIOMCODE_LANG='' if t.get('lang_auto', True) else t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''),
                        AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
             env.pop('AXIOMCODE_LIBRARY', None)
+            env.pop('AXIOMCODE_LANG_AUTO', None); env.pop('AXIOMCODE_GRAPH_LANG', None)
             if t.get('library'): env['AXIOMCODE_LIBRARY'] = t['library']
             t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
@@ -347,7 +384,7 @@ def main(argv):
     if cmd == 'snapshot':
         lang, src_arg = argv[3], (argv[4] if len(argv) > 4 else '')
         lib = os.environ.get('AXIOMCODE_LIBRARY', '')
-        json.dump(dict(lang=lang, src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
+        json.dump(dict(lang=lang, lang_auto=bool(os.environ.get('AXIOMCODE_LANG_AUTO')), src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
                        files=snapshot(repo, lang, os.path.join(repo, src_arg))), sys.stdout); return 0
     if cmd == 'pyscripts':
         # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language

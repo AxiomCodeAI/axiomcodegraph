@@ -478,10 +478,13 @@ def main(argv):
     # hook's before-the-edit check) the current graph is the one whose spans are in the current file's lines.
     # A caller that already chose it (test-impact, the change hook) passes it in AXIOMCODE_GRAPH; either way it is the
     # baseline's graph, and its spans are not mapped again.
-    baseline = None
+    baseline = None; fanout_empty = False
+    sys.path.insert(0, HERE); import ax_fresh
     if mode != 'range' and not (old_f or new_f):
-        sys.path.insert(0, HERE); import ax_fresh
         bg = ax_fresh.baseline_graph(os.path.realpath(repo)); given = os.environ.get('AXIOMCODE_GRAPH')
+        # the dispatcher names the CURRENT graph of the language it is asking (AXIOMCODE_GRAPH_LANG): that is not a
+        # graph chosen for this edit, so the language's baseline is still looked for, as it is for the main one
+        if given and os.path.realpath(given) == os.path.realpath(ax_fresh.graph_dir(os.path.realpath(repo))): given = None
         if bg and (not given or os.path.realpath(given) == os.path.realpath(bg)):
             baseline = bg; os.environ['AXIOMCODE_GRAPH'] = bg                 # also for --impact, which runs impact below
     C = Changed(repo, baseline=bool(baseline)); C.mode = 'files' if (old_f or new_f) else mode
@@ -492,6 +495,14 @@ def main(argv):
         r, n = C.file_changes(rel, old, new); results += r; notes += n
     else:
         files = C.files(mode, rng, a)
+        # A REPOSITORY IN SEVERAL LANGUAGES has a graph per language, and the dispatcher asks each (ax_langs.py). Each
+        # answers for the files it owns, so an edit is reported once, by the graph of its language, and not also as
+        # "no declarations known here" by every other.
+        if os.path.isdir(os.path.join(C.repo, '.axiomcode', 'lang')):
+            import ax_langs
+            mine = ax_fresh.graph_lang()
+            files = [f for f, o in ax_langs.owners(C.repo, files).items() if o == mine]
+            if not files and os.environ.get('AXIOMCODE_FANOUT'): fanout_empty = True
         # the graph describes ONE commit. For a range whose newer side is that commit, the declarations are read on the new
         # text and the classification runs with the two texts swapped, then its direction is turned around
         flipped = False
@@ -514,8 +525,8 @@ def main(argv):
             else:
                 r, n = C.file_changes(rel, old, new); results += r; notes += n
         if flipped: notes.append(('', f"the graph is built at the newer commit {C.built_at[:10]}: declarations are the new text's; a declaration the range removed is not in it", None))
-    if as_json: print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes]}, indent=1)); return 0
-    if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 0
+    if as_json: print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes]}, indent=1)); return 3 if fanout_empty else 0
+    if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 3 if fanout_empty else 0
     against = (f" — against the tree the graph was indexed from at the last `axiomcode index` (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
                else f" — against the graph's commit {C.built_at[:10]}")
     print(f"changed declarations ({len(results)})" + (against if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")

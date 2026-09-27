@@ -35,6 +35,9 @@ One check needs no graph and is its own script:
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
     python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
                                          unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
+    python3 tests/multi_language.py      a repository in several languages is indexed in all of them and every query asks
+                                         each graph: nothing dropped, a one-graph answer unchanged, an edit reported once,
+                                         refreshed, upgraded from a one-language graph (builds real graphs, needs the engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

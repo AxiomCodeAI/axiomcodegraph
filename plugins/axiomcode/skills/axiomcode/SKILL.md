@@ -35,7 +35,8 @@ Rules that decide whether an answer means anything:
   the background after edits, with the flags it was built with; a query waits a few seconds for it. An answer that
   still predates an edit says so on a `graph refresh:` line naming the files: read those for their current text.
   A manual `index` with different flags (e.g. dropping `--library`) rebuilds a worse graph over the good one.
-- When building: `--lang typescript --src src` on a mixed repo; `--library <roots>` so calls into dependencies
+- A repo in several languages is indexed in all of them, one graph each, and every query asks each graph; calls
+  are not followed from one language to another. `--lang` restricts it, `--src src` narrows it; `--library <roots>` so calls into dependencies
   resolve (without it they are `ambiguous_unknown` — do not quote that resolution rate).
 - An unresolved call is *unknown, not absent* — **never report it as "no callers"**.
 - Every answer ends with `verified:` and `bound:` (the unresolved calls inside it — a lower bound). A `✗` on
