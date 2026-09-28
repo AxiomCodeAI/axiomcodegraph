@@ -114,7 +114,26 @@ which while who why will with would you your about after all also am any because
 during each few further here him his more most no nor now off other own s same t too very
 bug issue fix fixed fixes broken break breaks error fails failing failure problem regression expected
 actual reproduce reproduction repro steps version
+code codebase call calls called calling caller callers callee callees test tests
 """.split())
+# The last line is the words a question uses to talk ABOUT code rather than about its subject: "who calls X in the
+# library code (not tests)" named `code`, `tests` and `call`, and each took one of six entry points (GetHashCode,
+# Retry.Tests, Retry.Call) away from the declaration the question spelled out (#1455).
+
+
+def stem(w):
+    """A crude English stem, enough to meet a declared name halfway: validated, validator, validation and validate
+    are all `valid`; orders and ordered are `order`. One suffix at most, and never below four letters, so a short
+    word is never cut into a different one (`order` stays `order`, not `ord`)."""
+    w = (w or '').lower()
+    for suf in ('ations', 'ation', 'ators', 'ator', 'ated', 'ates', 'ate', 'ings', 'ing', 'ions', 'ion', 'ers', 'ors',
+                'ed', 'es', 'er', 'or', 's', 'e'):
+        if w.endswith(suf) and len(w) - len(suf) >= 4:
+            w = w[:-len(suf)]; break
+    # a doubled final consonant is one: cancelled -> cancel, stopped -> stop (and install -> instal on both sides)
+    if len(w) >= 5 and w[-1] == w[-2] and w[-1] not in 'aeiou':
+        w = w[:-1]
+    return w
 
 
 
@@ -199,13 +218,20 @@ def winnow(g, terms, name_df=None, strong=None):
         for sid, sym in g.sym.items():
             for t in set(subtokens(sym.get('name') or '') + subtokens(sym.get('display') or '')):
                 name_df[t] += 1
-    keep = [t for t in terms if name_df.get(t, 0) > 0]
+    # A term is kept when the graph declares it, or declares a word with its stem: the prose says "validated" where
+    # the code says `Validate` and `CreateWidgetCommandValidator`, and dropping the word here meant the validator was
+    # never scored at all (#1493). score_symbols already credits the inflected form; it just never got to see it.
+    stems = {}
+    for x in name_df:
+        if len(x) >= 4: stems.setdefault(stem(x), 0); stems[stem(x)] += name_df[x]
+    df_of = lambda t: name_df.get(t, 0) or (stems.get(stem(t), 0) if len(t) >= 5 else 0)
+    keep = [t for t in terms if df_of(t) > 0]
     # the report's own code words first, still ordered by how much they discriminate, then prose fills the
     # rest of the budget. Only terms the graph actually knows are eligible either way -- a code word the
     # graph has never heard of still cannot match anything.
     marked = set(strong or ())
-    code = sorted([t for t in keep if t in marked], key=lambda t: name_df.get(t, 0))
-    prose = sorted([t for t in keep if t not in marked], key=lambda t: name_df.get(t, 0))
+    code = sorted([t for t in keep if t in marked], key=df_of)
+    prose = sorted([t for t in keep if t not in marked], key=df_of)
     chosen = set((code + prose)[:MAX_TERMS])
     # order is the caller's contract elsewhere (seeds are picked per term in task order), so restore it
     return [t for t in terms if t in chosen] or terms[:MAX_TERMS]

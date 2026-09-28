@@ -142,6 +142,21 @@ def next_path(text):
     return ''
 
 def next_context(text):
+    # the question named something no graph here holds (#1571): the answer below it is about other code, so the first
+    # step is that file, read directly
+    b = re.search(r'^text files that name these declarations[^\n]*\n\s+(\S+:\d+)\s+names (\S+) \(([^)\n]+)\)', text, re.M)
+    n = re.search(r'^not indexed: (\S+)', text, re.M)
+    if b and 'how it runs —' not in text and (not n or b.group(1).startswith(n.group(1).rstrip('/'))):
+        return (f"next: read {b.group(1)} — the text the question asks about, bound to {b.group(3)} by the name {b.group(2)}; "
+                f"`impact {b.group(3)}` for everything else that depends on it")
+    m = re.search(r'^not indexed: (\S+)', text, re.M)
+    if m and not m.group(1)[0].isdigit():
+        return (f"next: read {m.group(1)} directly (grep inside it) — the graph cannot see it, so the entries above match "
+                "the question's other words, not that file")
+    if m:
+        ex = re.search(r'^not indexed: \d+ [^\n]*?\(e\.g\. ([^,;)\s]+)', text, re.M)
+        return ("next: grep the files named on the first line directly" + (f" (start with {ex.group(1)})" if ex else "")
+                + " — the graph cannot see them, so the entries above match the question's other words in the code it does hold")
     if 'how it runs —' in text:
         # an EXPLANATION: the flow is the reading order, and each step's body is the answer — a pointer list that
         # says "read only these" cut two measured explanations short at the first hops the graph printed
