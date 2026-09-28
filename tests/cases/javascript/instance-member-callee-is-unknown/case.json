@@ -1,0 +1,105 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "External.run calls this.hook(), stored on the instance by another function: path says unknown and names the site (#1709)",
+   "run": [
+    "path",
+    "External.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`hook()` in External.run at src/index.js:4 — the callee is a function stored on the instance from outside the class",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "Assigned.run calls this.onReady(), stored by Object.assign(this, opts): path says unknown and names the site (#1709)",
+   "run": [
+    "path",
+    "Assigned.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`onReady()` in Assigned.run at src/index.js:8 — the callee is a function stored on the instance from outside the class",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: this.x = x in the constructor is a field the graph sees, so it keeps its field reading (#1675)",
+   "run": [
+    "path",
+    "Stored.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`x()` in Stored.run at src/index.js:12 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: this.own() resolves to a declared method, so the answer stays independent",
+   "run": [
+    "path",
+    "Declared.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a base the graph cannot see may declare emit, so the call is left to the by-name leads",
+   "run": [
+    "path",
+    "Sub.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: this.hasOwnProperty() is inherited from Object.prototype, not a stored value",
+   "run": [
+    "path",
+    "Proto.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  }
+ ]
+}

@@ -78,9 +78,10 @@ unresolved_receiver(ce, cn, ck, "other_form") :- call_site("client", ck, cn, _, 
 // name narrows what it calls, so any function that escapes as a value may be the
 // callee, and a question that finds no chain from its caller must answer "unknown",
 // never "independent" (#1649). Binding: parameter | loop_variable | local |
-// computed | dynamic_code | module_variable | field | parameter_member | expression |
-// imported_variable. An imported binding is one only when it names a variable its
-// module reassigns (below); otherwise it names a module member.
+// computed | dynamic_code | module_variable | field | instance_member |
+// parameter_member | expression | imported_variable. An imported binding is one only
+// when it names a variable its module reassigns (below); otherwise it names a module
+// member.
 value_callee_open(ce, c) :- call_site("client", ck, _, _, _, _, ce, _, _), !call_kind_is_dynamic(ck),
     !call_resolved(ce), !callee_value_known(ce), expr_child(_, ce, "CALLEE", _, c).
 unresolved_value_callee(ce, "parameter") :- value_callee_open(ce, c), expr_param(_, _, c).
@@ -124,6 +125,18 @@ unresolved_value_callee(ce, "field") :- field_call(ce, k, t, n), !call_resolved(
 // `this.cb = cb || function () {}`: the call resolves to the fallback, but the
 // parameter it falls back from is a function no caller in the graph supplies.
 unresolved_value_callee(ce, "field") :- field_call(ce, k, t, n), field_open_fallback(k, t, n).
+// `this.hook()` where neither the class, an ancestor, nor any write the graph can
+// follow gives it a `hook`: the function is stored on the instance from outside,
+// through another reference (`e.hook = fn`) or a copy (`Object.assign(this, opts)`)
+// (#1709). A class with a base the graph could not resolve is left out: that base
+// may declare `hook`, and then the call names a method, not a value.
+unresolved_value_callee(ce, "instance_member") :- field_call(ce, "inst", t, n), !call_resolved(ce),
+    !callee_value_known(ce), !ambient_site(ce), !this_field_named("inst", t, n), !this_type_open(t),
+    expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "THIS", _, r).
+this_type_open(t) :- heritage_unresolved(t, _, _).
+this_type_open(t) :- heritage_dynamic(t, _).
+this_type_open(t) :- type_ancestor(t, a), heritage_unresolved(a, _, _).
+this_type_open(t) :- type_ancestor(t, a), heritage_dynamic(a, _).
 field_call(ce, k, t, n) :- call_site("client", ck, n, "SYNTACTIC", _, _, ce, _, _),
     (call_kind_is_member_form(ck) ; ck = "CONSTRUCTOR_CALL"), !call_kind_is_dynamic(ck),
     expr_child(_, ce, "RECEIVER", _, r), instance_or_class_value(r, k, t).
