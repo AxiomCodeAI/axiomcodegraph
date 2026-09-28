@@ -83,6 +83,11 @@ interface WriteObservation {
    */
   writtenBuiltinType: string;
   origin: PythonFieldOrigin;
+  /**
+   * 1-based, like every other Python relation. tree-sitter rows are 0-based, so
+   * each site adds 1; without it every field sat one line above its write, and a
+   * nested class's first field landed on the `class Meta:` line itself.
+   */
   line: number;
   endLine: number;
   methodHash: string;
@@ -416,8 +421,8 @@ export class PythonFieldExtractor {
       collection.observations.push({
         name,
         origin,
-        line: target.startPosition.row,
-        endLine: assignment.endPosition.row,
+        line: target.startPosition.row + 1,
+        endLine: assignment.endPosition.row + 1,
         methodHash: '',
         methodName: '',
         receiverName: '',
@@ -448,8 +453,8 @@ export class PythonFieldExtractor {
           collection.observations.push({
             name: this.mangle(collection.typeName, literal),
             origin: PythonFieldOrigin.SLOTS_ENTRY,
-            line: node.startPosition.row,
-            endLine: node.endPosition.row,
+            line: node.startPosition.row + 1,
+            endLine: node.endPosition.row + 1,
             methodHash: '',
             methodName: '',
             receiverName: '',
@@ -728,8 +733,8 @@ export class PythonFieldExtractor {
     collection.observations.push({
       name: this.mangle(collection.typeName, literal),
       origin: PythonFieldOrigin.SETATTR_DYNAMIC,
-      line: call.startPosition.row,
-      endLine: call.endPosition.row,
+      line: call.startPosition.row + 1,
+      endLine: call.endPosition.row + 1,
       methodHash,
       methodName,
       receiverName,
@@ -764,8 +769,8 @@ export class PythonFieldExtractor {
     collection.observations.push({
       name: this.mangle(collection.typeName, nameOverride || attributeName!.text),
       origin,
-      line: target.startPosition.row,
-      endLine: statement.endPosition.row,
+      line: target.startPosition.row + 1,
+      endLine: statement.endPosition.row + 1,
       methodHash,
       methodName,
       receiverName,

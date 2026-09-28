@@ -1,0 +1,16 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a class registered as a bean by another class's annotation (@EnableConfigurationProperties) names that class as a dependent, not only as a text match",
+   "run": ["impact", "MailProperties"],
+   "want": ["registers it as a bean (enabled_properties)", "PropsConfig", "dependency injection (ctor_param)", "Mailer.Mailer"]},
+  {"why": "near miss: the same shape registered by nothing has no registration row",
+   "run": ["impact", "QueueProperties"],
+   "want": ["Mailer.Mailer"],
+   "avoid": ["registers it as a bean"]},
+  {"why": "a @Configuration class's answer names who is injected with the beans its @Bean methods define; before, it said nothing resolved depended on it",
+   "run": ["impact", "WidgetConfig"],
+   "want": ["is injected with a bean this class defines (ctor_param)", "Assembler.Assembler"],
+   "avoid": ["nothing resolved in the source depends on it"]},
+  {"why": "near miss: a plain class whose method returns an injected type defines no bean",
+   "run": ["impact", "GadgetFactory"],
+   "avoid": ["is injected with a bean this class defines", "Assembler.Assembler"]}]}

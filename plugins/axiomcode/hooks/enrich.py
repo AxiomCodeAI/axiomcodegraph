@@ -113,7 +113,7 @@ if tool == 'Bash':
         if files and all(os.path.splitext(a)[1] and os.path.splitext(a)[1].lower() not in _graphline.LANG for a in files): sys.exit(0)
     if m: tool = 'Grep'; inp = {'pattern': m.group(3)}; _from_shell = True
     else:
-        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py|cs))\b', c)
+        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:' + _where.SOURCE_ALT + r'))\b', c)
         # a relative file is relative to where the shell is when it runs: the session's directory, or a `cd` before it
         if m: base, _ = _where.bash_where(c[:m.start()], scwd)
         if m and m.re.groups == 3: tool = 'Read'; inp = {'file_path': _where._abs(m.group(3), base), 'offset': int(m.group(1)), 'limit': int(m.group(2)) - int(m.group(1)) + 1}
@@ -160,7 +160,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     # with it, who produces or writes it, who reads it, what reaches those, the tests. The moment this is useful is now.
     import concurrent.futures
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
-    if not re.search(r'\.(java|ts|tsx|js|mjs|cjs|py)$', rel) or re.search(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_', rel): sys.exit(0)
+    if not _where.is_source(fp) or _where.is_test(rel): sys.exit(0)
     SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
     try: ch = json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), cwd, rel, '--json'], capture_output=True, text=True, timeout=10).stdout or '{}')
     except Exception: ch = {}
@@ -231,7 +231,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         for n in ch.get('notes', [])[:2]: lines.append(f"  added: {n}")
     if bodies:
         lines.append(_graphline.body_line(os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(cwd, '.axiomcode'), 'out', 'graph.sqlite'),
-                                          bodies + [(d, {}) for d in body[3:]]))
+                                          bodies + [(d, {}) for d in body[3:]], cwd))
 elif tool == 'Read':
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
@@ -260,11 +260,23 @@ elif tool == 'Read':
         # ranked ★ (connected to earlier Reads) first, then few-caller methods, then the rest as one line; 6 lines at most
         lo, hi = rows[0]['line'], rows[-1]['end_line'] or b                          # the lines the text actually covers
         mids = [r['method_id'] for r in rows]; ids = [r['id'] for r in rows]; ph = ','.join('?' * len(rows))
-        def visible(f, ln): return f == rel and lo <= ln <= hi                     # the other end is in the text the model just read
+        # the other end is in the text the model just read: the range READ, which runs past the last declaration (a script's
+        # top-level code after its last function is text the model has), not the span of the declarations in it
+        def visible(f, ln): return f == rel and min(a, lo) <= ln <= max(b - 1, hi)
+        # A CALLER IS SHOWN BY THE CALL, NOT BY ITS DECLARATION. Judged by the caller's own line, a file's top level (its
+        # `<module>`, declared at L1) was never in a range that did not start at L1, so reading a script's functions got
+        # `main L56 ← trend.<module> L1` for every one of them — the calls at the bottom of the very text just read. In the
+        # loop's runs that shape was most of the Read blocks nobody acted on. A caller whose call site lies in the range is
+        # visible; the caller's line is the fallback where a graph records no site line.
         up = collections.defaultdict(list); anyup = set()                        # anyup: has a caller at all, shown or not
-        for e in q(f"SELECT DISTINCT e.callee_method_id m, cr.id, cr.display d, cr.file f, cr.line ln FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id IN ({ph}) ORDER BY cr.is_test, cr.display", *mids):
-            anyup.add(e['m'])
-            if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in up[e['m']]}: up[e['m']].append(e)   # overloads of one caller are one name
+        sites = collections.defaultdict(list)
+        for e in q(f"SELECT e.callee_method_id m, cr.id, cr.display d, cr.file f, cr.line ln, cr.kind k, cs.start_line sl FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id LEFT JOIN call_sites cs ON cs.id = e.call_site_id WHERE e.callee_method_id IN ({ph}) ORDER BY cr.is_test, cr.display", *mids):
+            sites[(e['m'], e['id'])].append(e)
+        for (m, _), es in sites.items():
+            anyup.add(m); e = dict(es[0])
+            if any(visible(x['f'], x['sl'] or x['ln']) for x in es): continue
+            if e['k'] == 'module': e['ln'] = min((x['sl'] for x in es if x['sl']), default=e['ln'])   # a top level is where its call is
+            if e['d'] not in {x['d'] for x in up[m]}: up[m].append(e)          # overloads of one caller are one name
         dn = collections.defaultdict(list)
         for e in q(f"SELECT DISTINCT e.caller_id c, ce.id, ce.display d, ce.file f, ce.line ln FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id IN ({ph}) AND e.callee_provenance = 'client'", *ids):
             if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in dn[e['c']]}: dn[e['c']].append(e)
@@ -290,6 +302,9 @@ elif tool == 'Read':
         # one, the whole file after a range of it, or the same file through another spelling of its path. A key on the
         # read's own arguments caught only the first of those.
         info = [x for x in info if x['r']['id'] not in done]
+        # A BLOCK OF BARE UNRESOLVED COUNTS NAMES NOTHING TO GO TO (`main L44  ?7 unresolved call(s)` and no edge): no caller,
+        # callee or override to open, so it is context spent on a number. Kept when one declaration carries anything else.
+        if not any(x['up'] or x['dn'] or x['ovi'] or x['ovo'] or task_hits(x['r']['display']) for x in info): info = []
         block_ids = [x['r']['id'] for x in info]
         # an edge into a file the agent has not opened is what a read cannot show it; one into a file it has read is
         # something it may already have seen from the other end
@@ -329,7 +344,10 @@ elif tool == 'Read':
         shown = (picked + few)[:5] if rows else []
         for x in shown: lines.append(line(x))
         left = [x for x in info if x not in shown] if rows else []
-        if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{ups(x)}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
+        # an anonymous function (`<arrow>`, `<lambda>`) has no name to grep or ask about: counted in `+N more`, not listed
+        anon = lambda x: re.fullmatch(r'<[\w-]+>', x['r']['display'].rsplit('.', 1)[-1]) is not None   # `Walker.<arrow>` too
+        n_left = len(left); left = [x for x in left if not anon(x)]
+        if left: lines.append("  " + ('+%d more: ' % n_left) + ', '.join(f"{short(x['r']['display'])} ←{ups(x)}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
 elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(_where._abs(inp['path'], scwd)), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
     # (a Grep of a path outside this tree is about another codebase — nothing here to add)
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
@@ -387,6 +405,11 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
                 if e: rel_[r['id']] = (e['how'], ctx_names.get(e['who'], '?'))
             rows = sorted(rows, key=lambda r: r['id'] not in rel_)                   # stable: the order above within each group
         if plain and not rel_ and not unres: return n, [], []
+        # OVERLOADS IN ONE FILE ARE ONE NAME TO THE READER: `ISender.Send` declared twice in one interface printed as the
+        # same line twice. Each (display, file) is one line, saying how many declarations it stands for.
+        grp = {}
+        for r in rows: grp.setdefault((r['display'], r['file']), []).append(r)
+        rows = [v[0] for v in grp.values()]; n_ol = {v[0]['id']: len(v) for v in grp.values()}
         total = len(rows); rows = rows[:2]
         out = []
         paths = _graphline.distinct_paths([r['file'] or '' for r in rows])
@@ -404,7 +427,8 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
                        + (f"; {nt} in tests" if nt and 2 < len(up) < 40 and nt < len(up) else '') + ")") if up \
                       else _graphline.zero_label(c, r['method_id'], r['display'].rsplit('.', 1)[-1], r['is_test'])
             out.append(f"  {r['display']}  {path}:{r['line']}  ← {callers}  → {dn}" + (f"  ? {un}" if un else '')
-                       + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '') + tag)
+                       + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '')
+                       + (f"  ({n_ol[r['id']]} overloads)" if n_ol.get(r['id'], 1) > 1 else '') + tag)
         if total > len(rows) and out: out[-1] += f"  (+{total - len(rows)} more declaration(s){'' if total < 40 else ' or more'})"
         if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out

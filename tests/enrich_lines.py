@@ -4,7 +4,7 @@
   · a caller count of 0 says why where the graph knows: `entry (http)`, `0 resolved, N by name`, `? framework (@X)`;
     a method with no signal still reads `0` (the control);
   · the Grep preview names production callers before tests (#1507), and a name declared several times lists the base
-    first with its override count, two different files never print as the same line, and the rest are counted (#1546);
+    first with its override count, two different files never print as the same line, two overloads in one file print once, and the rest are counted (#1546);
   · a grep run through the shell over another command's output or over files no graph indexes adds nothing, and a
     constant-shaped word is not looked up as a callable (#1604);
   · an edit that changes no declaration adds nothing, a body-only edit adds one line of reaching tests and the command
@@ -50,6 +50,9 @@ SRC = {
                       '    public void pokeAll() { new Plain().countAll(); }\n}\n'),
     P + 'Plain.java': ('package app.orders;\n\npublic class Plain {\n    public String countAll() { return "1"; }\n'
                        '    public int unusedCount() { return Integer.parseInt(countAll()); }\n}\n'),
+    # two overloads in one file: one name to the reader, printed once
+    P + 'Pricer.java': ('package app.orders;\n\npublic class Pricer {\n    public int quoteAll(int n) { return n; }\n\n'
+                        '    public int quoteAll(String s) { return quoteAll(s.length()); }\n}\n'),
 }
 # two test stubs in modules whose paths sort before core/, with the same file name and line
 for m in ('json', 'xml'):
@@ -126,6 +129,9 @@ with tempfile.TemporaryDirectory() as repo:
     check('the production override comes before test stubs', len(rows) > 1 and 'JsonConverterFactory.widgetConverter' in rows[1], g)
     check('the declarations not shown are counted', '(+2 more declaration(s))' in g, g)
     check('two printed lines are never the same', len(rows) == len(set(rows)), g)
+    g = grep(repo, 'quoteAll')
+    rows = [l for l in g.splitlines() if l.startswith('  ') and 'Pricer.quoteAll' in l]
+    check('two overloads in one file print as one line that says so', len(rows) == 1 and '(2 overloads)' in rows[0], g)
     sys.path.insert(0, HOOKS); import _graphline
     two = _graphline.distinct_paths(['adapter-json/src/test/java/app/json/Stub.java', 'adapter-xml/src/test/java/app/xml/Stub.java'])
     check('two same-named files in different modules print with the path that tells them apart', two == ['json/Stub.java', 'xml/Stub.java'], two)
@@ -164,6 +170,48 @@ with tempfile.TemporaryDirectory() as repo:
     out = fire(repo, 'u1', '', {}, 'changes.py', 'UserPromptSubmit')
     check('the prompt-time report of a body edit is the same one line', 'body edit of OrderStore.findById' in out and 'reads / uses it' not in out, out)
     open(f, 'w').write(orig)
+
+# ── what a Read of a script says: a call in the text read is not an edge the text does not show ─────────────
+PY = {
+    'tool.py': ('from lib import fetch\n\n\n'
+                'def helper(x):\n    return fetch(x)\n\n\n'
+                'def main():\n    return helper(1)\n\n\n'
+                'def untyped(o):\n    return o.go()\n\n\n'
+                'if __name__ == "__main__":\n    main()\n'),
+    'lib.py': ('def fetch(x):\n    return x\n\n\n'
+               'def untyped2(o):\n    return o.go()\n'),
+    'app.py': ('from lib import untyped2\n\n\ndef run(o):\n    return untyped2(o)\n'),
+    'many.py': ''.join(f'def f{i}(o):\n    return o.go()\n\n\n' for i in range(7))
+               + 'g1 = lambda o: o.a()\ng2 = lambda o: o.b()\n\n\n'
+               # an owner-qualified one (`Walker.<lambda>`) is as anonymous as a bare one
+               + 'class Walker:\n    h = lambda self, o: o.c()\n',
+    'use_many.py': 'import many\n\n\ndef use(o):\n' + ''.join(f'    many.f{i}(o)\n' for i in range(7))
+                   + '    many.g1(o)\n    many.g2(o)\n',
+}
+with tempfile.TemporaryDirectory() as repo:
+    for n, t in PY.items(): open(os.path.join(repo, n), 'w').write(t)
+    git(repo, 'init', '-q'); git(repo, 'add', '-A'); git(repo, 'commit', '-qm', 'init')
+    subprocess.run(['bash', AX, 'index', repo, '--lang', 'python'], capture_output=True, text=True, timeout=1800)
+    if not os.path.exists(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')):
+        check('the python project indexes', False)
+    else:
+        tool = os.path.join(repo, 'tool.py')
+        r = fire(repo, 'p1', 'Read', {'file_path': tool})
+        check('a whole-script read does not list its own top level as a caller', '<module>' not in r, r)
+        check('control: the cross-file callee it cannot show is still there', 'helper ←0 →1' in r, r)
+        r = fire(repo, 'p2', 'Read', {'file_path': tool, 'offset': 8, 'limit': 3})
+        check('control: a range that leaves out the top-level call names it, at the line of the call',
+              'main L8' in r and 'tool.<module> L17' in r, r)
+        r = fire(repo, 'p3', 'Read', {'file_path': tool, 'offset': 12, 'limit': 3})
+        check('a block of nothing but unresolved counts is not emitted', r == '', r)
+        r = fire(repo, 'p4', 'Read', {'file_path': os.path.join(repo, 'lib.py'), 'offset': 5, 'limit': 3})
+        check('control: the same unresolved call on a declaration with a caller is kept',
+              'untyped2 L5  ← run' in r and 'unresolved' in r, r)
+        r = fire(repo, 'p5', 'Read', {'file_path': os.path.join(repo, 'many.py')})
+        more = line_of(r, '+')
+        check('anonymous functions, bare or owner-qualified, are counted in +N more but not named',
+              ('+5 more' in more or '+4 more' in more) and '<lambda>' not in more, r)
+        check('control: the named ones left over are still named there', 'f' in more.split(':', 1)[-1], r)
 
 print()
 print(f"{len(checked) - len(fails)} of {len(checked)} check(s) held" if not fails else f"{len(fails)} FAILED: " + '; '.join(fails))

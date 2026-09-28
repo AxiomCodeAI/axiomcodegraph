@@ -1,6 +1,9 @@
 ambient_terminal	FUNCTION_CALL	routes#<module-init>() @L35 -> routes#it(string,() =)
 ambient_terminal	FUNCTION_CALL	routes#<module-init>() @L50 -> routes#registerAll(Record string)
 ambiguous_unknown	METHOD_CALL	routes#<module-init>() @L40 -> -
+callback_registered	FUNCTION_CALL	routes#<module-init>() @L35 -> routes#namedSpec()
+callback_registered	METHOD_CALL	routes#<module-init>() @L24 -> routes#<arrow@24>()
+callback_registered	METHOD_CALL	routes#<module-init>() @L30 -> routes#namedHandler()
 known_edge	FUNCTION_CALL	routes#<arrow@24>() @L24 -> routes#inlineWork()
 known_edge	FUNCTION_CALL	routes#<module-init>() @L40 -> routes#notAHandler()
 known_edge	FUNCTION_CALL	routes#namedHandler() @L28 -> routes#namedWork()

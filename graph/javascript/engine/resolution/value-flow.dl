@@ -232,9 +232,14 @@ path_source(k, i) :- var_binding_path(_, _, v), var_init(_, _, e, v), expr_value
 path_source(k, i) :- expr_param(_, p, e), expr_binding_path(_, _, e), param_value(p, k, i).
 path_source("module", mod) :- import_decl(_, _, _, "DESTRUCTURED", n, _, _, _, imp), contains(".", n), import_module(imp, mod).
 path_source(k, i) :- path_step(_, _, _, k, i).
-path_value(k, i, p, k2, i2) :- path_rest_base(p, b), path_parent(b, par), match("[0-9]+", substr(b, strlen(par) + 1, strlen(b) - strlen(par) - 1)),
-    path_value(k, i, par, k2, i2).
-path_value(k, i, p, k2, i2) :- path_rest_base(p, b), b != "", !match("([^.]*[.])*[0-9]+", b), path_value(k, i, b, k2, i2).
+path_value(k, i, p, k2, i2) :- path_rest_index_parent(p, par), path_value(k, i, par, k2, i2).
+path_value(k, i, p, k2, i2) :- path_rest_named_base(p, b), path_value(k, i, b, k2, i2).
+// The two tests above are on the path TEXT only, so they are decided once here, below
+// the flow, instead of by a regex on every pass of the recursion (#732: the second
+// clause was 29 s of a 200 s solve on a real bundler's source when it matched inline).
+path_rest_index_parent(p, par) :- path_rest_base(p, b), path_parent(b, par),
+    match("[0-9]+", substr(b, strlen(par) + 1, strlen(b) - strlen(par) - 1)).
+path_rest_named_base(p, b) :- path_rest_base(p, b), b != "", !match("([^.]*[.])*[0-9]+", b).
 path_parent(b, substr(b, 0, n)) :- path_rest_base(_, b), contains(".", b), n = range(1, strlen(b) - 1), substr(b, n, 1) = ".",
     !contains(".", substr(b, n + 1, strlen(b) - n - 1)).
 binding_path(par) :- path_parent(_, par).
@@ -364,8 +369,58 @@ installed_function(val, m) :- expr_kind(_, "ASSIGNMENT", _, val), expr_child(_, 
 // parser roots both under RETURN). The owner is the function returned FROM — the
 // parser attributes a nested function's body to the nested function, so no
 // filtering by nesting is needed. Plus `@returns {T}`.
-return_value(m, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), !expr_kind(_, "THIS", _, e), expr_value(e, k, i).
+return_value(m, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), !expr_kind(_, "THIS", _, e),
+    !wrapped_result_return(e), expr_value(e, k, i).
 return_value(m, "inst", t) :- method_return_type(_, _, tr, m), type_ref_type(tr, t).
+
+// ── a WRAPPER's closure returns what its argument returns, per call site (#695) ──
+// `memoize(fn)`, `once(f)`, `lazy(make)`: the wrapper returns a closure, and the
+// closure returns the result of calling the wrapper's parameter, directly
+// (`() => make()`) or through a variable (`result = fn(); return result`). Read
+// context-insensitively, the parameter holds every function any caller passed, so
+// `getAlpha()` returned the union of every memoized getter's result (a superset), or,
+// once the wrapper was over the fan cap, nothing at all. The site knows better: at
+// `const getAlpha = memoize(() => require('./alpha'))`, a call of what that site
+// returned returns what ITS argument returns. So the site is a value of its own,
+// `("wrap", site)`, carried beside the closure's `("func", c)` wherever the closure
+// goes, and a call through it takes its value from that site's argument alone. The
+// closure's carrying `return` feeds no caller-merged value: every call of the
+// closure reaches it through a site. Nothing here reads param_value, so a wrapper
+// over the fan cap is answered as exactly as one with two callers.
+//
+// Syntactic, so it stratifies below the flow: the closure is the function a `return`
+// of the wrapper introduces (or names through a const), and the carry is the call of
+// the parameter through `=`, `||`, `??`, `&&`, `?:`, `(a, b)` and a local binding.
+wrapper_closure(h, c) :- expr_root(_, "RETURN", e), expr_owner(_, h, _, e), expr_introduces(_, c, e).
+wrapper_closure(h, c) :- expr_root(_, "RETURN", e), expr_owner(_, h, _, e), expr_binding(_, v, e),
+    var_init(_, _, init, v), expr_introduces(_, c, init).
+param_call_kind("FUNCTION_CALL").
+param_call_kind("FUNCTION_CALL_CALL").
+param_call_kind("FUNCTION_CALL_APPLY").
+carries_param_call(pc, p) :- expr_kind(_, "CALL", _, pc), call_site(_, ck, _, _, _, _, pc, _, _), param_call_kind(ck),
+    expr_child(_, pc, "CALLEE", _, c), expr_param(_, p, c).
+carries_param_call(e, p) :- expr_kind(_, "CONDITIONAL", _, e), expr_child(_, e, r, _, c), r != "CONDITION", carries_param_call(c, p).
+carries_param_call(e, p) :- expr_kind(_, "BINARY", _, e), expr_operator(_, op, e), binary_op_passes_value(op),
+    expr_child(_, e, _, _, c), carries_param_call(c, p).
+carries_param_call(e, p) :- expr_kind(_, "ASSIGNMENT", _, e), expr_child(_, e, "ASSIGNMENT_VALUE", _, c), carries_param_call(c, p).
+carries_param_call(e, p) :- expr_kind(_, "SEQUENCE", _, e), sequence_last(e, c), carries_param_call(c, p).
+carries_param_call(e, p) :- expr_binding(_, v, e), var_carries_param_call(v, p).
+var_carries_param_call(v, p) :- var_init(_, _, init, v), carries_param_call(init, p).
+var_carries_param_call(v, p) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_binding(_, v, tgt),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), carries_param_call(val, p).
+// wrapper_forwards(Wrapper, Closure, ArgPosition): the closure's result is the call of
+// the wrapper's parameter at that position.
+wrapper_forwards(h, c, pos) :- wrapper_closure(h, c), param_decl(_, _, ppos, h, p), !param_is_rest(_, p),
+    pos = to_number(ppos), expr_root(_, "RETURN", e), expr_owner(_, c, _, e), carries_param_call(e, p).
+wrapped_result_return(e) :- wrapper_closure(h, c), param_decl(_, _, _, h, p),
+    expr_root(_, "RETURN", e), expr_owner(_, c, _, e), carries_param_call(e, p).
+// The site's own value, and a call through it.
+expr_value(s, "wrap", s) :- expr_kind(_, "CALL", _, s), expr_resolves_to_method(s, h), wrapper_forwards(h, _, _).
+expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "wrap", s),
+    !call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, ce, _, _),
+    expr_resolves_to_method(s, h), wrapper_forwards(h, _, pos), call_arg(s, pos, arg),
+    expr_value(arg, "func", g), return_value(g, k, i).
 // `return this` is POLYMORPHIC: a fluent `add()` declared on Node and called on an
 // AbstractBlock returns the AbstractBlock. So a `this`-return is not a value of the
 // method — it is the RECEIVER of each call, substituted at the site (below). A
@@ -499,14 +554,46 @@ expr_value(e, "free", cat(mod, ":", n)) :- expr_kind(_, "IDENTIFIER", _, e),
 // every `@param {Object} opts` in the program, so a write through any of them would
 // be a read through all of them — a global merge point that made one held-out
 // solve 35x slower. The platform's properties are not tracked.
+//
+// The same holds for `str` (#732): a string value is identified by its TEXT, so
+// `"request"` is one value wherever the literal is written, and a write through a
+// binding that may hold it landed on every other binding that may hold the same text.
+// At runtime a property write onto a primitive is dropped (or throws in strict code),
+// so nothing real is lost. On a real bundler's own source these were 37K member_write
+// rows, one of the points where its widest value sets were manufactured.
+//
+// A `shape` is a JSDoc `@typedef {Object}` REFERENCE, also one identity per typedef:
+// `@param {StatsModule} m; m.moduleName = x` wrote x into every StatsModule in the
+// program. On that bundler these were 36K member_write rows onto 66 typedefs, and
+// they are where its widest value sets were made: 513 parameters of 620 unrelated
+// functions all held the same 552 values. But where the object behind a typedef is
+// not tracked, the shape is the only carrier of a HANDLER stored on it:
+// `context.cachedGetErrors = c => …`, later `cachedGetErrors(compilation)`, was 9
+// real edges on that bundler. So a write through a shape keeps every value a call
+// can later be made on or through (shape_stores_kind): a function or a class; an
+// instance, object literal or module namespace whose members are called
+// (`ctx.logger = new Logger()`, then `ctx.logger.log()`, where nothing but the
+// typedef carries ctx); and an array or collection of handlers that is iterated
+// (`ctx.list = [a, b]; for (const f of ctx.list) f()`). It drops the string,
+// symbol and other scalar stores, which were the width. Both tests are on kinds,
+// so the rules stay monotone.
+shared_identity_kind("ambient").
+shared_identity_kind("str").
+shape_stores_kind("func").
+shape_stores_kind("ctor").
+shape_stores_kind("inst").
+shape_stores_kind("obj").
+shape_stores_kind("module").
+shape_stores_kind("arr").
+shape_stores_kind("coll").
 member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt),
-    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient",
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), !shared_identity_kind(k),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2), (k != "shape" ; shape_stores_kind(k2)).
 member_write(k, i, n, k2, i2) :- computed_key_write(a, tgt, key, val), !keyed_copy_write(a, _, _), !generic_setter_write(a),
     key_name(key, n),
-    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
-    expr_value(val, k2, i2).
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), !shared_identity_kind(k), k != "arr", k != "coll",
+    expr_value(val, k2, i2), (k != "shape" ; shape_stores_kind(k2)).
 computed_key_write(a, tgt, key, val) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "ELEMENT_ACCESS", _, tgt),
     expr_child(_, tgt, "COMPUTED_KEY", _, key), expr_child(_, a, "ASSIGNMENT_VALUE", _, val).
@@ -539,10 +626,15 @@ same_key_binding(k1, k2) :- expr_binding(_, v, k1), expr_binding(_, v, k2).
 generic_setter_write(a) :- computed_key_write(a, tgt, key, _), expr_child(_, tgt, "ACCESS_TARGET", _, r),
     expr_param(_, _, r), expr_param(_, _, key), !keyed_copy_write(a, _, _).
 member_write_refused(a, "generic_setter") :- generic_setter_write(a).
+// A write whose target may hold a string (above): declared, so the
+// dropped store is countable. `ambient` targets were never tracked and are not listed.
+member_write_refused(a, "shared_identity") :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r),
+    expr_value(r, k, _), shared_identity_kind(k), k != "ambient".
 member_write(k, i, n, k2, i2) :- keyed_copy_write(a, key, src), computed_key_write(a, tgt, key, _),
     key_name(key, n),
-    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
-    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2).
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), !shared_identity_kind(k), k != "arr", k != "coll",
+    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2), (k != "shape" ; shape_stores_kind(k2)).
 // A copy whose keys are ENUMERATED FROM THE SOURCE (#707): `for (const k in src)
 // dst[k] = src[k]`, `for (const k of Object.keys(src))`, `Object.keys(src).forEach(k
 // => { dst[k] = src[k]; })`, the same through `Object.getOwnPropertyNames`, an alias
@@ -558,8 +650,9 @@ enumerated_copy(a, src) :- keyed_copy_write(a, key, src), key_enumerates(key2, o
 same_subject(e1, e2) :- same_key_binding(e1, e2).
 same_subject(e1, e2) :- expr_kind(_, "THIS", _, e1), expr_kind(_, "THIS", _, e2), expr_owner(_, m, _, e1), expr_owner(_, m, _, e2).
 member_write(k, i, n, k2, i2) :- enumerated_copy(a, src), computed_key_write(a, tgt, _, _),
-    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
-    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2), n != "constructor", n != "prototype".
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), !shared_identity_kind(k), k != "arr", k != "coll",
+    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2), n != "constructor", n != "prototype",
+    (k != "shape" ; shape_stores_kind(k2)).
 // key_enumerates(KeyExpr, Source): a reference to a binding that enumerates Source's
 // own property names.
 key_enumerates(key, src) :- loop_head(v, src), for_in_iterable(src), expr_binding(_, v, key).
@@ -590,9 +683,15 @@ object_keys_call(ce, o) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(
 // keys_helper(Method): `function keys(o) { const a = []; for (const k in o) a.push(k);
 // return a; }`, or `function keys(o) { return Object.keys(o); }`: returns an array of
 // its first parameter's property names.
-keys_helper(m) :- param_decl(_, _, "0", m, p), loop_head(v, e), for_in_iterable(e), expr_param(_, p, e),
-    expr_binding(_, v, kref), array_method_call(pce, "push", a), call_arg(pce, _, kref), return_value(m, "arr", a).
-keys_helper(m) :- param_decl(_, _, "0", m, p), object_keys_call(ce, e), expr_param(_, p, e), return_value(m, "arr", ce).
+// ATOM ORDER MATTERS (#732): Souffle joins in the order written, and these rules sit in
+// the value-flow recursion, so they are re-run every iteration. Written with
+// `param_decl` first they began with the product of every first parameter and every
+// loop head (no shared variable), and on a real bundler's source that product was the
+// most expensive clause of the solve: 76 s of 200, deriving nothing. Each atom below
+// is bound by the one before it.
+keys_helper(m) :- loop_head(v, e), for_in_iterable(e), expr_param(_, p, e), param_decl(_, _, "0", m, p),
+    expr_binding(_, v, kref), call_arg(pce, _, kref), array_method_call(pce, "push", a), return_value(m, "arr", a).
+keys_helper(m) :- object_keys_call(ce, e), expr_param(_, p, e), param_decl(_, _, "0", m, p), return_value(m, "arr", ce).
 // `Object.assign` and its library cousins: resolution/frameworks.dl.
 
 // ── literal_owns_method(LiteralExpr, MethodHash) — PD-JS-1 workaround ───────

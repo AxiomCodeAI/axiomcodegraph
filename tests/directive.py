@@ -7,7 +7,10 @@ when it has nothing to say costs every agent using the plugin something, on ever
 
 Each check names the promise rather than the code path, so a failure here says which promise broke.
 """
-import json, os, subprocess, sys, tempfile
+import json, os, sqlite3, subprocess, sys, tempfile
+# the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
+# second run of this script reuses the first run's session ids and hears nothing
+os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                     '..', 'plugins', 'axiomcode', 'hooks', 'direct.py')
@@ -91,11 +94,47 @@ with tempfile.TemporaryDirectory() as repo:
     open(os.path.join(ro, '.axiomcode', 'out', 'graph.sqlite'), 'w').close()
     os.chmod(os.path.join(ro, '.axiomcode'), 0o500)          # stamp cannot be written
     try:
-        rc, out, _ = fire(ro, 'Grep', {'pattern': 'f'})
+        rc, out, _ = fire(ro, 'Grep', {'pattern': 'f'}, session='s5')
         check('a repository it cannot write to still gets its directive, not an error',
               rc == 0 and ctx(out), f'rc={rc} out={out[:120]}')
     finally:
         os.chmod(os.path.join(ro, '.axiomcode'), 0o700)
+
+# ── once per SESSION, not per (session, repository); and the line names the verb for what the search names ──
+def graph(repo, rows):
+    os.makedirs(os.path.join(repo, '.axiomcode', 'out'), exist_ok=True)
+    con = sqlite3.connect(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite'))
+    con.execute("CREATE TABLE symbols(id TEXT, name TEXT, display TEXT, kind TEXT, qualified_name TEXT, signature TEXT,"
+                " file TEXT, line INT, end_line INT, owner TEXT, is_test INT, method_id TEXT, type_id TEXT)")
+    con.executemany("INSERT INTO symbols(id, name, display, kind, file, line, is_test) VALUES (?,?,?,?,?,?,0)", rows)
+    con.commit(); con.close()
+
+with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+    for r in (a, b):
+        os.makedirs(os.path.join(r, 'src'))
+        open(os.path.join(r, 'src', 'OrderStore.cs'), 'w').write('class OrderStore { public string FindById(int id) => ""; }\n')
+        graph(r, [('m1', 'FindById', 'OrderStore.FindById', 'method', 'src/OrderStore.cs', 1),
+                  ('t1', 'OrderStore', 'OrderStore', 'class', 'src/OrderStore.cs', 1)])
+    rc, out, _ = fire(a, 'Grep', {'pattern': 'FindById'}, session='k1')
+    said = ctx(out) or ''
+    check('a Grep for a declared name is told which verb answers it, on that declaration',
+          'axiomcode_impact targets=["OrderStore.FindById"]' in said and 'src/OrderStore.cs:1' in said, said[:300])
+    check('and the whole directive is short: at most 6 lines', 0 < len(said.splitlines()) <= 6, said)
+    rc, out, _ = fire(b, 'Grep', {'pattern': 'FindById'}, session='k1')
+    check('the same session in a second repository hears nothing more: the stamp is per session, not per repository',
+          rc == 0 and out == '', f'out={out[:160]}')
+    rc, out, _ = fire(b, 'Grep', {'pattern': 'FindById'}, session='k2')
+    check('control: a new session in that repository is told', bool(ctx(out)), f'out={out[:160]}')
+    rc, out, _ = fire(a, 'Grep', {'pattern': 'def fetch_all'}, session='k3')
+    said = ctx(out) or ''
+    check('control: a search for a name the graph does not declare gets the general directive only',
+          said and 'is declared here' not in said and 'axiomcode_impact' in said, said[:300])
+    rc, out, _ = fire(a, 'Bash', {'command': "grep -rn 'OrderStore' src"}, session='k4')
+    said = ctx(out) or ''
+    check('a shell grep for a declared type is told which verb answers it', 'targets=["OrderStore"]' in said, said[:300])
+    rc, out, _ = fire(a, 'Read', {'file_path': os.path.join(a, 'src', 'OrderStore.cs')}, session='k5')
+    said = ctx(out) or ''
+    check('a Read of an indexed C# file is told to ask context scoped to it', 'in_path="src/OrderStore.cs"' in said, said[:300])
 
 print()
 print(f"{len(checked) - len(fails)} of {len(checked)} promise(s) held" if not fails else f"{len(fails)} FAILED: " + '; '.join(fails))

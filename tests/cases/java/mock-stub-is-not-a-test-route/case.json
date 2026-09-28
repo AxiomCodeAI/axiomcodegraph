@@ -1,0 +1,94 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a call written inside when(...), verify(x).m() or doReturn(v).when(x).m() on a mock runs none of the real method, and neither does a route through a type the test class holds as a @Mock: those tests are not counted, and a test that calls the real object, directly or through the class under test, is",
+   "run": [
+    "impact",
+    "PriceService.price",
+    "--tests"
+   ],
+   "want": [
+    "tests: 2 of 6 test method(s)",
+    "PriceServiceTest::runsThePrice",
+    "CheckoutTest::totalsWithTheRealPrice",
+    "[stubs it] 3 test(s) in 3 file(s), not counted",
+    "CheckoutStubTest::stubsThePrice",
+    "FixtureStubTest::usesTheStubbedPrice",
+    "CheckoutWithMockTest::totalsWithAMockedPrice",
+    "a type they hold as a mock (PriceService)"
+   ],
+   "avoid": [
+    "[sound] 3",
+    "[sound] 4",
+    "[fixture]",
+    "callable(s) in test code listed above reach it"
+   ]
+  },
+  {
+   "why": "near miss: the class under test is not itself mocked, so the mock-holding test still reaches it",
+   "run": [
+    "impact",
+    "Checkout.total",
+    "--tests"
+   ],
+   "want": [
+    "tests: 2 of 6",
+    "CheckoutWithMockTest::totalsWithAMockedPrice",
+    "CheckoutTest::totalsWithTheRealPrice"
+   ]
+  },
+  {
+   "why": "the stub stays a dependent of the declaration: a rename or a new parameter breaks it, so it is listed, as a stub and not a call",
+   "run": [
+    "impact",
+    "PriceService.price"
+   ],
+   "want": [
+    "only stub it on a mock",
+    "[resolved] Checkout.total"
+   ],
+   "avoid": [
+    "callable(s) in test code listed above reach it"
+   ]
+  },
+  {
+   "why": "near miss: a call written in the stub's ARGUMENT list runs for real to build the argument, so the stubbing test reaches it",
+   "run": [
+    "impact",
+    "Ids.first",
+    "--tests"
+   ],
+   "want": [
+    "tests: 1 of 6",
+    "CheckoutStubTest::stubsThePrice"
+   ]
+  },
+  {
+   "why": "near miss: an HTTP test DSL's when() is a request step, not a stub, so a client call in its receiver chain is a route",
+   "run": [
+    "impact",
+    "Payloads.make",
+    "--tests"
+   ],
+   "want": [
+    "tests: 1 of 6",
+    "RequestTest::postsAPayload"
+   ]
+  },
+  {
+   "why": "a stub is not a hop of a chain either: the stubbing test has no path to the real method",
+   "run": [
+    "path",
+    "CheckoutStubTest.stubsThePrice",
+    "PriceService.price"
+   ],
+   "expect_error": true,
+   "avoid": [
+    "CheckoutStubTest.stubsThePrice \u2192 PriceService.price"
+   ],
+   "want": []
+  }
+ ]
+}

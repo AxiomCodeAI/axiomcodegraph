@@ -88,27 +88,40 @@ def distinct_paths(files):
 
 
 _TI = None
-def _command_for(lang, files, classes):
-    """the runnable command `axiomcode test-impact` prints, from the same function"""
+def _ti():
+    """axiomcode-test-impact as a module, loaded once; None when it cannot be"""
     global _TI
     if _TI is None:
         p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts', 'axiomcode-test-impact')
         try:
             ld = importlib.machinery.SourceFileLoader('ax_test_impact', p)
             m = importlib.util.module_from_spec(importlib.util.spec_from_loader('ax_test_impact', ld)); ld.exec_module(m)
-            _TI = m.command_for
+            _TI = m
         except Exception:
-            _TI = lambda *a: None
-    try: return _TI(lang, files, classes)
+            _TI = False
+    return _TI or None
+
+
+def _command_for(lang, files, classes, db=None, repo='.'):
+    """the runnable command `axiomcode test-impact` prints, from the same function; a TypeScript/JavaScript selection
+    can need one command per package and runner, joined with '; ' here because the hook's answer is one line"""
+    try: cmd = _ti().command_for(lang, files, classes, db, repo)
     except Exception: return None
+    return cmd.replace("\n", "; ") if cmd else cmd
 
 
-LANG = {'.java': 'java', '.py': 'python', '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript',
-        '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript', '.cs': 'csharp'}
+def _concrete(db, classes):
+    """the classes a runner can run: each abstract test class replaced by the classes that extend it (test-impact)"""
+    try: return _ti().concrete_test_classes(db, classes)[0]
+    except Exception: return classes
+
+
+import _where
+LANG = {e: ls[0] for e, ls in _where.BY_EXT.items()}          # one table for every hook (_where.py)
 SHOWN = 6
 
 
-def body_line(db, results):
+def body_line(db, results, repo='.'):
     """ONE line for an edit that changed only bodies: which declarations, how many tests reach them, how to run those.
     `results` is [(changed-declaration, impact-json)], the same pairs the blast-radius block is built from."""
     names = [d['symbol'] for d, _ in results]
@@ -136,7 +149,9 @@ def body_line(db, results):
         return f"graph: body edit of {what}: no test reaches it through the graph (a lower bound)"
     lang = LANG.get(os.path.splitext(results[0][0].get('file', ''))[1], '')
     fl, cl = sorted(files), sorted(owners)
-    cmd = _command_for(lang, fl[:SHOWN], cl[:SHOWN])
+    if lang in ('java', 'csharp') and cl:
+        cl = sorted(_concrete(db, cl))      # before the cut, so the command and the "+N more" count the same classes
+    cmd = _command_for(lang, fl[:SHOWN], cl[:SHOWN], None, repo)
     more = (len({c.split('.')[-1] for c in cl}) if lang in ('java', 'csharp') and cl else len(fl)) - SHOWN
     tail = (f"; run: {cmd}" + (f" (+{more} more: axiomcode test-impact)" if more > 0 else '')) if cmd else "; axiomcode test-impact gives the command"
     return f"graph: body edit of {what}: {n} test(s) reach it{tail}"

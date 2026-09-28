@@ -1,0 +1,4 @@
+ambiguous_unknown	METHOD_CALL	src/bound#<module-init>() @L11 -> -
+known_edge	CONSTRUCTOR_CALL	Engine#static make() @L5 -> Engine#<new>()
+known_edge	CONSTRUCTOR_CALL	Store#static create() @L4 -> Store#<new>()
+known_edge	CONSTRUCTOR_CALL	src/bound#<module-init>() @L9 -> Engine#<new>()

@@ -124,6 +124,35 @@ py_task_dispatch_method("apply_async").
 // the fixture to produce the argument. The parameter name is the only join.
 py_fixture_deco("fixture").
 
+// ── py_fixture_name_kw(Keyword): the decorator argument that names the fixture ─
+// `@pytest.fixture(name="client") def client_fixture()` registers `client`, and a test
+// requesting `client_fixture` gets nothing. The documented way to keep a fixture from
+// shadowing a module-level name.
+py_fixture_name_kw("name").
+
+// ── py_fixture_plugins_var(Name): the module global that lists plugin modules ─
+// `pytest_plugins = ["pkg.fixtures"]` (a string, a list or a tuple) makes the runner
+// import those modules as plugins, and a plugin's fixtures are visible to every test in
+// the session, not only to the directory of the module that listed them.
+py_fixture_plugins_var("pytest_plugins").
+
+// ── py_parametrize_deco(Tail) and its keywords: a value supplied DIRECTLY ────
+// `@pytest.mark.parametrize("user", [...])` passes the value in, and the fixture called
+// `user` is NOT run for that test. With `indirect=True`, or with the name in an
+// `indirect=[...]` list, the value goes to the fixture instead and the fixture runs.
+py_parametrize_deco("parametrize").
+py_parametrize_argnames_kw("argnames").
+py_parametrize_indirect_kw("indirect").
+py_parametrize_indirect_all("True").
+
+// ── py_argnames_sep / py_argnames_lead: how "a, b" separates argument names ──
+// The runner splits the string on "," and strips each piece. Souffle cannot split, so a
+// name is tested as a whole token: led by a separator (with or without the usual single
+// space) and followed by one, inside the string wrapped in separators.
+py_argnames_sep(",").
+py_argnames_lead(",").
+py_argnames_lead(", ").
+
 // ── py_test_name_prefix(Prefix) — how a runner recognises a test ─────────────
 // Injection happens only into a COLLECTED test. Without this, every function whose
 // parameter happens to share a fixture's name would be wired to it.
@@ -141,6 +170,29 @@ py_route_table("url_patterns").
 py_route_entry_fn("path").
 py_route_entry_fn("re_path").
 py_route_entry_fn("url").
+
+// ── py_route_include_fn(Name) — mounts another table under a prefix ──────────
+// `path("orders/", include(order_patterns))`. The argument is a table like
+// `urlpatterns`, however it is named.
+py_route_include_fn("include").
+
+// ── py_route_regex_syntax(Regex) — a route pattern that is a regular expression ──
+// `re_path(r"^orders/(?P<pk>[0-9]+)/$", view)`. Such a pattern names no literal path, so
+// no served path is composed through it. Matched against the whole pattern text.
+py_route_regex_syntax(".*[$^()?|\\\\].*").
+
+// ── py_class_view_entry_fn / py_view_handler_name ────────────────────────────
+// `path("orders/", OrderView.as_view())`. The function as_view() returns calls the
+// class's method named for the request's HTTP verb, lower-cased.
+py_class_view_entry_fn("as_view").
+py_view_handler_name("get").
+py_view_handler_name("post").
+py_view_handler_name("put").
+py_view_handler_name("patch").
+py_view_handler_name("delete").
+py_view_handler_name("head").
+py_view_handler_name("options").
+py_view_handler_name("trace").
 
 // ── py_signal_receiver_deco(Tail) — attaches a handler to a signal ───────────
 // `@receiver(order_placed)`. The publisher writes `order_placed.send(sender=...)`;

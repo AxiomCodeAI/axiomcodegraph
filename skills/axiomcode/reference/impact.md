@@ -13,10 +13,11 @@ first uses the type). Several targets in one call are one change set. A name dec
 Every judgement is a rule in `dl/impact.dl`: the Python side exports facts from graph.sqlite once per graph (members, owners,
 extends, nesting, decorations, overrides, resolved and unresolved call sites, references with the qualifier written on the
 line, type references, string literals, tests and fixtures), writes the target and the few text-level facts for the query, and
-runs one Soufflé program — compiled to a native binary by `axiomcode index` (~20 s once for all of them, cached by the
-program's hash under `dl/.cache/` and shared by every repository on the machine; on first use if the index did not warm it,
-the interpreter when there is no `c++`). Warming it at index time is what keeps a caller with a timeout — `hooks/changes.py`
-runs impact with `timeout=14` on every edit — from killing the compile before it can finish and caching nothing.
+runs one Soufflé program, compiled to a native binary once per machine (45-140 s for impact.dl), cached by the program's
+hash under `~/.cache/axiomcode/queries/` and shared by every repository and every plugin copy with the same rules. `axiomcode
+index` starts that compile in the background when the build starts; a query never waits for it: until it is done, and when
+there is no `c++`, the same program runs in the Soufflé interpreter, with the same answer. The compile runs detached, so a
+caller with a timeout (`hooks/changes.py` runs impact with `timeout=14` on every edit) cannot kill it half-way.
 Direct dependents, the contract, the seeds, the closure, the chains (`parent_up`) and
 the tests are all derived in the same run; nothing is recomputed a second way. What is verified afterwards is the export:
 every printed chain hop and every `[resolved]` entry is looked up again in `graph.sqlite` (the `verified:` line).
@@ -29,6 +30,9 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 - **what the container injects** — a type registered as a bean, or a method that defines one, lists the callables the
   container hands it to (`ctor_param`, a field injection): `receives it by dependency injection — the container hands it
   over, no call site`. Swapping a `@Bean` implementation reaches its consumers this way.
+  A class that registers the type from another class (`@EnableConfigurationProperties({T.class})`, a `@MapperScan`
+  or properties package scan) is listed as `registers it as a bean`, and a configuration class lists who is injected
+  with the beans its own `@Bean` methods define (`is injected with a bean this class defines`).
 - **what a framework hands over (Python)**: the engine's `framework_edge` joins a task body to its `.delay()` /
   `.apply_async()` producer, a `@receiver` to the `send` of the same signal object, a view to its route table, a
   `Depends()` provider to the handler declaring it, and a fixture to the test naming it. The end that hands over is listed
@@ -75,7 +79,9 @@ line and names the constructor query to run; take that suggestion before acting 
   field's value there, through the generated setters). A field's declared or generated setter, a generated constructor.
 - **reads or uses it** — every callable whose text uses the declaration, grouped by *why* (calls it, reads it, instantiates it,
   names it in a signature, uses a member imported from it, …) and by *how sure*: `[resolved]` an edge the engine resolved (a call
-  — `[one of a set]` when it is a multi_inferred target set —, an override, a subtype, a constructor); `[in scope]` a reference by
+  — `[one of a set]` when it is a multi_inferred target set —, an override, a subtype, a constructor; a call written against
+  the interface or base method this one implements is a direct row too, worded `calls it (via the interface)` or `(via the
+  base class)`, and `[resolved]` only when nothing else can run there); `[in scope]` a reference by
   that name inside the owner type, a subtype or a nested type; `[by name]` a reference by that name elsewhere — the receiver was
   not typed, so it may be a same-named other thing — including a read written through a variable from a callable with no
   owner type at all, which is what a module-level function in Python or JavaScript is; `[text]` the name found in the source where the parser records no line (Java
@@ -175,6 +181,18 @@ line and names the constructor query to run; take that suggestion before acting 
   of what a service's suite does. The two spellings of a path are matched segment by segment (`/orders/o-1/price` against
   `/orders/{order_id}/price`, `<int:id>`, `:id`), never normalised. It is **not** an edge the engine resolved and is never
   shown as one: the hop is `[by key]`, and a literal can be a same-valued other thing.
+- **a stub on a mock is NOT a hop** — `when(repo.find(1))`, `verify(repo).save(x)`, `doReturn(v).when(repo).find(1)`,
+  `mock.Setup(r => r.Find(1))`, `mock.Verify(...)`, `sub.Received().Find(1)`, `sub.Find(1).Returns(v)`: the engine
+  resolves the call to the declared method, which is right about the name and wrong about execution, since the receiver
+  is a mock. Such a site is marked by its position against the mocking library's own call (a knob table per language in
+  `scripts/ax_edges.py`, `STUB_WRAPPERS`), and it is a `[stubs it]` row: a rename or a new parameter breaks it, a body
+  change never does. It is kept out of the closure, so a test whose only contact is a stub is not counted under `tests:`;
+  it is listed on its own `[stubs it]` line, and `test-impact` selects it only for a signature change or a removal. A call
+  in the stub's ARGUMENT list (`when(repo.find(Ids.first()))`) runs for real and stays a route. A test that drives the
+  class under test with a mock injected still counts through the class under test: the graph cannot see which object
+  is injected. An entry point of the change that a framework enters (a route handler, a listener) is named on a
+  `NOT COUNTED` line with the search that finds the tests driving it, since those are counted only where a `[by key]`
+  route joins them.
 - **a decorator that rebinds the name is a hop** — `@audited def summarise(…)` leaves `summarise` denoting what
   `audited(summarise)` RETURNED, so every caller written with that name runs the wrapper. That is the engine's own
   resolution (`ext_decorated_name_target`), not a name match, so the hop is `[sound]`; without it a `functools.wraps`

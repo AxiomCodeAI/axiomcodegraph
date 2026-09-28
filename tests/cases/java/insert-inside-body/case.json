@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "lines added after an inner block's closing brace, or after a comment, inside a method are that method's body change, not anonymous new lines",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Svc.java"],
+   "want": ["body       Svc.build"],
+   "avoid": ["new line(s)", "Svc.other"]},
+  {"why": "control: a method inserted after a method's closing brace is an addition, and the method above it is not a body change",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-between.java", "--file", "src/pkg/Svc.java"],
+   "want": ["added", "Svc.extra"],
+   "avoid": ["body       Svc.build"]}]}

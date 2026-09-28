@@ -1,0 +1,2 @@
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function

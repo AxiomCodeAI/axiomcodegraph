@@ -29,6 +29,62 @@ G, die = P.G, P.die
 def sh(*a, cwd=None):
     r = subprocess.run(a, capture_output=True, text=True, cwd=cwd); return r.stdout if r.returncode == 0 else None
 
+# the extensions a graph can hold a declaration in; any other changed file is outside every indexed language
+CODE_EXT = r'\.(java|ts|tsx|js|mjs|cjs|py|cs)$'
+
+def is_git(repo):
+    return sh('git', 'rev-parse', '--git-dir', cwd=repo) is not None
+
+def resolve_range(repo, rng):
+    """(old rev, new rev, note) for `--range`. `a..b` means what an agent asking about ITS commits means: what b added since
+    it forked from a, so the old side is `git merge-base a b`, as `a...b` already is. Diffing the two TIPS, as this did,
+    reported every commit a received after the fork (the base branch moving under a feature branch) as the agent's own
+    change, and test-impact selected their tests. `a` alone is a..HEAD. The note says when the base is not a itself."""
+    if '...' in rng: a, b, dots = *rng.split('...', 1), 3
+    elif '..' in rng: a, b, dots = *rng.split('..', 1), 2
+    else: a, b, dots = rng, 'HEAD', 2
+    a, b = a or 'HEAD', b or 'HEAD'
+    ha = (sh('git', 'rev-parse', '--verify', '-q', f'{a}^{{commit}}', cwd=repo) or '').strip()
+    hb = (sh('git', 'rev-parse', '--verify', '-q', f'{b}^{{commit}}', cwd=repo) or '').strip()
+    if not ha or not hb:
+        die(f"--range {rng}: {a if not ha else b!r} is not a commit in {repo}" + ('' if is_git(repo) else ' (it is not a git checkout)')
+            + " — name the edited files instead: `changed <file>…` / `test-impact <file>…`")
+    mb = (sh('git', 'merge-base', ha, hb, cwd=repo) or '').strip()
+    if not mb:
+        return ha, hb, f"range: {a} and {b} share no history, so this compares the two tips"
+    if mb == ha: return ha, hb, None                                        # a is an ancestor of b: exactly the old answer
+    moved = (sh('git', 'rev-list', '--count', f'{mb}..{ha}', cwd=repo) or '?').strip()
+    return mb, hb, (f"range base: merge-base {mb[:10]} of {a} and {b}, not {a} itself — {a} has moved {moved} commit(s) since "
+                    f"{b} forked from it, and those are not changes of {b}'s; this answers for {b}'s own commits"
+                    + (" (a...b already means this)" if dots == 3 else ''))
+
+def branch_suggestion(repo):
+    """when the working tree matches the baseline but HEAD holds commits of its own: the nearest ref HEAD forked from, and
+    how many commits HEAD has since, so the answer can say `--range <ref>..HEAD` instead of a bare 'no change'. The
+    nearest is the candidate ref (the remote's default, the usual base names, then recent branches; never this branch's
+    own remote copy, which is where its commits are pushed, not where it forked) with the fewest commits between it and
+    HEAD, and at least one."""
+    head = (sh('git', 'rev-parse', '-q', '--verify', 'HEAD', cwd=repo) or '').strip()
+    if not head: return None
+    fmt = '--format=%(refname:short) %(objectname)'
+    usual = [f'refs/{k}/{n}' for k in ('heads', 'remotes/origin') for n in ('main', 'master', 'dev', 'develop')]
+    rows = (sh('git', 'for-each-ref', fmt, *usual, cwd=repo) or '').split('\n')
+    rows += (sh('git', 'for-each-ref', '--sort=-committerdate', '--count=40', fmt, 'refs/heads', 'refs/remotes', cwd=repo) or '').split('\n')
+    cur = (sh('git', 'rev-parse', '--abbrev-ref', 'HEAD', cwd=repo) or '').strip()
+    # on a base branch itself (or its remote's default) there is no fork to name: its commits are the base's own
+    dflt = (sh('git', 'symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD', cwd=repo) or '').strip()
+    if cur in ('main', 'master', 'dev', 'develop', 'trunk') or (dflt and cur == dflt.split('/', 1)[-1]): return None
+    best, seen = None, set()
+    for row in rows:
+        if ' ' not in row: continue
+        r, h = row.split(' ', 1)
+        if h in seen or h == head or r in (cur, f'origin/{cur}') or r.endswith('/HEAD'): continue
+        seen.add(h)
+        # commits HEAD has that the ref does not: HEAD's own since it forked from the ref (one git call per ref)
+        n = int((sh('git', 'rev-list', '--count', f'{h}..{head}', cwd=repo) or '0').strip() or 0)
+        if n >= 1 and (best is None or n < best[1]): best = (r, n)
+    return best
+
 def strip_code(t, strings=True, hash_comments=True):
     """the text with comments and string literals blanked, same length and line breaks — a brace in a string is not a brace.
     strings=False blanks only the comments: a string is still skipped, so a `//` or `/*` inside one is not a comment.
@@ -121,7 +177,8 @@ class Changed:
     # ── the two texts of a file ────────────────────────────────────────────────────────────────────────────────
     def texts(self, rel, mode, rng):
         if mode == 'range':
-            a, b = rng.split('..'); return sh('git', 'show', f'{a}:{rel}', cwd=self.repo) or '', sh('git', 'show', f'{b}:{rel}', cwd=self.repo) or ''
+            a, b = self.range_old, self.range_new                                  # the merge-base, not a's tip (resolve_range)
+            return sh('git', 'show', f'{a}:{rel}', cwd=self.repo) or '', sh('git', 'show', f'{b}:{rel}', cwd=self.repo) or ''
         base = self.base_tree or (self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD')
         old = sh('git', 'show', f'{base}:{rel}', cwd=self.repo) or ''
         if mode == 'staged': new = sh('git', 'show', f':{rel}', cwd=self.repo) or ''
@@ -130,8 +187,12 @@ class Changed:
             except OSError: new = ''
         return old, new
     def files(self, mode, rng, given):
-        if given: return [self.rel(f) for f in given]
-        if mode == 'range': out = sh('git', 'diff', '--name-only', rng, cwd=self.repo)
+        self.outside = []
+        if given:
+            rels = [self.rel(f) for f in given]
+            self.outside = [r for r in rels if not self.is_code(r)]
+            return [r for r in rels if self.is_code(r)]
+        if mode == 'range': out = sh('git', 'diff', '--name-only', self.range_old, self.range_new, cwd=self.repo)
         elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', *([self.base_tree] if self.base_tree else []), cwd=self.repo)
         else:
             base = self.base_tree or (self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD')
@@ -142,15 +203,28 @@ class Changed:
             # counts when the baseline does not have it, or has it with other content (an explicit index records
             # untracked files in the tree it indexed).
             extra = []
+            other = 0
             for u in (sh('git', 'ls-files', '--others', '--exclude-standard', cwd=self.repo) or '').split('\n'):
-                if not re.search(r'\.(java|ts|tsx|js|mjs|cjs|py|cs)$', u): continue
+                if not u.strip() or u.startswith('.axiomcode/'): continue
+                if not self.is_code(u):                                           # a new non-source file: named, not analysed
+                    other += 1
+                    if other > 200: continue
                 had = (sh('git', 'rev-parse', '--verify', '-q', f'{base}:{u}', cwd=self.repo) or '').strip()
                 if not had or had != (sh('git', 'hash-object', u, cwd=self.repo) or '').strip(): extra.append(u)
             out = (out or '') + ''.join('\n' + u for u in extra)
         # the extension list is the ONLY gate on what a diff can contain, so a language missing from it is
         # not degraded here, it is absent: `changed` answers [] for every edit and test-impact, which is
         # `changed` plus impact --tests, can never select anything from it (#1083)
-        return [l for l in (out or '').split('\n') if re.search(r'\.(java|ts|tsx|js|mjs|cjs|py|cs)$', l)]
+        # A FILE OUTSIDE EVERY INDEXED LANGUAGE IS STILL A CHANGE (#1470). Fixtures, case data, a schema, a template:
+        # dropped here, an edit to them answered "no change" and test-impact "no test can be selected", which reads as
+        # "nothing to test". They are kept apart, named, and test-impact looks for the tests that load them.
+        lines = [l for l in (out or '').split('\n') if l.strip()]
+        self.outside = [l for l in lines if not self.is_code(l)]
+        return [l for l in lines if self.is_code(l)]
+    def is_code(self, rel):
+        """a file a graph can hold declarations in: a source extension, or a file this graph holds whatever its name (a
+        script with a python shebang and no extension, #1376)"""
+        return bool(re.search(CODE_EXT, rel)) or rel in self.spans
 
     # ── the text-level structure of a declaration ─────────────────────────────────────────────────────────────
     @staticmethod
@@ -182,6 +256,23 @@ class Changed:
             res.append((name.lstrip('*.'), re.sub(r'\s+', ' ', typ)))
         return res
     @staticmethod
+    def before_expression_body(h):
+        """a header's text up to an expression body's `=>` written after its parameter list, at bracket depth 0 (a
+        lambda passed as a default value inside the parameters stays in them)"""
+        depth = 0; seen = False
+        for k, ch in enumerate(h):
+            if ch in '([{<': depth += 1; seen = seen or ch == '('
+            elif ch in ')]}>' and not (ch == '>' and k and h[k - 1] == '='): depth = max(0, depth - 1)
+            elif ch == '=' and h[k + 1:k + 2] == '>' and depth == 0 and seen: return h[:k].rstrip()
+        return h
+    @staticmethod
+    def lambda_header(line):
+        """the parameter list of the lambda written on a line, as text: `lambda x, y:` (Python), `(x, y) =>` / `x =>`
+        (C#, Java's `->`); None when the line holds no lambda header"""
+        t = strip_code(line)
+        m = re.search(r'\blambda\b([^:]*):', t) or re.search(r'(\([^()]*\)|[A-Za-z_]\w*)\s*(?:=>|->)', t)
+        return m.group(1).strip().strip('()').strip() if m else None
+    @staticmethod
     def field_parts(line):
         """(declared type, name) of a field line, in either spelling: `Type name = …;` or `name: Type = …`"""
         t = re.sub(r'\s*(//.*|/\*.*?\*/\s*|#.*)$', '', line).strip()
@@ -212,16 +303,40 @@ class Changed:
                 got = {i + 1 for i in range(i1, i2) if not noise(OL[i])}; old_changed |= got; removed_lines |= got
             elif tag == 'insert':
                 if any(not noise(NL[j]) for j in range(j1, j2)): added.append((i1, j1 + 1, j2))               # after old line i1, new lines j1+1..j2
+        # AN INSERTION IS PLACED AS LATE AS THE TEXT ALLOWS. When a block's first line equals the line after it, the same
+        # diff can put it one line later; difflib picks the earliest, so a type added below another began with that
+        # type's own `}` and sat INSIDE it: its interface and fields were named as members of the type above. Sliding
+        # past the equal lines puts it after the closing brace (git's diff does the same with its sliders)
+        slid = []
+        for after, s_, e_ in added:
+            while e_ < len(NL) and after < len(OL) and NL[s_ - 1] == NL[e_] and OL[after] == NL[e_]:
+                new_of[after + 1] = s_; after += 1; s_ += 1; e_ += 1
+            slid.append((after, s_, e_))
+        added = slid
         decls = self.decl_spans(rel, getattr(self, 'mode', 'worktree'))
-        if not decls and not old.strip() and new.strip():                                                # a new file: its declarations, all added
-            decls = []; added = [(0, 1, len(NL))]; old_changed = set(); removed_lines = set(); new_of = {}; replaced = []
-        elif not decls: return [], [(rel, 'no declarations known here (not in the graph, or a different file spelling)', None)]
+        if not old.strip() and new.strip(): return self.new_file(rel, new, decls, is_py), []
+        if not decls: return [], [(rel, 'no declarations known here (not in the graph, or a different file spelling)', None)]
         hits = {}
-        def narrowest(ln, kinds=None):
+        # A LAMBDA IS PART OF WHAT ENCLOSES IT. Every lambda carries one name (`<lambda>`), so taken as the declaration
+        # an edit changed, a body edit inside one came back as "signature <lambda> -x", handed to impact as `<lambda>`,
+        # which matched every lambda in the graph (hundreds, most of them in unrelated fixtures), and test-impact ran
+        # their tests. An edited line is charged to the narrowest declaration that is not a lambda; a lambda stands on
+        # its own only where no method or field encloses it (top-level code), named `Enclosing.<lambda@L42>` and
+        # targeted by file:line (lambda_decl).
+        is_lam = lambda d: d[5] in P.LAMBDA_NAMES and d[3] not in ('field', 'const', 'enum_member', 'variable')
+        def narrowest(ln, kinds=None, lambdas=False):
             best = None
             for a, b, i, k, d, n in decls:
+                if is_lam((a, b, i, k, d, n)) != lambdas: continue
                 if a <= ln <= b and (kinds is None or k in kinds) and (best is None or (b - a) < (best[1] - best[0])): best = (a, b, i, k, d, n)
             return best
+        def lambda_decl(ln, m):
+            """the lambda that stands on its own at ln: one spans the line, and no method (a module body is not one)
+            holds it, nor a field whose initializer it is"""
+            lam = narrowest(ln, None, lambdas=True)
+            if not lam or (m and m[3] != 'module' and m[0] <= lam[0] and lam[1] <= m[1]): return None
+            if any(k in ('field', 'const', 'enum_member', 'variable') and a <= lam[0] <= max(b, a) for a, b, i, k, d, n in decls): return None
+            return lam
         def decl_after(ln, L):
             """the declaration whose header starts within 3 lines after ln (an annotation / decorator line belongs to it)"""
             for a, b, i, k, d, n in decls:
@@ -239,8 +354,13 @@ class Changed:
         for ln in sorted(old_changed):
             if OL[ln - 1].strip().startswith('@') and any(ln in range(1, dd[0]) for dd in decorated): continue
             f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')), None)
+            # a lambda's lines inside a field's initializer are the field's
+            if not f: f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if k in ('field', 'const', 'enum_member', 'variable') and a < ln
+                                and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None)
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
             t = narrowest(ln, {'class', 'interface', 'enum', 'type', 'namespace'})
+            lam = None if f else lambda_decl(ln, m)
+            if lam: hits.setdefault(('lambda', lam), set()).add(ln); continue
             key = None
             # a callable that starts on the type's own header line and ends within the type is one the front end
             # synthesised for it (an implicit constructor, a Python class body): the header is the TYPE's, or a new class
@@ -273,6 +393,15 @@ class Changed:
             decs = decorated.get((a, b, i, k, d, n))
             if a > len(OL): continue                                             # starts past the committed file: nothing of it is there
             entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(x for x in lines if x > 0), target_kind=('param' if kind == 'signature' else KIND(k)))
+            if kind == 'lambda':
+                # a lambda at the top level: its own body. Named by where it is, targeted by file:line in the graph's own
+                # lines; its parameter list is compared as written, so an unchanged header is never a parameter diff
+                entry.update(kind='body', symbol=self.g.lambda_label(i), target=self.g.lambda_target(i) or f"{rel}:{a}", target_kind='method', lambda_=True)
+                na = new_of.get(a)
+                oh, nh = self.lambda_header(OL[a - 1] if a <= len(OL) else ''), self.lambda_header(NL[na - 1] if na and na <= len(NL) else '')
+                if oh is not None and nh is not None and re.sub(r'\s', '', oh) != re.sub(r'\s', '', nh): entry['detail'] = f"lambda parameters ({oh}) → ({nh})"
+                if a in removed_lines and all(x in removed_lines for x in range(a, min(b, len(OL)) + 1) if not noise(OL[x - 1])): entry['kind'] = 'removed'
+                out.append(entry); continue
             span_lines = [x for x in range(a, min(b, len(OL)) + 1) if not noise(OL[x - 1])]
             gone = a in removed_lines and span_lines and sum(1 for x in span_lines if x in removed_lines) >= 0.6 * len(span_lines) and \
                    not any(re.search(rf'\b{re.escape(n)}\s*\(', NL[j - 1]) and ndepth_ok(j) for j in range(max(1, (new_of.get(a) or a) - 3), min(len(NL), (new_of.get(a) or a) + 3) + 1))
@@ -290,8 +419,13 @@ class Changed:
                 if na and na <= len(NL):
                     # the new header: from the mapped line, the first line holding the name, to its end
                     for s in range(max(1, na - 2), min(len(NL), na + 6) + 1):
-                        if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]):
+                        # read with comments blanked: a comment line above the header that mentions the name is not it
+                        if re.search(rf'\b{re.escape(n)}\b', strip_code(NL[s - 1], strings=False, hash_comments=is_py)):
                             nh_raw = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); nh = uncomment(NL[s - 1:self.header_end(NL, s)]); break
+                # AN EXPRESSION BODY IS NOT HEADER. `int Count() => xs.Count(x => x > 0);` is one line, and read to its `;`
+                # the whole body was header text: an edit inside the lambda it holds came back as a signature change
+                body_arrow = self.before_expression_body
+                oh, oh_raw, nh, nh_raw = body_arrow(oh), body_arrow(oh_raw), body_arrow(nh), body_arrow(nh_raw)
                 # the header may start on an annotation line: its arguments are not a parameter list, and its text is
                 # not a return type. Read the signature from the first line that is not a decoration
                 sig = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()
@@ -337,6 +471,7 @@ class Changed:
             else: entry['target'] = None
             out.append(entry)
         adds = []
+        SL = strip_code(new, hash_comments=is_py).split('\n')                                             # the new text, strings and comments blanked
         ndepth = [0] * (len(NL) + 2)                                                                     # brace depth at the START of each new line
         for i, text in enumerate(strip_code(new).split('\n'), 1): ndepth[i] = ndepth[i - 1] + text.count('{') - text.count('}')
         for after, j1, j2 in added + [(a, b, c) for a, b, c in replaced]:
@@ -354,12 +489,25 @@ class Changed:
             # a Python docstring is the first statement of the body, so an insertion right after it is inside the
             # callable just as the brace above is; rejecting it charged the edit to the class (#1358)
             if after <= len(OL) and owner and owner[3] != 'module' and owner[0] < after and OL[after - 1].strip().startswith(TRIPLE): anchored = True
+            # STRICTLY INSIDE A CALLABLE IS INSIDE IT, whatever the anchor line holds. An insertion after the `}` that
+            # closes an inner block, a blank line or a comment in the body is still that callable's body; rejected as
+            # "not anchored" it came back as "N new line(s) at file:518" and changed --impact / test-impact never
+            # followed it. The anchor test still decides at the callable's first line, and a module is never a body
+            if owner and owner[3] != 'module' and owner[0] < after < owner[1]: anchored = True
             in_body = bool(is_add and owner and owner[0] <= after < owner[1] and anchored)
             if in_body:                                                                                       # strictly inside a callable's body: that callable changed
                 if not any(e['id'] == owner[2] for e in out):
                     out.append(dict(kind='body', symbol=owner[4], id=owner[2], file=rel, line=owner[0], end=owner[1], old_lines=[after], target=owner[4], target_kind='method'))
                 # and the inserted lines may still declare something at the type's level (a method extracted from this body)
             t = narrowest(after, {'class', 'interface', 'enum', 'type', 'namespace'}) if after else None
+            # an insertion after the line that CLOSES a type is outside it: a new interface written below a class was
+            # named as a member of that class, and its fields with it. (Python has no closing line: a type's last line is
+            # body, so there the inserted text's own indentation decides, below)
+            if t and after >= t[1] and not is_py: t = None
+            if t and after >= t[1] and is_py:
+                first = next((NL[j - 1] for j in range(j1, j2 + 1) if NL[j - 1].strip()), '')
+                hdr = OL[t[0] - 1] if t[0] <= len(OL) else ''
+                if len(first) - len(first.lstrip()) <= len(hdr) - len(hdr.lstrip()): t = None
             # a declaration the new text introduces: named from its header, owner = the type around the insertion point
             names = []; hdrs = {}
             # the type's body level in the NEW text: brace depth just after its header (indentation for Python); a declaration
@@ -371,18 +519,23 @@ class Changed:
             else: body_depth = 0
             for j in range(j1, j2 + 1):
                 text = NL[j - 1]; st = re.sub(r'\s*(//.*|/\*.*?\*/\s*)$', '', text).strip()
+                # a line wholly inside a docstring, a string or a comment declares nothing: read as code, a docstring
+                # sentence at the body's indentation (`works (see below)`) was listed as an added method
+                if not SL[j - 1].strip(): continue
                 st = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', st)                                # `@Override public …` on one line
                 here = (ndepth[j - 1] if not py else len(text) - len(text.lstrip()))
                 if here != body_depth or not st or st.startswith(('//', '*', '/*', '@', '#', 'return', 'if', 'for', 'while', 'switch', 'else', 'throw', 'new ', 'case', 'try', 'catch')): continue
+                # a file's own header lines declare nothing: `package a.b.c;` and `import a.b.C;` read as a field `c` / `C`
+                if re.match(r'(package|import|using|namespace|from|module|export\s+\*)\b', st): continue
                 tm = re.match(r'^(?:(?:public|private|protected|static|final|abstract|sealed)\s+)*(class|interface|enum|record|@interface)\s+([A-Za-z_$][\w$]*)', st)
-                if tm: names.append((tm.group(2), tm.group(1).lstrip('@') + ' (with its members)')); hdrs[tm.group(2)] = st; continue
-                m = re.match(r'^(?:def|function|async function)\s+([A-Za-z_$][\w$]*)\s*\(', st) or \
+                if tm: names.append((tm.group(2), tm.group(1).lstrip('@') + ' (with its members)', j)); hdrs[tm.group(2)] = st; continue
+                m = re.match(r'^(?:def|async def|function|async function)\s+([A-Za-z_$][\w$]*)\s*\(', st) or (not py and (
                     re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;=]*\)\s*(?:throws[\w.,\s]+)?\s*(\{|;|$)', st) or \
-                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*$', st)
+                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*$', st)))
                 if m and not re.match(r'^(if|for|while|switch|catch|synchronized|return|new|super|this|else)$', m.group(1)) and '=' not in st.split('(')[0]:
-                    names.append((m.group(1), 'method')); hdrs[m.group(1)] = ' '.join(x.strip() for x in NL[j - 1:self.header_end(NL, j)]); continue
+                    names.append((m.group(1), 'method', j)); hdrs[m.group(1)] = ' '.join(x.strip() for x in NL[j - 1:self.header_end(NL, j)]); continue
                 ty, nm = self.field_parts(st)
-                if nm and ty and st.endswith(';') and '(' not in st.split('=')[0]: names.append((nm, 'field'))
+                if nm and ty and st.endswith(';') and '(' not in st.split('=')[0]: names.append((nm, 'field', j))
             # a declaration the old file already has — same owner, same name, same arity — is not new (an added OVERLOAD is)
             def types_of(hdr):
                 """the parameter types of a header, as simple names: `List<String> xs, int n` → [List, int]; a signature without names too"""
@@ -407,7 +560,7 @@ class Changed:
                         if ('...' in old_hdr) != ('...' in hdr): continue
                         return True
                 return False
-            for nm, k in names:
+            for nm, k, jn in names:
                 if old_has(nm, hdrs.get(nm, '')): continue
                 # an added method whose name already exists on this owner is an OVERLOAD: the compiler may rebind
                 # existing call sites of that name to it, and a call site records no argument types, so which of them
@@ -419,14 +572,14 @@ class Changed:
                             sib += [r[0] for r in self.g.q("SELECT DISTINCT s.display FROM call_edges e JOIN symbols s ON s.id = e.caller_id WHERE e.callee_method_id = ?", sy['method_id'])]
                 note = f'new {k}'
                 if sib: note += f"; an overload: {len(set(sib))} existing call site(s) of {(t[4] + '.') if t else ''}{nm} may rebind to it (a call site records no argument types, so which of them is NOT decidable here): " + ', '.join(sorted(set(sib))[:4]) + (' …' if len(set(sib)) > 4 else '')
-                out.append(dict(kind='added', symbol=(t[4] + '.' if t else '') + nm, id=None, file=rel, line=j1, end=j2, old_lines=[], detail=note,
+                out.append(dict(kind='added', symbol=(t[4] + '.' if t else '') + nm, id=None, file=rel, line=jn, end=jn, old_lines=[], detail=note,
                                 target=((t[4] + '.' if t else '') + nm) if sib else None))
                 if 'members' in k:                                                                        # the new type's own declarations, one level deeper — its whole body in the new text
                     hj = next((j for j in range(j1, j2 + 1) if re.search(rf'\b{re.escape(nm)}\b', NL[j - 1])), j1); j = hj + 1
                     while j <= len(NL) and (ndepth[j - 1] > body_depth if not py else (not NL[j - 1].strip() or len(NL[j - 1]) - len(NL[j - 1].lstrip()) > body_depth)):
                         st2 = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', re.sub(r'\s*(//.*|/\*.*?\*/\s*)$', '', NL[j - 1]).strip()); here2 = (ndepth[j - 1] if not py else len(NL[j - 1]) - len(NL[j - 1].lstrip())); j += 1
-                        if here2 != body_depth + (1 if not py else 4) or not st2 or st2.startswith(('//', '*', '/*', '@', '#', '}', '{')): continue
-                        mm = re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*', st2) or re.match(r'^(?:def|function)\s+([A-Za-z_$][\w$]*)\s*\(', st2)
+                        if here2 != body_depth + (1 if not py else 4) or not st2 or st2.startswith(('//', '*', '/*', '@', '#', '}', '{')) or not SL[j - 2].strip(): continue
+                        mm = re.match(r'^(?:async\s+)?(?:def|function)\s+([A-Za-z_$][\w$]*)\s*\(', st2) or (None if py else re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*', st2))
                         if mm and mm.group(1) not in ('if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'super', 'this'): out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{mm.group(1)}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new method', target=None)); continue
                         ty2, nm2 = self.field_parts(st2)
                         if nm2 and ty2 and st2.endswith(';') and '(' not in st2.split('=')[0]: out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{nm2}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new field', target=None))
@@ -446,6 +599,53 @@ class Changed:
             q = self.qualified(e.get('id'), e.get('kind'))
             if t and q and t.startswith(e['symbol']): e['target'] = q + t[len(e['symbol']):]; e['shown_target'] = t
         return out, adds
+    def new_file(self, rel, new, decls, is_py):
+        """A FILE THE BASE DOES NOT HAVE is one change: `added <file> (N declarations)`. Read line by line as an insertion,
+        a new module listed every function at line 1, each parameter list as a change and docstring words as methods. What
+        can be analysed is what already has a caller outside the file (the graph was built from the new text): those
+        declarations are listed with their impact target; the rest have no dependents yet. A new test file is named as a
+        test, so test-impact runs it."""
+        callables = [d for d in decls if d[3] in ('method', 'function', 'constructor')]
+        types = [d for d in decls if d[3] in ('class', 'interface', 'enum', 'type', 'namespace')]
+        n = len(callables) + len(types)
+        if not decls:                                                     # not in the graph yet: count the headers in the text
+            code = strip_code(new, hash_comments=is_py)
+            n = len(re.findall(r'^\s*(?:async\s+)?(?:def|class)\s+\w', code, re.M)) if is_py else \
+                len(re.findall(r'^\s*(?:[\w<>\[\],.?]+\s+)*(?:class|interface|enum|record|struct)\s+\w', code, re.M))
+        is_test = bool(re.search(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', rel, re.I)) or \
+                  any(self.g.all_sym.get(d[2], {}).get('is_test') for d in callables)
+        out = [dict(kind='added', symbol=rel, id=None, file=rel, line=1, end=len(new.split('\n')), old_lines=[], target=None, new_file=True,
+                    is_test=is_test, detail=f"new file, {n} declaration(s)" + ('' if decls else ' by its text (the graph does not hold it yet)')
+                    + (' — a test file: run it' if is_test else ''))]
+        ids = [d[2] for d in callables if isinstance(d[2], (int, str)) and not str(d[2]).startswith('f:')]
+        mids = {self.g.all_sym.get(i, {}).get('method_id'): i for i in ids if self.g.all_sym.get(i, {}).get('method_id') is not None}
+        if mids:
+            q = ','.join('?' * len(mids))
+            callers = {}
+            for r in self.g.q(f"SELECT e.callee_method_id m, s.file f, s.display d FROM call_edges e JOIN symbols s ON s.id = e.caller_id WHERE e.callee_method_id IN ({q})", *mids):
+                if r['f'] != rel: callers.setdefault(r['m'], set()).add(r['d'])
+            for m, cs in callers.items():
+                i = mids[m]; sy = self.g.all_sym[i]; lam = self.g.is_lambda(i)
+                out.append(dict(kind='added', symbol=self.g.lambda_label(i) if lam else sy['display'], id=i, file=rel, line=sy['line'], end=sy['end_line'] or sy['line'], old_lines=[],
+                                detail=f"new, and already called from outside this file ({len(cs)} caller(s): {', '.join(sorted(cs)[:3])}{' …' if len(cs) > 3 else ''})",
+                                target=(self.g.lambda_target(i) if lam else None) or self.qualified(i, 'method') or sy['display'], target_kind='method', referenced=True))
+        return out
+    def whole_file(self, rel, why):
+        """every callable the graph declares in a NAMED file, as changed: what `test-impact <file>` means when there is no
+        edit to diff (no git, or the file matches its base). The types stand in for a file that declares no callable."""
+        spans = self.spans.get(rel, [])
+        pick = [d for d in spans if d[3] in ('method', 'function', 'constructor')] or [d for d in spans if d[3] in ('class', 'interface', 'enum', 'type')]
+        out = []
+        for a, b, i, k, d, n in pick:
+            if n in P.LAMBDA_NAMES:
+                # a lambda inside a method of this file is counted with that method; one at the top level by its line
+                if self.g.enclosing(i): continue
+                out.append(dict(kind='named', symbol=self.g.lambda_label(i), id=i, file=rel, line=a, end=b, old_lines=[], detail=why,
+                                target=self.g.lambda_target(i) or f"{rel}:{a}", target_kind='method')); continue
+            out.append(dict(kind='named', symbol=d, id=i, file=rel, line=a, end=b, old_lines=[], detail=why,
+                            target=self.qualified(i, 'method') or d, target_kind='type' if k in ('class', 'interface', 'enum', 'type') else 'method'))
+        if not out: out.append(dict(kind='named', symbol=rel, id=None, file=rel, line=1, end=1, old_lines=[], detail=why + '; the graph declares nothing in it', target=None))
+        return out
     def qualified(self, i, kind):
         if i is None: return None
         r = self.g.all_sym.get(i)
@@ -459,9 +659,36 @@ class Changed:
     def target(kind, d, k, n):
         return d
 
+NO_GIT = ("no git base: {repo} is not a git checkout (a copy without .git), so there is no earlier version to diff the "
+          "working tree against, and nothing can say what changed. Name the files you edited: `axiomcode changed <file>…` "
+          "or `axiomcode test-impact <file>…` (MCP files=[…]) counts every declaration in each named file as changed.")
+
+def outside_note(files, suite=None):
+    """one line naming the changed files no graph here can read; test-impact adds the tests that load them"""
+    fs = sorted(files)
+    return (f"{len(fs)} changed file(s) outside every indexed language, so no declaration in them is analysed: "
+            + ', '.join(fs[:8]) + (f' … +{len(fs) - 8}' if len(fs) > 8 else '')
+            + " — `test-impact` names the tests that load them by name; an edit here is not 'no change'")
+
+def held_extensions(repo):
+    """the file extensions some graph of this repository holds (the main one and every per-language one)"""
+    import sqlite3, glob
+    ext = set()
+    for db in [os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')] + glob.glob(os.path.join(repo, '.axiomcode', 'lang', '*', 'out', 'graph.sqlite')):
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            ext |= {os.path.splitext(r[0])[1] for r in con.execute("SELECT DISTINCT rel FROM paths") if r[0]}
+            con.close()
+        except Exception: pass
+    return ext
+
 def main(argv):
     a = list(argv); mode = 'worktree'; rng = None; want_impact = '--impact' in a; as_json = '--json' in a
-    a = [x for x in a if x not in ('--impact', '--json')]
+    whole = '--whole' in a                  # a NAMED file with no diff counts whole (test-impact <file>: "the tests of this file")
+    # the branch suggestion costs a few git calls per candidate ref: asked for by a reader (prose) or by test-impact
+    # (--suggest), never by the edit hooks, which read --json on every prompt
+    want_suggest = not as_json or '--suggest' in a
+    a = [x for x in a if x not in ('--impact', '--json', '--whole', '--suggest')]
     old_f = new_f = one = None
     for flag in ('--range', '--old', '--new', '--file'):
         if flag in a:
@@ -473,6 +700,16 @@ def main(argv):
     if '--staged' in a: mode = 'staged'; a.remove('--staged')
     repo = '.'
     if a and os.path.isdir(a[0]): repo = a.pop(0)
+    rrepo = os.path.realpath(repo)
+    # NO GIT, NO BASE. On a copy without .git every file read as new against an empty old text, so `changed` listed every
+    # function as added at line 1 and docstring words as methods. Without named files there is no answer to give: say so
+    # and say what to pass. With named files, each counts whole (below).
+    git = is_git(rrepo)
+    if not git and not (old_f or new_f) and not a:
+        msg = NO_GIT.format(repo=rrepo)
+        if as_json: print(json.dumps({'built_at': None, 'changed': [], 'notes': [], 'refused': msg, 'no_git': True}, indent=1))
+        else: print(msg)
+        return 2
     # an EDIT is measured against the baseline, and read from the graph that describes it (#1305): after a background
     # refresh that is the graph kept in .axiomcode/base, not the current one. Given two texts (--old/--new, the edit
     # hook's before-the-edit check) the current graph is the one whose spans are in the current file's lines.
@@ -481,41 +718,57 @@ def main(argv):
     baseline = None; fanout_empty = False
     sys.path.insert(0, HERE); import ax_fresh
     if mode != 'range' and not (old_f or new_f):
-        bg = ax_fresh.baseline_graph(os.path.realpath(repo)); given = os.environ.get('AXIOMCODE_GRAPH')
+        bg = ax_fresh.baseline_graph(rrepo); given = os.environ.get('AXIOMCODE_GRAPH')
         # the dispatcher names the CURRENT graph of the language it is asking (AXIOMCODE_GRAPH_LANG): that is not a
         # graph chosen for this edit, so the language's baseline is still looked for, as it is for the main one
-        if given and os.path.realpath(given) == os.path.realpath(ax_fresh.graph_dir(os.path.realpath(repo))): given = None
+        if given and os.path.realpath(given) == os.path.realpath(ax_fresh.graph_dir(rrepo)): given = None
         if bg and (not given or os.path.realpath(given) == os.path.realpath(bg)):
             baseline = bg; os.environ['AXIOMCODE_GRAPH'] = bg                 # also for --impact, which runs impact below
     C = Changed(repo, baseline=bool(baseline)); C.mode = 'files' if (old_f or new_f) else mode
-    results = []; notes = []
+    range_note = None
+    if mode == 'range': C.range_old, C.range_new, range_note = resolve_range(C.repo, rng)
+    results = []; notes = []; outside = []; suggest = None
+    main_graph = not ax_fresh.graph_lang()
     if old_f or new_f:
         if not one: die("--old/--new need --file <path in the repo>")
         rel = C.rel(one); old = open(old_f, errors='replace').read() if old_f else ''; new = open(new_f, errors='replace').read() if new_f else ''
         r, n = C.file_changes(rel, old, new); results += r; notes += n
     else:
         files = C.files(mode, rng, a)
+        outside = list(C.outside)
+        # a source file in a language no graph here holds (a .java file beside a Python-only index) is outside the index too
+        held = held_extensions(C.repo)
+        if held:
+            outside += [f for f in files if os.path.splitext(f)[1] not in held and f not in C.spans]
+            files = [f for f in files if f not in outside]
         # A REPOSITORY IN SEVERAL LANGUAGES has a graph per language, and the dispatcher asks each (ax_langs.py). Each
         # answers for the files it owns, so an edit is reported once, by the graph of its language, and not also as
-        # "no declarations known here" by every other.
+        # "no declarations known here" by every other. Files outside every language are named once, by the main graph.
         if os.path.isdir(os.path.join(C.repo, '.axiomcode', 'lang')):
             import ax_langs
             mine = ax_fresh.graph_lang()
             files = [f for f, o in ax_langs.owners(C.repo, files).items() if o == mine]
-            if not files and os.environ.get('AXIOMCODE_FANOUT'): fanout_empty = True
+            if not main_graph: outside = []
+            if not files and not outside and os.environ.get('AXIOMCODE_FANOUT'): fanout_empty = True
         # the graph describes ONE commit. For a range whose newer side is that commit, the declarations are read on the new
         # text and the classification runs with the two texts swapped, then its direction is turned around
         flipped = False
-        if mode == 'range' and C.built_at and rng:
-            b = rng.split('..')[1]; hb = sh('git', 'rev-parse', b, cwd=C.repo)
-            flipped = bool(hb) and hb.strip().startswith(C.built_at[:10]) is False and hb.strip() == C.built_at
-            if hb and not flipped and hb.strip()[:10] == C.built_at[:10]: flipped = True
+        if mode == 'range' and C.built_at:
+            hb = C.range_new
+            flipped = bool(hb) and hb[:10] == C.built_at[:10]
         for rel in files:
+            if a and not git:                                                 # a named file, no git: every declaration in it
+                results += C.whole_file(rel, 'no git base to diff against'); continue
             old, new = C.texts(rel, mode, rng)
-            if old == new: continue
-            if flipped:
+            if old == new:
+                if a and whole: results += C.whole_file(rel, f"no edit against {'the index' if mode == 'staged' else 'the baseline'}: the file was named")
+                continue
+            if flipped and not old.strip() and new.strip():                   # a file the range adds: one line, not its decls reversed
+                results += C.new_file(rel, new, C.decl_spans(rel, mode), rel.endswith(('.py', '.pyi')) or bool(re.match(r'#![^\n]*\bpython', new)))
+            elif flipped:
                 r, n = C.file_changes(rel, new, old)
                 for e in r:
+                    if e.get('new_file'): e['kind'] = 'removed'; e['detail'] = 'the file is gone at the newer side'; continue
                     if e['kind'] == 'removed': e['kind'] = 'added (declaration)'; e['target'] = None
                     if e.get('detail'):
                         e['detail'] = ' → '.join(reversed(e['detail'].split(' → '))) if ' → ' in e['detail'] and ':' not in e['detail'] else re.sub(r'(\w+): (.+?) → (.+?)(,|$)', r'\1: \3 → \2\4', e['detail'])
@@ -525,25 +778,54 @@ def main(argv):
             else:
                 r, n = C.file_changes(rel, old, new); results += r; notes += n
         if flipped: notes.append(('', f"the graph is built at the newer commit {C.built_at[:10]}: declarations are the new text's; a declaration the range removed is not in it", None))
-    if as_json: print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes]}, indent=1)); return 3 if fanout_empty else 0
-    if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 3 if fanout_empty else 0
+        # COMMITTED WORK IS NOT IN THE WORKING TREE. After a commit the baseline follows HEAD, so the working tree matches
+        # it and the answer was a bare "no change", while the agent's changes sat in commits a --range would have read
+        if want_suggest and mode == 'worktree' and not a and not results and not notes and not outside and git and main_graph:
+            s_ = branch_suggestion(C.repo)
+            if s_: suggest = dict(ref=s_[0], commits=s_[1], range=f"{s_[0]}..HEAD")
+    if outside: notes.append(('', outside_note(outside), None))
+    base_desc = (f"working tree against {C.built_at[:10] if C.built_at and C.built_at != 'nogit' else 'HEAD'}" if mode == 'worktree' else
+                 f"{rng} (from {C.range_old[:10]} to {C.range_new[:10]})" if mode == 'range' else mode)
+    sugg_line = (f"your commits are not in the working tree: HEAD is {suggest['commits']} commit(s) ahead of {suggest['ref']} — "
+                 f"ask `changed --range {suggest['range']}` (MCP range='{suggest['range']}') for them") if suggest else None
+    if as_json:
+        print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes], 'outside_index': sorted(outside),
+                          'range_base': (C.range_old if mode == 'range' else None), 'range_note': range_note,
+                          'suggest_range': suggest, 'suggest_note': sugg_line}, indent=1))
+        return 3 if fanout_empty else 0
+    if range_note: print(f"note: {range_note}")
+    if not results and not notes:
+        print(f"no change to a declaration the graph knows ({base_desc})")
+        if sugg_line: print(f"next: {sugg_line}")
+        return 3 if fanout_empty else 0
     against = (f" — against the tree the graph was indexed from at the last `axiomcode index` (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
-               else f" — against the graph's commit {C.built_at[:10]}")
-    print(f"changed declarations ({len(results)})" + (against if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
-    for e in results:
-        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e.get('shown_target') or e['target']}" if e.get('target') else ('   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else '')))
+               else f" — against the graph's commit {C.built_at[:10]}" if C.built_at != 'nogit' else " — against HEAD (the graph was built before this was a git checkout)")
+    named = [e for e in results if e['kind'] == 'named']; shown = [e for e in results if e['kind'] != 'named']
+    print(f"changed declarations ({len(results)})" + (" — the two texts given" if (old_f or new_f) else against if C.built_at and mode == 'worktree' and not named else (f" — {rng}" if rng else '')) + ":")
+    for e in shown:
+        tail = (f"   → impact {e.get('shown_target') or e['target']}" if e.get('target') else
+                ('' if e.get('new_file') else '   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else ''))
+        print(f"  {e['kind']:<10} {e['symbol']}" + ('' if e.get('new_file') else f"   {e['file']}:{e['line']}") + (f"   — {e['detail']}" if e.get('detail') else '') + tail)
+    by_file = {}
+    for e in named: by_file.setdefault(e['file'], []).append(e)
+    for f, es in by_file.items():
+        print(f"  {'named':<10} {f}   — {len(es)} declaration(s) count as changed ({es[0]['detail']}): "
+              + ', '.join(e['symbol'] for e in es[:10]) + (f" … +{len(es) - 10}" if len(es) > 10 else ''))
     # a note with a file is an addition in that file; one without is a caveat about the whole answer, and printing it
     # under `added` made "the graph is built at the newer commit …" read as a new declaration
     for f, n, _ in notes: print(f"  {'added':<10} {n}" if f else f"note: {n}")
     groups = {}
     for e in results:
-        if e.get('target') and e['kind'] != 'added':
+        if e.get('target') and (e['kind'] != 'added' or e.get('referenced')):
             k = 'method' if e.get('target_kind') == 'param' and '(' not in e['target'] else e.get('target_kind', 'method')
             groups.setdefault('' if '(' in e['target'] else k, []).append(e['target'])
     if want_impact and groups:
         for k, ts in groups.items():                                                                    # one impact run per kind (a field named like a method needs to be told apart)
-            print(); sys.stdout.flush()
-            subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-impact'), *dict.fromkeys(ts), C.repo] + (['--kind', k] if k else []))
+            # captured and printed here, so it lands AFTER the list above: written straight to the terminal it came out
+            # before this process's own (paged, buffered) lines, and a range note or the list itself sank to page 2
+            r = subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-impact'), *dict.fromkeys(ts), C.repo, '--page', 'all'] + (['--kind', k] if k else []),
+                               capture_output=True, text=True)
+            print(); print(r.stdout.rstrip('\n')); sys.stderr.write(r.stderr)
     return 0
 
 if __name__ == '__main__':

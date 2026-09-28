@@ -20,7 +20,7 @@ WHAT IT DECLINES. A constructor: impact.dl counts who instantiates the type, whi
 answering from call_edges alone under-reported (4 callers as 2). impact() returns None there and the caller falls
 back, which is right for that kind.
 """
-import os, re, sqlite3, json, collections, sys
+import bisect, os, re, sqlite3, json, collections, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_edges
 import ax_registration
 
@@ -157,10 +157,15 @@ def impact(repo, target, depth=DEPTH):
         # (`callback_registered`) and a capped fan-out (`fan_capped`) as `resolved` — the strongest claim
         # the tool makes — while the rules, which read the same column, now do not (#1131). A caller with
         # several sites is named once, under the best of them.
+        # A call inside a mock's stub or verification is `stubs it`, and is not walked below: the same set the rules
+        # and the path export read (ax_edges.stub_sites).
+        stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, p_).fetchall())
+        con.execute("CREATE TEMP TABLE _stub(id TEXT PRIMARY KEY)")
+        con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in stubs])
         _reads = collections.defaultdict(set)
-        for d, tier in q(f"""SELECT DISTINCT s.display, ce.tier FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
+        for d, tier, sid in q(f"""SELECT DISTINCT s.display, ce.tier, ce.call_site_id FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
                              WHERE ce.callee_method_id IN ({ph})""", ids):
-            _reads[d].add(ax_edges.direct_cert(tier))
+            _reads[d].add(ax_edges.direct_cert(ax_edges.STUB_TIER if sid in stubs else tier))
         # …and the end a FRAMEWORK hands it over from (#1509): a task's .delay() producer, a signal's sender, a route
         # table, a Depends() default. The rules list it as a `framework` dependent, so this does too, or the hook
         # line and `impact` name different dependents for the same declaration. A direct row only, as in the rules:
@@ -176,7 +181,7 @@ def impact(repo, target, depth=DEPTH):
         short = target.rsplit('.', 1)[-1]
         byname = sorted({r[0] for r in q(
             """SELECT DISTINCT s.display FROM call_sites cs JOIN unresolved_sites us ON us.call_site_id=cs.id
-               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=?""", (short,))} - set(reads))
+               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=? AND cs.id NOT IN (SELECT id FROM _stub)""", (short,))} - set(reads))
         # the two counts. Each edge table joins in its OWN recursive branch so SQLite drives them by index; building
         # one combined edge CTE first scans all 608k edges per call (1.89 s against 0.02 s for the same answer).
         # THE DISPATCH HOP IS NARROWED, the same way the RULES narrow it. `edge.facts` is written by
@@ -209,7 +214,8 @@ def impact(repo, target, depth=DEPTH):
                 SELECT DISTINCT base_method_id b, candidate_method_id c FROM dispatch_candidates""")
             con.execute("CREATE INDEX _disp_c ON _disp(c)")
         rec = ("SELECT value, 0 FROM json_each(?)\n"
-               "  UNION SELECT ce.caller_id, r.d+1 FROM call_edges ce JOIN r ON ce.callee_method_id=r.id WHERE r.d<?")
+               "  UNION SELECT ce.caller_id, r.d+1 FROM call_edges ce JOIN r ON ce.callee_method_id=r.id WHERE r.d<?"
+               " AND ce.call_site_id NOT IN (SELECT id FROM _stub)")
         args = [json.dumps(ids), depth]
         if dispatch:
             rec += "\n  UNION SELECT d.b, r.d+1 FROM _disp d JOIN r ON d.c=r.id WHERE r.d<?"
@@ -392,7 +398,7 @@ def solve(rows, targets, depth_cap=MAX_HOP):
     ins('kindt', 2, rows.get('kind', []))
     con.commit()
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
-                           'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
+                           'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
     for q in targets:
         seeds = [m for (qq, m) in rows.get('seed', []) if qq == q]
@@ -457,8 +463,10 @@ def _tests(cur, depth, q):
 # declared inside another, by line span), and `dispatch` (a candidate the engine narrowed a virtual call to).
 
 def _edges(q):
-    e = [(r[0], r[1], r[2]) for r in q("""SELECT caller_id, callee_method_id, tier FROM call_edges
-                                          WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""")]
+    # a call inside a mock's stub or verification is not an edge: the same set the path export drops (ax_edges.stub_sites)
+    stubs = ax_edges.stub_sites(lambda s, p: q(s, *p))
+    e = [(r[1], r[2], r[3]) for r in q("""SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges
+                                          WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""") if r[0] not in stubs]
     e += [(r[0], r[1], 'library') for r in q("""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                                                 WHERE tier='boundary_lib' AND callee_method_id IS NOT NULL""")]
     # defines: the innermost enclosing callable, from the line spans of the callables in each file
@@ -471,11 +479,11 @@ def _edges(q):
     # second keeps it, which is not the same set. The id is a hash of the display, so an anonymous class collides
     # across files (`Database.Vendor.<anon TriFunction>.apply` has rows in six), which is why this matters at all.
     one = {}
-    for i, f, ln, en, mid, kind, disp in q("""SELECT id, file, line, end_line, method_id, kind, display FROM symbols
-                                        WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
-        one[i] = (f, ln, en, mid, kind, disp)
-    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399)
-    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid) for i, (f, ln, en, mid, kind, disp) in one.items()
+    for i, f, ln, en, mid, kind, disp, qn in q("""SELECT id, file, line, end_line, method_id, kind, display, qualified_name
+                                        FROM symbols WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
+        one[i] = (f, ln, en, mid, kind, disp, qn)
+    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399, #1598)
+    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid, qn) for i, (f, ln, en, mid, kind, disp, qn) in one.items()
                                 if mid and kind != 'module'), ax_edges.sites_of(lambda s, p: q(s, *p)))
     have = {(a, b) for a, b, _ in e}
     # the same narrowing the path tool applies: a candidate whose owner type is never instantiated anywhere is not a
@@ -562,7 +570,9 @@ def _test_sets(q, lines=None, rel=None):
     tm, fx = set(), set()
     for sid, name, kind, mid, tid in q("SELECT id, name, kind, method_id, type_id FROM symbols WHERE is_test=1"):
         d = dec.get(sid, ())
-        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))):
+        # a pytest fixture named test_* is built for the tests that request it and never collected (#1531)
+        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))) \
+                and not any((x or '').split('.')[-1] == 'fixture' for x in d):
             tm.add(sid)
         if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):
             fx.add(sid)
@@ -686,11 +696,136 @@ def _has(q, table):
     except Exception: return False
 
 
+def field_decl_type(line, name):
+    """the type written on a field's declaration line, as a simple name: `private final Store store;`, `IStore _store;`,
+    `store: Store`. None where the line does not say. The impact exporter's `field_type` fact reads the same pattern."""
+    m = re.search(rf'([A-Za-z_$][\w$.]*)\s*(?:<[^;=]*>)?\s*(?:\[\s*\])*\s+{re.escape(name)}\s*[;=,)]', line)
+    if m: return m.group(1).split('.')[-1]
+    m = re.search(rf'{re.escape(name)}\s*:\s*([A-Za-z_$][\w$.]*)', line)
+    return m.group(1).split('.')[-1] if m else None
+
+
+def bean_injections(q):
+    """(bean type, receiver) for every injection point the engine wired to ONE bean (`ext_di_edge` known_bean / xml_ref):
+    a field injection's receiver is the type declaring it, a constructor or setter injection's is the method. Keyed on
+    the bean the container hands over, not the declared type of the point: an `@Autowired Store store` wired to
+    `JdbcStore` receives the JdbcStore bean, and read by the declared type alone the proxy rule said its caller
+    "obtained the instance itself" (#1384)."""
+    if not (_has(q, 'ext_di_edge') and _has(q, 'ext_inject_point')): return []
+    return sorted({(bt, tgt) for bt, tgt in q("""SELECT d.c4, COALESCE(s.id, o.id) FROM ext_di_edge d
+                                                  JOIN ext_inject_point i ON i.c1 = d.c0
+                                                  LEFT JOIN symbols s ON s.method_id = i.c4
+                                                  LEFT JOIN symbols o ON o.type_id = i.c3 AND o.method_id IS NULL
+                                             WHERE d.c5 IN ('known_bean', 'xml_ref') AND d.c4 NOT IN ('', '-')
+                                               AND COALESCE(s.id, o.id) IS NOT NULL""") if bt and tgt})
+
+
+def via_base_rows(q, lines=None, stubs=frozenset(), only=None):
+    """The callers that reach a declaration through a base declaration it is override-equivalent to (#1542).
+
+    Returns (rows, sites): rows are (caller, declaration, why, cert, raw file, line, the callee of the engine's edge at
+    that site, which is what `verified:` looks up), and `sites` the (caller, declaration, raw file, line) whose plain
+    `calls it` row a row here replaces. `only`: the declarations asked about.
+
+    A call site is TYPED ON A BASE b when the engine's targets there are b and overrides of b only, or b alone:
+      · for b itself, a multi_inferred edge is the call the code names, so it is `calls it`, resolved;
+      · for each override m the engine kept at that site (every override of b when b is the only target), it is
+        "calls it (via the interface)": resolved when m is the only thing that can run there (b has no body and one
+        override), one of a set otherwise. An override the engine left OUT of the site's set gets nothing, so a caller
+        whose receiver resolves to a sibling implementation never becomes a caller of this one.
+    A call the engine NARROWED to one override o (an injected field whose bean it resolved) names b in the source but
+    carries no edge to b: that caller is a caller of b when the receiver it reads there is a field declared with b's
+    type. Without it, `impact` on the interface method said nothing depended on it (#1542)."""
+    if not (_has(q, 'call_edges') and _has(q, 'call_sites')): return [], set()
+    pairs = set()
+    if _has(q, 'overrides'):
+        pairs |= {(b, o) for b, o in q("SELECT method_id, overriding_method_id FROM overrides")}
+    if _has(q, 'dispatch_candidates'):
+        pairs |= {(b, o) for b, o in q("SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE basis <> 'value'")}
+    down = collections.defaultdict(set)
+    for b, o in pairs:
+        if b and o and b != o: down[b].add(o)
+    if not down: return [], set()
+    subs = {}
+    for b in down:                                            # every override of b, through intermediate bases too
+        seen, stack = set(), list(down[b])
+        while stack:
+            x = stack.pop()
+            if x in seen or x == b: continue
+            seen.add(x); stack += down.get(x, ())
+        subs[b] = seen
+    up = collections.defaultdict(set)
+    for b, os_ in subs.items():
+        for o in os_: up[o].add(b)
+    want = set(subs) | set(up) if only is None else set(only) | {b for m in only for b in up.get(m, ())} | \
+        {o for m in only for o in subs.get(m, ())}
+    if not want: return [], set()
+    kind_of = {}
+    def base_kind(b):
+        if b not in kind_of:
+            r = q("SELECT owner FROM symbols WHERE id=?", b); o = r[0][0] if r and r[0][0] else None
+            k = q("SELECT kind FROM symbols WHERE display=? AND type_id IS NOT NULL AND method_id IS NULL", o) if o else []
+            kind_of[b] = (k[0][0] if k else '', (o or '').split('.')[-1])
+        return kind_of[b]
+    by_site = collections.defaultdict(dict); where = {}
+    wl = sorted(want)
+    for i in range(0, len(wl), 500):
+        chunk = wl[i:i + 500]; ph = ','.join('?' * len(chunk))
+        for sid, c, m, t, f, l, sc, el, ec in q(f"""SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path,
+                                                s.start_line, s.start_column, s.end_line, s.end_column
+                                         FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
+                                         WHERE e.call_site_id IN (SELECT call_site_id FROM call_edges WHERE callee_method_id IN ({ph}))
+                                           AND e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL""", *chunk):
+            if sid in stubs: continue
+            by_site[sid][m] = t; where[sid] = (c, f or '', l or 0, sc or 0, el or l or 0, ec or 0)
+    ftype = {}
+    def recv_types(c, sp):
+        """the declared types of the fields caller c reads inside the call's span"""
+        if not (lines and _has(q, 'field_access')): return set()
+        out = set()
+        for fid, fl, fc in q("SELECT field_id, start_line, start_column FROM field_access WHERE caller_id=? AND access='read'", c):
+            if not (fid and fl) or not ((sp[0], sp[1]) <= (fl, fc or 0) <= (sp[2], sp[3] or 10 ** 6)): continue
+            if fid not in ftype:
+                r = q("SELECT name, file, line FROM symbols WHERE id=?", fid)
+                ln = ''
+                if r and r[0][1] and r[0][2]:
+                    L = lines(r[0][1]) or []; ln = L[r[0][2] - 1] if r[0][2] <= len(L) else ''
+                ftype[fid] = field_decl_type(ln, r[0][0]) if r and r[0][0] else None
+            if ftype[fid]: out.add(ftype[fid])
+        return out
+    sure = ('resolved', 'one of a set')
+    rows, sites = [], set()
+    for sid, T in by_site.items():
+        c, f, l, sc, el, ec = where[sid]
+        if any(ax_edges.direct_cert(t) not in sure for t in T.values()): continue
+        typed_on = [b for b in T if b in subs and set(T) - {b} <= subs[b]]
+        for b in typed_on:
+            if T[b] == 'multi_inferred':
+                rows.append((c, b, 'calls it', 'resolved', f, l, b)); sites.add((c, b, f, l))
+            bk, _bn = base_kind(b)
+            n = len(subs[b]) + (0 if bk.lower() in ax_edges.BODILESS_BASE else 1)
+            others = set(T) - {b}
+            for m in subs[b]:
+                if others and m not in others: continue
+                rows.append((c, m, ax_edges.via_base_why(bk), 'resolved' if n == 1 else 'one of a set', f, l, m if m in T else b))
+                sites.add((c, m, f, l))
+        if typed_on or len(T) != 1: continue
+        (o, t), = T.items()
+        if t == 'multi_inferred' or not up.get(o): continue
+        rt = None
+        for b in sorted(up[o]):
+            bk, bn = base_kind(b)
+            if not bn: continue
+            if rt is None: rt = recv_types(c, (l, sc, el, ec))
+            if bn in rt: rows.append((c, b, ax_edges.via_base_why(bk), ax_edges.direct_cert(t), f, l, o))
+    return rows, sites
+
+
 def _bean_call(q, ids, sites):
     """The container-bean layer on `calls it`, and the only rules in `direct` that a bundle without a container
     never exercises — which is why jackson (0 rows in ext_bean_def) was clean on it and keycloak (213) was not.
 
-        bean_call(q,c,m) :- target(q,"method",m,_), owner(m,ot), bean(_,ot,_), calls(c,m,t,_,_), t != "multi_inferred"
+        bean_call(q,c,m) :- target(q,"method",m,_), owner(m,ot), bean(_,ot,_), calls(c,m,t,_,_), t != "multi_inferred", t != "stub"
 
     Whether the container's proxy is on the path decides whether a behavioural annotation added to the method — a
     transaction, a cache, a retry, an authorization check — reaches this caller at all. A call from inside the bean
@@ -722,7 +857,14 @@ def _bean_call(q, ids, sites):
                        WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL"""):
         if t != ot: continue
         recv.add(tgt if tgt in istype else type_of(tgt))
-    callers = {c for c, tier, _f, _l in sites if tier != 'multi_inferred'}   # a bean call site, any tier but the set
+    # …and a point the engine wired to this bean whatever type it declares: an interface-typed @Autowired field or
+    # constructor parameter receives the bean too (#1384)
+    #   receives_bean(t,into) :- injected_bean(t,into), typ(into,_,_)   ;   injected_bean(t,x), owner(x,into)
+    for t, tgt in bean_injections(q):
+        if t == ot: recv.add(tgt if tgt in istype else type_of(tgt))
+    # a bean call site, any tier but the set, a stub and an event: the event system invokes a listener on the container's
+    # bean, so the proxy IS on that path and "an instance it obtained itself" would be false (#1391)
+    callers = {c for c, tier, _f, _l in sites if tier not in ('multi_inferred', 'event_dispatch', ax_edges.STUB_TIER)}
     why = {}
     for c in callers:
         cot = type_of(c)
@@ -738,7 +880,10 @@ def _bean_call(q, ids, sites):
     return callers, why
 
 
-def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
+STUB_BYNAME_WHY = 'stubs a method of this name on a mock (receiver not typed): the real method does not run there'
+
+
+def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None):
     """direct(q,c,role,why,cert,f,l) for a method target — the rows the answer groups by *why* and *how sure*.
 
       calls it                                         resolved      a resolved edge
@@ -753,15 +898,26 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
     rows = []
     # ordered by site line: when a caller has several call sites the answer names one of them, and the rules name
     # the lowest. Leaving the order to the table printed a different site (254 against 257) for the same caller.
-    sites = q(f"""SELECT e.caller_id, e.tier, s.file_path, s.start_line
+    # a site inside a mock's stub or verification carries the tier "stub", exactly as the rules' `calls` fact does
+    stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
+    raw = [(c, m, ax_edges.STUB_TIER if sid in stubs else t, f, l) for sid, c, m, t, f, l in q(
+                  f"""SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line
                   FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
                   WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
-                  ORDER BY s.start_line""", *ids)
+                  ORDER BY s.start_line""", *ids)]
+    sites = [(c, t, f, l) for c, _m, t, f, l in raw]
     bean_callers, why_of = _bean_call(q, ids, sites)
+    # a call written against a base this declaration is override-equivalent to (#1542): its row replaces the plain one
+    #   direct(q,c,"uses",why,cert,f,l) :- target(q,"method",m,_), via_base(c,m,why,cert,f,l), c != m
+    via, via_sites = via if via is not None else via_base_rows(q, lines, stubs, set(ids))
     routes = {(f, l): w for _d, f, l, k, _key, w in ax_registration.registrations(q, rel) if k == 'route'}
-    for c, tier, f, l in sites:
+    for c, m, tier, f, l in raw:
+        # `!via_site(c, m, f, l)` on the plain call rules: the via_base row below says it instead
+        if tier != ax_edges.STUB_TIER and (c, m, f or '', l or 0) in via_sites: continue
         cert = ax_edges.direct_cert(tier)
-        if tier == 'multi_inferred':
+        if tier == ax_edges.STUB_TIER:
+            rows.append((c, 'uses', ax_edges.DIRECT_WHY[cert], cert, f or '', l or 0))
+        elif tier == 'multi_inferred':
             # rule 208 carries no `!bean_call` guard, so a multi_inferred site stays `one of a set` even into a bean
             rows.append((c, 'uses', 'calls it', 'one of a set', f or '', l or 0))
         elif c not in bean_callers:                                          # `… , !bean_call(q, c, m)`
@@ -769,20 +925,22 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
             # edge is the engine's, the sentence is the registration's. A registration the ROUTE rules named keeps
             # their sentence whatever the tier — it is a more specific true thing than either default.
             why = routes.get((rel(f) if rel and f else f, l))
-            if why is None: why = ax_edges.DIRECT_WHY.get(cert, 'calls it')
+            if why is None: why = ax_edges.direct_why(tier)
             rows.append((c, 'uses', why, cert, f or '', l or 0))
     # …and for a caller into a container-managed bean, EVERY site of it — the three bean rules end in a bare
     # `calls(c, m, _, f, l)` with no tier test, so a multi_inferred site of a bean caller is a row here too.
     for c, tier, f, l in sites:
-        if c in bean_callers: rows.append((c, 'uses', why_of[c], 'resolved', f or '', l or 0))
+        if c in bean_callers and tier != ax_edges.STUB_TIER: rows.append((c, 'uses', why_of[c], 'resolved', f or '', l or 0))
+    idset = set(ids)
+    rows += [(c, 'uses', why, cert, f, l) for c, m, why, cert, f, l, _e in via if m in idset and c not in idset]
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     seen = {r[0] for r in rows}
     for n in names:
-        for c, f, l, kind in q("""SELECT s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
+        for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
             if c in ids: continue                                            # !is_target_decl(q, c)
-            rows.append((c, 'uses', 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # the declaration handed over as a VALUE — a route registration, a callback — which has no call site at all
     # (the valueref / registered rules). The convention table is shared with the rules, in ax_registration.py, so
     # the two backends cannot disagree about what a registration is.
@@ -977,6 +1135,43 @@ def _injected(q):
                 idx.setdefault(t, set()).add((into, kind or 'injected'))
         _INJECTED[key] = idx
     return _INJECTED[key]
+
+
+
+_REGISTERS = {}
+def _registers(q):
+    """`registers(t,by,kind)`: a bean of type t whose definition site is an annotation declared on ANOTHER type `by`.
+
+    The engine records where each bean comes from (`ext_bean_def.c3`): for @EnableConfigurationProperties({T.class})
+    and for a package scan (@MapperScan, @ConfigurationPropertiesScan) that is the annotation on the configuration class,
+    and `type_use` names the type that annotation sits on. A stereotype's site is on the bean's own type, so it is not a
+    registration by someone else and is left out. One query, read by the exporter (the rules) and by the fast path.
+    """
+    key = id(q)
+    if key not in _REGISTERS:
+        idx = {}
+        if _has(q, 'ext_bean_def') and _has(q, 'type_use'):
+            for t, by, kind in q("""SELECT DISTINCT b.c1, s.id, b.c2 FROM ext_bean_def b
+                                         JOIN type_use u ON u.owner_id = b.c3 AND u.owner_kind = 'ANNOTATION'
+                                                        AND u.context = 'ANNOTATION_TYPE'
+                                         JOIN symbols s ON s.id = u.owner_type_id AND s.method_id IS NULL
+                                    WHERE b.c1 IS NOT NULL AND u.owner_type_id <> b.c1"""):
+                idx.setdefault(t, set()).add((by, kind or 'bean'))
+        _REGISTERS[key] = idx
+    return _REGISTERS[key]
+
+
+_FACTORIES = {}
+def _factories(q):
+    """`bean_factory(m,t)`: the method an @Bean factory is declared on, and the type it produces."""
+    key = id(q)
+    if key not in _FACTORIES:
+        idx = {}
+        if _has(q, 'ext_bean_def'):
+            for mid, t in q("SELECT c3, c1 FROM ext_bean_def WHERE c2 = 'factory_method' AND c3 IS NOT NULL AND c3 <> ''"):
+                idx.setdefault(mid, set()).add(t)
+        _FACTORIES[key] = idx
+    return _FACTORIES[key]
 
 
 def _bean_definition_consumers(q, ids):
@@ -1457,6 +1652,49 @@ def named_sites(q):
 
 GEN_DECOR = set(GENERATED)      # the names alone, where only membership matters
 
+def stub_tests(q, depth, sets, stubs, rev=None):
+    """test_stub(q,m) (impact.dl): a test that stubs a reached callable on a mock, and so names it without running it.
+    The callable that writes the stub, and every callable lexically around it (a lambda's writer), is walked up the
+    same edges as the closure; a test is found from what that reaches as a route ends: the test itself, a fixture of
+    its type or a base type, or a helper of that type declared in a test file."""
+    if not depth: return []
+    tm, fx = sets
+    ids = list(depth); xs = set()
+    if stubs:
+        for k in range(0, len(ids), 400):
+            part = ids[k:k + 400]
+            for sid, c in q(f"SELECT call_site_id, caller_id FROM call_edges WHERE callee_method_id IN ({','.join('?' * len(part))})", *part):
+                if sid in stubs: xs.add(c)
+    if not xs: return []
+    near = set(xs)
+    for x, f, a, b in q(f"SELECT id, file, line, end_line FROM symbols WHERE id IN ({','.join('?' * len(xs))})", *xs):
+        if not f: continue
+        near |= {r[0] for r in q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND id <> ?", f, a, b or a, x)}
+    frontier = list(near)
+    while frontier and rev is not None:
+        nxt = []
+        for b in frontier:
+            for a, _t in rev.get(b, ()):
+                if a not in near: near.add(a); nxt.append(a)
+        frontier = nxt
+    info = {}
+    ph = ','.join('?' * len(near))
+    for i, o, f in q(f"SELECT id, owner, file FROM symbols WHERE id IN ({ph})", *near): info[i] = (o, f)
+    tfiles = {r[0] for r in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
+    out = {m for m in near if m in tm}
+    owners = {info[x][0] for x in near if x in info and info[x][0] and x not in tm and (x in fx or info[x][1] in tfiles)}
+    if owners:
+        sub = set(owners)
+        if _has(q, 'type_ancestors'):
+            tid = {r[0]: r[1] for r in q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
+            disp = {v: k for k, v in tid.items()}
+            want = {tid[o] for o in owners if o in tid}
+            sub |= {disp[r[0]] for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors") if r[1] in want and r[0] in disp}
+        for m, o in q("SELECT id, owner FROM symbols WHERE method_id IS NOT NULL AND owner IS NOT NULL"):
+            if m in tm and o in sub: out.add(m)
+    return sorted(out)
+
+
 def inherited_tests(q, hits):
     """`inherited_test(q,s,m,d) :- test_hit(q,m,d,_), owner(m,t), extends(s,t), typ(s,_,_), s != t` — the test
     classes that extend a class whose test was reached run that test too, in their own file."""
@@ -1563,6 +1801,105 @@ def direct_for_newconst(q, tids, code, inside):
     return sorted(set(rows)), switchers
 
 
+def type_aliases(q):
+    """`type_alias(a)` with each alias's span and name: file -> [(line, end, id)], and id -> name (#784).
+
+    A TypeScript `type DraftState = ObjectState | MapState` is a declaration of its own, but no callable spans it, so
+    the innermost-callable walk charged every name on its right-hand side to the module initializer. That lost the
+    one hop that matters: the code that breaks when a union member changes names only the alias."""
+    if not (_has(q, 'types') and _has(q, 'symbols')): return {}, {}
+    spans, names = {}, {}
+    for i, n, f, a, b in q("""SELECT s.id, s.name, s.file, s.line, s.end_line FROM symbols s JOIN types t ON t.id = s.id
+                              WHERE t.category = 'TYPE_ALIAS_TYPE' AND s.file IS NOT NULL AND s.line > 0"""):
+        spans.setdefault(f, []).append((a, b or a, i)); names[i] = n
+    return spans, names
+
+
+def typeref_holder(at, spans, modules):
+    """`typeref(c, …)`'s c for a type reference at (f, l): the innermost callable, except that a reference on a type
+    alias's own lines, where the only callable spanning it is the module, belongs to the alias. An alias declared
+    inside a function body keeps the function: that is where its users are."""
+    def holder(f, l):
+        c = at(f, l)
+        if c is None or c in modules:
+            best = None
+            for a, b, i in spans.get(f, ()):
+                if a <= l <= b and (best is None or b - a < best[0]): best = (b - a, i)
+            if best: return best[1]
+        return c
+    return holder
+
+
+def jsx_props(q):
+    """`jsx_props(tag, n)`: the types an intrinsic element's attributes are checked against, read off the members of every
+    `IntrinsicElements` interface the project declares — `h1: FormElementProps` — each name in the member's type, so
+    `React.DetailedHTMLProps<React.FormHTMLAttributes<HTMLFormElement>, …>` gives FormHTMLAttributes too (#784)."""
+    if not (_has(q, 'fields') and _has(q, 'types')): return set()
+    out = set()
+    for tag, tn in q("""SELECT f.name, f.type_name FROM fields f JOIN types t ON t.id = f.owner_type_id
+                        WHERE t.name = 'IntrinsicElements' AND f.type_name IS NOT NULL AND f.type_name <> ''"""):
+        out |= {(tag, n) for n in re.findall(r'(?:[\w$]+\.)*([A-Za-z_$][\w$]*)', tn)}
+    return out
+
+
+_JSX_OPEN = re.compile(r'<([a-z][\w-]*)(?=[\s/>])')
+_JSX_AFTER_WORD = {'return', 'yield', 'await', 'throw', 'case', 'default', 'else'}   # `return <img/>` is an element
+
+
+def jsx_tags(files, code, at, tags):
+    """`jsx_tag(c, tag, f, l)`: an intrinsic element `<h1 …>` opened in a .tsx / .jsx file, charged to the callable it is
+    rendered in. Only the tags an IntrinsicElements table names, and only where `<` cannot close a type argument or a
+    comparison: the character before it is not an identifier, a `)`, a `]` or a `.` (`useState<boolean>`, `a<b`)."""
+    rows = []
+    if not tags: return rows
+    for f in sorted(files):
+        if not f.endswith(('.tsx', '.jsx')): continue
+        text = '\n'.join(code(f)); nl = [i for i, ch in enumerate(text) if ch == '\n']
+        for m in _JSX_OPEN.finditer(text):
+            if m.group(1) not in tags: continue
+            j = m.start() - 1
+            while j >= 0 and text[j] in ' \t\r\n': j -= 1
+            if j >= 0 and (text[j].isalnum() or text[j] in '_$)].'):
+                w = re.search(r'[\w$]+$', text[max(0, j - 15):j + 1])
+                if not (w and w.group(0) in _JSX_AFTER_WORD): continue
+            l = bisect.bisect_left(nl, m.start()) + 1
+            c = at(f, l)
+            if c: rows.append((c, m.group(1), f, l))
+    return rows
+
+
+def discriminants(q):
+    """`discriminant(t, k, v)`: t declares a property k whose type is the one string literal v — the tag of a
+    discriminated union, `readonly kind: 'LiteralNode'` (#784)."""
+    if not (_has(q, 'fields') and _has(q, 'types')): return set()
+    out = set()
+    for t, k, tn in q("""SELECT owner_type_id, name, type_name FROM fields
+                         WHERE owner_type_id IS NOT NULL AND (type_name LIKE '''%''' OR type_name LIKE '"%"')"""):
+        m = re.fullmatch(r"""\s*(['"])([^'"\\]+)\1\s*""", tn or '')
+        if m: out.add((t, k, m.group(2)))
+    return out
+
+
+def keyed_literals(q, code, at, values):
+    """`keyed_literal(c, k, v, f, l)`: an object literal inside c writes the property `k: 'v'` — the discriminant of a
+    type it builds without naming it. Read from the literals table, which holds string EXPRESSIONS only (a literal
+    type `kind: 'X'` in an interface is not there), then confirmed on the line: `node.kind === 'X'` compares and
+    builds nothing, so it is not a row."""
+    rows = []
+    if not values or not _has(q, 'literals'): return rows
+    for v, f, l in q(f"SELECT DISTINCT value, file, line FROM literals WHERE value IN ({','.join('?' * len(values))})",
+                     *sorted(values)):
+        L = code(f); text = L[l - 1] if 0 < l <= len(L) else ''
+        c = at(f, l)
+        if not c: continue
+        # the reader blanks a string's body, quotes included, so `kind: 'X'` reads as `kind:` and a run of blanks as
+        # wide as the string; a reader that does not blank it leaves the quoted form
+        w = len(v) + 2
+        keys = re.findall(rf"""([A-Za-z_$][\w$]*)\s*:\s*(?:(['"]){re.escape(v)}\2|\s{{{w}}}(?=\s|[,}}]|$))""", text)
+        rows.extend((c, k, v, f, l) for k, _q in keys)
+    return sorted(set(rows))
+
+
 def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     """`direct(q,c,role,why,cert,f,l)` for a TYPE target — who instantiates it, calls into it, names it.
 
@@ -1579,6 +1916,11 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     for t in tids:
         r = q("SELECT name, kind FROM symbols WHERE id=?", t)
         if r: names[t] = (r[0][0], r[0][1])
+    aspans, anames = type_aliases(q)
+    holder = typeref_holder(at, aspans, {i for (i,) in q("SELECT id FROM symbols WHERE kind = 'module'")}
+                            if aspans else set())
+    def trefs(n): return q("SELECT name, file, line, context FROM type_refs WHERE line > 0 AND name = ?", n)
+    over, todo = set(), []                                  # alias_over(q, a), and the aliases still to expand
 
     # ── a type the container INJECTS (rule 186) ────────────────────────────────────────────────────────────
     #   direct(q,c,"uses",cat("receives it by dependency injection (",kind,") — …"),"resolved","",0)
@@ -1590,6 +1932,27 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
             if c in inside: continue
             rows.append((c, 'uses', f'receives it by dependency injection ({kind}) — the container hands it '
                                     f'over, no call site', 'resolved', '', 0))
+
+    # ── a type another class REGISTERS as a bean ───────────────────────────────────────────────────────────
+    #   direct(q,c,"uses",cat("registers it as a bean (",kind,"): …"),"resolved","",0)
+    #     :- target(q,"type",t,_), registers(t,c,kind), !inside_target(q,c)
+    # ── a type that DEFINES beans: who is injected with one of them ────────────────────────────────────────
+    #   direct(q,c,"uses",cat("is injected with a bean this class defines (",kind,")"),"resolved","",0)
+    #     :- target(q,"type",_,_), inside_target(q,m), bean_factory(m,bt), injected(bt,c,kind), !inside_target(q,c)
+    bean_rows = set()
+    regs = _registers(q)
+    for t in tids:
+        for c, kind in regs.get(t, ()):
+            if c not in inside:
+                bean_rows.add((c, 'uses', f'registers it as a bean ({kind}): the container creates it, no call site',
+                               'resolved', '', 0))
+    fac = _factories(q)
+    for m in inside:
+        for bt in fac.get(m, ()):
+            for c, kind in inj.get(bt, ()):
+                if c not in inside:
+                    bean_rows.add((c, 'uses', f'is injected with a bean this class defines ({kind})', 'resolved', '', 0))
+    rows += sorted(bean_rows)
 
     # ── the GENERATED accessors of the type's own fields: 276-277 ─────────────────────────────────────────
     #   gen(t,"get"|"set"), field(fl,t,…), accessor(fl,an,…), unresolved(c,an,k,f,l), !ctor_kind(k),
@@ -1680,14 +2043,73 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
                     rows.append((c, 'uses', 'references it', 'by name', f, l))
         # 273 — the name written in a type position: the context says which (a field type, a parameter, a cast)
         if _has(q, 'type_refs'):
-            for nm, f, l, ctx in q("""SELECT name, file, line, context FROM type_refs
-                                      WHERE line > 0 AND name = ?""", n):
-                c = at(f, l)
+            for nm, f, l, ctx in trefs(n):
+                c = holder(f, l)
                 if c and c not in inside: rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l))
+                if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
         # 274 — the name in the text of a file the parser gave no line for
         for c, nm, f, l in textuse:
             if nm == n and c not in inside:
                 rows.append((c, 'uses', 'names it (a signature or a declaration)', 'text', f, l))
+    # the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such
+    # alias, and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes
+    # and never writes MapState.
+    #   alias_over(q,a) :- target(q,"type",t,_), typ(t,n,_), typeref(a,n,_,_,_), type_alias(a), !inside_target(q,a)
+    #   alias_over(q,a) :- alias_over(q,b), typ(b,n,_), typeref(a,n,_,_,_), type_alias(a), !inside_target(q,a)
+    #   direct(q,c,"uses",cat("names ",an,", a type alias over it (",ctx,")"),"by name",f,l)
+    #     :- alias_over(q,a), typ(a,an,_), typeref(c,an,ctx,f,l), c != a, !inside_target(q,c)
+    while todo:
+        b = todo.pop()
+        for _nm, f, l, _ctx in trefs(anames[b]):
+            c = holder(f, l)
+            if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
+    for a in sorted(over):
+        an = anames[a]
+        for _nm, f, l, ctx in trefs(an):
+            c = holder(f, l)
+            if c and c != a and c not in inside:
+                rows.append((c, 'uses', f'names {an}, a type alias over it ({ctx})', 'by name', f, l))
+    # an INTRINSIC ELEMENT whose attributes are checked against it (#784): `<h1 class="x">` never writes FormElementProps
+    #   direct(q,c,"uses",cat("renders <",tag,">, whose attributes are checked against it"),"by name",f,l)
+    #     :- target(q,"type",t,_), typ(t,n,_), jsx_props(tag,n), jsx_tag(c,tag,f,l), !inside_target(q,c)
+    #   … and the same through a props type that extends it: cat("…checked against ",sn,", which extends it")
+    #     :- target(q,"type",t,_), extends(s,t), typ(s,sn,_), jsx_props(tag,sn), jsx_tag(c,tag,f,l), !inside_target(q,c)
+    props = jsx_props(q) if code is not None else set()
+    if props:
+        own = {names[t][0] for t in tids if t in names}
+        subs = {} if not _has(q, 'type_ancestors') else {
+            n: s for s, n in q(f"""SELECT a.type_id, s.name FROM type_ancestors a JOIN symbols s ON s.id = a.type_id
+                                  WHERE a.ancestor_type_id IN ({','.join('?' * len(tids))})""", *tids)}
+        why = {}
+        for tag, n in props:
+            if n in own: why.setdefault(tag, set()).add('it')
+            if n in subs: why.setdefault(tag, set()).add(f'{n}, which extends it')
+        files = {f for (f,) in q("SELECT DISTINCT file FROM symbols WHERE file LIKE '%.tsx' OR file LIKE '%.jsx'")}
+        for c, tag, f, l in jsx_tags(files, code, at, set(why)):
+            if c in inside: continue
+            for w in sorted(why[tag]):
+                rows.append((c, 'uses', f'renders <{tag}>, whose attributes are checked against {w}', 'by name', f, l))
+    # an OBJECT LITERAL that carries its discriminant (#784): `freeze({ kind: 'LiteralNode', fragments })` builds a
+    # LiteralNode and is checked against it, so an added required property breaks it; it never writes the name.
+    #   direct(q,c,"produces",cat("builds an object literal with its tag ",k,": '",v,"'"),"by name",f,l)
+    #     :- target(q,"type",t,_), discriminant(t,k,v), keyed_literal(c,k,v,f,l), !inside_target(q,c)
+    #   … and through a subtype: cat("… with the tag ",k,": '",v,"' of ",sn,", which extends it")
+    #     :- target(q,"type",t,_), extends(s,t), typ(s,sn,_), discriminant(s,k,v), keyed_literal(c,k,v,f,l), !inside_target(q,c)
+    if code is not None and tids:
+        disc = discriminants(q)
+        tset = set(tids)
+        sub = {} if not _has(q, 'type_ancestors') else {
+            s: n for s, n in q(f"""SELECT a.type_id, s.name FROM type_ancestors a JOIN symbols s ON s.id = a.type_id
+                                  WHERE a.ancestor_type_id IN ({','.join('?' * len(tids))})""", *tids)}
+        want = {}
+        for t, k, v in disc:
+            if t in tset: want.setdefault((k, v), set()).add('')
+            elif t in sub: want.setdefault((k, v), set()).add(f' of {sub[t]}, which extends it')
+        if want:
+            for c, k, v, f, l in keyed_literals(q, code, at, {v for _k, v in want}):
+                if c in inside or (k, v) not in want: continue
+                for w in sorted(want[(k, v)]):
+                    rows.append((c, 'produces', f"builds an object literal with the tag {k}: '{v}'{w}", 'by name', f, l))
     # 275 — a name imported FROM the type (a static import), used here. Keyed on the imported member, not on the
     # type's own name, so it is not inside the per-type loop.
     for c, nm, f, l in importuse:
@@ -1818,6 +2240,30 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
     for f_ in fids:
         r_ = field_rec(q, f_)
         if r_ and r_[1]: decl_sites.setdefault(r_[1], set()).add((r_[2], r_[3]))
+    # const_handed / const_route / const_route_byname in dl/impact.dl: a const written in a HANDLER POSITION of a route
+    # call (`route_arg`) whose declaration holds a function (`callable_const`). Registered when the function it holds
+    # (`init_wrapper` + `returns_fn`, or `init_alias`) is what that line hands over; by name otherwise. Like the rules,
+    # keyed on the QUERY: any target declaration qualifies the site.
+    route_why, rargs, handed_to, holds, callable_names = {}, set(), collections.defaultdict(set), set(), set()
+    if decl_sites:
+        rargs = ax_registration.route_args(q, code, rel)
+        decls = sorted({(f_, l_, n_) for n_, ss in decl_sites.items() if n_ in {x[3] for x in rargs} for f_, l_ in ss})
+        fcall, fwrap, falias = ax_registration.const_values(q, code, decls, rel)
+        callable_names = {n_ for f_, l_, n_ in decls if (f_, l_) in fcall}
+        if callable_names:
+            for _d, rf_, rl_, k_, _key, w_ in ax_registration.registrations(q, rel):
+                if k_ == 'route': route_why[(rf_, rl_)] = w_
+            ret_of = collections.defaultdict(set)
+            for w_, m_ in ax_registration.returned_functions(q): ret_of[w_].add(m_)
+            for f_, l_, w_ in fwrap:
+                if (f_, l_) in fcall: holds.update(ret_of.get(w_, ()))                      # const_holds :- init_wrapper, returns_fn
+            for f_, l_, an_ in falias:                                                      # const_holds :- init_alias, named
+                if (f_, l_) in fcall: holds.update(m_ for (m_,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL", an_))
+            for c_, m_, fp_, l_, e_ in q("""SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line, s.end_line FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
+                                        WHERE e.tier = 'callback_registered' AND e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL"""):
+                if m_ in holds:
+                    for ln_ in ax_edges.site_lines(l_, e_): handed_to[(c_, rel(fp_) if fp_ else '', ln_)].add(m_)    # handoff_at
+    reg_cert = ax_edges.direct_cert('callback_registered')
     for fid in fids:
         rec = field_rec(q, fid)
         if not rec: continue
@@ -1865,8 +2311,20 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
         # scope can be both `in scope` (231, the qualifier is the owner's own type name) and `by name` (233, some
         # other qualifier). Written as an if/elif chain this picked one and lost 19 rows on one field alone.
         typenames = {r[0] for r in q("SELECT name FROM symbols WHERE type_id IS NOT NULL AND name IS NOT NULL")}
+        # shadowed_in(fl,n,f): the files declaring ANOTHER field of this name, or a function of this name other than
+        # in the field's own file, whose bare reads are their own
+        own_decl = {r[0] for r in q("""SELECT file FROM symbols WHERE name = ? AND rowid <> ? AND method_id IS NULL AND type_id IS NULL
+                                       AND kind IN ('field','const','enum_member','variable')""", n, rid)}
+        own_decl |= {r[0] for r in q("SELECT file FROM symbols WHERE name = ? AND method_id IS NOT NULL AND file IS NOT NULL", n) if r[0] != ff}
         for c, rk, rf, rl, _e in fref:
             s_ = owner_of.get(c)
+            if (rf, rl) in route_why and n in callable_names and (c, rf, rl, n) in rargs:   # const_handed: bare or qualified
+                if handed_to.get((c, rf, rl)):
+                    rows.append((c, 'uses', route_why[(rf, rl)], reg_cert, rf, rl))
+                    de += [(c, m_) for m_ in handed_to[(c, rf, rl)]]          # direct_edge(q,c,m) :- const_route_edge
+                    continue
+                rows.append((c, 'uses', route_why[(rf, rl)], 'by name', rf, rl))   # const_route_byname
+                continue
             role, why = ('uses', 'writes/reads it') if rk == 'qualified' else ('reads', 'reads it')
             in_scope = (s_ is not None and s_ in scope) or (c in scope)
             if in_scope:                                                      # 228 / 229
@@ -1881,10 +2339,19 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                         rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
                     if not quals:                                             # 235 — no qualifier on the line
                         rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
+            # the same in a callable with no owner type (a module, a module-level function): `!owner(c, _)` rules
+            if rk == 'qualified' and s_ is None and c not in scope:
+                quals = _qualifiers(code, rf, rl, n)
+                if tname and tname in quals:
+                    rows.append((c, 'uses', 'writes/reads it', 'in scope', rf, rl))
+                if tname and any(qn != tname and qn not in typenames and qn not in SELF_QUALIFIERS for qn in quals):
+                    rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
+                if not quals:
+                    rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
             if rk == 'bare':
                 if s_ is not None and s_ not in scope and n not in declares_of(s_):   # 238
                     rows.append((c, 'reads', 'reads it', 'by name', rf, rl))
-                if s_ is None and c not in scope:                              # 240
+                if s_ is None and c not in scope and rf not in own_decl:       # 240
                     rows.append((c, 'reads', 'reads it', 'by name', rf, rl))
         # ── the accessors the convention gives the field, and their callers (242 / 243) ────────────────────
         for an, role_ in _accessors(n):
@@ -2431,6 +2898,10 @@ def _has_framework_hops(q, at=None, site_file=None):
             return True
         if _has(q, 'symbols') and q("SELECT 1 FROM symbols WHERE file LIKE '%conftest.py' AND method_id IS NOT NULL LIMIT 1"):
             return True
+        # a fixture injected by name anywhere, conftest or not: the rules credit it only to the tests that request
+        # it (`injects` / `injected_fixture`), where this port's file-wide rule credits every test in its file (#1527)
+        if _has(q, 'decorations') and q("SELECT 1 FROM decorations WHERE name = 'fixture' AND (file LIKE '%.py' OR file LIKE '%.pyi') LIMIT 1"):
+            return True
     except Exception:
         return True
     return False
@@ -2478,9 +2949,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     # them. Without this the answer prints the machine's absolute path where the rules print src/main/java/…
     rel = site_file or (lambda x: x)
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
-                           'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
+                           'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines, rel)
+    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
@@ -2504,7 +2975,8 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             mids = sorted(by_kind['method'])
             mph = ','.join('?' * len(mids))
             con += contract_for_method(q, mids)
-            d = direct_for_method(q, mids, code, rel, at, lines)
+            via = via_base_rows(q, lines, stubs, set(mids))
+            d = direct_for_method(q, mids, code, rel, at, lines, via)
             # direct(q,c,"uses",…,"framework","",0) :- target(q,"method",m,_), framework(c,m,…) (#1509)
             if _has(q, 'ext_framework_edge'):
                 d += [(c, 'uses', framework_why(mech, det, conf), 'framework', '', 0) for c, mech, det, conf in
@@ -2515,7 +2987,10 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             seeds |= set(mids) | {c for c, _ in con}
             de += q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                         WHERE callee_method_id IN ({mph}) AND callee_provenance='client'""", *mids)
-            byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)} - seeds)
+            # direct_edge(q,c,e) :- target(q,"method",m,_), via_base(c,m,_,_,_,_,e), !is_target_decl(q,c)
+            de += sorted({(c, e) for c, m, _w, _c, _f, _l, e in via[0] if m in set(mids) and c not in set(mids)})
+            byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)
+                             and _w != STUB_BYNAME_WHY} - seeds)
 
         if 'type' in by_kind:
             tids = sorted(by_kind['type'])
@@ -2731,6 +3206,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         hits = sorted(tests_reaching(q, depth, sets, every=True), key=lambda r: (r[0], r[1], r[2]))
         out['test_hit'] += [[m, str(d), via, qq] for m, d, via in hits]
         out['inherited_test'] += [[s_, m, str(d), qq] for s_, m, d in inherited_tests(q, hits)]
+        out['test_stub'] += [[m, qq] for m in stub_tests(q, depth, sets, stubs, rev=rev)]
         # gen_fired(q,d,why) — WHICH decoration or shape made the generated rules apply, so the answer can say
         # why it believes in members that have no declaration.
         #   143 type · 144 clinit · 145 field (through its owner) · 146 method (through its owner)

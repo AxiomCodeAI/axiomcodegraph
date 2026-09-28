@@ -73,6 +73,10 @@ def paginate(text, page, budget, budget_flag='--budget'):
                 if i > 0: cur.append(title + '  (continued)'); used += len(title) + 13
             cur.append(l); used += len(l) + 1
     if cur: pages.append(cur)
+    # AN ANSWER WITH NO ROWS BEYOND ITS FIRST PAGE IS NOT PAGED: a refusal or a note list longer than a page came back as
+    # "page 1 of 2 ... 1 more page, 0 rows", a footer promising more of an answer that had none
+    if len(pages) > 1 and page == 1 and not any(l.startswith('    ') for pg in pages[1:] for l in pg):
+        return text
     n = len(pages)
     if page < 1 or page > n:
         return f"page {page} does not exist: this answer has {n} page(s) at {budget_flag} {budget}\n"
@@ -108,7 +112,14 @@ def next_path(text):
     rows = re.findall(r'^\s+(\d+) hop\(s\)\s+(\S+).*?\s' + LOC, text, re.M)
     if rows:
         near = min(int(h) for h, _, _ in rows)
-        first = [(n, loc) for h, n, loc in rows if int(h) == near][:5]
+        # each caller ONCE (#1389): the same caller is printed under "nearest callers" (at its call line) and again under
+        # "entry points" (at its declaration), so the rows are keyed on the name and its FILE, not the line. Two callers
+        # of one display name in two files are two callers, and stay two.
+        seen_, first = set(), []
+        for h, n, loc in rows:
+            if int(h) == near and (n, loc.rsplit(':', 1)[0]) not in seen_:
+                seen_.add((n, loc.rsplit(':', 1)[0])); first.append((n, loc))
+        first = first[:5]
         total = re.search(r'(\d+) (?:method|callable)s?\b', text)
         return (f"next: the nearest {'caller is' if len(first) == 1 else 'callers are'} at {near} hop(s): "
                 + ', '.join(f"{n} {loc}" for n, loc in first)
@@ -130,6 +141,11 @@ def next_path(text):
         return ("next: no chain of calls; the library calls named above are where one could continue: read the body "
                 "that makes them — one that publishes, schedules or registers what the entered method handles connects "
                 "the two at run time")
+    if 'connection is UNKNOWN, not absent' in text:
+        m = re.search(r'^\s+`[^`]*` in \S+ at (\S+:\d+)', text, re.M)
+        return ("next: not shown to be independent — " + (f"read {m.group(1)} and " if m else "read the calls through a value named above and ")
+                + "find what its callee is given (the arguments its callers pass, what the loop runs over); a function handed "
+                  "there is the connection")
     if 'the hop above is the only connection' in text:
         return "next: the cross-process hop above is the only connection; `impact <its target>` lists it as a [remote] dependent"
     # an endpoint a framework enters in a way the graph does not model: the check is the grep the verdict printed
@@ -180,12 +196,20 @@ def next_context(text):
             "to it reaches. The other files are ranked context, not a reading list")
 
 def next_changed(text):
-    if re.search(r'^no change', text, re.M): return ''
+    if re.search(r'^(no change|no git base)', text, re.M): return ''
     return "next: `test-impact` names the tests this edit reaches and the command that runs exactly those; `impact <target>` for a signature or field change above"
 
 def next_test_impact(text):
-    m = re.search(r'^\s*((?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pytest|python -m pytest|dotnet|go) [^\n]+)$', text, re.M)
-    return f"next: run {m.group(1).strip()} — only the tests above; a test reached through reflection or a service loader is not among them" if m else ''
+    # a TypeScript selection can need one command per package and runner: `(cd pkg && npx tsx x.ts)` (#1570).
+    # When a text tier adds the tests that load a changed fixture, it prints the command(s) for both after
+    # "with the tests above:", and the first command alone left those tests out of the step an agent takes: the
+    # LAST such block wins, with every command that continues it
+    ms = list(re.finditer(r'^\s*(with the tests above: )?((?:\(cd \S+ && )?(?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pnpm|yarn|bun|node|tsx|pytest|python -m pytest|dotnet|go) [^\n]+)$', text, re.M))
+    if not ms: return ''
+    last = max((i for i, m in enumerate(ms) if m.group(1)), default=0)
+    cmds = [m.group(2).strip() for m in ms[last:]]
+    what = cmds[0] if len(cmds) == 1 else f"the {len(cmds)} commands above, each from where it is written ({cmds[0]} …)"
+    return f"next: run {what} — only the tests above; a test reached through reflection, a service loader or a subprocess is not among them"
 
 NEXT = {'path': next_path, 'context': next_context, 'changed': next_changed, 'test-impact': next_test_impact}
 

@@ -1,0 +1,2 @@
+value	app#<function-type>@43:40 -> app#<arrow>@48
+value_call	app#each -> app#<arrow>@48

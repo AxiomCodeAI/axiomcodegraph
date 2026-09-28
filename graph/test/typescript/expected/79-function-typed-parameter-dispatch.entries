@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  exported_from_entry_module logger#controlUnionKey   logger.ts:26
+  exported_from_entry_module logger#explicitlyTyped   logger.ts:18
+  unimported_module logger#<module>   logger.ts:1

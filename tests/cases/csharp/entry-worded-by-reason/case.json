@@ -1,0 +1,16 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "a model-building callback the ORM runs is worded from its reason: no 'a orm_hook entry point', no 'what the outside world can call', and next: names no route to break",
+   "run": ["impact", "ShopDbContext.OnModelCreating"],
+   "want": ["is a model hook the ORM or validation library runs — the framework calls it back", "so the framework calls it back: read"],
+   "avoid": ["orm_hook entry point", "outside world can call", "a change to its name, route,"]
+  },
+  {
+   "why": "control: an HTTP action is a surface the outside world calls and keeps today's sentence",
+   "run": ["impact", "ItemsController.Get"],
+   "want": ["entry point — a framework invokes it, so no client call site reaches it. Changing it changes what the outside world can call.", "entry point, so its callers are outside the graph"]
+  }
+ ]
+}

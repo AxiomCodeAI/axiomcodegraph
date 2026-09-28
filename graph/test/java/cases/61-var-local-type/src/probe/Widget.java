@@ -11,4 +11,9 @@ public class Widget implements AutoCloseable {
     @Override
     public void close() {
     }
+
+    @Override
+    public int hashCode() {
+        return 1;
+    }
 }

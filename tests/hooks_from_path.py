@@ -24,6 +24,9 @@ Promises, each with a near-miss control:
     python3 tests/hooks_from_path.py
 """
 import json, os, shutil, subprocess, sys, tempfile, time
+# the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
+# second run of this script reuses the first run's session ids and hears nothing
+os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = os.path.join(ROOT, 'plugins', 'axiomcode', 'hooks')

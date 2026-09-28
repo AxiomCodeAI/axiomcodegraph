@@ -13,6 +13,11 @@ Read / Grep results as `graph: …` lines.
 
 **Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
 
+**A list of sites comes the way grep prints it.** The MCP `impact`, `path`, `test_impact` and `context` (without
+`source` / `explain` / `from_`) answer one site per line: `path:line: <the code on that line>  [resolved · hop 2 · test …]`,
+surest first, capped with a count of the rest; `limit=N` lists more, `full=True` gives the sectioned answer with `next:`.
+From the shell the same shape is `--grep` (`--grep-limit N`); without it the answer is the prose.
+
 ## Start here
 
 | the question in front of you | the call |
@@ -27,7 +32,7 @@ Read / Grep results as `graph: …` lines.
 | "how does A reach B" · "everything that reaches X" | `axiomcode path A B` · `axiomcode path '*' X` |
 | "what did my edit touch" · "which tests do I run" | `axiomcode changed --impact` · `axiomcode test-impact` |
 | "is it safe to delete X" | `axiomcode impact X --delete` |
-| the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` · `axiomcode install` |
+| the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` (drawn from the existing graph in seconds; a stale one is rebuilt first with the flags it was indexed with; prints the page's absolute path) · `axiomcode install` |
 
 Rules that decide whether an answer means anything:
 
@@ -38,7 +43,8 @@ Rules that decide whether an answer means anything:
   briefly on its own only when the answer touches an edited file and the rebuild is nearly done.
 - **Before a delete or a rename, ask with `--fresh`** (MCP `fresh=true`): it waits for the rebuild, printing its
   progress, and answers from a graph that includes every edit.
-  A manual `index` with different flags (e.g. dropping `--library`) rebuilds a worse graph over the good one.
+  A manual `index` with different flags rebuilds a worse graph over the good one. A bare `index`, the background
+  refresh and `graph` keep the `--lang` (and `--src`, `--library`) the graph was indexed with; pass `--lang` to change it.
 - A repo in several languages is indexed in all of them, one graph each, and every query asks each graph; calls
   are not followed from one language to another. `--lang` restricts it, `--src src` narrows it; `--library <roots>` so calls into dependencies
   resolve (without it they are `ambiguous_unknown` — do not quote that resolution rate).
@@ -57,6 +63,7 @@ An answer's label is the **worst** rung on its route. Read it before acting on t
 | `[defines]` · `[protocol]` · `[decorator by name]` | closure from its definer · interpreter-called method · wrapper rebinding the name |
 | `[fixture]` · `[at import]` | injected before the test body · module raised on import, test never collected |
 | `[by key]` | joined through a registration **string** (route, signal, CLI command) — not an edge |
+| `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
 | `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
 
 Below `[sound]` / `[one of a set]` the order is a tie-break, not a measured ranking. `[sound]` means the edges
@@ -81,9 +88,11 @@ keys, injected beans and handlers registered as values — none has a call site.
 
 ## changed · test-impact — from an edit
 
-`axiomcode changed [--impact] [--staged | --range a..b]` says how each declaration changed (`signature`, `body`,
-`field`, `type`, `removed`, `added`). `axiomcode test-impact [--why]` lists the tests the edit reaches and the
-command to run them. It is a **lower bound**: skipping what it does not name is your risk decision, since reflection
+`axiomcode changed [--impact] [--staged | --range a..b] [<file>…]` says how each declaration changed (`signature`, `body`,
+`field`, `type`, `removed`, `added`). `axiomcode test-impact [--why] [<file>…]` lists the tests the edit reaches and the
+command to run them. For your branch's commits ask `--range <base>..HEAD`: it reads from the merge-base, so a base
+that moved on is not counted as yours. On a copy without git, name the files you edited. Changed fixtures and other
+files no graph reads are named, with the tests whose text names them. It is a **lower bound**: skipping what it does not name is your risk decision, since reflection
 and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 
 ## path — asking the graph
@@ -91,6 +100,8 @@ and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 `axiomcode path <from> <to> [--every] [--in <path>]`: one shortest verified chain per target, or why there is none
 (with the unresolved sites that might connect them). Endpoints as written: `Owner.method`, `Type`, `file.ts:123`,
 `'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. Detail: `reference/path.md`.
+
+A fact no verb prints (decorations, bases, entry points by reason, field writers): `reference/schema.md` names the table per language.
 
 ## What it cannot see — say so instead of guessing
 

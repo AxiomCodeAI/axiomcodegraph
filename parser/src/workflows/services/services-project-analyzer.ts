@@ -12,6 +12,9 @@ import {
   OUTPUT_SERVICE_PROVIDER_CSV_FILENAME,
   OUTPUT_SKIPPED_SERVICES_FILES_CSV_FILENAME,
   SERVICES_DIR,
+  SPRING_DIR,
+  SPRING_FACTORIES_FILE,
+  SPRING_IMPORTS_SUFFIX,
 } from '@/constants/consts';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
@@ -29,7 +32,9 @@ interface SkippedServicesFile {
 }
 
 /**
- * Extracts `META-INF/services` provider-configuration files across a codebase.
+ * Extracts `META-INF/services` provider-configuration files across a codebase,
+ * and Spring's two registries in the same shape: `META-INF/spring/<service>.imports`
+ * and `META-INF/spring.factories` (one descriptor per key).
  *
  * ## Why one file is attributed to exactly one project
  *
@@ -143,14 +148,19 @@ export class ServicesProjectAnalyzer {
       // skipped. It is a well-formed descriptor that declares zero providers —
       // a real and meaningful statement — and recording it as a skipped file
       // would make "no providers declared" indistinguishable from "not read".
-      const [descriptor, providers] = this.parser.parse(
-        content,
-        filePath,
-        baseMservPath,
-        serviceVersionHash
-      );
-      this.allDescriptors.push(descriptor);
-      this.allProviders.push(...providers);
+      const fileName = path.basename(filePath);
+      const parentDir = path.basename(path.dirname(filePath));
+      const parsed: Array<[ServiceDescriptor, ServiceProvider[]]> =
+        parentDir === META_INF_DIR && fileName === SPRING_FACTORIES_FILE
+          ? this.parser.parseSpringFactories(content, filePath, baseMservPath, serviceVersionHash)
+          : parentDir === SPRING_DIR && fileName.endsWith(SPRING_IMPORTS_SUFFIX)
+            ? [this.parser.parse(content, filePath, baseMservPath, serviceVersionHash,
+                fileName.slice(0, -SPRING_IMPORTS_SUFFIX.length))]
+            : [this.parser.parse(content, filePath, baseMservPath, serviceVersionHash)];
+      for (const [descriptor, providers] of parsed) {
+        this.allDescriptors.push(descriptor);
+        this.allProviders.push(...providers);
+      }
     } catch (error) {
       console.error(`   ❌ Error parsing ${filePath}:`, error);
       this.recordSkip(
@@ -211,6 +221,16 @@ export class ServicesProjectAnalyzer {
 
       if (entry.name === META_INF_DIR) {
         await this.collectProviderFiles(path.join(subPath, SERVICES_DIR), files);
+        // Spring's two registries beside it: `META-INF/spring/*.imports` (one class
+        // per line, the ServiceLoader format) and `META-INF/spring.factories`.
+        await this.collectProviderFiles(path.join(subPath, SPRING_DIR), files, SPRING_IMPORTS_SUFFIX);
+        try {
+          if ((await fs.stat(path.join(subPath, SPRING_FACTORIES_FILE))).isFile()) {
+            files.push(path.join(subPath, SPRING_FACTORIES_FILE));
+          }
+        } catch {
+          // No spring.factories here, which is the common case.
+        }
         // A `META-INF` directory holds resources, never a nested project, so
         // there is nothing else beneath it to look for.
         continue;
@@ -224,7 +244,7 @@ export class ServicesProjectAnalyzer {
     }
   }
 
-  private async collectProviderFiles(servicesDir: string, files: string[]): Promise<void> {
+  private async collectProviderFiles(servicesDir: string, files: string[], suffix = ''): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(servicesDir, { withFileTypes: true });
@@ -234,7 +254,7 @@ export class ServicesProjectAnalyzer {
     }
 
     for (const entry of entries) {
-      if (entry.isFile()) {
+      if (entry.isFile() && entry.name.endsWith(suffix)) {
         files.push(path.join(servicesDir, entry.name));
       }
     }

@@ -1,0 +1,17 @@
+ambiguous_unknown	FUNCTION_CALL	logger#controlUnionKey(StoreApi['getState' | 'getInitialState'],Pick1) @L30 -> -
+ambiguous_unknown	FUNCTION_CALL	logger#controlUnionKey(StoreApi['getState' | 'getInitialState'],Pick1) @L31 -> -
+ambiguous_unknown	METHOD_CALL	logger#<arrow@7>(?,?,?) @L12 -> -
+ambiguous_unknown	METHOD_CALL	logger#logged(any,any) @L10 -> -
+ambiguous_unknown	METHOD_CALL	store#setState(T | Partial,boolean) @L36 -> -
+callback_registered	FUNCTION_CALL	logger#<arrow@7>(?,?,?) @L13 -> logger#logged(any,any)
+callback_registered	FUNCTION_CALL	store#createStore(StateCreator) @L42 -> store#getState()
+callback_registered	FUNCTION_CALL	store#createStore(StateCreator) @L42 -> store#setState(T | Partial,boolean)
+known_edge	FUNCTION_CALL	logger#<arrow@7>(?,?,?) @L13 -> store#<arrow@27>(Get,Get,Mutate)
+known_edge	FUNCTION_CALL	logger#explicitlyTyped(StoreApi['setState'],StoreApi['getState']) @L19 -> store#_(T | Partial,false)
+known_edge	FUNCTION_CALL	logger#explicitlyTyped(StoreApi['setState'],StoreApi['getState']) @L20 -> StoreApi#<arrow@14>()
+known_edge	FUNCTION_CALL	logger#logged(any,any) @L10 -> StoreApi#<arrow@14>()
+known_edge	FUNCTION_CALL	store#<arrow@39>() @L39 -> StoreApi#<arrow@16>(T,T)
+known_edge	FUNCTION_CALL	store#createStore(StateCreator) @L42 -> store#<arrow@27>(Get,Get,Mutate)
+known_edge	METHOD_CALL	logger#<arrow@7>(?,?,?) @L12 -> StoreApi#<arrow@14>()
+multi_inferred	FUNCTION_CALL	logger#logged(any,any) @L9 -> store#_(T | Partial,false)
+multi_inferred	FUNCTION_CALL	logger#logged(any,any) @L9 -> store#_(T,true)

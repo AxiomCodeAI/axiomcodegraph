@@ -424,7 +424,12 @@ case "$LIBKEY" in
   *) echo "library cache key is not a digest (got '$LIBKEY') — refusing to reuse staged facts" >&2
      exit 1;;
 esac
-LIBDIR="$CACHE_ROOT/libfacts-$LIBKEY"
+# AXIOM_LIBFACTS_CACHE moves ONLY the staged library facts (the compiled engine stays in
+# CACHE_ROOT). The key is module names plus CSV size and mtime in whole seconds, which is
+# enough for one run at a time; a test harness running cases side by side gives each its own
+# directory, because two library IRs parsed in the same second into same-named directories
+# can share a key (graph/test/tools/case-pool.sh).
+LIBDIR="${AXIOM_LIBFACTS_CACHE:-$CACHE_ROOT}/libfacts-$LIBKEY"
 # How many IR modules the roots actually hold. Cheap (lib_modules is a marker test and a
 # one-level glob, never a find) and worth knowing before the message below: "this is the
 # 2GB read" was printed verbatim for a run whose --library directory was EMPTY, which is
@@ -531,6 +536,16 @@ echo "▶ engine id = $ENGINE_ID (rules + souffle $SOUFFLE_VERSION)"
 # per-run intermediate. Default IN-REPO so a checkout is self-contained (.souffle-cache/ is
 # gitignored); point AXIOM_SOUFFLE_CACHE at a shared dir to amortise it.
 CACHE_DIR="$CACHE_ROOT"
+# -march: `native` by default, tuned for the machine that compiles and runs it. A binary
+# that is restored onto OTHER machines — a CI cache shared across hosted runners, whose CPUs
+# differ — must not be: AXIOM_ENGINE_MARCH=portable compiles for the compiler's baseline
+# target instead, as the published engines are (build-engines.yml). Any other value is
+# passed through as -march=<value>. ENGINE_ID does not cover this, so whoever shares a
+# cache across machines keys it on the setting (ci.yml does).
+case "${AXIOM_ENGINE_MARCH:-native}" in
+  portable) MARCH_FLAG=();;
+  *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
+esac
 EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
 BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
 
@@ -606,7 +621,7 @@ elif command -v souffle >/dev/null 2>&1; then
   [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
   CXX_PLATFORM=""
   case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
-  if ! c++ -std=c++17 -O3 -march=native -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
+  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
     rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
   fi
   # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
@@ -693,13 +708,25 @@ while [ "$iter" -lt 50 ]; do
       INNER="${INNER:-$(find_souffle_include)}"
       souffle -I "$SRC" -g "$INT/profile-program.cpp" -p "$AXIOM_SOUFFLE_PROFILE" "$PROG" \
         2> "$INT/.souffle-prof-gen.log" || { cat "$INT/.souffle-prof-gen.log" >&2; exit 1; }
-      c++ -std=c++17 -O3 -march=native -w -I "$INNER" \
+      c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w -I "$INNER" \
         "$INT/profile-program.cpp" -o "$PBIN" || exit 1
     fi
     echo "▶ solving with profiling -> $AXIOM_SOUFFLE_PROFILE"
     "$PBIN" -F "$FACTS" -D "$RAW" -p "$AXIOM_SOUFFLE_PROFILE"
   else
-    "$BIN" -F "$FACTS" -D "$RAW"
+    # A cached binary is compiled with -march=native (unless AXIOM_ENGINE_MARCH says
+    # otherwise). Restored onto a CPU without one of
+    # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
+    # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
+    # later run the same way: drop the cache entry, so the next run recompiles, and say so.
+    rc=0; "$BIN" -F "$FACTS" -D "$RAW" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      if [ "$rc" -eq 132 ] && [ -z "$PACKAGED" ]; then
+        rm -f "$BIN"
+        echo "❌ the cached engine $BIN died with an illegal instruction: it was compiled for a different CPU. Removed it; the next run recompiles." >&2
+      fi
+      exit "$rc"
+    fi
   fi
   # No frontier declared for this language: the solve above is the whole answer. Break
   # BEFORE the count, because the count is what misreported it. See issue #475.

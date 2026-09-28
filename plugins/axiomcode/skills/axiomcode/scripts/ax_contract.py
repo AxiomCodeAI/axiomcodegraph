@@ -406,13 +406,14 @@ def ensure_graph(repo, db):
     killed every time, cache nothing, and repeat on the next edit forever.
 
     AXIOMCODE_GRAPH points at a graph someone else built and placed; nothing is built into it."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
+    rr = os.path.realpath(repo); auto = os.environ.get('AXIOMCODE_AUTOBUILD')
+    if not os.environ.get('AXIOMCODE_GRAPH'): ax_fresh.relink(rr)     # a pointer into another checkout is not this graph (#1605)
     if os.path.exists(db): return True
     # A BUILD IS RUNNING: wait for it, never start a second one (#1305). The graph (or the baseline graph `changed` reads,
     # or another language's) can be missing for a moment while a build swaps it; a query that took that for "no graph"
     # started a full build of its own, which queued behind the running one and then rebuilt everything again as an
     # explicit index. The hooks, which run under timeouts of seconds, do not wait.
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
-    rr = os.path.realpath(repo); auto = os.environ.get('AXIOMCODE_AUTOBUILD')
     if ax_fresh.building(rr):
         # a build is running: never a silent wait. Under the MCP server answer at once with the stage it is at; from a
         # shell wait for it, printing the stage as it moves; either way, use the graph the moment it exists
@@ -445,15 +446,17 @@ def ensure_graph(repo, db):
         # a graph WAS built here and its pointer is broken: a repair, which keeps the baseline `changed` and test-impact
         # measure edits against, as the background refresh does. Built as a first index it moved the baseline to the
         # edited tree, and every edit made before it dropped out of `changed`
-        print(f"the graph of {repo} is missing (a build was interrupted) — rebuilding it; the baseline edits are measured against is kept …", file=sys.stderr)
+        # relink above took every pointer that leaves this .axiomcode/out: one still here is this repository's own
+        try: gone = f" (.axiomcode/out/graph.sqlite points at {os.readlink(db)}, which is not there)"
+        except OSError: gone = ''
+        print(f"the graph of {repo} is missing (a build was interrupted){gone} — rebuilding it; the baseline edits are measured against is kept …", file=sys.stderr)
         env = dict(os.environ, AXIOMCODE_KEEP_BASE='1')
     else:
         print(f"no graph for {repo} yet — building one (this is the only slow call; later ones read it) …", file=sys.stderr)
     if nowait:
         os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
         log = open(os.path.join(repo, '.axiomcode', 'first-build.log'), 'w')
-        kw = dict(start_new_session=True) if os.name != 'nt' else dict(creationflags=0x00000008 | 0x00000200)   # DETACHED | NEW_GROUP, as ax_fresh.kick
-        p = subprocess.Popen([bash, build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, **kw)
+        p = _start_build([bash, build, repo], log, env)
         # until the build holds its lock a second query would see no build and start another, so that much is always waited
         up = time.time() + 10
         while p.poll() is None and not ax_fresh.building(repo) and time.time() < up: time.sleep(0.05)
@@ -469,7 +472,7 @@ def ensure_graph(repo, db):
     os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
     logp = os.path.join(repo, '.axiomcode', 'first-build.log')
     with open(logp, 'w') as log:
-        p = subprocess.Popen([bash, build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env)
+        p = _start_build([bash, build, repo], log, env)
     shown = [0]
     def relay():
         try:
@@ -480,6 +483,25 @@ def ensure_graph(repo, db):
     relay()
     if p.poll() is None: return os.path.exists(db) and _published(repo)
     return p.returncode == 0 and os.path.exists(db)
+
+
+def _start_build(argv, log, env):
+    """the build a query starts, in a session (a process group) of its own, as ax_fresh.kick starts the refresher.
+
+    THE BUILD IS NOT THE QUERY'S (#1555). It goes on solving the other languages after the query has its answer, and a
+    query is stopped all the time: a caller's timeout, Ctrl-C, an agent host that ends the command's process group when
+    it returns or times out. Started in the query's group, the build was stopped with it -- on a repository in several
+    languages, whose first build outlasts a two-minute timeout, before the main graph was published, or while it was
+    being indexed, which deleted the solved graph as a failure. No graph.sqlite was left, the next query built again
+    from nothing, was stopped again, and every query rebuilt forever. In its own session the build finishes whatever
+    becomes of the query; a later query finds it running and waits for it rather than starting another."""
+    if os.name != 'nt':
+        return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, start_new_session=True)
+    # DETACHED | NEW_GROUP, and out of the caller's job object where the job allows it (see ax_fresh.kick)
+    for flags in (0x00000008 | 0x00000200 | 0x01000000, 0x00000008 | 0x00000200):
+        try: return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, creationflags=flags)
+        except OSError: continue
+    return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env)
 
 
 def _published(repo):

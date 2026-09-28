@@ -26,7 +26,11 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]   # dev takes direct pushes, so they get a result too
+    # dev takes direct pushes, so they get a result too. A release branch (0.1.6, ...)
+    # takes merges from pull requests: the run on the merge is what saves the compiled
+    # engines where the NEXT pull request into it can restore them — a cache a pull
+    # request saves is visible to that pull request alone.
+    branches: [main, dev, '0.*']
   pull_request:
   merge_group:
   workflow_dispatch:
@@ -77,6 +81,10 @@ jobs:
           if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/dev ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=false" >> "$GITHUB_OUTPUT"
             echo "push to dev: suites run, platform engines wait for main"; exit 0
+          fi
+          if [ "${{ github.event_name }}" = push ] && [[ "${{ github.ref }}" == refs/heads/0.* ]]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "engines=false" >> "$GITHUB_OUTPUT"
+            echo "push to a release branch: suites run (and save its engines for pull requests into it), platform engines wait for main"; exit 0
           fi
           # A push to main is a release when its version has no tag yet: that commit, and only that one,
           # builds every platform and runs the five-platform e2e, and release.yml drafts from it once
@@ -246,6 +254,10 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      # the engine is compiled for any x86-64 runner, so a cached one can be restored
+      # on whichever runner this job lands (see the engine cache step below)
+      AXIOM_ENGINE_MARCH: portable
     strategy:
       fail-fast: false
       matrix:
@@ -396,20 +408,35 @@ jobs:
       # one language recompiles that language only, and an unchanged one never does.
       # Two things decide the binary that ENGINE_ID does not cover, so they are in the
       # key too: the driver that compiles it (run-souffle.sh holds the compiler flags),
-      # and the runner's CPU, because the driver compiles with -march=native and a
-      # binary built on one CPU model can die with an illegal instruction on another.
+      # and the target it is compiled for.
+      #
+      # THE TARGET IS PORTABLE, NOT THE RUNNER'S CPU. The driver's default is
+      # -march=native, and a binary built on one hosted runner died with SIGILL on
+      # another (runners that report the same model name do not all expose the same
+      # instruction set). The key used to carry a hash of the runner's CPU flags to
+      # keep such a binary off other CPUs — and so it missed on almost every run,
+      # since which CPU a job lands on is luck: a three-minute compile per language,
+      # per run, for rules nothing had changed. AXIOM_ENGINE_MARCH=portable compiles
+      # for the compiler's baseline x86-64 target instead, as the published engines
+      # are, so any runner can run any runner's binary and the CPU leaves the key.
+      #
+      # A cache saved by a pull request is visible to that pull request only. The
+      # ones every pull request can restore are the base branch's and the default
+      # branch's, which is why a push to a release branch runs the suites too (see
+      # `on.push` and the `changes` job): it leaves the engine for its rules where
+      # every pull request into that branch finds it.
       - name: this language's engine id
         id: eid
         run: |
           echo "id=$(bash graph/pipeline/run-souffle.sh --language ${{ matrix.lang }} --print-engine-id)" >> "$GITHUB_OUTPUT"
-          echo "cpu=$(grep -m1 'model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
-      - name: cache the compiled Soufflé engine
+      - name: restore the compiled Soufflé engine
+        id: engine-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .souffle-cache
-          key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}-${{ hashFiles('graph/pipeline/run-souffle.sh') }}-${{ steps.eid.outputs.cpu }}
+          key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}-${{ hashFiles('graph/pipeline/run-souffle.sh') }}-march-${{ env.AXIOM_ENGINE_MARCH }}
 
       - name: ${{ matrix.lang }} regression suite
         env:
@@ -417,7 +444,24 @@ jobs:
           # The driver's default cache is ~/.cache/axiomcode/souffle; point it at the
           # directory the cache step above saves and restores, or it never hits.
           AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        # The cases run concurrently, up to one per CPU (graph/test/tools/case-pool.sh);
+        # AXIOM_SUITE_JOBS=1 here would run them one at a time, as they used to.
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
+
+      # Saved whether or not the suite passed. The binary does not depend on the verdict:
+      # run-souffle.sh publishes it only whole and verified (a temp name, then a rename),
+      # so a red run's engine is as good as a green one's, and the run that most needs the
+      # next push to be fast is the red one. Not when cancelled, and not unless this
+      # language's engine is actually there: a key saved without it would stay taken, and
+      # every later run would restore the gap and could never save over it.
+      - name: save the compiled Soufflé engine
+        if: >-
+          ${{ !cancelled() && !inputs.fresh && steps.engine-cache.outputs.cache-hit != 'true'
+              && hashFiles(format('.souffle-cache/souffle-engine-{0}-{1}', matrix.lang, steps.eid.outputs.id)) != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .souffle-cache
+          key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}-${{ hashFiles('graph/pipeline/run-souffle.sh') }}-march-${{ env.AXIOM_ENGINE_MARCH }}
 
   # Every language's engine, every platform, built once per release: on the push that
   # lands a new version on main (and in the nightly). publish-npm ships these very

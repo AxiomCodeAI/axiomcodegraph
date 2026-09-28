@@ -185,3 +185,8 @@ export const GRADLE_DEFAULT_VERSION_CATALOG = 'gradle/libs.versions.toml';
  */
 export const META_INF_DIR = 'META-INF';
 export const SERVICES_DIR = 'services';
+/** `META-INF/spring/<service>.imports`: Spring Boot's registration files (auto-configurations). */
+export const SPRING_DIR = 'spring';
+export const SPRING_IMPORTS_SUFFIX = '.imports';
+/** `META-INF/spring.factories`: Spring's `SpringFactoriesLoader` registry, a properties file. */
+export const SPRING_FACTORIES_FILE = 'spring.factories';

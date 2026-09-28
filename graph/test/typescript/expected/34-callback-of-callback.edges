@@ -1,3 +1,7 @@
+callback_registered	CONSTRUCTOR_CALL	exec#viaExecutor() @L12 -> exec#<arrow@12>(?,?)
+callback_registered	CONSTRUCTOR_CALL	exec#viaRenamedExecutor() @L20 -> exec#<arrow@20>(?,?)
+callback_registered	FUNCTION_CALL	exec#withSink((emit: Sink) =) @L29 -> exec#<arrow@29>()
+callback_registered	METHOD_CALL	exec#viaNamedParam(Payload[]) @L40 -> exec#<arrow@40>(?)
 known_edge	CONSTRUCTOR_CALL	exec#<arrow@12>(?,?) @L13 -> Payload#<new>()
 known_edge	CONSTRUCTOR_CALL	exec#<arrow@20>(?,?) @L21 -> Payload#<new>()
 known_edge	CONSTRUCTOR_CALL	exec#<arrow@32>(?) @L33 -> Payload#<new>()

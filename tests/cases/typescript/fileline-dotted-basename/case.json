@@ -15,4 +15,12 @@
   {"why": "control: a dotted NAME with a fabricated prefix is still refused by the prefix check",
    "run": ["impact", "zzz.qqq.UserService.find"],
    "expect_error": true,
-   "want": ["'zzz.qqq' matches no package"]}]}
+   "want": ["'zzz.qqq' matches no package"]},
+  {"why": "a file:line written ./ or absolute under the repository, with a :col, is the same declaration",
+   "run": ["impact", "{repo}/src/user.service.ts:3:10"],
+   "want": ["change: UserService.find", "UserController.get"],
+   "avoid": ["no callable spans"]},
+  {"why": "path takes a ./ file:line",
+   "run": ["path", "*", "./src/user.service.ts:3"],
+   "want": ["UserController.get"],
+   "avoid": ["no callable spans"]}]}

@@ -1,6 +1,5 @@
 value	fetcher#<function-type>@4:21 -> fetcher#<arrow>
 value	middleware#<function-type>@4:23 -> middleware#<arrow>@7
-value	pool#<function-type>@6:11 -> pool#<arrow>@21
 value	pool#Pool.run -> pool#<arrow>@11
 value	pool#Pool.run -> pool#<arrow>@16
 value	pool#Pool.run -> pool#<arrow>@25
@@ -10,4 +9,5 @@ value	pool#Pool.size -> pool#size
 value	registry#<function-type>@3:22 -> registry#money
 value_call	fetcher#get -> fetcher#<arrow>
 value_call	fetcher#get -> fetcher#defaultFetch
+value_call	pool#usePool -> pool#<arrow>@25
 value_call	registry#price -> registry#money

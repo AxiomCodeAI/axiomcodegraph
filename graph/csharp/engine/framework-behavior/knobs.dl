@@ -146,7 +146,8 @@ cs_servicebus_handler_event("ProcessMessageAsync").
 // A handler implements (interface, method) for its message type; a sender calls one
 // of these methods on one of these receivers with a message instance. MediatR's
 // INotificationHandler and IMediator are deliberately ABSENT: they dispatch in
-// process, and a remote edge there would be a wrong answer.
+// process, and a remote edge there would be a wrong answer: Send and Publish are joined in
+// process by cs_med_dispatch below.
 cs_msg_handler_iface("IConsumer", "Consume", "masstransit").
 cs_msg_handler_iface("IHandleMessages", "Handle", "nservicebus").
 cs_msg_handler_iface("IIntegrationEventHandler", "Handle", "event_bus").
@@ -167,6 +168,39 @@ cs_msg_bus_send("PublishAsync").
 cs_msg_bus_send("SendAsync").
 
 cs_remote_confidence_binding("amqp_binding").
+
+// ── IN PROCESS: a mediator keyed on the request TYPE (dispatch.dl) ─────────
+// `mediator.Send(new GetOrder(id))` runs Handle on the one handler the container holds
+// for GetOrder: `IRequestHandler<GetOrder, R>`, or `IRequestHandler<GetOrder>` when the
+// request answers nothing. `Publish(new OrderPlaced(id))` runs EVERY
+// `INotificationHandler<T>` whose T is OrderPlaced or one of its bases. Same process,
+// same call stack, so the hop is a call edge and never a remote_edge.
+// cs_med_dispatch(SendMethod, HandlerBase, Fan): the handler's method is the one
+// cs_framework_callback (below) already names for HandlerBase, so a handler is an entry
+// point and a sent handler also has its sender. Fan "one": the handler of the exact
+// type (the container registers a request handler for the type it closes, and a base's
+// handler is not looked up for a derived request); "all": every handler of the type and
+// of each of its bases (INotificationHandler<in T> is contravariant); "wrap": a pipeline
+// step, run around the handler for its own request type, and around EVERY request when
+// it is open generic over the request (`TimingBehavior<TReq, TRes> : IPipelineBehavior<TReq, TRes>`).
+cs_med_dispatch("Send", "IRequestHandler", "one").
+cs_med_dispatch("Send", "IPipelineBehavior", "wrap").
+cs_med_dispatch("Send", "IRequestPreProcessor", "wrap").
+cs_med_dispatch("Send", "IRequestPostProcessor", "wrap").
+cs_med_dispatch("CreateStream", "IStreamRequestHandler", "one").
+cs_med_dispatch("CreateStream", "IStreamPipelineBehavior", "wrap").
+cs_med_dispatch("Publish", "INotificationHandler", "all").
+// A test that stubs or verifies the mediator writes the send with an argument MATCHER,
+// `mediator.Send(Arg.Any<GetOrder>())` or `m.Send(It.IsAny<GetOrder>(), ..)` inside a
+// mock setup: nothing is dispatched, so no handler is linked from it.
+cs_mock_arg_matcher("Any").    cs_mock_arg_matcher("Is").      // NSubstitute Arg.*
+cs_mock_arg_matcher("IsAny").  cs_mock_arg_matcher("IsNotNull"). // Moq It.*
+cs_mock_arg_matcher("That").                                     // FakeItEasy A<T>.That
+// the receivers a request or notification is sent through
+cs_med_sender_type("IMediator").
+cs_med_sender_type("ISender").
+cs_med_sender_type("IPublisher").
+cs_med_sender_type("Mediator").
 
 // Kafka clients are built, `new ProducerBuilder<K, V>(config).Build()`, usually into a
 // `var`: the builder's name is what says which client the local holds.

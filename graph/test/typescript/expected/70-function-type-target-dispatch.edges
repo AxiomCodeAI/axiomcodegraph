@@ -1,3 +1,6 @@
+callback_registered	METHOD_CALL	targets#viaAnnotatedParam(CB[]) @L14 -> targets#<arrow@14>(?)
+callback_registered	METHOD_CALL	targets#viaAsCast(unknown) @L19 -> targets#<arrow@19>(?)
+callback_registered	METHOD_CALL	targets#viaGenericMap(number[]) @L31 -> targets#<arrow@31>(?)@L31
 known_edge	FUNCTION_CALL	targets#<arrow@14>(?) @L14 -> targets#<arrow@6>(number)
 known_edge	FUNCTION_CALL	targets#<arrow@19>(?) @L19 -> targets#<arrow@6>(number)
 known_edge	FUNCTION_CALL	targets#viaForOf(CB[]) @L23 -> targets#<arrow@6>(number)

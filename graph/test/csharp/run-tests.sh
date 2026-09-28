@@ -102,8 +102,14 @@ if ! python3 "$HERE/corpus/aggregate-selftest.py"; then
 fi
 echo
 
+# shellcheck source=../tools/case-pool.sh
+. "$REPO/graph/test/tools/case-pool.sh"
 PASS=0; FAIL=0; FAILED=""
-for dir in "$HERE"/cases/*/; do
+# One case: the body of what was the case loop, unchanged, inside a one-case `for` so its
+# `continue`s still mean "next case". pool_run (graph/test/tools/case-pool.sh) runs several
+# at once and prints them in case order.
+case_body() {
+for dir in "$@"; do
   name="$(basename "$dir")"
   [ -d "$dir/src" ] || continue
   if [ -n "$ONLY" ]; then case ",$ONLY," in *,"$name",*) ;; *) continue ;; esac; fi
@@ -170,6 +176,10 @@ EOF2
     FAIL=$((FAIL+1)); FAILED="$FAILED $name"
   fi
 done
+}
+echo "running with up to $(pool_jobs) job(s) at once (AXIOM_SUITE_JOBS; 1 = one at a time)"
+POOL_INTS="PASS FAIL" POOL_STRINGS="FAILED"
+pool_run case_body "$HERE"/cases/*/
 
 echo
 echo "cases: $PASS passed, $FAIL failed"

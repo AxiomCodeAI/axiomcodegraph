@@ -21,3 +21,9 @@ unresolved       streams.js:7:67  FUNCTION_CALL cb  callee_untyped
 unresolved       streams.js:7:99  FUNCTION_CALL cb  callee_untyped
 unresolved       streams.js:8:55  FUNCTION_CALL cb  callee_untyped
 unresolved       streams.js:8:73  METHOD_CALL push  no_target
+value_callee     streams.js:5:120  cb  parameter
+value_callee     streams.js:5:63  cb  parameter
+value_callee     streams.js:5:92  cb  parameter
+value_callee     streams.js:7:67  cb  parameter
+value_callee     streams.js:7:99  cb  parameter
+value_callee     streams.js:8:55  cb  parameter

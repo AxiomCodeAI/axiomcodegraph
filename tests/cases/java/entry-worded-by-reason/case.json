@@ -1,0 +1,16 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "path '*' next: names the one caller once, though it is listed both as the nearest caller and as an entry point (#1389)",
+   "run": ["path", "*", "Wire.initContext"],
+   "want": ["the nearest caller is at 1 hop(s): Initializer.initialize", "read it;"],
+   "avoid": ["callers are", "Initializer.java:4, Initializer.initialize"]},
+  {"why": "control: a caller that is not an entry point is named once as before",
+   "run": ["path", "*", "Wire.other"],
+   "want": ["the nearest caller is at 1 hop(s): Mid.x"]},
+  {"why": "a constructor the container runs is a framework callback: worded from its reason, never the bare token, and never 'what the outside world can call'",
+   "run": ["impact", "Store.Store"],
+   "want": ["is a constructor the container runs to build a bean — the framework calls it back", "breaks that framework contract"],
+   "avoid": ["bean_ctor entry point", "outside world can call", "a change to its name, route,"]},
+  {"why": "control: an HTTP route handler is a surface the outside world calls, and keeps today's sentence",
+   "run": ["impact", "StoreApi.items"],
+   "want": ["is a http entry point — a framework invokes it, so no client call site reaches it. Changing it changes what the outside world can call.", "entry point, so its callers are outside the graph"]}]}

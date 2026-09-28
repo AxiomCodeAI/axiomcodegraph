@@ -1,0 +1,7 @@
+value	logger#<function-type>@5:19 -> logger#<arrow>@7
+value	store#<function-type>@14:13 -> store#<arrow>@38
+value	store#<function-type>@15:20 -> store#<arrow>@40
+value	store#<function-type>@16:14 -> store#<arrow>@39
+value	store#_@8:3 -> store#<arrow>@35
+value	store#_@9:3 -> store#<arrow>@35
+value_call	logger#<arrow>@7 -> store#<arrow>@38

@@ -273,6 +273,39 @@ arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
     arg_type(ce, pos, at),
     param_type_at(m, pos, pt),
     type_satisfies(at, pt).
+// AN ARGUMENT THAT HAS EVERY MEMBER THE INTERFACE REQUIRES. type_satisfies only tests
+// client classes, so a LIBRARY type passed where a client interface is expected — a
+// RegExp for `interface Matcher { exec(s: string): unknown }` — had no route here and
+// was rejected, although the compiler accepts it structurally (#422). The same name-based
+// cover test, asked only of the (argument, parameter) pairs that nothing above accepted.
+// Prune-only: it can only keep a candidate, never remove one.
+arg_param_uncovered(ce, pos, at, pt) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    interface_type(pt),
+    at != pt,
+    !same_type_entity(at, pt),
+    !type_subtype_star(at, pt).
+compat_required(pt, name) :- arg_param_uncovered(_, _, _, pt),
+    scope_sibling(pt, sib),
+    declared_method(sib, name, "false", _).
+compat_required(pt, name) :- arg_param_uncovered(_, _, _, pt),
+    scope_sibling(pt, sib),
+    declared_field(sib, name, "false", f),
+    field_kind(_, _, _, "false", f).
+compat_required_count(pt, n) :- arg_param_uncovered(_, _, _, pt),
+    n = count : { compat_required(pt, _) }.
+compat_covers_member(at, pt, name) :- arg_param_uncovered(_, _, at, pt),
+    compat_required(pt, name),
+    member_name_declared(at, name).
+arg_type_covers(at, pt) :- arg_param_uncovered(_, _, at, pt),
+    compat_required_count(pt, k),
+    k > 0,
+    k = count : { compat_covers_member(at, pt, _) }.
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    arg_type_covers(at, pt).
 arg_compatible_at(ce, m, pos) :- arg_is_target_typed(ce, pos),
     expr_call_candidate(ce, m),
     param_type_at(m, pos, _).
@@ -686,6 +719,62 @@ arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
     param_decl(_, _, pos, tn, m, _),
     tn = cat("\"", cat(v, "\"")).
 
+// A STRING LITERAL THAT IS A KEY OF THE CONSTRAINT — `<K extends keyof Map>(kind: K)`.
+// The typed-registry shape: `create<K extends keyof WidgetMap>(kind: K)` declared before
+// `create(kind: string)`, as `document.createElement` and every typed event map declare
+// it. The compiler picks the generic for `create('video')`, because the literal IS a
+// `keyof WidgetMap`, and the widening one for `create(k)` with `k: string`, because a
+// general string is not.
+//
+// Without this the parameter's type is `K`, which matches nothing concretely, while
+// `string` matches the literal — so specificity removed the generic at BOTH sites. That
+// stayed hidden while an interface's overloads carried no declarationGroupKey and no
+// group rule could fire; once the parser grouped them it became a missing edge (#334).
+// Evaluating the constraint against the literal separates the two sites on evidence:
+// at `create('video')` both signatures now match concretely and declaration order
+// decides, as the compiler does; at `create(k)` and at a literal that is NOT a key the
+// generic still does not match and `string` wins, exactly as before.
+//
+// Keyed on the exact variable link first and on the name in the method's own scope
+// where the link is absent. The key set is the constraint object's DECLARED members,
+// fields and methods both: a literal naming neither never matches, so an unresolved
+// `keyof` object leaves the generic as unmatched as it always was.
+param_keyof_object(m, pos, obj) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "TYPE_VARIABLE", _, _, _, _, _, r),
+    type_ref_type_param(_, tp, r),
+    type_param_constraint(_, cref, tp),
+    keyof_operand_target(cref, obj).
+param_keyof_object(m, pos, obj) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "TYPE_VARIABLE", _, tn, _, _, _, r),
+    !type_ref_type_param(_, _, r),
+    type_param(_, tn, _, _, m, tp),
+    type_param_constraint(_, cref, tp),
+    keyof_operand_target(cref, obj).
+// `keyof X` is a TYPE_OPERATOR whose written text starts with the operator; `readonly`
+// and `unique` share the kind and are told apart by that text, not assumed away.
+keyof_operand_target(cref, obj) :- type_ref(_, "TYPE_OPERATOR", _, _, ctn, _, _, cref),
+    strlen(ctn) > 6,
+    substr(ctn, 0, 6) = "keyof ",
+    type_ref_parent(_, cref, _, oref),
+    ref_type_target(oref, _, obj).
+
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", "STRING", a),
+    expr_literal_value("client", v, a),
+    param_keyof_object(m, pos, obj),
+    declared_field(obj, v, _, _).
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", "STRING", a),
+    expr_literal_value("client", v, a),
+    param_keyof_object(m, pos, obj),
+    declared_method(obj, v, _, _).
+
 // BETTER SOMEWHERE AND WORSE NOWHERE — both halves, which is the discipline
 // java/overload.dl states as `win_strictly_better` AND `!win_worse_anywhere`. Firing on a
 // single position alone is not domination: a candidate matching at argument 0 would beat
@@ -704,7 +793,11 @@ specificity_beaten(ce, loser) :- overload_selectable(ce, winner),
     method_group_of(loser, g),
     arg_matches_concretely(ce, winner, pos),
     !arg_matches_concretely(ce, loser, pos),
-    !specificity_worse_somewhere(ce, winner, loser).
+    !specificity_worse_somewhere(ce, winner, loser),
+    // Not against a later declaration block the argument is shown to fit: the compiler
+    // tries that block FIRST, so a concrete match in an earlier block is never reached
+    // (#422). See LATER DECLARATION BLOCKS FIRST below.
+    !block_order_wins(ce, loser, winner).
 
 // A SPECIALIZED SIGNATURE BEATS A GENERAL ONE AT THE SAME POSITION, which is a
 // specificity fact rather than an ordering one. Both `on(event: "close")` and
@@ -749,7 +842,116 @@ overload_beaten(ce, m) :- overload_selectable(ce, m),
     method_group_of(m2, g),
     overload_index_of(m2, j),
     j < i,
-    !specificity_beaten(ce, m2).
+    !specificity_beaten(ce, m2),
+    // An index counts within its own declaration block only: it restarts at 0 in every
+    // block, so across two blocks whose order is known it compares nothing.
+    !block_tried_before(m, m2).
+
+// ── LATER DECLARATION BLOCKS FIRST (#422) ───────────────────────────────────
+// A merged interface lists its members block by block, and the compiler's candidate
+// order (`reorderCandidates`) puts each LATER block ahead of the earlier ones while
+// keeping source order inside a block. So a module augmentation's `find(m: Matcher)`
+// is tried before the original `find(m: RegExp)`, and `lib.es2015.symbol.wellknown`'s
+// `match(matcher: { [Symbol.match](…) })` before `lib.es5`'s `match(regexp: string |
+// RegExp)`: with a RegExp argument both apply and the later one is what tsc selects.
+// The engine committed to the earlier one, because the concrete-match specificity rule
+// above preferred the exact `RegExp` parameter.
+//
+// Block order is only claimed where the IR states it:
+//   - an augmentation (`declare module "./x"`, `declare global`) is merged after the
+//     declarations it augments;
+//   - two blocks in one file merge in source order;
+//   - `lib.es5.d.ts` is the root every other `lib.es*.d.ts` references, so it comes first.
+// Two ordinary files reopening one interface are in program order, which the IR does not
+// carry; nothing is claimed there and the answer stays the set it was.
+method_block(m, b) :- method_owner(_, b, m), b != "".
+method_in_augmentation(m) :- method_module(_, mh, m),
+    module_decl(_, _, _, _, k, mh),
+    module_kind_is_augmentation(k).
+module_kind_is_augmentation("MODULE_AUGMENTATION").
+module_kind_is_augmentation("GLOBAL_AUGMENTATION").
+
+// Only pairs that are overloads of one another in different blocks are ever compared.
+cross_block_pair(late, early) :- method_group_of(late, g),
+    method_group_of(early, g),
+    late != early,
+    method_block(late, bl),
+    method_block(early, be),
+    bl != be.
+
+// block_tried_before(Late, Early): the compiler tries Late's block before Early's.
+block_tried_before(late, early) :- cross_block_pair(late, early),
+    method_in_augmentation(late),
+    !method_in_augmentation(early).
+block_tried_before(late, early) :- cross_block_pair(late, early),
+    method_lines(_, fp, ll, _, late),
+    method_lines(_, fp, le, _, early),
+    ll > le,
+    !augmentation_differs(late, early).
+block_tried_before(late, early) :- cross_block_pair(late, early),
+    method_lines(_, fl, _, _, late),
+    method_lines(_, fe, _, _, early),
+    match(".*lib\\.es5\\.d\\.ts", fe),
+    match(".*lib\\.es[0-9]+\\.[a-z.]*d\\.ts", fl).
+augmentation_differs(a, b) :- cross_block_pair(a, b), method_in_augmentation(a), !method_in_augmentation(b).
+augmentation_differs(a, b) :- cross_block_pair(a, b), method_in_augmentation(b), !method_in_augmentation(a).
+
+// ── The later candidate wins only where the argument is SHOWN to fit it ──────
+// Order on top of a weak applicability test is the trade the note below refuses. So the
+// later block's candidate wins only where every argument has positive evidence: a
+// concrete match, a callback against a callable parameter, or an argument type that
+// declares every required member of the parameter's type. `s.match("x")` keeps
+// `lib.es5`: `String` declares no `[Symbol.match]`, so the wellknown signature has no
+// evidence and the earlier block is still the answer.
+block_order_candidate(ce, late, early) :- overload_selectable(ce, late),
+    overload_selectable(ce, early),
+    block_tried_before(late, early).
+
+param_target_at(m, pos, t) :- block_order_candidate(_, m, _),
+    param_decl(_, _, pos, _, m, p),
+    param_type(p, _, t).
+param_target_at(m, pos, s) :- block_order_candidate(_, m, _),
+    param_decl(_, _, pos, _, m, p),
+    param_shape_target(p, s).
+param_target_required(t, name) :- param_target_at(_, _, t),
+    scope_sibling(t, sib),
+    declared_method(sib, name, "false", _).
+param_target_required(t, name) :- param_target_at(_, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, name, "false", f),
+    field_kind(_, _, _, "false", f).
+param_target_required_count(t, n) :- param_target_at(_, _, t),
+    n = count : { param_target_required(t, _) }.
+
+arg_param_pair(ce, pos, at, pt) :- block_order_candidate(ce, m, _),
+    arg_type(ce, pos, at),
+    param_target_at(m, pos, pt).
+arg_covers_member(at, pt, name) :- arg_param_pair(_, _, at, pt),
+    param_target_required(pt, name),
+    member_name_declared(at, name).
+arg_covers_param(ce, m, pos) :- block_order_candidate(ce, m, _),
+    arg_type(ce, pos, at),
+    param_target_at(m, pos, pt),
+    param_target_required_count(pt, k),
+    k > 0,
+    k = count : { arg_covers_member(at, pt, _) }.
+
+arg_evidenced(ce, m, pos) :- block_order_candidate(ce, m, _),
+    arg_matches_concretely(ce, m, pos).
+arg_evidenced(ce, m, pos) :- block_order_candidate(ce, m, _),
+    arg_covers_param(ce, m, pos).
+arg_evidenced(ce, m, pos) :- block_order_candidate(ce, m, _),
+    arg_is_function_value(ce, pos),
+    param_call_signature(m, pos).
+arg_evidence_gap(ce, m) :- block_order_candidate(ce, m, _),
+    expr_child("client", ce, "ARGUMENT", pos, _),
+    !arg_evidenced(ce, m, pos).
+
+block_order_wins(ce, late, early) :- block_order_candidate(ce, late, early),
+    !arg_evidence_gap(ce, late).
+
+overload_beaten(ce, early) :- block_order_wins(ce, late, early),
+    !specificity_beaten(ce, late).
 
 // ── WHY THERE IS NO "FIRST APPLICABLE" TIE-BREAK ───────────────────────────
 // TypeScript's own rule is that the first APPLICABLE overload wins, and implementing

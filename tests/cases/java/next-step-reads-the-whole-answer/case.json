@@ -115,7 +115,7 @@
    ]
   },
   {
-   "why": "a method reached only through the generic abstract base it overrides (the base's own body calls the abstract method) names that caller in next:, the caller the reach above printed, instead of calling the change local",
+   "why": "a method reached only through the generic abstract base it overrides (the base's own body calls the abstract method) names that caller in next:, at the call written against the base (a direct caller via the base class, #1542), instead of calling the change local",
    "run": [
     "impact",
     "RowExtractor.add"
@@ -123,7 +123,7 @@
    "want": [
     "how each is reached",
     "Extractor.extractData",
-    "place(s) bound to it: src/com/example/Extractor.java:14"
+    "place(s) bound to it: src/com/example/Extractor.java:19"
    ],
    "avoid": [
     "the change is local"
@@ -159,10 +159,10 @@
    ]
   },
   {
-   "why": "a publisher and a listener joined only through a library call are not called independent, and the call is named",
+   "why": "a publisher and a listener joined only through a library call are not called independent, and the call is named (an event typed Object matches no listener's declared type, so the event hop is not drawn)",
    "run": [
     "path",
-    "OrderService.place",
+    "OrderService.relay",
     "Audit.on"
    ],
    "expect_error": true,
@@ -182,7 +182,7 @@
    "run": [
     "path",
     "Audit.on",
-    "OrderService.place"
+    "OrderService.relay"
    ],
    "expect_error": true,
    "want": [

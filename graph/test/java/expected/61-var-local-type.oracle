@@ -1,4 +1,1 @@
-oracle=20 engine=17 agree=17 missing=3 (known 3, NEW 0) extra=0
-  known-missing  probe.VarLocals#fromEnhancedFor -> probe.Widget#paint()
-  known-missing  probe.VarLocals#fromResource -> probe.Widget#close()
-  known-missing  probe.VarLocals#lambdaParams -> probe.Widget#paint()
+oracle=37 engine=37 agree=37 missing=0 (known 0, NEW 0) extra=0

@@ -11,6 +11,31 @@ commits (when the graph is at the newer side, the declarations are the new text'
 `--staged` the index, `--old/--new/--file` two texts of one file. Each line ends with the target `impact` takes for it — a
 signature with one parameter changed is `Owner.m(param)` — and `--impact` runs impact on all of them as one change set.
 
+What to pass, and what the answer says when the question cannot be answered the way it was asked:
+
+| situation | ask | what comes back |
+|---|---|---|
+| uncommitted edits | `changed` · `test-impact` | the edits against the baseline |
+| your branch's commits | `changed --range <base>..HEAD` (MCP `range='<base>..HEAD'`) | read from `git merge-base <base> HEAD`, not from `<base>`'s tip: commits the base branch received after you branched are not yours and are left out. A `note: range base: merge-base …` line says so whenever `<base>` has moved. `a...b` means the same; `a` alone is `a..HEAD` |
+| committed work, clean tree | `changed` | `no change …` followed by `next: … HEAD is N commit(s) ahead of <ref> — ask --range <ref>..HEAD` |
+| a copy without git | `changed` | a refusal: no base to diff against. Name the files instead |
+| named files | `changed <file>…` · `test-impact <file>…` (MCP `files=[…]`) | each file's edit; a named file with no edit (or any named file on a copy without git) counts **whole**: every callable declared in it is `named`, and test-impact selects the tests of all of them |
+| a file the base does not have | (any) | one line, `added <file> — new file, N declaration(s)`, plus each new declaration something outside the file already calls, with its impact target. Never its parameters or docstring words |
+| fixtures, case data, a schema | (any) | named as `outside every indexed language`, never "no change"; test-impact lists the test files whose text names them (the path, the file name, or a quoted directory), as a `[text]` tier, and says when no test names them |
+
+**A lambda is part of what encloses it.** Every lambda a front end declares carries one name (`<lambda>`), so it is never
+the declaration an edit is charged to: an edit inside a lambda in a method is that method's `body` change, and one inside a
+field's initializer is that field's. A lambda nothing encloses (an entry in a module-level table) is its own `body`
+change, named by where it is, `module.<lambda@L15>` or `Owner.method.<lambda@L42>`, and its target is `file:line`; that
+name is also a target `impact` and `path` accept. Its parameter list is read from the lambda's own header, so an unchanged
+header is never reported as a parameter change. `impact <file>:<line>` on a field, a property, a constant or a type
+header line answers for that declaration; a callable written on the line still wins.
+
+`test-impact` also lists an edited or new **test file** as one to run, and adds it to the command. Code that is also run as a
+program (`if __name__ == '__main__'`, `static void main`, `Main`) is looked for by name in the tests, since a test that starts
+it as a subprocess or drives it from case data has no call edge to it; when no test names it the answer says the selection is
+a lower bound for it.
+
 Measured against 270 real fixes (a Java defect-benchmark arena: the fix applied to the buggy files, the declarations it reports
 against the benchmark's own scanner's reading of the same hunks, its class-level state expansion taken out): exact
 agreement on 255, 465 declarations reported for the scanner's 473 — recall 0.968, precision 0.985. Every remaining
@@ -55,7 +80,7 @@ absent, never wrong, and the `? n` count says how many.
 
 ## test-impact — which tests this edit reaches
 
-`axiomcode test-impact` takes the edit (the working tree by default, `--range a..b` or `--staged`), maps it onto the
+`axiomcode test-impact` takes the edit (the working tree by default, `--range a..b`, `--staged`, or named files), maps it onto the
 declarations through `changed`, asks `impact` which tests reach any of them, and prints the test files with the
 runner command that runs exactly those. It is `changed` + `impact --tests` with the answer shaped for a pipeline
 rather than for a reader.
@@ -75,5 +100,12 @@ library a `[sound]` route (every hop a single resolved target) was right **29 ti
 `[by name]` 0 in 1; a `[fixture]` route is right 30 times in 30 on a service where a fixture is the only way in and
 about 1 in 4 on a framework where every test builds an app. Run the sound rung first, and decide about the rest with
 the number in front of you. Skipping what it does not name is a decision about risk that this tool cannot make for
-you: a test reached only through reflection, a service loader, or a case built at runtime does not appear here.
+you: a test reached only through reflection, a service loader, a subprocess, or a case built at runtime does not appear
+here (the `[text]` tier above recovers the ones whose test names the file it loads).
+
+A test that only **stubs** a changed declaration on a mock (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`) is not
+selected for a body edit: it runs none of the body. It is named on a `not selected:` line, and it is selected when the
+change is a signature change or a removal, which breaks the stub. A test that reaches the change only through a
+framework-entered entry point (an HTTP route, an event, a mediator send) is named on a `NOT COUNTED` line, with the
+search that finds it, unless a `[by key]` route already joined it.
 

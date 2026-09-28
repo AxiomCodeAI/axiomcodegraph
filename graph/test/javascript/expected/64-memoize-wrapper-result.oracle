@@ -1,0 +1,38 @@
+app.js:16:20 FUNCTION_CALL once  EXACT  once.js:2:1
+app.js:16:31 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+app.js:17:18 FUNCTION_CALL lazy  EXACT  once.js:14:1
+app.js:17:29 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+app.js:18:19 FUNCTION_CALL once  EXACT  once.js:2:1
+app.js:18:30 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+app.js:19:19 FUNCTION_CALL lazy  EXACT  once.js:14:1
+app.js:19:30 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+app.js:29:18 FUNCTION_CALL constant  EXACT  once.js:18:1
+app.js:29:27 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+app.js:30:16 FUNCTION_CALL tap  EXACT  once.js:22:1
+app.js:30:26 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+app.js:34:3 METHOD_CALL render  EXACT  once.js:25:15
+app.js:7:18 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+app.js:8:17 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:3:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:3:43 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:3:73 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:4:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:4:43 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:4:73 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:5:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:5:43 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:5:73 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:6:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:6:44 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:6:75 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:7:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:7:44 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:7:75 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:8:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:8:44 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:8:75 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:9:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:9:44 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+many.js:9:75 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+once.js:23:30 CONSTRUCTOR_CALL Gamma  SYNTHESIZED_OK  
+# defects: 0

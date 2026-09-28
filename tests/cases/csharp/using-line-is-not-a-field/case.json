@@ -1,0 +1,6 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "an added `using X;` line declares nothing (it read as a new field X); control: a field added inside the class is still a new field of that class",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.cs", "--new", "{repo}/new.cs", "--file", "src/Cart.cs"],
+   "want": ["Cart.limit", "new field"],
+   "avoid": ["Pricing   ", "added      Pricing"]}]}

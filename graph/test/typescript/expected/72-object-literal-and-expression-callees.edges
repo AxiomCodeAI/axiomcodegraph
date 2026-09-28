@@ -1,3 +1,5 @@
+callback_registered	FUNCTION_CALL	middleware#dispatch(Entry[][],number) @L11 -> middleware#<arrow@11>()
+callback_registered	METHOD_CALL	pool#usePool(Pool) @L21 -> pool#<arrow@21>()
 known_edge	FUNCTION_CALL	fetcher#get(string,Options) @L17 -> fetcher#<arrow@4>(string)
 known_edge	FUNCTION_CALL	fetcher#load() @L21 -> fetcher#get(string,Options)
 known_edge	FUNCTION_CALL	middleware#boot() @L15 -> middleware#dispatch(Entry[][],number)

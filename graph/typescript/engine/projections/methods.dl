@@ -50,6 +50,11 @@ method_decl("lib", name, en, ret, h) :- lib_ts_method(name, _, _, _, _, _, _, _,
 method_owner("client", owner, h) :- ts_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 method_owner("lib", owner, h) :- lib_ts_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
+// ── method_access(Prov, Access, MethodHash) ─────────────────────────────────
+// Col 10, TsMethodAccess: `private` and `#name` on a class member, EXPORTED_ACCESS or
+// MODULE_LOCAL_ACCESS on a function (inside a namespace too), PUBLIC_ACCESS otherwise.
+method_access("client", acc, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, acc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
 // ── method_module(Prov, ModuleHash, MethodHash) ─────────────────────────────
 // A top-level `function f()` has NO owning type, so col 7 is empty and the module
 // is the only scope it belongs to. In Java every method has an owner; here the

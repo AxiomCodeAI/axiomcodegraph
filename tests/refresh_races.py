@@ -16,6 +16,11 @@ has a CONTROL: the nearby case that must keep behaving as it did.
                       one) and impact answers. Control: a failed build with the same main language puts that
                       language's directory back and leaves no stray link.
   failure reason      a background refresh that fails says WHY in the note a query prints, not only "see build.log".
+  copied checkout     graph.sqlite points at its graph by a relative name, so a copy reads its own graph and sees its
+                      own edits (#1605). An absolute pointer an older build left, into another checkout that is still
+                      there or gone, is re-pointed at the copy's graph and said as such, never "a build was
+                      interrupted". Controls: the original does not see the copy's edit; an absolute pointer into
+                      its own graph is kept silently.
   gitignore           the index and the refresher skip what git ignores: a generated tree .gitignore names is neither
                       parsed nor watched. Controls: a tracked file under an ignored name is read; AXIOMCODE_NO_GITIGNORE=1
                       reads everything.
@@ -99,17 +104,21 @@ def main(argv):
 
         # ── query mid-build ───────────────────────────────────────────────────────────────────────────────────
         lock = os.path.join(repo, '.axiomcode', 'build.lock')
+        # the repair above answered as soon as its graph was published (#1555) and may still be solving: it ends first,
+        # or it re-points graph.sqlite under the lock this check holds
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644); fcntl.flock(fd, fcntl.LOCK_EX); fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
         good = os.path.realpath(ptr); os.remove(ptr)
         held = threading.Event()
 
         def hold():
             fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644); fcntl.flock(fd, fcntl.LOCK_EX); held.set()
-            time.sleep(3); os.symlink(good, ptr); fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
+            try: time.sleep(3); os.symlink(good, ptr)
+            finally: fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)      # never left held: every later build would wait on it
         t = threading.Thread(target=hold); t.start(); held.wait()
         logm = os.path.getmtime(os.path.join(repo, '.axiomcode', 'build.log'))
         t0 = time.time(); r = sh(repo, AX, 'impact', 'helper', '.', env=dict(env, AXIOMCODE_NO_REFRESH='1')); took = time.time() - t0
         t.join()
-        check(r.returncode == 0 and 'caller' in r.stdout and 'a graph build is running' in r.stderr,
+        check(r.returncode == 0 and 'caller' in r.stdout and ('a graph build is running' in r.stderr or 'a graph build is already running' in r.stderr),
               f'query mid-build: a query that finds no graph while a build runs waits for it, says so, and answers ({took:.1f}s)',
               r.stdout[-600:] + r.stderr[-600:])
         check(os.path.getmtime(os.path.join(repo, '.axiomcode', 'build.log')) == logm, 'query mid-build: and starts no build of its own')
@@ -152,6 +161,39 @@ def main(argv):
               and not os.path.exists(os.path.join(mout, '.live.sqlite')),
               'control: a failed build with the same main language puts its directory back, with no stray link',
               f"{os.path.realpath(mptr)} live={os.path.exists(os.path.join(mout, '.live.sqlite'))}")
+
+        # ── copied checkout ───────────────────────────────────────────────────────────────────────────────────
+        orig = repo_with(work, 'orig', {'tsconfig.json': TSCONFIG, 'src/util.ts': UTIL})
+        b = sh(orig, AX, 'index', '.', env=env)
+        optr = os.path.join(orig, '.axiomcode', 'out', 'graph.sqlite')
+        check(b.returncode == 0 and os.path.islink(optr) and not os.path.isabs(os.readlink(optr)),
+              'copied checkout: graph.sqlite points at its graph by a name relative to its directory', f"{os.readlink(optr) if os.path.islink(optr) else '?'}\n{b.stdout[-400:]}")
+        cp = os.path.join(work, 'copy'); shutil.copytree(orig, cp, symlinks=True)
+        cptr = os.path.join(cp, '.axiomcode', 'out', 'graph.sqlite')
+        open(os.path.join(cp, 'src', 'util.ts'), 'a').write('\nexport function third(): number {\n  return helper()\n}\n')
+        check(os.path.realpath(cptr).startswith(os.path.realpath(cp) + os.sep), 'copied checkout: the copy reads its own graph', os.path.realpath(cptr))
+        b = sh(cp, AX, 'index', '.', env=env)
+        r = sh(cp, AX, 'impact', 'helper', '.', env=quiet)
+        check(b.returncode == 0 and r.returncode == 0 and 'third' in r.stdout and os.path.realpath(cptr).startswith(os.path.realpath(cp) + os.sep),
+              'copied checkout: the copy rebuilds its own graph and sees its own edit', b.stdout[-400:] + r.stdout[-600:] + r.stderr[-600:])
+        r = sh(orig, AX, 'impact', 'helper', '.', env=quiet)
+        check(r.returncode == 0 and 'third' not in r.stdout and 'caller' in r.stdout, 'control: the original does not see the copy\'s edit', r.stdout[-400:])
+        # a pointer an older build left: absolute, into the original, whether the original is still there or gone
+        leg = os.path.join(work, 'legacy'); shutil.copytree(orig, leg, symlinks=True)
+        lptr = os.path.join(leg, '.axiomcode', 'out', 'graph.sqlite'); logp = os.path.join(leg, '.axiomcode', 'build.log')
+        for case, target in (('the original still there', os.path.realpath(optr)),
+                             ('the original moved away', os.path.join(work, 'gone', '.axiomcode', 'out', 'typescript', 'graph.sqlite'))):
+            os.remove(lptr); os.symlink(target, lptr); logm = os.path.getmtime(logp)
+            r = sh(leg, AX, 'impact', 'helper', '.', env=quiet)
+            check(r.returncode == 0 and 'caller' in r.stdout and "another checkout's graph" in r.stderr and 're-pointed at its own graph' in r.stderr
+                  and 'interrupted' not in r.stderr and os.readlink(lptr) == 'typescript/graph.sqlite' and os.path.getmtime(logp) == logm,
+                  f'copied checkout: an absolute pointer into another checkout ({case}) is re-pointed at this one\'s graph, said as such, with no rebuild',
+                  f"{os.readlink(lptr)}\n" + r.stdout[-400:] + r.stderr[-600:])
+        # control: an absolute pointer into this checkout's own out/ is its graph, re-pointed without a word
+        os.remove(lptr); os.symlink(os.path.join(os.path.realpath(leg), '.axiomcode', 'out', 'typescript', 'graph.sqlite'), lptr)
+        r = sh(leg, AX, 'impact', 'helper', '.', env=quiet)
+        check(r.returncode == 0 and 'caller' in r.stdout and 'another checkout' not in r.stderr and os.readlink(lptr) == 'typescript/graph.sqlite',
+              'control: an older absolute pointer into its own graph is kept, relative, silently', r.stderr[-400:])
 
         # ── gitignore ─────────────────────────────────────────────────────────────────────────────────────────
         gen = {f'gen/deep/g{i}.ts': f'export function gen{i}(): number {{\n  return {i}\n}}\n' for i in range(200)}

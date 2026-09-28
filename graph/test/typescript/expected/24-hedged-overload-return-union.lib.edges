@@ -1,4 +1,4 @@
-boundary_lib	METHOD_CALL	consumer#viaVideo(Factory) @L17 -> Factory#create(string)
+boundary_lib	METHOD_CALL	consumer#viaVideo(Factory) @L17 -> Factory#create(T)
 boundary_lib	METHOD_CALL	consumer#viaVideo(Factory) @L18 -> BaseWidget#attach(string)
 boundary_lib	METHOD_CALL	consumer#viaVideo(Factory) @L18 -> SourceWidget#attach(string)
 boundary_lib	METHOD_CALL	consumer#viaVideo(Factory) @L18 -> VideoWidget#attach(string)

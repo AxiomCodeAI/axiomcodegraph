@@ -162,9 +162,45 @@ def check_words():
              ("print it with --json", "print it with --json"),
              ("           49 |   args = ['--in', path, '--tests-only']", "           49 |   args = ['--in', path, '--tests-only']"),
              ("              | … +23 more line(s) --limit", "              | … +23 more line(s) --limit"),
-             ("a pre-built --lang java graph", "a pre-built --lang java graph")]
+             ("a pre-built --lang java graph", "a pre-built --lang java graph"),
+             # a site of a grep-shaped answer is the file's own text: a flag written in that code stays as written
+             ("tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]",
+              "tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]"),
+             # and the footer under the sites is prose, rewritten as ever
+             ("… +3 more not listed: 3 [text] — pass --in <path> to narrow", "… +3 more not listed: 3 [text] — pass in_path=<path> to narrow")]
     return [f"mcp_words({src!r}) gave {server.mcp_words(src)!r}, want {want!r}"
             for src, want in cases if server.mcp_words(src) != want]
+
+
+def check_grep_default():
+    """A list of sites comes one per line (--grep) by default; full=True, and every parameter asking for what only the
+    prose carries (a flow's code, test routes, a delete verdict, a later page), gives the verb's own answer."""
+    sys.path.insert(0, os.path.dirname(SERVER))
+    import server
+    seen = []
+    real, server.run = server.run, (lambda args, *a, **k: seen.append(args) or '')
+    try:
+        grep = [lambda: server.axiomcode_impact(['A.f']), lambda: server.axiomcode_path('a', 'b'),
+                lambda: server.axiomcode_context('how'), lambda: server.axiomcode_test_impact(),
+                lambda: server.axiomcode_impact(['A.f'], tests=True, limit=5)]
+        prose = [lambda: server.axiomcode_impact(['A.f'], full=True), lambda: server.axiomcode_impact(['A.f'], delete=True),
+                 lambda: server.axiomcode_impact(['A.f'], why=True, tests=True), lambda: server.axiomcode_impact(['A.f'], page=2),
+                 lambda: server.axiomcode_path('a', 'b', full=True), lambda: server.axiomcode_context('how', source=True),
+                 lambda: server.axiomcode_context('how', from_='main'), lambda: server.axiomcode_test_impact(why=True),
+                 lambda: server.axiomcode_changed()]
+        bad = []
+        for f in grep:
+            seen.clear(); f()
+            if '--grep' not in seen[0]: bad.append(f"sites answer without --grep: {seen[0]}")
+        seen.clear(); grep[-1]()
+        if '--grep-limit' not in seen[0]: bad.append(f"limit=5 did not cap the sites: {seen[0]}")
+        if '--limit' in seen[0]: bad.append(f"limit=5 passed as the prose's --limit under --grep: {seen[0]}")
+        for f in prose:
+            seen.clear(); f()
+            if any(a.startswith('--grep') for a in seen[0]): bad.append(f"prose asked for, got --grep: {seen[0]}")
+        return bad
+    finally:
+        server.run = real
 
 
 def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
@@ -203,6 +239,7 @@ def main():
         # the SDK when the launcher finds one, which ignored an argument it did not know (#1567); else the fallback again
         bad += check_arguments('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo, lax=True)
         bad += check_words()
+        bad += check_grep_default()
         bad += check('symlinked axiomcode mcp', [link, 'mcp'], repo)
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)

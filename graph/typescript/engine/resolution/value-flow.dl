@@ -188,7 +188,50 @@ holder_value(v, e) :- var_initializer("client", _, e, v), e != "".
 holder_value(v, e) :- var_reassigned_value(v, e).
 holder_value(p, a) :- expr_child("client", ce, "ARGUMENT", pos, a),
     expr_resolves_to_method(ce, callee),                 # the overload the call SELECTS, not every candidate:
-    param_decl("client", _, pos, _, callee, p).          # an arrow passed to on("close", …) is not a listener of every on
+    param_decl("client", _, pos, _, callee, p),          # an arrow passed to on("close", …) is not a listener of every on
+    !hof_boundary_site(ce).                              # …and a parameter no body reads holds nothing (below)
+
+// ============================================================================
+// A FUNCTION HANDED TO A HIGHER-ORDER FUNCTION WITH NO BODY  (the library boundary)
+//
+// `xs.map((x) => f(x))` where `map` is a declaration with no body in the client: a `.d.ts`
+// interface member, an ambient `declare function`, an interface method nothing implements.
+// Stored in the parameter, the arrow became a `value` candidate of the parameter's function
+// type, and that ONE signature is shared by every `.map` call in the repository: a walk up
+// from any map callback reached every caller of `.map`, and a walk down from any caller of
+// `.map` reached every map callback. One constant read inside one arrow reached 1,078
+// callables in 198 files. No body can call through the parameter, so the envelope row
+// said nothing true that the call site does not say better.
+//
+// The call SITE is what hands the function over, so the edge is the site's own: the
+// function that writes `xs.map(cb)` reaches `cb` (call_chain.dl, `callback_registered`),
+// and a callback passed at one site is never reached from another.
+//
+// Only where no CLIENT body runs at the site. A project function that calls its parameter
+// keeps the holder rule: its body is what runs the callback, and that is a real call.
+// ============================================================================
+call_runs_client_body(ce) :- call_runs_method(ce, m), method_prov(m, "client").
+hof_boundary_site(ce) :- call_site("client", _, _, _, _, ce, _), !call_runs_client_body(ce).
+
+value_branch(a, a) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    !expr_kind("client", "CALL_EXPRESSION", _, x),        # `xs.map(make())` hands over what make RETURNS
+    expr_callable(x, m).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    expr_referenced("client", k, h, x),
+    holder_ref_kind(k),
+    holder_holds_function(h, m).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    ts_field_access_target(x, f),
+    holder_holds_function(f, m).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    expr_kind("client", "CALL_EXPRESSION", _, x),
+    call_runs(x, f),
+    holder_holds_function(f, m).
 
 // ── value_branch(Root, Expr): Expr is a value Root can evaluate to ──
 value_branch(e, e) :- holder_value(_, e).
@@ -438,3 +481,138 @@ called_through(ce, sig) :- call_callee_expr(_, ce, ne), member_sig_access(ne, si
 method_dispatch_candidate(sig, m, "value") :- member_sig_access(_, sig),
     holder_holds_function(sig, m),
     m != sig.
+
+// ============================================================================
+// A FUNCTION HELD AS AN ELEMENT OF A COLLECTION, AND THE CALL THAT RUNS IT  (#967)
+//
+// `const steps = [widen, narrow]; for (const s of steps) s(node)`. A pipeline registers
+// its steps as DATA and calls them by position: the registration is a reference, not a
+// call, and the invocation names an element, not a declaration. Neither line was an edge,
+// so `widen` had no caller and every declaration it reaches inherited that silence: impact
+// on a helper three hops down answered "0 tests" while the tests were all indexed.
+//
+// The holder rules above follow a function into a variable, field or parameter. This adds
+// the one step they lacked: a holder whose value is an ARRAY or OBJECT LITERAL holds each
+// callable ELEMENT of it, and a read of an element runs what the holder's elements hold:
+//
+//   * `for (const s of h)`, `for (const s of Object.values(h))`  the loop binding holds them;
+//   * `h[i](x)`, `h[kind](x)`, `const s = h[i]`                  the element access is one;
+//   * `h.forEach((s) => s(x))`, `h.reduce((acc, s) => s(acc), x)`  the callback's element parameter holds them;
+//   * `h.run(x)` over `{ run: runImpl }`                         only the property of that name.
+//
+// A literal reaches a holder by every route holder_value already has (an initializer, an
+// argument a resolved call passes, a field an options literal fills), through `as const`
+// and `satisfies`, and `push`/`unshift` and a spread `[...base, f]` add to it.
+//
+// Envelope only, like every rule in this file: the call-site answer does not move, and a
+// call run this way is a `fn_value_call` — a dispatch-rung route, not a resolved edge,
+// which is the certainty it has: `steps[0]` runs ONE of the elements.
+// ============================================================================
+
+// ── holder_elem_value(Holder, Expr): Expr is an element of a collection the holder holds ──
+holder_elem_value(h, x) :- holder_value(h, e),
+    value_branch(e, lit),
+    expr_kind("client", k, _, lit),
+    collection_literal_child(k, r),
+    expr_child("client", lit, r, _, x).
+collection_literal_child("ARRAY_LITERAL", "ARRAY_ELEMENT").
+collection_literal_child("OBJECT_LITERAL", "OBJECT_PROPERTY_VALUE").
+// `h.push(f)`, `h.unshift(f)` — a registry filled after it is declared
+holder_elem_value(h, a) :- call_site("client", "METHOD_CALL", n, _, recv, ce, _),
+    array_method_adds(n),
+    expr_holder(recv, h),
+    expr_child("client", ce, "ARGUMENT", _, a).
+array_method_adds("push").
+array_method_adds("unshift").
+
+// ── expr_holder(Expr, Holder): the expression names the holder ──
+expr_holder(x, h) :- expr_referenced("client", k, h, x), holder_ref_kind(k).
+expr_holder(x, f) :- ts_field_access_target(x, f).
+// an imported `const` is the exporting module's variable
+expr_holder(x, v) :- expr_referenced("client", "IMPORT_BINDING", ih, x),
+    import_binds(ih, _, "VARIABLE", v).
+
+// ── holder_elem_fn(Holder, Fn): an element of the holder's collection is, or holds, Fn ──
+holder_elem_fn(h, m) :- holder_elem_value(h, x),
+    !expr_kind("client", "CALL_EXPRESSION", _, x),
+    expr_callable(x, m).
+holder_elem_fn(h, m) :- holder_elem_value(h, x),
+    expr_holder(x, h2),
+    holder_holds_function(h2, m).
+// an object literal's own method: `{ run() {…} }`
+holder_elem_fn(h, m) :- holder_value(h, e),
+    value_branch(e, l),
+    objlit_member_fn(l, _, m).
+// `[...base, f]` — the spread array's elements are this one's
+holder_elem_fn(h, m) :- holder_elem_value(h, x),
+    expr_kind("client", "SPREAD_ELEMENT", _, x),
+    expr_child("client", x, "SPREAD_OPERAND", _, y),
+    expr_holder(y, h2),
+    holder_elem_fn(h2, m).
+// `const all = steps` — a holder handed another holder's collection holds its elements
+holder_elem_fn(h, m) :- holder_value(h, e),
+    value_branch(e, x),
+    expr_holder(x, h2),
+    h2 != h,
+    holder_elem_fn(h2, m).
+
+// ── the reads ───────────────────────────────────────────────────────────────
+// `h[i]`, `h[kind]`: any element (an index or a computed key picks one we cannot)
+elem_read_fn(x, m) :- expr_kind("client", "ELEMENT_ACCESS", _, x),
+    expr_child("client", x, "RECEIVER", _, r),
+    expr_holder(r, h),
+    holder_elem_fn(h, m).
+// `h.run`: the property of that name, when the holder holds an object literal
+elem_read_fn(x, m) :- property_access_name(x, n),
+    expr_child("client", x, "RECEIVER", _, r),
+    expr_holder(r, h),
+    holder_value(h, e),
+    value_branch(e, l),
+    objlit_prop(l, n, val),
+    expr_callable(val, m).
+elem_read_fn(x, m) :- property_access_name(x, n),
+    expr_child("client", x, "RECEIVER", _, r),
+    expr_holder(r, h),
+    holder_value(h, e),
+    value_branch(e, l),
+    objlit_prop(l, n, val),
+    expr_holder(val, h2),
+    holder_holds_function(h2, m).
+
+// the collection an expression iterates: a holder, or `Object.values(holder)`
+iterated_elem_fn(e, m) :- expr_holder(e, h), holder_elem_fn(h, m).
+iterated_elem_fn(ce, m) :- call_site("client", "METHOD_CALL", "values", _, recv, ce, _),
+    expr_literal_value("client", "Object", recv),
+    expr_referenced("client", "AMBIENT_GLOBAL", _, recv),
+    expr_child("client", ce, "ARGUMENT", "0", a),
+    expr_holder(a, h),
+    holder_elem_fn(h, m).
+
+// `for (const s of h)` — a plain binding; a destructuring pattern names a PART of the element
+holder_holds_function(v, m) :- for_binding_iterable(v, e),
+    !var_binding("client", _, _, _, _, v),
+    iterated_elem_fn(e, m).
+// `const s = h[i]`
+holder_holds_function(h, m) :- holder_value(h, e),
+    value_branch(e, x),
+    elem_read_fn(x, m).
+// `h.forEach((s) => …)`: the callback parameter that receives an element
+holder_holds_function(p, m) :- call_site("client", "METHOD_CALL", n, _, recv, ce, _),
+    array_method_element_param(n, pos),
+    iterated_elem_fn(recv, m),
+    expr_child("client", ce, "ARGUMENT", "0", a),
+    expr_anon_decl("client", cb, a),
+    param_decl("client", _, pos, _, cb, p).
+array_method_element_param("forEach", "0").
+array_method_element_param("map", "0").
+array_method_element_param("flatMap", "0").
+array_method_element_param("filter", "0").
+array_method_element_param("find", "0").
+array_method_element_param("findLast", "0").
+array_method_element_param("some", "0").
+array_method_element_param("every", "0").
+array_method_element_param("reduce", "1").
+array_method_element_param("reduceRight", "1").
+
+// `h[i](x)`, `h.run(x)`
+call_runs(ce, m) :- call_callee_expr(_, ce, ne), elem_read_fn(ne, m).
