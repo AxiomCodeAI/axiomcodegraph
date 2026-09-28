@@ -583,10 +583,11 @@ class G:
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
-    # is up to date and nothing rebuilds). 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the
-    # bare mtime.
-    # 3: a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites).
-    EXPORT_VERSION = '3'
+    # is up to date and nothing rebuilds). 4: both 3s below, which landed on two branches under one number;
+    # 3 (0.1.5): on one line a JavaScript anonymous callable nests only where its name does (#1598);
+    # 3 (0.1.6): a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites);
+    # 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
+    EXPORT_VERSION = '4'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return
@@ -605,7 +606,7 @@ class G:
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
         # a callable defined inside another one's body: nobody calls it by name, but it runs only after its definer did.
         # One builder for this and the fast path (graph_sql._edges), so the two cannot disagree on what contains what.
-        edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'])
+        edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'], r.get('qualified_name'))
                                          for r in self.sym.values() if r['method_id'] and r['kind'] != 'module'),
                                         ax_edges.sites_of(lambda s, p: self.q(s, *p)) if self.has('call_sites') else None)
         # a call resolved to a base may run any instantiated override: the engine's own dispatch table
