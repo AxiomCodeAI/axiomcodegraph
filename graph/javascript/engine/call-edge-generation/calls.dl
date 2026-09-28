@@ -78,13 +78,83 @@ unresolved_receiver(ce, cn, ck, "other_form") :- call_site("client", ck, cn, _, 
 // name narrows what it calls, so any function that escapes as a value may be the
 // callee, and a question that finds no chain from its caller must answer "unknown",
 // never "independent" (#1649). Binding: parameter | loop_variable | local |
-// computed | dynamic_code. An imported binding is not one: it names a module
-// member, and a module-level binding is left to the by-name leads.
+// computed | dynamic_code | module_variable | field | parameter_member | expression.
+// An imported binding is not one: it names a module member.
 value_callee_open(ce, c) :- call_site("client", ck, _, _, _, _, ce, _, _), !call_kind_is_dynamic(ck),
     !call_resolved(ce), !callee_value_known(ce), expr_child(_, ce, "CALLEE", _, c).
 unresolved_value_callee(ce, "parameter") :- value_callee_open(ce, c), expr_param(_, _, c).
 unresolved_value_callee(ce, "loop_variable") :- value_callee_open(ce, c), expr_binding(_, v, c), loop_head(v, _).
 unresolved_value_callee(ce, "local") :- value_callee_open(ce, c), expr_binding(_, v, c), !loop_head(v, _),
     var_owner_method("client", _, v), !var_import(_, _, v), !expr_param(_, _, c).
+// The two below keep a callee whose value IS known but calls nothing the graph holds
+// (`let handler = null`, a constructed `Function`): the value in the graph is not
+// the one the call runs.
+value_callee_unresolved(ce, c) :- call_site("client", ck, _, _, _, _, ce, _, _), !call_kind_is_dynamic(ck),
+    !call_resolved(ce), expr_child(_, ce, "CALLEE", _, c).
+// `let handler = null; … handler()`: a module-level variable holds whatever a setter
+// or an importer stored in it (#1675). One holding a platform function
+// (`let f = Math.floor`) is a platform call; `null` is a literal, not a function.
+unresolved_value_callee(ce, "module_variable") :- value_callee_unresolved(ce, c), expr_binding(_, v, c),
+    var_decl("client", _, _, _, _, _, v), !var_owner_method("client", _, v), !var_import(_, _, v), !expr_param(_, _, c),
+    !callee_platform_function(ce), !module_variable_from_call(v).
+callee_platform_function(ce) :- callee_value(ce, "ambient", n), n != "LITERAL".
+// `const log = require('debug')('app')`: a variable only ever holding what a call
+// returned holds a function the library made, not one a setter stored. One that
+// was handed a function (`const Card = memo(Inner)`) may call it, so stays open.
+module_variable_from_call(v) :- var_init("client", _, e, v), expr_kind(_, k, _, e), (k = "CALL" ; k = "NEW"),
+    !variable_reassigned(v), !call_passes_function(e).
+call_passes_function(e) :- call_arg(e, _, a), expr_value(a, "func", _).
+call_passes_function(e) :- call_arg(e, _, a), expr_introduces(_, _, a).
+variable_reassigned(v) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_binding(_, v, tgt).
+// `(c ? a : b)()`, `(0, cb)()`, `make()()`: the callee is computed by an expression.
+// `new Function(s)()` / `Function(s)()` runs code built at run time.
+unresolved_value_callee(ce, "dynamic_code") :- value_callee_unresolved(ce, c), callee_builds_code(c).
+unresolved_value_callee(ce, "expression") :- value_callee_open(ce, c), expr_kind(_, k, _, c),
+    k != "IDENTIFIER", k != "THIS", k != "SUPER", !callee_builds_code(c).
+callee_builds_code(c) :- expr_kind(_, k, _, c), (k = "NEW" ; k = "CALL"), expr_child(_, c, "CALLEE", _, f),
+    expr_text(_, "Function", f), expr_binding_resolution(_, "GLOBAL_BUILTIN", f).
+// `this.cb()` where `cb` is a field (`this.cb = cb`), not a method: the function
+// stored there is whatever the constructor or a setter was handed. The same for
+// `self.cb()` (`const self = this`), a static `this.cb()`, `new this.Ctor()`, and a
+// field that holds only `null` until a setter runs.
+unresolved_value_callee(ce, "field") :- field_call(ce, k, t, n), !call_resolved(ce), !callee_holds_function(ce),
+    this_field_named(k, t, n).
+// `this.cb = cb || function () {}`: the call resolves to the fallback, but the
+// parameter it falls back from is a function no caller in the graph supplies.
+unresolved_value_callee(ce, "field") :- field_call(ce, k, t, n), field_open_fallback(k, t, n).
+field_call(ce, k, t, n) :- call_site("client", ck, n, "SYNTACTIC", _, _, ce, _, _),
+    (call_kind_is_member_form(ck) ; ck = "CONSTRUCTOR_CALL"), !call_kind_is_dynamic(ck),
+    expr_child(_, ce, "RECEIVER", _, r), instance_or_class_value(r, k, t).
+instance_or_class_value(r, k, t) :- expr_kind(_, rk, _, r), (rk = "THIS" ; rk = "IDENTIFIER"), expr_value(r, k, t),
+    (k = "inst" ; k = "ctor").
+callee_holds_function(ce) :- callee_value(ce, k, n), (k = "func" ; k = "ctor" ; (k = "ambient", n != "LITERAL")).
+callee_holds_function(ce) :- new_callee_value(ce, _, _).
+this_field_named(k, t, n) :- field_decl("client", n, t, _, _, _, _, _), (k = "inst" ; k = "ctor").
+this_field_named(k, t, n) :- type_ancestor(t, a), field_decl("client", n, a, _, _, _, _, _), (k = "inst" ; k = "ctor").
+this_field_named(k, t, n) :- field_assignment(k, t, n, _).
+field_assignment(k, t, n, val) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r),
+    instance_or_class_value(r, k, t), expr_child(_, a, "ASSIGNMENT_VALUE", _, val).
+field_open_fallback(k, t, n) :- field_assignment(k, t, n, val), expr_kind(_, "BINARY", _, val), expr_operator(_, op, val),
+    (op = "||" ; op = "??"), expr_child(_, val, "OPERAND", _, p), expr_param(_, _, p), !expr_value(p, "func", _).
+// A callback in an options object: a member of an untyped parameter that the code
+// treats as an optional FUNCTION — `opts.onReady?.()`, `typeof opts.onReady ===
+// 'function'`, `opts.onReady && opts.onReady()`. A bare `res.send()` / `s.trim()` on
+// an untyped parameter is left out: without a type it reads the same as a library
+// or platform method, and counting it made 10 of 12 independent pairs on a real
+// Express app unknown.
+unresolved_value_callee(ce, "parameter_member") :- call_site("client", ck, n, "SYNTACTIC", _, _, ce, _, _),
+    call_kind_is_member_form(ck), !call_kind_is_dynamic(ck), !call_resolved(ce), !callee_value_known(ce),
+    !ambient_site(ce), expr_child(_, ce, "RECEIVER", _, r), expr_param(_, p, r),
+    (ck = "OPTIONAL_CALL" ; param_member_tested(p, n)).
+param_member_tested(p, n) :- expr_kind(_, "UNARY", _, u), expr_operator(_, "typeof", u), expr_child(_, u, _, _, a),
+    param_member_read(a, p, n).
+param_member_tested(p, n) :- expr_kind(_, "BINARY", _, b), expr_operator(_, op, b), (op = "&&" ; op = "||" ; op = "??"),
+    expr_child(_, b, "OPERAND", _, a), param_member_read(a, p, n).
+param_member_tested(p, n) :- expr_child(_, _, "CONDITION", _, a), param_member_read(a, p, n).
+param_member_tested(p, n) :- expr_root(_, "CONDITION", a), param_member_read(a, p, n).
+param_member_read(a, p, n) :- expr_kind(_, k, _, a), (k = "PROPERTY_ACCESS" ; k = "OPTIONAL_ACCESS"), expr_name(_, n, a),
+    expr_child(_, a, "ACCESS_TARGET", _, t), expr_param(_, p, t).
 unresolved_value_callee(ce, "computed") :- call_site("client", "COMPUTED_CALL", _, _, _, _, ce, _, _), !call_resolved(ce).
 unresolved_value_callee(ce, "dynamic_code") :- call_site("client", "DYNAMIC_CODE_CALL", _, _, _, _, ce, _, _), !call_resolved(ce).

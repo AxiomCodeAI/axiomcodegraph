@@ -1,0 +1,5 @@
+shapes.js:43:48 METHOD_CALL own  EXACT  shapes.js:43:13
+shapes.js:44:65 METHOD_CALL fn  EXACT  shapes.js:3:1
+shapes.js:46:31 CONSTRUCTOR_CALL Own  SYNTHESIZED_OK  
+shapes.js:46:49 METHOD_CALL run  EXACT  shapes.js:43:33
+# defects: 0

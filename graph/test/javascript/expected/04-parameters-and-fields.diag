@@ -1,2 +1,3 @@
 package_entry    probe4  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       a.js:8:11  METHOD_CALL typed  member_absent
+value_callee     a.js:8:11  this.typed  field
