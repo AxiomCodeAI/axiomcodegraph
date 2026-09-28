@@ -29,8 +29,8 @@ assign_like_site(ce, tgt, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "MET
 assign_like_site(ce, tgt, src) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "func", m), model_assign_like_function(m),
     call_arg(ce, 0, tgt), call_arg(ce, 1, src).
 model_assign_like_function(m) :- module_export_value(mod, "default", "func", m), module_package("lib", "merge-descriptors", mod).
-member_write(k, i, n, k2, i2) :- assign_like_site(_, tgt, src), expr_value(tgt, k, i), k != "ambient",
-    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2).
+member_write(k, i, n, k2, i2) :- assign_like_site(_, tgt, src), expr_value(tgt, k, i), !shared_identity_kind(k),
+    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2), (k != "shape" ; shape_stores_kind(k2)).
 // The call evaluates to its target.
 expr_value(ce, k, i) :- assign_like_site(ce, tgt, _), expr_value(tgt, k, i).
 
@@ -49,7 +49,7 @@ object_create_site(ce, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD
     expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
     call_arg(ce, 0, src).
 expr_value(ce, "obj", ce) :- object_create_site(ce, _).
-inherits_from(k, i, k0, i0) :- inherit_like_site(_, tgt, src), expr_value(tgt, k, i), k != "ambient", expr_value(src, k0, i0).
+inherits_from(k, i, k0, i0) :- inherit_like_site(_, tgt, src), expr_value(tgt, k, i), !shared_identity_kind(k), expr_value(src, k0, i0).
 inherits_from("obj", ce, k0, i0) :- object_create_site(ce, src), expr_value(src, k0, i0).
 prop_value(k, i, n, k2, i2) :- inherits_from(k, i, k0, i0), prop_value(k0, i0, n, k2, i2).
 // `Object.setPrototypeOf(Child.prototype, Parent.prototype)` — the spelling of
@@ -164,8 +164,8 @@ descriptor_value(d, k, i) :- literal_owns_method(d, g), method_decl(_, "get", _,
 define_property_site(ce, tgt, key, desc) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "defineProperty", _, _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
     call_arg(ce, 0, tgt), call_arg(ce, 1, key), call_arg(ce, 2, desc).
-member_write(k, i, n, k2, i2) :- define_property_site(_, tgt, key, desc), expr_value(tgt, k, i), k != "ambient",
-    expr_value(key, "str", n), descriptor_value(desc, k2, i2).
+member_write(k, i, n, k2, i2) :- define_property_site(_, tgt, key, desc), expr_value(tgt, k, i), !shared_identity_kind(k),
+    expr_value(key, "str", n), descriptor_value(desc, k2, i2), (k != "shape" ; shape_stores_kind(k2)).
 // `Object.defineProperties(o, { n: desc, … })` and `Object.create(proto, { n: desc })`.
 descriptors_literal_entry(lit, n, desc) :- expr_child(_, lit, "PROPERTY_KEY", idx, key), expr_name(_, n, key),
     expr_child(_, lit, "PROPERTY_VALUE", idx, desc).
@@ -173,8 +173,9 @@ descriptors_literal_entry(lit, n, desc) :- expr_child(_, lit, "COMPUTED_KEY", id
     expr_child(_, lit, "PROPERTY_VALUE", idx, desc).
 member_write(k, i, n, k2, i2) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "defineProperties", _, _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
-    call_arg(ce, 0, tgt), expr_value(tgt, k, i), k != "ambient",
-    call_arg(ce, 1, lit), descriptors_literal_entry(lit, n, desc), descriptor_value(desc, k2, i2).
+    call_arg(ce, 0, tgt), expr_value(tgt, k, i), !shared_identity_kind(k),
+    call_arg(ce, 1, lit), descriptors_literal_entry(lit, n, desc), descriptor_value(desc, k2, i2),
+    (k != "shape" ; shape_stores_kind(k2)).
 member_write("obj", ce, n, k2, i2) :- object_create_site(ce, _), call_arg(ce, 1, lit),
     descriptors_literal_entry(lit, n, desc), descriptor_value(desc, k2, i2).
 // The call evaluates to its target (`Object.defineProperty(o, …)` returns o).

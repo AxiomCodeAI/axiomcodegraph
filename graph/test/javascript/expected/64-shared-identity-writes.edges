@@ -1,0 +1,14 @@
+main.js:12:1 FUNCTION_CALL tagString  ->  known_edge  main.js:11:1 tagString
+main.js:13:36 METHOD_CALL 'k'.fn  ->  ambient_terminal  -
+main.js:25:32 CONSTRUCTOR_CALL Left  ->  implicit_constructor  -
+main.js:27:33 CONSTRUCTOR_CALL Right  ->  implicit_constructor  -
+main.js:29:30 METHOD_CALL e.side.go  ->  known_edge  main.js:18:14 go
+main.js:31:1 FUNCTION_CALL putLeft  ->  known_edge  main.js:25:1 putLeft
+main.js:32:32 FUNCTION_CALL goEntry  ->  known_edge  main.js:29:1 goEntry
+main.js:34:1 FUNCTION_CALL putRight  ->  known_edge  main.js:27:1 putRight
+main.js:45:33 METHOD_CALL hooks.onError  ->  known_edge  main.js:4:1 alpha
+main.js:55:27 METHOD_CALL c.widget.render  ->  known_edge  main.js:49:16 render
+main.js:58:32 METHOD_CALL holder.run  ->  known_edge  main.js:4:1 alpha
+main.js:60:33 CONSTRUCTOR_CALL Box  ->  known_edge  main.js:59:13 <constructor>
+main.js:60:33 METHOD_CALL new Box().run  ->  known_edge  main.js:5:1 beta
+main.js:9:31 METHOD_CALL 'k'.fn  ->  ambient_terminal  -

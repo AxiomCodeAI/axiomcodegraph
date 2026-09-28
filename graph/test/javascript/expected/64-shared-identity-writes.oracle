@@ -1,0 +1,11 @@
+main.js:12:1 FUNCTION_CALL tagString  EXACT  main.js:11:1
+main.js:25:32 CONSTRUCTOR_CALL Left  SYNTHESIZED_OK  
+main.js:27:33 CONSTRUCTOR_CALL Right  SYNTHESIZED_OK  
+main.js:31:1 FUNCTION_CALL putLeft  EXACT  main.js:25:1
+main.js:32:32 FUNCTION_CALL goEntry  EXACT  main.js:29:1
+main.js:34:1 FUNCTION_CALL putRight  EXACT  main.js:27:1
+main.js:55:27 METHOD_CALL render  EXACT  main.js:49:16
+main.js:58:32 METHOD_CALL run  EXACT  main.js:4:1
+main.js:60:33 CONSTRUCTOR_CALL Box  EXACT  main.js:59:13
+main.js:60:33 METHOD_CALL run  EXACT  main.js:5:1
+# defects: 0
