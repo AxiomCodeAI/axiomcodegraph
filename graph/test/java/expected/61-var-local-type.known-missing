@@ -1,0 +1,13 @@
+# Accepted gap, measured by the bytecode oracle in CI: a `var` local whose type comes from something
+# other than its initializer expression is left a declared unknown. Before #1401 each of these was a
+# wrong `external:var.<m>` edge; now the receiver is honestly untyped. Three shapes:
+#   - the element variable of an enhanced for loop (`for (var w : widgets)`): its type is the
+#     iterable's element type;
+#   - a try-with-resources variable (`try (var w = open())` where open() is not typed client-side);
+#   - `var` lambda parameters (`(var w) -> w.paint()`): the type comes from the target functional
+#     interface.
+# Follow-up: type `var` in these three shapes. It cannot rot: when one starts resolving, this line
+# reports NOW-FIXED and the case fails until it is removed.
+probe.VarLocals#fromEnhancedFor -> probe.Widget#paint()
+probe.VarLocals#fromResource -> probe.Widget#close()
+probe.VarLocals#lambdaParams -> probe.Widget#paint()
