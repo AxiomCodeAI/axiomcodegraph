@@ -1,5 +1,5 @@
-from formatters import FormatterPlugin
+from greeters import Greeter
 
 
-def show(f: FormatterPlugin, body):
-    return f.format_body(body, 'application/json')
+def show(g: Greeter, name):
+    return g.greet(name, 'plain')

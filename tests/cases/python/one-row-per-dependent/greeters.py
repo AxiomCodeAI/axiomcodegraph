@@ -1,11 +1,11 @@
-class FormatterPlugin:
-    def format_body(self, content, mime):
-        return content
+class Greeter:
+    def greet(self, name, style):
+        return name
 
 
-class JSONFormatter(FormatterPlugin):
-    def format_body(self, content, mime):
-        return content.strip()
+class LoudGreeter(Greeter):
+    def greet(self, name, style):
+        return name.upper()
 
 
 class Box:

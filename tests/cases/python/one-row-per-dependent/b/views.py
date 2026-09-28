@@ -1,5 +1,5 @@
-from formatters import FormatterPlugin
+from greeters import Greeter
 
 
-def show(f: FormatterPlugin, body):
-    return f.format_body(body, 'text/plain')
+def show(g: Greeter, name):
+    return g.greet(name, 'loud')
