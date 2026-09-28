@@ -50,10 +50,52 @@ def _classify(fp):
     return 1 if b'\0' in head else 0
 
 
+# ── which name matches are noise ─────────────────────────────────────────────────────────────────────────
+# Two rules, applied to every hit before anyone sees it (impact's "bound from outside the source", context's text
+# bindings):
+#
+#   OUT OF SCOPE. A shell script or a Datalog file is never analysed, so a name matched inside one is noise by rule:
+#   `hits` for a method `hits` was 21 rows, most of them CI scripts and rule comments. An extensionless script is
+#   one by its first line (`mvnw`, `gradlew`: `#!/bin/sh`).
+#
+#   PROSE. A name that is a plain English word (`note`, `export`, `build`, `validate`: lowercase letters only, no `_`
+#   and no case boundary) is written as a word in templates, YAML, CI files and comments far more often than as a
+#   binding: 261 rows for one Django view, 71 for `note`, a Maven `<phase>validate</phase>` for a Java `validate`.
+#   Such a match is kept as a binding only where the line writes it the way code or configuration refers to a
+#   callable: called (`note(`), quoted as a value (`"note"`, `'note'`), or qualified with `#`, `::` or `->`
+#   (`Owner#note`; a CSS `#note` selector is not one). A dotted `Owner.note` is matched as the qualified name itself and never reaches this rule. The
+#   rest are PROSE: counted and grep-able, not listed as places a rename breaks.
+OUT_OF_SCOPE_EXT = {'.sh', '.bash', '.zsh', '.ksh', '.dl'}
+SHELL_SHEBANG = re.compile(r'#!\s*\S*(?:/|\s)(?:env\s+)?(?:ba|z|k|da)?sh\b')
+COMMON = re.compile(r'[a-z]+')
+_QUOTES = '"\'`'
+QUALIFIER = re.compile(r'[\w$)\]>](?:#|::|->)$')      # `Owner#note`, `Owner::note`, `$obj->note`; not a CSS `#note` selector
+
+
+def out_of_scope(rel, text):
+    """a shell script or a Datalog file: a name matched there is never a binding (owner's rule)"""
+    if os.path.splitext(rel)[1].lower() in OUT_OF_SCOPE_EXT: return True
+    return not os.path.splitext(rel)[1] and bool(SHELL_SHEBANG.match(text[:120]))
+
+
+def is_common(name):
+    """a plain word: the names whose bare mentions are mostly prose"""
+    return bool(COMMON.fullmatch(name or ''))
+
+
+def code_shaped(line, start, end):
+    """the match line[start:end] is written as a reference: called, quoted as a whole value, or #/::/-> qualified"""
+    before, after = line[:start], line[end:]
+    if after.lstrip().startswith('('): return True
+    if before[-1:] and before[-1] in _QUOTES and after[:1] == before[-1]: return True
+    return bool(QUALIFIER.search(before))
+
+
 class NonSource:
     def __init__(self, repo, cache_dir, indexed, skip_dir, skip_ext):
         self.repo, self.cache_dir, self.indexed, self.skip_dir, self.skip_ext = repo, cache_dir, indexed, skip_dir, skip_ext
         self._files = None; self._uncached = set(); self.con = None
+        self.prose = set()      # (name, rel, line) hits of a common word with no reference syntax around it (see PROSE)
         if cache_dir and not os.environ.get('AXIOMCODE_NO_SCAN_CACHE'):
             try:
                 os.makedirs(cache_dir, exist_ok=True)
@@ -154,8 +196,12 @@ class NonSource:
             if only is not None and rel not in only: continue
             try: text = open(os.path.join(self.repo, rel), errors='replace').read()
             except OSError: continue
-            if not any(n in text for n in names): continue
+            if not any(n in text for n in names) or out_of_scope(rel, text): continue
             for i, line in enumerate(text.split('\n'), 1):
-                for m in pat.finditer(line): hits.append((m.group(1), rel, i))
+                shaped = {}
+                for m in pat.finditer(line):
+                    n = m.group(1); hits.append((n, rel, i))
+                    shaped[n] = shaped.get(n, False) or not is_common(n) or code_shaped(line, m.start(1), m.end(1))
+                self.prose.update((n, rel, i) for n, ok in shaped.items() if not ok)
                 if len(hits) > 2000: break
         return hits

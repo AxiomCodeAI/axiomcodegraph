@@ -1,0 +1,18 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "an override's supertype method is bound to it twice (a dispatch candidate and a name match): it is ONE row, under the surer reason, with the other said on it, and the header counts it once",
+   "run": ["impact", "JSONFormatter.format_body"],
+   "want": ["must change with it (1: bound by a contract the engine resolved):", "also: declares the same member in a supertype"]},
+  {"why": "a sibling that shares two fields with the target is one row naming both fields, and the rungs in the header add up to the callables (#1423)",
+   "run": ["impact", "Box.grow"],
+   "want": ["using the same field height, width", "(7 callable(s): 7 alongside)"],
+   "avoid": ["using the same field width\n"]},
+  {"why": "control: two distinct callables of one display name in two files are two dependents, and both stay",
+   "run": ["impact", "FormatterPlugin.format_body"],
+   "want": ["show   a/views.py:5", "show   b/views.py:5"]},
+  {"why": "--json keeps every reason with its own certainty and line",
+   "run": ["impact", "Box.grow", "--json"],
+   "want": ["\"reasons\": [", "using the same field width"]},
+  {"why": "path '*' names each nearest caller once, and a caller that is also an entry point is not named twice (#1389)",
+   "run": ["path", "*", "formatters.py:7"],
+   "avoid": ["show a/views.py:5, show a/views.py"]}]}

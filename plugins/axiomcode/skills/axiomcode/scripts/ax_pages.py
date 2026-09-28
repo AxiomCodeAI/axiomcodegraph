@@ -112,7 +112,14 @@ def next_path(text):
     rows = re.findall(r'^\s+(\d+) hop\(s\)\s+(\S+).*?\s' + LOC, text, re.M)
     if rows:
         near = min(int(h) for h, _, _ in rows)
-        first = [(n, loc) for h, n, loc in rows if int(h) == near][:5]
+        # each caller ONCE (#1389): the same caller is printed under "nearest callers" (at its call line) and again under
+        # "entry points" (at its declaration), so the rows are keyed on the name and its FILE, not the line. Two callers
+        # of one display name in two files are two callers, and stay two.
+        seen_, first = set(), []
+        for h, n, loc in rows:
+            if int(h) == near and (n, loc.rsplit(':', 1)[0]) not in seen_:
+                seen_.add((n, loc.rsplit(':', 1)[0])); first.append((n, loc))
+        first = first[:5]
         total = re.search(r'(\d+) (?:method|callable)s?\b', text)
         return (f"next: the nearest {'caller is' if len(first) == 1 else 'callers are'} at {near} hop(s): "
                 + ', '.join(f"{n} {loc}" for n, loc in first)
