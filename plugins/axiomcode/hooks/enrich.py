@@ -260,11 +260,23 @@ elif tool == 'Read':
         # ranked ★ (connected to earlier Reads) first, then few-caller methods, then the rest as one line; 6 lines at most
         lo, hi = rows[0]['line'], rows[-1]['end_line'] or b                          # the lines the text actually covers
         mids = [r['method_id'] for r in rows]; ids = [r['id'] for r in rows]; ph = ','.join('?' * len(rows))
-        def visible(f, ln): return f == rel and lo <= ln <= hi                     # the other end is in the text the model just read
+        # the other end is in the text the model just read: the range READ, which runs past the last declaration (a script's
+        # top-level code after its last function is text the model has), not the span of the declarations in it
+        def visible(f, ln): return f == rel and min(a, lo) <= ln <= max(b - 1, hi)
+        # A CALLER IS SHOWN BY THE CALL, NOT BY ITS DECLARATION. Judged by the caller's own line, a file's top level (its
+        # `<module>`, declared at L1) was never in a range that did not start at L1, so reading a script's functions got
+        # `main L56 ← trend.<module> L1` for every one of them — the calls at the bottom of the very text just read. In the
+        # loop's runs that shape was most of the Read blocks nobody acted on. A caller whose call site lies in the range is
+        # visible; the caller's line is the fallback where a graph records no site line.
         up = collections.defaultdict(list); anyup = set()                        # anyup: has a caller at all, shown or not
-        for e in q(f"SELECT DISTINCT e.callee_method_id m, cr.id, cr.display d, cr.file f, cr.line ln FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id IN ({ph}) ORDER BY cr.is_test, cr.display", *mids):
-            anyup.add(e['m'])
-            if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in up[e['m']]}: up[e['m']].append(e)   # overloads of one caller are one name
+        sites = collections.defaultdict(list)
+        for e in q(f"SELECT e.callee_method_id m, cr.id, cr.display d, cr.file f, cr.line ln, cr.kind k, cs.start_line sl FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id LEFT JOIN call_sites cs ON cs.id = e.call_site_id WHERE e.callee_method_id IN ({ph}) ORDER BY cr.is_test, cr.display", *mids):
+            sites[(e['m'], e['id'])].append(e)
+        for (m, _), es in sites.items():
+            anyup.add(m); e = dict(es[0])
+            if any(visible(x['f'], x['sl'] or x['ln']) for x in es): continue
+            if e['k'] == 'module': e['ln'] = min((x['sl'] for x in es if x['sl']), default=e['ln'])   # a top level is where its call is
+            if e['d'] not in {x['d'] for x in up[m]}: up[m].append(e)          # overloads of one caller are one name
         dn = collections.defaultdict(list)
         for e in q(f"SELECT DISTINCT e.caller_id c, ce.id, ce.display d, ce.file f, ce.line ln FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id IN ({ph}) AND e.callee_provenance = 'client'", *ids):
             if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in dn[e['c']]}: dn[e['c']].append(e)
@@ -290,6 +302,9 @@ elif tool == 'Read':
         # one, the whole file after a range of it, or the same file through another spelling of its path. A key on the
         # read's own arguments caught only the first of those.
         info = [x for x in info if x['r']['id'] not in done]
+        # A BLOCK OF BARE UNRESOLVED COUNTS NAMES NOTHING TO GO TO (`main L44  ?7 unresolved call(s)` and no edge): no caller,
+        # callee or override to open, so it is context spent on a number. Kept when one declaration carries anything else.
+        if not any(x['up'] or x['dn'] or x['ovi'] or x['ovo'] or task_hits(x['r']['display']) for x in info): info = []
         block_ids = [x['r']['id'] for x in info]
         # an edge into a file the agent has not opened is what a read cannot show it; one into a file it has read is
         # something it may already have seen from the other end
@@ -329,7 +344,10 @@ elif tool == 'Read':
         shown = (picked + few)[:5] if rows else []
         for x in shown: lines.append(line(x))
         left = [x for x in info if x not in shown] if rows else []
-        if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{ups(x)}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
+        # an anonymous function (`<arrow>`, `<lambda>`) has no name to grep or ask about: counted in `+N more`, not listed
+        anon = lambda x: re.fullmatch(r'<[\w-]+>', x['r']['display'].rsplit('.', 1)[-1]) is not None   # `Walker.<arrow>` too
+        n_left = len(left); left = [x for x in left if not anon(x)]
+        if left: lines.append("  " + ('+%d more: ' % n_left) + ', '.join(f"{short(x['r']['display'])} ←{ups(x)}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
 elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(_where._abs(inp['path'], scwd)), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
     # (a Grep of a path outside this tree is about another codebase — nothing here to add)
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.

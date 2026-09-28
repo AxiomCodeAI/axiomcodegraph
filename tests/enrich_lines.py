@@ -171,6 +171,48 @@ with tempfile.TemporaryDirectory() as repo:
     check('the prompt-time report of a body edit is the same one line', 'body edit of OrderStore.findById' in out and 'reads / uses it' not in out, out)
     open(f, 'w').write(orig)
 
+# ── what a Read of a script says: a call in the text read is not an edge the text does not show ─────────────
+PY = {
+    'tool.py': ('from lib import fetch\n\n\n'
+                'def helper(x):\n    return fetch(x)\n\n\n'
+                'def main():\n    return helper(1)\n\n\n'
+                'def untyped(o):\n    return o.go()\n\n\n'
+                'if __name__ == "__main__":\n    main()\n'),
+    'lib.py': ('def fetch(x):\n    return x\n\n\n'
+               'def untyped2(o):\n    return o.go()\n'),
+    'app.py': ('from lib import untyped2\n\n\ndef run(o):\n    return untyped2(o)\n'),
+    'many.py': ''.join(f'def f{i}(o):\n    return o.go()\n\n\n' for i in range(7))
+               + 'g1 = lambda o: o.a()\ng2 = lambda o: o.b()\n\n\n'
+               # an owner-qualified one (`Walker.<lambda>`) is as anonymous as a bare one
+               + 'class Walker:\n    h = lambda self, o: o.c()\n',
+    'use_many.py': 'import many\n\n\ndef use(o):\n' + ''.join(f'    many.f{i}(o)\n' for i in range(7))
+                   + '    many.g1(o)\n    many.g2(o)\n',
+}
+with tempfile.TemporaryDirectory() as repo:
+    for n, t in PY.items(): open(os.path.join(repo, n), 'w').write(t)
+    git(repo, 'init', '-q'); git(repo, 'add', '-A'); git(repo, 'commit', '-qm', 'init')
+    subprocess.run(['bash', AX, 'index', repo, '--lang', 'python'], capture_output=True, text=True, timeout=1800)
+    if not os.path.exists(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')):
+        check('the python project indexes', False)
+    else:
+        tool = os.path.join(repo, 'tool.py')
+        r = fire(repo, 'p1', 'Read', {'file_path': tool})
+        check('a whole-script read does not list its own top level as a caller', '<module>' not in r, r)
+        check('control: the cross-file callee it cannot show is still there', 'helper ←0 →1' in r, r)
+        r = fire(repo, 'p2', 'Read', {'file_path': tool, 'offset': 8, 'limit': 3})
+        check('control: a range that leaves out the top-level call names it, at the line of the call',
+              'main L8' in r and 'tool.<module> L17' in r, r)
+        r = fire(repo, 'p3', 'Read', {'file_path': tool, 'offset': 12, 'limit': 3})
+        check('a block of nothing but unresolved counts is not emitted', r == '', r)
+        r = fire(repo, 'p4', 'Read', {'file_path': os.path.join(repo, 'lib.py'), 'offset': 5, 'limit': 3})
+        check('control: the same unresolved call on a declaration with a caller is kept',
+              'untyped2 L5  ← run' in r and 'unresolved' in r, r)
+        r = fire(repo, 'p5', 'Read', {'file_path': os.path.join(repo, 'many.py')})
+        more = line_of(r, '+')
+        check('anonymous functions, bare or owner-qualified, are counted in +N more but not named',
+              ('+5 more' in more or '+4 more' in more) and '<lambda>' not in more, r)
+        check('control: the named ones left over are still named there', 'f' in more.split(':', 1)[-1], r)
+
 print()
 print(f"{len(checked) - len(fails)} of {len(checked)} check(s) held" if not fails else f"{len(fails)} FAILED: " + '; '.join(fails))
 sys.exit(1 if fails else 0)
