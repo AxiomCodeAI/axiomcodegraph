@@ -60,6 +60,11 @@ fi
 # NO PROGRAM IS STARTED TO FIND IT: the parent of a path is taken by parameter expansion, not `dirname`. Every query goes
 # through here, and under Git Bash on Windows each program started is a fork emulation that costs tens of milliseconds
 # idle and far more on a busy machine; the walk used to start one per level, the verb check below four more.
+# ON WINDOWS $0 HAS BACKSLASHES: bin/axiomcode.js starts bash with path.join(__dirname, 'axiomcode'), which is
+# D:\...\bin\axiomcode. `dirname` split on either separator; the expansion below splits on '/' only, so without this
+# it finds no directory in $0, starts the walk at the CURRENT directory, and a run from inside a checkout takes the
+# checkout for the package (`parser not built at <checkout>/parser/dist/index.js`).
+self="${self//\\//}"
 case "$self" in */*) d="${self%/*}";; *) d=.;; esac
 d="$(cd "${d:-/}" && pwd)"
 while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="${d%/*}"; d="${d:-/}"; done
