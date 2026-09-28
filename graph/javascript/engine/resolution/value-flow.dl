@@ -371,6 +371,12 @@ installed_function(val, m) :- expr_kind(_, "ASSIGNMENT", _, val), expr_child(_, 
 // filtering by nesting is needed. Plus `@returns {T}`.
 return_value(m, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), !expr_kind(_, "THIS", _, e),
     !wrapped_result_return(e), expr_value(e, k, i).
+// A wrapper closure's carrying return keeps every value that does NOT come from the
+// parameter's call: `fn() || fallback`, `override || (cached = make())`, a variable
+// that starts as a default (below). Not an `undefined` placeholder (`let result =
+// undefined`): that is the cache before its fill, never what a call returns.
+return_value(m, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), wrapped_result_return(e),
+    carry_rest(e, x), expr_value(x, k, i), (k != "ambient" ; i != "undefined").
 return_value(m, "inst", t) :- method_return_type(_, _, tr, m), type_ref_type(tr, t).
 
 // ── a WRAPPER's closure returns what its argument returns, per call site (#695) ──
@@ -413,7 +419,7 @@ var_carries_param_call(v, p) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(
 // the wrapper's parameter at that position.
 wrapper_forwards(h, c, pos) :- wrapper_closure(h, c), param_decl(_, _, ppos, h, p), !param_is_rest(_, p),
     pos = to_number(ppos), expr_root(_, "RETURN", e), expr_owner(_, c, _, e), carries_param_call(e, p).
-wrapped_result_return(e) :- wrapper_closure(h, c), param_decl(_, _, _, h, p),
+wrapped_result_return(e) :- wrapper_closure(h, c), param_decl(_, _, _, h, p), !param_is_rest(_, p),
     expr_root(_, "RETURN", e), expr_owner(_, c, _, e), carries_param_call(e, p).
 // ── the wrapper WRITES that parameter before the closure calls it (#1706) ──
 // `fn = () => x`, `if (!fn) fn = dflt`, `fn = fn || dflt`, `fn ??= dflt` in the
@@ -456,16 +462,53 @@ block_kind_branches("TRY").
 block_kind_branches("CATCH").
 wrapper_param_replaced(h, pos) :- wrapper_param_write(h, pos, _, a), !param_write_keeps_arg(a).
 wrapper_param_written(h, pos, o) :- wrapper_param_write(h, pos, p, a), param_write_leaf(a, o), !expr_param(_, p, o).
+// Only the parameter's call is answered per site. carry_part walks the carrying
+// return down the same operators as carries_param_call; carry_rest is each operand
+// on the way that carries no parameter call (a fallback, an override, a variable's
+// default initializer), which keeps its ordinary value.
+carry_part(e, e) :- wrapped_result_return(e).
+carry_part(e, c) :- carry_part(e, x), carries_param_call(x, _), carry_step(x, c).
+carry_step(x, c) :- expr_kind(_, "CONDITIONAL", _, x), expr_child(_, x, r, _, c), r != "CONDITION".
+carry_step(x, c) :- expr_kind(_, "BINARY", _, x), expr_operator(_, op, x), binary_op_passes_value(op), expr_child(_, x, _, _, c).
+carry_step(x, c) :- expr_kind(_, "ASSIGNMENT", _, x), expr_child(_, x, "ASSIGNMENT_VALUE", _, c).
+carry_step(x, c) :- expr_kind(_, "SEQUENCE", _, x), sequence_last(x, c).
+carry_step(x, c) :- expr_binding(_, v, x), var_init(_, _, c, v).
+carry_step(x, c) :- expr_binding(_, v, x), expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_binding(_, v, tgt), expr_child(_, a, "ASSIGNMENT_VALUE", _, c).
+carry_rest(e, x) :- carry_part(e, x), !carries_param_call(x, _).
+// What the carrying return holds read context-insensitively: every caller's argument
+// merged (and nothing once the wrapper is over the fan cap). Only the fallbacks below
+// use it, where no one site's argument says what the parameter is.
+carried_value(c, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, c, _, e), wrapped_result_return(e), expr_value(e, k, i).
 // The site's own value, and a call through it.
 expr_value(s, "wrap", s) :- expr_kind(_, "CALL", _, s), expr_resolves_to_method(s, h), wrapper_forwards(h, _, _).
 expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "wrap", s),
+    !call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, ce, _, _), wrap_call_value(s, k, i).
+// wrap_site(Site, Wrapper, Position); wrap_site_arg when the site passes that position
+// itself (no spread at or before it), so its argument alone is the parameter.
+wrap_site(s, h, pos) :- expr_kind(_, "CALL", _, s), expr_resolves_to_method(s, h), wrapper_forwards(h, _, pos).
+wrap_site_spread(s, pos) :- wrapper_forwards(_, _, pos), call_arg(s, p2, a), p2 <= pos, expr_kind(_, "SPREAD", _, a).
+wrap_site_arg(s, pos, arg) :- wrap_site(s, h, pos), call_arg(s, pos, arg), !wrap_site_spread(s, pos), !wrapper_param_replaced(h, pos).
+// The argument is a function: what it returns. The argument is itself a wrapped
+// getter (`memoize(memoize(f))`, `once(getAlpha)`): what a call through that site returns.
+wrap_call_value(s, k, i) :- wrap_site_arg(s, _, arg), expr_value(arg, "func", g), return_value(g, k, i).
+wrap_call_value(s, k, i) :- wrap_site_arg(s, _, arg), expr_value(arg, "wrap", s2), wrap_call_value(s2, k, i).
+// No argument at that position: the parameter's default, `lazy(make = makeDefault)`.
+wrap_call_value(s, k, i) :- wrap_site(s, h, pos), !call_arg(s, pos, _), !wrap_site_spread(s, pos), !wrapper_param_replaced(h, pos),
+    param_decl(_, _, ppos, h, p), to_number(ppos) = pos, param_default_text(_, txt, h, p),
+    expr_root(_, "PARAMETER_DEFAULT", d), expr_owner(_, h, _, d), expr_text(_, txt, d),
+    expr_value(d, "func", g), return_value(g, k, i).
+// A spread argument: the site cannot say which function lands in the parameter.
+wrap_call_value(s, k, i) :- wrap_site_spread(s, pos), wrap_site(s, h, pos), !wrapper_param_replaced(h, pos), wrapper_forwards(h, c, pos), carried_value(c, k, i).
+// What the wrapper itself writes into the parameter (#1706) is called at every site, whatever it passes.
+wrap_call_value(s, k, i) :- wrap_site(s, h, pos), wrapper_param_written(h, pos, o), expr_value(o, "func", g), return_value(g, k, i).
+// The closure called inside the wrapper itself (`const c = () => fn(); c(); return c`)
+// is not reached through a site: there the parameter is this invocation's, read merged.
+expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, c), wrapper_forwards(h, c, _),
     !call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, ce, _, _),
-    expr_resolves_to_method(s, h), wrapper_forwards(h, _, pos), !wrapper_param_replaced(h, pos), call_arg(s, pos, arg),
-    expr_value(arg, "func", g), return_value(g, k, i).
-expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "wrap", s),
-    !call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, ce, _, _),
-    expr_resolves_to_method(s, h), wrapper_forwards(h, _, pos), wrapper_param_written(h, pos, o),
-    expr_value(o, "func", g), return_value(g, k, i).
+    expr_owner(_, m, _, ce), within_wrapper(m, h), carried_value(c, k, i).
+within_wrapper(h, h) :- wrapper_forwards(h, _, _).
+within_wrapper(m, h) :- method_enclosing(m, e), within_wrapper(e, h).
 // `return this` is POLYMORPHIC: a fluent `add()` declared on Node and called on an
 // AbstractBlock returns the AbstractBlock. So a `this`-return is not a value of the
 // method — it is the RECEIVER of each call, substituted at the site (below). A
