@@ -152,6 +152,85 @@ entry_point(m, "package_export") :- cfg_published_module(mod),
     en != "",
     !cfg_placeholder_name(en).
 
+// ── …and the other ways a library publishes callable code (#1626) ───────────
+// An exported function or arrow const is one shape of a published API. The rest are just
+// as common, and each left its code reading as safe to delete:
+//   * `export class Store { get() {} static create() {} }` — the consumer calls the
+//     class's members, constructor included, and every member it inherits;
+//   * `export const produce = engine.produce`, `= engine.finish.bind(engine)`,
+//     `= Engine.make` — a const bound to a method REFERENCE, the headline API of
+//     libraries that publish one configured instance;
+//   * `export const api = { get() {}, put: () => {} }` — an object literal of callables;
+//   * `export namespace Result { export function ok() {} }` — a namespace's exported
+//     functions;
+//   * `export default (x) => …` — an anonymous default arrow or function expression.
+//
+// Declined, rather than guessed: `private` and `#name` members (no consumer can name
+// them), a namespace function without `export`, a method no published value names, and a
+// published const holding anything that is not a function.
+cfg_package_module(mod) :- cfg_published_module(mod), !entry_module(mod).
+
+cfg_published_export(mod, en, k, e) :- cfg_package_module(mod),
+    module_export_any("client", mod, en, k, e),
+    en != "",
+    !cfg_placeholder_name(en).
+
+// a published class, and every class it inherits from: `store.inherited()` is a call too
+cfg_published_class(t) :- cfg_published_export(_, _, "TYPE", t), class_type(t).
+cfg_published_class(anc) :- cfg_published_class(t), type_ancestor(t, anc), class_type(anc).
+
+cfg_member_hidden("PRIVATE_ACCESS").
+cfg_member_hidden("PRIVATE_NAME_ACCESS").
+
+entry_point(m, "package_export") :- cfg_published_class(t),
+    method_owner("client", t, m),
+    method_access("client", acc, m),
+    !cfg_member_hidden(acc).
+
+entry_point(m, "package_export") :- cfg_published_export(_, _, "TYPE", ns),
+    type_decl("client", _, _, _, "NAMESPACE_TYPE", _, ns),
+    method_owner("client", ns, m),
+    method_access("client", "EXPORTED_ACCESS", m).
+
+// A value the package hands out: a published const's initializer (and each branch it may
+// evaluate to), the expression of `export default <expr>`, and the receiver of a `.bind`.
+cfg_published_value(x) :- cfg_published_export(_, _, "VARIABLE", v),
+    var_initializer("client", _, e, v),
+    e != "",
+    value_branch(e, x).
+cfg_published_value(e) :- cfg_package_module(mod),
+    export_decl(_, "default", _, "DEFAULT_EXPRESSION", mod, h),
+    export_expression("client", e, h).
+cfg_published_value(r) :- cfg_published_value(x),
+    expr_kind("client", "CALL_EXPRESSION", _, x),
+    call_callee_expr(_, x, ne),
+    property_access_name(ne, "bind"),
+    expr_child("client", ne, "RECEIVER", _, r).
+
+// the function it is: a written arrow or function expression, a named function, a static
+// method read as a value (`Engine.make`) — a call node carries its CALLEE as its
+// referenced entity, so a call is not the function it names
+entry_point(m, "package_export") :- cfg_published_value(x),
+    !expr_kind("client", "CALL_EXPRESSION", _, x),
+    expr_callable(x, m),
+    method_prov(m, "client").
+// an instance method read as a value: `engine.produce`, typed through its receiver
+entry_point(m, "package_export") :- cfg_published_value(x),
+    expr_kind("client", "PROPERTY_ACCESS", _, x),
+    property_access_name(x, n),
+    expr_child("client", x, "RECEIVER", _, q),
+    expr_type(q, _, t),
+    method_in_scope(t, n, _, m),
+    method_prov(m, "client").
+// the callables of a published object literal
+entry_point(m, "package_export") :- cfg_published_value(x),
+    objlit_member_fn(x, _, m).
+// and what a published const holds by any route the holder rules follow: a function
+// another holder hands over, or one a call returns (`export const store = create()`)
+entry_point(m, "package_export") :- cfg_published_export(_, _, "VARIABLE", v),
+    holder_holds_function(v, m),
+    method_prov(m, "client").
+
 // ── DECORATOR-DRIVEN ROOTS (Nest, Angular) ──────────────────────────────────
 // The gap the section above described, now closed. projections/decorators.dl gives
 // annotation_on the same shape Java and Python already carry, so these three rules

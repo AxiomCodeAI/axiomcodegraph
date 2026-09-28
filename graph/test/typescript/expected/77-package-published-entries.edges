@@ -1,6 +1,6 @@
 known_edge	FUNCTION_CALL	index#useStore(number) @L11 -> internal#describeState(number)
 known_edge	FUNCTION_CALL	index#useStore(number) @L9 -> vanilla#createStore(number)
-known_edge	FUNCTION_CALL	plugins/logger#logger(string) @L7 -> plugins/logger#format(string)
+known_edge	FUNCTION_CALL	plugins/logger#logger(string) @L9 -> plugins/logger#format(string)
 known_edge	FUNCTION_CALL	vanilla#createBoundStore(number) @L12 -> vanilla#seal(number)
 known_edge	FUNCTION_CALL	vanilla#createCastStore(number) @L18 -> vanilla#seal(number)
 known_edge	FUNCTION_CALL	vanilla#createStore(number) @L4 -> vanilla#seal(number)

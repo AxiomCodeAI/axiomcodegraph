@@ -1,1 +1,2 @@
 ambiguous_unknown	read	index#useStore(number) -> -
+ambiguous_unknown	read	plugins/logger#<module-init>() -> -
