@@ -433,6 +433,8 @@ def main(argv):
         i = passthru.index('--in'); scope = ['--in', passthru[i + 1]]
 
     tests = {}                      # test id -> record
+    stub_only, stub_by = {}, collections.defaultdict(set)   # tests that only stub a body-edited declaration
+    fw_entries, fw_greps = {}, []                             # entry points a framework enters: their tests are not counted
     unreadable, notes = [], []
     pulled = collections.defaultdict(set)
     unseen = []
@@ -457,6 +459,23 @@ def main(argv):
             if rid and rid not in tests:
                 tests[rid] = dict(rec, hops=None, certainty='inherited')
                 pulled[rid].add(batch[0])
+        # a test that only STUBS the declaration on a mock (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`) runs
+        # none of it: impact does not count it, and a body edit cannot fail it. A signature edit or a removal can (the
+        # stub no longer compiles, or stubs a method nothing calls), so there it is selected, labelled as what it is.
+        for rec in d.get('framework_entries') or []:
+            fw_entries.setdefault(rec.get('id') or rec.get('display'), rec)
+        if d.get('framework_grep') and d['framework_grep'] not in fw_greps: fw_greps.append(d['framework_grep'])
+        # a batch of several declarations breaks a stub when any of them is a signature change or a removal
+        breaks = any((by_target[t].get('kind') or '') in STUB_BREAKING for t in batch)
+        bt = batch[0] if len(batch) == 1 else f"{len(batch)} declarations"
+        for rec in d.get('stub_tests') or []:
+            rid = rec.get('id')
+            if not rid: continue
+            if breaks:
+                if rid not in tests: tests[rid] = dict(rec, hops=None)
+                pulled[rid].add(bt)
+            else:
+                stub_only.setdefault(rid, rec); stub_by[rid].add(bt)
 
     files = sorted({r.get('at', '').split(':')[0] for r in tests.values() if r.get('at')})
     # A selected test carrying no location drops out of `files`, and `files` is what the command PRINTS and
@@ -495,6 +514,8 @@ def main(argv):
                           'command': cmd_all,
                           'abstract_replaced': replaced,
                           'not_reached_from': unseen,
+                          'framework_entries': list(fw_entries.values()), 'framework_grep': fw_greps,
+                          'stub_only_not_selected': [dict(r, stubs=sorted(stub_by[i])) for i, r in stub_only.items() if i not in tests],
                           'unreadable_answers': [t for t, _ in unreadable],
                           'same_package_only': pkg_hits,
                           'same_name_only': name_hits.get('files') or [],
@@ -586,6 +607,18 @@ def main(argv):
         print(f"\n  {', '.join(list(progs)[:4])} also run(s) as a program (a __main__ / main entry): a test that starts it "
               "as a subprocess, or drives it from case data, is not a call edge and no test names it by file — the "
               "selection is a lower bound for it")
+    if fw_entries and not tests:
+        fe = list(fw_entries.values())
+        print(f"\n  NOT COUNTED: {len(fe)} entry point(s) of the change are entered by a framework ("
+              + ', '.join(f"{r.get('display')} {r.get('signal') or ''}".strip() for r in fe[:3]) + (f" … +{len(fe) - 3}" if len(fe) > 3 else '')
+              + ") — a test that drives them through it (a request, an event, a mediator send) is not selected unless a [by key]"
+              " route joins it, so the selection is a lower bound; to find those tests: " + ' ; '.join(fw_greps[:2]))
+    so = [r for i, r in stub_only.items() if i not in tests]
+    if so:
+        sf = collections.Counter((r.get('at') or '').split(':')[0] for r in so)
+        print(f"\n  not selected: {len(so)} test(s) only stub a changed declaration on a mock (when/verify, Setup/Verify,"
+              " Received/Returns) and run none of it, so a body edit cannot fail them; a signature change or a removal"
+              " selects them: " + ', '.join(f"{f} ({n})" for f, n in sf.most_common(4)) + (f" … +{len(sf) - 4}" if len(sf) > 4 else ''))
     if unlocated:
         print(f"\n  {len(unlocated)} selected test(s) carry no location, so they are named here rather than"
               f" in the list above and cannot appear in the command:")
@@ -613,6 +646,11 @@ def main(argv):
           "does not encode — reflection, a service loader, a framework that instantiates by name, a subprocess, a case "
           "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")
     return 0
+
+
+# the change kinds (axiomcode changed) that break a test which only stubs the declaration: its stub is written
+# against the name and the parameters
+STUB_BREAKING = {'signature', 'removed'}
 
 
 def _guess_lang(files):

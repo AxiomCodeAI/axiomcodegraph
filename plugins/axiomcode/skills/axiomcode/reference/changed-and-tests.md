@@ -95,3 +95,9 @@ the number in front of you. Skipping what it does not name is a decision about r
 you: a test reached only through reflection, a service loader, a subprocess, or a case built at runtime does not appear
 here (the `[text]` tier above recovers the ones whose test names the file it loads).
 
+A test that only **stubs** a changed declaration on a mock (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`) is not
+selected for a body edit: it runs none of the body. It is named on a `not selected:` line, and it is selected when the
+change is a signature change or a removal, which breaks the stub. A test that reaches the change only through a
+framework-entered entry point (an HTTP route, an event, a mediator send) is named on a `NOT COUNTED` line, with the
+search that finds it, unless a `[by key]` route already joined it.
+

@@ -179,6 +179,18 @@ line and names the constructor query to run; take that suggestion before acting 
   of what a service's suite does. The two spellings of a path are matched segment by segment (`/orders/o-1/price` against
   `/orders/{order_id}/price`, `<int:id>`, `:id`), never normalised. It is **not** an edge the engine resolved and is never
   shown as one: the hop is `[by key]`, and a literal can be a same-valued other thing.
+- **a stub on a mock is NOT a hop** — `when(repo.find(1))`, `verify(repo).save(x)`, `doReturn(v).when(repo).find(1)`,
+  `mock.Setup(r => r.Find(1))`, `mock.Verify(...)`, `sub.Received().Find(1)`, `sub.Find(1).Returns(v)`: the engine
+  resolves the call to the declared method, which is right about the name and wrong about execution, since the receiver
+  is a mock. Such a site is marked by its position against the mocking library's own call (a knob table per language in
+  `scripts/ax_edges.py`, `STUB_WRAPPERS`), and it is a `[stubs it]` row: a rename or a new parameter breaks it, a body
+  change never does. It is kept out of the closure, so a test whose only contact is a stub is not counted under `tests:`;
+  it is listed on its own `[stubs it]` line, and `test-impact` selects it only for a signature change or a removal. A call
+  in the stub's ARGUMENT list (`when(repo.find(Ids.first()))`) runs for real and stays a route. A test that drives the
+  class under test with a mock injected still counts through the class under test: the graph cannot see which object
+  is injected. An entry point of the change that a framework enters (a route handler, a listener) is named on a
+  `NOT COUNTED` line with the search that finds the tests driving it, since those are counted only where a `[by key]`
+  route joins them.
 - **a decorator that rebinds the name is a hop** — `@audited def summarise(…)` leaves `summarise` denoting what
   `audited(summarise)` RETURNED, so every caller written with that name runs the wrapper. That is the engine's own
   resolution (`ext_decorated_name_target`), not a name match, so the hop is `[sound]`; without it a `functools.wraps`

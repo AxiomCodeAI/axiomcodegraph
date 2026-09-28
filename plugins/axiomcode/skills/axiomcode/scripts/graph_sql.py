@@ -157,10 +157,15 @@ def impact(repo, target, depth=DEPTH):
         # (`callback_registered`) and a capped fan-out (`fan_capped`) as `resolved` — the strongest claim
         # the tool makes — while the rules, which read the same column, now do not (#1131). A caller with
         # several sites is named once, under the best of them.
+        # A call inside a mock's stub or verification is `stubs it`, and is not walked below: the same set the rules
+        # and the path export read (ax_edges.stub_sites).
+        stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, p_).fetchall())
+        con.execute("CREATE TEMP TABLE _stub(id TEXT PRIMARY KEY)")
+        con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in stubs])
         _reads = collections.defaultdict(set)
-        for d, tier in q(f"""SELECT DISTINCT s.display, ce.tier FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
+        for d, tier, sid in q(f"""SELECT DISTINCT s.display, ce.tier, ce.call_site_id FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
                              WHERE ce.callee_method_id IN ({ph})""", ids):
-            _reads[d].add(ax_edges.direct_cert(tier))
+            _reads[d].add(ax_edges.direct_cert(ax_edges.STUB_TIER if sid in stubs else tier))
         # …and the end a FRAMEWORK hands it over from (#1509): a task's .delay() producer, a signal's sender, a route
         # table, a Depends() default. The rules list it as a `framework` dependent, so this does too, or the hook
         # line and `impact` name different dependents for the same declaration. A direct row only, as in the rules:
@@ -176,7 +181,7 @@ def impact(repo, target, depth=DEPTH):
         short = target.rsplit('.', 1)[-1]
         byname = sorted({r[0] for r in q(
             """SELECT DISTINCT s.display FROM call_sites cs JOIN unresolved_sites us ON us.call_site_id=cs.id
-               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=?""", (short,))} - set(reads))
+               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=? AND cs.id NOT IN (SELECT id FROM _stub)""", (short,))} - set(reads))
         # the two counts. Each edge table joins in its OWN recursive branch so SQLite drives them by index; building
         # one combined edge CTE first scans all 608k edges per call (1.89 s against 0.02 s for the same answer).
         # THE DISPATCH HOP IS NARROWED, the same way the RULES narrow it. `edge.facts` is written by
@@ -209,7 +214,8 @@ def impact(repo, target, depth=DEPTH):
                 SELECT DISTINCT base_method_id b, candidate_method_id c FROM dispatch_candidates""")
             con.execute("CREATE INDEX _disp_c ON _disp(c)")
         rec = ("SELECT value, 0 FROM json_each(?)\n"
-               "  UNION SELECT ce.caller_id, r.d+1 FROM call_edges ce JOIN r ON ce.callee_method_id=r.id WHERE r.d<?")
+               "  UNION SELECT ce.caller_id, r.d+1 FROM call_edges ce JOIN r ON ce.callee_method_id=r.id WHERE r.d<?"
+               " AND ce.call_site_id NOT IN (SELECT id FROM _stub)")
         args = [json.dumps(ids), depth]
         if dispatch:
             rec += "\n  UNION SELECT d.b, r.d+1 FROM _disp d JOIN r ON d.c=r.id WHERE r.d<?"
@@ -392,7 +398,7 @@ def solve(rows, targets, depth_cap=MAX_HOP):
     ins('kindt', 2, rows.get('kind', []))
     con.commit()
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
-                           'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
+                           'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
     for q in targets:
         seeds = [m for (qq, m) in rows.get('seed', []) if qq == q]
@@ -457,8 +463,10 @@ def _tests(cur, depth, q):
 # declared inside another, by line span), and `dispatch` (a candidate the engine narrowed a virtual call to).
 
 def _edges(q):
-    e = [(r[0], r[1], r[2]) for r in q("""SELECT caller_id, callee_method_id, tier FROM call_edges
-                                          WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""")]
+    # a call inside a mock's stub or verification is not an edge: the same set the path export drops (ax_edges.stub_sites)
+    stubs = ax_edges.stub_sites(lambda s, p: q(s, *p))
+    e = [(r[1], r[2], r[3]) for r in q("""SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges
+                                          WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""") if r[0] not in stubs]
     e += [(r[0], r[1], 'library') for r in q("""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                                                 WHERE tier='boundary_lib' AND callee_method_id IS NOT NULL""")]
     # defines: the innermost enclosing callable, from the line spans of the callables in each file
@@ -692,7 +700,7 @@ def _bean_call(q, ids, sites):
     """The container-bean layer on `calls it`, and the only rules in `direct` that a bundle without a container
     never exercises — which is why jackson (0 rows in ext_bean_def) was clean on it and keycloak (213) was not.
 
-        bean_call(q,c,m) :- target(q,"method",m,_), owner(m,ot), bean(_,ot,_), calls(c,m,t,_,_), t != "multi_inferred"
+        bean_call(q,c,m) :- target(q,"method",m,_), owner(m,ot), bean(_,ot,_), calls(c,m,t,_,_), t != "multi_inferred", t != "stub"
 
     Whether the container's proxy is on the path decides whether a behavioural annotation added to the method — a
     transaction, a cache, a retry, an authorization check — reaches this caller at all. A call from inside the bean
@@ -724,9 +732,9 @@ def _bean_call(q, ids, sites):
                        WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL"""):
         if t != ot: continue
         recv.add(tgt if tgt in istype else type_of(tgt))
-    # a bean call site, any tier but the set and an event: the event system invokes a listener on the container's
+    # a bean call site, any tier but the set, a stub and an event: the event system invokes a listener on the container's
     # bean, so the proxy IS on that path and "an instance it obtained itself" would be false (#1391)
-    callers = {c for c, tier, _f, _l in sites if tier not in ('multi_inferred', 'event_dispatch')}
+    callers = {c for c, tier, _f, _l in sites if tier not in ('multi_inferred', 'event_dispatch', ax_edges.STUB_TIER)}
     why = {}
     for c in callers:
         cot = type_of(c)
@@ -740,6 +748,9 @@ def _bean_call(q, ids, sites):
             why[c] = ('calls it on an instance it obtained itself, not from the container — no proxy on the path, '
                       'so an added proxied annotation does not apply here')
     return callers, why
+
+
+STUB_BYNAME_WHY = 'stubs a method of this name on a mock (receiver not typed): the real method does not run there'
 
 
 def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
@@ -757,15 +768,20 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
     rows = []
     # ordered by site line: when a caller has several call sites the answer names one of them, and the rules name
     # the lowest. Leaving the order to the table printed a different site (254 against 257) for the same caller.
-    sites = q(f"""SELECT e.caller_id, e.tier, s.file_path, s.start_line
+    # a site inside a mock's stub or verification carries the tier "stub", exactly as the rules' `calls` fact does
+    stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
+    sites = [(c, ax_edges.STUB_TIER if sid in stubs else t, f, l) for sid, c, t, f, l in q(
+                  f"""SELECT e.call_site_id, e.caller_id, e.tier, s.file_path, s.start_line
                   FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
                   WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
-                  ORDER BY s.start_line""", *ids)
+                  ORDER BY s.start_line""", *ids)]
     bean_callers, why_of = _bean_call(q, ids, sites)
     routes = {(f, l): w for _d, f, l, k, _key, w in ax_registration.registrations(q, rel) if k == 'route'}
     for c, tier, f, l in sites:
         cert = ax_edges.direct_cert(tier)
-        if tier == 'multi_inferred':
+        if tier == ax_edges.STUB_TIER:
+            rows.append((c, 'uses', ax_edges.DIRECT_WHY[cert], cert, f or '', l or 0))
+        elif tier == 'multi_inferred':
             # rule 208 carries no `!bean_call` guard, so a multi_inferred site stays `one of a set` even into a bean
             rows.append((c, 'uses', 'calls it', 'one of a set', f or '', l or 0))
         elif c not in bean_callers:                                          # `… , !bean_call(q, c, m)`
@@ -778,15 +794,15 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
     # …and for a caller into a container-managed bean, EVERY site of it — the three bean rules end in a bare
     # `calls(c, m, _, f, l)` with no tier test, so a multi_inferred site of a bean caller is a row here too.
     for c, tier, f, l in sites:
-        if c in bean_callers: rows.append((c, 'uses', why_of[c], 'resolved', f or '', l or 0))
+        if c in bean_callers and tier != ax_edges.STUB_TIER: rows.append((c, 'uses', why_of[c], 'resolved', f or '', l or 0))
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     seen = {r[0] for r in rows}
     for n in names:
-        for c, f, l, kind in q("""SELECT s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
+        for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
             if c in ids: continue                                            # !is_target_decl(q, c)
-            rows.append((c, 'uses', 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # the declaration handed over as a VALUE — a route registration, a callback — which has no call site at all
     # (the valueref / registered rules). The convention table is shared with the rules, in ax_registration.py, so
     # the two backends cannot disagree about what a registration is.
@@ -1497,6 +1513,49 @@ def named_sites(q):
     return _NAMED_SITES[key]
 
 GEN_DECOR = set(GENERATED)      # the names alone, where only membership matters
+
+def stub_tests(q, depth, sets, stubs, rev=None):
+    """test_stub(q,m) (impact.dl): a test that stubs a reached callable on a mock, and so names it without running it.
+    The callable that writes the stub, and every callable lexically around it (a lambda's writer), is walked up the
+    same edges as the closure; a test is found from what that reaches as a route ends: the test itself, a fixture of
+    its type or a base type, or a helper of that type declared in a test file."""
+    if not depth: return []
+    tm, fx = sets
+    ids = list(depth); xs = set()
+    if stubs:
+        for k in range(0, len(ids), 400):
+            part = ids[k:k + 400]
+            for sid, c in q(f"SELECT call_site_id, caller_id FROM call_edges WHERE callee_method_id IN ({','.join('?' * len(part))})", *part):
+                if sid in stubs: xs.add(c)
+    if not xs: return []
+    near = set(xs)
+    for x, f, a, b in q(f"SELECT id, file, line, end_line FROM symbols WHERE id IN ({','.join('?' * len(xs))})", *xs):
+        if not f: continue
+        near |= {r[0] for r in q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND id <> ?", f, a, b or a, x)}
+    frontier = list(near)
+    while frontier and rev is not None:
+        nxt = []
+        for b in frontier:
+            for a, _t in rev.get(b, ()):
+                if a not in near: near.add(a); nxt.append(a)
+        frontier = nxt
+    info = {}
+    ph = ','.join('?' * len(near))
+    for i, o, f in q(f"SELECT id, owner, file FROM symbols WHERE id IN ({ph})", *near): info[i] = (o, f)
+    tfiles = {r[0] for r in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
+    out = {m for m in near if m in tm}
+    owners = {info[x][0] for x in near if x in info and info[x][0] and x not in tm and (x in fx or info[x][1] in tfiles)}
+    if owners:
+        sub = set(owners)
+        if _has(q, 'type_ancestors'):
+            tid = {r[0]: r[1] for r in q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
+            disp = {v: k for k, v in tid.items()}
+            want = {tid[o] for o in owners if o in tid}
+            sub |= {disp[r[0]] for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors") if r[1] in want and r[0] in disp}
+        for m, o in q("SELECT id, owner FROM symbols WHERE method_id IS NOT NULL AND owner IS NOT NULL"):
+            if m in tm and o in sub: out.add(m)
+    return sorted(out)
+
 
 def inherited_tests(q, hits):
     """`inherited_test(q,s,m,d) :- test_hit(q,m,d,_), owner(m,t), extends(s,t), typ(s,_,_), s != t` — the test
@@ -2544,9 +2603,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     # them. Without this the answer prints the machine's absolute path where the rules print src/main/java/…
     rel = site_file or (lambda x: x)
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
-                           'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
+                           'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines, rel)
+    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
@@ -2581,7 +2640,8 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             seeds |= set(mids) | {c for c, _ in con}
             de += q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                         WHERE callee_method_id IN ({mph}) AND callee_provenance='client'""", *mids)
-            byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)} - seeds)
+            byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)
+                             and _w != STUB_BYNAME_WHY} - seeds)
 
         if 'type' in by_kind:
             tids = sorted(by_kind['type'])
@@ -2797,6 +2857,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         hits = sorted(tests_reaching(q, depth, sets, every=True), key=lambda r: (r[0], r[1], r[2]))
         out['test_hit'] += [[m, str(d), via, qq] for m, d, via in hits]
         out['inherited_test'] += [[s_, m, str(d), qq] for s_, m, d in inherited_tests(q, hits)]
+        out['test_stub'] += [[m, qq] for m in stub_tests(q, depth, sets, stubs, rev=rev)]
         # gen_fired(q,d,why) — WHICH decoration or shape made the generated rules apply, so the answer can say
         # why it believes in members that have no declaration.
         #   143 type · 144 clinit · 145 field (through its owner) · 146 method (through its owner)

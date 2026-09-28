@@ -585,7 +585,8 @@ class G:
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
     # is up to date and nothing rebuilds). 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the
     # bare mtime.
-    EXPORT_VERSION = '2'
+    # 3: a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites).
+    EXPORT_VERSION = '3'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return
@@ -593,7 +594,12 @@ class G:
         # `generated` is a client declaration too: a Lombok accessor, a record member, a C# auto-property. The engine
         # synthesises it and RESOLVES the call sites that name it, so filtering the edge out lost every call into a
         # generated member — which, on a project whose models are all @Data, is most of what touches the models.
-        edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance IN ('client', 'generated')")]
+        # …except a call written inside a mocking library's stub or verification (`when(repo.find(1))`,
+        # `mock.Setup(r => r.Find(1))`): the receiver is a mock, so the real body never runs there, and walked as a call
+        # it made every test that stubs a method a `sound` route to it. impact lists those sites as "stubs it".
+        stubs = ax_edges.stub_sites(lambda s, p: self.q(s, *p)) if self.has('call_sites') else set()
+        edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance IN ('client', 'generated')")
+                 if r['call_site_id'] not in stubs]
         # calls into libraries: an edge to a terminal node (a library method has no out-edges here — nothing is inferred about its
         # body), so `path '*' java.nio.file.Files.readAllBytes` can ask who reaches that library call
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
@@ -621,7 +627,7 @@ class G:
             have = {(a, b) for a, b, _ in edges}
             edges += [(r[0], r[1], 'dispatch') for r in self.q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call") if (r[0], r[1]) not in have]
         self.write('edge', edges)
-        self.write('byname', [(r[0], r[1]) for r in self.q("SELECT DISTINCT s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
+        self.write('byname', sorted({(r[1], r[2]) for r in self.q("SELECT s.id, s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''") if r[0] not in stubs}))
         self.write('named', [(r['name'], r['id']) for r in self.sym.values() if r['method_id'] and r['kind'] != 'module' and r['name']])
         t = f'{stamp}.{os.getpid()}.tmp'; open(t, 'w').write(want); replace_file(t, stamp)
     def write(self, name, rows, d=None):
