@@ -20,6 +20,8 @@
 #   --language <L>[,…]     Restrict the run to these languages: java, typescript, python,
 #                          javascript or csharp.
 #   --debug                Also write csv/*.csv and keep raw/ beside each graph.
+#   --progress <file>      Append "<lang> ok <graph>" or "<lang> failed" to <file> as each language
+#                          finishes, so a caller can use one graph while the next is solved.
 #
 # Engine options:
 #   --dispatch-cap <N|off>   --lib-depth <N>   --jdk-depth <N>   --taint <on|off>
@@ -188,10 +190,10 @@ case "$cmd" in
     ;;
   all)
     need_parser
-    lang=""; src=""; out=""; version=""; libs=""; popts=(); rest=(); pos=()
+    lang=""; src=""; out=""; version=""; libs=""; progress=""; popts=(); rest=(); pos=()
     while [ $# -gt 0 ]; do case "$1" in
       --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;;
-      --library) libs="$2"; shift 2;;
+      --library) libs="$2"; shift 2;; --progress) progress="$2"; shift 2;;
       --version|--slug) version="$2"; shift 2;; --exclude-tests) popts+=(--exclude-tests); shift;;
       --intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
       --debug) rest+=(--debug); shift;;
@@ -259,7 +261,10 @@ case "$cmd" in
     # which languages the IR holds — one folder each — and which of them have an engine
     found=(); for d in "$ir"/*/; do l="$(basename "$d")"; [ -d "$ROOT/graph/$l/engine" ] && found+=("$l"); done
     [ ${#found[@]} -gt 0 ] || { echo "❌ no language with an engine in the IR (folders: $(ls "$ir" | tr '\n' ' '))" >&2; exit 1; }
-    langs=("${found[@]}")
+    # THE LARGEST LANGUAGE FIRST (#1555): a caller that publishes each graph as it is solved (--progress) gets the one
+    # most of the repository is written in first, not whichever sorts first. The IR's size stands in for its share; a
+    # caller that names --language chooses the order itself.
+    langs=($(for l in "${found[@]}"; do echo "$(du -sk "$ir/$l" 2>/dev/null | cut -f1) $l"; done | sort -s -k1,1nr | cut -d' ' -f2))
     if [ ${#want[@]} -eq 1 ]; then
       case " ${found[*]} " in *" $lang "*) langs=("$lang");; *) echo "❌ --language=$lang, but the IR holds only: ${found[*]}" >&2; exit 1;; esac
     elif [ ${#want[@]} -gt 1 ]; then
@@ -287,9 +292,10 @@ case "$cmd" in
       echo "▶ solving $l → $out/$l/graph.sqlite"
       if "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" --library "$libroots" \
            --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}; then
-        solved+=("$l")
+        solved+=("$l"); [ -z "$progress" ] || echo "$l ok $out/$l/graph.sqlite" >> "$progress"
       else
         failed+=("$l"); echo "❌ $l failed; continuing with the remaining languages" >&2
+        [ -z "$progress" ] || echo "$l failed" >> "$progress"
       fi
     done
     for l in ${solved[@]+"${solved[@]}"}; do echo "$out/$l/graph.sqlite"; done

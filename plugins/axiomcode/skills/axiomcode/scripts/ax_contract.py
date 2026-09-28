@@ -391,9 +391,9 @@ def ensure_graph(repo, db):
         # a build is running: never a silent wait. Under the MCP server answer at once with the stage it is at; from a
         # shell wait for it, printing the stage as it moves; either way, use the graph the moment it exists
         if auto and not os.environ.get('AXIOMCODE_BUILD_NOWAIT'):
-            print(f"a graph build is already running for {repo}; waiting for it …", file=sys.stderr)
-            _follow(rr, lambda: ax_fresh.building(rr))
-        if os.path.exists(db): return True
+            print(f"a graph build is already running for {repo}; waiting for its first graph …", file=sys.stderr)
+            _follow(rr, lambda: ax_fresh.building(rr) and not os.path.exists(db))
+        if os.path.exists(db): return _published(rr)
         if auto and os.environ.get('AXIOMCODE_BUILD_NOWAIT'):
             _BUILD_NOTE.append(building_note(rr)); return False
     if not auto or os.environ.get('AXIOMCODE_GRAPH'): return False
@@ -411,9 +411,9 @@ def ensure_graph(repo, db):
     nowait = bool(os.environ.get('AXIOMCODE_BUILD_NOWAIT'))
     if ax_fresh.building(repo):
         if nowait: _BUILD_NOTE.append(building_note(repo)); return False
-        print(f"a graph build is already running for {repo}; waiting for it …", file=sys.stderr)
-        _follow(repo, lambda: ax_fresh.building(repo))
-        return os.path.exists(db)
+        print(f"a graph build is already running for {repo}; waiting for its first graph …", file=sys.stderr)
+        _follow(repo, lambda: ax_fresh.building(repo) and not os.path.exists(db))
+        return os.path.exists(db) and _published(repo)
     env = None
     if ax_fresh.has_graph(rr):
         # a graph WAS built here and its pointer is broken: a repair, which keeps the baseline `changed` and test-impact
@@ -432,12 +432,41 @@ def ensure_graph(repo, db):
         up = time.time() + 10
         while p.poll() is None and not ax_fresh.building(repo) and time.time() < up: time.sleep(0.05)
         end = time.time() + float(os.environ.get('AXIOMCODE_BUILD_WAIT') or 60)
-        while p.poll() is None and time.time() < end: time.sleep(0.5)
-        if p.poll() is None: _BUILD_NOTE.append(building_note(repo)); return False
+        while p.poll() is None and not os.path.exists(db) and time.time() < end: time.sleep(0.5)
+        if p.poll() is None: return _published(repo) if os.path.exists(db) else (_BUILD_NOTE.append(building_note(repo)) or False)
         return p.returncode == 0 and os.path.exists(db)
-    p = subprocess.Popen([bash, build, repo], env=env)
-    _follow(repo, lambda: p.poll() is None)
+    # THE ANSWER WAITS FOR ITS GRAPH, NOT FOR THE WHOLE BUILD (#1555). The build publishes the main language's graph as
+    # soon as that language is solved and goes on solving the others under its lock, so the wait ends when graph.sqlite
+    # appears. The build writes to a log, copied here to stderr as it comes, not to this process's pipes: a caller that
+    # captures them (an agent's shell tool) reads until they close, and a build still solving other languages would hold
+    # them open to its end.
+    os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
+    logp = os.path.join(repo, '.axiomcode', 'first-build.log')
+    with open(logp, 'w') as log:
+        p = subprocess.Popen([bash, build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env)
+    shown = [0]
+    def relay():
+        try:
+            with open(logp, 'rb') as f: f.seek(shown[0]); b = f.read()
+        except OSError: return
+        shown[0] += len(b); sys.stderr.write(b.decode('utf-8', 'replace')); sys.stderr.flush()
+    _follow(repo, lambda: relay() or (p.poll() is None and not os.path.exists(db)))
+    relay()
+    if p.poll() is None: return os.path.exists(db) and _published(repo)
     return p.returncode == 0 and os.path.exists(db)
+
+
+def _published(repo):
+    """the main graph is out while the build goes on solving the repository's other languages: the answer is given now,
+    and names on stderr (a `graph refresh:` line, which the MCP server carries into the answer) what it cannot see yet"""
+    import ax_fresh
+    n = ''
+    for _ in range(20):                          # the build names what is still to come just before the pointer moves
+        n = ax_fresh.note(ax_fresh.status(repo))
+        if n or not ax_fresh.building(repo): break
+        time.sleep(0.1)
+    if n: print(n, file=sys.stderr)
+    return True
 
 
 _BUILD_NOTE = []
