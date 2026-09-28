@@ -231,11 +231,25 @@ class G:
         if not hasattr(self, '_mkind'):
             self._mkind = {r[0]: r[1] for r in self.q("SELECT id, kind FROM methods")} if self.has('methods') else {}
         return self._mkind.get((self.sym.get(i) or {}).get('method_id') or i)
+    def repo_file(self, f):
+        """-> (the file as the index stores it, whether it lies outside the repository). A file:line is written the way
+        editors, stack traces and test runners print it: `./src/a.js`, or absolute under the repository root. The index
+        stores it relative to that root, so both are read as the relative path; an absolute path elsewhere is kept, with
+        its leading `/` dropped as before, so a root-relative `/src/a.js` still matches — and is named as outside when not."""
+        while f.startswith('./'): f = f[2:]
+        if not os.path.isabs(f): return f, False
+        real = os.path.realpath(f)
+        for root in {self.repo, os.path.abspath(self.repo)}:
+            for p in (real, os.path.abspath(f)):
+                if p == root or p.startswith(root.rstrip('/') + '/'):
+                    return os.path.relpath(p, root).replace(os.sep, '/'), False
+        return f.lstrip('/'), True
     def _resolve(self, sel, fragment=False):
         s = sel.strip().strip('`"\'')
-        m = re.match(r'^(.+?):(\d+)$', s)
+        # file:line, or file:line:col as a stack trace prints it — the column never changes which callable spans the line
+        m = re.match(r'^(.+?):(\d+)(?::\d+)?$', s)
         if m and ('/' in m.group(1) or '.' in m.group(1)):                            # file:line → the method containing it
-            f, ln = m.group(1).lstrip('/'), int(m.group(2))
+            (f, outside), ln = self.repo_file(m.group(1)), int(m.group(2))
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
             r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, f"%/{f}", ln, ln)
@@ -251,6 +265,7 @@ class G:
                 return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
             r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f, f"%/{f}")
             if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
+            if outside: die(f"{m.group(1)} is outside the indexed repository {self.repo}: give the file relative to that root, or ask the graph of the repository it belongs to")
             die(f"no callable spans {s}")
         if s.startswith('@') and self.has('decorations'):                                # @GetMapping / @*Mapping / @Test → every method carrying it
             pat = s[1:].replace('*', '%')
