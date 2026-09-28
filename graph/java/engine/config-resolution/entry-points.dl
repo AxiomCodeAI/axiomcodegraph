@@ -75,6 +75,9 @@ config_entry_point(m, kind, t) :- xml_lifecycle_method(t, mname, kind),
 config_entry_point(m, "lifecycle", m) :- ann_on_method(_, _, n, m, _), cfg_lifecycle_ann(n).
 config_entry_point(m, "scheduled", m) :- ann_on_method(_, _, n, m, _), cfg_scheduled_ann(n).
 config_entry_point(m, "queue", m)     :- ann_on_method(_, _, n, m, _), cfg_listener_ann(n).
+// … and an ApplicationListener<E> implementation's onApplicationEvent, which Spring calls
+// for every matching published event without any annotation on the method (#1391).
+config_entry_point(m, "queue", m)     :- event_listener_method(m).
 // A listener/scheduler annotation on the TYPE (@KafkaListener on a class, with
 // @KafkaHandler methods) registers the type, not one method.
 config_entry_point(m, "queue", t) :- ann_on_type(_, _, n, t), cfg_listener_ann(n),

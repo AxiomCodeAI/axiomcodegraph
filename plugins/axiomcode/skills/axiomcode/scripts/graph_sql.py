@@ -724,7 +724,9 @@ def _bean_call(q, ids, sites):
                        WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL"""):
         if t != ot: continue
         recv.add(tgt if tgt in istype else type_of(tgt))
-    callers = {c for c, tier, _f, _l in sites if tier != 'multi_inferred'}   # a bean call site, any tier but the set
+    # a bean call site, any tier but the set and an event: the event system invokes a listener on the container's
+    # bean, so the proxy IS on that path and "an instance it obtained itself" would be false (#1391)
+    callers = {c for c, tier, _f, _l in sites if tier not in ('multi_inferred', 'event_dispatch')}
     why = {}
     for c in callers:
         cot = type_of(c)
@@ -771,7 +773,7 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
             # edge is the engine's, the sentence is the registration's. A registration the ROUTE rules named keeps
             # their sentence whatever the tier — it is a more specific true thing than either default.
             why = routes.get((rel(f) if rel and f else f, l))
-            if why is None: why = ax_edges.DIRECT_WHY.get(cert, 'calls it')
+            if why is None: why = ax_edges.direct_why(tier)
             rows.append((c, 'uses', why, cert, f or '', l or 0))
     # …and for a caller into a container-managed bean, EVERY site of it — the three bean rules end in a bare
     # `calls(c, m, _, f, l)` with no tier test, so a multi_inferred site of a bean caller is a row here too.
