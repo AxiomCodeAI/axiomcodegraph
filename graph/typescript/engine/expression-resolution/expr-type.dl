@@ -614,19 +614,28 @@ expr_exact_type(e, t) :- expr_kind("client", "NEW_EXPRESSION", _, e),
 // ── a CALL result — `a().b()` ──────────────────────────────────────────────
 // The chained-receiver case, and the one that closes the recursion. The SOUND
 // candidate set is used, never the disambiguated one; see the header.
+// A bare decorator's site IS its name (callee-resolution.dl), and nothing reads what the
+// application returns, so the result is not typed onto the name: that would give `guarded`
+// the type of the descriptor it returns, and a callable result would feed back as another
+// candidate of the same site.
 expr_type(e, prov, t) :- expr_call_candidate(e, callee),
+    !bare_decorator_call(e),
     method_return_type(callee, prov, t).
 expr_shape(e, s) :- expr_call_candidate(e, callee),
+    !bare_decorator_call(e),
     method_return_shape(callee, s).
 expr_call_returns_awaited(e, prov, t) :- expr_call_candidate(e, callee),
+    !bare_decorator_call(e),
     method_return_awaited(callee, prov, t).
 expr_element_type(e, prov, t) :- expr_call_candidate(e, callee),
+    !bare_decorator_call(e),
     method_return_element(callee, prov, t).
 // A call whose callee returns `this` — the fluent-builder idiom — keeps the
 // receiver's type rather than taking the declaring type's.
 expr_type(e, prov, t) :- ts_call_site(_, _, _, recv, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
     recv != "",
     expr_call_candidate(e, callee),
+    !bare_decorator_call(e),
     // THE CALLEE'S PROVENANCE IS A VARIABLE, NOT "client". A fluent API declared in a
     // dependency returns `this` from a LIBRARY declaration, so pinning this to the
     // client meant the chain stopped dead at the first hop into one: the call itself

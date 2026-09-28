@@ -1,0 +1,5 @@
+── entry_point (4) ──
+  exported_from_entry_module svc#guarded   svc.ts:8
+  exported_from_entry_module svc#sealed   svc.ts:16
+  exported_from_entry_module svc#timed   svc.ts:12
+  unimported_module svc#<module>   svc.ts:1

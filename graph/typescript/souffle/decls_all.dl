@@ -23,6 +23,7 @@
 .decl body_presence_is_ambient(c0:symbol)
 .decl body_presence_is_overload(c0:symbol)
 .decl body_presence_is_signature(c0:symbol)
+.decl bare_decorator_call(c0:symbol)
 .decl call_callee_expr(c0:symbol,c1:symbol,c2:symbol)
 .decl call_caller(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl call_caller_method(c0:symbol,c1:symbol)
