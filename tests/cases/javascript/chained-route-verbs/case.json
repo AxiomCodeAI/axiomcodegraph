@@ -26,5 +26,12 @@
   {"why": "CONTROL: a chain on ONE line cannot be split by line, so its line names every verb on it with route()'s path, as it did before",
    "run": ["impact", "renameTag", "--kind", "method"],
    "want": ["registered as a GET/PUT route \"/tags/:id\"", "src/posts.js:21"],
-   "avoid": ["ROUTE route"]}
+   "avoid": ["ROUTE route"]},
+  {"why": "`path` names the line a direct caller makes the call on: a chained link's own line, not the chain's first",
+   "run": ["path", "*", "createPost"],
+   "want": ["calls it at :16"],
+   "avoid": ["calls it at :14"]},
+  {"why": "CONTROL: `path` for the chain's first link still names the first line",
+   "run": ["path", "*", "listPosts"],
+   "want": ["calls it at :14"]}
  ]}
