@@ -1,0 +1,25 @@
+import_cause     app.jsx:1:1  react  not_staged
+import_cause     app.jsx:1:17  react  not_staged
+import_cause     app.jsx:1:23  react  not_staged
+import_cause     app.jsx:2:10  mobx-react  not_staged
+import_cause     app.jsx:3:10  thing-kit  not_staged
+import_cause     defmemo.jsx:1:10  react  not_staged
+import_cause     parts.jsx:1:10  react  not_staged
+import_cause     parts.jsx:1:16  react  not_staged
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       app.jsx:10:18  FUNCTION_CALL observer  callee_untyped
+unresolved       app.jsx:11:16  METHOD_CALL memo  receiver_untyped
+unresolved       app.jsx:13:19  FUNCTION_CALL lazy  callee_untyped
+unresolved       app.jsx:13:30  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       app.jsx:13:30  METHOD_CALL then  member_absent
+unresolved       app.jsx:14:21  FUNCTION_CALL lazy  callee_untyped
+unresolved       app.jsx:14:32  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       app.jsx:14:32  METHOD_CALL then  member_absent
+unresolved       app.jsx:15:21  FUNCTION_CALL lazy  callee_untyped
+unresolved       app.jsx:15:32  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       app.jsx:19:15  FUNCTION_CALL makeThing  callee_untyped
+unresolved       app.jsx:42:3  FUNCTION_CALL Card  callee_untyped
+unresolved       app.jsx:9:14  FUNCTION_CALL memo  callee_untyped
+unresolved       defmemo.jsx:4:16  FUNCTION_CALL memo  callee_untyped
+unresolved       parts.jsx:6:24  FUNCTION_CALL memo  callee_untyped
+unresolved       parts.jsx:6:29  FUNCTION_CALL forwardRef  callee_untyped
