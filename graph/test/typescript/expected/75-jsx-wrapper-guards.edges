@@ -19,6 +19,18 @@ ambiguous_unknown	METHOD_CALL	app#<arrow@15>() @L15 -> -
 ambiguous_unknown	METHOD_CALL	app#<arrow@16>() @L16 -> -
 ambiguous_unknown	METHOD_CALL	app#<arrow@18>() @L18 -> -
 ambiguous_unknown	METHOD_CALL	app#ArrowRenameTag({ icon: Fc }[]) @L57 -> -
+callback_registered	FUNCTION_CALL	app#<module-init>() @L15 -> app#<arrow@15>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L16 -> app#<arrow@16>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L18 -> app#<arrow@18>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L19 -> app#<arrow@19>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L21 -> app#<arrow@21>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L22 -> app#<arrow@22>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L29 -> app#MemoInner()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L30 -> app#ObservedImpl()
+callback_registered	METHOD_CALL	app#<arrow@15>() @L15 -> app#<arrow@15>(?)
+callback_registered	METHOD_CALL	app#<arrow@16>() @L16 -> app#<arrow@16>(?)
+callback_registered	METHOD_CALL	app#<arrow@18>() @L18 -> app#<arrow@18>(?)
+callback_registered	METHOD_CALL	app#ArrowRenameTag({ icon: Fc }[]) @L57 -> app#<arrow@57>(?,?)
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@15>() @L15 -> -
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@16>() @L16 -> -
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@18>() @L18 -> -

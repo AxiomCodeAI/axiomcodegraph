@@ -1,3 +1,7 @@
+callback_registered	METHOD_CALL	Builder#viaField() @L17 -> Builder#<arrow@17>(?)
+callback_registered	METHOD_CALL	Builder#viaGetter() @L22 -> Builder#<arrow@22>(?)
+callback_registered	METHOD_CALL	Builder#viaLocal() @L28 -> Builder#<arrow@28>(?)
+callback_registered	METHOD_CALL	chain#viaAnnotated(Column[]) @L34 -> chain#<arrow@34>(?)
 known_edge	METHOD_CALL	Builder#<arrow@17>(?) @L17 -> Column#isVirtual()
 known_edge	METHOD_CALL	Builder#<arrow@22>(?) @L22 -> Column#isVirtual()
 known_edge	METHOD_CALL	Builder#<arrow@28>(?) @L28 -> Column#isVirtual()

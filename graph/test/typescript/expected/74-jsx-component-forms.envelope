@@ -1,5 +1,1 @@
 value	parts#<function-type>@18:21 -> parts#<arrow>
-value	parts#<function-type>@18:21 -> parts#UserCard
-value	parts#<function-type>@20:47 -> parts#FieldImpl
-value	parts#<function-type>@21:39 -> app#<arrow>
-value	parts#<function-type>@22:47 -> parts#buildDefault

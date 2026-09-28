@@ -124,6 +124,16 @@ call_chain_edge(ce, caller, "-", "-", "-", cls, kind) :-
 class_is_terminal("ambiguous_unknown").
 class_is_terminal("intrinsic_terminal").
 
+// A function the site HANDS to a callee with no client body (resolution/value-flow.dl,
+// handed_function): `xs.map(cb)`, `p.then(cb)`. Not the site's own callee, so its own
+// tier, the one the JavaScript engine gives the same hand-over.
+call_chain_edge(ce, caller, "-", m, "client", "callback_registered", kind) :-
+    handed_function(ce, m),
+    method_prov(m, "client"),
+    call_from(ce, caller),
+    caller != m,
+    invocation_site(ce, kind).
+
 // ── call_runs_edge(FromMethod, ToMethod, Prov) ──────────────────────────────
 // The chain a consumer should WALK: overload signatures re-pointed to the body that
 // actually executes (resolution/overload-sets.dl). Kept separate from

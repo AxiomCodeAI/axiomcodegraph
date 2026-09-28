@@ -188,7 +188,50 @@ holder_value(v, e) :- var_initializer("client", _, e, v), e != "".
 holder_value(v, e) :- var_reassigned_value(v, e).
 holder_value(p, a) :- expr_child("client", ce, "ARGUMENT", pos, a),
     expr_resolves_to_method(ce, callee),                 # the overload the call SELECTS, not every candidate:
-    param_decl("client", _, pos, _, callee, p).          # an arrow passed to on("close", …) is not a listener of every on
+    param_decl("client", _, pos, _, callee, p),          # an arrow passed to on("close", …) is not a listener of every on
+    !hof_boundary_site(ce).                              # …and a parameter no body reads holds nothing (below)
+
+// ============================================================================
+// A FUNCTION HANDED TO A HIGHER-ORDER FUNCTION WITH NO BODY  (the library boundary)
+//
+// `xs.map((x) => f(x))` where `map` is a declaration with no body in the client: a `.d.ts`
+// interface member, an ambient `declare function`, an interface method nothing implements.
+// Stored in the parameter, the arrow became a `value` candidate of the parameter's function
+// type, and that ONE signature is shared by every `.map` call in the repository: a walk up
+// from any map callback reached every caller of `.map`, and a walk down from any caller of
+// `.map` reached every map callback. One constant read inside one arrow reached 1,078
+// callables in 198 files. No body can call through the parameter, so the envelope row
+// said nothing true that the call site does not say better.
+//
+// The call SITE is what hands the function over, so the edge is the site's own: the
+// function that writes `xs.map(cb)` reaches `cb` (call_chain.dl, `callback_registered`),
+// and a callback passed at one site is never reached from another.
+//
+// Only where no CLIENT body runs at the site. A project function that calls its parameter
+// keeps the holder rule: its body is what runs the callback, and that is a real call.
+// ============================================================================
+call_runs_client_body(ce) :- call_runs_method(ce, m), method_prov(m, "client").
+hof_boundary_site(ce) :- call_site("client", _, _, _, _, ce, _), !call_runs_client_body(ce).
+
+value_branch(a, a) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    !expr_kind("client", "CALL_EXPRESSION", _, x),        # `xs.map(make())` hands over what make RETURNS
+    expr_callable(x, m).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    expr_referenced("client", k, h, x),
+    holder_ref_kind(k),
+    holder_holds_function(h, m).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    ts_field_access_target(x, f),
+    holder_holds_function(f, m).
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    expr_kind("client", "CALL_EXPRESSION", _, x),
+    call_runs(x, f),
+    holder_holds_function(f, m).
 
 // ── value_branch(Root, Expr): Expr is a value Root can evaluate to ──
 value_branch(e, e) :- holder_value(_, e).

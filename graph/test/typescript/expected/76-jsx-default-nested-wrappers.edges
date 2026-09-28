@@ -12,6 +12,12 @@ ambiguous_unknown	FUNCTION_CALL	parts#MemoFwdInner({},unknown) @L40 -> -
 ambiguous_unknown	JSX_COMPONENT_CALL	app#App() @L19 -> -
 ambiguous_unknown	METHOD_CALL	app#<arrow@6>() @L6 -> -
 ambiguous_unknown	METHOD_CALL	app#makeName(number) @L26 -> -
+callback_registered	FUNCTION_CALL	app#<module-init>() @L10 -> parts#<arrow@21>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L6 -> app#<arrow@6>()
+callback_registered	FUNCTION_CALL	app#<module-init>() @L8 -> app#<arrow@8>()
+callback_registered	FUNCTION_CALL	defmemo#<module-init>() @L4 -> parts#DefaultMemoInner()
+callback_registered	FUNCTION_CALL	parts#<module-init>() @L39 -> parts#MemoFwdInner({},unknown)
+callback_registered	METHOD_CALL	app#<arrow@6>() @L6 -> app#<arrow@6>(?)
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@6>() @L6 -> -
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@8>() @L8 -> -
 known_edge	FUNCTION_CALL	app#<module-init>() @L10 -> parts#pickOther(Fc)
