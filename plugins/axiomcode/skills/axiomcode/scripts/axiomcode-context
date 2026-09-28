@@ -115,6 +115,51 @@ def score_symbols(g, terms, use_path=True):
     return scored
 
 
+def landing(g, scored):
+    """({file: its best symbol score}, {file: the task terms its symbols match}) — where the task's words land, per file"""
+    best, words = collections.defaultdict(float), collections.defaultdict(set)
+    for sid, (sc, matched) in scored.items():
+        f = (g.sym.get(sid) or {}).get('file')
+        if not f: continue
+        best[f] = max(best[f], sc); words[f].update(matched)
+    return best, words
+
+
+def flow_words(g, ids, landed, depth=4):
+    """{id: the task terms that land in a file its flow reaches} — resolved calls only, to the depth a flow is shown"""
+    _best, words = landed
+    out = collections.defaultdict(set)
+    for r in g.q("SELECT DISTINCT caller_id c, callee_method_id m FROM call_edges WHERE callee_method_id IS NOT NULL"):
+        if r['m'] != r['c']: out[r['c']].add(r['m'])
+    res = {}
+    for x in ids:
+        seen, front = {x}, [x]
+        for _d in range(depth):
+            front = [y for f in front for y in out.get(f, ()) if y not in seen and not seen.add(y)]
+        res[x] = set().union(*(words.get((g.sym.get(y) or {}).get('file'), ()) for y in seen))
+    return res
+
+
+def from_starts(g, ids, landed, scopes=()):
+    """The declarations a `--from <name>` starts the flow at, of the `ids` that name resolves to.
+
+    A common name (main, run, init, handler) is declared in every tool, fixture and test of a repository: starting at
+    all of them printed a page of unrelated flows, the one the task was about somewhere in it or cut off. A scope the
+    caller gave is knowledge and keeps only what is under it — none under it is none. Without one, the task's own
+    words choose: the declarations whose FLOW reaches the files those words land in, most words first. Only the file a
+    declaration sits in was not enough: `tools/pkg/cli.py main` and `tools/gen/make.py main` both matched "tool" by
+    their path, while only the first calls into the code the task named. When the words land in no flow, every
+    declaration stays.
+    """
+    if scopes:
+        ids = [x for x in ids if any(sc in (g.sym[x].get('file') or '') for sc in scopes)]
+    if len(ids) < 2: return ids
+    reach = flow_words(g, ids, landed)
+    hit = sorted((x for x in ids if reach[x]), key=lambda x: (-len(reach[x]), bool(g.sym[x].get('is_test'))))
+    # a word as common as the name lands a little everywhere: keep the flows that reach more than half the best's words
+    return [x for x in hit if 2 * len(reach[x]) > len(reach[hit[0]])] if hit else ids
+
+
 # How many of a directory's best symbols count toward its score. Swept over the same 18 tasks: 1 scores
 # 44% (one lucky symbol decides a package), 2 or 3 score 55%, 5 and 8 both score 61%, 15 drops to 55% and
 # 50 to 50% -- by then the score is drifting back toward "how much does this directory contain".
@@ -838,6 +883,20 @@ def main(argv):
     # the terms the report itself marked as code take the budget first (see winnow)
     terms = winnow(g, terms, strong=code_terms(body))
     scored = score_symbols(g, terms)
+    landed = landing(g, scored)
+    # --from names where the flow starts, which is also WHERE to look: a graph that declares it (under the caller's
+    # --in, when one is given) answers from there even when the task's words land nowhere in it, rather than refusing
+    # for want of a scope or a matching word. In a repository in several languages every graph is asked (ax_langs), and
+    # one that does not declare the name refuses, so the answer comes from the language that does.
+    fixed = [x.strip().replace('\\', '/') for x in scopes] if not scope_offered else []
+    from_ids = {sel: [x for x in g.resolve(sel)[1] if x in g.sym] for sel in starts}
+    held = {sel: [x for x in ids if not fixed or any(sc in (g.sym[x].get('file') or '') for sc in fixed)]
+            for sel, ids in from_ids.items()}
+    if starts and os.environ.get('AXIOMCODE_FANOUT') and not any(held.values()):
+        print(f"nothing named {', '.join(repr(s) for s in starts)} in this graph"
+              + (f" under {', '.join(fixed)}" if fixed and any(from_ids.values()) else '') + ".")
+        return 2
+    have_from = any(held.values())
     # --in: a scope the CALLER supplies is knowledge — a stack frame, the file it just read, the package
     # named in the issue's labels. That is worth more than any amount of inferring the package from prose,
     # so it restricts the seeds outright: everything outside it is dropped BEFORE seeding, and the entry
@@ -888,7 +947,7 @@ def main(argv):
                       + ("…" if n > 4 else "") + ")")
                 print("  no --in was given, so NOTHING below is narrowed to it — "
                       "pass --in <path> to narrow.\n")
-    bad = None if flat else require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
+    bad = None if flat or (have_from and not fixed) else require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
     if bad is not None: return bad
 
     # a symbol is kept when it is under ANY of the scopes -- the union, because the caller naming two roots
@@ -900,7 +959,7 @@ def main(argv):
     named = named_declarations(g, body) + route_seeds(g, body)
     if scopes and not scope_offered:
         named = [(sid, why) for sid, why in named if in_scope(g.sym.get(sid, {}).get('file'))]
-    if not scored and not named:
+    if not scored and not named and not have_from:
         # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it,
         # ranked the same way the scope-less menu is: by where the words land, never by how big a directory is
         ranked = rank_dirs(g, scope_terms(g, task))
@@ -932,7 +991,23 @@ def main(argv):
         print(f"    {g.disp(sid):46.46}  {g.loc(sid):34.34}  {why}")
 
     if explain:
-        roots_ = [i_ for sel in starts for i_ in g.resolve(sel)[1] if i_ in g.sym]
+        roots_ = []
+        for sel in starts:
+            ids = from_ids[sel]
+            picked = from_starts(g, ids, landed, scopes if not scope_offered else ())
+            if ids and not picked:
+                print(f"--from {sel}: none of its {len(ids)} declaration(s) lies under --in; the flow starts at all of them")
+                picked = from_starts(g, ids, landed)
+            if len(picked) < len(ids):
+                print(f"--from {sel}: {len(ids)} declarations by that name; the flow starts at the {len(picked)} "
+                      + ("under --in" if scopes and not scope_offered else "where the task's words land")
+                      + f" ({', '.join(g.loc(x) for x in picked[:3])}{'…' if len(picked) > 3 else ''}); --in <path> picks another")
+            roots_ += picked
+        if starts and os.environ.get('AXIOMCODE_FANOUT'):
+            # how many of the task's words land in the files the flow reaches: ax_langs puts the language where they
+            # land first, since a common --from name (main, run, init) is declared in every language's graph
+            print(f"axiomcode-from-landing: {max((len(w) for w in flow_words(g, roots_, landed).values()), default=0)}",
+                  file=sys.stderr)
         if not roots_:
             # no --from: the entry points this verb already chose, the callable ones, first FLOW_ROOTS of them
             roots_ = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')][:FLOW_ROOTS]

@@ -117,7 +117,14 @@ case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; the
 # `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they do
 # not wait for the graph; they wait only when HEAD moved and the baseline has to follow it. `graph` builds (axiomcode-build)
 # before it draws, so it is current by construction.
-FR=.; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ -d "$a" ] && FR="$a"; done
+# A flag's VALUE is never the repository: `--in plugins/core` names a directory under it, and taking that for the
+# repository found no .axiomcode/lang there, so a repository in several languages was asked in its main graph alone and
+# a scope that only another language's graph holds was refused as absent.
+FR=.; skip=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do
+  if [ -n "$skip" ]; then skip=""; continue; fi
+  case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out) skip=1; continue ;; esac
+  [ -d "$a" ] && FR="$a"
+done
 # A REPOSITORY IN SEVERAL LANGUAGES has one graph per language (.axiomcode/lang/<lang> beside the main one): a query
 # asks every one of them (ax_langs.py), so no language's code is left out of an answer. A graph named in
 # AXIOMCODE_GRAPH was chosen by the caller and is asked alone.
