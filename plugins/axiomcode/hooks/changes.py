@@ -61,10 +61,10 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         It returns None for what it does not cover (a constructor, whose callers are instantiations rather than call
         edges); that falls through to impact.dl, which is still right for those."""
         try:
-            j = graph_sql.impact_shaped(cwd, d['target'])
+            j = graph_sql.impact_shaped(cwd, d['target'] or d.get('shown_target'), file=d.get('file'))
             if j is not None: return d, j
         except Exception: pass
-        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'] or d.get('shown_target'), cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         results = list(ex.map(impact, decls[:3])); bodies = list(ex.map(impact, body[:3]))
@@ -108,7 +108,7 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         if reads:
             lines.append(f"    reads / uses it ({len(reads)}): " + names(reads) if not j.get('_sql')
                          else f"    reads / uses it — resolved callers: " + names(reads)
-                              + f" (the fast path; `axiomcode impact {d['target']}` adds the by-name, in-scope and text layers)")
+                              + f" (the fast path; `axiomcode impact {d['target'] or d.get('shown_target')}` adds the by-name, in-scope and text layers)")
         # WHICH SIDE ANSWERED, in one word. The two paths give different answers by design — the fast path reads
         # call_edges and the rules add the by-name, in-scope and text layers — so a count nobody can attribute is a
         # count nobody can check. This cost a whole re-derivation once: three declarations reported 0 reached and
@@ -151,21 +151,28 @@ elif event in ('PostToolUse', 'UserPromptSubmit'):
     except Exception: pass
     bg = ax_fresh.baseline_graph(cwd)
     if bg: os.environ['AXIOMCODE_GRAPH'] = bg
+    # HEAD MOVED AND THE BASELINE HAS NOT FOLLOWED YET (a rebase, a pull, a checkout; the wait above ran out). Measured
+    # against the baseline, every declaration the incoming commits changed was reported as this session's edit. Against
+    # HEAD it is the working tree's own edits only; the commits that came in are nobody's edit here
+    try: behind = ax_fresh.base_moved(cwd)
+    except Exception: behind = False
+    AGAINST = ['--against-head'] if behind else []
 if event == 'PostToolUse' and tool == 'Bash':
     c = str(inp.get('command', ''))
     if not re.search(r'\bsed\s+-i|\bpatch\b|\bgit\s+(apply|checkout|switch|pull|merge|rebase|revert|cherry-pick|stash\s+pop|reset\s+--hard|restore)\b|>>?\s*\S+\.(' + _where.SOURCE_ALT + r')\b|\b(python3?|node|bash|sh)\s+\S+|\bmv\b|\bcp\b|\brm\b', c): sys.exit(0)
-    j = changed([], timeout=18)
+    j = changed(AGAINST, timeout=18)
     st = load_state(); seen = set(st.get('reported', []))
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
     if new:
-        lines = summarize(new, f"graph: after that command, {{n}} declaration(s) changed in the working tree (against the graph's commit {(j.get('built_at') or '')[:10]}) —")
+        lines = summarize(new, f"graph: after that command, {{n}} declaration(s) changed in the working tree (against " + ("HEAD: the commits that came in are not counted" if AGAINST else f"the graph's commit {(j.get('built_at') or '')[:10]}") + ") —")
         st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
 elif event == 'UserPromptSubmit':
-    j = changed([], timeout=18)
+    j = changed(AGAINST, timeout=18)
     st = load_state(); seen = set(st.get('reported', []))
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
     if new:
-        lines = summarize(new, f"graph: {{n}} declaration(s) changed in the working tree since the graph's commit {(j.get('built_at') or '')[:10]} and were not reported yet —")
+        lines = summarize(new, (f"graph: {{n}} declaration(s) changed in the working tree against HEAD (the commits that came in are not counted) and were not reported yet —" if AGAINST
+                                else f"graph: {{n}} declaration(s) changed in the working tree since the graph's commit {(j.get('built_at') or '')[:10]} and were not reported yet —"))
         st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
 try:
     with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'event': event, 'tool': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines), 'input': {k: v for k, v in inp.items() if k in ('file_path', 'command', 'old_string', 'new_string')}, 'text': '\n'.join(lines)}) + '\n')
