@@ -41,11 +41,23 @@ def _timer(interval):
 def run(args, cwd=None, timeout=900):
     for a in args[1:]:
         if os.path.isdir(a) and os.path.isdir(os.path.join(a, '.axiomcode')): SEEN.add(os.path.realpath(a))
+    # A QUERY ON A REPOSITORY WITH NO GRAPH YET does not hold the call for the length of a first build (minutes; past this
+    # server's timeout it came back as a bare "Error executing tool"): the build is started in the background and the
+    # answer says what stage it is at (ax_contract.ensure_graph). `index` is asked for a build and still waits for it.
+    env = dict(os.environ, AXIOMCODE_BUILD_NOWAIT='1') if args and args[0] != 'index' else None
     try:
-        r = subprocess.run([BASH, AX, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run([BASH, AX, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout, env=env)
     except OSError as e:
         return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
                 "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")
+    except subprocess.TimeoutExpired:
+        repo = next((a for a in reversed(args[1:]) if os.path.isdir(a)), cwd or os.getcwd())
+        try:
+            sys.path.insert(0, os.path.dirname(AX)); import ax_contract, ax_fresh
+            if ax_fresh.building(os.path.realpath(repo)): return ax_contract.building_note(os.path.realpath(repo))
+        except Exception: pass
+        return (f"axiomcode {args[0] if args else ''} did not answer within {timeout} s. Nothing was changed; "
+                f"see {os.path.join(repo, '.axiomcode', 'build.log')} if a build was running, and ask again.")
     out = (r.stdout or '') + (('\n' + r.stderr.strip()) if r.returncode and r.stderr.strip() else '')
     # an answer given from a graph that predates some edit says so, and names the files (#1305)
     if not r.returncode: out += ''.join('\n' + l for l in (r.stderr or '').splitlines() if l.startswith('graph refresh:'))

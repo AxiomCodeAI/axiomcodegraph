@@ -103,21 +103,27 @@ def git_ignored_dirs(root):
 def watched(root, lang):
     """every file the parser of `lang` reads under root; `lang` may be a comma list (a repository in several
     languages, each with its own graph), and a file two of them read is yielded once"""
-    if ',' in lang:
-        seen = set()
-        for l in lang.split(','):
-            for p in watched(root, l):
-                if p not in seen: seen.add(p); yield p
-        return
-    exts, names, prune = EXT.get(lang, ()), NAMES.get(lang, ()), PRUNE.get(lang, PRUNE_ALL)
-    ignored = git_ignored_dirs(root); real = os.path.realpath(root)
+    # ONE WALK FOR EVERY LANGUAGE. A repository in five languages was walked five times on every freshness check, that is
+    # before every query; the tree is walked once now, a directory only one language prunes (C#'s obj/bin/packages)
+    # entered for the others and its files kept from that one. The files yielded are the same set.
+    langs = [l for l in lang.split(',') if l] if lang else ['']
+    common = set.intersection(*[set(PRUNE.get(l, PRUNE_ALL)) for l in langs])
+    extra = {l: set(PRUNE.get(l, PRUNE_ALL)) - common for l in langs}
+    spec = [(l, EXT.get(l, ()), NAMES.get(l, ())) for l in langs]
+    hidden = {root: frozenset()}                                   # the languages that pruned each directory walked
+    ignored = git_ignored_dirs(root); real = os.path.realpath(root)   # a .gitignore'd directory is pruned for every language
     for d, subdirs, files in os.walk(root):
+        off = hidden.pop(d, frozenset())
         rd = os.path.join(real, os.path.relpath(d, root)) if ignored else d
-        subdirs[:] = [s for s in subdirs if s not in prune and not (ignored and os.path.normpath(os.path.join(rd, s)) in ignored)]
+        subdirs[:] = [s for s in subdirs if s not in common and not all(l in off or s in extra[l] for l in langs)
+                      and not (ignored and os.path.normpath(os.path.join(rd, s)) in ignored)]
+        for s in subdirs: hidden[os.path.join(d, s)] = off | {l for l in langs if s in extra[l]}
         for f in files:
-            if f.endswith(exts) or f in names or (lang == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
-                    or (lang == 'python' and python_script(os.path.join(d, f), f)):
-                yield os.path.join(d, f)
+            for l, exts, names in spec:
+                if l in off: continue
+                if f.endswith(exts) or f in names or (l == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
+                        or (l == 'python' and python_script(os.path.join(d, f), f)):
+                    yield os.path.join(d, f); break
 
 def digest(p):
     h = hashlib.sha1()

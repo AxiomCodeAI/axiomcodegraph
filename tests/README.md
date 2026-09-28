@@ -49,6 +49,11 @@ One check needs no graph and is its own script:
     python3 tests/multi_language.py      a repository in several languages is indexed in all of them and every query asks
                                          each graph: nothing dropped, a one-graph answer unchanged, an edit reported once,
                                          refreshed, upgraded from a one-language graph (builds real graphs, needs the engine)
+    python3 tests/latency.py             what a query repeats on every call is done once, with the same answer: the non-source
+                                         scan cached per graph, a repeated impact solve read back, one tree walk for every language,
+                                         the verb and the Python found without starting programs, a first build that reports its
+                                         stage instead of holding the call (indexes a small project, so it needs the engine;
+                                         --no-engine for the rest)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

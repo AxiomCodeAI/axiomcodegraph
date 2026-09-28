@@ -23,7 +23,7 @@ Five rules, and every verb obeys all five:
   5. STATE THE BOUND. Say what the answer cannot see — the relations this graph does not encode — so a
      partial list is not read as a complete one.
 """
-import collections, difflib, os, re, subprocess, sys
+import collections, difflib, os, re, subprocess, sys, time
 
 SPLIT = re.compile(r'[^A-Za-z0-9]+')
 CAMEL = re.compile(r'[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+')
@@ -388,11 +388,32 @@ def ensure_graph(repo, db):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
     rr = os.path.realpath(repo); auto = os.environ.get('AXIOMCODE_AUTOBUILD')
     if ax_fresh.building(rr):
-        ax_fresh.wait_build(rr, float(os.environ.get('AXIOMCODE_BUILD_WAIT') or 900) if auto else 0)
+        # a build is running: never a silent wait. Under the MCP server answer at once with the stage it is at; from a
+        # shell wait for it, printing the stage as it moves; either way, use the graph the moment it exists
+        if auto and not os.environ.get('AXIOMCODE_BUILD_NOWAIT'):
+            print(f"a graph build is already running for {repo}; waiting for it …", file=sys.stderr)
+            _follow(rr, lambda: ax_fresh.building(rr))
         if os.path.exists(db): return True
+        if auto and os.environ.get('AXIOMCODE_BUILD_NOWAIT'):
+            _BUILD_NOTE.append(building_note(rr)); return False
     if not auto or os.environ.get('AXIOMCODE_GRAPH'): return False
     build = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-build')
     if not os.path.exists(build): return False
+    import ax_fresh
+    bash = os.environ.get('AXIOMCODE_BASH') or 'bash'
+    # NEVER A SILENT WAIT. A first build takes minutes (a whole-program solve, and on a machine that has never built this
+    # language, a one-time compile of its rules), and it used to run with nothing said after its first line, so a caller
+    # could not tell a build from a hang. Under the MCP server (AXIOMCODE_BUILD_NOWAIT) the build is started in the
+    # background and the call answers within AXIOMCODE_BUILD_WAIT seconds either way: with the graph when it was quick,
+    # else with the stage the build is at, so the agent is told to ask again rather than left waiting past the host's
+    # timeout. From a shell the call waits for it, printing the stage as it moves. A call that finds a build already
+    # running (another query's, or an `axiomcode index`) reports on that one rather than queueing a second behind it.
+    nowait = bool(os.environ.get('AXIOMCODE_BUILD_NOWAIT'))
+    if ax_fresh.building(repo):
+        if nowait: _BUILD_NOTE.append(building_note(repo)); return False
+        print(f"a graph build is already running for {repo}; waiting for it …", file=sys.stderr)
+        _follow(repo, lambda: ax_fresh.building(repo))
+        return os.path.exists(db)
     env = None
     if ax_fresh.has_graph(rr):
         # a graph WAS built here and its pointer is broken: a repair, which keeps the baseline `changed` and test-impact
@@ -402,12 +423,71 @@ def ensure_graph(repo, db):
         env = dict(os.environ, AXIOMCODE_KEEP_BASE='1')
     else:
         print(f"no graph for {repo} yet — building one (this is the only slow call; later ones read it) …", file=sys.stderr)
-    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', build, repo], env=env)
-    return r.returncode == 0 and os.path.exists(db)
+    if nowait:
+        os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
+        log = open(os.path.join(repo, '.axiomcode', 'first-build.log'), 'w')
+        kw = dict(start_new_session=True) if os.name != 'nt' else dict(creationflags=0x00000008 | 0x00000200)   # DETACHED | NEW_GROUP, as ax_fresh.kick
+        p = subprocess.Popen([bash, build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, **kw)
+        # until the build holds its lock a second query would see no build and start another, so that much is always waited
+        up = time.time() + 10
+        while p.poll() is None and not ax_fresh.building(repo) and time.time() < up: time.sleep(0.05)
+        end = time.time() + float(os.environ.get('AXIOMCODE_BUILD_WAIT') or 60)
+        while p.poll() is None and time.time() < end: time.sleep(0.5)
+        if p.poll() is None: _BUILD_NOTE.append(building_note(repo)); return False
+        return p.returncode == 0 and os.path.exists(db)
+    p = subprocess.Popen([bash, build, repo], env=env)
+    _follow(repo, lambda: p.poll() is None)
+    return p.returncode == 0 and os.path.exists(db)
+
+
+_BUILD_NOTE = []
+TICK = 20.0
+
+
+def build_stage(repo):
+    """(stage, done, of): the last `▶` step the running build's log names, and how many of its languages it has
+    started solving, from .axiomcode/build.log"""
+    stage, langs, solving = '', [], 0
+    try: text = open(os.path.join(repo, '.axiomcode', 'build.log'), errors='replace').read()
+    except OSError: text = ''
+    for l in text.splitlines():
+        if not l.startswith('\u25b6 '): continue
+        stage = l[2:].strip()
+        if stage.startswith('languages:'): langs = stage.split(':', 1)[1].split()
+        elif stage.startswith('solving '): solving += 1
+    return stage, solving, len(langs)
+
+
+def building_note(repo):
+    """one line: a graph is being built, what it is doing and for how long, and what to do meanwhile"""
+    try: took = time.time() - os.path.getmtime(os.path.join(repo, '.axiomcode', 'build.lock'))
+    except OSError: took = 0
+    stage, n, of = build_stage(repo)
+    where = (f"language {n} of {of}, " if of and n else '') + (stage or 'starting')
+    if 'compiling souffle program' in stage:
+        where += ' — a one-time compile of this language\'s rules on this machine, a few minutes; later builds reuse it'
+    return (f"the graph for {repo} is being built ({where}; {int(took // 60)}m{int(took % 60):02d}s so far). "
+            f"Nothing else is needed: ask again in a minute or two, or read the code directly meanwhile. "
+            f"Progress: {os.path.join(repo, '.axiomcode', 'build.log')}")
+
+
+def _follow(repo, running):
+    """wait while running(), printing the build's stage to stderr whenever it moves, and every TICK seconds at least"""
+    last, said = None, time.time()
+    while running():
+        time.sleep(0.5)
+        stage, n, of = build_stage(repo)
+        if (stage and stage != last) or time.time() - said >= TICK:
+            try: took = time.time() - os.path.getmtime(os.path.join(repo, '.axiomcode', 'build.lock'))
+            except OSError: took = 0
+            print(f"  … {'language %d of %d, ' % (n, of) if of and n else ''}{stage or 'starting'} ({int(took)}s)", file=sys.stderr, flush=True)
+            last, said = stage, time.time()
 
 
 def no_graph(repo, db):
     """what to say when there is still no graph after ensure_graph has had its turn."""
+    if _BUILD_NOTE:
+        return _BUILD_NOTE[-1]
     if os.environ.get('AXIOMCODE_GRAPH'):
         return f"no graph at {db} (AXIOMCODE_GRAPH is set, so nothing was built into it)"
     if os.environ.get('AXIOMCODE_AUTOBUILD'):

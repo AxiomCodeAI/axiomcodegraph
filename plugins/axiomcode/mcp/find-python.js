@@ -14,6 +14,9 @@
 'use strict';
 const { spawnSync } = require('child_process');
 const { which } = require('./which.js');
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const SHIM = path.join(__dirname, '..', 'skills', 'axiomcode', 'scripts', 'pyshim');
@@ -24,14 +27,67 @@ function candidates() {
 }
 
 // { cmd, exe } or { error }: cmd is how the candidate was named, exe the interpreter file it runs.
+// THE PROBE IS REMEMBERED. It starts an interpreter, and it ran on every `axiomcode` command and on every hook, which fire
+// on every tool call an agent makes: one Python start each time, before the work, and on a busy Windows machine that is
+// the slowest process there is to start. Its answer depends only on what each candidate name resolves to on PATH, so it is
+// kept in the temp directory under a key of PATH and AXIOMCODE_PYTHON, with the file every candidate it tried resolved to
+// (and that file's mtime). A later call re-resolves those names -- a stat per directory, no process -- and probes again
+// only when one of them resolves elsewhere, or the file changed: a Python installed, removed or upgraded.
+// AXIOMCODE_NO_PYTHON_CACHE=1 probes every time.
+function onPath(name) {
+  if (process.platform === 'win32' || path.isAbsolute(name) || /[\\/]/.test(name)) {
+    const p = process.platform === 'win32' ? which(name) : name;
+    if (!p) return null;
+    try { return [p, fs.statSync(p).mtimeMs]; } catch { return null; }
+  }
+  for (const d of (process.env.PATH || '').split(path.delimiter)) {
+    if (!d || !path.isAbsolute(d)) continue;
+    const p = path.join(d, name);
+    try { const st = fs.statSync(p); if (st.isFile()) return [p, st.mtimeMs]; } catch { /* not here */ }
+  }
+  return null;
+}
+
+function cacheFile() {
+  const key = crypto.createHash('sha1').update([process.platform, process.arch, process.env.PATH || process.env.Path || '',
+    process.env.AXIOMCODE_PYTHON || ''].join('\0')).digest('hex').slice(0, 16);
+  return path.join(os.tmpdir(), `axiomcode-python-${key}.json`);
+}
+
+function cached() {
+  if (process.env.AXIOMCODE_NO_PYTHON_CACHE) return null;
+  try {
+    const c = JSON.parse(fs.readFileSync(cacheFile(), 'utf8'));
+    for (const [name, was] of c.seen) {
+      const now = onPath(name);
+      if (JSON.stringify(now) !== JSON.stringify(was)) return null;
+    }
+    if (!fs.statSync(c.exe).isFile()) return null;
+    return { cmd: c.cmd, exe: c.exe };
+  } catch { return null; }
+}
+
+function remember(found, seen) {
+  if (process.env.AXIOMCODE_NO_PYTHON_CACHE) return;
+  try {
+    const f = cacheFile(), tmp = `${f}.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify({ cmd: found.cmd, exe: found.exe, seen }));
+    fs.renameSync(tmp, f);
+  } catch { /* a read-only temp directory only costs the probe next time */ }
+}
+
 function findPython() {
+  const hit = cached();
+  if (hit) return hit;
+  const seen = [];
   for (const cmd of candidates()) {
+    seen.push([cmd[0], onPath(cmd[0])]);
     const exe0 = which(cmd[0]);                                  // PATH only: never a python.exe in the current directory
     if (!exe0) continue;
     const r = spawnSync(exe0, [...cmd.slice(1), '-c', 'import sys; print(sys.executable)'],
                         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 15000 });
     const exe = r.status === 0 && String(r.stdout).trim();
-    if (exe) return { cmd, exe };
+    if (exe) { const found = { cmd, exe }; remember(found, seen); return found; }
   }
   return { error: 'axiomcode needs Python 3, and no python3, python' + (process.platform === 'win32' ? ' or py -3' : '') +
     ' on PATH runs.\n   • install it (https://www.python.org/downloads/), or\n' +

@@ -46,7 +46,7 @@
 # A repo in several languages is indexed in all of them, one graph each, and the query verbs ask every graph (the main
 # language's, the one with the most files, first). --lang restricts it to one language or a comma list, the first the main one;
 # --src limits the analysed tree (e.g. src); --library names dependency roots.
-H="$(cd "$(dirname "$0")" && pwd)"
+case "$0" in */*) H="${0%/*}";; *) H=.;; esac; H="$(cd "${H:-/}" && pwd)"   # no `dirname`: see bin/axiomcode
 
 # PYTHON UNDER ANOTHER NAME (#1331). Every verb runs `python3`, which a python.org install on Windows does not
 # provide, and which on a desktop Windows is the Store placeholder. Started from node (the `axiomcode` command, the
