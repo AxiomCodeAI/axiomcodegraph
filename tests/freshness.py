@@ -21,6 +21,9 @@ budget. And the refresher watches every file the parser reads, so no edit leaves
   engine    a graph built by another engine, other rules or another IMPACT_VERSION is stale with no file changed: the
             answer comes from it at once with a note, and `index` rebuilds it saying why; the same engine, even reinstalled
             elsewhere, with no edit, is current
+  newer     a graph a NEWER axiomcode built (higher IMPACT_VERSION, or a later engine) is never rebuilt by this older one,
+            by the refresher or by `index`, edited or not; answers come from it at once and say so. The near-miss: an
+            OLDER build is still stale and rebuilt
   mcp       the MCP tools take fresh=true and pass --fresh, and the CLI's --fresh is written fresh=True in an answer
 
 No engine: the wait checks drive `ax_fresh.py query` with a stand-in verb, and a stand-in refresh that brings the file
@@ -327,6 +330,88 @@ def engine_checks():
         shutil.rmtree(work, ignore_errors=True)
 
 
+# ── newer ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+FAKE_BUILD = "import os, sys; open(os.path.join(sys.argv[2], 'built-by-this-one'), 'a').write('x\\n')\n"
+
+
+def newer_checks():
+    """a graph built by a NEWER axiomcode (a higher IMPACT_VERSION, or the same one and a later engine) is never rebuilt
+    by this older one: not by the refresher (whatever changed), not by `index`; every answer comes from it at once and
+    says so. The near-miss: a graph built by an OLDER axiomcode is still rebuilt, by the refresher and by `index`"""
+    work = tempfile.mkdtemp(prefix='axiomcode-newer-'); saved = os.environ.get('AXIOMCODE_ENGINE')
+    try:
+        e1 = fake_engine(os.path.join(work, 'e1'), version='1.0.0'); os.environ['AXIOMCODE_ENGINE'] = e1
+        mine = ax_fresh.plugin_id()[1]
+        # the stand-in build the refresher runs: it only records that it ran (AXIOMCODE_BASH runs it in place of bash)
+        fb = os.path.join(work, 'fake_build.py'); open(fb, 'w').write(FAKE_BUILD)
+        runner = os.path.join(work, 'runner.sh'); open(runner, 'w').write(f'#!/bin/sh\nexec "{sys.executable}" "{fb}" "$@"\n'); os.chmod(runner, 0o755)
+        driver = os.path.join(work, 'driver.py'); open(driver, 'w').write(DRIVER)
+
+        def repo_by(name, **by):
+            repo = fake_repo(work, name); os.remove(os.path.join(repo, '.axiomcode/refresh.json'))
+            tp = os.path.join(repo, '.axiomcode/out/files.json'); t = json.load(open(tp))
+            t['built_by'].update(by); json.dump(t, open(tp, 'w'))
+            return repo
+
+        def worker(repo):
+            env = dict(os.environ, AXIOMCODE_BASH=runner, AXIOMCODE_REFRESH_DEBOUNCE='0.05')
+            for k in ('AXIOMCODE_NO_REFRESH', 'AXIOMCODE_GRAPH'): env.pop(k, None)
+            subprocess.run([sys.executable, os.path.join(SCRIPTS, 'ax_fresh.py'), 'worker', repo], env=env, capture_output=True, text=True, timeout=60)
+            return os.path.exists(os.path.join(repo, 'built-by-this-one'))
+
+        def query(repo):
+            env = {k: v for k, v in os.environ.items() if k not in ('AXIOMCODE_NO_REFRESH', 'AXIOMCODE_FRESH', 'AXIOMCODE_GRAPH')}
+            t0 = time.time()
+            r = subprocess.run([sys.executable, driver, SCRIPTS, repo, 'impact', '--', sys.executable, '-c', f"print({ROWS!r})"],
+                               capture_output=True, text=True, env=dict(env, AXIOMCODE_FRESH_WAIT='30'))
+            return r.stdout, r.stderr, time.time() - t0
+
+        up = str(int(mine) + 1); down = str(int(mine) - 1)
+        repo = repo_by('newer', impact=up)
+        s = ax_fresh.status(repo); want = f"graph built by a newer axiomcode (IMPACT_VERSION {up}, this one has {mine})"
+        check("newer: a higher IMPACT_VERSION is a newer build, not an older one to rebuild; with no edit the graph is fresh",
+              s.get('state') == 'fresh' and s.get('newer') == want and ax_fresh.engine_change(repo) == '', s)
+        out, err, took = query(repo)
+        check(f"newer: the answer comes from it at once ({took:.1f}s), unmarked, and says a newer axiomcode built it and it is not rebuilt",
+              out.strip() == ROWS.strip() and want in err and 'not rebuild' in err and 'rebuilding' not in err and took < 10, (out, err))
+        n = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'ax_fresh.py'), 'newer', repo], capture_output=True, text=True)
+        u = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'ax_fresh.py'), 'uptodate', repo, 'python', '', ''], capture_output=True, text=True)
+        check("newer: `index` is told to keep it (ax_fresh.py newer exits 0 and says why), and finds the files up to date",
+              n.returncode == 0 and want in n.stdout and 'AXIOMCODE_REINDEX=1' in n.stdout and u.returncode == 0, (n.stdout, u.stdout))
+        check("newer: the refresher does not rebuild it", not worker(repo) and ax_fresh.read_state(repo).get('state') == 'newer', ax_fresh.read_state(repo))
+        # an edit: still never rebuilt; the answer marks the edited file's rows, waits for nothing, and says why no refresh comes
+        open(os.path.join(repo, 'shop/api.py'), 'a').write('\ndef audit(items):\n    return total(items)\n')
+        s = ax_fresh.status(repo); out, err, took = query(repo)
+        check("newer: with a file edited the graph is stale, and still a newer build", s.get('state') == 'stale' and s.get('newer') == want, s)
+        check("newer: with a file edited the refresher still does not rebuild it", not worker(repo), '')
+        check(f"newer: with a file edited the answer marks that file's rows, does not wait ({took:.1f}s), and names no rebuild",
+              'shop/api.py:5   - calls it' + ax_fresh.MARK in out and want in err and 'predates edits to shop/api.py' in err
+              and 'queued' not in err and 'rebuilding' not in err and 'waiting' not in err and took < 10, (out, err))
+        w = ax_fresh.wait(repo, 5)
+        check("newer: a wait for a fresh graph returns at once rather than waiting for a rebuild that never comes", w.get('newer') == want, w)
+        # the same IMPACT_VERSION and a later engine is newer too
+        repo = repo_by('newer-engine', engine_version='1.0.1')
+        check("newer: the same IMPACT_VERSION and a later engine version is a newer build",
+              ax_fresh.status(repo).get('newer') == "graph built by a newer axiomcode (engine 1.0.1, this one is 1.0.0)" and not worker(repo),
+              ax_fresh.status(repo))
+        # ── the near-miss: an OLDER build is rebuilt as before ──
+        repo = repo_by('older', impact=down)
+        s = ax_fresh.status(repo)
+        check("control: a lower IMPACT_VERSION is an older build: stale, named as such, and not a newer one",
+              s.get('state') == 'stale' and s.get('engine') == f"graph built by an older axiomcode (IMPACT_VERSION {down} -> {mine})" and not s.get('newer'), s)
+        n = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'ax_fresh.py'), 'newer', repo], capture_output=True, text=True)
+        check("control: `index` is not told to keep an older build (ax_fresh.py newer exits 1, silent)", n.returncode == 1 and not n.stdout.strip(), n.stdout)
+        check("control: the refresher rebuilds an older build", worker(repo), ax_fresh.read_state(repo))
+        repo = repo_by('older-engine', engine_version='0.9.0', engine_hash='0' * 40, engine_stat='0' * 40)
+        check("control: an earlier engine at the same IMPACT_VERSION is an older build, and is rebuilt",
+              ax_fresh.status(repo).get('engine', '').startswith('graph built by an older axiomcode (engine 0.9.0') and not ax_fresh.status(repo).get('newer')
+              and worker(repo), ax_fresh.status(repo))
+    finally:
+        if saved is None: os.environ.pop('AXIOMCODE_ENGINE', None)
+        else: os.environ['AXIOMCODE_ENGINE'] = saved
+        shutil.rmtree(work, ignore_errors=True)
+
+
 # ── named ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 NOT_FOUND = "nothing named 'audit' in the graph, and nothing close to it."
 
@@ -398,7 +483,7 @@ def mcp_checks():
 
 
 if __name__ == '__main__':
-    prune_checks(); marks_checks(); wait_checks(); engine_checks(); named_checks(); mcp_checks()
+    prune_checks(); marks_checks(); wait_checks(); engine_checks(); newer_checks(); named_checks(); mcp_checks()
     bad = [n for n, ok in RESULTS if not ok]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed" + (f"; FAILED: {len(bad)}" if bad else ''))
     sys.exit(1 if bad or not RESULTS else 0)

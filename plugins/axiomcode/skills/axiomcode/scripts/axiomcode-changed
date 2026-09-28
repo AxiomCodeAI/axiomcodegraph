@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode changed [<repo>] [<file>…] [--range <a>..<b> | --staged] [--old <text-file> --new <text-file> --file <path>] [--impact] [--json]
+"""axiomcode changed [<repo>] [<file>… [--whole]] [--range <a>..<b> | --staged] [--old <text-file> --new <text-file> --file <path>] [--impact] [--json]
    which declarations an edit changed, and HOW — then (--impact) what that reaches.
 
 The graph describes the tree as it was when it was built (the build stamps the commit). An edit is read against that version:
@@ -19,7 +19,7 @@ The output is one line per changed declaration with the target `axiomcode impact
 of them as one change set (the union) and prints its answer. A method whose only change is its body is a `method` target; a
 signature change with one parameter changed is `Owner.m(param)`; a field is `Owner.field`; a type header is `Type`.
 """
-import difflib, importlib.machinery, importlib.util, json, os, re, subprocess, sys
+import difflib, importlib.machinery, importlib.util, json, os, re, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
@@ -107,6 +107,32 @@ def strip_code(t, strings=True, hash_comments=True):
     return ''.join(out)
 
 class Changed:
+    def _absorbed(self):
+        """the source files whose edits the BASELINE holds: it was set to a working tree that differed from HEAD (an explicit
+        index of an edited tree), so those edits are the baseline's own and an answer measured against it cannot see them.
+        [] while HEAD has moved past the baseline's commit (the refresh is moving it; those are new commits, not edits)"""
+        bc = os.path.join(self.repo, '.axiomcode', 'out', 'base-commit')
+        bc = open(bc).read().strip() if os.path.exists(bc) else ''
+        head = (sh('git', 'rev-parse', 'HEAD', cwd=self.repo) or '').strip()
+        if bc and head and bc != head: return []
+        out = sh('git', 'diff', '--name-only', 'HEAD', self.base_tree, cwd=self.repo) or ''
+        return [f for f in out.splitlines() if re.search(CODE_EXT, f)]
+
+    def baseline_note(self):
+        """one line when the baseline holds edits HEAD does not (base_absorbed): when it was set and by what, and how to
+        count those edits anyway; '' otherwise"""
+        fs = self.base_absorbed
+        if not fs: return ''
+        when = by = ''
+        try:
+            ts, by = open(os.path.join(self.repo, '.axiomcode', 'out', 'base-set')).read().rstrip('\n').split('\t', 1)
+            when = ' ' + time.strftime('%Y-%m-%d %H:%M', time.localtime(int(ts)))
+        except (OSError, ValueError): pass
+        head = ', '.join(fs[:4]) + (f" … +{len(fs) - 4}" if len(fs) > 4 else '')
+        return (f"baseline moved: it was set{when}{' by ' + by if by else ' by an explicit index'} to the working tree as it was "
+                f"then, not to HEAD, so the uncommitted edits to {head} are part of the baseline and are NOT counted here; "
+                f"name the files to count them whole: `test-impact {' '.join(fs[:4])}` (or `changed --whole <file>…`)")
+
     def __init__(self, repo, baseline=False):
         self.g = G(repo); self.repo = self.g.repo
         st = os.path.join(self.repo, '.axiomcode', 'out', 'stamp')
@@ -126,6 +152,7 @@ class Changed:
         self.base_tree = b if b and sh('git', 'cat-file', '-e', b, cwd=self.repo) is not None else self.indexed_tree
         self.tree_differs = bool(self.base_tree) and (sh('git', 'rev-parse', 'HEAD^{tree}', cwd=self.repo) or '').strip() != self.base_tree
         if baseline: self.indexed_tree = self.base_tree                                          # reading the baseline's own graph: its spans ARE the baseline's
+        self.base_absorbed = self._absorbed() if self.tree_differs else []
         self._mapped = {}
         self.spans = {}                                                                           # file -> [(line, end, id, kind)]
         for r in self.g.sym.values():
@@ -784,16 +811,20 @@ def main(argv):
             s_ = branch_suggestion(C.repo)
             if s_: suggest = dict(ref=s_[0], commits=s_[1], range=f"{s_[0]}..HEAD")
     if outside: notes.append(('', outside_note(outside), None))
+    # A BASELINE THAT HOLDS EDITS (an explicit index of an edited tree, or a rebuild run as one) hides them: said, with how
+    # to count them, rather than a bare "no change" over a real edit. Only when the question is the working tree as a whole
+    base_note = C.baseline_note() if mode == 'worktree' and not a and not (old_f or new_f) else ''
     base_desc = (f"working tree against {C.built_at[:10] if C.built_at and C.built_at != 'nogit' else 'HEAD'}" if mode == 'worktree' else
                  f"{rng} (from {C.range_old[:10]} to {C.range_new[:10]})" if mode == 'range' else mode)
     sugg_line = (f"your commits are not in the working tree: HEAD is {suggest['commits']} commit(s) ahead of {suggest['ref']} — "
                  f"ask `changed --range {suggest['range']}` (MCP range='{suggest['range']}') for them") if suggest else None
     if as_json:
         print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes], 'outside_index': sorted(outside),
-                          'range_base': (C.range_old if mode == 'range' else None), 'range_note': range_note,
+                          'range_base': (C.range_old if mode == 'range' else None), 'range_note': range_note, 'baseline_note': base_note,
                           'suggest_range': suggest, 'suggest_note': sugg_line}, indent=1))
         return 3 if fanout_empty else 0
     if range_note: print(f"note: {range_note}")
+    if base_note: print(f"note: {base_note}")
     if not results and not notes:
         print(f"no change to a declaration the graph knows ({base_desc})")
         if sugg_line: print(f"next: {sugg_line}")
