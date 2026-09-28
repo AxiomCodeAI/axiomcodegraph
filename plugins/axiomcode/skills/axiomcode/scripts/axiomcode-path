@@ -1086,7 +1086,101 @@ def entered_in_process(g, ids):
     order = {i: n for n, i in enumerate(ids)}
     return sorted(out.items(), key=lambda x: order.get(x[0], 0))
 
-# ── the query ────────────────────────────────────────────────────────────────────────────────────────────────────
+# AN UNMODELLED ENTRY: A SIGNAL THAT SOMETHING OUTSIDE THE CODE CALLS A DECLARATION, WHICH THE ENGINE DID NOT TURN INTO AN
+# EDGE OR AN ENTRY POINT. A decoration the rules do not know (a listener, a hook, a validator, a registration), or a
+# base type the graph does not contain (a library class the declaration's owner extends, which the parser could not
+# resolve). "No caller" is then a gap in the model, not a fact about the code, and every verdict that turns "no caller"
+# into "local", "tests: 0" or "independent" was false on exactly these declarations. The rule is one rule, with no
+# framework's names in it: every decoration counts except the short list below, which change nothing about who calls
+# the declaration (a compiler check, a nullness mark, a generated accessor, a wrapper around the same call).
+INERT_DECORATIONS = {
+    # compiler checks and documentation
+    'Override', 'SuppressWarnings', 'Deprecated', 'Serial', 'FunctionalInterface', 'SafeVarargs', 'Documented',
+    'Retention', 'Target', 'Inherited', 'Obsolete', 'Serializable', 'Flags', 'Pure', 'MethodImpl', 'AttributeUsage',
+    'Generated', 'GeneratedCode', 'CompilerGenerated', 'ExcludeFromCodeCoverage', 'DebuggerStepThrough',
+    'DebuggerNonUserCode', 'DebuggerDisplay', 'DebuggerHidden', 'CallerMemberName', 'CallerFilePath', 'CallerLineNumber',
+    'override', 'overload', 'final', 'abstractmethod', 'deprecated',
+    # nullness
+    'Nullable', 'NonNull', 'Nonnull', 'NotNull', 'CheckForNull', 'NotNullWhen', 'MaybeNullWhen', 'AllowNull', 'DisallowNull',
+    # members the compiler writes, and wrappers the caller still calls by name
+    'staticmethod', 'classmethod', 'property', 'cached_property', 'hybrid_property', 'wraps', 'lru_cache', 'cache',
+    'cached', 'memoize', 'dataclass',
+    'total_ordering', 'contextmanager', 'asynccontextmanager',
+    'Getter', 'Setter', 'Data', 'Builder', 'ToString', 'EqualsAndHashCode', 'AllArgsConstructor', 'NoArgsConstructor',
+    'RequiredArgsConstructor', 'Slf4j', 'Log4j2',
+}
+BASE_CONTEXTS = ('BASE_LIST', 'BASE_CLASS', 'SUPER_TYPE', 'IMPLEMENTS_INTERFACE')
+_NOT_A_BASE = {'object', 'Object', 'string', 'String', 'int', 'bool', 'long', 'double', 'float', 'decimal', 'byte', 'char', 'short'}
+
+def _dec_name(n):
+    n = (n or '').lstrip('@').split('(')[0].split('.')[-1]
+    return n[:-len('Attribute')] if n.endswith('Attribute') and len(n) > len('Attribute') else n
+
+def _library_bases(g, tid):
+    """the base types written on type symbol `tid` that are not declared in the graph: a library ancestor the engine
+    resolved (types.provenance <> 'client'), or a written base name no client type carries (the parser could not
+    resolve it). Only the type's OWN header: a base written on a nested type belongs to the nested type."""
+    s = g.all_sym.get(tid) if hasattr(g, 'all_sym') else g.sym.get(tid)
+    if not s: return []
+    out = []
+    if s.get('type_id') and g.has('type_ancestors') and g.has('types'):
+        out += [r[0] for r in g.q("""SELECT DISTINCT x.name FROM type_ancestors a JOIN types x ON x.id = a.ancestor_type_id
+                                     WHERE a.type_id = ? AND x.provenance <> 'client' ORDER BY x.name""", s['type_id'])]
+    if s.get('file') and s.get('line') and g.has('type_refs'):
+        end = s.get('end_line') or s['line']
+        nested = [(r[0], r[1] or r[0]) for r in g.q("""SELECT line, end_line FROM symbols WHERE file = ? AND method_id IS NULL
+                     AND type_id IS NOT NULL AND line > ? AND line <= ?""", s['file'], s['line'], end)]
+        ph = ','.join('?' * len(BASE_CONTEXTS))
+        for name, line in g.q(f"SELECT name, line FROM type_refs WHERE file = ? AND line BETWEEN ? AND ? AND context IN ({ph})",
+                              s['file'], s['line'], end, *BASE_CONTEXTS):
+            if any(a <= line <= b for a, b in nested): continue
+            simple = re.split(r'[<(\[]', name or '')[0].split('.')[-1]
+            if not simple or simple in _NOT_A_BASE: continue
+            if g.has('types') and g.q("SELECT 1 FROM types WHERE name = ? AND provenance = 'client' LIMIT 1", simple): continue
+            out.append(name)
+    return list(dict.fromkeys(out))
+
+def unmodelled_entry(g, ids):
+    """[(symbol id, signal)]: for each declaration in `ids` (a method, a field or a type) that is not a test, what says
+    something outside the code may call it with no edge in this graph -- a decoration outside INERT_DECORATIONS on it
+    or on its owner type, or a base type of its owner (of itself, for a type) the graph does not contain. A private or
+    static member is never entered through its owner's decoration or base, so only its own decorations count."""
+    allsym = g.all_sym if hasattr(g, 'all_sym') else g.sym
+    decs = lambda i: [n for n in dict.fromkeys(_dec_name(r[0]) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", i))
+                      if n and n not in INERT_DECORATIONS] if g.has('decorations') else []
+    out = []
+    for i in ids:
+        s = allsym.get(i)
+        if not s or s.get('is_test'): continue
+        for n in decs(i): out.append((i, f"@{n} on {s['display']}"))
+        is_type = s.get('type_id') and not s.get('method_id')
+        if is_type:
+            for b in _library_bases(g, i): out.append((i, f"{s['display']} extends {b}, which the graph does not contain"))
+            continue
+        if s.get('method_id') and g.has('methods'):
+            row = g.q("SELECT kind, visibility FROM methods WHERE id = ?", s['method_id'])
+            if row and (any(k in (row[0][0] or '').upper() for k in ('STATIC', 'INITIALIZER')) or (row[0][1] or '').upper() == 'PRIVATE'): continue
+            # where the language records no visibility, a leading underscore is how private is written
+            if row and not row[0][1] and re.match(r'_(?!_\w*__$)', s.get('name') or ''): continue
+        own = s.get('owner')
+        if not own: continue
+        for r in g.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL", own):
+            for n in decs(r[0]): out.append((i, f"@{n} on its type {own}"))
+            if s.get('method_id') and s.get('kind') != 'constructor':
+                for b in _library_bases(g, r[0]): out.append((i, f"{own} extends {b}, which the graph does not contain"))
+    return list(dict.fromkeys(out))
+
+def grep_roots(g):
+    """the directories a by-hand check should search: the top-level directories holding the graph's declarations,
+    or '.' when there are more than three of them or a declaration sits at the root"""
+    tops = {(f.split('/', 1)[0] if '/' in f else '.') for (f,) in g.q("SELECT DISTINCT file FROM symbols WHERE file IS NOT NULL AND file <> ''")}
+    return '.' if not tops or '.' in tops or len(tops) > 3 else ' '.join(sorted(tops))
+
+def grep_for(g, name):
+    """the exact search that finds what the graph could not: the name as a whole word in the source roots"""
+    return f'grep -rnw "{name}" {grep_roots(g)}'
+
+# ── the query────────────────────────────────────────────────────────────────────────────────────────────────────
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
@@ -1216,6 +1310,19 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     # Computed BEFORE the verdict line, which used to say "independent" one line above the note that joined them.
     fw = framework_note(g, B_, set(A_)) + framework_note(g, A_, set(B_))
     keyed = any('which is the key it is registered under' in l for l in fw)
+    # AN ENDPOINT NOTHING IN THE GRAPH CALLS, CARRYING A SIGNAL THAT SOMETHING OUTSIDE THE CODE DOES (a decoration the
+    # rules do not model, a library base), is entered by a mechanism the graph does not contain, so "independent" is
+    # a claim about the model and not the code. An endpoint the engine already made an entry point is modelled, and
+    # the library-call rule above decides it.
+    unmod = []
+    if not (remote_found or keyed or lib_side):
+        called = {y for ys in adj.values() for y in ys}
+        eps = set()
+        ends = [i for i in list(B_) + list(A_) if i in g.sym and g.sym[i]['kind'] not in ('library', 'written') and i not in called]
+        mids = [g.sym[i]['method_id'] for i in ends if g.sym[i].get('method_id')]
+        if mids and g.has('entry_points'):
+            eps = {r[0] for r in g.q("SELECT method_id FROM entry_points WHERE method_id IN (%s)" % ','.join('?' * len(mids)), *mids)}
+        unmod = unmodelled_entry(g, [i for i in ends if g.sym[i].get('method_id') not in eps])
     # "independent" would contradict the cross-process hop printed above, so say the narrower true thing
     print("  and no unresolved site would connect them by name either"
           + (": no CALL connects them — the hop above is the only connection" if remote_found
@@ -1223,6 +1330,9 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   " does: NOT independent" if keyed
              else " — but a library called above can reach the other at run time (an event, a callback, a hook) with no"
                   " call edge to record it: NOT shown to be independent" if lib_side
+             else f" — but NOT CHECKED: {'; '.join(s_ for _i, s_ in unmod[:3])} — a framework calls it and the graph does not"
+                  f" model how, so the other may reach it through that framework. Before treating them as independent run: "
+                  f"{grep_for(g, g.sym[unmod[0][0]]['name'])}" if unmod
              else ": the two are independent in this graph"))
     for line in fw: print(line)
     return 1
