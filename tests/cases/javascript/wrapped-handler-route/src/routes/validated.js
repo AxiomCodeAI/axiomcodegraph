@@ -1,0 +1,22 @@
+const express = require('express');
+const Joi = require('joi');
+const validate = require('../middlewares/validate');
+const catchAsync = require('../utils/catchAsync');
+const adminController = require('../controllers/adminController');
+const router = express.Router();
+const bodySchema = Joi.object({ name: Joi.string().custom((v) => v) });
+const routeOptions = { schema: { body: bodySchema } };
+const PREFIX = '/v';
+const aliasOf = adminController.plainAdmins;
+const multiLine =
+  catchAsync(async (req, res) => { res.json([]); });
+const nested = catchAsync(validate(async (req, res) => { res.json([]); }));
+router.post('/validated', validate(bodySchema), adminController.listAdmins);
+router.post('/opts', routeOptions, adminController.plainAdmins);
+router.post('/schema-direct', bodySchema, adminController.plainAdmins);
+router.get('/aliased', aliasOf);
+router.get('/multi-line', multiLine);
+router.get('/nested', nested);
+router.get('/array', [validate(bodySchema), adminController.listAdmins]);
+router.use(PREFIX, adminController.plainAdmins);
+module.exports = router;

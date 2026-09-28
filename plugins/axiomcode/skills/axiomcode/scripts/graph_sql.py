@@ -1939,6 +1939,30 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
     for f_ in fids:
         r_ = field_rec(q, f_)
         if r_ and r_[1]: decl_sites.setdefault(r_[1], set()).add((r_[2], r_[3]))
+    # const_handed / const_route / const_route_byname in dl/impact.dl: a const written in a HANDLER POSITION of a route
+    # call (`route_arg`) whose declaration holds a function (`callable_const`). Registered when the function it holds
+    # (`init_wrapper` + `returns_fn`, or `init_alias`) is what that line hands over; by name otherwise. Like the rules,
+    # keyed on the QUERY: any target declaration qualifies the site.
+    route_why, rargs, handed_to, holds, callable_names = {}, set(), collections.defaultdict(set), set(), set()
+    if decl_sites:
+        rargs = ax_registration.route_args(q, code, rel)
+        decls = sorted({(f_, l_, n_) for n_, ss in decl_sites.items() if n_ in {x[3] for x in rargs} for f_, l_ in ss})
+        fcall, fwrap, falias = ax_registration.const_values(q, code, decls, rel)
+        callable_names = {n_ for f_, l_, n_ in decls if (f_, l_) in fcall}
+        if callable_names:
+            for _d, rf_, rl_, k_, _key, w_ in ax_registration.registrations(q, rel):
+                if k_ == 'route': route_why[(rf_, rl_)] = w_
+            ret_of = collections.defaultdict(set)
+            for w_, m_ in ax_registration.returned_functions(q): ret_of[w_].add(m_)
+            for f_, l_, w_ in fwrap:
+                if (f_, l_) in fcall: holds.update(ret_of.get(w_, ()))                      # const_holds :- init_wrapper, returns_fn
+            for f_, l_, an_ in falias:                                                      # const_holds :- init_alias, named
+                if (f_, l_) in fcall: holds.update(m_ for (m_,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL", an_))
+            for c_, m_, fp_, l_, e_ in q("""SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line, s.end_line FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
+                                        WHERE e.tier = 'callback_registered' AND e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL"""):
+                if m_ in holds:
+                    for ln_ in ax_edges.site_lines(l_, e_): handed_to[(c_, rel(fp_) if fp_ else '', ln_)].add(m_)    # handoff_at
+    reg_cert = ax_edges.direct_cert('callback_registered')
     for fid in fids:
         rec = field_rec(q, fid)
         if not rec: continue
@@ -1986,8 +2010,20 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
         # scope can be both `in scope` (231, the qualifier is the owner's own type name) and `by name` (233, some
         # other qualifier). Written as an if/elif chain this picked one and lost 19 rows on one field alone.
         typenames = {r[0] for r in q("SELECT name FROM symbols WHERE type_id IS NOT NULL AND name IS NOT NULL")}
+        # shadowed_in(fl,n,f): the files declaring ANOTHER field of this name, or a function of this name other than
+        # in the field's own file, whose bare reads are their own
+        own_decl = {r[0] for r in q("""SELECT file FROM symbols WHERE name = ? AND rowid <> ? AND method_id IS NULL AND type_id IS NULL
+                                       AND kind IN ('field','const','enum_member','variable')""", n, rid)}
+        own_decl |= {r[0] for r in q("SELECT file FROM symbols WHERE name = ? AND method_id IS NOT NULL AND file IS NOT NULL", n) if r[0] != ff}
         for c, rk, rf, rl, _e in fref:
             s_ = owner_of.get(c)
+            if (rf, rl) in route_why and n in callable_names and (c, rf, rl, n) in rargs:   # const_handed: bare or qualified
+                if handed_to.get((c, rf, rl)):
+                    rows.append((c, 'uses', route_why[(rf, rl)], reg_cert, rf, rl))
+                    de += [(c, m_) for m_ in handed_to[(c, rf, rl)]]          # direct_edge(q,c,m) :- const_route_edge
+                    continue
+                rows.append((c, 'uses', route_why[(rf, rl)], 'by name', rf, rl))   # const_route_byname
+                continue
             role, why = ('uses', 'writes/reads it') if rk == 'qualified' else ('reads', 'reads it')
             in_scope = (s_ is not None and s_ in scope) or (c in scope)
             if in_scope:                                                      # 228 / 229
@@ -2002,10 +2038,19 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                         rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
                     if not quals:                                             # 235 — no qualifier on the line
                         rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
+            # the same in a callable with no owner type (a module, a module-level function): `!owner(c, _)` rules
+            if rk == 'qualified' and s_ is None and c not in scope:
+                quals = _qualifiers(code, rf, rl, n)
+                if tname and tname in quals:
+                    rows.append((c, 'uses', 'writes/reads it', 'in scope', rf, rl))
+                if tname and any(qn != tname and qn not in typenames and qn not in SELF_QUALIFIERS for qn in quals):
+                    rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
+                if not quals:
+                    rows.append((c, 'uses', 'writes/reads it', 'by name', rf, rl))
             if rk == 'bare':
                 if s_ is not None and s_ not in scope and n not in declares_of(s_):   # 238
                     rows.append((c, 'reads', 'reads it', 'by name', rf, rl))
-                if s_ is None and c not in scope:                              # 240
+                if s_ is None and c not in scope and rf not in own_decl:       # 240
                     rows.append((c, 'reads', 'reads it', 'by name', rf, rl))
         # ── the accessors the convention gives the field, and their callers (242 / 243) ────────────────────
         for an, role_ in _accessors(n):

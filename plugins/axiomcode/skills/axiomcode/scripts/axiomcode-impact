@@ -449,6 +449,12 @@ class Impact:
         if kind in (None, 'type'):
             tids = self.types(base, soft=True)
             if tids: out.append(('type', f"{self.g.sym[tids[0]]['kind']} {self.g.disp(tids[0])}" + (f" (+{len(tids)-1})" if len(tids) > 1 else ''), tids))
+        # a const declared ON the line is the declaration written there: the enclosing module spans the line and a
+        # function in its initializer (`const h = wrap(async (req, res) => …)`) starts on it, and neither is what was asked
+        # — unless that function IS the const (`const h = async (req, res) => …` is named `h`), which stays the method
+        if kind is None and out and out[0][0] == 'field' and re.fullmatch(r'.+\.\w+:\d+', s):
+            named = {self.g.sym[i]['name'] for i in self.methods(s, soft=True) if self.g.sym[i].get('line') == out[0][2][0]['line']}
+            if not named & {f['name'] for f in out[0][2]}: return out
         if kind in (None, 'method'):
             mids = self.methods(s, soft=True)
             # `Type` written alone is the type, and its construction is Type.<init>, so a bare type name must not
@@ -522,6 +528,12 @@ class Impact:
         if soft: return []
         die(f"no type named {s}")
     def field_rows(self, s):
+        # `file.js:12` — the field or const DECLARED on that line. Split on `.` it named a field `js:12`, so a const was
+        # the one declaration a file:line could not target, and its bare name answered for every const so named
+        fl = re.fullmatch(r'(.+\.\w+):(\d+)', s)
+        if fl:
+            p, n = fl.group(1), int(fl.group(2))
+            return [f for f in self.fields.values() if f['line'] == n and (f['file'] == p or (f['file'] or '').endswith('/' + p))]
         parts = s.split('.'); name = parts[-1]; owner = '.'.join(parts[:-1])
         rows = [f for f in self.fields.values() if f['name'] == name and (not owner or (f['owner'] or '') == owner or (f['owner'] or '').endswith('.' + owner) or (f['qualified_name'] or '').endswith('.' + s))]
         if not rows and '.' in s:                                                     # the dotted spelling, only after the written one
@@ -698,7 +710,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '35'          # 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '36'          # 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -878,6 +890,20 @@ class Impact:
         stubs = ax_edges.stub_sites(lambda s, p: g.q(s, *p)) if g.has('call_sites') else set()
         W('calls', [(r['caller_id'], r['callee_method_id'], ax_edges.STUB_TIER if r['call_site_id'] in stubs else r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
                     for r in g.q("SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
+        # a hand-off on EVERY line its call site spans: a chained registration (`router\n  .route('/')\n  .post(auth(), ctrl.h)`)
+        # records its edges on the statement's first line, while the handler is named on a later one
+        W('handoff_at', sorted({(r['caller_id'], r['callee_method_id'], g.site_file(r['file_path']), l) for r in g.q(
+            """SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line, s.end_line FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
+               WHERE e.tier = 'callback_registered' AND e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL AND s.file_path IS NOT NULL""")
+            for l in ax_edges.site_lines(r['start_line'], r['end_line'])}))
+        # a name in a handler position of a route call, and the consts of those names that hold a function
+        rargs = ax_registration.route_args(g.q, self.code, g.site_file)
+        rnames = {n for *_x, n in rargs}
+        fcall, fwrap, falias = ax_registration.const_values(g.q, self.code, sorted({(f['file'], f['line'], f['name']) for f in self.fields.values()
+                                                                                    if f['name'] in rnames and f.get('file') and f.get('line')}), g.site_file)
+        W('route_arg', sorted(rargs))
+        W('callable_const', sorted(fcall)); W('init_wrapper', sorted(fwrap)); W('init_alias', sorted(falias))
+        W('returns_fn', sorted(ax_registration.returned_functions(g.q)))
         CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')
         # an unresolved site inside a mock's stub or verification (a Moq lambda whose parameter the engine did not type)
         # is the kind "stub": still a name match for the rows, never a by-name seed of the closure
