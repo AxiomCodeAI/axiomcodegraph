@@ -90,6 +90,126 @@ local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterE
     lib_type(_, "java.lang.Iterable", _, _, _, _, _, _, _, _, _, _, _, ity),
     type_prov(elem, prov).
 
+// ── `for (var x : xs)` with the platform NOT staged ─────────────────────────────────────────
+// Both clauses above climb to java.lang.Iterable's own type variable, which exists only when the
+// JDK IR is staged. Without it `for (var x : ws)` over a `List<Widget> ws` typed nothing, while
+// `for (Widget x : ws)` resolved because the element type is written there. Three shapes are read
+// from what the client wrote instead, each keyed on the iterable's WRITTEN declaration reference
+// (resolved or not): an array, a platform collection with its one type argument, and a client type
+// that implements Iterable<T>. #1401.
+//
+// The written reference of the iterable expression: a parameter, a local, a field, or the declared
+// return of a client method called in place. Unlike recv_decl_ref this does not ask the reference
+// to resolve, since `List` does not resolve when the platform is not staged.
+// java_method_parameter (13): 0 name 2 method 12 hash.  java_field (14): 0 name 8 owner 13 hash.
+iter_written_ref(iterExpr, ref) :- foreach_iterable(_, iterExpr),
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "PARAMETER", _, _, _, _, _, _, _, _, _, iterExpr),
+    expr_ultimate_method("client", iterExpr, m),
+    java_method_parameter(name, _, m, _, _, _, _, _, _, _, _, _, param),
+    java_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", _, _, _, _, _, _, _, param, "METHOD_PARAM", ref).
+iter_written_ref(iterExpr, ref) :- foreach_iterable(_, iterExpr),
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, iterExpr),
+    expr_ultimate_method("client", iterExpr, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref).
+iter_written_ref(iterExpr, ref) :- foreach_iterable(_, iterExpr),
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, iterExpr),
+    expr_ultimate_type("client", iterExpr, encl),
+    java_field(name, _, _, _, _, _, _, _, encl, _, _, _, _, field),
+    java_type_reference(_, "FIELD_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, field, "FIELD", ref).
+iter_written_ref(iterExpr, ref) :- foreach_iterable(_, iterExpr),
+    applicable_candidate(iterExpr, callee),
+    java_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, callee, "METHOD", ref).
+
+// (1) An ARRAY iterable: the element is the component type. One dimension only; the element of a
+// `Widget[][]` is a `Widget[]`, on which no method of Widget can be called.
+// java_type_reference (18): 0 kind 11 arrayDimensions
+local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterExpr),
+    iter_written_ref(iterExpr, ref),
+    java_type_reference("ARRAY", _, _, _, _, _, _, _, _, _, _, "1", _, _, _, _, _, ref),
+    type_ref_resolves(prov, ref, elem).
+
+// (2) A PLATFORM COLLECTION with its one type argument written: `List<Widget>`, `List<? extends
+// Widget>`. Only the names in foreach_platform_iterable, each Iterable over its only type
+// parameter, and only when the reference names that platform type: the qualified name from a
+// single-type import or written out, or the simple name under an on-demand import of its package.
+// ref_external_name is empty once the platform is staged, so the clauses above then answer alone.
+// A raw `List` writes no argument and stays untyped.
+foreach_platform_iterable("java.lang", "Iterable").
+foreach_platform_iterable("java.util", "Collection").
+foreach_platform_iterable("java.util", "List").
+foreach_platform_iterable("java.util", "Set").
+foreach_platform_iterable("java.util", "SortedSet").
+foreach_platform_iterable("java.util", "NavigableSet").
+foreach_platform_iterable("java.util", "SequencedCollection").
+foreach_platform_iterable("java.util", "SequencedSet").
+foreach_platform_iterable("java.util", "Queue").
+foreach_platform_iterable("java.util", "Deque").
+foreach_platform_iterable("java.util", "ArrayList").
+foreach_platform_iterable("java.util", "LinkedList").
+foreach_platform_iterable("java.util", "HashSet").
+foreach_platform_iterable("java.util", "LinkedHashSet").
+foreach_platform_iterable("java.util", "TreeSet").
+foreach_platform_iterable("java.util", "ArrayDeque").
+foreach_platform_iterable("java.util", "PriorityQueue").
+
+platform_iterable_ref(ref) :- ref_external_name(ref, q),
+    foreach_platform_iterable(pkg, n),
+    q = cat(pkg, ".", n).
+// java.lang is imported implicitly, so a bare `Iterable` is the platform's.
+platform_iterable_ref(ref) :- ref_external_name(ref, "Iterable").
+platform_iterable_ref(ref) :- ref_external_name(ref, n),
+    foreach_platform_iterable(pkg, n),
+    ref_file(ref, n, fp),
+    import_wildcard("client", pkg, fp, _).
+
+// The type argument at `pos` of a written reference, as written or as a wildcard's bound.
+// `? extends W` reads as a W, which is all a loop variable does with it; `? super W` reads as an
+// Object, so for an element the variance is checked (for_elem_type_arg).
+// java_type_reference (18): 0 kind 5 parentReferenceHash 6 position 7 depth 12 wildcardVariance
+written_type_arg(ref, pos, argRef) :- java_type_reference(k, _, _, _, _, ref, pos, "1", _, _, _, _, _, _, _, _, _, argRef),
+    k != "WILDCARD", k != "TYPE_VARIABLE".
+wildcard_type_arg(ref, pos, variance, argRef) :- java_type_reference("WILDCARD", _, _, _, _, ref, pos, "1", _, _, _, _, variance, _, _, _, _, wc),
+    java_type_reference(k, _, _, _, _, wc, _, "2", _, _, _, _, _, _, _, _, _, argRef),
+    k != "WILDCARD", k != "TYPE_VARIABLE".
+for_elem_type_arg(ref, argRef) :- written_type_arg(ref, "0", argRef).
+for_elem_type_arg(ref, argRef) :- wildcard_type_arg(ref, "0", "EXTENDS", argRef).
+
+local_var_type_resolves(prov, local, argRef, elem) :- foreach_iterable(local, iterExpr),
+    iter_written_ref(iterExpr, ref),
+    platform_iterable_ref(ref),
+    for_elem_type_arg(ref, argRef),
+    type_ref_resolves(prov, argRef, elem).
+
+// (3) A CLIENT type that implements Iterable: `class Bag<T> implements Iterable<T>`, iterated as
+// `Bag<Widget>`. Its implements clause names Iterable, unresolved for the same reason, and the
+// argument there is a type variable of the declaring type, bound through the iterable's written
+// reference by type_arg_binding (which climbs the client hierarchy), or a concrete type.
+// java_type_reference (18): 2 typeRegistryLinkHash (the declaring type) 10 typeVariableName
+iterable_decl_arg(a, argRef) :- java_type_reference(_, ctx, a, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, iref),
+    iterable_decl_context(ctx),
+    platform_iterable_ref(iref),
+    java_type_reference(_, _, _, _, _, iref, "0", "1", _, _, _, _, _, _, _, _, _, argRef).
+iterable_decl_context("IMPLEMENTS_INTERFACE").
+iterable_decl_context("SUPER_TYPE").
+self_or_ancestor(c, c) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, c).
+self_or_ancestor(c, a) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, c), type_ancestor(c, a).
+
+local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterExpr),
+    iter_written_ref(iterExpr, ref),
+    type_ref_resolves("client", ref, c),
+    self_or_ancestor(c, a),
+    iterable_decl_arg(a, argRef),
+    java_type_reference("TYPE_VARIABLE", _, _, _, _, _, _, _, _, _, tv, _, _, _, _, _, _, argRef),
+    type_arg_binding(ref, a, tv, elem),
+    type_prov(elem, prov).
+local_var_type_resolves(prov, local, argRef, elem) :- foreach_iterable(local, iterExpr),
+    iter_written_ref(iterExpr, ref),
+    type_ref_resolves("client", ref, c),
+    self_or_ancestor(c, a),
+    iterable_decl_arg(a, argRef),
+    type_ref_resolves(prov, argRef, elem).
+
 // A RECORD DECONSTRUCTION component — `if (n instanceof Pair(Leaf a, Node ignored)) a.render()`.
 // The component binds a variable exactly as `instanceof Leaf l` does, but the two are shaped
 // differently in the IR: a bare pattern's type reference is owned by the LOCAL, so the declared-type

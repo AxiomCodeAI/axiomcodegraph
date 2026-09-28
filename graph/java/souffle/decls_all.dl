@@ -932,3 +932,23 @@
 .decl event_listener_class(c0:symbol,c1:symbol)
 .decl event_listener_method(c0:symbol)
 .decl event_dispatch_edge(c0:symbol,c1:symbol,c2:symbol)
+// #1401: `var` in an enhanced for, a try-with-resources resource and a lambda parameter
+.decl iter_written_ref(c0:symbol,c1:symbol)                   // (iterable expr, its written declaration ref)
+.decl foreach_platform_iterable(c0:symbol,c1:symbol)          // (package, simple name) knob
+.decl platform_iterable_ref(c0:symbol)                        // ref names an unstaged platform Iterable
+.decl written_type_arg(c0:symbol,c1:symbol,c2:symbol)         // (ref, position, type-argument ref)
+.decl wildcard_type_arg(c0:symbol,c1:symbol,c2:symbol,c3:symbol) // (ref, position, variance, bound ref)
+.decl for_elem_type_arg(c0:symbol,c1:symbol)                  // (ref, element type-argument ref)
+.decl iterable_decl_arg(c0:symbol,c1:symbol)                  // (client type, its Iterable<X> argument ref)
+.decl iterable_decl_context(c0:symbol)
+.decl self_or_ancestor(c0:symbol,c1:symbol)
+.decl platform_fi_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol) // (package, interface, lambda param pos, type-arg pos) knob
+.decl platform_fi_ref(c0:symbol,c1:symbol)                    // (ref, platform interface simple name)
+.decl lambda_target_written_ref(c0:symbol,c1:symbol)          // (lambda, written target ref)
+.decl fi_written_arg(c0:symbol,c1:symbol,c2:symbol)           // (ref, position, type-argument ref)
+.decl twr_resource(c0:symbol,c1:symbol)                       // (resource local, enclosing method)
+.decl twr_resource_type(c0:symbol,c1:symbol)
+.decl close_no_arg(c0:symbol)
+.decl twr_close_decl(c0:symbol,c1:symbol)
+.decl twr_close(c0:symbol,c1:symbol)
+.decl twr_close_count(c0:symbol,c1:number)

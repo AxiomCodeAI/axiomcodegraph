@@ -1,0 +1,7 @@
+61-var-local-type
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 in the bytecode)
+  sites 4   resolved 0 (0.0%)
+  tiers ambiguous_unknown=4
+  access read=4
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

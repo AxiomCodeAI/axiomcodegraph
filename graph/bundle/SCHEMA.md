@@ -436,6 +436,7 @@ One row per place a call is written (or, for a synthesised edge, the construct t
 - **typescript** — caller_id is normally the parser's caller method, or the module initializer for top-level code; when neither exists it is the TS_MODULE_ hash itself, kept as a greppable marker rather than a blank.
 - **java** — callee_name for `new X()` and for `new X() { … }` (anon_new) is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`) and record_accessor, which write no name. A by-name lookup must therefore exclude kind IN (new, anon_new) to avoid counting a construction as a call to a same-named method.
 - **java** — A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.
+- **java** — A resource_close site is the resource LOCAL of a try-with-resources, positioned at its declaration (line only, no column); callee_name is NULL.
 - **python** — A DECORATOR_APPLICATION edge targets the callable the decorator factory RETURNS, not the name written at the `@` — `@deco(X)` applies the inner callable that `deco` returned. The written name is carried by the separate DECORATOR_CALL row, so a by-name lookup must exclude DECORATOR_APPLICATION or it will read the wrapper as a mismatch.
 - **typescript** — end_line / end_column come from the expression row; the call-site row itself records only the start.
 - **javascript** — caller_id is the parser's enclosing method, or the module initializer for top-level code. end_line / end_column come from the expression row. `require()` is a module edge, not a call site.
@@ -483,6 +484,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `anon_new` | java | `new X() { … }` — an anonymous class creation. |
 | `event` | java | Synthesised: the publishEvent call site to a listener it runs (tier event_dispatch). Not a written call to that method. |
 | `record_accessor` | java | Synthesised: a record pattern `case Pair(var l, var r)` calls each accessor. Not a written call; the site is the pattern expression. |
+| `resource_close` | java | Synthesised: a try-with-resources resource `try (var w = open())` is closed when the block exits, so its close() is called. Not a written call; the site is the resource local. |
 | `FUNCTION_CALL` | typescript | `f(…)` — a bare callee. |
 | `METHOD_CALL` | typescript | `obj.m(…)`. |
 | `CONSTRUCTOR_CALL` | typescript | `new X(…)`. |

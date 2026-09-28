@@ -95,6 +95,14 @@ export interface CallSitesIR {
   fileVia: { column: string; through: 'modules' };
 }
 /**
+ * Java try-with-resources: the implicit close() edge is keyed on the resource LOCAL, which has no
+ * expression row, so the site is positioned at the local's declaration instead.
+ */
+export interface LocalSitesIR {
+  file: string; id: string; startLine: string; endLine: string;
+  fileVia: { column: string; through: 'modules' | 'types' };
+}
+/**
  * Python decorators — a site id may be the decorator's own hash (a bare decorator with no
  * expression row) or the decorator's EXPRESSION hash; the row links both, so it is matched
  * on either to name and position the site.
@@ -150,6 +158,7 @@ export interface LanguageAdapter {
     expressions: ExpressionsIR;
     callSites?: CallSitesIR;
     decorators?: DecoratorsIR;
+    localSites?: LocalSitesIR;
     /** absent where the front end writes no skipped-files report */
     skipped?: SkippedIR;
   };
@@ -206,6 +215,11 @@ const JAVA: LanguageAdapter = {
       fileVia: { column: 'typeRegistryLinkHash', through: 'types' },
       // the parser puts the invoked name / created class name in literalValue for these kinds
       calleeName: { column: 'literalValue', kinds: ['METHOD_INVOCATION', 'OBJECT_CREATION', 'METHOD_REFERENCE', 'ANONYMOUS_CLASS_CREATION'] },
+    },
+    // a resource_close site is the try-with-resources resource local, positioned at its declaration
+    localSites: {
+      file: 'all-local-variables.csv', id: 'localVariableRegistryUniqueHash', startLine: 'startLine', endLine: 'endLine',
+      fileVia: { column: 'typeRegistryLinkHash', through: 'types' },
     },
     // The Java report carries no construct and no position: the three reasons it emits
     // (EMPTY_CONTENT, FILE_TOO_LARGE, READ_ERROR) are properties of the whole file.

@@ -1,0 +1,9 @@
+61-var-local-type
+  precision 1.0000   (11 correct, 0 wrong)
+  recall    0.8462   (11 of 13 in the bytecode)
+  references 56   resolved 30 (53.6%)
+  tiers ambiguous_unknown=26  known_edge=30
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=4  IMPLEMENTS_INTERFACE=2  LOCAL_VARIABLE=7  METHOD_PARAM=18  METHOD_RETURN=21  OBJECT_CREATION_TYPE=4
+    MISSING probe.VarLocals CAST_EXPRESSION probe.Widget
+    MISSING probe.VarLocals METHOD_PARAM probe.Gadget
