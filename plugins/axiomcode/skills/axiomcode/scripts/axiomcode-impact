@@ -1735,6 +1735,12 @@ def main(argv):
     for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
         if m in tests and int(d) <= depth and s_ in g.sym: inh.setdefault(s_, []).append(m)
     byname_seeds = {x[0] for x in res['seed_byname'] if x[0] in g.sym}
+    # the callers on an untyped receiver are SAMPLED in the text answer, so their order decides which are shown. Symbol
+    # ids are not stable between two builds of the same tree, so ordering by id showed a different sample each build:
+    # they go in source order (file, line, then name), which only an edit changes.
+    def by_place(c):
+        f, _, ln = g.loc(c).rpartition(':')
+        return (f, int(ln), g.disp(c), c) if f and ln.isdigit() else (g.loc(c), 0, g.disp(c), c)
     sure_set = {x[0] for x in res['reach_sure']}                 # reached from the dependents that ARE an exact edge
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
     # an `alongside` row is not a place the change is observed from: it must stay out of the entry points, as it stays out
@@ -1886,7 +1892,7 @@ def main(argv):
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
                           'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
-                          'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=lambda x: (g.disp(x), x))],
+                          'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=by_place)],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
@@ -2400,7 +2406,7 @@ def main(argv):
     if dunder and not reached: print(f"outside the graph: {', '.join(dunder)} is a protocol method — the language runtime calls it (an operator, a conversion, a lifecycle hook), which is no call site, so nothing reaching it here does NOT mean nothing does")
     if outside and lone: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so "
                                + ("what reaches it above is not all that does" if reached else "nothing reaching it here does NOT mean nothing does"))
-    if byname_seeds: print(f"through a call the engine could not resolve: {len(byname_seeds)} caller(s) write this method's name on an untyped receiver — counted in the reach above, so that part of it MAY not be real: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in sorted(byname_seeds)[:4]))
+    if byname_seeds: print(f"through a call the engine could not resolve: {len(byname_seeds)} caller(s) write this method's name on an untyped receiver — counted in the reach above, so that part of it MAY not be real: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in sorted(byname_seeds, key=by_place)[:4]))
     byname = [x for x in D if x[3] in ('one of a set', 'by name', 'text')]
     # a label the answer USED must be explained here; a label it did not use must not be, or the note
     # describes evidence the reader cannot find above it. `registered` is new and is the one most

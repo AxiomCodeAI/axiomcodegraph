@@ -118,6 +118,11 @@ if ! python3 "$H/ax_fresh.py" lock 9 --try; then
   python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
 fi
 BUILD_T0=$SECONDS                        # how long a build takes to a usable graph: a query decides from it whether to wait (#1595)
+# THE QUERY RULES COMPILE BESIDE THE ENGINE, NOT AFTER THE GRAPH (#1606). They do not depend on the graph, only on this
+# plugin's dl/*.dl, and impact.dl alone takes 45-140 s. Started once the graph was published, the compile raced the first
+# query, which then paid it (44 s on a C# library). Now it starts here, detached, into the user's cache, where every
+# plugin copy with the same rules finds it; a query that still comes first answers with the interpreter meanwhile.
+python3 "$H/dl_program.py" --background 2>/dev/null || true
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
 STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANGS-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
@@ -229,9 +234,7 @@ if [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" 
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
-python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
-# a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
-# left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
+python3 "$H/dl_program.py" --no-wait || true   # say whether the query rules are compiled (started at the top); never wait
   # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
   python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
@@ -385,9 +388,9 @@ for t, n in rows: print(f"{t:<{w}}  {n}")
 PY
   python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
   # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
-  python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
-  # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
-  # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
+  # the query rules: their compile started at the top of the build, detached (a caller's timeout cannot kill it half-way,
+  # which cached nothing and repeated on every edit); this only says where it is. A query never waits for it.
+  python3 "$H/dl_program.py" --no-wait || true
   [ -n "$BASE_SAVED" ] && AXIOMCODE_GRAPH="$REPO/.axiomcode/base" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
   [ -z "$OTHER_LANGS" ] || [ ! -s "$PENDING" ] || echo "$LANG_ARG graph ready at $OUT/graph.sqlite; still building: $(cut -d' ' -f1 "$PENDING" | paste -sd, - | sed 's/,/, /g')"
 }
