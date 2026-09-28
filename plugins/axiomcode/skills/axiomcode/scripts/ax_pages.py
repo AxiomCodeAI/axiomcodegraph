@@ -132,6 +132,11 @@ def next_path(text):
                 "the two at run time")
     if 'the hop above is the only connection' in text:
         return "next: the cross-process hop above is the only connection; `impact <its target>` lists it as a [remote] dependent"
+    # an endpoint a framework enters in a way the graph does not model: the check is the grep the verdict printed
+    m = re.search(r'NOT CHECKED: (.+?) — a framework calls it.*?run: (grep [^\n]+)', text)
+    if m:
+        return (f"next: not shown to be independent — {m.group(1)}, and the graph does not model that framework's call; "
+                f"run {m.group(2)} and read the site that registers or triggers it before treating the two as unconnected")
     if 'independent in this graph' in text:
         return ("next: nothing in this graph connects them — no call, no unresolved site that could, and no library call "
                 "that could land on the other; for a connection through data (a table, a file, a message) look at what "
@@ -188,6 +193,7 @@ NEXT = {'path': next_path, 'context': next_context, 'changed': next_changed, 'te
 # a verb that already has a --budget of its own keeps it, and its page size is --page-budget: `context --budget N` is
 # how many FILES to list, and taking it here turned `--budget 5` into a 5-token page of the default 12 files
 OWN_BUDGET = {'context'}
+PAGE = 1
 
 
 def install(verb):
@@ -197,6 +203,8 @@ def install(verb):
     page, budget = 1, PAGE_BUDGET                     # taken out of argv in every mode, --json included:
     if '--page' in argv:                              # the verb itself does not know these flags
         i = argv.index('--page'); v = argv[i + 1]; page = 'all' if v == 'all' else int(v); del argv[i:i + 2]
+    global PAGE
+    PAGE = page                                       # a verb that shortens its default view reads this (impact collapses a [by name] flood)
     if flag in argv:
         i = argv.index(flag); budget = int(argv[i + 1]); del argv[i:i + 2]
     if '--json' in argv:

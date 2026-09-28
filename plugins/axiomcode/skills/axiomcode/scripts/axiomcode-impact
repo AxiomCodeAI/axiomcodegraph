@@ -1445,6 +1445,8 @@ def main(argv):
     # cut short and so lose every route that passes through code outside the path) to test files containing it
     tests_only = '--tests-only' in args; want_tests = '--tests' in args or tests_only; want_why = '--why' in args
     want_delete = '--delete' in args; want_warm = '--warm' in args; want_depends = '--depends' in args
+    # the default view collapses a flood of [by name] rows; an explicit --limit or --page all asks for every row
+    list_all = '--limit' in args or getattr(sys.modules.get('ax_pages'), 'PAGE', None) == 'all'
     args = [a for a in args if a not in ('--tests', '--tests-only', '--why', '--json', '--delete', '--warm', '--depends')]
     tests_in = None
     if '--tests-in' in args:
@@ -1821,6 +1823,30 @@ def main(argv):
     n_ep_test = len({m for m, _ in ep_rows if _is_t(m)})
     if n_ep_test:
         print(f"entry point: {n_ep_test} test entry point(s) — a runner invokes them, so no client call site reaches them either; they are not a surface the outside world calls. The tests section below is what names them.")
+    # THE DECLARATIONS ASKED ABOUT, as the question named them: a field target seeds with its OWNER (seed_of in
+    # dl/impact.dl, right for its dependents), so a place computed from the seeds sent the reader to the owner's line
+    # -- line 1 of the module for a module-level constant (#1486). Where to read is the declaration's own line.
+    asked = []; field_locs = []
+    for k, _lab, pay in targets:
+        if k not in ('method', 'type', 'field'): continue
+        for t in (pay if isinstance(pay, list) else []):
+            # a field row is the symbols row itself, and a module-level constant's row may carry no id: its own line
+            # is still in it
+            i = t.get('id') if isinstance(t, dict) else t
+            if k == 'field' and isinstance(t, dict) and t.get('file') and t.get('line'): field_locs.append(f"{t['file']}:{t['line']}")
+            if isinstance(i, str) and (i in g.sym or i in getattr(g, 'all_sym', {})): asked.append(i)
+    asked = list(dict.fromkeys(asked))
+    # AN UNMODELLED ENTRY (P.unmodelled_entry): a decoration the rules do not model, or a library base, on the
+    # declaration or its owner. With no caller bound to it, "local", "tests: 0" and "independent" would be claims about
+    # the model, not the code, and they were false on exactly these declarations: say it was not checked, and how to.
+    unmod = [(i, sig) for i, sig in P.unmodelled_entry(g, asked)]
+    unmod_name = next((((getattr(g, 'all_sym', {}).get(i) or g.sym.get(i) or {}).get('name')) for i, _ in unmod), None)
+    unmod_grep = P.grep_for(g, unmod_name) if unmod_name else ''
+    # a decoration on the declaration itself says a framework enters THIS member; one on its owner, or the owner's
+    # library base, says only that a framework enters the type -- the member may be a plain helper, and where a
+    # library base is the only signal `next:` states it as the condition it is (the `maybe` case below)
+    unmod_own = [x for x in unmod if not (' on its type ' in x[1] or x[1].endswith('which the graph does not contain'))]
+    unmod_sig = '; '.join(sig for _i, sig in unmod[:3]) + (f" (+{len(unmod) - 3} more)" if len(unmod) > 3 else '')
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
     # a throws clause is a contract: say what adding one to this method would cost, and who already handles the ones it has
     n_callers = len({c for c, role, why, cert, loc, n in D if cert == 'resolved' and 'calls it' in why})
@@ -1881,6 +1907,24 @@ def main(argv):
         by = collections.Counter(cert for _, _, _, cert, _, _ in rows)
         print(f"{title} ({len({c for c, *_ in rows})} callable(s): " + ', '.join(f"{n} {c}" for c, n in sorted(by.items(), key=lambda x: CERT[x[0]]))
               + (f"; {len({c for c, *_ in tst})} of them test" if tst else '') + "):")
+        # A [BY NAME] FLOOD BURIES THE ANSWER. A common method name on untyped receivers matched dozens of unrelated
+        # calls, and they filled the window above the rows that were edges. They are leads, not dependents (the
+        # verdict already treats them so), so the default view keeps the 3 nearest to the target -- its own file,
+        # then its directory, then the longest shared path -- and prints the rest as one count with the search that
+        # lists them. --limit N and --page all list every row; --json is unchanged; the header above counts them all.
+        collapsed = []
+        bn = [r for r in body if r[3] == 'by name']
+        if len(bn) > 5 and not list_all:
+            tf = {g.sym[t]['file'] for t in seeds if t in g.sym and g.sym[t].get('file')}
+            td = {os.path.dirname(f) for f in tf}
+            def _near(r):
+                f = (r[4] or '').rsplit(':', 1)[0]
+                return (0 if f in tf else 1 if os.path.dirname(f) in td else 2,
+                        -max((len(os.path.commonprefix([f, x])) for x in tf), default=0), r[4] or '', g.disp(r[0]))
+            kept = sorted(bn, key=_near)[:3]; keep = set(kept)
+            collapsed = [r for r in bn if r not in keep]
+            at = next(n for n, r in enumerate(body) if r[3] == 'by name')          # the nearest first, where the by-name rows stood
+            rest = [r for r in body if r[3] != 'by name']; body = rest[:at] + kept + rest[at:]
         # and no single file may fill the window: one test file with 21 anonymous callbacks used to hide every other file
         cap = max(3, limit // 5); per = collections.Counter(); shown = []; hidden = []
         for r in body:
@@ -1891,6 +1935,11 @@ def main(argv):
         if hidden:
             byf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in hidden)
             print(f"    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--limit N for all of them)")
+        if collapsed:
+            nm = sorted({g.sym[t]['name'] for t in seeds if t in g.sym and g.sym[t].get('method_id') and g.sym[t].get('name')})
+            srch = (f'grep -rn "\\.{nm[0]}(" {P.grep_roots(g)}' if len(nm) == 1 else P.grep_for(g, nm[0]) if nm else '')
+            print(f"    +{len({c for c, *_ in collapsed})} [by name] (the same method name on an untyped receiver; may be another method)"
+                  + (f" — {srch} lists them" if srch else '') + "; --page all or --limit N prints each row")
         if tst and not want_tests:
             # the count names its files: a pointer that says only "+31" leaves the reader not knowing what was cut or
             # where, which is what the crowding rule exists to prevent (tests/cases/typescript/anonymous-crowding)
@@ -1952,6 +2001,9 @@ def main(argv):
     weak_tests = [m for m in tests if m not in sure_set]
     sys.stdout = _stdout
     print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
+    if not tests and unmod:
+        print(f"    NOT CHECKED: {unmod_sig} — a framework calls it and the graph does not model how, so a test that enters "
+              f"through that framework (a request, a started context, an event) reaches it with no route counted here: {unmod_grep}")
     if weak_tests: print(f"    {len(weak_tests)} of them only through a dependent that is not an exact edge")
     if tests:
         byc = collections.Counter(test_cert.values())
@@ -2050,6 +2102,7 @@ def main(argv):
         row = g.q("SELECT kind, visibility FROM methods WHERE id = ?", s['method_id']) if g.has('methods') else []
         if row and (any(k in (row[0][0] or '').upper() for k in ('STATIC', 'CONSTRUCTOR', 'INITIALIZER'))
                     or (row[0][1] or '').upper() == 'PRIVATE'): return None
+        if row and not row[0][1] and re.match(r'_(?!_\w*__$)', s.get('name') or ''): return None     # private by convention
         if g.has('overrides') and g.q("SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id WHERE o.overriding_method_id = ? AND b.provenance <> 'client' LIMIT 1", s['method_id']): return 'yes'
         if g.has('decorations') and g.q("SELECT 1 FROM decorations WHERE owner_id = ? AND name = 'Override' LIMIT 1", s['method_id']): return 'yes'
         return 'maybe'
@@ -2061,8 +2114,11 @@ def main(argv):
         if v: how[own] = 'yes' if 'yes' in (how.get(own), v) else v
     outside = []; outside_how = {}
     for own in sorted(how):
-        for r in g.q("SELECT DISTINCT x.name FROM symbols s JOIN type_ancestors a ON a.type_id = s.type_id JOIN types x ON x.id = a.ancestor_type_id WHERE s.display = ? AND s.method_id IS NULL AND x.provenance <> 'client' ORDER BY x.name", own):
-            if r[0] not in MARKER: outside.append((own, r[0])); outside_how[r[0]] = 'yes' if 'yes' in (outside_how.get(r[0]), how[own]) else how[own]
+        # a library ancestor the engine resolved, or a written base no client type carries (Python and C# leave an
+        # unresolvable library base out of type_ancestors, so a subclass of one read as having no outside caller)
+        for a in sorted({b for (sid,) in g.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL", own)
+                         for b in P._library_bases(g, sid)}):
+            if a.split('.')[-1] not in MARKER: outside.append((own, a)); outside_how[a] = 'yes' if 'yes' in (outside_how.get(a), how[own]) else how[own]
     dunder = sorted({g.sym[m]['name'] for m in seeds if m in g.sym and re.fullmatch(r'__\w+__', g.sym[m]['name'] or '')})
     # A NAME IN A FILE THE INDEX DOES NOT READ AS SOURCE IS TWO KINDS OF EVIDENCE (#1388). A type written in full
     # (a qualified class name in spring.factories, a services file, a mapper XML, a settings file) or a key a settings
@@ -2151,7 +2207,13 @@ def main(argv):
         # a mapper XML: the rows were printed under "bound from outside the source" and then left out of the verdict,
         # which read "nothing" for a class Spring instantiates at startup only because such a file names it.
         if ext_strong: why.append(f"{len(ext_strong)} site(s) in {len({f for f, *_ in ext_strong})} file(s) outside the source {'define' if all(x[3].startswith('defines') for x in ext_strong) else 'name'} it ([text] above), so deleting it breaks them at RUN time")
+        # AN ENTRY POINT IS CALLED BY A FRAMEWORK, AND SO IS AN UNMODELLED ONE (#1446). The entry-point line above said
+        # a framework invokes it, and this verdict then printed the one for a class nothing registers, word for word.
+        fw_why = []; epw = sorted(ep_by_reason)
+        if epw: fw_why.append(f"it is {'an' if epw[0][:1] in 'aeiou' else 'a'} {'/'.join(epw[:3])} entry point (above) — a framework calls it, so no call site in the graph is expected")
+        if unmod: fw_why.append(f"NOT CHECKED: {unmod_sig} — a framework may call it and the graph does not model how; before deleting run: {unmod_grep}")
         if why: print("  NOT SAFE — " + '; '.join(why) + ". They are listed above.")
+        elif fw_why: print("  NOT SAFE TO ASSUME — no dependent in this graph, but " + '; '.join(fw_why) + ". Check what else the graph cannot see:")
         elif exported: print("  NOT SAFE TO ASSUME — no dependent in this graph, but it is declared " + '/'.join(exported) +
                              ": exported surface. For a library, no in-repo caller is the normal state of the public API,"
                              " and a consumer outside this graph is not visible here. Check what else the graph cannot see:")
@@ -2168,7 +2230,7 @@ def main(argv):
         if u: bits.append(f"{u} unresolved call(s) inside the impacted set")
         if tests: bits.append(f"{len(tests)} test(s) reach it")
         for b in bits: print(f"    · {b}")
-        if not bits and not calls and not contract and not weak and not ov and not ext: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
+        if not bits and not calls and not contract and not weak and not ov and not ext and not fw_why: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
         if not vis and g.has('methods'): print("    · visibility is not recorded in this graph, so exported surface cannot be told from internal")
     # WHAT hops == 0 MEANS IS "NO ROW CLAIMS A CALL EDGE", NOT "NO ROW IS RESOLVED". The old parenthetical —
     # "every entry is by name, in scope, text, or one of a target set" — is a claim about the rows, and it is
@@ -2246,7 +2308,10 @@ def main(argv):
     must = [g.loc(c) for c, _ in contract]
     users = sorted({loc for c, role, why, cert, loc, n in D if cert in STRONG_DIRECT and not _is_t(c) and loc})
     weak_n = len({c for c, role, why, cert, loc, n in D if cert not in STRONG_DIRECT and cert != 'alongside'})
-    here = sorted({g.loc(t) for t in seeds if t in g.sym})[:2]
+    # a field target seeds with its owner (seed_of in dl/impact.dl), so its place to read is its own line (#1486); a
+    # method or type target seeds with itself and what it is bound to, which is where its reading starts
+    here = ((sorted(set(x for x in field_locs if x))[:2] if field_locs else [])
+            or sorted({g.loc(t) for t in seeds if t in g.sym})[:2])
     places = [x for x in dict.fromkeys(must + users) if x not in here]
     ti = '; `test-impact` after the edit for the tests' if tests else ''
     lead = f"; the {weak_n} [by name]/[text] row(s) are leads — open one only if the change is to the name or the signature" if weak_n else ''
@@ -2293,11 +2358,14 @@ def main(argv):
         print(f"next: nothing in this graph calls it, but it is not local — it is {'an' if ep_why[0][:1] in 'aeiou' else 'a'} {'/'.join(ep_why[:3])} entry point, so its "
               f"callers are outside the graph (the framework, a request, a client, a runner, a scheduler): read {', '.join(here) or 'the declaration'}; a body change "
               f"is safe there, a change to its name, route, parameters or result breaks those callers{tpart}{lead}")
+    elif not places and unmod and (unmod_own or not maybe):
+        print(f"next: {nobody}, but NOT CHECKED: {unmod_sig} — a framework calls it and the graph does not model how; "
+              f"before treating the change as local run: {unmod_grep}{' — then read ' + ', '.join(here) if here else ''}{tpart}{lead}")
     elif not places and maybe:
-        print(f"next: {nobody} — read {', '.join(here) or 'the declaration'}; a body change stays there, but "
+        print(f"next: {nobody} — read {', '.join(here) or 'the declaration'}; a body change stays there, but NOT CHECKED: "
               f"it is declared on a subtype of {', '.join(maybe[:3])}, which the graph does not contain: if it overrides one of "
               f"its methods (for a type: wherever one of its methods does), that library calls it with no call site here, so a "
-              f"change to that name or signature is not local{lead}")
+              f"change to that name or signature is not local{'; to check: ' + unmod_grep if unmod_grep else ''}{lead}")
     elif not places and weak_n:
         print(f"next: no resolved caller, but {weak_n} caller(s) above reach it by name or text, which the graph could not confirm — "
               f"check {', '.join(weak_locs[:4]) or 'them'}{' …' if len(weak_locs) > 4 else ''} before treating the change as contained, "
