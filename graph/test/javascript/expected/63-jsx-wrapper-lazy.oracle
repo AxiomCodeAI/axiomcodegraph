@@ -1,0 +1,5 @@
+app.jsx:13:30 METHOD_CALL then  LIB_MISSED  
+app.jsx:14:32 METHOD_CALL then  LIB_MISSED  
+app.jsx:19:31 FUNCTION_CALL thingBody  EXACT  app.jsx:18:1
+app.jsx:41:3 FUNCTION_CALL PlainInner  EXACT  parts.jsx:3:1
+# defects: 0

@@ -80,16 +80,28 @@ def call(cmd, cwd, name, arguments):
                'params': {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'tests', 'version': '0'}}},
               {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
               {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': name, 'arguments': arguments}}]
-    r = subprocess.run(cmd, input=''.join(json.dumps(f) + '\n' for f in frames), capture_output=True, text=True,
-                       cwd=cwd, timeout=120)
-    for line in r.stdout.splitlines():
-        m = json.loads(line)
-        if m.get('id') == 2:
-            return m.get('result') or {}
-    return {}
+    # stdin stays open until the reply is in: the SDK server drops a call still in flight at EOF (see exchange)
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=cwd, text=True)
+    timer = threading.Timer(120, p.kill)
+    timer.start()
+    try:
+        p.stdin.write(''.join(json.dumps(f) + '\n' for f in frames))
+        p.stdin.flush()
+        for line in p.stdout:
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get('id') == 2:
+                return m.get('result') or {}
+        return {}
+    finally:
+        timer.cancel()
+        p.stdin.close()
+        p.wait()
 
 
-def check_arguments(label, cmd, cwd):
+def check_arguments(label, cmd, cwd, lax=False):
     """A call whose arguments do not fit the advertised schema is an error naming the field, never an answer.
 
     A string sent for `targets: list[str]` was splatted into characters and impact answered about `u` (#1243).
@@ -101,20 +113,58 @@ def check_arguments(label, cmd, cwd):
              ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'depth': '2'}, 'depth'),
              ('axiomcode_impact', {'targets': ['A.f', 3], 'repo': cwd}, 'targets'),
              ('axiomcode_impact', {'repo': cwd}, 'targets'),
-             ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': cwd, 'nope': 1}, 'nope')]
+             ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': cwd, 'nope': 1}, 'nope'),
+             # a CLI flag's name sent as an argument (#1567): refused, naming the parameter it is here, not dropped
+             # so that the unnarrowed answer came back as if it had been narrowed
+             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'in': 'src'}, 'is in_path= here'),
+             ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'tests_only': True}, 'is tests= here'),
+             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'from': 'main'}, 'is from_= here'),
+             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'lang': 'java'}, 'lang: unexpected argument')]
     for name, args, field in wrong:
+        if lax and args.get('depth') == '2':
+            continue                     # the SDK coerces the string "2" to 2 (pydantic's lax mode): harmless, not refused
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
-        if not res.get('isError') or field not in text or 'invalid arguments' not in text:
+        # the fallback says "invalid arguments", the SDK's own validation "validation error"; both name the field
+        if not res.get('isError') or field not in text or not ('invalid arguments' in text or 'validation error' in text):
             bad.append(f"{label}: {name}({json.dumps(args)}) was not refused naming {field!r}: {res}")
+    # the control: every parameter a tool declares still passes, including the ones the CLI's hints name
     right = [('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'depth': 2, 'tests': True}),
-             ('axiomcode_changed', {'repo': cwd, 'files': ['a.py']})]
+             ('axiomcode_changed', {'repo': cwd, 'files': ['a.py']}),
+             ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'limit': 5, 'delete': True, 'in_path': 'src'}),
+             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'in_path': 'src', 'from_': 'main'}),
+             ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': cwd, 'limit': 3})]
     for name, args in right:
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
-        if not text or 'invalid arguments' in text:
+        if not text or 'invalid arguments' in text or 'validation error' in text:
             bad.append(f"{label}: well-formed {name}({json.dumps(args)}) was refused or empty: {res}")
     return bad
+
+
+def check_words():
+    """An answer's CLI flags are written as the MCP parameters they are (#1567), and nothing else is touched: quoted
+    code, flags only the CLI has, a flag's name inside a longer word, and a flag followed by prose rather than a value."""
+    sys.path.insert(0, os.path.dirname(SERVER))
+    import server
+    cases = [("pass --in <path> to narrow", "pass in_path=<path> to narrow"),
+             ("  … +12 (--limit N)", "  … +12 (limit=N)"),
+             ("    --tests-only lists all 22 by rung and file; --why adds each one's route",
+              "    tests=True lists all 22 by rung and file; why=True adds each one's route"),
+             ("ask for --page 2", "ask for page=2"),
+             ("narrow with `impact <name> --in <path>` or `path '*' <name> --in parser/src`.",
+              "narrow with `impact <name> in_path=<path>` or `path '*' <name> in_path=parser/src`."),
+             ("start at --from <start>", "start at from_=<start>"),
+             ("no --in was given, so", "no in_path was given, so"),
+             # the controls: these must come back unchanged
+             ("    --in parser/src                             --in-offered  11302 symbol(s)",
+              "    in_path=parser/src                             --in-offered  11302 symbol(s)"),
+             ("print it with --json", "print it with --json"),
+             ("           49 |   args = ['--in', path, '--tests-only']", "           49 |   args = ['--in', path, '--tests-only']"),
+             ("              | … +23 more line(s) --limit", "              | … +23 more line(s) --limit"),
+             ("a pre-built --lang java graph", "a pre-built --lang java graph")]
+    return [f"mcp_words({src!r}) gave {server.mcp_words(src)!r}, want {want!r}"
+            for src, want in cases if server.mcp_words(src) != want]
 
 
 def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
@@ -150,6 +200,9 @@ def main():
         link = os.path.join(link_dir, 'axiomcode')
         os.symlink(LAUNCHER, link)
         bad += check('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo)
+        # the SDK when the launcher finds one, which ignored an argument it did not know (#1567); else the fallback again
+        bad += check_arguments('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo, lax=True)
+        bad += check_words()
         bad += check('symlinked axiomcode mcp', [link, 'mcp'], repo)
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)

@@ -2217,6 +2217,18 @@ export class TsDeclarationExtractor {
       return;
     }
     this.emitDeclarationOrDescend(initializer, context);
+    // The same link through a type assertion: `const f = ((x) => …) as F` is how a
+    // library gives an arrow a declared overload type, and it bound nothing, so the
+    // function was reachable neither through a call to `f` nor as the thing `f`
+    // exports (#847). The descent above has already emitted the arrow; this only
+    // reads its hash back. A wrapped value that is not a function binds nothing.
+    const wrapped = functionUnderAssertion(initializer);
+    if (wrapped !== undefined) {
+      const hash = this.methodHashByNode.get(nodeId(wrapped, this.sf));
+      if (hash !== undefined) {
+        row.setBoundFunctionLinkHash(hash);
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -3503,6 +3515,25 @@ function variableScopeKindOf(
     return TsVariableScopeKind.FUNCTION_BODY;
   }
   return TsVariableScopeKind.MODULE_SCOPE;
+}
+
+/**
+ * The arrow or function expression an initializer holds under parentheses and type
+ * assertions (`as`, `satisfies`, `<T>`, `!`), or `undefined`. None of those changes
+ * the runtime value, so `((x) => …) as F` binds the arrow exactly as `(x) => …` does.
+ * A bare arrow is `undefined` here: the caller has already linked it directly.
+ */
+function functionUnderAssertion(initializer: ts.Expression): ts.Node | undefined {
+  let current: ts.Expression = initializer;
+  while (ts.isParenthesizedExpression(current) || ts.isAsExpression(current)
+    || ts.isSatisfiesExpression(current) || ts.isTypeAssertionExpression(current)
+    || ts.isNonNullExpression(current)) {
+    current = current.expression;
+  }
+  if (current === initializer) {
+    return undefined;
+  }
+  return ts.isArrowFunction(current) || ts.isFunctionExpression(current) ? current : undefined;
 }
 
 function initializerKindOf(node: ts.Expression | undefined): TsVariableInitializerKind {

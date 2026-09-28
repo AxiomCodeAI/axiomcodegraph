@@ -1,4 +1,4 @@
-ambiguous_unknown	read	parts#<module-init>() -> -
+ambiguous_unknown	read	parts#Badge(?) -> -
 known_edge	read	Panel#render() -> Panel#props
 known_edge	read	Panel#render() -> { title: string }#title
 known_edge	read	parts#Avatar({ src: string }) -> { src: string }#src

@@ -120,12 +120,48 @@ def next_path(text):
         a, la, b, lb = fw[0]
         return (f"next: no call connects them, the framework does: read {a} at {la}, where it hands over, and {b} at {lb}, "
                 f"which the framework runs; `impact {b}` for everything else that depends on it")
+    # WHAT FOLLOWS "no chain" DEPENDS ON WHY THERE IS NONE (#1385). The one sentence below used to close every
+    # no-chain answer, and it named "the unresolved sites above" under answers that had printed none: under an
+    # independent pair, and under one joined only by a library call.
+    if 'which is the key it is registered under' in text:
+        return ("next: the start writes the key the other is registered under (named above), so a framework connects "
+                "them and no call does; the `impact … --tests` command printed there follows that hop")
+    if 'NOT shown to be independent' in text:
+        return ("next: no chain of calls; the library calls named above are where one could continue: read the body "
+                "that makes them — one that publishes, schedules or registers what the entered method handles connects "
+                "the two at run time")
+    if 'the hop above is the only connection' in text:
+        return "next: the cross-process hop above is the only connection; `impact <its target>` lists it as a [remote] dependent"
+    # an endpoint a framework enters in a way the graph does not model: the check is the grep the verdict printed
+    m = re.search(r'NOT CHECKED: (.+?) — a framework calls it.*?run: (grep [^\n]+)', text)
+    if m:
+        return (f"next: not shown to be independent — {m.group(1)}, and the graph does not model that framework's call; "
+                f"run {m.group(2)} and read the site that registers or triggers it before treating the two as unconnected")
+    if 'independent in this graph' in text:
+        return ("next: nothing in this graph connects them — no call, no unresolved site that could, and no library call "
+                "that could land on the other; for a connection through data (a table, a file, a message) look at what "
+                "each writes and reads")
     if re.search(r'no (chain|route|path)', text, re.I):
         return ("next: no resolved chain — the graph loses the call at one of the unresolved sites named above, so the "
                 "code may still connect them; read the start's body from those sites on")
     return ''
 
 def next_context(text):
+    # the question named something no graph here holds (#1571): the answer below it is about other code, so the first
+    # step is that file, read directly
+    b = re.search(r'^text files that name these declarations[^\n]*\n\s+(\S+:\d+)\s+names (\S+) \(([^)\n]+)\)', text, re.M)
+    n = re.search(r'^not indexed: (\S+)', text, re.M)
+    if b and 'how it runs —' not in text and (not n or b.group(1).startswith(n.group(1).rstrip('/'))):
+        return (f"next: read {b.group(1)} — the text the question asks about, bound to {b.group(3)} by the name {b.group(2)}; "
+                f"`impact {b.group(3)}` for everything else that depends on it")
+    m = re.search(r'^not indexed: (\S+)', text, re.M)
+    if m and not m.group(1)[0].isdigit():
+        return (f"next: read {m.group(1)} directly (grep inside it) — the graph cannot see it, so the entries above match "
+                "the question's other words, not that file")
+    if m:
+        ex = re.search(r'^not indexed: \d+ [^\n]*?\(e\.g\. ([^,;)\s]+)', text, re.M)
+        return ("next: grep the files named on the first line directly" + (f" (start with {ex.group(1)})" if ex else "")
+                + " — the graph cannot see them, so the entries above match the question's other words in the code it does hold")
     if 'how it runs —' in text:
         # an EXPLANATION: the flow is the reading order, and each step's body is the answer — a pointer list that
         # says "read only these" cut two measured explanations short at the first hops the graph printed
@@ -157,6 +193,7 @@ NEXT = {'path': next_path, 'context': next_context, 'changed': next_changed, 'te
 # a verb that already has a --budget of its own keeps it, and its page size is --page-budget: `context --budget N` is
 # how many FILES to list, and taking it here turned `--budget 5` into a 5-token page of the default 12 files
 OWN_BUDGET = {'context'}
+PAGE = 1
 
 
 def install(verb):
@@ -166,6 +203,8 @@ def install(verb):
     page, budget = 1, PAGE_BUDGET                     # taken out of argv in every mode, --json included:
     if '--page' in argv:                              # the verb itself does not know these flags
         i = argv.index('--page'); v = argv[i + 1]; page = 'all' if v == 'all' else int(v); del argv[i:i + 2]
+    global PAGE
+    PAGE = page                                       # a verb that shortens its default view reads this (impact collapses a [by name] flood)
     if flag in argv:
         i = argv.index(flag); budget = int(argv[i + 1]); del argv[i:i + 2]
     if '--json' in argv:

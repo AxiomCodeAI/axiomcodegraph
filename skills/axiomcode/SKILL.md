@@ -32,8 +32,12 @@ Read / Grep results as `graph: …` lines.
 Rules that decide whether an answer means anything:
 
 - **Never re-run `index` on an existing graph** "to make sure" or after your own edit. The graph refreshes itself in
-  the background after edits, with the flags it was built with; a query waits a few seconds for it. An answer that
-  still predates an edit says so on a `graph refresh:` line naming the files: read those for their current text.
+  the background after edits, with the flags it was built with. A query does not wait for it: it answers from the last
+  graph, names the edited files on a `graph refresh:` line, and marks every row that lies in one `(may be out of date)`
+  (`"stale": true` in `--json`); unmarked rows are current. Read a marked row's file for its current text. It waits
+  briefly on its own only when the answer touches an edited file and the rebuild is nearly done.
+- **Before a delete or a rename, ask with `--fresh`** (MCP `fresh=true`): it waits for the rebuild, printing its
+  progress, and answers from a graph that includes every edit.
   A manual `index` with different flags (e.g. dropping `--library`) rebuilds a worse graph over the good one.
 - A repo in several languages is indexed in all of them, one graph each, and every query asks each graph; calls
   are not followed from one language to another. `--lang` restricts it, `--src src` narrows it; `--library <roots>` so calls into dependencies

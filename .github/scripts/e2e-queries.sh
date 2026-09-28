@@ -18,6 +18,7 @@
 #   impact LEAF --json     parses, and names HELPER (hooks and MCP read this)
 #   path '*' LEAF          ENTRY reaches it
 #   impact, path (Datalog) with os.symlink refused, as for an unelevated Windows user (#1363)
+#   impact, path, context with os.exec* ending the caller at once, as Windows' exec does (#1640)
 #   Windows: impact run from a directory holding a git.exe, python.exe and py.exe (#1332)
 #   graph --out, help impact, --version
 #   leaf's 41 becomes 42, then
@@ -87,6 +88,32 @@ printf 'import os\ndef _deny(*a, **k):\n    raise OSError(1314, "A required priv
 NS="PYTHONPATH=$(native_path "$NOSYM")"
 run "$NS" impact "$LEAF";                       must "\[resolved\] ([A-Za-z_.]*\.)?$HELPER .*calls it" "$HELPER is a caller without symlinks"
 run "$NS $DL" path "$ENTRY" "$LEAF";            must "reached" "the Datalog path answers without symlinks"
+
+# ── os.exec* that does not replace the process, as on Windows (#1640) ─────────────────────────
+# Windows' exec starts the program as a NEW process and ends the caller at once with status 0, so a verb handed over
+# by exec answered nothing, successfully, on Windows only. Reproduced on every platform: exec starts the program with
+# its output going nowhere and exits 0, and ax_exec (the one hand-over the scripts use) takes its Windows branch.
+NOEXEC="$R.noexec"; mkdir -p "$NOEXEC"
+cat > "$NOEXEC/sitecustomize.py" <<'PY'
+import os, subprocess, sys
+def _leave(path, args, *env):
+    subprocess.Popen(list(args), executable=path if os.sep in path else None, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os._exit(0)
+for _n in ('execv', 'execve', 'execvp', 'execvpe'): setattr(os, _n, _leave)
+for _n in ('execl', 'execle', 'execlp', 'execlpe'): setattr(os, _n, lambda path, *args: _leave(path, args))
+sys.path.insert(0, os.environ.get('E2E_AX_SCRIPTS', ''))
+try:
+    import ax_exec; ax_exec.REPLACES = False
+except ImportError: pass
+finally: sys.path.pop(0)
+PY
+SCR="$(cd "$(dirname "$bin")/../@axiomcode/code-graph/plugins/axiomcode/skills/axiomcode/scripts" 2>/dev/null && pwd)"
+[ -n "$SCR" ] || fail "the installed package has no plugin scripts next to $bin"
+NX="PYTHONPATH=$(native_path "$NOEXEC") E2E_AX_SCRIPTS=$(native_path "$SCR")"
+run "$NX" impact "$LEAF";                       must "\[resolved\] ([A-Za-z_.]*\.)?$HELPER .*calls it" "$HELPER is a caller where exec does not replace the process"
+run "$NX" path "$ENTRY" "$LEAF";                must "reached" "path answers where exec does not replace the process"
+run "$NX" context "$LEAF";                      must "^ +([A-Za-z_.]*\.)?$LEAF +" "context answers where exec does not replace the process"
 
 # ── Windows: a git.exe / python.exe / py.exe in the working directory is not the one run (#1332) ──
 if [ -n "$win" ]; then

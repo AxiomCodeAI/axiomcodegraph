@@ -5,6 +5,16 @@ import { EXCLUDED_DIRS, isJavaTestDir } from '@/constants/consts';
 import { ProjectInfo, ProjectLanguage } from '@/types/ProjectInfo';
 import { ProjectDetector } from '@/utils/project-detector';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
+import { isGeneratedOutputDirectory } from '@/utils/generated-output';
+
+/**
+ * The languages whose walks skip a build's output directory (#1545). The scan must
+ * skip it for them too: a javadoc committed at docs/apidocs/ with no package.json
+ * above it holds loose scripts, so without this the scan registers it as a
+ * JavaScript project ROOT, and a walk never tests its own root for being generated.
+ * Other languages still look inside: nothing about a javadoc says it holds no Python.
+ */
+const GENERATED_OUTPUT_LANGUAGES: readonly ProjectLanguage[] = [ProjectLanguage.JAVASCRIPT, ProjectLanguage.TYPESCRIPT];
 
 export class ProjectScanner {
   private detector: ProjectDetector;
@@ -94,7 +104,10 @@ export class ProjectScanner {
         if (isGitIgnoredDir(subPath)) {
           continue;
         }
-        await this.scanDirectory(subPath, projects, currentDepth + 1, maxDepth, claimedBelow, excludeTests);
+        const below = isGeneratedOutputDirectory(dirPath, entry.name)
+          ? new Set([...claimedBelow, ...GENERATED_OUTPUT_LANGUAGES])
+          : claimedBelow;
+        await this.scanDirectory(subPath, projects, currentDepth + 1, maxDepth, below, excludeTests);
       }
     } catch (error) {
       console.error(`Error scanning directory ${dirPath}:`, error);

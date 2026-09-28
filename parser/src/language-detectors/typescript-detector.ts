@@ -5,6 +5,7 @@ import { LanguageDetector } from './language-detector';
 
 import { TS_SKIP_DIRECTORIES, TS_SOURCE_EXTENSIONS } from '@/constants/typescript-constants';
 import { ProjectLanguage } from '@/types/ProjectInfo';
+import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 
 /**
  * Detects TypeScript projects.
@@ -89,7 +90,8 @@ export class TypeScriptDetector implements LanguageDetector {
         }
         if (entry.isDirectory()
           && !entry.name.startsWith('.')
-          && !TypeScriptDetector.SKIP.has(entry.name)) {
+          && !TypeScriptDetector.SKIP.has(entry.name)
+          && !isGeneratedOutputDirectory(dirPath, entry.name)) {
           if (await this.hasTypeScriptSource(path.join(dirPath, entry.name), maxDepth - 1)) {
             return true;
           }

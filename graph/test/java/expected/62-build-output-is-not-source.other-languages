@@ -1,0 +1,8 @@
+javascript	module	src/main/js/app.js
+javascript	module	src/main/js/target/aim.js
+javascript	module	src/main/resources/static/main.js
+javascript	module	webpack.config.js
+javascript	pruned	docs/apidocs	2 JavaScript file(s) under a build's output directory (apidocs)
+javascript	pruned	docs/kdoc	2 JavaScript file(s) under a build's output directory (kdoc)
+javascript	pruned	docs/legacy-api	1 JavaScript file(s) under a build's output directory (legacy-api)
+javascript	pruned	target	2 JavaScript file(s) under a build's output directory (target)

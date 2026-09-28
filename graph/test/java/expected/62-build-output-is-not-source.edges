@@ -1,0 +1,5 @@
+boundary_lib	method	app.WidgetValidator#check(String) -> external:String.isEmpty
+known_edge	method	app.WidgetValidator#check(String) -> app.build.StepBuilder#next(String)
+known_edge	method	app.WidgetValidator#check(String) -> app.site.PageRenderer#render(String)
+known_edge	new	app.WidgetValidator#check(String) -> app.build.StepBuilder#<init>()
+known_edge	new	app.WidgetValidator#check(String) -> app.site.PageRenderer#<init>()

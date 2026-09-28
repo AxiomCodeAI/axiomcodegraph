@@ -27,6 +27,7 @@ import {
   extractPackageEntries,
 } from '@/parsers/javascript/package-entry-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
+import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 import { JsRelationWriter } from '@/workflows/javascript/js-relation-writer';
 import { isJavaScriptSourceFile, stripJsExtension } from '@/utils/javascript';
 import { JsBlockRegistry } from '@/analysis-types/javascript/JsBlockRegistry';
@@ -253,7 +254,7 @@ export class JavaScriptProjectAnalyzer {
     const excludes = new Set<string>(options.excludeDirs ?? JS_SKIP_DIRECTORIES);
     // Counted, not merely skipped. See `collectJavaScriptFiles`.
     const skippedByDirectory = new Map<string, number>();
-    const prunedDirectories: Array<{ directory: string; name: string; files: number }> = [];
+    const prunedDirectories: Array<{ directory: string; name: string; files: number; generated?: boolean }> = [];
     const baseMservPath = options.baseMservPath === ''
       ? '' : realPathOf(path.resolve(options.baseMservPath));
     const pathAnchor = pathAnchorFor(rootDir, baseMservPath);
@@ -382,7 +383,9 @@ export class JavaScriptProjectAnalyzer {
     for (const pruned of prunedDirectories) {
       this.recordSkip(pruned.directory, pathAnchor, options, serviceVersionLinkHash,
         SkippedFileReason.DIRECTORY_EXCLUDED,
-        `${pruned.files} JavaScript file(s) under an excluded directory named ${pruned.name}`);
+        pruned.generated === true
+          ? `${pruned.files} JavaScript file(s) under a build's output directory (${pruned.name})`
+          : `${pruned.files} JavaScript file(s) under an excluded directory named ${pruned.name}`);
     }
     await fsp.mkdir(options.outputDir, { recursive: true });
     const writers = new Map<string, JsRelationWriter>();
@@ -697,7 +700,7 @@ function collectJavaScriptFiles(
    * this answers "where", which is what a reader needs to tell a first-party
    * package under `packages/node_modules` from an installed dependency.
    */
-  prunedDirectories: Array<{ directory: string; name: string; files: number }>,
+  prunedDirectories: Array<{ directory: string; name: string; files: number; generated?: boolean }>,
   /**
    * Excluded names to walk anyway when they sit DIRECTLY under `rootDir` (#620):
    * the build directory a package root's own `package.json` ships from.
@@ -737,7 +740,9 @@ function collectJavaScriptFiles(
         if (isGitIgnoredDir(full) && !(directory === rootDir && walkUnderRoot.has(entry.name))) {
           continue;
         }
-        if (!excludes.has(entry.name) || (directory === rootDir && walkUnderRoot.has(entry.name))) {
+        // a build's output directory is pruned like a skipped name, and counted like one (#1545)
+        const generated = isGeneratedOutputDirectory(directory, entry.name);
+        if (!generated && (!excludes.has(entry.name) || (directory === rootDir && walkUnderRoot.has(entry.name)))) {
           walk(full);
           continue;
         }
@@ -745,7 +750,7 @@ function collectJavaScriptFiles(
         if (cost > 0) {
           skippedByDirectory.set(entry.name,
             (skippedByDirectory.get(entry.name) ?? 0) + cost);
-          prunedDirectories.push({ directory: full, name: entry.name, files: cost });
+          prunedDirectories.push({ directory: full, name: entry.name, files: cost, generated });
         }
         continue;
       }

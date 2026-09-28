@@ -1,6 +1,6 @@
 # Soufflé input-relation -> client IR CSV basename (the file staged as that relation's facts).
 # One relation per line: <relation><TAB><csv-basename>  (no extension handling here).
-# All 21 relations of the TypeScript fact schema that the parser emits. ts_type_satisfies is
+# All 22 relations of the TypeScript fact schema that the parser emits. ts_type_satisfies is
 # ENGINE-DERIVED and therefore absent here on purpose: staging it would let a parser guess
 # enter a relation whose whole point is that the parser cannot compute it.
 ts_block	all-typescript-blocks
@@ -17,6 +17,7 @@ ts_import	all-typescript-imports
 ts_method	all-typescript-methods
 ts_method_parameter	all-typescript-method-parameters
 ts_module	all-typescript-modules
+ts_package_entry	all-typescript-package-entries
 ts_parse_gap	all-typescript-parse-gaps
 ts_type	all-typescript-types
 ts_type_heritage	all-typescript-type-heritages

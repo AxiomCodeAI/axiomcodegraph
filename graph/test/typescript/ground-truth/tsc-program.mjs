@@ -174,10 +174,18 @@ export function loadProgram(srcDir, libDir, toolName) {
     else if (decl.name !== undefined) name = decl.name.getText(sf);
     else name = undefined;
 
-    // An arrow or function expression is named by the const it is bound to.
-    if (name === undefined && decl.parent && ts.isVariableDeclaration(decl.parent)
-      && ts.isIdentifier(decl.parent.name)) {
-      name = decl.parent.name.text;
+    // An arrow or function expression is named by the const it is bound to, through
+    // parentheses and type assertions (`const f = ((x) => …) as F`), which change the
+    // type and not the value -- the parser binds it the same way (#847).
+    let holder = decl.parent;
+    while (holder && (ts.isParenthesizedExpression(holder) || ts.isAsExpression(holder)
+      || ts.isSatisfiesExpression(holder) || ts.isTypeAssertionExpression(holder)
+      || ts.isNonNullExpression(holder))) {
+      holder = holder.parent;
+    }
+    if (name === undefined && holder && ts.isVariableDeclaration(holder)
+      && ts.isIdentifier(holder.name)) {
+      name = holder.name.text;
     }
     if (name === undefined) {
       const line = sf.getLineAndCharacterOfPosition(decl.getStart(sf)).line + 1;

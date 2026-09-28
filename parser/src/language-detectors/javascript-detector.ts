@@ -5,6 +5,7 @@ import { LanguageDetector } from './language-detector';
 
 import { JS_SKIP_DIRECTORIES } from '@/constants/javascript-constants';
 import { ProjectLanguage } from '@/types/ProjectInfo';
+import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 import { isJavaScriptSourceFile } from '@/utils/javascript';
 
 /**
@@ -201,7 +202,8 @@ export class JavaScriptDetector implements LanguageDetector {
         }
         if (entry.isDirectory()
           && !entry.name.startsWith('.')
-          && !JavaScriptDetector.SKIP.has(entry.name)) {
+          && !JavaScriptDetector.SKIP.has(entry.name)
+          && !isGeneratedOutputDirectory(dirPath, entry.name)) {
           if (await this.hasJavaScriptSource(path.join(dirPath, entry.name), maxDepth - 1)) {
             return true;
           }

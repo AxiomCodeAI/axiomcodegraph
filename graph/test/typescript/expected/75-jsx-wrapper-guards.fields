@@ -1,4 +1,5 @@
+ambiguous_unknown	read	app#<arrow@15>(?) -> -
+ambiguous_unknown	read	app#<arrow@16>(?) -> -
 ambiguous_unknown	read	app#<arrow@18>(?) -> -
 ambiguous_unknown	read	app#<arrow@19>() -> -
-ambiguous_unknown	read	app#<module-init>() -> -
 known_edge	read	ui/Button#Button({ label: string }) -> { label: string }#label

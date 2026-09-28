@@ -102,24 +102,55 @@ entry_point(m, "test") :- call_site("client", _, cn, _, _, ce, _),
 // declarations one key may name -- the shape the Java and Python sides settled on --
 // is the likely discriminator, and it needs measuring before it is written.
 //
-// DECORATORS (Nest, Angular): `@Controller('/orders')` with `@Get(':id')` on a
-// method. The parser emits decorator and decorator-argument rows, but the TypeScript
-// engine projects neither, and #233 records that a bare decorator application
-// produces no call site at all. That is a projection to be written before any rule
-// here can read it.
-//
 // FILE-BASED ROUTERS (Next.js `app/`, SvelteKit, Remix): the default export of a file
 // at a conventional PATH is a handler. Nothing here reads a file's path as a
 // convention, and doing so needs a project-layout fact the IR does not carry.
 //
-// A PACKAGE'S PUBLISHED API: `package.json` `exports`/`main` names the entry modules,
-// and the declarations they export are the roots a library's consumer reaches. This
-// is the single highest-value rule for a corpus that is all libraries, and it is
-// blocked upstream: THE TYPESCRIPT IR CARRIES NO MANIFEST FACTS AT ALL -- no
-// package.json, no .env, nothing analogous to the properties/YAML/XML the Java front
-// end emits. Until the parser emits them, `entry_module` stays the structural
-// approximation (a module nothing imports), which misses exactly the case that
-// matters: a library whose index.ts is imported by its own tests.
+// (Decorators and a package's published API were listed here; both are covered
+// below.)
+
+// ── package_export: what package.json PUBLISHES (#847) ──────────────────────
+// `entry_module` is the structural stand-in for "the package's entry": a module
+// nothing imports. It misses exactly the case that matters, a library whose index.ts
+// is imported by its own tests -- so the library's whole public API, whose caller is
+// a consumer outside the repository, read as unreachable, and unreachable reads as
+// safe to delete.
+//
+// ts_package_entry names the published modules directly: the parser reads main,
+// module, exports, types and source, and maps each build-output target back to the
+// walked source it compiles from; a subpath pattern (`"./*": "./esm/*.mjs"`) is expanded
+// to the walked modules it publishes, one path segment per `*`. A named export of such a
+// module is a root, under
+// the same two guards exported_from_entry_module applies: a real name, and METHOD.
+//
+// Declined, rather than guessed:
+//   - DEFAULT_INDEX. A package.json naming no entry has not said what it publishes;
+//     Node's `index.js` default is a fact about loading, not a declaration of an API.
+//   - any outcome without a module hash (a pattern row as written, a blocked subpath,
+//     a target no walked source answers).
+//   - a module that is ALREADY an entry_module, whose exports are rooted by
+//     exported_from_entry_module; one root, one kind.
+cfg_published_module(mod) :- package_entry("client", _, _, _, src, _, out, mod),
+    mod != "",
+    src != "DEFAULT_INDEX",
+    (out = "RESOLVED" ; out = "RESOLVED_FROM_BUILD_OUTPUT" ; out = "RESOLVED_FROM_PATTERN").
+
+entry_point(m, "package_export") :- cfg_published_module(mod),
+    !entry_module(mod),
+    module_export_any("client", mod, en, "METHOD", m),
+    en != "",
+    !cfg_placeholder_name(en).
+
+// `export const createStore = (init) => { … }` is how most of this ecosystem writes a
+// published function: the export names a VARIABLE, and the callable is the arrow bound
+// to it. Only a variable the parser linked to a function (var_bound_function) — a
+// variable holding any other value is not a callable and roots nothing.
+entry_point(m, "package_export") :- cfg_published_module(mod),
+    !entry_module(mod),
+    module_export_any("client", mod, en, "VARIABLE", v),
+    var_bound_function("client", m, v),
+    en != "",
+    !cfg_placeholder_name(en).
 
 // ── DECORATOR-DRIVEN ROOTS (Nest, Angular) ──────────────────────────────────
 // The gap the section above described, now closed. projections/decorators.dl gives

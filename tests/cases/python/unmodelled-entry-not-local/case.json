@@ -1,0 +1,102 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a function registered by a decorator the rules do not model is not called local: next: says what was not checked and prints the grep",
+   "run": ["impact", "warm_caches"],
+   "want": ["NOT CHECKED: @on_boot on warm_caches", "before treating the change as local run: grep -rnw \"warm_caches\" shop"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "the tests line does not let tests: 0 stand alone for a framework-entered function",
+   "run": ["impact", "warm_caches"],
+   "want": ["tests: 0 of", "    NOT CHECKED: @on_boot on warm_caches — a framework calls it"]
+  },
+  {
+   "why": "near-miss control: a wrapper decorator on the inert list changes nothing about who calls it, so the change stays local",
+   "run": ["impact", "cached_helper"],
+   "want": ["the change is local"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "control: an undecorated function nothing calls stays local",
+   "run": ["impact", "plain_helper"],
+   "want": ["the change is local"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "a method of a class whose base the graph does not contain is not local",
+   "run": ["impact", "Nightly.run"],
+   "want": ["NOT CHECKED: it is declared on a subtype of Worker", "grep -rnw \"run\" shop", "    NOT CHECKED: Nightly extends Worker, which the graph does not contain"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "near-miss control: a private method of the same class is never entered through the base, so it stays local",
+   "run": ["impact", "Nightly._private_step"],
+   "want": ["the change is local"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "control: a method of a class with no outside base stays local",
+   "run": ["impact", "Ledger.total"],
+   "want": ["the change is local"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "--delete on a decorated function says a framework may call it, not 'nothing'",
+   "run": ["impact", "warm_caches", "--delete"],
+   "want": ["NOT SAFE TO ASSUME", "NOT CHECKED: @on_boot on warm_caches"],
+   "avoid": ["· nothing", "no dependent at any certainty in this graph. Before deleting"]
+  },
+  {
+   "why": "path does not call two functions independent when one is entered by an unmodelled framework",
+   "run": ["path", "plain_helper", "warm_caches"],
+   "expect_error": true,
+   "want": ["NOT CHECKED: @on_boot on warm_caches", "grep -rnw \"warm_caches\" shop", "next: not shown to be independent"],
+   "avoid": ["the two are independent in this graph"]
+  },
+  {
+   "why": "control: two plain functions stay independent",
+   "run": ["path", "plain_helper", "Ledger.total"],
+   "expect_error": true,
+   "want": ["the two are independent in this graph"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "a module-level constant's next: reads the assignment's own line, not line 1 of the module (#1486)",
+   "run": ["impact", "ORDER_LIMIT"],
+   "want": ["read shop/settings.py:6"],
+   "avoid": ["shop/settings.py:1,", "shop/settings.py:1 "]
+  },
+  {
+   "why": "control: a function in the same file is still read at its own line",
+   "run": ["impact", "order_limit"],
+   "want": ["read shop/settings.py:9"]
+  },
+  {
+   "why": "a [by name] flood shows the 3 nearest rows (same file first) and one count with the grep for the rest",
+   "run": ["impact", "Cart.checkout"],
+   "want": ["[by name] near   shop/cart.py:7", "+5 [by name] (the same method name on an untyped receiver", "grep -rn \"\\.checkout(\" shop", "8 by name"],
+   "avoid": ["[by name] go3", "[by name] go7"]
+  },
+  {
+   "why": "--page all still lists every [by name] row",
+   "run": ["impact", "Cart.checkout", "--page", "all"],
+   "want": ["[by name] go3", "[by name] go7", "[by name] near"],
+   "avoid": ["+5 [by name]"]
+  },
+  {
+   "why": "--limit N still lists every [by name] row",
+   "run": ["impact", "Cart.checkout", "--limit", "20"],
+   "want": ["[by name] go3", "[by name] go7"],
+   "avoid": ["+5 [by name]"]
+  },
+  {
+   "why": "--json is unchanged: every by-name caller is in the document",
+   "run": ["impact", "Cart.checkout", "--json"],
+   "stdout_json": true,
+   "want": ["go3", "go7"]
+  }
+ ]
+}

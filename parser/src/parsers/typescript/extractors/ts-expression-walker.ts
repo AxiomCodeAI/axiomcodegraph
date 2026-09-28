@@ -133,6 +133,15 @@ export class TsExpressionWalker {
           ownerKind = TsExpressionOwnerKind.ENUM_MEMBER;
         } else if (ts.isExportAssignment(current)) {
           ownerKind = TsExpressionOwnerKind.EXPORT;
+        } else if (ts.isArrowFunction(current) && !ts.isBlock(current.body)) {
+          // A concise arrow body has no block row: the arrow's method row owns it,
+          // so `(m) => m.Named` is what the arrow returns, not part of the variable
+          // the arrow happens to be assigned to.
+          const hash = this.options.methodHashByNode.get(id);
+          if (hash) {
+            ownerHash = hash;
+            ownerKind = TsExpressionOwnerKind.METHOD;
+          }
         } else {
           const blockHash = this.options.blockHashByNode.get(id);
           if (blockHash) {

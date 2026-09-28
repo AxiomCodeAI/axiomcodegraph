@@ -1,0 +1,4 @@
+known_edge	method	app.Pipeline#run(String) -> app.build.StageBuilder#stage(String)
+known_edge	method	app.Pipeline#run(String) -> app.lib.build.LibStep#apply(String)
+known_edge	new	app.Pipeline#run(String) -> app.build.StageBuilder#<init>()
+known_edge	new	app.Pipeline#run(String) -> app.lib.build.LibStep#<init>()

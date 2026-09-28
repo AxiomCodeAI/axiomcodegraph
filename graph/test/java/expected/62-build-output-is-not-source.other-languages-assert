@@ -1,0 +1,20 @@
+# #1545: a build's output is not source, and a directory merely NAMED like one still is.
+# Maven's target/ (a pom.xml beside it), a javadoc output directory (index.html with element-list or
+# package-list) and a Dokka one (index.html with navigation.html and scripts/sourceset_dependencies.js) hold no
+# project JavaScript:
+- javascript	module	target/site/apidocs/script.js
+- javascript	module	target/classes/static/bundle.js
+- javascript	module	docs/apidocs/script.js
+- javascript	module	docs/apidocs/search.js
+- javascript	module	docs/legacy-api/script.js
+- javascript	module	docs/kdoc/scripts/main.js
+- javascript	module	docs/kdoc/scripts/sourceset_dependencies.js
+# the controls: the project's own JavaScript, a JavaScript directory named target with no pom.xml beside it,
+# and a static folder with an index.html that is not a javadoc:
++ javascript	module	webpack.config.js
++ javascript	module	src/main/js/app.js
++ javascript	module	src/main/js/target/aim.js
++ javascript	module	src/main/resources/static/main.js
+# Not asserted here, and left as it was: app/build/StepBuilder.java is a Java package named build, and the Java
+# walk still prunes every directory of that name (#531). The two ambiguous_unknown rows in the .edges golden are
+# that call and that `new`; a fix for #531 turns them into known_edge rows.

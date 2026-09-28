@@ -23,10 +23,10 @@
 //      `onToggle(todo)` inside `TodoItem({ onToggle })` resolve to handleToggle.
 //      Brace children are the `children` prop (a render prop is a function).
 //
-// Not modelled: a component reached only through a library wrapper
-// (`memo(C)`, `connect(…)(C)`, `forwardRef(fn)`) whose library is not staged — the
-// tag's value is the wrapper's return, which is unknown, and the element stays an
-// ambiguous_unknown row.
+// A tag bound to a component WRAPPER (`memo(C)`, `forwardRef(fn)`, `observer(C)`,
+// `withRouter(C)`) or a LOADER (`lazy(() => import("./x"))`) renders what the wrapper
+// was handed or what the loader settles to — see "wrapped and lazy components" below.
+// Not modelled: `connect(…)(C)` and other curried wrappers.
 // ============================================================================
 
 // ── the element and what its tag holds ──────────────────────────────────────
@@ -35,6 +35,68 @@ jsx_tag_value(je, k, i) :- jsx_element_tag(je, tag), expr_value(tag, k, i).
 // A CommonJS module value renders through its default export, as a call of it does.
 jsx_tag_value(je, k, i) :- jsx_element_tag(je, tag), expr_value(tag, "module", mod),
     module_export_value(mod, "default", k, i), k != "module".
+// A tag that holds a wrapper or loader call renders what that call renders.
+jsx_tag_value(je, k, i) :- jsx_element_tag(je, tag), jsx_holds(tag, w), jsx_call_renders(w, k, i).
+
+// ── wrapped and lazy components ─────────────────────────────────────────────
+// `const Card = memo(Inner)` binds Card to what memo RETURNED, and memo's library is
+// usually not staged, so the tag has no value and the element was an ambiguous_unknown
+// row. What renders is argument 0. JSX only, and NOT an expr_value of the call: at an
+// ordinary call site `wrap(f)` is a factory whose argument says nothing about what
+// runs, and valuing the call would turn every `Card()` blind spot into a claimed
+// no_target. The wrappers are named by the libraries that define them — `memo` and
+// `forwardRef` (React, Preact), `observer` (MobX) — and by the higher-order-component
+// convention, a `with` prefix and a capital. Read off the callee name, so
+// `React.memo(…)` counts as `memo(…)`.
+jsx_wrapper_name("memo").
+jsx_wrapper_name("forwardRef").
+jsx_wrapper_name("observer").
+jsx_component_wrapper(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n, _, _, _, w, _, _), jsx_wrapper_name(n).
+jsx_component_wrapper(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n, _, _, _, w, _, _), match("with[A-Z].*", n).
+// A LOADER — `lazy(() => import("./Settings"))`, Next.js `dynamic(…)`, `loadable(…)`:
+// argument 0 returns a module or a promise of one, and what renders settles out of it.
+jsx_loader_name("lazy").
+jsx_loader_name("dynamic").
+jsx_loader_name("loadable").
+jsx_component_loader(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n, _, _, _, w, _, _), jsx_loader_name(n).
+
+// jsx_holds(Expr, Call) — the wrapper or loader call an expression holds, followed the
+// ways a component reaches a tag: the call itself, a const initialised with it, a named
+// or default import of an export that holds it, and a re-export of one.
+jsx_holds(w, w) :- jsx_component_wrapper(w).
+jsx_holds(w, w) :- jsx_component_loader(w).
+jsx_holds(e, w) :- expr_binding(_, v, e), jsx_var_holds(v, w).
+jsx_var_holds(v, w) :- var_init(_, _, e, v), !var_binding_form(_, "OBJECT_PATTERN", v), !var_binding_form(_, "ARRAY_PATTERN", v),
+    jsx_holds(e, w).
+jsx_var_holds(v, w) :- var_import(_, imp, v), jsx_import_holds(imp, w).
+jsx_import_holds(imp, w) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
+    jsx_export_holds(mod, "default", w).
+jsx_import_holds(imp, w) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
+    import_module(imp, mod), jsx_export_holds(mod, n, w).
+jsx_export_holds(mod, n, w) :- export_decl(_, n, _, _, _, "VARIABLE", v, _, mod, x), n != "", v != "",
+    !export_overwritten(_, x), jsx_var_holds(v, w).
+// `export default memo(Inner)` / `export default Card` — the source expression.
+jsx_export_holds(mod, n, w) :- export_decl(_, n, _, _, _, _, _, se, mod, x), n != "", se != "",
+    !expr_kind(_, "ASSIGNMENT", _, se), !export_overwritten(_, x), jsx_holds(se, w).
+jsx_export_holds(mod, en, w) :- export_decl(_, en, ln, form, _, _, _, _, mod, x), form != "EXPORT_ALL", ln != "",
+    export_reexport(_, _, imp, x), import_module(imp, src), jsx_export_holds(src, ln, w).
+
+// jsx_call_renders(Call, K, I) — the value a wrapper or loader call renders.
+// A wrapper: its argument 0, or what argument 0 renders when it is itself a wrapped
+// component — `memo(forwardRef(function Inner() {…}))`, `memo(Card)`.
+jsx_call_renders(w, k, i) :- jsx_component_wrapper(w), call_arg(w, 0, a), expr_value(a, k, i), k != "ambient".
+jsx_call_renders(w, k, i) :- jsx_component_wrapper(w), call_arg(w, 0, a), jsx_holds(a, w2), jsx_call_renders(w2, k, i).
+// A loader: what argument 0 returns — the module, a promise of it, or through
+// `.then(cb)` what cb returns (promises.dl carries the module into cb's parameter).
+jsx_loader_settles(w, k, i) :- jsx_component_loader(w), call_arg(w, 0, a), expr_value(a, "func", f), return_value(f, k, i).
+// …the module itself: its default export renders.
+jsx_call_renders(w, k, i) :- jsx_loader_settles(w, "module", mod), module_export_value(mod, "default", k, i), k != "module".
+// …re-wrapped for `lazy`, `{ default: m.Named }`: the object's `default` property.
+jsx_call_renders(w, k, i) :- jsx_loader_settles(w, "obj", o), prop_value("obj", o, "default", k, i).
+// …or a component projected out of it, `.then((m) => m.Named)` (the `dynamic` form).
+jsx_call_renders(w, k, i) :- jsx_loader_settles(w, k, i), jsx_component_kind(k).
+jsx_component_kind("func").
+jsx_component_kind("ctor").
 
 // ── jsx_renders(Element, Component) — the callables the element runs ───────
 // A function component (a constructor FUNCTION is callable_value's "ctor" half).

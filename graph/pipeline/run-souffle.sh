@@ -112,23 +112,68 @@ done
 # read an import map (relation<TAB>csv-basename per line), skipping comments (#) and blanks
 read_map(){ grep -vE '^[[:space:]]*(#|$)' "$1"; }
 
-# ── THE PROGRAM, as a pure function of the repository ────────────────────────────────────
+# ── THE PROGRAM, generated ONCE; the engine id is the hash of exactly those bytes ─────────
 # Written so that the SAME text comes out of every checkout and of CI: includes are relative
 # to graph/ (souffle resolves them through -I "$SRC"), and the .input list is derived from the
-# maps rather than from a listing of the staged facts dir — so it needs no client IR, and a
+# maps rather than from a listing of the staged facts dir, so it needs no client IR, and a
 # machine that cannot stage (CI) still produces the text the binary was built from. The run
 # path asserts below that staging created a facts file for every .input it declares.
-# The list of input relations is: every client relation, the lib signature relations, the lib
-# body relations (filled per iteration), and the four knob facts.
-input_relations(){
-  while IFS=$'\t' read -r rel csv; do printf '%s\n' "$rel"; done < <(read_map "$TPL/client-ir.map")
-  while IFS=$'\t' read -r rel csv; do
-    case " $LIB_SIG " in *" ${rel#lib_} "*) printf '%s\n' "$rel";; esac
-  done < <(read_map "$TPL/lib.map")
-  for r in $LIB_BODY; do printf '%s\n' "$r"; done
-  printf '%s\n' jdk_max_depth lib_max_depth taint_gating dispatch_cap
+# The input relations are: every client relation, the lib signature relations, the lib body
+# relations (filled per iteration), and the four knob facts.
+#
+# NO PIPES, AND EVERY WRITE CHECKED (#1593). The text used to be produced by `printf` loops
+# feeding `sort` through pipes, and produced TWICE: once into the program souffle compiles,
+# once more inside engine_id() just to hash it. bash 3.2 (macOS /bin/bash) does not restart a
+# pipe write interrupted by a signal, and nothing checked the status of a write inside a
+# pipeline, so under load a line was sometimes lost with exit 0 ("printf: write error:
+# Interrupted system call"). Lost from the hashed copy, it gave a different id and a warm
+# rebuild became a full C++ compile (measured: 2183 s instead of 11 s, 3 in ~460 builds).
+# Lost from the compiled copy, it would have cached a program missing an .input under the
+# correct id. So now:
+#   1. the text is assembled in memory, in this shell (string appends, globs and `read` from
+#      the map files; no subprocess, no pipe), and sorted here too;
+#   2. it is written to a temp file with ONE checked write, read back and compared byte for
+#      byte, and checked against an independent derivation from the maps (verify_program);
+#      only then renamed onto the destination, so no reader ever sees a partial program;
+#   3. the engine id (engine_id_of) hashes THAT FILE, the one souffle compiles, never a
+#      second rendering of it.
+# A failed attempt is retried (program_file); three failures abort the run loudly rather
+# than continue with a partial program.
+
+# sort the array _SU in place and drop duplicates. Byte order: every caller pins LC_ALL=C.
+# In-shell (an insertion sort over ~100 names) so that no line passes through a pipe.
+sort_unique_su(){
+  local i j x n=${#_SU[@]} out=()
+  for ((i=1; i<n; i++)); do
+    x="${_SU[i]}"; j=$((i-1))
+    while [ "$j" -ge 0 ] && [[ "${_SU[j]}" > "$x" ]]; do _SU[j+1]="${_SU[j]}"; j=$((j-1)); done
+    _SU[j+1]="$x"
+  done
+  for ((i=0; i<n; i++)); do
+    [ "$i" -gt 0 ] && [[ "${_SU[i]}" == "${_SU[i-1]}" ]] && continue
+    out+=("${_SU[i]}")
+  done
+  _SU=(${out[@]+"${out[@]}"})
 }
-write_program(){ # $1 = destination file
+# append the relations (first column) of an import map to _SU, with read_map's filter and
+# `IFS=$'\t' read -r rel csv`'s field split. $2 = "sig" keeps only the LIB_SIG relations.
+# `read` from a file, not from a process substitution: nothing here can lose a line to a pipe,
+# and verify_program re-derives the same list with awk to catch a short read.
+map_rels_su(){
+  local line rel
+  [ -r "$1" ] || { echo "  ! cannot read $1" >&2; return 1; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    rel="${line#"${line%%[![:space:]]*}"}"
+    case "$rel" in ""|"#"*) continue;; esac
+    line="${line#"${line%%[!$'\t']*}"}"; rel="${line%%$'\t'*}"
+    if [ "${2:-}" = sig ]; then case " $LIB_SIG " in *" ${rel#lib_} "*) ;; *) continue;; esac; fi
+    _SU+=("$rel")
+  done < "$1"
+}
+# write_program DEST: ONE attempt. Builds the text in memory, writes it to DEST.tmp.$$ with a
+# single checked write, verifies, then renames onto DEST. Returns 1 (DEST untouched) on any
+# failure; program_file retries.
+write_program(){
   # COLLATION IS PART OF THE PROGRAM TEXT, so it is pinned here rather than inherited. The
   # #include lines below come from shell globs, and bash orders a glob by LC_COLLATE, not by
   # byte value. A UTF-8 collation ignores punctuation when comparing, so call-site.dl and
@@ -140,54 +185,157 @@ write_program(){ # $1 = destination file
   # so the mismatch is the common case. Measured: java and python ids differ between macOS
   # and MSYS2, and between LC_ALL=C and en_US.UTF-8 on glibc; typescript and javascript
   # agree only because no pair of their filenames collides. Invisible on macOS, whose
-  # collation matches C either way, which is why it survived. The sorts below were already
-  # forced to C for this reason; the globs were not.
+  # collation matches C either way, which is why it survived. The same pin orders the
+  # in-shell sorts below.
   # See issue #895 and graph/test/tools/engine-id-locale-test.sh.
   local LC_ALL=C LC_COLLATE=C
-  {
-    echo "#include \"$LANG_ARG/souffle/decls_base.dl\""; echo "#include \"$LANG_ARG/souffle/decls_all.dl\""
-    # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
-    # quote, tab or newline and doubles the inner quotes, so reading it as plain TSV hands
-    # the rules the ESCAPED text. Souffle parses RFC4180 itself, so this costs one flag
-    # rather than a re-encode of GB-scale input.
-    # LC_ALL=C sort: the order is part of the program text, so it must not depend on locale.
-    input_relations | LC_ALL=C sort -u | while read -r r; do printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t", rfc4180=true)\n' "$r" "$r"; done
-    for d in projections containment resolution config-resolution expression-resolution call-edge-generation framework-behavior; do
-      # [ -f ] guard: a phase directory that is empty (or absent for a language that has
-      # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
-      # preprocessor then fails on a literal '*.dl' include.
-      for f in "$ENG/$d/"*.dl; do [ -f "$f" ] && echo "#include \"${f#"$SRC/"}\""; done
-    done
-    # engine-ii: the first→third forward-chain engine (mirrors engine/, lib-seeded). Same solve,
-    # included AFTER engine/ so it reads engine/'s relations (client_calls_lib seed). Glob its
-    # phase subfolders (both nesting levels; globs are space-safe, the repo path has spaces).
-    # export/ is doc-only (like engine/export) — skip it.
-    if [ "$ENGINE_II_MODE" = "on" ]; then
+  local dest="$1" tmp="$1.tmp.$$" nl=$'\n' t="" r f d line pred file got
+  _SU=()
+  t+="#include \"$LANG_ARG/souffle/decls_base.dl\"$nl#include \"$LANG_ARG/souffle/decls_all.dl\"$nl"
+  map_rels_su "$TPL/client-ir.map" || return 1
+  map_rels_su "$TPL/lib.map" sig || return 1
+  for r in $LIB_BODY; do _SU+=("$r"); done
+  _SU+=(jdk_max_depth lib_max_depth taint_gating dispatch_cap)
+  sort_unique_su
+  PROGRAM_INPUTS=(${_SU[@]+"${_SU[@]}"})
+  # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
+  # quote, tab or newline and doubles the inner quotes, so reading it as plain TSV hands
+  # the rules the ESCAPED text. Souffle parses RFC4180 itself, so this costs one flag
+  # rather than a re-encode of GB-scale input.
+  for r in ${_SU[@]+"${_SU[@]}"}; do
+    t+=".input $r(IO=file, filename=\"$r.facts\", delimiter=\"\\t\", rfc4180=true)$nl"
+  done
+  for d in projections containment resolution config-resolution expression-resolution call-edge-generation framework-behavior; do
+    # [ -f ] guard: a phase directory that is empty (or absent for a language that has
+    # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
+    # preprocessor then fails on a literal '*.dl' include.
+    for f in "$ENG/$d/"*.dl; do [ -f "$f" ] && t+="#include \"${f#"$SRC/"}\"$nl"; done
+  done
+  # engine-ii: the first→third forward-chain engine (mirrors engine/, lib-seeded). Same solve,
+  # included AFTER engine/ so it reads engine/'s relations (client_calls_lib seed). Glob its
+  # phase subfolders (both nesting levels; globs are space-safe, the repo path has spaces).
+  # export/ is doc-only (like engine/export) — skip it.
+  if [ "$ENGINE_II_MODE" = "on" ]; then
     for f in "$ENG2/"*/*.dl "$ENG2/"*/*/*.dl; do
       case "$f" in */export/*) continue;; esac
-      [ -f "$f" ] && echo "#include \"${f#"$SRC/"}\""
+      [ -f "$f" ] && t+="#include \"${f#"$SRC/"}\"$nl"
     done
-    fi
-    # Relative output filenames — the -D at run time supplies the directory. Keeping $OUT out
-    # of the program makes the compiled binary independent of the output path (better reuse).
-    while IFS=$'\t' read -r pred file; do [ -n "$pred" ] && printf '.output %s(IO=file, filename="%s", delimiter="\\t")\n' "$pred" "$file"; done < <(LC_ALL=C sort -u "$DL/export_manifest.tsv")
-  } > "$1"
+  fi
+  # Relative output filenames — the -D at run time supplies the directory. Keeping $OUT out
+  # of the program makes the compiled binary independent of the output path (better reuse).
+  # Whole manifest lines, sorted and deduplicated, then split as `IFS=$'\t' read pred file`.
+  _SU=()
+  [ -r "$DL/export_manifest.tsv" ] || { echo "  ! cannot read $DL/export_manifest.tsv" >&2; return 1; }
+  while IFS= read -r line || [ -n "$line" ]; do _SU+=("$line"); done < "$DL/export_manifest.tsv"
+  sort_unique_su
+  for line in ${_SU[@]+"${_SU[@]}"}; do
+    line="${line#"${line%%[!$'\t']*}"}"; pred="${line%%$'\t'*}"; file=""
+    case "$line" in *$'\t'*) file="${line#*$'\t'}"; file="${file#"${file%%[!$'\t']*}"}"; file="${file%"${file##*[!$'\t']}"}";; esac
+    [ -n "$pred" ] && t+=".output $pred(IO=file, filename=\"$file\", delimiter=\"\\t\")$nl"
+  done
+  # ONE write, checked; read back and compared; independently verified; then renamed.
+  rm -f "$tmp"
+  printf '%s' "$t" > "$tmp" || { echo "  ! writing the program to $tmp failed" >&2; rm -f "$tmp"; return 1; }
+  got=""; IFS= read -r -d '' got < "$tmp" || true
+  [ "$got" = "$t" ] || { echo "  ! short write: $tmp holds ${#got} of ${#t} bytes" >&2; rm -f "$tmp"; return 1; }
+  verify_program "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$dest" || { echo "  ! could not rename $tmp onto $dest" >&2; rm -f "$tmp"; return 1; }
 }
-# The engine id: sha256 over the pinned code-generator version, the program text, and every
-# file it includes, in include order. A function of the repository alone — the same from any
-# path, on any machine, with or without souffle — and different for any rule change. It names
-# the local cache entry AND the engine package CI publishes, which is what lets a machine
-# without souffle know which binary is its own.
-engine_id(){
-  local prog; prog="$(mktemp)"; write_program "$prog"
-  { printf 'souffle=%s\n' "$SOUFFLE_VERSION"; cat "$prog"
-    sed -n 's/^#include "\(.*\)"$/\1/p' "$prog" | while read -r inc; do cat "$SRC/$inc"; done
-  } | sha256_stdin
-  rm -f "$prog"
+# verify_program FILE: an INDEPENDENT derivation of what the program must declare, read by awk
+# straight from the maps and the manifest (not from anything write_program produced), so a line
+# lost on either side shows up as a difference. Every .input and .output line must be exactly
+# the expected one, each exactly once, with nothing extra. Exit status only: no pipe to lose.
+verify_program(){
+  awk -v cmap="$TPL/client-ir.map" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
+      -v libsig=" $LIB_SIG " -v extra="$LIB_BODY jdk_max_depth lib_max_depth taint_gating dispatch_cap" '
+    function want(line) { if (!(line in need)) { need[line] = 1; n++ } }
+    function inp(r) { want(".input " r "(IO=file, filename=\"" r ".facts\", delimiter=\"\\t\", rfc4180=true)") }
+    function maprels(path, sigonly,   l, rc, r, k) {
+      while ((rc = (getline l < path)) > 0) {
+        if (l ~ /^[[:space:]]*(#|$)/) continue
+        sub(/^\t+/, "", l); r = l; k = index(r, "\t"); if (k) r = substr(r, 1, k - 1)
+        if (sigonly) { s = r; sub(/^lib_/, "", s); if (!index(libsig, " " s " ")) continue }
+        inp(r)
+      }
+      if (rc < 0) { print "  ! verify: cannot read " path > "/dev/stderr"; bad = 1 }
+      close(path)
+    }
+    BEGIN {
+      maprels(cmap, 0); maprels(lmap, 1)
+      m = split(extra, e, " "); for (i = 1; i <= m; i++) if (e[i] != "") inp(e[i])
+      while ((rc = (getline l < man)) > 0) {
+        sub(/^\t+/, "", l); k = index(l, "\t"); p = l; f = ""
+        if (k) { p = substr(l, 1, k - 1); f = substr(l, k + 1); sub(/^\t+/, "", f); sub(/\t+$/, "", f) }
+        if (p != "") want(".output " p "(IO=file, filename=\"" f "\", delimiter=\"\\t\")")
+      }
+      if (rc < 0) { print "  ! verify: cannot read " man > "/dev/stderr"; bad = 1 }
+      close(man)
+    }
+    /^\.(input|output) / {
+      if (!($0 in need)) { print "  ! verify: unexpected line in the program: " $0 > "/dev/stderr"; bad = 1 }
+      else if (seen[$0]++) { print "  ! verify: duplicated line in the program: " $0 > "/dev/stderr"; bad = 1 }
+    }
+    END {
+      for (x in need) if (!(x in seen)) { print "  ! verify: the program lacks: " x > "/dev/stderr"; bad = 1 }
+      if (n < 1) { print "  ! verify: nothing expected (empty maps?)" > "/dev/stderr"; bad = 1 }
+      exit bad
+    }' "$1"
+}
+# program_file DEST: write_program, retried. Three failed attempts abort with a loud error;
+# the caller never continues with a partial or unverified program.
+program_file(){
+  local try
+  for try in 1 2 3; do
+    write_program "$1" && return 0
+    echo "  ! generating the Soufflé program failed (attempt $try of 3)" >&2
+  done
+  echo "❌ could not write the Soufflé program intact after 3 attempts; refusing to continue" >&2
+  return 1
+}
+# The engine id: sha256 over the pinned code-generator version, the program FILE's bytes, and
+# every file it includes, in include order. A function of the repository alone: the same from
+# any path, on any machine, with or without souffle, and different for any rule change. It
+# names the local cache entry AND the engine package CI publishes, which is what lets a
+# machine without souffle know which binary is its own.
+# engine_id_of PROGRAM sets ENGINE_ID. It hashes the file it is given (the one souffle
+# compiles), never a regenerated copy. The hash input is assembled in a temp file with
+# checked writes and its size checked, the digest is read from a file argument (no pipe into
+# the hasher), and the result must be 64 hex digits, or it returns 1 and ENGINE_ID is empty.
+engine_id_of(){
+  local prog="$1" hin line inc incs=() want have h
+  ENGINE_ID=""
+  [ -n "$_SHA256_CMD" ] || { echo "❌ neither sha256sum nor shasum is on PATH" >&2; return 1; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in '#include "'*'"') inc="${line#'#include "'}"; incs+=("$SRC/${inc%'"'}");; esac
+  done < "$prog"
+  hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
+    || { echo "❌ engine id: mktemp failed" >&2; return 1; }
+  if ! printf 'souffle=%s\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+    echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
+  fi
+  # The expected size comes from the SOURCE files (wc's last line is their total), not from a
+  # second read through cat, so a cat that loses bytes cannot agree with itself.
+  want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
+  want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 9 ));; esac   # 9 = "souffle=" + "\n"
+  if [ "${have//[[:space:]]/}" != "$want" ]; then
+    echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
+  fi
+  h="$($_SHA256_CMD "$hin")"; rm -f "$hin"
+  h="${h%% *}"; h="${h#\\}"
+  if [ "${#h}" -ne 64 ] || case "$h" in *[!0-9a-f]*) true;; *) false;; esac; then
+    echo "❌ engine id: the digest is not 64 hex digits (got '$h')" >&2; return 1
+  fi
+  ENGINE_ID="$h"
 }
 case "$MODE" in
-  print-engine-id) engine_id; exit 0;;
-  emit-program) write_program "$EMIT"; exit 0;;
+  print-engine-id)
+    _pd="$(mktemp -d "${TMPDIR:-/tmp}/axiom-program.XXXXXX")" && [ -d "$_pd" ] || { echo "❌ mktemp failed" >&2; exit 1; }
+    if program_file "$_pd/program.dl" && { engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl"; }; then rm -rf "$_pd"
+    else rm -rf "$_pd"; exit 1; fi
+    printf '%s\n' "$ENGINE_ID" || exit 1
+    exit 0;;
+  emit-program) program_file "$EMIT" || exit 1; exit 0;;
 esac
 
 [ -n "${CLIENT:-}" ] && [ -n "${INT:-}" ] && [ -n "${OUT:-}" ] || { echo "usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]" >&2; exit 1; }
@@ -361,15 +509,19 @@ echo "▶ dispatch cap = $( [ -s "$FACTS/dispatch_cap.facts" ] && echo "$(cat "$
 echo "▶ engine-ii = $( [ "$ENGINE_II_MODE" = "on" ] && echo 'ON (lib frontier included)' || echo 'OFF (client-only — engine-i)' )"
 
 # --- the program, and the binary for it: from npm, or compiled here ---
+# Generated ONCE (program_file), and the id is the hash of that file (engine_id_of): the id is
+# a function of the bytes souffle compiles, not of a second rendering of them.
 PROG="$INT/souffle-program.dl"
-write_program "$PROG"
+program_file "$PROG" || exit 1
 # Every declared input must have been staged, or souffle would fail on a missing file after
 # the (possibly long) library staging. The program lists inputs from the maps; staging
 # created them from the same maps, so a mismatch is a bug in this script, and says so.
-for r in $(sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "$PROG"); do
+[ "${#PROGRAM_INPUTS[@]}" -gt 0 ] || { echo "❌ the program declares no inputs" >&2; exit 1; }
+for r in "${PROGRAM_INPUTS[@]}"; do
   [ -f "$FACTS/$r.facts" ] || { echo "❌ program declares input $r but staging created no $r.facts" >&2; exit 1; }
 done
-ENGINE_ID="$(engine_id)"
+engine_id_of "$PROG" || engine_id_of "$PROG" || engine_id_of "$PROG" \
+  || { echo "❌ could not compute the engine id of $PROG; refusing to guess a cache entry" >&2; exit 1; }
 echo "▶ engine id = $ENGINE_ID (rules + souffle $SOUFFLE_VERSION)"
 
 # What we cache is OUR engine compiled to a native binary (souffle -g turns the .dl rules
@@ -451,9 +603,23 @@ elif command -v souffle >/dev/null 2>&1; then
     cat "$INT/.souffle-gen.log" >&2; exit 1
   fi
   awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
+  [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
   CXX_PLATFORM=""
   case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
-  c++ -std=c++17 -O3 -march=native -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"
+  if ! c++ -std=c++17 -O3 -march=native -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
+    rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
+  fi
+  # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
+  # land under $ENGINE_ID unless it is a whole binary built from the program that id names:
+  # the temp binary must be a non-empty executable, and the program must still hash to the id
+  # (a program or rule file that changed during the compile would otherwise be cached under
+  # the old id). Only then the atomic rename.
+  _built_id="$ENGINE_ID"
+  if [ ! -s "$BIN.tmp.$$" ] || [ ! -x "$BIN.tmp.$$" ] || ! engine_id_of "$PROG" || [ "$ENGINE_ID" != "$_built_id" ]; then
+    rm -f "$BIN.tmp.$$"
+    echo "❌ the compiled engine did not verify (program now hashes to ${ENGINE_ID:-nothing}, built as $_built_id); not caching it" >&2
+    exit 1
+  fi
   mv -f "$BIN.tmp.$$" "$BIN"
 else
   echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2

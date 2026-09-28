@@ -1,0 +1,16 @@
+{
+  "name": "tiny-store",
+  "private": false,
+  "main": "./dist/cjs/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/esm/index.mjs",
+      "require": "./dist/cjs/index.js"
+    },
+    "./vanilla": "./dist/esm/vanilla.mjs",
+    "./internal/*": null,
+    "./plugins/*": "./dist/esm/plugins/*.mjs"
+  }
+}

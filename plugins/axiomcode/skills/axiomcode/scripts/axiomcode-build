@@ -11,6 +11,8 @@
 # A repository in several languages gets one graph per language. The main language's is the one it always had,
 # .axiomcode/out/graph.sqlite; every other language's is .axiomcode/lang/<lang>/out/graph.sqlite, and the query verbs
 # (the `axiomcode` dispatcher) ask each of them. Each graph is one language: no call is followed from one to another.
+# Each is published as soon as its own language is solved, the main one first, so a query never waits for another
+# language's compile; until the last one is in, .axiomcode/out/building names the languages still to come.
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
@@ -98,15 +100,24 @@ else
 fi
 unset AXIOMCODE_GRAPH_LANG               # a build writes every language's graph, never one chosen for a query
 OTHER_LANGS=""; [ "$LANGS" != "$LANG_ARG" ] && OTHER_LANGS="${LANGS#*,}"
+# THE ORDER THE ENGINE SOLVES IN (#1555): the main language first, then the rest by file count, most first. Each graph is
+# published the moment its language is solved, so this is the order they become queryable in. LANGS keeps its own order:
+# it is part of the stamp and the file table, and a new order there would rebuild every mixed repository once.
+SOLVE="$LANG_ARG"
+if [ -n "$OTHER_LANGS" ]; then
+  files_of(){ case "$1" in (java) echo "$ja";; (typescript) echo "$ts";; (python) echo "$py";; (javascript) echo "$js";; (csharp) echo "$cs";; (*) echo 0;; esac; }
+  for l in $(for o in ${OTHER_LANGS//,/ }; do echo "$(files_of "$o") $o"; done | sort -s -k1,1nr | cut -d' ' -f2); do SOLVE="$SOLVE,$l"; done
+fi
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
 # ONE BUILD AT A TIME PER REPOSITORY. The background refresher (ax_fresh.py) and an explicit `axiomcode index` both
 # write $OUT/$LANG_ARG; two at once clobber each other's graph. The lock is on fd 9, which this shell holds for its
 # whole life, so the OS drops it when the build ends however it ends: no stale lock to time out.
 exec 9>"$REPO/.axiomcode/build.lock"
 if ! python3 "$H/ax_fresh.py" lock 9 --try; then
-  [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO (the background refresh); waiting for it …"
+  [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO; waiting for it …"
   python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
 fi
+BUILD_T0=$SECONDS                        # how long a build takes to a usable graph: a query decides from it whether to wait (#1595)
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
 STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANGS-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
@@ -248,6 +259,9 @@ fi
 # build succeeds every verb keeps answering from it. A graph built for another language is not in the
 # way and is left where it is — which is also what $OUT/graph.sqlite still points at.
 PREV="$OUT/.previous-$LANG_ARG"
+# A FIRST BUILD has no graph for any query to wait for; a rebuild (a refresh, an upgrade that adds a language) has the
+# previous one, and a query waits a bounded while for its successor as it always did. $PENDING says which it is.
+MODE=refresh; [ -e "$OUT/graph.sqlite" ] || MODE=first
 rm -rf "$PREV"
 # graph.sqlite NEVER DANGLES (#1305). With a refresher running after every edit, queries arrive mid-build all the time.
 # Moving the directory first and re-pointing after left a moment with no graph.sqlite at all, and a verb that finds
@@ -286,27 +300,11 @@ restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LA
   [ -f "$OUT/.live.sqlite" ] && [ "$(real "$OUT/graph.sqlite")" != "$(real "$OUT/.live.sqlite")" ] && rm -f "$OUT/.live.sqlite"; return 0; }
 LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
 ENGINE_RC=0
-"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANGS" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || ENGINE_RC=$?
-# one language failing does not cost the others their graphs (the engine solves each on its own): only the MAIN
-# language's failure fails the build. Another language's is named below, never dropped in silence.
-if [ "$ENGINE_RC" != 0 ] && { [ -z "$OTHER_LANGS" ] || [ ! -f "$OUT/$LANG_ARG/graph.sqlite" ]; }; then
-  restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1
-fi
-# the new database: a FILE under $OUT/$LANG_ARG. Matched as `*/$LANG_ARG/*` it was any path with the language's name
-# in it, the repository's own included: a repository at .../python/app matched the graph.sqlite SYMLINK, the link was
-# pointed at itself, the previous graph deleted, and every verb after it reported no graph.
-DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; NOT_OTHER=(); for l in ${OTHER_LANGS//,/ }; do NOT_OTHER+=(-not -path "$OUT/$l/*"); done   # never another language's graph
-[ -n "$DB" ] || DB="$(find "$OUT" -type f -name graph.sqlite -not -path "$PREV/*" ${NOT_OTHER[@]+"${NOT_OTHER[@]}"} | head -1)"
-[ -n "$DB" ] || { restore; echo "build produced no graph.sqlite — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; exit 1; }
-# A QUERY NEVER READS A HALF-BUILT GRAPH. The new database gets its symbols, refs and views BEFORE graph.sqlite points
-# at it; until the pointer moves, every verb (and the hooks) keeps answering from the previous graph. Only then is the
-# old one removed: a reader that opened it keeps the file it opened.
-AXIOMCODE_INDEX_DB="$DB" python3 "$H/axiomcode-index" "$REPO" || { restore; echo "indexing the new graph failed — the graph that was there is untouched"; exit 1; }
+REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
 # WHEN AND WHY THIS GRAPH WAS BUILT, in the graph itself (index_meta): refreshed_at (UTC), refresh_reason (`axiomcode
 # index`, or what the background refresher saw: files changed, HEAD moved, found by an edit, a query or the timer), and
 # the tree and commit it describes. Written before the swap: a write to the live graph later would change its mtime,
 # which keys the impact-facts cache, and cost the next query a re-export.
-REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
 stamp_meta(){ python3 - "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
 import sqlite3, sys
 db, at, reason, tree, commit = sys.argv[1:6]
@@ -316,51 +314,131 @@ with sqlite3.connect(db) as c:
                   ('refreshed_tree', tree), ('refreshed_commit', commit)])
 PY
 }
-stamp_meta "$DB"
-# EVERY OTHER LANGUAGE'S GRAPH, indexed where the engine wrote it and only then moved into place, as the main one is.
-# One that did not build is NAMED: its previous graph, if any, keeps answering, and this build says it is behind.
-READY=(); FAILED=()
-for l in ${OTHER_LANGS//,/ }; do
-  LDB="$OUT/$l/graph.sqlite"
-  if [ -f "$LDB" ] && AXIOMCODE_INDEX_DB="$LDB" python3 "$H/axiomcode-index" "$REPO"; then stamp_meta "$LDB"; READY+=("$l"); else FAILED+=("$l"); fi
-done
-echo "$STAMP" > "$OUT/stamp"
-# the engine that built this graph: the next build, the background refresh above all, starts its search there (see the top)
-printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine.new" && mv -f "$REPO/.axiomcode/engine.new" "$REPO/.axiomcode/engine" || true
-if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
-set_base "$INDEXED_TREE"
-point "$DB" || { restore; exit 1; }; rm -f "$OUT/.live.sqlite"
-if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
-keep_base_graph
-for l in ${READY[@]+"${READY[@]}"}; do
-  mkdir -p "$LANGDIR/$l/out"; swap "$OUT/$l/graph.sqlite" "$LANGDIR/$l/out/graph.sqlite" || true   # a rename: atomic
-  rmdir "$OUT/$l" 2>/dev/null || true
-done
-# a language the repository no longer has (or that --lang left out) must not keep answering from an old graph
-for d in "$LANGDIR"/*/; do
-  [ -d "$d" ] || continue; l="$(basename "$d")"
-  case ",$OTHER_LANGS," in *",$l,"*) ;; *) rm -rf "$d" "$REPO/.axiomcode/base/lang/$l";; esac
-done
-commit_base
-rm -rf "$PREV"
-python3 - "$OUT/graph.sqlite" <<'PY'
+tiers(){ python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$1"; }
+# EACH LANGUAGE'S GRAPH IS PUBLISHED WHEN ITS OWN LANGUAGE IS SOLVED (#1555). The engine solves one language after
+# another, and nearly all of each is that language's Souffle compile. Published only when the whole run ended, the main
+# language's graph sat finished while three JavaScript files compiled: on a C# web application with a small ClientApp,
+# written at 131 s and queryable at 5,304 s, and every query in between waited on the build lock. So the engine runs in
+# the background and names each language as it finishes it ($PROGRESS, `all --progress`); the main one is indexed and
+# pointed at right then, every other one moved into .axiomcode/lang as it comes. $PENDING lists the languages still
+# being solved: ax_fresh.py reads it while this build holds the lock, so a query neither waits for them nor reads the
+# graph as stale, and says which languages its answer cannot see yet.
+# $PENDING is written when the main graph is published, not before: until then the graph a query reads is the previous
+# one, and a rebuild in progress must keep saying so.
+PROGRESS="$OUT/.progress"; PENDING="$OUT/building"; rm -f "$PROGRESS" "$PENDING"; : > "$PROGRESS"
+unpend(){ grep -v "^$1 " "$PENDING" > "$PENDING.new" 2>/dev/null || true; mv -f "$PENDING.new" "$PENDING"; }
+# the engine gets its own process group (set -m), so a build that is stopped stops all of it -- the Souffle compile
+# included -- rather than leaving it running under the build lock it inherited
+EPID=""
+stop_engine(){ if [ -n "$EPID" ] && kill -0 "$EPID" 2>/dev/null; then kill -TERM -- "-$EPID" 2>/dev/null || kill -TERM "$EPID" 2>/dev/null || true; fi; rm -f "$PROGRESS" "$PENDING" "$PENDING.new"; }
+trap stop_engine EXIT
+trap 'exit 130' INT; trap 'exit 143' TERM HUP
+# an engine older than this script has no --progress and refuses an option it does not know: it gets none, and its
+# graphs are published together when it ends, as they always were
+PROG=(); grep -q -- '--progress' "$ENGINE/bin/axiomcode" 2>/dev/null && PROG=(--progress "$PROGRESS")
+set -m
+"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$SOLVE" ${PROG[@]+"${PROG[@]}"} ${LIB[@]+"${LIB[@]}"} < /dev/null > "$REPO/.axiomcode/build.log" 2>&1 &
+EPID=$!
+set +m
+MAIN_DONE=""; QUEUED=(); READY=(); FAILED=(); DONE=" "; SEEN=0
+# THE MAIN LANGUAGE'S GRAPH BECOMES THE GRAPH. Everything a finished build did for it happens here, as soon as it is
+# solved: index, stamp, file table, baseline, pointer.
+publish_main(){
+  # the new database: a FILE under $OUT/$LANG_ARG. Matched as `*/$LANG_ARG/*` it was any path with the language's name
+  # in it, the repository's own included: a repository at .../python/app matched the graph.sqlite SYMLINK, the link was
+  # pointed at itself, the previous graph deleted, and every verb after it reported no graph.
+  DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; NOT_OTHER=(); for l in ${OTHER_LANGS//,/ }; do NOT_OTHER+=(-not -path "$OUT/$l/*"); done   # never another language's graph
+  [ -n "$DB" ] || DB="$(find "$OUT" -type f -name graph.sqlite -not -path "$PREV/*" ${NOT_OTHER[@]+"${NOT_OTHER[@]}"} | head -1)"
+  [ -n "$DB" ] || { restore; echo "build produced no graph.sqlite — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; exit 1; }
+  # A QUERY NEVER READS A HALF-BUILT GRAPH. The new database gets its symbols, refs and views BEFORE graph.sqlite points
+  # at it; until the pointer moves, every verb (and the hooks) keeps answering from the previous graph. Only then is the
+  # old one removed: a reader that opened it keeps the file it opened.
+  AXIOMCODE_INDEX_DB="$DB" python3 "$H/axiomcode-index" "$REPO" || { restore; echo "indexing the new graph failed — the graph that was there is untouched"; exit 1; }
+  stamp_meta "$DB"
+  echo "$STAMP" > "$OUT/stamp"
+  # the engine that built this graph: the next build, the background refresh above all, starts its search there (see the top)
+  printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine.new" && mv -f "$REPO/.axiomcode/engine.new" "$REPO/.axiomcode/engine" || true
+  if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
+  set_base "$INDEXED_TREE"
+  if [ -n "$OTHER_LANGS" ]; then S="${SOLVE#*,}"; for l in ${S//,/ }; do echo "$l $MODE"; done > "$PENDING"; fi   # before the pointer: the first query may follow at once
+  point "$DB" || { restore; exit 1; }; rm -f "$OUT/.live.sqlite"
+  if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
+  # the graph now matches the files: record how long that took, and whether it included compiling the engine's rules (a
+  # one-time cost a refresh does not pay, so such a duration predicts nothing). With other languages still to come this
+  # is the time to the MAIN graph, which is what a query waits for.
+  printf '%s %s\n' "$((SECONDS - BUILD_T0))" "$(grep -q 'compiling souffle program' "$REPO/.axiomcode/build.log" 2>/dev/null && echo 1 || echo 0)" > "$OUT/build-seconds" 2>/dev/null || true
+  keep_base_graph
+  # a language the repository no longer has (or that --lang left out) must not keep answering from an old graph
+  for d in "$LANGDIR"/*/; do
+    [ -d "$d" ] || continue; l="$(basename "$d")"
+    case ",$OTHER_LANGS," in *",$l,"*) ;; *) rm -rf "$d" "$REPO/.axiomcode/base/lang/$l";; esac
+  done
+  commit_base
+  rm -rf "$PREV"
+  MAIN_DONE=1
+  python3 - "$OUT/graph.sqlite" <<'PY'
 import sqlite3, sys
 rows = sqlite3.connect(sys.argv[1]).execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC").fetchall()
 w = max([len('tier')] + [len(t) for t, _ in rows])
 print(f"{'tier':<{w}}  edges")
 for t, n in rows: print(f"{t:<{w}}  {n}")
 PY
-python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
-# query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
-python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
-# a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
-# left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
-[ -n "$BASE_SAVED" ] && AXIOMCODE_GRAPH="$REPO/.axiomcode/base" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
-for l in ${READY[@]+"${READY[@]}"}; do
-  echo "$l: $(python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$LANGDIR/$l/out/graph.sqlite")"
-  AXIOMCODE_GRAPH="$LANGDIR/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
-  [ -n "$BASE_SAVED" ] && [ -f "$REPO/.axiomcode/base/lang/$l/out/graph.sqlite" ] && { AXIOMCODE_GRAPH="$REPO/.axiomcode/base/lang/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true; }
+  python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
+  # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
+  python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
+  # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
+  # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
+  [ -n "$BASE_SAVED" ] && AXIOMCODE_GRAPH="$REPO/.axiomcode/base" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
+  [ -z "$OTHER_LANGS" ] || [ ! -s "$PENDING" ] || echo "$LANG_ARG graph ready at $OUT/graph.sqlite; still building: $(cut -d' ' -f1 "$PENDING" | paste -sd, - | sed 's/,/, /g')"
+}
+# EVERY OTHER LANGUAGE'S GRAPH, indexed where the engine wrote it and only then moved into place, as the main one is.
+# One that did not build is NAMED: its previous graph, if any, keeps answering, and this build says it is behind.
+publish_other(){
+  local l="$1" LDB="$OUT/$1/graph.sqlite"
+  if [ "$2" = ok ] && [ -f "$LDB" ] && AXIOMCODE_INDEX_DB="$LDB" python3 "$H/axiomcode-index" "$REPO"; then
+    stamp_meta "$LDB"
+    mkdir -p "$LANGDIR/$l/out"; swap "$LDB" "$LANGDIR/$l/out/graph.sqlite" || true   # a rename: atomic
+    rmdir "$OUT/$l" 2>/dev/null || true
+    READY+=("$l")
+    echo "$l: $(tiers "$LANGDIR/$l/out/graph.sqlite")"
+    AXIOMCODE_GRAPH="$LANGDIR/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
+    [ -n "$BASE_SAVED" ] && [ -f "$REPO/.axiomcode/base/lang/$l/out/graph.sqlite" ] && { AXIOMCODE_GRAPH="$REPO/.axiomcode/base/lang/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true; }
+  else FAILED+=("$l"); fi
+  DONE="$DONE$l "; unpend "$l"; return 0
+}
+# one language failing does not cost the others their graphs (the engine solves each on its own): only the MAIN
+# language's failure fails the build, and it stops the rest, whose graphs would be dropped with it.
+main_failed(){ restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
+take(){   # one line of $PROGRESS: <lang> ok|failed [<graph>]
+  local l="${1%% *}" st; st="${1#* }"; st="${st%% *}"
+  if [ "$l" = "$LANG_ARG" ]; then
+    [ "$st" = ok ] || main_failed
+    publish_main
+    local q; for q in ${QUEUED[@]+"${QUEUED[@]}"}; do publish_other "${q%% *}" "${q#* }"; done; QUEUED=()
+  elif [ -n "$MAIN_DONE" ]; then publish_other "$l" "$st"
+  else QUEUED+=("$l $st"); fi      # solved before the main one (it never is, but the main graph is published first)
+}
+drain(){ local n; n="$(wc -l < "$PROGRESS" | tr -d ' ')"; while [ "$SEEN" -lt "$n" ]; do SEEN=$((SEEN + 1)); take "$(sed -n "${SEEN}p" "$PROGRESS")"; done; }
+# `running` is sampled BEFORE the drain: a line written just before the engine exited is still read
+while :; do
+  running=1; kill -0 "$EPID" 2>/dev/null || running=0
+  drain
+  [ "$running" = 1 ] || break
+  sleep 1
 done
+ENGINE_RC=0; wait "$EPID" || ENGINE_RC=$?; EPID=""
+drain
+if [ -z "$MAIN_DONE" ]; then
+  # an engine that named nothing (one without --progress, or a run that failed before solving): as before, a failure
+  # fails the build unless it was another language's and the main graph is there
+  [ "$ENGINE_RC" = 0 ] || { [ -n "$OTHER_LANGS" ] && [ -f "$OUT/$LANG_ARG/graph.sqlite" ]; } || main_failed
+  take "$LANG_ARG ok"
+fi
+# a language the engine never named (the parser found no project of it) did not build, and is named below
+for l in ${OTHER_LANGS//,/ }; do
+  case "$DONE" in *" $l "*) ;; *) publish_other "$l" ok;; esac
+done
+rm -f "$PROGRESS" "$PENDING"
 if [ ${#FAILED[@]} -gt 0 ]; then
   for l in "${FAILED[@]}"; do
     if [ -f "$LANGDIR/$l/out/graph.sqlite" ]; then echo "⚠️  the $l graph did not build: $l questions are answered from its PREVIOUS graph, which predates this tree; see $REPO/.axiomcode/build.log"

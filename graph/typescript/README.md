@@ -138,11 +138,13 @@ Stated because a graph you cannot trust the boundaries of is not useful.
 
 * **A JSX member tag is only as good as its receiver.** `<Badge/>` is a
   `JSX_COMPONENT_CALL` resolved by tag name, including through the component wrappers
-  (`memo`, `forwardRef`, `observer`, a `withX` HOC) and a `lazy` / `dynamic` loader;
+  (`memo`, `forwardRef`, `observer`, a `withX` HOC), wrappers nested in one another
+  (`memo(forwardRef(Inner))`), a wrapper call that is the module's default export
+  (`export default memo(Inner)` rendered through a default import), and a `lazy` /
+  `dynamic` loader, whose `.then` callback may be a concise arrow;
   `<ui.Card/>` is a `METHOD_CALL` and resolves only where `ui.Card(...)` would. `<div>`
   produces no site. A tag bound by a destructured prop (`({ icon: Icon }) => <Icon/>`)
-  is the prop, not a same-named import, and stays unresolved; so does a loader whose
-  `.then` projects a named export through a concise arrow body.
+  is the prop, not a same-named import, and stays unresolved.
 * **Generic inference through a callback** — `map<U>(f: (t: T) => U): U[]` — is not
   substituted. `U` is bound by the argument's return type, which is inference rather
   than substitution, and guessing it would fabricate. Those sites stay unresolved and
