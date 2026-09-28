@@ -99,6 +99,11 @@ class MCPServer:
             return fn
         return deco
 
+    def refuse(self, name, arguments):
+        """A subclass's own reason to refuse a call before the schema check, or None (server.py names the parameter
+        a CLI flag's name was meant as, #1567)."""
+        return None
+
     # ── the protocol ────────────────────────────────────────────────────────────────────────────────
     def _handle(self, msg):
         m, mid = msg.get("method"), msg.get("id")
@@ -116,7 +121,8 @@ class MCPServer:
             # a tool that raises must come back as an MCP tool error, not a transport error: the client
             # can show the agent the former and can only drop the connection on the latter
             args = p.get("arguments") or {}
-            bad = _invalid(t["spec"], t["nullable"], args) if isinstance(args, dict) else "arguments: expected object"
+            bad = ((self.refuse(p.get("name"), args) or _invalid(t["spec"], t["nullable"], args))
+                   if isinstance(args, dict) else "arguments: expected object")
             if bad:
                 return {"content": [{"type": "text", "text": bad}], "isError": True}
             try:
