@@ -1,7 +1,7 @@
 78-logical-default-callback [fields]
-  precision 1.0000   (6 correct, 0 wrong)
-  recall    1.0000   (6 of 6 the compiler resolved)
-  sites 6   resolved 6 (100.0%)
-  tiers known_edge=6
-  access read=6
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    1.0000   (7 of 7 the compiler resolved)
+  sites 7   resolved 7 (100.0%)
+  tiers known_edge=7
+  access read=7
   not scored: 0 rows whose target is not a client declaration

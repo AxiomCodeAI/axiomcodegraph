@@ -52,3 +52,17 @@ export function guarded(enabled: boolean, options: Options): void {
   const handler = enabled && options.onError
   if (handler) handler('guarded')
 }
+
+// CONTROL: BOTH operands carry a call signature — a property holding a function, defaulted to the
+// object that carries it, which is itself callable. The compiler resolves the call to the LEFT
+// operand's signature; the right one must not become a second candidate.
+export type Reporter = (code: number) => void
+export interface Callable {
+  (code: number): void
+  report?: Reporter
+}
+
+export function reportWith(sink: Callable): void {
+  const report = sink.report || sink
+  report(7)
+}

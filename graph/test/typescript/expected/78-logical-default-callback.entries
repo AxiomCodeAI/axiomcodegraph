@@ -1,7 +1,8 @@
-── entry_point (8) ──
+── entry_point (9) ──
   exported_from_entry_module options#defaultOnError   options.ts:14
   exported_from_entry_module options#guarded   options.ts:51
   exported_from_entry_module options#plain   options.ts:37
+  exported_from_entry_module options#reportWith   options.ts:65
   exported_from_entry_module options#tagList   options.ts:44
   exported_from_entry_module options#withLet   options.ts:31
   exported_from_entry_module options#withNullish   options.ts:25
