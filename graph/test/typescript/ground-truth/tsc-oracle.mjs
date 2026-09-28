@@ -356,7 +356,12 @@ for (const sf of program.getSourceFiles()) {
       // So the loss was a convention disagreement, not a missing site, and it is fixed
       // on this side because the parser's choice is the more useful one: the identifier
       // is what a reader looks for, and `@` is not part of the callee.
-      const posNode = ts.isDecorator(node) ? node.expression : node;
+      // `@(guarded)` is positioned at `guarded`, as the parser does: the parentheses
+      // are punctuation, not the callee.
+      let posNode = ts.isDecorator(node) ? node.expression : node;
+      while (ts.isDecorator(node) && ts.isParenthesizedExpression(posNode)) {
+        posNode = posNode.expression;
+      }
       const [line, col] = pos(sf, posNode.getStart(sf));
       // The END position is part of the key, not decoration. A chained call
       // `a.b().c()` and its inner `a.b()` START at the same character, so

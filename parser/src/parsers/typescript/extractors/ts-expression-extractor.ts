@@ -178,7 +178,7 @@ export class TsExpressionExtractor {
     this.emitted.push({ node: item.node, row });
     if (kind === TsExpressionKind.CALL_EXPRESSION || kind === TsExpressionKind.NEW_EXPRESSION
       || kind === TsExpressionKind.TAGGED_TEMPLATE || kind === TsExpressionKind.JSX_ELEMENT
-      || kind === TsExpressionKind.JSX_SELF_CLOSING) {
+      || kind === TsExpressionKind.JSX_SELF_CLOSING || isBareDecorator(item.node)) {
       this.callNodes.push({ node: item.node, owner: item.owner });
     }
 
@@ -856,6 +856,11 @@ function operatorOf(node: ts.Node, sourceFile: ts.SourceFile): string {
 
 /** The callee of a call-shaped node, parentheses unwrapped. */
 export function calleeOf(node: ts.Node): ts.Node | undefined {
+  // `@guarded` has no call node around it: the name IS the callee, and the
+  // runtime supplies the arguments.
+  if (isBareDecorator(node)) {
+    return node;
+  }
   if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
     return unwrapParentheses(node.expression);
   }
@@ -951,6 +956,22 @@ function isDecoratorCall(node: ts.Node): boolean {
     current = current.parent;
   }
   return current !== undefined && ts.isDecorator(current);
+}
+
+/**
+ * Whether this node is a decorator applied WITHOUT a call: `@guarded`,
+ * `@guards.disposed`, `@registry["x"]`.
+ *
+ * The runtime invokes the named function with (target, key, descriptor), so the
+ * application is a call exactly as `@timed()` is, and the compiler resolves it.
+ * Without a call site of its own it was absent from the IR, which on a codebase
+ * that decorates most public methods is most of what goes missing (#233). The
+ * factory form is excluded: its CallExpression is already the call site, and
+ * the name inside it is that call's callee, not a second call.
+ */
+export function isBareDecorator(node: ts.Node): boolean {
+  return (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)
+    || ts.isElementAccessExpression(node)) && isDecoratorCall(node);
 }
 
 function callKindOf(node: ts.Node, callee: ts.Node | undefined): TsCallKind {

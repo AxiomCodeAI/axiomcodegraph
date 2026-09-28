@@ -812,6 +812,7 @@ function tscAdjudicatedResolution(): number {
   const corpora = extractedCorpora();
   const failures: string[] = [];
   let expectedCalls = 0, emittedCalls = 0, projectTargets = 0, agreed = 0, unfilled = 0;
+  let bareDecorators = 0;
   const byReceiver = new Map<string, { total: number; filled: number }>();
 
   for (const c of index.corpora) {
@@ -866,8 +867,13 @@ function tscAdjudicatedResolution(): number {
       }
     }
     for (const [where, leftover] of emitted) {
-      if (leftover.length > 0) {
-        failures.push(`${c.slug}: parser emits ${leftover.length} extra call site(s) at ${where}`);
+      // A BARE DECORATOR is a call the compiler resolves (#233), but this oracle
+      // enumerates call EXPRESSIONS and `@guarded` is only a name, so it has no row
+      // to match. Counted, not failed: case 32 scores them against the compiler.
+      const extra = leftover.filter((r) => r.callKind !== 'DECORATOR_CALL');
+      bareDecorators += leftover.length - extra.length;
+      if (extra.length > 0) {
+        failures.push(`${c.slug}: parser emits ${extra.length} extra call site(s) at ${where}`);
       }
     }
   }
@@ -878,7 +884,7 @@ function tscAdjudicatedResolution(): number {
     .join('  ');
   console.log(`  ${emittedCalls} call site(s) emitted for ${expectedCalls} tsc sees; ` +
     `${projectTargets} project targets: ${agreed} agree, ${unfilled} left to the engine, ` +
-    `${failures.length} disagree`);
+    `${failures.length} disagree; ${bareDecorators} bare decorator(s) this oracle does not enumerate`);
   // PROVENANCE, not a score. The unfilled column is where the ENGINE resolves,
   // which is the design; see `IR completeness` for the number that matters.
   console.log(`  provenance — same-file links by receiver shape: ${shapes}`);
@@ -1134,11 +1140,17 @@ function factBaseInvariants(): number {
       }
     }
 
-    // 8. One call site per CALL / NEW / TAGGED_TEMPLATE expression, exactly.
-    const callShaped = (all.get('all-typescript-expressions.csv') ?? [])
+    // 8. One call site per CALL / NEW / TAGGED_TEMPLATE expression, exactly, and
+    //    one per bare decorator (`@guarded`), whose site is the name itself (#233).
+    const expressions = all.get('all-typescript-expressions.csv') ?? [];
+    const callSiteRows = all.get('all-typescript-call-sites.csv') ?? [];
+    const kindOfExpression = new Map(expressions.map((r) => [r.tsExpressionUniqueHash ?? '', r.kind]));
+    const bareDecorators = callSiteRows.filter((r) => r.callKind === 'DECORATOR_CALL'
+      && kindOfExpression.get(r.tsExpressionLinkHash ?? '') !== 'CALL_EXPRESSION').length;
+    const callShaped = expressions
       .filter((r) => r.kind === 'CALL_EXPRESSION' || r.kind === 'NEW_EXPRESSION'
-        || r.kind === 'TAGGED_TEMPLATE').length;
-    const callSites = (all.get('all-typescript-call-sites.csv') ?? []).length;
+        || r.kind === 'TAGGED_TEMPLATE').length + bareDecorators;
+    const callSites = callSiteRows.length;
     if (callShaped !== callSites) {
       failures.push(`${slug}: ${callShaped} call-shaped expression(s) but ${callSites} ` +
         'ts_call_site row(s) — the 1:1 chain is broken');
@@ -2801,6 +2813,74 @@ async function decoratorDescendedOnce(): Promise<number> {
     console.log(`  ${methods.length} method row(s), ${seen.size} distinct key(s); `
       + `${arrows.length} decorator-argument arrow(s) at ${positions.size} distinct position(s)`);
     for (const f of failures.slice(0, 4)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
+/**
+ * A bare decorator is a call site (#233).
+ *
+ * `@guarded` is invoked by the runtime exactly as `@timed()` is, and the compiler
+ * resolves both, but only the factory form had a `ts_call_site`: the bare one was
+ * absent from the IR. Each bare application is one DECORATOR_CALL positioned at its
+ * name, where the compiler positions it. THE CONTROLS: the factory form stays ONE
+ * site (its callee is not a second call), and the same name outside a decorator is
+ * no call at all.
+ */
+async function bareDecoratorIsACallSite(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('a bare decorator is a call site',
+      'no extractor yet. `@guarded` is a call the runtime makes');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-baredec-', {
+    'a.ts': [
+      'export function guarded(_t: unknown, _k: string, d: PropertyDescriptor) { return d; }',  // 1
+      'export function timed(): MethodDecorator { return (_t, _k, d) => d; }',                 // 2
+      'export class Guards {',                                                                 // 3
+      '  static disposed(_t: unknown, _k: string, d: PropertyDescriptor) { return d; }',       // 4
+      '}',                                                                                     // 5
+      'export class Svc {',                                                                    // 6
+      '  @guarded a() {}',                                                                     // 7
+      '  @timed() b() {}',                                                                     // 8
+      '  @Guards.disposed c() {}',                                                             // 9
+      '  @(guarded) d() {}',                                                                   // 10
+      '}',                                                                                     // 11
+      'export const alias = guarded;',                                                         // 12
+    ].join('\n'),
+  }, { experimentalDecorators: true });
+  try {
+    const sites = relation(outputDir, 'all-typescript-call-sites.csv');
+    const failures: string[] = [];
+    const expected: [string, string, string][] = [
+      ['7', '4', 'guarded'], ['8', '4', 'timed'], ['9', '4', 'disposed'], ['10', '5', 'guarded'],
+    ];
+    for (const [line, column, name] of expected) {
+      const at = sites.filter((r) => r['startLine'] === line);
+      if (at.length !== 1) {
+        failures.push(`${at.length} call site(s) on line ${line}, expected 1`);
+        continue;
+      }
+      const row = at[0]!;
+      if (row['callKind'] !== 'DECORATOR_CALL' || row['calleeName'] !== name
+        || row['startColumn'] !== column) {
+        failures.push(`line ${line}: ${row['callKind']} ${row['calleeName']} @col `
+          + `${row['startColumn']}, expected DECORATOR_CALL ${name} @col ${column}`);
+      }
+    }
+    // A local, single-signature decorator is resolved by the parser like any call.
+    const bare = sites.find((r) => r['startLine'] === '7');
+    if (bare && (bare['resolvedSignatureLinkHash'] ?? '') === '') {
+      failures.push('`@guarded` names a local function and was left unresolved');
+    }
+    const alias = sites.filter((r) => r['startLine'] === '12');
+    if (alias.length !== 0) {
+      failures.push(`${alias.length} call site(s) for \`alias = guarded\`, a reference, not a call`);
+    }
+    console.log(`  ${sites.length} call site(s); `
+      + `${sites.filter((r) => r['callKind'] === 'DECORATOR_CALL').length} DECORATOR_CALL`);
+    for (const f of failures.slice(0, 6)) { console.log(`  ${f}`); }
     return failures.length ? 1 : 0;
   } finally {
     cleanup();
@@ -4661,6 +4741,7 @@ const CHECKS: Check[] = [
   { name: 'column order is append-only', proves: 'a column is never inserted mid-table, because Souffle binds by position and misbinds silently', run: columnOrderIsAppendOnly },
   { name: 'governing tsconfig is per file', proves: 'a file reachable from two programs mints ONE ts_module row, so no key carries contradictory moduleResolutionMode', run: governingConfigIsPerFile },
   { name: 'a decorator is descended once', proves: 'a callable inside a decorator argument is one ts_method, not two colliding on one key as a false overload set', run: decoratorDescendedOnce },
+  { name: 'a bare decorator is a call site', proves: '`@guarded` is one DECORATOR_CALL at its name, as `@timed()` is, while the factory stays one site and a plain reference none', run: bareDecoratorIsACallSite },
   { name: 'declaration extensions are whole extensions', proves: '`.d.cts` and `.d.mts` are single extensions, so no stem keeps a stray `.d`', run: declarationExtensionsAreWholeExtensions },
   { name: 'an annotation can declare a signature set', proves: 'a type literal holding several call signatures is resolved as the set it is, and arity picks the arm tsc picks', run: annotationCanDeclareASignatureSet },
   { name: 'an uncheckable annotation leaves the call unresolved', proves: 'a call through a variable whose annotation needs the checker names neither the initialiser nor a single candidate', run: uncheckableAnnotationLeavesCallUnresolved },

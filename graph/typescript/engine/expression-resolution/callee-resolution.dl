@@ -39,6 +39,18 @@
 call_callee_expr(cs, ce, ne) :- call_site("client", _, _, _, _, ce, cs),
     expr_child("client", ce, "METHOD_NAME", _, ne).
 
+// ── A BARE DECORATOR IS ITS OWN CALLEE ──────────────────────────────────────
+// `@guarded` has no CALL_EXPRESSION around it: the runtime invokes the named function
+// with (target, key, descriptor), so the parser's call site points at the NAME itself,
+// and that name is also the callee position. `@timed()` keeps its ordinary shape — the
+// call is the site and `timed` its METHOD_NAME child. On a codebase that decorates most
+// public methods this was most of the compiler's sites missing from the graph (#233).
+bare_decorator_call(ce) :- call_site("client", "DECORATOR_CALL", _, _, _, ce, _),
+    expr_kind("client", k, _, ce),
+    k != "CALL_EXPRESSION".
+call_callee_expr(cs, ce, ce) :- call_site("client", "DECORATOR_CALL", _, _, _, ce, cs),
+    bare_decorator_call(ce).
+
 // A receiver type must be searchable, so every type a receiver actually takes is
 // seeded into the member-lookup scope. Bounded to types used as receivers, exactly
 // as Java bounds `lookup_type`; without it a static-qualifier receiver reached only
