@@ -250,9 +250,24 @@ class G:
         m = re.match(r'^(.+?):(\d+)(?::\d+)?$', s)
         if m and ('/' in m.group(1) or '.' in m.group(1)):                            # file:line → the method containing it
             (f, outside), ln = self.repo_file(m.group(1)), int(m.group(2))
+            # A PARTIAL PATH NAMES ONE FILE OR IS REFUSED (#1599). `order.service.js:2` with the file under both src/ and
+            # lib/ took the smallest span across BOTH files, so the answer was for whichever function at that line was
+            # shorter, labelled with what was typed. The path is settled first: the file written in full, else the one
+            # file it is a suffix of; two or more are listed, each with what spans the line there.
+            files = sorted({x['file'] for x in self.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
+                            if x['file'] == f or (x['file'] or '').endswith('/' + f)})
+            if f in files: files = [f]
+            if len(files) > 1:
+                rows = []
+                for fx in files[:12]:
+                    at = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY end_line - line LIMIT 1", fx, ln, ln)
+                    rows.append(f"  {fx}:{ln}   " + (self.disp(at[0]['id']) if at else '(top-level code)'))
+                if len(files) > 12: rows.append(f"  … +{len(files) - 12} more")
+                die(f"'{m.group(1)}' matches {len(files)} indexed files — give enough of the path to name one:\n" + '\n'.join(rows))
+            if files: f = files[0]
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
-            r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, f"%/{f}", ln, ln)
+            r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
             if r:
                 ids = [x['id'] for x in r if x['span'] == r[0]['span']]
                 # AN ANNOTATION IS NOT THE FUNCTION. `export const f: (a: A) => B = (a) => …` puts a one-line call
@@ -263,7 +278,7 @@ class G:
                     start = {self.sym[i].get('line') for i in ids if i in self.sym}
                     ids += [x['id'] for x in r if x['id'] not in ids and self.sym.get(x['id'], {}).get('line') in start and self.method_kind(x['id']) not in BODILESS_KINDS]
                 return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
-            r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f, f"%/{f}")
+            r = self.q("SELECT id FROM symbols WHERE file = ? AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f)
             if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
             if outside: die(f"{m.group(1)} is outside the indexed repository {self.repo}: give the file relative to that root, or ask the graph of the repository it belongs to")
             die(f"no callable spans {s}")
