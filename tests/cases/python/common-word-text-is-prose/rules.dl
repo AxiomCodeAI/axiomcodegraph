@@ -1,0 +1,2 @@
+// note: every note is a rule
+.decl note(x:symbol)

@@ -4,7 +4,7 @@
   · a caller count of 0 says why where the graph knows: `entry (http)`, `0 resolved, N by name`, `? framework (@X)`;
     a method with no signal still reads `0` (the control);
   · the Grep preview names production callers before tests (#1507), and a name declared several times lists the base
-    first with its override count, two different files never print as the same line, and the rest are counted (#1546);
+    first with its override count, two different files never print as the same line, two overloads in one file print once, and the rest are counted (#1546);
   · a grep run through the shell over another command's output or over files no graph indexes adds nothing, and a
     constant-shaped word is not looked up as a callable (#1604);
   · an edit that changes no declaration adds nothing, a body-only edit adds one line of reaching tests and the command
@@ -50,6 +50,9 @@ SRC = {
                       '    public void pokeAll() { new Plain().countAll(); }\n}\n'),
     P + 'Plain.java': ('package app.orders;\n\npublic class Plain {\n    public String countAll() { return "1"; }\n'
                        '    public int unusedCount() { return Integer.parseInt(countAll()); }\n}\n'),
+    # two overloads in one file: one name to the reader, printed once
+    P + 'Pricer.java': ('package app.orders;\n\npublic class Pricer {\n    public int quoteAll(int n) { return n; }\n\n'
+                        '    public int quoteAll(String s) { return quoteAll(s.length()); }\n}\n'),
 }
 # two test stubs in modules whose paths sort before core/, with the same file name and line
 for m in ('json', 'xml'):
@@ -126,6 +129,9 @@ with tempfile.TemporaryDirectory() as repo:
     check('the production override comes before test stubs', len(rows) > 1 and 'JsonConverterFactory.widgetConverter' in rows[1], g)
     check('the declarations not shown are counted', '(+2 more declaration(s))' in g, g)
     check('two printed lines are never the same', len(rows) == len(set(rows)), g)
+    g = grep(repo, 'quoteAll')
+    rows = [l for l in g.splitlines() if l.startswith('  ') and 'Pricer.quoteAll' in l]
+    check('two overloads in one file print as one line that says so', len(rows) == 1 and '(2 overloads)' in rows[0], g)
     sys.path.insert(0, HOOKS); import _graphline
     two = _graphline.distinct_paths(['adapter-json/src/test/java/app/json/Stub.java', 'adapter-xml/src/test/java/app/xml/Stub.java'])
     check('two same-named files in different modules print with the path that tells them apart', two == ['json/Stub.java', 'xml/Stub.java'], two)

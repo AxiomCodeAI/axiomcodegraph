@@ -168,16 +168,57 @@ DIRECT_WHY = {
     'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
     'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
 }
-# …and where the TIER says something more specific than its certainty. An event is not handed over as a
-# value: the caller publishes or emits it, and the event system runs every handler whose event it is.
+# …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
+# value (a JavaScript callback's wording): the dependent sends it, and a framework runs the handler for what is sent.
 TIER_WHY = {
-    'event_dispatch': 'publishes an event this handles: the event system runs it, no call site names it',
+    'event_dispatch': 'sends the request or event this handles — a framework runs it for what is sent here, no call site names it',
 }
 
 
 def direct_why(tier):
     """what a DIRECT dependent row says for an edge of this tier."""
     return TIER_WHY.get(tier) or DIRECT_WHY.get(direct_cert(tier), 'calls it')
+
+
+# ── entry points: what the reason token means, said in words ───────────────────────────────────────────────
+# `entry_points.reason` is an engine token (`orm_hook`, `bean_ctor`, `framework_hook`). Printed raw inside a fixed
+# sentence it read "is a orm_hook entry point … Changing it changes what the outside world can call" for a model
+# configuration callback the ORM runs at startup, which no outside caller ever reaches. Two kinds, one table:
+#   OUTSIDE  a request, a process start, a remote client, a command line or a message reaches it: changing it
+#            changes what the outside world can call, and the sentence says so (unchanged).
+#   CALLBACK the framework calls it back (a hook, a lifecycle method, a constructor it runs, a factory, a fixture, a
+#            provider): a change breaks that framework contract, not an outside caller.
+# Every surface that words an entry point (impact's entry line and `next:`, path) reads this table. A token it has not
+# seen is worded "framework-called (<token>)", never printed bare, and is a callback: the weaker claim.
+ENTRY = {
+    'http': ('an HTTP route handler', 'outside'), 'url': ('a URL route handler', 'outside'),
+    'main': ('a program entry point', 'outside'), 'grpc_service': ('a gRPC service method', 'outside'),
+    'hub': ('a real-time hub method', 'outside'), 'cli': ('a command-line command', 'outside'),
+    'queue': ('a message consumer', 'outside'), 'task': ('a background task a queue runs', 'outside'),
+    'web_filter': ('a web request filter', 'outside'),
+    'package_export': ('an export of the package', 'outside'),
+    'exported_from_entry_module': ('an export of the entry module', 'outside'),
+    'unimported_module': ('a module run directly, which nothing imports', 'outside'),
+    'framework_hook': ('a framework hook', 'callback'), 'orm_hook': ('a model hook the ORM or validation library runs', 'callback'),
+    'lifecycle': ('a lifecycle callback', 'callback'), 'bean_ctor': ('a constructor the container runs to build a bean', 'callback'),
+    'factory': ('a factory method the container calls', 'callback'), 'fixture': ('a test fixture', 'callback'),
+    'service_loader': ('a provider a service loader instantiates', 'callback'),
+    'spring_factories': ('an auto-configuration class the container loads', 'callback'),
+    'di_provider': ('a dependency-injection provider', 'callback'), 'signal_receiver': ('a signal receiver', 'callback'),
+    'web_listener': ('a web container listener', 'callback'), 'scheduled': ('a scheduled job', 'callback'),
+    'event_listener': ('an event listener', 'callback'),
+    'test': ('a test', 'test'),
+}
+
+
+def entry_phrase(reason):
+    """'an ORM model hook' for `orm_hook`; an unknown token is 'a framework-called (<token>) method'"""
+    return ENTRY[reason][0] if reason in ENTRY else f"a framework-called ({reason}) method"
+
+
+def entry_outside(reason):
+    """does the outside world (a request, a process start, a client, a message) call an entry point of this reason?"""
+    return ENTRY.get(reason, ('', 'callback'))[1] == 'outside'
 
 # certainties that are backed by an edge the ENGINE asserted, as opposed to a name or a text match.
 # Consumers that used to test `cert == 'resolved'` to mean "this row claims an edge" test this

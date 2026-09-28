@@ -571,7 +571,9 @@ def text_bindings(g, sids, under=(), want_ext=()):
     except Exception: return []
     ns_of = {}
     out, seen = [], set()
+    prose = getattr(nonsource(g), 'prose', set())     # a common word written as a word is not a binding (ax_nonsource.py)
     for nm, f, line in hits:
+        if (nm, f, line) in prose: continue
         if under and not any(f.startswith(d.rstrip('/') + '/') for d in under): continue
         if f.endswith('.xml'):
             if f not in ns_of:

@@ -387,6 +387,11 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
                 if e: rel_[r['id']] = (e['how'], ctx_names.get(e['who'], '?'))
             rows = sorted(rows, key=lambda r: r['id'] not in rel_)                   # stable: the order above within each group
         if plain and not rel_ and not unres: return n, [], []
+        # OVERLOADS IN ONE FILE ARE ONE NAME TO THE READER: `ISender.Send` declared twice in one interface printed as the
+        # same line twice. Each (display, file) is one line, saying how many declarations it stands for.
+        grp = {}
+        for r in rows: grp.setdefault((r['display'], r['file']), []).append(r)
+        rows = [v[0] for v in grp.values()]; n_ol = {v[0]['id']: len(v) for v in grp.values()}
         total = len(rows); rows = rows[:2]
         out = []
         paths = _graphline.distinct_paths([r['file'] or '' for r in rows])
@@ -404,7 +409,8 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
                        + (f"; {nt} in tests" if nt and 2 < len(up) < 40 and nt < len(up) else '') + ")") if up \
                       else _graphline.zero_label(c, r['method_id'], r['display'].rsplit('.', 1)[-1], r['is_test'])
             out.append(f"  {r['display']}  {path}:{r['line']}  ← {callers}  → {dn}" + (f"  ? {un}" if un else '')
-                       + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '') + tag)
+                       + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '')
+                       + (f"  ({n_ol[r['id']]} overloads)" if n_ol.get(r['id'], 1) > 1 else '') + tag)
         if total > len(rows) and out: out[-1] += f"  (+{total - len(rows)} more declaration(s){'' if total < 40 else ' or more'})"
         if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out
