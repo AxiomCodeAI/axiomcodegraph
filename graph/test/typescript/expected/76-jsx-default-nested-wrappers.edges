@@ -1,0 +1,28 @@
+ambient_terminal	FUNCTION_CALL	app#<module-init>() @L10 -> parts#memo(Fc)
+ambient_terminal	FUNCTION_CALL	app#<module-init>() @L6 -> parts#lazy(() ={ default: Fc })
+ambient_terminal	FUNCTION_CALL	app#<module-init>() @L8 -> parts#lazy(() ={ default: Fc })
+ambient_terminal	FUNCTION_CALL	defmemo#<module-init>() @L4 -> parts#memo(Fc)
+ambient_terminal	FUNCTION_CALL	parts#<module-init>() @L39 -> parts#forwardRef((props: P, ref: unknown) =)
+ambient_terminal	FUNCTION_CALL	parts#<module-init>() @L39 -> parts#memo(Fc)
+ambiguous_unknown	FUNCTION_CALL	app#makeName(number) @L26 -> -
+ambiguous_unknown	FUNCTION_CALL	objparts#ObjNamed() @L5 -> -
+ambiguous_unknown	FUNCTION_CALL	parts#<arrow@21>() @L21 -> -
+ambiguous_unknown	FUNCTION_CALL	parts#DefaultMemoInner() @L31 -> -
+ambiguous_unknown	FUNCTION_CALL	parts#MemoFwdInner({},unknown) @L40 -> -
+ambiguous_unknown	JSX_COMPONENT_CALL	app#App() @L19 -> -
+ambiguous_unknown	METHOD_CALL	app#<arrow@6>() @L6 -> -
+ambiguous_unknown	METHOD_CALL	app#makeName(number) @L26 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@6>() @L6 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@8>() @L8 -> -
+known_edge	FUNCTION_CALL	app#<module-init>() @L10 -> parts#pickOther(Fc)
+known_edge	FUNCTION_CALL	app#useName() @L28 -> app#makeName(number)
+known_edge	FUNCTION_CALL	defpicked#<module-init>() @L4 -> parts#pickOther(Fc)
+known_edge	FUNCTION_CALL	objparts#ObjNamed() @L5 -> objparts#leafC()
+known_edge	FUNCTION_CALL	parts#DefaultMemoInner() @L31 -> parts#leafA()
+known_edge	FUNCTION_CALL	parts#MemoFwdInner({},unknown) @L40 -> parts#leafB()
+known_edge	JSX_COMPONENT_CALL	app#App() @L15 -> parts#DefaultMemoInner()
+known_edge	JSX_COMPONENT_CALL	app#App() @L17 -> objparts#ObjNamed()
+known_edge	JSX_COMPONENT_CALL	app#App() @L18 -> objparts#ObjDefault()
+known_edge	JSX_COMPONENT_CALL	app#App() @L20 -> parts#<arrow@14>(T)
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L16 -> parts#<arrow@14>(T)
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L16 -> parts#MemoFwdInner({},unknown)

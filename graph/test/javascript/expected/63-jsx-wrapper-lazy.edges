@@ -1,0 +1,40 @@
+app.jsx:10:18 FUNCTION_CALL observer  ->  ambiguous_unknown  -
+app.jsx:10:18 FUNCTION_CALL observer  ->  callback_registered  parts.jsx:5:1 ObservedInner
+app.jsx:11:16 METHOD_CALL React.memo  ->  ambiguous_unknown  -
+app.jsx:11:16 METHOD_CALL React.memo  ->  callback_registered  app.jsx:11:27 DottedInner
+app.jsx:13:19 FUNCTION_CALL lazy  ->  ambiguous_unknown  -
+app.jsx:13:19 FUNCTION_CALL lazy  ->  callback_registered  app.jsx:13:24 <arrow>
+app.jsx:13:30 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+app.jsx:13:30 METHOD_CALL import("./heavy").then  ->  ambiguous_unknown  -
+app.jsx:13:30 METHOD_CALL import("./heavy").then  ->  callback_registered  app.jsx:13:53 <arrow>
+app.jsx:14:21 FUNCTION_CALL lazy  ->  ambiguous_unknown  -
+app.jsx:14:21 FUNCTION_CALL lazy  ->  callback_registered  app.jsx:14:26 <arrow>
+app.jsx:14:32 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+app.jsx:14:32 METHOD_CALL import("./heavy").then  ->  ambiguous_unknown  -
+app.jsx:14:32 METHOD_CALL import("./heavy").then  ->  callback_registered  app.jsx:14:55 <arrow>
+app.jsx:15:21 FUNCTION_CALL lazy  ->  ambiguous_unknown  -
+app.jsx:15:21 FUNCTION_CALL lazy  ->  callback_registered  app.jsx:15:26 <arrow>
+app.jsx:15:32 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+app.jsx:19:15 FUNCTION_CALL makeThing  ->  ambiguous_unknown  -
+app.jsx:19:15 FUNCTION_CALL makeThing  ->  callback_registered  app.jsx:19:25 <arrow>
+app.jsx:19:31 FUNCTION_CALL thingBody  ->  known_edge  app.jsx:18:1 thingBody
+app.jsx:24:7 JSX_ELEMENT <Card />  ->  known_edge  parts.jsx:3:1 PlainInner
+app.jsx:25:7 JSX_ELEMENT <DefMemo />  ->  known_edge  parts.jsx:4:1 DefaultMemoInner
+app.jsx:26:7 JSX_ELEMENT <MemoFwd />  ->  known_edge  parts.jsx:6:40 MemoFwdInner
+app.jsx:27:7 JSX_ELEMENT <Forwarded />  ->  known_edge  parts.jsx:6:40 MemoFwdInner
+app.jsx:28:7 JSX_ELEMENT <Observed />  ->  known_edge  parts.jsx:5:1 ObservedInner
+app.jsx:29:7 JSX_ELEMENT <Dotted />  ->  known_edge  app.jsx:11:27 DottedInner
+app.jsx:30:7 JSX_ELEMENT <LazyBlock />  ->  known_edge  heavy.jsx:1:1 ObjNamed
+app.jsx:31:7 JSX_ELEMENT <LazyConcise />  ->  known_edge  heavy.jsx:1:1 ObjNamed
+app.jsx:32:7 JSX_ELEMENT <LazyDefault />  ->  known_edge  heavy.jsx:2:1 HeavyDefault
+app.jsx:33:7 JSX_ELEMENT <Thing />  ->  ambiguous_unknown  -
+app.jsx:41:3 FUNCTION_CALL PlainInner  ->  known_edge  parts.jsx:3:1 PlainInner
+app.jsx:42:3 FUNCTION_CALL Card  ->  ambiguous_unknown  -
+app.jsx:43:10 JSX_ELEMENT <Plain />  ->  known_edge  parts.jsx:7:1 Plain
+app.jsx:9:14 FUNCTION_CALL memo  ->  ambiguous_unknown  -
+app.jsx:9:14 FUNCTION_CALL memo  ->  callback_registered  parts.jsx:3:1 PlainInner
+defmemo.jsx:4:16 FUNCTION_CALL memo  ->  ambiguous_unknown  -
+defmemo.jsx:4:16 FUNCTION_CALL memo  ->  callback_registered  parts.jsx:4:1 DefaultMemoInner
+parts.jsx:6:24 FUNCTION_CALL memo  ->  ambiguous_unknown  -
+parts.jsx:6:29 FUNCTION_CALL forwardRef  ->  ambiguous_unknown  -
+parts.jsx:6:29 FUNCTION_CALL forwardRef  ->  callback_registered  parts.jsx:6:40 MemoFwdInner

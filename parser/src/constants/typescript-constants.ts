@@ -119,6 +119,7 @@ export const TYPESCRIPT_CSV_FILES = {
   FIELD_POSITIONS: 'all-typescript-field-positions.csv',
   COMMENTS: 'all-typescript-comments.csv',
   PARSE_GAPS: 'all-typescript-parse-gaps.csv',
+  PACKAGE_ENTRIES: 'all-typescript-package-entries.csv',
   SKIPPED_FILES: 'skipped-typescript-files.csv',
 } as const;
 

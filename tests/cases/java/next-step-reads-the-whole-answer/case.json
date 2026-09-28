@@ -1,0 +1,283 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a type named in spring.factories is not safe to delete, and next: names that file instead of calling the change local",
+   "run": [
+    "impact",
+    "GreeterInitializer",
+    "--delete"
+   ],
+   "want": [
+    "NOT SAFE",
+    "outside the source name it",
+    "then resources/META-INF/spring.factories:3"
+   ],
+   "avoid": [
+    "the change is local",
+    "· nothing"
+   ]
+  },
+  {
+   "why": "control: a type named in full nowhere keeps the local answer, and a bare mention of its name (in this case.json) stays a lead",
+   "run": [
+    "impact",
+    "Orphan",
+    "--delete"
+   ],
+   "want": [
+    "the change is local",
+    "NOT SAFE TO ASSUME"
+   ],
+   "avoid": [
+    "outside the source name it"
+   ]
+  },
+  {
+   "why": "a class whose supertype the graph does not contain is called by that library through its @Override, so next: does not call it local",
+   "run": [
+    "impact",
+    "FooServlet"
+   ],
+   "want": [
+    "outside the graph: FooServlet extends / implements HttpServlet",
+    "HttpServlet calls it from outside the graph"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "the overriding method itself: the library calls it, said as a fact",
+   "run": [
+    "impact",
+    "FooServlet.doGet"
+   ],
+   "want": [
+    "outside the graph: FooServlet extends / implements HttpServlet",
+    "HttpServlet calls it from outside the graph"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a public method of that class with no @Override may or may not override the library's: said as the condition, not as local and not as a fact",
+   "run": [
+    "impact",
+    "FooServlet.helper"
+   ],
+   "want": [
+    "if it overrides one of its methods"
+   ],
+   "avoid": [
+    "the change is local",
+    "HttpServlet calls it from outside the graph"
+   ]
+  },
+  {
+   "why": "control: a private method of the same class is never entered through the supertype, so it is still local and gets no outside-the-graph note",
+   "run": [
+    "impact",
+    "FooServlet.inner"
+   ],
+   "want": [
+    "the change is local"
+   ],
+   "avoid": [
+    "outside the graph:"
+   ]
+  },
+  {
+   "why": "control: a method of a plain class with no caller is still local",
+   "run": [
+    "impact",
+    "src/com/example/Orphan.java:2",
+    "--kind",
+    "method"
+   ],
+   "want": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a configuration key defined in a properties file is named in next:, beside the binding",
+   "run": [
+    "impact",
+    "greet.prefix"
+   ],
+   "want": [
+    "then resources/application.properties:1"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a method reached only through the generic abstract base it overrides (the base's own body calls the abstract method) names that caller in next:, the caller the reach above printed, instead of calling the change local",
+   "run": [
+    "impact",
+    "RowExtractor.add"
+   ],
+   "want": [
+    "how each is reached",
+    "Extractor.extractData",
+    "place(s) bound to it: src/com/example/Extractor.java:14"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a library interface's method that only a test calls is still called by that library: the test does not switch the outside-the-graph note off",
+   "run": [
+    "impact",
+    "NameFormatter.parse"
+   ],
+   "want": [
+    "outside the graph: NameFormatter extends / implements Formatter",
+    "what reaches it above is not all that does",
+    "nothing but tests and leads reaches it in this graph, but it is not local — Formatter calls it from outside the graph"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a plain method that only a test calls is not called local: next: names the tests that reach it, and there is no outside-the-graph note",
+   "run": [
+    "impact",
+    "Doubler.twice"
+   ],
+   "want": [
+    "no production code depends on it, but 1 test(s) reach it"
+   ],
+   "avoid": [
+    "outside the graph:",
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a publisher and a listener joined only through a library call are not called independent, and the call is named",
+   "run": [
+    "path",
+    "OrderService.place",
+    "Audit.on"
+   ],
+   "expect_error": true,
+   "want": [
+    "ApplicationEventPublisher.publishEvent",
+    "Audit.on (queue entry point)",
+    "NOT shown to be independent",
+    "the library calls named above"
+   ],
+   "avoid": [
+    "the two are independent in this graph",
+    "unresolved sites named above"
+   ]
+  },
+  {
+   "why": "the same pair asked the other way round gets the same answer",
+   "run": [
+    "path",
+    "Audit.on",
+    "OrderService.place"
+   ],
+   "expect_error": true,
+   "want": [
+    "NOT shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: a start that calls nothing is still independent of the listener, and next: does not point at unresolved sites that were never printed",
+   "run": [
+    "path",
+    "Lonely.alone",
+    "Audit.on"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph",
+    "nothing in this graph connects them"
+   ],
+   "avoid": [
+    "NOT shown",
+    "unresolved sites named above"
+   ]
+  },
+  {
+   "why": "control: a resolved chain is printed as before",
+   "run": [
+    "path",
+    "OrderService.direct",
+    "Helper.run"
+   ],
+   "want": [
+    "the chain is verified"
+   ],
+   "avoid": [
+    "NOT shown"
+   ]
+  },
+  {
+   "why": "an entry point the answer says the outside world calls is not local (#1467)",
+   "run": [
+    "impact",
+    "WidgetController.count"
+   ],
+   "want": [
+    "is a http entry point",
+    "it is not local",
+    "http entry point, so its callers are outside the graph"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: a method of a plain class nothing calls, next to it, keeps the local answer",
+   "run": [
+    "impact",
+    "Widgets.spare"
+   ],
+   "want": [
+    "the change is local"
+   ],
+   "avoid": [
+    "entry point"
+   ]
+  },
+  {
+   "why": "a gRPC handler whose client is a [remote] row names that client as a place to read, not as a by-name lead (#1468)",
+   "run": [
+    "impact",
+    "WidgetHandler.placeWidget"
+   ],
+   "want": [
+    "[remote] WidgetClient.placeBlocking",
+    "WidgetClient.java:5"
+   ],
+   "avoid": [
+    "the change is local",
+    "[by name]/[text] row(s) are leads"
+   ]
+  },
+  {
+   "why": "control: a method with one resolved caller names that caller",
+   "run": [
+    "impact",
+    "WidgetStore.save"
+   ],
+   "want": [
+    "then only these 1 place(s) bound to it: src/com/example/WidgetHandler.java:6"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  }
+ ]
+}

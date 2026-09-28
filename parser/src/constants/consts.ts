@@ -6,7 +6,9 @@ import * as path from 'path';
 export const HASH_ALGO = 'md5';
 
 /**
- * Directories to exclude when scanning projects or source files
+ * Directories to exclude when scanning projects or source files.
+ * The Java source walk does not skip `build` by this name: only a Gradle project's output
+ * (utils/generated-output.ts isGradleBuildOutput), since `build` is also a Java package.
  */
 export const EXCLUDED_DIRS = new Set([
   'node_modules',

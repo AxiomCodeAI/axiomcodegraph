@@ -114,7 +114,26 @@ which while who why will with would you your about after all also am any because
 during each few further here him his more most no nor now off other own s same t too very
 bug issue fix fixed fixes broken break breaks error fails failing failure problem regression expected
 actual reproduce reproduction repro steps version
+code codebase call calls called calling caller callers callee callees test tests
 """.split())
+# The last line is the words a question uses to talk ABOUT code rather than about its subject: "who calls X in the
+# library code (not tests)" named `code`, `tests` and `call`, and each took one of six entry points (GetHashCode,
+# Retry.Tests, Retry.Call) away from the declaration the question spelled out (#1455).
+
+
+def stem(w):
+    """A crude English stem, enough to meet a declared name halfway: validated, validator, validation and validate
+    are all `valid`; orders and ordered are `order`. One suffix at most, and never below four letters, so a short
+    word is never cut into a different one (`order` stays `order`, not `ord`)."""
+    w = (w or '').lower()
+    for suf in ('ations', 'ation', 'ators', 'ator', 'ated', 'ates', 'ate', 'ings', 'ing', 'ions', 'ion', 'ers', 'ors',
+                'ed', 'es', 'er', 'or', 's', 'e'):
+        if w.endswith(suf) and len(w) - len(suf) >= 4:
+            w = w[:-len(suf)]; break
+    # a doubled final consonant is one: cancelled -> cancel, stopped -> stop (and install -> instal on both sides)
+    if len(w) >= 5 and w[-1] == w[-2] and w[-1] not in 'aeiou':
+        w = w[:-1]
+    return w
 
 
 
@@ -199,13 +218,20 @@ def winnow(g, terms, name_df=None, strong=None):
         for sid, sym in g.sym.items():
             for t in set(subtokens(sym.get('name') or '') + subtokens(sym.get('display') or '')):
                 name_df[t] += 1
-    keep = [t for t in terms if name_df.get(t, 0) > 0]
+    # A term is kept when the graph declares it, or declares a word with its stem: the prose says "validated" where
+    # the code says `Validate` and `CreateWidgetCommandValidator`, and dropping the word here meant the validator was
+    # never scored at all (#1493). score_symbols already credits the inflected form; it just never got to see it.
+    stems = {}
+    for x in name_df:
+        if len(x) >= 4: stems.setdefault(stem(x), 0); stems[stem(x)] += name_df[x]
+    df_of = lambda t: name_df.get(t, 0) or (stems.get(stem(t), 0) if len(t) >= 5 else 0)
+    keep = [t for t in terms if df_of(t) > 0]
     # the report's own code words first, still ordered by how much they discriminate, then prose fills the
     # rest of the budget. Only terms the graph actually knows are eligible either way -- a code word the
     # graph has never heard of still cannot match anything.
     marked = set(strong or ())
-    code = sorted([t for t in keep if t in marked], key=lambda t: name_df.get(t, 0))
-    prose = sorted([t for t in keep if t not in marked], key=lambda t: name_df.get(t, 0))
+    code = sorted([t for t in keep if t in marked], key=df_of)
+    prose = sorted([t for t in keep if t not in marked], key=df_of)
     chosen = set((code + prose)[:MAX_TERMS])
     # order is the caller's contract elsewhere (seeds are picked per term in task order), so restore it
     return [t for t in terms if t in chosen] or terms[:MAX_TERMS]
@@ -391,9 +417,9 @@ def ensure_graph(repo, db):
         # a build is running: never a silent wait. Under the MCP server answer at once with the stage it is at; from a
         # shell wait for it, printing the stage as it moves; either way, use the graph the moment it exists
         if auto and not os.environ.get('AXIOMCODE_BUILD_NOWAIT'):
-            print(f"a graph build is already running for {repo}; waiting for it …", file=sys.stderr)
-            _follow(rr, lambda: ax_fresh.building(rr))
-        if os.path.exists(db): return True
+            print(f"a graph build is already running for {repo}; waiting for its first graph …", file=sys.stderr)
+            _follow(rr, lambda: ax_fresh.building(rr) and not os.path.exists(db))
+        if os.path.exists(db): return _published(rr)
         if auto and os.environ.get('AXIOMCODE_BUILD_NOWAIT'):
             _BUILD_NOTE.append(building_note(rr)); return False
     if not auto or os.environ.get('AXIOMCODE_GRAPH'): return False
@@ -411,9 +437,9 @@ def ensure_graph(repo, db):
     nowait = bool(os.environ.get('AXIOMCODE_BUILD_NOWAIT'))
     if ax_fresh.building(repo):
         if nowait: _BUILD_NOTE.append(building_note(repo)); return False
-        print(f"a graph build is already running for {repo}; waiting for it …", file=sys.stderr)
-        _follow(repo, lambda: ax_fresh.building(repo))
-        return os.path.exists(db)
+        print(f"a graph build is already running for {repo}; waiting for its first graph …", file=sys.stderr)
+        _follow(repo, lambda: ax_fresh.building(repo) and not os.path.exists(db))
+        return os.path.exists(db) and _published(repo)
     env = None
     if ax_fresh.has_graph(rr):
         # a graph WAS built here and its pointer is broken: a repair, which keeps the baseline `changed` and test-impact
@@ -432,12 +458,41 @@ def ensure_graph(repo, db):
         up = time.time() + 10
         while p.poll() is None and not ax_fresh.building(repo) and time.time() < up: time.sleep(0.05)
         end = time.time() + float(os.environ.get('AXIOMCODE_BUILD_WAIT') or 60)
-        while p.poll() is None and time.time() < end: time.sleep(0.5)
-        if p.poll() is None: _BUILD_NOTE.append(building_note(repo)); return False
+        while p.poll() is None and not os.path.exists(db) and time.time() < end: time.sleep(0.5)
+        if p.poll() is None: return _published(repo) if os.path.exists(db) else (_BUILD_NOTE.append(building_note(repo)) or False)
         return p.returncode == 0 and os.path.exists(db)
-    p = subprocess.Popen([bash, build, repo], env=env)
-    _follow(repo, lambda: p.poll() is None)
+    # THE ANSWER WAITS FOR ITS GRAPH, NOT FOR THE WHOLE BUILD (#1555). The build publishes the main language's graph as
+    # soon as that language is solved and goes on solving the others under its lock, so the wait ends when graph.sqlite
+    # appears. The build writes to a log, copied here to stderr as it comes, not to this process's pipes: a caller that
+    # captures them (an agent's shell tool) reads until they close, and a build still solving other languages would hold
+    # them open to its end.
+    os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
+    logp = os.path.join(repo, '.axiomcode', 'first-build.log')
+    with open(logp, 'w') as log:
+        p = subprocess.Popen([bash, build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env)
+    shown = [0]
+    def relay():
+        try:
+            with open(logp, 'rb') as f: f.seek(shown[0]); b = f.read()
+        except OSError: return
+        shown[0] += len(b); sys.stderr.write(b.decode('utf-8', 'replace')); sys.stderr.flush()
+    _follow(repo, lambda: relay() or (p.poll() is None and not os.path.exists(db)))
+    relay()
+    if p.poll() is None: return os.path.exists(db) and _published(repo)
     return p.returncode == 0 and os.path.exists(db)
+
+
+def _published(repo):
+    """the main graph is out while the build goes on solving the repository's other languages: the answer is given now,
+    and names on stderr (a `graph refresh:` line, which the MCP server carries into the answer) what it cannot see yet"""
+    import ax_fresh
+    n = ''
+    for _ in range(20):                          # the build names what is still to come just before the pointer moves
+        n = ax_fresh.note(ax_fresh.status(repo))
+        if n or not ax_fresh.building(repo): break
+        time.sleep(0.1)
+    if n: print(n, file=sys.stderr)
+    return True
 
 
 _BUILD_NOTE = []

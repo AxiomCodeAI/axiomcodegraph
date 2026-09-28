@@ -39,6 +39,26 @@ its edge's certainty (`→` resolved, `⇢` one of a set) and the line that make
 step's body that the graph could not resolve, when the project declares that name, so the reader continues
 through it instead of stopping. A one-of-a-set site with many candidates is not a step.
 
+Where the flow leaves the graph it says so on that step, rather than ending silently: `⚠ leaves the graph: Send() L11`
+for a library call that hands the work on (send, publish, dispatch, persist, execute, a client stub's `…Async`), and
+`⚠ no body in the graph (interface/abstract)` for a step with no code to follow, naming the mapper XML statement bound
+to it when there is one. Read from there by hand; a leaf whose library calls hand nothing on is not marked.
+
+## What the question names
+
+Entry points start with what the question NAMES: a declaration it spells out (`IRouter.RouteAsync`, `loadByNumber`)
+and a route it quotes (`GET /api/widgets`, at the handler registered for it). Then the symbols matching several of
+its terms together, then each term left over. Words about code rather than about the subject (`code`, `tests`,
+`call`) take no seed, and an inflected word (`validated`) meets the declaration (`Validate`, `…Validator`).
+
+A file, directory or language the question names that no graph here holds is said FIRST, as
+`not indexed: <path> (<why>) -- this answer cannot see it; grep it directly`, and `next:` points at it. In a
+repository with a graph per language, a question naming one language is answered by that graph alone.
+
+A question about SQL, configuration or templates lists the text files that name the declarations found (a MyBatis
+mapper XML whose namespace is the declaring type ranks first), marked as text bindings, not call paths. `--in` on
+a directory that holds no source (`src/main/resources`) is accepted: it says so and lists what under it binds.
+
 With `--source`, the earliest steps carry their code within a budget and the later ones are named only, so the
 answer comes back on one page. Answer from that code, and open a file only for a step whose body was cut or at a
 `⚠`. A question that does not ask how something works gets the ranked answer above, unchanged.

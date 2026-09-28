@@ -140,6 +140,12 @@ DOCS = {
    "// Measured ZERO rows over 25.9 MB with ts.createSourceFile — which is exactly why it must\n"
    "// exist: an always-empty relation that suddenly has rows is a signal, a missing relation is\n"
    "// a silence.",
+ "ts_package_entry":
+   "What a package PUBLISHES: one row per package.json entry (main, module, exports, types,\n"
+   "// source), with c5 the walked SOURCE module the target compiles from. Same eleven columns as\n"
+   "// js_package_entry. The target is usually build output the parser never walks, so c6 says\n"
+   "// whether the module was the target itself (RESOLVED) or found by the source convention\n"
+   "// (RESOLVED_FROM_BUILD_OUTPUT); every other outcome carries no module hash.",
  "ts_type_satisfies":
    "Structural satisfaction. DECLARED BUT NEVER STAGED BY THE PARSER: satisfaction needs\n"
    "// isTypeAssignableTo, the parser has no checker, and a parser-emitted row would be a guess\n"
@@ -157,7 +163,7 @@ SPINE = ["ts_module", "ts_type", "ts_method", "ts_method_parameter", "ts_field",
 #: lib_ts_* relations declared for symmetry and intentionally NOT staged: library IR
 #: is declarations, not bodies. 1,113 declaration files measured, zero function bodies.
 NOT_STAGED = ["lib_ts_expression", "lib_ts_call_site", "lib_ts_block",
-              "lib_ts_variable", "lib_ts_parse_gap"]
+              "lib_ts_variable", "lib_ts_parse_gap", "lib_ts_package_entry"]
 
 #: Relations the PARSER never writes, in either provenance.
 ENGINE_ONLY = ["ts_type_satisfies"]

@@ -12,6 +12,7 @@ export * from '@/enums/typescript/method-parameters';
 export * from '@/enums/typescript/methods';
 export * from '@/enums/typescript/parse-gaps';
 export * from '@/enums/typescript/modules';
+export * from '@/enums/typescript/packages';
 export * from '@/enums/typescript/type-parameters';
 export * from '@/enums/typescript/type-references';
 export * from '@/enums/typescript/types';

@@ -517,15 +517,22 @@ class G:
 
     def library_calls(self, ids, cap=10):
         """the library / platform methods these methods call — the ends of the client graph, listed, never traversed"""
-        if not ids: return []
-        q = ','.join('?' * len(ids)); t = ','.join('?' * len(self.TERMINAL_TIERS))
-        rows = self.q(f"""SELECT COALESCE(m.qualified_name, e.callee_label, s.callee_name) AS lib, count(*) n,
-                                 (m.qualified_name IS NULL AND e.callee_label IS NULL) AS from_site
-                         FROM call_edges e LEFT JOIN methods m ON m.id = e.callee_method_id
-                                           LEFT JOIN call_sites s ON s.id = e.call_site_id
-                         WHERE e.caller_id IN ({q}) AND e.tier IN ({t})
-                           AND COALESCE(m.qualified_name, e.callee_label, s.callee_name) IS NOT NULL
-                         GROUP BY lib ORDER BY n DESC""", *ids, *self.TERMINAL_TIERS)
+        ids = list(ids)
+        if not ids: return [], []
+        t = ','.join('?' * len(self.TERMINAL_TIERS))
+        # in slices: a closure handed in whole can hold more ids than SQLite takes as parameters
+        tot = collections.Counter()
+        for i in range(0, len(ids), 900):
+            part = ids[i:i + 900]; q = ','.join('?' * len(part))
+            for r in self.q(f"""SELECT COALESCE(m.qualified_name, e.callee_label, s.callee_name) AS lib, count(*) n,
+                                       (m.qualified_name IS NULL AND e.callee_label IS NULL) AS from_site
+                               FROM call_edges e LEFT JOIN methods m ON m.id = e.callee_method_id
+                                                 LEFT JOIN call_sites s ON s.id = e.call_site_id
+                               WHERE e.caller_id IN ({q}) AND e.tier IN ({t})
+                                 AND COALESCE(m.qualified_name, e.callee_label, s.callee_name) IS NOT NULL
+                               GROUP BY lib""", *part, *self.TERMINAL_TIERS):
+                tot[(r['lib'], r['from_site'])] += r['n']
+        rows = [{'lib': l, 'from_site': f, 'n': n} for (l, f), n in sorted(tot.items(), key=lambda x: (-x[1], x[0][0]))]
         # TWO LISTS, because they are two different facts and only one of them is "a library".
         # A named callee IS the dependency: the engine resolved the call to a declaration outside the
         # client and stopped there on purpose. A site-named one is only the word written at the call —
@@ -544,8 +551,13 @@ class G:
         return os.path.relpath(raw, self.repo).replace(os.sep, '/') if os.path.isabs(raw) and raw.startswith(self.repo) else raw
 
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
+    # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
+    # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
+    # is up to date and nothing rebuilds). 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the
+    # bare mtime.
+    EXPORT_VERSION = '2'
     def export(self):
-        stamp = os.path.join(self.facts, 'stamp'); want = str(self.db_mtime)
+        stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return
         os.makedirs(self.facts, exist_ok=True)
         # `generated` is a client declaration too: a Lombok accessor, a record member, a C# auto-property. The engine
@@ -555,16 +567,11 @@ class G:
         # calls into libraries: an edge to a terminal node (a library method has no out-edges here — nothing is inferred about its
         # body), so `path '*' java.nio.file.Files.readAllBytes` can ask who reaches that library call
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
-        # a callable defined inside another one's body: nobody calls it by name, but it runs only after its definer did
-        byfile = collections.defaultdict(list)
-        for r in self.sym.values():
-            if r['method_id'] and r['kind'] != 'module' and r['line'] and r['end_line']: byfile[r['file']].append((r['line'], -r['end_line'], r['id']))
-        for rows in byfile.values():
-            rows.sort(); st = []
-            for ln, neg, i in rows:
-                while st and st[-1][1] < -neg: st.pop()
-                if st and st[-1][2] != i: edges.append((st[-1][2], i, 'defines'))
-                st.append((ln, -neg, i))
+        # a callable defined inside another one's body: nobody calls it by name, but it runs only after its definer did.
+        # One builder for this and the fast path (graph_sql._edges), so the two cannot disagree on what contains what.
+        edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'])
+                                         for r in self.sym.values() if r['method_id'] and r['kind'] != 'module'),
+                                        ax_edges.sites_of(lambda s, p: self.q(s, *p)) if self.has('call_sites') else None)
         # a call resolved to a base may run any instantiated override: the engine's own dispatch table
         if self.has('dispatch_candidates'):
             disp = {(r[0], r[1]) for r in self.q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id FROM dispatch_candidates dc JOIN methods m ON m.id = dc.candidate_method_id
@@ -1052,7 +1059,128 @@ def closure(g, sel, upstream, limit=40, depth=40):
     print(f"  (chain from any one of them: path <that method> {sel}" + (")" if upstream else " — or the reverse)"))
     return 0
 
-# ── the query ────────────────────────────────────────────────────────────────────────────────────────────────────
+# entry-point reasons whose caller is a request, a runner, a timer, a process start or the container building its beans
+# at startup: nothing the client calls INTO a library lands there, so they do not make a no-chain pair "not shown to be
+# independent" (#1385). Every other reason does. The container kinds were measured, not assumed: counted as reachable,
+# a @Bean factory upstream of almost any method flipped 12 of 64 independent pairs on two real projects, every one
+# of them through a chain from a configuration class, none through a listener or a callback.
+NOT_FROM_A_LIBRARY_CALL = {'test', 'fixture', 'http', 'url', 'grpc_service', 'hub', 'cli', 'main', 'web_filter', 'web_listener',
+                           'scheduled', 'factory', 'bean_ctor', 'di_provider', 'lifecycle',
+                           'exported_from_entry_module', 'unimported_module'}
+
+def entered_in_process(g, ids):
+    """the methods among `ids` that code outside the graph enters in-process: an entry point of a kind a library call can
+    trigger, or an override of a method the graph does not contain. [(symbol id, why)], nearest to the endpoint first."""
+    mid = {g.sym[i]['method_id']: i for i in ids if i in g.sym and g.sym[i].get('method_id')}
+    out = {}
+    keys = list(mid)
+    for k in range(0, len(keys), 900):
+        part = keys[k:k + 900]; q = ','.join('?' * len(part))
+        if g.has('entry_points'):
+            for r in g.q(f"SELECT method_id, reason FROM entry_points WHERE method_id IN ({q})", *part):
+                if r['reason'] not in NOT_FROM_A_LIBRARY_CALL: out.setdefault(mid[r['method_id']], f"{r['reason']} entry point")
+        if g.has('overrides'):
+            for r in g.q(f"""SELECT o.overriding_method_id m, b.qualified_name b FROM overrides o JOIN methods b ON b.id = o.method_id
+                             WHERE o.overriding_method_id IN ({q}) AND b.provenance <> 'client'""", *part):
+                out.setdefault(mid[r['m']], f"overrides {r['b']}")
+    order = {i: n for n, i in enumerate(ids)}
+    return sorted(out.items(), key=lambda x: order.get(x[0], 0))
+
+# AN UNMODELLED ENTRY: A SIGNAL THAT SOMETHING OUTSIDE THE CODE CALLS A DECLARATION, WHICH THE ENGINE DID NOT TURN INTO AN
+# EDGE OR AN ENTRY POINT. A decoration the rules do not know (a listener, a hook, a validator, a registration), or a
+# base type the graph does not contain (a library class the declaration's owner extends, which the parser could not
+# resolve). "No caller" is then a gap in the model, not a fact about the code, and every verdict that turns "no caller"
+# into "local", "tests: 0" or "independent" was false on exactly these declarations. The rule is one rule, with no
+# framework's names in it: every decoration counts except the short list below, which change nothing about who calls
+# the declaration (a compiler check, a nullness mark, a generated accessor, a wrapper around the same call).
+INERT_DECORATIONS = {
+    # compiler checks and documentation
+    'Override', 'SuppressWarnings', 'Deprecated', 'Serial', 'FunctionalInterface', 'SafeVarargs', 'Documented',
+    'Retention', 'Target', 'Inherited', 'Obsolete', 'Serializable', 'Flags', 'Pure', 'MethodImpl', 'AttributeUsage',
+    'Generated', 'GeneratedCode', 'CompilerGenerated', 'ExcludeFromCodeCoverage', 'DebuggerStepThrough',
+    'DebuggerNonUserCode', 'DebuggerDisplay', 'DebuggerHidden', 'CallerMemberName', 'CallerFilePath', 'CallerLineNumber',
+    'override', 'overload', 'final', 'abstractmethod', 'deprecated',
+    # nullness
+    'Nullable', 'NonNull', 'Nonnull', 'NotNull', 'CheckForNull', 'NotNullWhen', 'MaybeNullWhen', 'AllowNull', 'DisallowNull',
+    # members the compiler writes, and wrappers the caller still calls by name
+    'staticmethod', 'classmethod', 'property', 'cached_property', 'hybrid_property', 'wraps', 'lru_cache', 'cache',
+    'cached', 'memoize', 'dataclass',
+    'total_ordering', 'contextmanager', 'asynccontextmanager',
+    'Getter', 'Setter', 'Data', 'Builder', 'ToString', 'EqualsAndHashCode', 'AllArgsConstructor', 'NoArgsConstructor',
+    'RequiredArgsConstructor', 'Slf4j', 'Log4j2',
+}
+BASE_CONTEXTS = ('BASE_LIST', 'BASE_CLASS', 'SUPER_TYPE', 'IMPLEMENTS_INTERFACE')
+_NOT_A_BASE = {'object', 'Object', 'string', 'String', 'int', 'bool', 'long', 'double', 'float', 'decimal', 'byte', 'char', 'short'}
+
+def _dec_name(n):
+    n = (n or '').lstrip('@').split('(')[0].split('.')[-1]
+    return n[:-len('Attribute')] if n.endswith('Attribute') and len(n) > len('Attribute') else n
+
+def _library_bases(g, tid):
+    """the base types written on type symbol `tid` that are not declared in the graph: a library ancestor the engine
+    resolved (types.provenance <> 'client'), or a written base name no client type carries (the parser could not
+    resolve it). Only the type's OWN header: a base written on a nested type belongs to the nested type."""
+    s = g.all_sym.get(tid) if hasattr(g, 'all_sym') else g.sym.get(tid)
+    if not s: return []
+    out = []
+    if s.get('type_id') and g.has('type_ancestors') and g.has('types'):
+        out += [r[0] for r in g.q("""SELECT DISTINCT x.name FROM type_ancestors a JOIN types x ON x.id = a.ancestor_type_id
+                                     WHERE a.type_id = ? AND x.provenance <> 'client' ORDER BY x.name""", s['type_id'])]
+    if s.get('file') and s.get('line') and g.has('type_refs'):
+        end = s.get('end_line') or s['line']
+        nested = [(r[0], r[1] or r[0]) for r in g.q("""SELECT line, end_line FROM symbols WHERE file = ? AND method_id IS NULL
+                     AND type_id IS NOT NULL AND line > ? AND line <= ?""", s['file'], s['line'], end)]
+        ph = ','.join('?' * len(BASE_CONTEXTS))
+        for name, line in g.q(f"SELECT name, line FROM type_refs WHERE file = ? AND line BETWEEN ? AND ? AND context IN ({ph})",
+                              s['file'], s['line'], end, *BASE_CONTEXTS):
+            if any(a <= line <= b for a, b in nested): continue
+            simple = re.split(r'[<(\[]', name or '')[0].split('.')[-1]
+            if not simple or simple in _NOT_A_BASE: continue
+            if g.has('types') and g.q("SELECT 1 FROM types WHERE name = ? AND provenance = 'client' LIMIT 1", simple): continue
+            out.append(name)
+    return list(dict.fromkeys(out))
+
+def unmodelled_entry(g, ids):
+    """[(symbol id, signal)]: for each declaration in `ids` (a method, a field or a type) that is not a test, what says
+    something outside the code may call it with no edge in this graph -- a decoration outside INERT_DECORATIONS on it
+    or on its owner type, or a base type of its owner (of itself, for a type) the graph does not contain. A private or
+    static member is never entered through its owner's decoration or base, so only its own decorations count."""
+    allsym = g.all_sym if hasattr(g, 'all_sym') else g.sym
+    decs = lambda i: [n for n in dict.fromkeys(_dec_name(r[0]) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", i))
+                      if n and n not in INERT_DECORATIONS] if g.has('decorations') else []
+    out = []
+    for i in ids:
+        s = allsym.get(i)
+        if not s or s.get('is_test'): continue
+        for n in decs(i): out.append((i, f"@{n} on {s['display']}"))
+        is_type = s.get('type_id') and not s.get('method_id')
+        if is_type:
+            for b in _library_bases(g, i): out.append((i, f"{s['display']} extends {b}, which the graph does not contain"))
+            continue
+        if s.get('method_id') and g.has('methods'):
+            row = g.q("SELECT kind, visibility FROM methods WHERE id = ?", s['method_id'])
+            if row and (any(k in (row[0][0] or '').upper() for k in ('STATIC', 'INITIALIZER')) or (row[0][1] or '').upper() == 'PRIVATE'): continue
+            # where the language records no visibility, a leading underscore is how private is written
+            if row and not row[0][1] and re.match(r'_(?!_\w*__$)', s.get('name') or ''): continue
+        own = s.get('owner')
+        if not own: continue
+        for r in g.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL", own):
+            for n in decs(r[0]): out.append((i, f"@{n} on its type {own}"))
+            if s.get('method_id') and s.get('kind') != 'constructor':
+                for b in _library_bases(g, r[0]): out.append((i, f"{own} extends {b}, which the graph does not contain"))
+    return list(dict.fromkeys(out))
+
+def grep_roots(g):
+    """the directories a by-hand check should search: the top-level directories holding the graph's declarations,
+    or '.' when there are more than three of them or a declaration sits at the root"""
+    tops = {(f.split('/', 1)[0] if '/' in f else '.') for (f,) in g.q("SELECT DISTINCT file FROM symbols WHERE file IS NOT NULL AND file <> ''")}
+    return '.' if not tops or '.' in tops or len(tops) > 3 else ' '.join(sorted(tops))
+
+def grep_for(g, name):
+    """the exact search that finds what the graph could not: the name as a whole word in the source roots"""
+    return f'grep -rnw "{name}" {grep_roots(g)}'
+
+# ── the query────────────────────────────────────────────────────────────────────────────────────────────────────
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
@@ -1138,13 +1266,75 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             sites = g.q("SELECT s.file_path f, s.start_line ln FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ? AND s.callee_name = ?", c, g.sym[m2]['name'])
             print(f"    `{g.sym[m2]['name']}` called in {g.disp(c)} at " + ', '.join(f"{g.site_file(s['f'])}:{s['ln']}" for s in sites[:4]) + f" — receiver not typed; if it is {g.disp(m2)}, the chain is real")
         return 1
-    # "independent" would contradict the cross-process hop printed above, so say the narrower true thing
-    print("  and no unresolved site would connect them by name either: "
-          + ("no CALL connects them — the hop above is the only connection" if remote_found
-             else "the two are independent in this graph"))
+    # A LIBRARY CALL IS WHERE THE GRAPH STOPS, NOT WHERE THE CODE DOES (#1385). A start that publishes an event
+    # through a framework's publisher reaches the listener at run time, and the call that does it is a resolved
+    # `boundary_lib` edge -- not an unresolved site, so the by-name search above never sees it. "Independent" was
+    # printed for it word for word as for a start that calls nothing.
+    #
+    # Two facts together withhold the word, and neither alone does. One side (or what it reaches) calls into a
+    # library; and the OTHER side (or something that reaches it) is entered by code outside the graph running in the
+    # same process -- a listener, a lifecycle or ORM hook, a factory, a task, an override of a library method. A
+    # library call can land only on such a method. A route, a test or a main is entered by a request, a runner or
+    # a process start, never by a call the client makes into a library, so a controller that calls String.substring
+    # stays independent of another controller. With the library call alone deciding, 73 of 116 sampled independent
+    # pairs on three real Spring projects stopped being independent; with both facts, 2 did. A reason not in this
+    # list counts as reachable, so a new kind of entry point errs toward "not shown", never toward a false
+    # "independent".
+    lib_side = False
+    if not remote_found:
+        radj = collections.defaultdict(set)
+        for x, ys in adj.items():
+            for y in ys: radj[y].add(x)
+        def closure_of(ids, nbr):
+            own = [i for i in ids if i in g.sym and g.sym[i]['kind'] not in ('library', 'written')]
+            seen = set(own); fr = list(own)
+            while fr:
+                fr = list(dict.fromkeys(y for x in fr for y in nbr.get(x, ())
+                                        if y not in seen and y in g.sym and g.sym[y]['kind'] not in ('library', 'written')))
+                seen.update(fr)
+            return own, sorted(seen - set(own))
+        for (xs, lx), (ys, ly) in (((A_, la), (B_, lb)), ((B_, lb), (A_, la))):
+            own, rest = closure_of(xs, adj)
+            n0, u0 = g.library_calls(own); n1, u1 = g.library_calls(rest)
+            if not (n0 or u0 or n1 or u1): continue
+            entered = entered_in_process(g, sum(closure_of(ys, radj), []))
+            if not entered: continue
+            lib_side = True
+            print_boundary(g, own, f"{lx} calls into libraries", f"{lx} makes")
+            print_boundary(g, rest, f"the {len(rest)} method(s) {lx} reaches call into libraries", "they make")
+            print(f"  {ly} is entered from outside the graph in the same process, as such a call can do: "
+                  + ', '.join(f"{g.disp(m)} ({why}) {g.loc(m)}" for m, why in entered[:3])
+                  + (f" … +{len(entered) - 3}" if len(entered) > 3 else ''))
     # …but a framework may still connect them, and the graph holds the evidence for it: the target is registered
     # under a key, and the source writes that key. That is not a chain of calls, so it is reported and not walked.
-    for line in framework_note(g, B_, set(A_)) + framework_note(g, A_, set(B_)): print(line)
+    # Computed BEFORE the verdict line, which used to say "independent" one line above the note that joined them.
+    fw = framework_note(g, B_, set(A_)) + framework_note(g, A_, set(B_))
+    keyed = any('which is the key it is registered under' in l for l in fw)
+    # AN ENDPOINT NOTHING IN THE GRAPH CALLS, CARRYING A SIGNAL THAT SOMETHING OUTSIDE THE CODE DOES (a decoration the
+    # rules do not model, a library base), is entered by a mechanism the graph does not contain, so "independent" is
+    # a claim about the model and not the code. An endpoint the engine already made an entry point is modelled, and
+    # the library-call rule above decides it.
+    unmod = []
+    if not (remote_found or keyed or lib_side):
+        called = {y for ys in adj.values() for y in ys}
+        eps = set()
+        ends = [i for i in list(B_) + list(A_) if i in g.sym and g.sym[i]['kind'] not in ('library', 'written') and i not in called]
+        mids = [g.sym[i]['method_id'] for i in ends if g.sym[i].get('method_id')]
+        if mids and g.has('entry_points'):
+            eps = {r[0] for r in g.q("SELECT method_id FROM entry_points WHERE method_id IN (%s)" % ','.join('?' * len(mids)), *mids)}
+        unmod = unmodelled_entry(g, [i for i in ends if g.sym[i].get('method_id') not in eps])
+    # "independent" would contradict the cross-process hop printed above, so say the narrower true thing
+    print("  and no unresolved site would connect them by name either"
+          + (": no CALL connects them — the hop above is the only connection" if remote_found
+             else ": no CALL connects them, but one writes the key the other is registered under (below), so a framework"
+                  " does: NOT independent" if keyed
+             else " — but a library called above can reach the other at run time (an event, a callback, a hook) with no"
+                  " call edge to record it: NOT shown to be independent" if lib_side
+             else f" — but NOT CHECKED: {'; '.join(s_ for _i, s_ in unmod[:3])} — a framework calls it and the graph does not"
+                  f" model how, so the other may reach it through that framework. Before treating them as independent run: "
+                  f"{grep_for(g, g.sym[unmod[0][0]]['name'])}" if unmod
+             else ": the two are independent in this graph"))
+    for line in fw: print(line)
     return 1
 
 # ── self-test: the engine's expected edges, through the whole tool ───────────────────────────────────────────────

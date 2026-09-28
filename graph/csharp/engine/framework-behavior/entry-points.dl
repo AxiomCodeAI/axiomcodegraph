@@ -29,9 +29,35 @@ entry_point(m, "http") :- serves_destination(m, tr, _), cs_remote_transport_http
 entry_point(m, "grpc_service") :- serves_destination(m, tr, _), cs_remote_transport_grpc(tr).
 entry_point(m, "queue") :- serves_destination(m, tr, _), !cs_remote_transport_http(tr), !cs_remote_transport_grpc(tr).
 
-// lifecycle: a hosted service's methods, on a type deriving from the host's base
-entry_point(m, "lifecycle") :- heritage_slot("client", t, _, bn0, _, _), last_segment(bn0, bn), cs_hosted_base(bn),
-    method_owner("client", t, m), method_name("client", m, mn), cs_hosted_method(mn).
+// lifecycle, framework_hook, hub, orm_hook: a method the framework calls because its
+// type derives from a framework base or implements a framework interface. The pairs are
+// cs_framework_callback in knobs.dl.
+//
+// The base is matched by its written name, since the framework is not in the source and
+// usually not staged. A name that resolves to a type IN the source is the project's own
+// `Hub` or `Migration`, not the framework's, and is skipped.
+cs_framework_type_direct(gk, bn) :- heritage_slot("client", t, pos, bn0, _, _), last_segment(bn0, bn),
+    cs_framework_base(bn), !cs_heritage_in_source(t, pos), type_group("client", t, gk).
+cs_framework_base(bn) :- cs_framework_callback(bn, _, _).
+cs_heritage_in_source(t, pos) :- heritage_slot("client", t, pos, _, _, tr), tr != "",
+    type_ref_resolves("client", tr, bgk), type_group("client", _, bgk).
+cs_heritage_in_source(t, pos) :- heritage_slot("client", t, pos, bn, ba, ""), type_module("client", t, mod),
+    type_name_resolves("client", mod, bn, ba, bgk), type_group("client", _, bgk).
+// ... and through the project's own bases: `WidgetWorker : WorkerBase`, `WorkerBase : BackgroundService`.
+cs_framework_type(gk, bn) :- cs_framework_type_direct(gk, bn).
+cs_framework_type(gk, bn) :- type_ancestor("client", gk, agk), cs_framework_type_direct(agk, bn).
+
+entry_point(m, r) :- cs_framework_type(gk, bn), cs_framework_callback(bn, mn, r), mn != "*",
+    method_in_type("client", gk, m), method_name("client", m, mn).
+entry_point(m, r) :- cs_framework_type(gk, bn), cs_framework_callback(bn, "*", r),
+    method_in_type("client", gk, m), method_kind("client", m, "METHOD"),
+    member_access("client", m, "PUBLIC"), !method_is_static("client", m).
+entry_point(m, r) :- cs_framework_type(gk, bn), cs_framework_callback_prefix(bn, p, r),
+    method_in_type("client", gk, m), method_kind("client", m, "METHOD"), method_name("client", m, mn),
+    strlen(mn) >= strlen(p), substr(mn, 0, strlen(p)) = p,
+    member_access("client", m, "PUBLIC"), !method_is_static("client", m).
+cs_framework_callback_prefix(bn, p, r) :- cs_framework_callback(bn, mn, r), strlen(mn) > 1,
+    substr(mn, strlen(mn) - 1, 1) = "*", p = substr(mn, 0, strlen(mn) - 1).
 last_segment_demand(n) :- heritage_slot("client", _, _, n, _, _).
 
 // Everything the runtime can reach from an entry point over resolved in-source calls.

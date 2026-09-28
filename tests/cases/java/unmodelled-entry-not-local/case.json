@@ -1,0 +1,49 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a method carrying an annotation the rules do not model is not called local: next: names the annotation and prints the grep",
+   "run": ["impact", "Inbox.receive"],
+   "want": ["NOT CHECKED: @OnMessage on Inbox.receive", "before treating the change as local run: grep -rnw \"receive\" src"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "near-miss control: @Deprecated is on the inert list, so a method nothing calls stays local",
+   "run": ["impact", "Inbox.legacy"],
+   "want": ["the change is local"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "control: an unannotated method in the same class stays local",
+   "run": ["impact", "Inbox.plain"],
+   "want": ["the change is local"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "an annotation on the owner type counts for its public methods",
+   "run": ["impact", "Registry.refresh"],
+   "want": ["NOT CHECKED: @Registered on its type Registry"],
+   "avoid": ["the change is local"]
+  },
+  {
+   "why": "near-miss control: a private method is never entered through its type's annotation",
+   "run": ["impact", "Registry.tidy"],
+   "want": ["the change is local"],
+   "avoid": ["NOT CHECKED"]
+  },
+  {
+   "why": "path does not call a plain method independent of an annotated one nothing in the graph calls",
+   "run": ["path", "Inbox.plain", "Inbox.receive"],
+   "expect_error": true,
+   "want": ["NOT CHECKED: @OnMessage on Inbox.receive"],
+   "avoid": ["the two are independent in this graph"]
+  },
+  {
+   "why": "control: two plain methods stay independent",
+   "run": ["path", "Inbox.plain", "Registry.tidy"],
+   "expect_error": true,
+   "want": ["the two are independent in this graph"]
+  }
+ ]
+}

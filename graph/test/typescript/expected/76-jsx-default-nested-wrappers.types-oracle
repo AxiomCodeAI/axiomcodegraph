@@ -1,0 +1,7 @@
+76-jsx-default-nested-wrappers [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 8   resolved 7 (87.5%)
+  tiers ambiguous_unknown=1  known_edge=7
+  contexts FIELD_TYPE=1  METHOD_PARAM=2  METHOD_RETURN=5
+  not scored: 1 rows whose target is not a client declaration

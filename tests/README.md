@@ -35,10 +35,20 @@ One check needs no graph and is its own script:
     python3 tests/enrich_budget.py       what a Read or a Grep adds to a session is capped: a declaration annotated once,
                                          the budget said spent once, its second half kept for edges into unopened files
                                          (#1199; indexes a small project, so it needs the engine)
+    python3 tests/enrich_lines.py        what one enrichment line says: a caller count of 0 says why (entry point, by-name
+                                         sites, a framework annotation), production callers before tests, a base before its
+                                         overrides, no annotation for a shell grep over output or logs, nothing for an edit
+                                         that changes no declaration, one line of tests for a body edit (#1507, #1546, #1604;
+                                         indexes a small project, so it needs the engine)
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in, finds the
                                          engine the last build used before PATH (the refresh runs from a hook, with the
                                          hook's PATH), follows a Windows npm shim, and names every place it looked when
                                          it finds none
+    python3 tests/freshness.py           an answer from a graph older than an edit marks the rows in edited files (text and
+                                         --json) and nothing else; it waits only when the answer touches an edited file
+                                         and the refresh is expected within the budget, never on a rules compile;
+                                         --fresh waits and MCP takes fresh=true; the file table prunes exactly what each
+                                         parser skips, so an edit under out/ or build/ is seen (#1594, #1595; no engine)
     python3 tests/refresh_races.py       what a refresh after an edit can leave behind, each with a control: a broken
                                          graph pointer is repaired and keeps the baseline; a query mid-build waits for it
                                          and starts no build; a failed build never leaves the pointer dangling; a failed
@@ -46,6 +56,9 @@ One check needs no graph and is its own script:
                                          no rules and no soufflé impact answers from SQL (builds real graphs, needs the engine)
     python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
                                          unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
+    python3 tests/no_exec.py             impact, path and context answer, with their exit status, where os.exec* does not
+                                         replace the process, as on Windows; no script or hook calls os.exec* but
+                                         ax_exec.py (#1640; indexes a case, so it needs the engine)
     python3 tests/multi_language.py      a repository in several languages is indexed in all of them and every query asks
                                          each graph: nothing dropped, a one-graph answer unchanged, an edit reported once,
                                          refreshed, upgraded from a one-language graph (builds real graphs, needs the engine)
@@ -54,6 +67,12 @@ One check needs no graph and is its own script:
                                          the verb and the Python found without starting programs, a first build that reports its
                                          stage instead of holding the call (indexes a small project, so it needs the engine;
                                          --no-engine for the rest)
+    python3 tests/facts_cache.py         path and impact do not answer from edges an older plugin exported: the export's
+                                         stamp carries a version, so an upgrade re-exports (#1402; indexes a case)
+    python3 tests/publish_order.py       a repository in several languages is queryable when its main language is solved, not
+                                         when the last one is: the others are held back, a query answers and names what it
+                                         cannot see, a first query does not wait for them, one language alone is unchanged
+                                         (#1555; builds real graphs, needs the engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

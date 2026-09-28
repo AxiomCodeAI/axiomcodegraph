@@ -13,9 +13,17 @@ import collections, json, os, re, sqlite3, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
 import graph_sql, ax_contract as _ax
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _host
+import _host, _graphline, _where
 
-ev = _host.read(); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
+ev = _host.read(); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; scwd = ev.get('cwd') or os.getcwd()
+# THE GRAPH IS FOUND FROM WHAT THE TOOL TOUCHED, not from the session's working directory: an agent reads and greps
+# indexed trees by absolute path from a directory that has no graph (308 of 309 measured sessions), and a hook that
+# looked only in the working directory never spoke. `cwd` below is the repository ROOT whose graph answers; `scwd` is
+# where the session is, which a relative path in the tool's input is relative to.
+cwd = _where.locate(tool, inp, scwd, ev.get('session_id'))
+if not cwd: sys.exit(0)
+_file = next((p for p in _where.touched(tool, inp, scwd) if os.path.isfile(p)), None)
+os.environ.update(_where.lang_env(cwd, _file))          # a file in a language with its own graph is answered from it
 def rel_of(fp):
     """the graph stores repo-relative paths; the tool's file_path may reach the tree through a symlink while cwd is resolved (or the
     reverse) — compare real paths, and if the file still is not under the tree, fall back to the graph's own suffix match"""
@@ -25,7 +33,7 @@ def rel_of(fp):
         except ValueError: continue                                 # Windows: a file on another drive is not under the tree
         if not r.startswith('..'): return r.replace(os.sep, '/')   # the index stores '/' on every platform
     return fp
-db = os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')
+db = _where.graph_db(cwd, _file)
 if not os.path.exists(db): sys.exit(0)
 con = sqlite3.connect(db); con.row_factory = sqlite3.Row
 q = lambda s, *p: con.execute(s, p).fetchall()
@@ -55,13 +63,6 @@ def task_hits(display):
     out = [t for t in TASK if t in toks or any(x.startswith(t) and len(t) >= 4 for x in toks)]
     return out[:2]
 
-def edges(mid, sid):
-    up = q("SELECT DISTINCT cr.display d FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? LIMIT 40", mid)
-    dn = q("SELECT DISTINCT ce.display d FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND e.callee_provenance = 'client' LIMIT 40", sid)
-    un = q("SELECT count(*) n FROM unresolved_sites WHERE caller_id = ?", sid)[0]['n']
-    s = f"← {len(up)}" + (" (" + ', '.join(r['d'].split('.')[-1] for r in up[:2]) + (', …' if len(up) > 2 else '') + ")" if up else '') + f"  → {len(dn)}"
-    return s + (f"  ? {un}" if un else '')
-
 # where the agent IS: the callables it read most recently (per session, last 6 reads). A later grep for a common name is
 # read against them — the `close` that the method you were just reading calls is the one you mean
 STATE = os.path.join(cwd, '.axiomcode', f"hooks-state-{ev.get('session_id', 'x')}.json")
@@ -76,6 +77,7 @@ def save_state(st):
 # as `file:line`; a Read of one of them right after would get the same callers and callees again as a `graph:` block. Those
 # declarations are marked annotated, so a later block carries only what the answer did not. Nothing is emitted here.
 _cmd = str(inp.get('command', '')) if tool == 'Bash' else ''
+_from_shell = False                                           # a grep run through Bash: matched as whole names only
 if tool.startswith('mcp__plugin_axiomcode_') or re.match(r'\s*(?:\S*/)?axiomcode(?:-\w+)?\s+(context|path|impact|changed|test-impact)\b', _cmd):
     text = json.dumps(ev.get('tool_response', ''))
     locs = set(re.findall(r'([\w./-]+\.\w+):(\d+)', text))
@@ -94,21 +96,30 @@ if tool == 'Bash':
     # The tree searched is where the shell is (a `cd` before the grep) and the paths given after the pattern.
     if m:
         import shlex
+        base, _ = _where.bash_where(c[:m.start()], scwd)          # where the shell is when the grep runs (a `cd` first)
         def outside(p):
-            p = os.path.expanduser(p)
-            r = os.path.relpath(os.path.realpath(p if os.path.isabs(p) else os.path.join(cwd, p)), os.path.realpath(cwd))
+            r = os.path.relpath(os.path.realpath(_where._abs(p, base)), os.path.realpath(cwd))
             return r == '..' or r.startswith('..' + os.sep)
-        cds = re.findall(r'(?:^|[;&|]\s*)cd\s+([^\s;&|]+)', c[:m.start()])
         try: rest = shlex.split(c[m.end():].split('|')[0].split('&&')[0].split(';')[0])
         except ValueError: rest = []
         where = [a for a in rest if not a.startswith('-') and ('/' in a or a.startswith(('~', '.')))]
-        if (cds and outside(cds[-1])) or any(outside(a) for a in where): sys.exit(0)
-    if m: tool = 'Grep'; inp = {'pattern': m.group(3)}
+        if outside(base) or any(outside(a) for a in where): sys.exit(0)
+        # A GREP THAT IS NOT A CODE SEARCH SAYS NOTHING ABOUT THIS GRAPH (#1604). After a `|` it filters another command's
+        # output (`npm test | grep -E 'FAIL|ok'` named `Result.fail` and a test helper `fail`); over files no graph
+        # indexes (a log, a shell script, YAML) it names whatever shares a word with the pattern.
+        seps = re.findall(r'\|\||&&|;|\n|\|', c[:m.start()])
+        if seps and seps[-1] == '|': sys.exit(0)
+        files = [a for a in rest if not a.startswith('-')]
+        if files and all(os.path.splitext(a)[1] and os.path.splitext(a)[1].lower() not in _graphline.LANG for a in files): sys.exit(0)
+    if m: tool = 'Grep'; inp = {'pattern': m.group(3)}; _from_shell = True
     else:
-        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py))', c)
-        if m and m.re.groups == 3: tool = 'Read'; inp = {'file_path': os.path.join(cwd, m.group(3)) if not m.group(3).startswith('/') else m.group(3), 'offset': int(m.group(1)), 'limit': int(m.group(2)) - int(m.group(1)) + 1}
-        elif m: tool = 'Read'; inp = {'file_path': os.path.join(cwd, m.group(1)) if not m.group(1).startswith('/') else m.group(1)}
+        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py|cs))\b', c)
+        # a relative file is relative to where the shell is when it runs: the session's directory, or a `cd` before it
+        if m: base, _ = _where.bash_where(c[:m.start()], scwd)
+        if m and m.re.groups == 3: tool = 'Read'; inp = {'file_path': _where._abs(m.group(3), base), 'offset': int(m.group(1)), 'limit': int(m.group(2)) - int(m.group(1)) + 1}
+        elif m: tool = 'Read'; inp = {'file_path': _where._abs(m.group(1), base)}
         else: sys.exit(0)
+        if _where.root_of(inp['file_path']) != cwd: sys.exit(0)  # the file read is another tree's, or none's
 
 # names are looked up by prefix on every grep: an index on symbols.name keeps that under 0.1 s (created once, harmless if present)
 try: con.execute("CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name)"); con.commit()
@@ -148,28 +159,39 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     # file against the commit the graph was built from — then the blast radius of each from `axiomcode impact`: what must change
     # with it, who produces or writes it, who reads it, what reaches those, the tests. The moment this is useful is now.
     import concurrent.futures
-    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
+    fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     if not re.search(r'\.(java|ts|tsx|js|mjs|cjs|py)$', rel) or re.search(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_', rel): sys.exit(0)
     SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
     try: ch = json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), cwd, rel, '--json'], capture_output=True, text=True, timeout=10).stdout or '{}')
     except Exception: ch = {}
     decls = [d for d in ch.get('changed', []) if d.get('target')]
-    if not decls and not ch.get('notes'): sys.exit(0)
-    st = load_state(); st['reported'] = list(dict.fromkeys(st.get('reported', []) + [f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}" for d in decls])); save_state(st)   # once per session (changes.py reads this)
+    # AN EDIT THAT CHANGED NO DECLARATION SAYS NOTHING. It printed "this edit changed 0 declaration(s) -- added: 1 new
+    # line(s)", which restates the edit the agent just made; 28 of 30 of these blocks went unused.
+    # A DECLARATION IS REPORTED ONCE A SESSION, on this path as on changes.py's: a signature the PreToolUse hook already
+    # reported before the edit landed, or a body edited a second time, is not reported again.
+    key = lambda d: f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}"
+    st = load_state(); done = set(st.get('reported', []))
+    decls = [d for d in decls if key(d) not in done]
+    if not decls: sys.exit(0)
+    st['reported'] = list(dict.fromkeys(st.get('reported', []) + [key(d) for d in decls])); save_state(st)   # once per session (changes.py reads this)
+    # A BODY EDIT BREAKS NO CALLER, so its readers are not a blast radius: 10-42 `reads / uses it` rows nobody could act on.
+    # What it is worth is the tests that reach it and the command that runs them, on one line.
+    body = [d for d in decls if d['kind'] == 'body']; decls = [d for d in decls if d['kind'] != 'body']
     def impact(d):
         """SQL first, as changes.py does — the second call site, and the last Datalog dependency in the hooks.
         Shelling to axiomcode-impact cost a median 6.94 s on a 1.23M-LOC bundle and blew this timeout=14 on
         19 of 40 sampled methods; it also carries #833, which kills that script at import wherever
         importlib.machinery is not incidentally bound."""
         try:
-            j = graph_sql.impact_shaped(cwd, d['target'])
+            j = graph_sql.impact_shaped(cwd, d.get('shown_target') or d['target'])
             if j is not None: return d, j
         except Exception: pass
-        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d.get('shown_target') or d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+        results = list(ex.map(impact, decls[:3])); bodies = list(ex.map(impact, body[:3]))
     base = (ch.get('built_at') or '')[:10]
-    lines.append(f"graph: this edit changed {len(decls)} declaration(s) in {rel}" + (f" (against the graph's commit {base})" if base else '') + " —")
+    if decls: lines.append(f"graph: this edit changed {len(decls)} declaration(s) in {rel}" + (f" (against the graph's commit {base})" if base else '') + " —")
     for d, j in results:
         head = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(head + "  (impact unavailable)"); continue
@@ -191,7 +213,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         if reads:
             lines.append(f"    reads / uses it ({len(reads)}): " + names(reads) if not j.get('_sql')
                          else f"    reads / uses it — resolved callers: " + names(reads)
-                              + f" (the fast path; `axiomcode impact {d['target']}` adds the by-name, in-scope and text layers)")
+                              + f" (the fast path; `axiomcode impact {d.get('shown_target') or d['target']}` adds the by-name, in-scope and text layers)")
         # `reached` is a LIST OF PLACEHOLDERS from the SQL shim (graph_sql.impact_shaped fills it with None,
         # deliberately, because both hooks only take len() of it — resolving a location for rows nobody prints cost
         # 5.7 s against 1.7 s on a wide target). Iterating it and calling .get() therefore raised AttributeError and
@@ -205,9 +227,13 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         # was the fast path answering, the rules answering, or the CLI having given up.
         lines.append(f"    [{'fast path' if j.get('_sql') else 'rules'}] reaches {len(rc)} more callable(s) through resolved calls within 12 hops; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more changed declaration(s): axiomcode changed --impact")
-    for n in ch.get('notes', [])[:2]: lines.append(f"  added: {n}")
+    if decls:
+        for n in ch.get('notes', [])[:2]: lines.append(f"  added: {n}")
+    if bodies:
+        lines.append(_graphline.body_line(os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(cwd, '.axiomcode'), 'out', 'graph.sqlite'),
+                                          bodies + [(d, {}) for d in body[3:]]))
 elif tool == 'Read':
-    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
+    fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
     # a member the language synthesises (an enum's values() / valueOf(), a default constructor) is not declared on any line: not listed as one
     rows = q("SELECT s.id, s.method_id, s.display, s.line, s.end_line FROM symbols s JOIN methods m ON m.id = s.method_id WHERE (s.file = ? OR s.file LIKE ?) AND s.method_id IS NOT NULL AND s.kind <> 'module' AND m.kind NOT IN ('ENUM_VALUES', 'ENUM_VALUE_OF', 'DEFAULT_CONSTRUCTOR') AND s.line <= ? AND s.end_line >= ? ORDER BY s.line", rel, '%/' + rel.lstrip('/'), b, a)
@@ -235,8 +261,9 @@ elif tool == 'Read':
         lo, hi = rows[0]['line'], rows[-1]['end_line'] or b                          # the lines the text actually covers
         mids = [r['method_id'] for r in rows]; ids = [r['id'] for r in rows]; ph = ','.join('?' * len(rows))
         def visible(f, ln): return f == rel and lo <= ln <= hi                     # the other end is in the text the model just read
-        up = collections.defaultdict(list)
-        for e in q(f"SELECT DISTINCT e.callee_method_id m, cr.id, cr.display d, cr.file f, cr.line ln FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id IN ({ph})", *mids):
+        up = collections.defaultdict(list); anyup = set()                        # anyup: has a caller at all, shown or not
+        for e in q(f"SELECT DISTINCT e.callee_method_id m, cr.id, cr.display d, cr.file f, cr.line ln FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id IN ({ph}) ORDER BY cr.is_test, cr.display", *mids):
+            anyup.add(e['m'])
             if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in up[e['m']]}: up[e['m']].append(e)   # overloads of one caller are one name
         dn = collections.defaultdict(list)
         for e in q(f"SELECT DISTINCT e.caller_id c, ce.id, ce.display d, ce.file f, ce.line ln FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id IN ({ph}) AND e.callee_provenance = 'client'", *ids):
@@ -262,18 +289,25 @@ elif tool == 'Read':
         # A DECLARATION IS ANNOTATED ONCE A SESSION, however its lines are reached again: the same range, an overlapping
         # one, the whole file after a range of it, or the same file through another spelling of its path. A key on the
         # read's own arguments caught only the first of those.
-        had = bool(info); info = [x for x in info if x['r']['id'] not in done]
+        info = [x for x in info if x['r']['id'] not in done]
         block_ids = [x['r']['id'] for x in info]
         # an edge into a file the agent has not opened is what a read cannot show it; one into a file it has read is
         # something it may already have seen from the other end
         novel = any(y['f'] not in opened for x in info for y in x['up'] + x['dn']) or any(x['ovo'] for x in info)
         short = lambda d: d.split('.')[-1] if d.count('.') > 1 else d
         def nm(y): return y['d'] + (f" L{y['ln']}" if y['f'] == rel else '')       # a same-file end outside the range: say where
+        # a caller count of 0 says WHY where the graph knows (#1507 cluster): `←entry (http)`, `←0 resolved, 2 by name`,
+        # `←? framework (@Scheduled)`. A framework-called method printed as `←0` read as dead code
+        def ups(x):
+            if x['up'] or x['r']['method_id'] in anyup: return str(len(x['up']))
+            if 'zl' not in x: x['zl'] = _graphline.zero_label(con, x['r']['method_id'], x['r']['display'].rsplit('.', 1)[-1])
+            return x['zl']
         def line(x):
             r = x['r']; parts = []
             if x['su']: parts.append("← " + ', '.join(f"{nm(y)} ★" for y in x['su'][:2]) + (f", +{len(x['up']) - min(2, len(x['su']))}" if len(x['up']) > min(2, len(x['su'])) else ''))
             elif 1 <= len(x['up']) <= 3: parts.append("← " + ', '.join(nm(y) for y in x['up']))
             elif x['up']: parts.append(f"←{len(x['up'])}")
+            elif x['r']['method_id'] not in anyup and ups(x) != '0': parts.append(f"←{ups(x)}")
             if x['ovi'] or x['ovo']: parts.append("→ dispatch: " + ', '.join(filter(None, [f"{x['ovi']} override(s) in this file" if x['ovi'] else '', f"{x['ovo']} elsewhere" if x['ovo'] else ''])))
             if x['sd']: parts.append(f"→ {', '.join(f'{nm(y)} ★' for y in x['sd'][:2])}" + (f", +{len(x['dn']) - min(2, len(x['sd']))}" if len(x['dn']) > min(2, len(x['sd'])) else ''))
             elif x['dn']: parts.append(f"→{len(x['dn'])}" + (" " + ', '.join(nm(y) for y in x['dn'][:2]) if len(x['dn']) <= 2 else ''))
@@ -290,13 +324,13 @@ elif tool == 'Read':
             k = tuple(sorted({y['id'] for y in x['star']}))
             if seen[k] < 2: picked.append(x); seen[k] += 1
         few = [x for x in info if x not in picked and (1 <= len(x['up']) <= 3 or x['ovi'] or x['ovo'])]
-        if had and not info: rows = []                                              # everything here was said before
+        if not info: rows = []            # everything here was said before, or nothing here has an edge: no header over no lines
         if rows: lines.append(f"graph: {os.path.basename(rel)}:{lo}-{hi} — {len(rows)} callable(s); edges the text does not show (cross-file, outside the range, overrides, unresolved)" + (" ★ = what you read before" if picked else '') + ":" + stale)
         shown = (picked + few)[:5] if rows else []
         for x in shown: lines.append(line(x))
         left = [x for x in info if x not in shown] if rows else []
-        if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{len(x['up'])}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
-elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(os.path.join(cwd, os.path.expanduser(str(inp['path'])))), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
+        if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{ups(x)}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
+elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(_where._abs(inp['path'], scwd)), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
     # (a Grep of a path outside this tree is about another codebase — nothing here to add)
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
     # Split the alternation, strip the regex around each branch, keep the identifiers, look each one up — in parallel, one
@@ -318,8 +352,27 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
         # prefix it matches whatever starts with it (`once` -> onceAWeekTrigger). It is looked up exactly, never by prefix,
         # and kept below only when it connects to what the agent read this session — the `close` it was just reading.
         plain = n.islower() and '_' not in n
-        rows = c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file LIMIT 12", (n,)).fetchall() \
-            or ([] if plain else c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name LIKE ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 12", (n + '%',)).fetchall())
+        # A CONSTANT-SHAPED WORD IS NOT A CALLABLE'S NAME (`FAIL`, `DONE`, `PARSER`, `CACHE`), and the prefix match that
+        # used to follow was LIKE, which is case-blind: `FAIL` found `fail`, `PARSER` found `parserPresent`. The prefix is
+        # now case-sensitive (GLOB, which the name index also serves), and a grep run through the shell is matched as
+        # whole names only: its pattern is as often a word in a log as a name in code (#1604).
+        if re.fullmatch(r'[A-Z0-9_]+', n): return n, [], []
+        COLS = "id, method_id, display, file, line, is_test"
+        rows = c.execute(f"SELECT {COLS} FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file LIMIT 40", (n,)).fetchall() \
+            or ([] if plain or _from_shell else c.execute(f"SELECT {COLS} FROM symbols WHERE name GLOB ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 12", (n + '*',)).fetchall())
+        # A NAME DECLARED SEVERAL TIMES IS A BASE AND ITS OVERRIDES (#1546): the base first, with how many override it, then
+        # production before tests, then by path. Ordered by path alone, two test stubs under `adapter-*` took both slots
+        # and the base, the main-source override and the count were all left out.
+        nover = {}
+        if len(rows) > 1:
+            has_ovr = c.execute("SELECT 1 FROM overrides LIMIT 1").fetchone() is not None if c.execute("SELECT 1 FROM sqlite_master WHERE name='overrides'").fetchone() else False
+            has_dc = c.execute("SELECT 1 FROM sqlite_master WHERE name='dispatch_candidates'").fetchone() is not None
+            for r in rows:
+                k = c.execute("SELECT count(DISTINCT overriding_method_id) FROM overrides WHERE method_id = ?", (r['method_id'],)).fetchone()[0] if has_ovr else 0
+                if not k and not has_ovr and has_dc:        # Python and TypeScript keep the envelope in dispatch_candidates
+                    k = c.execute("SELECT count(DISTINCT candidate_method_id) FROM dispatch_candidates WHERE base_method_id = ? AND candidate_method_id <> base_method_id", (r['method_id'],)).fetchone()[0]
+                nover[r['id']] = k
+            rows = sorted(rows, key=lambda r: (-nover[r['id']], r['is_test'] or 0, r['file']))
         # the declarations connected to what the agent just read: called BY a read callable, or CALLING one — first, and marked
         rel_ = {}
         unres = []
@@ -332,17 +385,27 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
                 e = c.execute(f"SELECT cr.id AS who, 'called from' AS how FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? AND e.caller_id IN ({ph}) LIMIT 1", (r['method_id'], *ctx)).fetchone() \
                     or c.execute(f"SELECT ce.id AS who, 'calls' AS how FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND ce.id IN ({ph}) LIMIT 1", (r['id'], *ctx)).fetchone()
                 if e: rel_[r['id']] = (e['how'], ctx_names.get(e['who'], '?'))
-            rows = sorted(rows, key=lambda r: (r['id'] not in rel_, r['file']))
+            rows = sorted(rows, key=lambda r: r['id'] not in rel_)                   # stable: the order above within each group
         if plain and not rel_ and not unres: return n, [], []
-        rows = rows[:2]
+        total = len(rows); rows = rows[:2]
         out = []
-        for r in rows:
-            up = c.execute("SELECT DISTINCT cr.display d FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? LIMIT 40", (r['method_id'],)).fetchall()
+        paths = _graphline.distinct_paths([r['file'] or '' for r in rows])
+        for r, path in zip(rows, paths):
+            # PRODUCTION CALLERS ARE NAMED BEFORE TESTS (#1507): unordered, SQLite returned them by display, so two test
+            # methods took both name slots and the three production callers hid behind the count
+            up = c.execute("SELECT DISTINCT cr.display d, cr.is_test t FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? ORDER BY cr.is_test, cr.display LIMIT 40", (r['method_id'],)).fetchall()
+            nt = sum(1 for x in up if x['t'])
             # by DISPLAY, like the names printed beside it: two overloads of one callee are one name to the reader
             dn = c.execute("SELECT count(*) n FROM (SELECT DISTINCT ce.display FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND e.callee_provenance = 'client')", (r['id'],)).fetchone()['n']
             un = c.execute("SELECT count(*) n FROM unresolved_sites WHERE caller_id = ?", (r['id'],)).fetchone()['n']
             tag = f"  ★ {rel_[r['id']][0]} {rel_[r['id']][1]} (which you just read)" if r['id'] in rel_ else ''
-            out.append(f"  {r['display']}  {os.path.basename(r['file'])}:{r['line']}  ← {len(up)}" + (" (" + ', '.join(x['d'].split('.')[-1] for x in up[:2]) + (', …' if len(up) > 2 else '') + ")" if up else '') + f"  → {dn}" + (f"  ? {un}" if un else '') + tag)
+            # the tests are counted apart only below the 40-row cap: at the cap the split is not known
+            callers = (f"{len(up)} (" + ', '.join(x['d'].split('.')[-1] for x in up[:2]) + (', …' if len(up) > 2 else '')
+                       + (f"; {nt} in tests" if nt and 2 < len(up) < 40 and nt < len(up) else '') + ")") if up \
+                      else _graphline.zero_label(c, r['method_id'], r['display'].rsplit('.', 1)[-1], r['is_test'])
+            out.append(f"  {r['display']}  {path}:{r['line']}  ← {callers}  → {dn}" + (f"  ? {un}" if un else '')
+                       + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '') + tag)
+        if total > len(rows) and out: out[-1] += f"  (+{total - len(rows)} more declaration(s){'' if total < 40 else ' or more'})"
         if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out
     if idents:

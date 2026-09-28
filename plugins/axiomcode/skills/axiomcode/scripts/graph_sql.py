@@ -247,7 +247,7 @@ def impact(repo, target, depth=DEPTH):
             reads = sorted(set(reads) | set(own))
             byname = sorted(set(byname) - set(reads))
         return dict(target=target, overloads=len(ids), contract=contract, reads=reads, read_cert=read_cert, byname=byname,
-                    reached=max(0, n - len(ids)), tests=t, test_names=test_names, depth=depth)
+                    reached=max(0, n - len(ids)), tests=t, test_names=test_names, test_ids=sorted(tset), depth=depth)
     finally:
         con.close()
 
@@ -290,7 +290,8 @@ def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
                  for d in r.get('test_names', [])[:tests_shown]]
         tests += [dict(display='', owner='', name='')] * max(0, r['tests'] - len(tests))
         return dict(contract=[dict(display=d, why='overrides it', at=at.get(d, '')) for d in r['contract']],
-                    direct=direct, reached=[None] * r['reached'], tests=tests, unresolved_inside=0, _sql=True)
+                    direct=direct, reached=[None] * r['reached'], tests=tests, unresolved_inside=0, _sql=True,
+                    test_ids=r.get('test_ids', []))   # the hooks build a runnable test command from these
     finally:
         con.close()
 
@@ -470,22 +471,12 @@ def _edges(q):
     # second keeps it, which is not the same set. The id is a hash of the display, so an anonymous class collides
     # across files (`Database.Vendor.<anon TriFunction>.apply` has rows in six), which is why this matters at all.
     one = {}
-    for i, f, ln, en, mid, kind in q("""SELECT id, file, line, end_line, method_id, kind FROM symbols
+    for i, f, ln, en, mid, kind, disp in q("""SELECT id, file, line, end_line, method_id, kind, display FROM symbols
                                         WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
-        one[i] = (f, ln, en, mid, kind)
-    byfile = {}
-    for i, (f, ln, en, mid, kind) in one.items():
-        if mid and kind != 'module' and ln and en:
-            byfile.setdefault(f, []).append((ln, -en, i))
-    # The stack pops on END LINE against the current end line — `while st and st[-1][1] < -neg` — not on the top's
-    # end against the current's START. The two agree on properly nested spans and disagree on overlapping ones,
-    # which is 10 defines edges here and 56 phantom nodes once the closure walks them.
-    for f, rows in byfile.items():
-        rows.sort(); st = []
-        for ln, neg, i in rows:
-            while st and st[-1][1] < -neg: st.pop()
-            if st and st[-1][2] != i: e.append((st[-1][2], i, 'defines'))
-            st.append((ln, -neg, i))
+        one[i] = (f, ln, en, mid, kind, disp)
+    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399)
+    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid) for i, (f, ln, en, mid, kind, disp) in one.items()
+                                if mid and kind != 'module'), ax_edges.sites_of(lambda s, p: q(s, *p)))
     have = {(a, b) for a, b, _ in e}
     # the same narrowing the path tool applies: a candidate whose owner type is never instantiated anywhere is not a
     # dispatch the program can take. Without it the closure gains edges Soufflé never had (25 extra nodes on a
@@ -801,7 +792,8 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
     rows += _bean_definition_consumers(q, ids)
     # a barrel that re-exports it, or the whole module it is declared in (rules 396 and 399)
     rows += reexport_rows(q, names, code, rel or (lambda x: x),
-                          {f for (f,) in q(f"SELECT file FROM symbols WHERE id IN ({ph}) AND file IS NOT NULL", *ids)})
+                          {f for (f,) in q(f"SELECT file FROM symbols WHERE id IN ({ph}) AND file IS NOT NULL", *ids)},
+                          lines)
     # alongside: siblings of the target's own type, then the other types declared in the same file
     owners = {r[0] for r in q(f"SELECT owner FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     memb, owner_disp, tfile, _tid, _by_tid = _members(q)
@@ -2199,17 +2191,121 @@ def _alongside_for_type(q, tids, inside, target_fields=(), at=None):
 _REEXPORTS = {}
 REEXPORT_NAMED = re.compile(r'\s*export\s*(type\s*)?\{([^}]*)\}\s*from\s')
 REEXPORT_STAR = re.compile(r'\s*export\s*\*\s*from\s')
+REEXPORT_STAR_SPEC = re.compile(r'\s*export\s*\*\s*from\s*([\'"])([^\'"]+)\1')
 MODULE_EXT = re.compile(r'\.(ts|tsx|js|jsx|mjs|cjs)$')
+SPEC_EXT = ('', '.ts', '.tsx', '.d.ts', '.js', '.jsx', '.mjs', '.cjs',
+            '/index.ts', '/index.tsx', '/index.d.ts', '/index.js', '/index.jsx', '/index.mjs', '/index.cjs')
 
 
-def reexports(q, code):
-    """`reexport(c,n,f,l)` — a barrel: `export { alpha } from './core.js'`, and `export * from …` as the name `*`.
+def _jsonc(text):
+    """a tsconfig as JSON: comments and trailing commas dropped, outside strings only (`"@/*"` is not a comment)."""
+    out = []; i = 0; n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            j = i + 1
+            while j < n and text[j] != '"': j += 2 if text[j] == '\\' else 1
+            out.append(text[i:j + 1]); i = j + 1
+        elif text.startswith('//', i):
+            while i < n and text[i] != '\n': i += 1
+        elif text.startswith('/*', i):
+            e = text.find('*/', i + 2); i = n if e < 0 else e + 2
+        else:
+            out.append(ch); i += 1
+    try: return json.loads(re.sub(r',(\s*[}\]])', r'\1', ''.join(out)))
+    except ValueError: return {}
+
+
+def _ts_paths(f, lines, cache):
+    """the nearest tsconfig.json above file f -> (its directory, baseUrl, paths); `extends` is not followed."""
+    d = os.path.dirname(f)
+    while True:
+        if d not in cache:
+            cfg = os.path.join(d, 'tsconfig.json') if d else 'tsconfig.json'
+            text = '\n'.join(lines(cfg) or [])
+            cache[d] = (_jsonc(text).get('compilerOptions') or {}) if text.strip() else None
+        opts = cache[d]
+        if opts is not None:
+            return d, opts.get('baseUrl'), opts.get('paths') or {}
+        if not d: return '', None, {}
+        d = os.path.dirname(d)
+
+
+def resolve_module(f, spec, files, lines, cache):
+    """the repository file a module specifier written in f names, or None (a package, or nothing indexed).
+    Relative first; otherwise the nearest tsconfig's `paths` and `baseUrl`. A TypeScript ESM import spells the
+    compiled name (`./x.js` for x.ts), so that extension is also tried off."""
+    j = lambda *p: os.path.normpath(os.path.join(*p)).replace(os.sep, '/')
+    cands = []
+    if spec.startswith('.'):
+        cands.append(j(os.path.dirname(f) or '.', spec))
+    elif lines is not None:
+        cdir, base, paths = _ts_paths(f, lines, cache)
+        root = j(cdir or '.', base) if base else (cdir or '.')
+        for pat, subs in paths.items():
+            if not isinstance(subs, list): continue
+            if '*' in pat:
+                pre, _, post = pat.partition('*')
+                if not (spec.startswith(pre) and spec.endswith(post) and len(spec) >= len(pre) + len(post)): continue
+                star = spec[len(pre):len(spec) - len(post)]
+            elif spec != pat: continue
+            else: star = ''
+            cands += [j(root, s.replace('*', star)) for s in subs if isinstance(s, str)]
+        if base: cands.append(j(root, spec))
+    for c in cands:
+        stems = [c] + ([c.rsplit('.', 1)[0]] if re.search(r'\.(js|jsx|mjs|cjs)$', c) else [])
+        for s in stems:
+            for e in SPEC_EXT:
+                if s + e in files: return s + e
+    return None
+
+
+def barrel_lines(mod_of, code, lines=None, files=()):
+    """the barrel lines of every module -> (reexport rows (c,n,f,l), export-* sources (f,l,src_file)).
+    Shared by the exporter and the SQL port so the two read a barrel the same way. The specifier is read off
+    the raw line (`code` blanks string literals); a `export *` whose source is not a file of this repository
+    (a package, an alias no tsconfig maps) has no source row."""
+    rex = []; star = []; files = set(files); cache = {}
+    for f, mid in sorted(mod_of.items()):
+        if not MODULE_EXT.search(f): continue
+        raw = lines(f) if lines is not None else []
+        for i, line in enumerate(code(f), 1):
+            m = REEXPORT_NAMED.match(line)
+            if m:
+                for part in m.group(2).split(','):
+                    w = re.findall(r'[A-Za-z_$][\w$]*', part)
+                    if w: rex.append((mid, w[0], f, i))
+            elif REEXPORT_STAR.match(line):
+                rex.append((mid, '*', f, i))
+                s = REEXPORT_STAR_SPEC.match(raw[i - 1]) if i <= len(raw) else None
+                src = s and resolve_module(f, s.group(2), files, lines, cache)
+                if src: star.append((f, i, src))
+    return sorted(set(rex)), sorted(set(star))
+
+
+def star_reach(star):
+    """star_reach(f,l,df) — the files an `export *` at f:l re-exports, through every further `export *` on the way."""
+    nxt = collections.defaultdict(set)
+    for f, _l, s in star: nxt[f].add(s)
+    out = {}
+    for f, l, s in star:
+        seen = {s}; todo = [s]
+        while todo:
+            for d in nxt.get(todo.pop(), ()):
+                if d not in seen: seen.add(d); todo.append(d)
+        out[(f, l)] = seen
+    return out
+
+
+def reexports(q, code, lines=None):
+    """`reexport(c,n,f,l)` — a barrel: `export { alpha } from './core.js'`, and `export * from …` as the name `*`;
+    with it `star_reach`, the modules each `export *` line re-exports (keyed (f,l)).
 
     The parser records no reference for that line, so the file that has to change in the same commit as a rename
     was invisible to every other relation. Read from the source per module, exactly as the exporter reads it —
     this was the second reason a bundle with any JS or TS module in it declined here.
     """
-    key = id(q)
+    key = (id(q), lines is not None)
     if key in _REEXPORTS: return _REEXPORTS[key]
     # `mod_of` the way the exporter builds it, which is not "every module row". It walks `g.sym`, and that is
     #   {r['id']: dict(r) for r in SELECT * WHERE method_id IS NOT NULL OR type_id IS NOT NULL}
@@ -2223,37 +2319,29 @@ def reexports(q, code):
     mod_of = {}
     for i, (f, kind) in one.items():
         if kind == 'module' and f: mod_of.setdefault(f, i)
-    rex = []
-    for f, mid in sorted(mod_of.items()):
-        if not MODULE_EXT.search(f): continue
-        for i, line in enumerate(code(f), 1):
-            m = REEXPORT_NAMED.match(line)
-            if m:
-                for part in m.group(2).split(','):
-                    w = re.findall(r'[A-Za-z_$][\w$]*', part)
-                    if w: rex.append((mid, w[0], f, i))
-            elif REEXPORT_STAR.match(line):
-                rex.append((mid, '*', f, i))
-    return _REEXPORTS.setdefault(key, sorted(set(rex)))
+    rex, star = barrel_lines(mod_of, code, lines, {f for f, _k in one.values() if f})
+    return _REEXPORTS.setdefault(key, (rex, star_reach(star)))
 
 
-def reexport_rows(q, names, code, rel, decl_files=()):
+def reexport_rows(q, names, code, rel, decl_files=(), lines=None):
     """Rules 396-399 — the barrel lines that must change with a rename of the target.
 
     `decl_files` is given for a METHOD target only: rule 399 says that re-exporting the whole module a method is
-    declared in is a dependency too, but only from a DIFFERENT file than the one that declares it.
+    declared in is a dependency too, but only from a DIFFERENT file than the one that declares it, and only when
+    that `export *` reaches the declaring file (star_reach) — not every `export *` in the repository.
     """
     if code is None: return []
     rows = []
-    for c, n, f, l in reexports(q, code):
+    rex, reach = reexports(q, code, lines)
+    for c, n, f, l in rex:
         if n in names:
             rows.append((c, 'uses', 're-exports it (a barrel: this line must change with a rename)', 'text',
                          rel(f) if f else '', l or 0))
-        # `… decl_file(m,df), reexport(c,"*",f,l), f != df` — m ranges over EVERY declaration the query resolved
-        # to, so the row exists when SOME target is declared outside this file, not when all of them are. A target
-        # that resolves to many declarations (an anonymous callable) has one in the barrel's own file often
-        # enough for the two readings to differ.
-        elif n == '*' and (decl_files - {f}):
+        # `… decl_file(m,df), reexport(c,"*",f,l), star_reach(f,l,df), f != df` — m ranges over EVERY declaration
+        # the query resolved to, so the row exists when SOME target is declared in a file this line re-exports, not
+        # when all of them are. A target that resolves to many declarations (an anonymous callable) has one in the
+        # barrel's own file often enough for the two readings to differ.
+        elif n == '*' and ((set(decl_files) - {f}) & reach.get((f, l), set())):
             rows.append((c, 'uses', 're-exports the whole module it is declared in (export * — a rename changes '
                                     'what this file exports)', 'text', rel(f) if f else '', l or 0))
     return rows

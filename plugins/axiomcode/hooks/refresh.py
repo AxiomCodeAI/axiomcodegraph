@@ -10,21 +10,29 @@ No graph yet: nothing happens here; the first build is `axiomcode index`, or the
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _host
+import _host, _where
 
 try:
     ev = _host.read()
 except Exception:
     sys.exit(0)
 cwd = ev.get('cwd') or os.getcwd()
-# the repository whose graph this is: the working directory or the nearest parent holding a graph
-d = os.path.realpath(cwd)
-while not os.path.exists(os.path.join(d, '.axiomcode', 'out', 'graph.sqlite')):
-    up = os.path.dirname(d)
-    if up == d: sys.exit(0)
-    d = up
+# the repository whose graph this is: the one above the file or directory the tool touched (an edit by absolute path
+# from a directory with no graph is still an edit to that repository), else the working directory or its nearest parent
+# holding a graph. An event that names no path (a prompt, the end of a turn, a session start) also refreshes the
+# repositories this session has worked in, the most recent two.
+try:
+    d = _where.locate(ev.get('tool_name') or '', ev.get('tool_input') or {}, cwd, ev.get('session_id'))
+    repos = [d] if d else []
+    if not ev.get('tool_name'):
+        repos += [r for r in _where.recent() if r not in repos][:2]
+except Exception:
+    repos = []
+repos = [r for r in repos if os.path.exists(os.path.join(r, '.axiomcode', 'out', 'graph.sqlite'))]
+if not repos: sys.exit(0)
 try:
     import ax_fresh
-    ax_fresh.kick(d, trigger=f"the {ev.get('hook_event_name') or 'hook'} hook" + (f" after {ev['tool_name']}" if ev.get('tool_name') else ''))
+    for d in repos:
+        ax_fresh.kick(d, trigger=f"the {ev.get('hook_event_name') or 'hook'} hook" + (f" after {ev['tool_name']}" if ev.get('tool_name') else ''))
 except Exception:
     pass                                                  # a hook never fails the tool call it rides on

@@ -1,0 +1,17 @@
+// ============================================================================
+// Projections · PACKAGES  (pure column views — no joins, no closures)
+//
+// ts_package_entry is what a package.json PUBLISHES (#847): one row per main /
+// module / exports / types / source entry, with the walked SOURCE module the target
+// compiles from. The shape is JavaScript's package_entry exactly, so a rule reading
+// one front end's reads the other's.
+//
+// ts_package_entry / lib_ts_package_entry cols (11):
+//   0 packageName  1 subpath  2 condition  3 entrySource  4 targetPath
+//   5 targetModuleLinkHash  6 targetOutcome  7 packageJsonPath  8 isExternal
+//   9 serviceVersionLinkHash  10 tsPackageEntryUniqueHash
+// ============================================================================
+
+// ── package_entry(Prov, Package, Subpath, Condition, Source, Target, Outcome, ModuleHash) ──
+package_entry("client", pkg, sp, cond, src, tgt, out, mod) :- ts_package_entry(pkg, sp, cond, src, tgt, mod, out, _, _, _, _).
+package_entry("lib", pkg, sp, cond, src, tgt, out, mod) :- lib_ts_package_entry(pkg, sp, cond, src, tgt, mod, out, _, _, _, _).

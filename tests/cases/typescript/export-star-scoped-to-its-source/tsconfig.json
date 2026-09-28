@@ -1,0 +1,7 @@
+{
+  // the alias the aliased barrel is written with; "@util/*" is not a comment
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@util/*": ["src/util/*"], },
+  },
+}

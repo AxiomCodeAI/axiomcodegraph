@@ -67,6 +67,7 @@
 //   decorated_name(m, w)              the name m denotes what its decorator returned: calling m runs w
 .decl decorated_name(m:symbol, w:symbol)                          .input decorated_name
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
+.decl reexport_from(f:symbol, l:number, src:symbol)               .input reexport_from
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
 .decl faccess(c:symbol, fl:symbol, acc:symbol, tier:symbol, f:symbol, l:number) .input faccess
@@ -604,7 +605,12 @@ direct_edge(q, c, m) :- target(q, "typeparam", m, _), calls(c, m, _, _, _).
 direct(q, c, "uses", "re-exports it (a barrel: this line must change with a rename)", "text", f, l) :- target(q, "method", m, _), named(n, m), reexport(c, n, f, l).
 direct(q, c, "uses", "re-exports it (a barrel: this line must change with a rename)", "text", f, l) :- target(q, "field", fl, _), field(fl, _, n, _, _), reexport(c, n, f, l).
 direct(q, c, "uses", "re-exports it (a barrel: this line must change with a rename)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), reexport(c, n, f, l).
-direct(q, c, "uses", "re-exports the whole module it is declared in (export * — a rename changes what this file exports)", "text", f, l) :- target(q, "method", m, _), decl_file(m, df), reexport(c, "*", f, l), f != df.
+// `export *` only from the module it is declared in: the line's own source file, or a file a further `export *` of
+// that one reaches. Every `export *` in the repository used to qualify, whatever it pointed at.
+.decl star_reach(f:symbol, l:number, df:symbol)
+star_reach(f, l, s) :- reexport_from(f, l, s).
+star_reach(f, l, d) :- star_reach(f, l, s), reexport_from(s, _, d).
+direct(q, c, "uses", "re-exports the whole module it is declared in (export * — a rename changes what this file exports)", "text", f, l) :- target(q, "method", m, _), decl_file(m, df), reexport(c, "*", f, l), star_reach(f, l, df), f != df.
 
 // ── a STRING target: a topic, a queue, a route, a bean qualifier — a name in a namespace that is not the code's ──
 direct(q, c, "uses", "names it in a string literal", "text", f, l) :- target(q, "string", _, v), literal(c, v, f, l).

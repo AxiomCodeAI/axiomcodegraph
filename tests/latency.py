@@ -133,9 +133,9 @@ def walk_checks():
         def per_language(lang):
             out = set()
             for l in lang.split(','):
-                exts, names, prune = ax_fresh.EXT.get(l, ()), ax_fresh.NAMES.get(l, ()), ax_fresh.PRUNE.get(l, ax_fresh.PRUNE_ALL)
+                exts, names = ax_fresh.EXT.get(l, ()), ax_fresh.NAMES.get(l, ())
                 for d, subdirs, files in os.walk(work):
-                    subdirs[:] = [s for s in subdirs if s not in prune]
+                    subdirs[:] = [s for s in subdirs if not ax_fresh.prunes(l, s, os.path.basename(d))]
                     for f in files:
                         if f.endswith(exts) or f in names or (l == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
                                 or (l == 'python' and ax_fresh.python_script(os.path.join(d, f), f)):

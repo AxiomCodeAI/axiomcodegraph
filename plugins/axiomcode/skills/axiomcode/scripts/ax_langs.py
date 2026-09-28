@@ -80,7 +80,8 @@ def main(argv):
     repo, script, args = os.path.realpath(argv[0]), argv[1], argv[2:]
     gs = graphs(repo)
     if len(gs) == 1:                                    # one language: the verb itself, nothing added
-        os.execv(sys.executable, [sys.executable, os.path.join(H, script)] + args)
+        import ax_exec                                  # never os.execv: on Windows it returns 0 before the answer (#1640)
+        ax_exec.become([sys.executable, os.path.join(H, script)] + args)
     first = main_language(repo)
     with concurrent.futures.ThreadPoolExecutor(len(gs)) as ex:
         res = list(ex.map(lambda g: ask(script, args, *g), gs))
@@ -88,7 +89,13 @@ def main(argv):
     if all(n[2] == 3 for n in named):                   # no graph has anything to say: the main one says so
         sys.stdout.write(named[0][3]); sys.stderr.write(named[0][4]); return 0
     named = [n for n in named if n[2] != 3]
+    named, others = by_landing(named)
     answered = [n for n in named if n[2] == 0]
+    if not answered:
+        # a graph that does not hold the --in scope says only that; the graph that holds it has the refusal that
+        # matters (nothing under it matches, or the name is not there), so a scope in one language is judged by it
+        held = [n for n in named if not n[3].lstrip().startswith(NOT_HELD)]
+        if held: named = held
 
     if '--json' in args and answered:
         objs = []
@@ -107,13 +114,44 @@ def main(argv):
 
     show = answered or named
     if not answered and len({(n[3], n[4]) for n in named}) == 1:            # the same refusal from every graph: once
-        print(f"══ {', '.join(n[0] for n in named)} graphs ══"); sys.stdout.write(named[0][3]); sys.stderr.write(named[0][4])
+        print(f"══ {', '.join(n[0] for n in named)} graph{'s' if len(named) > 1 else ''} ══"); sys.stdout.write(named[0][3]); sys.stderr.write(named[0][4])
         return named[0][2]
     for i, (lang, is_main, rc, out, err) in enumerate(show):
         if len(show) > 1 or not is_main:
             print(('' if i == 0 else '\n') + f"══ {lang} graph ══" + ('' if is_main else f"   (.axiomcode/lang/{lang})"), flush=True)
         sys.stdout.write(out); sys.stdout.flush(); sys.stderr.write(err); sys.stderr.flush()
+    if answered and others:
+        print(f"\nthe --from name is also declared in the {', '.join(others)} graph(s), where its flow reaches "
+              "half as many of the task's words or fewer; --lang <language> asks one of them")
     return 0 if answered else named[0][2]
+
+
+LANDING = 'axiomcode-from-landing: '
+NOT_HELD = 'no indexed file has '          # ax_contract.require_scope: the --in path is not in this graph at all
+
+
+def by_landing(named):
+    """(the answers, the languages left out) — `context --from <name>` in every graph, the language the task lands in first.
+
+    A common name (main, run, init) is declared in every language's graph, and each graph starts a flow there. Headed
+    main-graph-first, the answer a reader met first was a flow in another language than the one the task was about.
+    Each graph says how many of the task's words land in the files its flow reaches; the graphs where most land come
+    first, and a graph where half as many or fewer land is left out and named, when some other graph does have them.
+    """
+    land = {}
+    for i, n in enumerate(named):
+        err = n[4].splitlines(keepends=True)
+        for l in err:
+            if l.startswith(LANDING):
+                try: land[i] = int(l[len(LANDING):])
+                except ValueError: pass
+        named[i] = (*n[:4], ''.join(l for l in err if not l.startswith(LANDING)))
+    if not land or not any(land.get(i, 0) > 0 and n[2] == 0 for i, n in enumerate(named)): return named, []
+    # generic words (run, start) land a little in every language: keep the graphs whose flow reaches more than half
+    # as many of the task's words as the best one's, as from_starts does between the declarations of one graph
+    best = max(land.get(i, 0) for i, n in enumerate(named) if n[2] == 0)
+    keep = sorted((i for i, n in enumerate(named) if 2 * land.get(i, 0) > best or n[2] != 0), key=lambda i: -land.get(i, 0))
+    return [named[i] for i in keep], [n[0] for i, n in enumerate(named) if i not in keep]
 
 
 if __name__ == '__main__':

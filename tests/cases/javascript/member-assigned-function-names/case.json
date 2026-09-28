@@ -1,0 +1,48 @@
+{
+ "lang": "javascript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a function assigned to exports.x is named x: `impact getUser` answered `type getUser (not declared here)` because the function was `<function-expression>`",
+   "run": ["impact", "getUser"],
+   "want": ["change: getUser   [method]", "[resolved] run   use.js:4"],
+   "avoid": ["not declared here", "<function-expression>"]
+  },
+  {
+   "why": "an arrow assigned to exports.x, and a function to module.exports.x, are named for the property too",
+   "run": ["impact", "postUser", "slugify"],
+   "want": ["change: postUser   [method]", "change: slugify   [method]", "calls it (2 sites)   [for postUser, slugify]"],
+   "avoid": ["not declared here", "<arrow>"]
+  },
+  {
+   "why": "an arrow that is the value of an object-literal key is named for the key and owned by the variable the literal initialises",
+   "run": ["impact", "Articles.all"],
+   "want": ["change: Articles.all   [method]", "[resolved] run   use.js:7"],
+   "avoid": ["nothing named"]
+  },
+  {
+   "why": "the bare key finds it as well, and a function expression under a key is named the same way",
+   "run": ["impact", "Articles.get"],
+   "want": ["change: Articles.get   [method]", "[resolved] run   use.js:8"],
+   "avoid": ["nothing named"]
+  },
+  {
+   "why": "obj.x = function is named x and owned by obj",
+   "run": ["impact", "titleCase"],
+   "want": ["change: helpers.titleCase   [method]"],
+   "avoid": ["not declared here"]
+  },
+  {
+   "why": "CONTROL: a named function expression keeps its own name, not the property's",
+   "run": ["impact", "realName"],
+   "want": ["change: realName   [method]"],
+   "avoid": ["alias"]
+  },
+  {
+   "why": "CONTROL: an arrow passed as an argument has no property to take a name from and stays a placeholder; method shorthand keeps its name",
+   "run": ["impact", "api.js:40", "del"],
+   "want": ["<arrow>", "del"],
+   "avoid": ["Articles.del", "map"]
+  }
+ ]
+}

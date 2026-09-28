@@ -1,0 +1,11 @@
+# #1545: a javadoc committed at docs/apidocs/ in a repository with no package.json. The project scan found its loose
+# scripts and registered the javadoc directory itself as a JavaScript project root, and a walk never tests its own
+# root for being a build's output, so the pruning in the walks never saw it. Neither it nor a directory under it
+# (script-dir/, where javadoc puts jQuery) may be a project:
+- javascript	module	docs/apidocs/script.js
+- javascript	module	docs/apidocs/search.js
+- javascript	module	docs/apidocs/script-dir/jquery.min.js
+# the near-miss controls, each a loose-script directory that is NOT a javadoc: one with an index.html and no
+# element-list or package-list, one with a package-list and no index.html:
++ javascript	module	docs/demo/demo.js
++ javascript	module	docs/notes/notes.js

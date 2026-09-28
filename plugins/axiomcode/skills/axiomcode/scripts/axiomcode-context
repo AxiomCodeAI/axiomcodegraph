@@ -35,7 +35,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ax_edges
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, best_scope, budgeted, BOUND,
-                         dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic, code_terms)
+                         dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic, code_terms,
+                         stem)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, die = P.G, P.die
@@ -99,6 +100,9 @@ def score_symbols(g, terms, use_path=True):
                 # of how a bug report refers to an action. Scored like a prefix match, scaled the same way.
                 best = max((len(x) / len(t) for x in toks if t.startswith(x) and len(x) >= 4), default=0.0)
                 total += PREFIX * w * min(best, 1.0); matched.append(t)
+            elif len(t) >= 5 and any(len(x) >= 4 and stem(x) == stem(t) for x in toks):
+                # the same word inflected the other way: `validation` for `validator`, `ordered` for `orders` (#1493)
+                total += PREFIX * w * 0.8; matched.append(t)
             elif t in nm or t in disp: total += SUBSTR * w; matched.append(t)
             elif not use_path: continue
             elif t in ptoks: total += PATH_TOKEN * w; matched.append(t)      # the package, spelled out
@@ -109,6 +113,51 @@ def score_symbols(g, terms, use_path=True):
         if s.get('is_test') or TESTY.search(s.get('file') or ''): total *= TEST_PENALTY
         scored[sid] = (total, sorted(set(matched)))
     return scored
+
+
+def landing(g, scored):
+    """({file: its best symbol score}, {file: the task terms its symbols match}) — where the task's words land, per file"""
+    best, words = collections.defaultdict(float), collections.defaultdict(set)
+    for sid, (sc, matched) in scored.items():
+        f = (g.sym.get(sid) or {}).get('file')
+        if not f: continue
+        best[f] = max(best[f], sc); words[f].update(matched)
+    return best, words
+
+
+def flow_words(g, ids, landed, depth=4):
+    """{id: the task terms that land in a file its flow reaches} — resolved calls only, to the depth a flow is shown"""
+    _best, words = landed
+    out = collections.defaultdict(set)
+    for r in g.q("SELECT DISTINCT caller_id c, callee_method_id m FROM call_edges WHERE callee_method_id IS NOT NULL"):
+        if r['m'] != r['c']: out[r['c']].add(r['m'])
+    res = {}
+    for x in ids:
+        seen, front = {x}, [x]
+        for _d in range(depth):
+            front = [y for f in front for y in out.get(f, ()) if y not in seen and not seen.add(y)]
+        res[x] = set().union(*(words.get((g.sym.get(y) or {}).get('file'), ()) for y in seen))
+    return res
+
+
+def from_starts(g, ids, landed, scopes=()):
+    """The declarations a `--from <name>` starts the flow at, of the `ids` that name resolves to.
+
+    A common name (main, run, init, handler) is declared in every tool, fixture and test of a repository: starting at
+    all of them printed a page of unrelated flows, the one the task was about somewhere in it or cut off. A scope the
+    caller gave is knowledge and keeps only what is under it — none under it is none. Without one, the task's own
+    words choose: the declarations whose FLOW reaches the files those words land in, most words first. Only the file a
+    declaration sits in was not enough: `tools/pkg/cli.py main` and `tools/gen/make.py main` both matched "tool" by
+    their path, while only the first calls into the code the task named. When the words land in no flow, every
+    declaration stays.
+    """
+    if scopes:
+        ids = [x for x in ids if any(sc in (g.sym[x].get('file') or '') for sc in scopes)]
+    if len(ids) < 2: return ids
+    reach = flow_words(g, ids, landed)
+    hit = sorted((x for x in ids if reach[x]), key=lambda x: (-len(reach[x]), bool(g.sym[x].get('is_test'))))
+    # a word as common as the name lands a little everywhere: keep the flows that reach more than half the best's words
+    return [x for x in hit if 2 * len(reach[x]) > len(reach[hit[0]])] if hit else ids
 
 
 # How many of a directory's best symbols count toward its score. Swept over the same 18 tasks: 1 scores
@@ -160,22 +209,362 @@ def rank_dirs(g, terms, depth=3, topk=DIR_EVIDENCE):
     return ranked
 
 
-def pick_seeds(g, scored, terms, want):
-    """The best symbol for each term, then the best overall — so a task naming three concepts enters the
-    graph at three places instead of piling every seed onto whichever word happened to score highest."""
+def pick_seeds(g, scored, terms, want, named=()):
+    """The entry points, in four passes, each only filling what the one before left:
+
+      1. what the question NAMES: a declaration it spells out (`IRouter.RouteAsync`), a route it quotes
+         (`GET /api/widgets`). Those are not guesses from words; they are the subject.
+      2. the symbols that match SEVERAL of the task's terms at once, best first, each taken only when it covers a term
+         no earlier seed covered, plus up to FLOW_FAN siblings matching the same terms (the implementations of one
+         interface method). "Who calls IRouter.RouteAsync in the library code" is ONE subject, and a seed per word gave
+         `code`, `tests` and `call` a seed each while an implementation of the subject was crowded out (#1455).
+      3. the best symbol for each term still uncovered, as before, so a task naming unrelated concepts still enters the
+         graph at each of them;
+      4. the best overall.
+    """
+    seeds, seen, covered = [], set(), set()
+    def take(sid, why, sc):
+        if sid in seen or len(seeds) >= want: return False
+        seen.add(sid); seeds.append((sid, why, sc)); covered.update(scored.get(sid, (0, []))[1]); return True
+    for sid, why in named:
+        take(sid, why, scored.get(sid, (0, []))[0])
+    ranked = sorted(scored.items(), key=lambda kv: -kv[1][0])
+    floor = 0.05 * ranked[0][1][0] if ranked else 0
+    multi = [(sid, sc, m) for sid, (sc, m) in ranked if len(m) >= 2 and sc >= floor]
+    multi.sort(key=lambda r: (-len(r[2]), -r[1]))
+    for i, (sid, sc, m) in enumerate(multi):
+        if len(seeds) >= want: break
+        if not set(m) - covered: continue
+        take(sid, "matches '" + "' + '".join(m) + "'", sc)
+        sib = 0
+        for sid2, sc2, m2 in multi[i + 1:]:
+            if sib >= FLOW_FAN: break
+            if m2 == m and sc2 >= 0.5 * sc and take(sid2, "matches '" + "' + '".join(m2) + "'", sc2): sib += 1
     best = {}
     for sid, (sc, matched) in scored.items():
         for t in matched:
             cur = best.get(t)
             if cur is None or sc > cur[0]: best[t] = (sc, sid)
-    seeds, seen = [], set()
     for t in terms:
-        if t in best and best[t][1] not in seen:
-            seen.add(best[t][1]); seeds.append((best[t][1], t, best[t][0]))
-    for sid, (sc, _m) in sorted(scored.items(), key=lambda kv: -kv[1][0]):
+        if t in best and t not in covered: take(best[t][1], f"matches '{t}'", best[t][0])
+    for sid, (sc, _m) in ranked:
         if len(seeds) >= want: break
-        if sid not in seen: seen.add(sid); seeds.append((sid, '', sc))
+        take(sid, '', sc)
     return seeds[:want]
+
+
+# ── what the question NAMES, rather than the words it uses ──────────────────────────────────────────────────────────
+QUALIFIED = re.compile(r'(?<![\w$.-])([A-Za-z_$][\w$]*(?:(?:\.|::|#)[A-Za-z_$][\w$]*)+)')
+IDENT_SHAPE = re.compile(r'^(?:[a-z]+[A-Z]\w*|[A-Z][a-z0-9]+[A-Z]\w*|[A-Z]{2,}[a-z]\w*|[A-Za-z]\w*_\w+)$')
+NAMED_FAN = 6          # a name declared in more places than this is a word, not a subject
+
+
+def named_declarations(g, text):
+    """[(symbol id, why)] for every declaration the question spells out exactly: a qualified name (`IRouter.RouteAsync`,
+    `demo.order.OrderMapper`, `Foo::bar`) or an identifier-shaped word (`RouteAsync`, `loadByNumber`, `find_order`).
+    Plain English words never qualify, however many names contain them: that is what the scored terms are for."""
+    want = []
+    for m in QUALIFIED.finditer(text or ''):
+        want.append(re.sub(r'::|#', '.', m.group(1)).rstrip('.'))
+    for raw in re.split(r'[^\w$]+', text or ''):
+        if raw and IDENT_SHAPE.match(raw): want.append(raw)
+    if not want: return []
+    by_disp, by_name, by_qual = (collections.defaultdict(list) for _ in range(3))
+    for sid, s in g.sym.items():
+        if (s.get('file') or '').startswith('<') or is_synthetic(s.get('name')): continue
+        if s.get('display'): by_disp[s['display']].append(sid)
+        if s.get('name'): by_name[s['name']].append(sid)
+        if s.get('qualified_name'): by_qual[s['qualified_name']].append(sid)
+    out, seen = [], set()
+    for w in dict.fromkeys(want):
+        hits = by_disp.get(w) or by_qual.get(w) or []
+        if not hits and '.' in w:
+            # `order.OrderMapper.findByNumber`: the longest dotted suffix that is somebody's display name
+            parts = w.split('.')
+            for k in range(1, len(parts) - 1):
+                hits = by_disp.get('.'.join(parts[k:])) or []
+                if hits: break
+        if not hits and '.' not in w: hits = by_name.get(w, [])
+        if not hits or len(hits) > NAMED_FAN: continue
+        hits = sorted(hits, key=lambda i: (bool(g.sym[i].get('is_test')), g.sym[i].get('file') or '', g.sym[i].get('line') or 0))
+        for sid in hits:
+            if sid not in seen: seen.add(sid); out.append((sid, f"named in the task ({w})"))
+    return out
+
+
+ROUTE = re.compile(r'(?<![\w.])(/?[A-Za-z0-9_{}:*-]+(?:/[A-Za-z0-9_{}:*.-]+)+/?|/[A-Za-z0-9_{}:-]{2,})(?![\w/])')
+FILE_EXT = re.compile(r'\.[A-Za-z0-9]{1,6}$')
+
+
+def _route_parts(r):
+    r = (r or '').strip().strip('"\'`').lower()
+    r = re.sub(r'^[a-z]+://[^/]+', '', r).split('?')[0]
+    return [('*' if (p.startswith('{') or p.startswith(':') or p == '*') else p) for p in r.strip('/').split('/') if p]
+
+
+def _route_eq(a, b):
+    return len(a) == len(b) and all(x == y or '*' in (x, y) for x, y in zip(a, b))
+
+
+def route_seeds(g, text):
+    """[(symbol id, why)] for a route the question quotes (`GET /api/widgets`, `/orders/{id}`), at the declaration the
+    graph records as serving it: a remote-edge row, a route attribute or annotation, or the innermost callable around
+    the literal that registers it (`app.MapGet("api/widgets", ...)`). Seeding by identifier alone dropped the route's
+    words when no declaration happened to be named after them, and the handler was never reached (#1494)."""
+    asked = []
+    for m in ROUTE.finditer(text or ''):
+        tok = m.group(1)
+        if FILE_EXT.search(tok.rstrip('/')) and not tok.startswith('/'): continue      # a file path, not a route
+        parts = _route_parts(tok)
+        if parts and parts not in asked: asked.append(parts)
+    if not asked: return []
+    hits = []                                   # (symbol id, route as written)
+    def serve(mid, route):
+        if mid in g.sym: hits.append((mid, route))
+    for tbl in ('ext_remote_unserved', 'ext_remote_unsent'):
+        if g.has(tbl):
+            for r in g.q(f"SELECT c0, c2 FROM {tbl}"):
+                if any(_route_eq(_route_parts(r['c2']), a) for a in asked): serve(r['c0'], r['c2'])
+    # literals: a route string in a decoration (@GetMapping("/x")) or in the call that registers it (MapGet("x", ...)).
+    # A class-level prefix (@RequestMapping("/api") over @GetMapping("/widgets")) is met by accepting a suffix match
+    # when the rest of the asked route is itself a literal in the same file.
+    lits = []
+    if g.has('decorations'):
+        for r in g.q("SELECT owner_id, text, file, line FROM decorations WHERE text LIKE '%/%' OR text LIKE '%\"%'"):
+            for v in re.findall(r'"([^"]*)"', r['text'] or ''): lits.append((v, r['file'], r['line'], r['owner_id']))
+    if g.has('literals'):
+        for r in g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40"):
+            lits.append(((r['value'] or '').strip('"'), r['file'], r['line'], None))
+    by_file = collections.defaultdict(set)
+    for v, f, _l, _o in lits: by_file[f].add(tuple(_route_parts(v)))
+    spans = collections.defaultdict(list)
+    for sid, s in g.sym.items():
+        if s.get('method_id') and s.get('line') and not (s.get('file') or '').startswith('<'):
+            spans[s['file']].append((s['line'], s.get('end_line') or s['line'], sid))
+    for v, f, l, owner in lits:
+        vp = _route_parts(v)
+        if not vp or ('/' not in v and not owner): continue       # a bare word in a string is not a route
+        ok = any(_route_eq(vp, a) for a in asked) or any(
+            len(a) > len(vp) and _route_eq(vp, a[len(a) - len(vp):]) and tuple(a[:len(a) - len(vp)]) in by_file[f] for a in asked)
+        if not ok: continue
+        if owner and owner in g.sym: serve(owner, v); continue
+        inner = sorted((e - b, sid) for b, e, sid in spans.get(f, ()) if b <= (l or 0) <= e)
+        if inner: serve(inner[0][1], v)
+    out, seen = [], set()
+    for sid, route in hits:
+        if sid not in seen: seen.add(sid); out.append((sid, f"serves the route {route.strip()}"))
+    return out[:NAMED_FAN]
+
+
+# ── what the question names that no graph here can see (#1571, #1603) ─────────────────────────────────────────────
+# A question about `run-rules.sh`, a Soufflé `.dl` file or the Python hooks of a TypeScript repository was answered
+# from whatever the rest of its words matched, and nothing said the file it was about is outside every graph. The
+# reader then trusted an answer about the wrong code. Saying so first costs one line and sends it straight to the file.
+LANG_EXT = {'python': ('.py', '.pyi'), 'java': ('.java',), 'csharp': ('.cs',), 'typescript': ('.ts', '.tsx', '.mts', '.cts'),
+            'javascript': ('.js', '.jsx', '.mjs', '.cjs'), 'kotlin': ('.kt', '.kts'), 'golang': ('.go',), 'rust': ('.rs',),
+            'ruby': ('.rb',), 'scala': ('.scala',), 'php': ('.php',), 'shell': ('.sh', '.bash'), 'datalog': ('.dl',),
+            'swift': ('.swift',), 'cpp': ('.cpp', '.cc', '.hpp', '.h'), 'sql': ('.sql',)}
+LANG_WORD = {'python': 'python', 'java': 'java', 'csharp': 'csharp', 'typescript': 'typescript', 'javascript': 'javascript',
+             'kotlin': 'kotlin', 'golang': 'golang', 'rust': 'rust', 'ruby': 'ruby', 'scala': 'scala', 'php': 'php',
+             'bash': 'shell', 'shell': 'shell', 'datalog': 'datalog', 'souffle': 'datalog', 'swift': 'swift'}
+ENGINE_LANGS = {'python', 'java', 'csharp', 'typescript', 'javascript'}
+COVERS = {'typescript': {'typescript', 'javascript'}}           # the TypeScript front end reads JavaScript too
+EXT_LANG = {e: l for l, es in LANG_EXT.items() for e in es}
+FILE_TOKEN = re.compile(r'(?<![\w/.$-])((?:[\w.-]+/)*[\w$-][\w.$-]*\.([a-z][a-z0-9]{0,5}))(?![\w/(])')
+DIR_TOKEN = re.compile(r'(?<![\w/.-])((?:[\w.-]+/)+[\w.-]+)/?(?![\w(])')
+TEXT_EXT = {'xml', 'properties', 'yml', 'yaml', 'json', 'sql', 'toml', 'ini', 'cfg', 'conf', 'env', 'html', 'htm', 'ftl', 'vm',
+            'mustache', 'hbs', 'jinja', 'j2', 'tmpl', 'gradle', 'sh', 'bash', 'dl', 'proto', 'graphql', 'gql', 'md', 'txt'}
+WALK_CAP = 60000
+
+
+def _walk(repo):
+    """every file under the repository, relative, pruned the way the refresher prunes -- read once per call"""
+    import ax_fresh
+    out = []
+    for root, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in ax_fresh.PRUNE_ALL and not d.startswith('.')]
+        rel = os.path.relpath(root, repo).replace(os.sep, '/')
+        for fn in files:
+            out.append(fn if rel == '.' else rel + '/' + fn)
+        if len(out) > WALK_CAP: break
+    return out
+
+
+def graph_langs(g):
+    """{language: graph dir or ''} for every graph of this repository, and the language THIS process reads"""
+    import ax_langs
+    main = ax_langs.main_language(g.repo)
+    langs = {(l or main): d for l, d in ax_langs.graphs(g.repo)}
+    return langs, (os.environ.get('AXIOMCODE_GRAPH_LANG') or main)
+
+
+def indexed_files(g, langs):
+    """every file some graph of this repository holds"""
+    import sqlite3
+    held = {(sy.get('file') or '') for sy in g.all_sym.values()}
+    for l, d in langs.items():
+        if not d: continue
+        try:
+            con = sqlite3.connect(f"file:{os.path.join(d, 'out', 'graph.sqlite')}?mode=ro", uri=True)
+            held |= {r[0] for r in con.execute("SELECT DISTINCT file FROM symbols")}
+            con.close()
+        except Exception: pass
+    return {f for f in held if f and not f.startswith('<')}
+
+
+def named_languages(text):
+    """the languages a question names: a word (`python`, `C#`) or an extension (`.py files`, `*.cs`)"""
+    out = []
+    low = (text or '').lower()
+    for w in re.findall(r'[a-z#+]+', low):
+        l = LANG_WORD.get('csharp' if w in ('c#', 'csharp') else w)
+        if l and l not in out: out.append(l)
+    for e in re.findall(r'(?<![\w/-])\*?(\.[a-z]{1,5})\s+(?:files?|scripts?|modules?|sources?)\b', low):
+        l = EXT_LANG.get(e)
+        if l and l not in out: out.append(l)
+    return out
+
+
+def unseen(g, text, scopes=()):
+    """-> (lines to print first, {language named that has a graph}, [text-only directories among scopes])"""
+    langs, mine = graph_langs(g)
+    covered = {x for l in langs for x in COVERS.get(l, {l})}
+    asked_langs = named_languages(text)
+    with_graph = {l for l in asked_langs if l in covered}
+    files_tok = [(m.group(1), m.group(2)) for m in FILE_TOKEN.finditer(text or '')]
+    files_tok = [(t, e) for t, e in files_tok if ('/' in t or '-' in t or '_' in t or '.' + e in EXT_LANG or e in TEXT_EXT)
+                 and not re.fullmatch(r'[\d.]+', t)]
+    dirs_tok = [m.group(1) for m in DIR_TOKEN.finditer(text or '') if not FILE_EXT.search(m.group(1))]
+    need_walk = files_tok or dirs_tok or scopes or [l for l in asked_langs if l not in covered]
+    lines, text_dirs = [], []
+    if not need_walk: return lines, with_graph, text_dirs, langs, mine
+    tree = _walk(g.repo)
+    held = indexed_files(g, langs)
+    def why(path):
+        l = EXT_LANG.get(os.path.splitext(path)[1].lower())
+        if l and l in covered: return f"not in the {l} graph"
+        if l: return f"{l} has no graph here"
+        return "not source any graph here reads"
+    seen = set()
+    for tok, _e in files_tok:
+        t = tok.lstrip('./')
+        found = [f for f in tree if f == t or f.endswith('/' + t)]
+        if not found or any(f in held for f in found): continue
+        for f in found[:3]:
+            if f in seen: continue
+            seen.add(f); lines.append(f"not indexed: {f} ({why(f)}) -- this answer cannot see it; grep it directly")
+        if len(found) > 3: lines.append(f"    … and {len(found) - 3} more file(s) named {t}")
+    for d in list(dict.fromkeys(list(dirs_tok) + list(scopes))):
+        d = d.strip('/').lstrip('./')
+        if not d or d in seen or not os.path.isdir(os.path.join(g.repo, d)): continue
+        under = [f for f in tree if f.startswith(d + '/')]
+        if not under or any(f in held for f in under): continue
+        seen.add(d); text_dirs.append(d)
+        kinds = collections.Counter(os.path.splitext(f)[1].lower() or '(none)' for f in under).most_common(3)
+        lines.append(f"not indexed: {d}/ ({len(under)} file(s): {', '.join(k for k, _n in kinds)}; not source any graph here reads)"
+                     f" -- this answer cannot see it; grep it directly")
+    for l in asked_langs:
+        if l in covered: continue
+        fs = [f for f in tree if os.path.splitext(f)[1].lower() in LANG_EXT.get(l, ())]
+        if not fs: continue
+        hint = f"; `axiomcode index --lang {l}` builds one" if l in ENGINE_LANGS else ""
+        lines.append(f"not indexed: {len(fs)} {'/'.join(LANG_EXT[l])} file(s) (e.g. {', '.join(sorted(fs, key=lambda f: (f.count('/'), f))[:3])}; "
+                     f"{l} has no graph here{hint}) -- this answer cannot see them; grep them directly")
+    return lines, with_graph, text_dirs, langs, mine
+
+
+# ── the text files bound to what the answer found (#1382) ─────────────────────────────────────────────────────────
+# `impact` has long listed a mapper XML, a properties file or a template that names a method; `context` never looked,
+# so "which SQL runs when an order is loaded" answered with the Java interface and not the file holding the SQL.
+NONSOURCE_ASK = re.compile(r'\b(sql|quer(y|ies)|statements?|mapper|mappings?|xml|ya?ml|propert(y|ies)|config(uration|ured)?|'
+                           r'settings?|templates?|views?|html|json|migrations?|schema|scripts?|toml|ini|env|bindings?)\b', re.I)
+BINDINGS_SHOWN = 6
+_NS = {}
+
+
+def nonsource(g):
+    """the non-source scan impact uses, cached per graph (ax_nonsource.py), with impact's own rules for what is source"""
+    if 'ns' not in _NS:
+        import ax_nonsource
+        spec = importlib.util.spec_from_loader('aximpact', importlib.machinery.SourceFileLoader('aximpact', os.path.join(HERE, 'axiomcode-impact')))
+        I = importlib.util.module_from_spec(spec); spec.loader.exec_module(I)
+        held = {sy['file'] for sy in g.sym.values() if sy.get('file')}
+        _NS['ns'] = ax_nonsource.NonSource(g.repo, g.facts, held, I.Impact.SKIP_DIR, I.Impact.SOURCE_EXT | I.Impact.PROSE_EXT)
+    return _NS['ns']
+
+
+def text_term_hits(g, dirs, terms, cap=200):
+    """[(file, first line, [terms])] -- files under `dirs` whose text uses the task's words, most words first"""
+    pats = {t: re.compile(r'(?i)(?<![a-z0-9])' + re.escape(t)) for t in terms if len(t) >= 3}
+    out = []
+    for d in dirs:
+        for root, _ds, fs in os.walk(os.path.join(g.repo, d)):
+            for fn in fs:
+                rel = os.path.relpath(os.path.join(root, fn), g.repo).replace(os.sep, '/')
+                ln = source_lines(g.repo, rel)
+                got, first = [], 0
+                for t, pt in pats.items():
+                    k = next((i for i, x in enumerate(ln, 1) if pt.search(x)), 0)
+                    if k: got.append(t); first = min(first or k, k)
+                if got: out.append((rel, first, got))
+                if len(out) >= cap: break
+    return sorted(out, key=lambda r: (-len(r[2]), r[0]))
+
+
+ASK_EXT = [(re.compile(r'\b(sql|quer(y|ies)|statements?|mapper|mappings?|migrations?|schema)\b', re.I), ('.xml', '.sql')),
+           (re.compile(r'\b(config(uration|ured)?|propert(y|ies)|settings?|ya?ml|toml|ini|env)\b', re.I),
+            ('.properties', '.yml', '.yaml', '.toml', '.ini', '.conf', '.cfg', '.env')),
+           (re.compile(r'\b(templates?|views?|html)\b', re.I), ('.html', '.htm', '.ftl', '.vm', '.mustache', '.hbs', '.jinja', '.j2', '.tmpl')),
+           (re.compile(r'\bxml\b', re.I), ('.xml',)), (re.compile(r'\bjson\b', re.I), ('.json',))]
+
+
+def asked_exts(text):
+    """the file kinds a question asks about: SQL lives in mapper XML or .sql, configuration in properties or YAML"""
+    return tuple(e for rx, es in ASK_EXT if rx.search(text or '') for e in es)
+
+
+def text_bindings(g, sids, under=(), want_ext=()):
+    """[(file, line, declaration, name written there)] -- a non-source file that writes the name of one of `sids`
+    as a whole word. A mapper XML with a namespace binds only the type that namespace names (a statement id repeated
+    in another mapper's XML is not this method's SQL)."""
+    want = collections.defaultdict(set)          # name -> {sid}
+    decl_count = collections.Counter(sy.get('name') for sy in g.sym.values() if not (sy.get('file') or '').startswith('<'))
+    for sid in sids:
+        sy = g.sym.get(sid) or {}
+        nm = sy.get('name') or ''
+        if len(nm) < 4 or nm.startswith('<') or nm in CONTAINER: continue
+        want[nm].add(sid)
+    # a name declared in many places (`selectByPrimaryKey` on every generated mapper) is kept only where a mapper's
+    # namespace proves which declaration it binds; anywhere else it says nothing about THIS one
+    common = {nm for nm in want if decl_count[nm] > GAP_DECLS}
+    if not want: return []
+    try: hits = nonsource(g).hits(list(want))
+    except Exception: return []
+    ns_of = {}
+    out, seen = [], set()
+    for nm, f, line in hits:
+        if under and not any(f.startswith(d.rstrip('/') + '/') for d in under): continue
+        if f.endswith('.xml'):
+            if f not in ns_of:
+                ln = source_lines(g.repo, f)
+                m = re.search(r'\bnamespace\s*=\s*"([^"]+)"', '\n'.join(ln[:40]))
+                ns_of[f] = m.group(1) if m else None
+            ns = ns_of[f]
+            owner = lambda x: ((g.sym.get(x) or {}).get('display') or '').rsplit('.', 1)[0].split('.')[-1]
+            cands = [x for x in sorted(want[nm]) if not ns or ns == owner(x) or ns.endswith('.' + owner(x))]
+            if not cands: continue
+            if nm in common and not ns: continue
+        elif nm in common: continue
+        else: cands = sorted(want[nm])
+        key = (f, nm)
+        if key in seen: continue
+        seen.add(key)
+        sid = cands[0]
+        # first the files that PROVE the binding (a mapper whose namespace is the declaring type), then the kind of file
+        # the question asks about, then the rest; a JSON fixture that happens to spell the name is last, not first
+        rank = (0 if f.endswith('.xml') and ns_of.get(f) else 1, 0 if f.endswith(tuple(want_ext) or ('\0',)) else 1, f, line)
+        out.append((rank, (f, line, g.disp(sid), nm)))
+    return [r for _k, r in sorted(out)]
 
 
 _SRC = {}
@@ -220,6 +609,50 @@ def explain_intent(task):
     return bool(EXPLAIN.search(task_text(task).strip().split('\n')[0]))
 
 
+# A library call is marked as where the flow LEAVES the graph only when its name says it hands work on: sending,
+# publishing, dispatching, persisting, executing, calling out. `length()` or `toString()` in a leaf is not an exit, and
+# marking every library call would bury the few that are.
+EXIT_WORDS = frozenset('send publish emit dispatch post put patch execute invoke persist save merge enqueue submit produce '
+                       'exchange schedule notify fire raise request broadcast forward redirect call apply handle process'.split())
+
+
+def DISPATCH(name):
+    toks = subtokens(name)
+    return bool(toks) and (toks[0] in EXIT_WORDS or any(t in ('send', 'publish', 'emit', 'dispatch', 'persist', 'enqueue')
+                                                        for t in toks) or (toks[-1] == 'async' and len(toks) > 1))
+
+
+PY_DOC = re.compile(r'^[rbuRBU]?("""|\'\'\')')
+
+
+def bodiless(g, x):
+    """True when the declaration has no code to follow: an interface or abstract member, a signature. Read from the
+    source span, the same for every language: no `{` and no `=>` after the signature, or a Python body that is only
+    `...`, `pass` or `raise NotImplementedError` (after a docstring)."""
+    sy = g.sym.get(x) or {}
+    f, a = sy.get('file') or '', sy.get('line')
+    nm = sy.get('name') or ''
+    if not f or f.startswith('<') or not a or not sy.get('method_id') or not nm or nm.startswith('<'): return False
+    b = sy.get('end_line') or a
+    body = source_lines(g.repo, f)[a - 1:b]
+    if not body: return False
+    # the span can start on the line that opens the enclosing type (`interface ISender { Task Send(object r); }`), so
+    # only what follows the member's own name counts
+    k = body[0].find(nm + '(') if nm + '(' in body[0] else body[0].find(nm)
+    if k > 0: body = [body[0][k:]] + body[1:]
+    if f.endswith(('.py', '.pyi')):
+        rest = [l.strip() for l in body[1:] if l.strip() and not l.strip().startswith('#')]
+        if rest and PY_DOC.match(rest[0]):
+            q = PY_DOC.match(rest[0]).group(1)
+            if rest[0].count(q) >= 2: rest = rest[1:]
+            else:
+                k = next((i for i, l in enumerate(rest[1:], 1) if q in l), len(rest) - 1)
+                rest = rest[k + 1:]
+        return bool(rest) and all(l in ('...', 'pass') or l.startswith('raise NotImplementedError') for l in rest)
+    text = re.sub(r'//[^\n]*|/\*.*?\*/', '', '\n'.join(body), flags=re.S)
+    return '{' not in text and '=>' not in text and text.rstrip().rstrip('}').rstrip().endswith(';')
+
+
 FLOW_FAN = 3               # a `one of a set` site with more candidates than this is not a step of anything
 GAP_DECLS = 8              # an unresolved name declared in more places than this says nothing about which
 CONTAINER = frozenset('items keys values get pop popitem append extend add update remove discard insert clear copy '
@@ -251,7 +684,13 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
                   FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id""")
     for r in rows:
         if r['m']: fan[r['sid']] += 1
+    exits = collections.defaultdict(list)          # caller -> [(line, library call name)] that hand the flow to a library
     for r in rows:
+        lib = (r['t'] or '').startswith('boundary_lib') or (r['m'] in g.sym and (g.sym[r['m']].get('file') or '') == '<library>')
+        if lib:
+            nm = (r['n'] or '').split(':')[-1].rsplit('.', 1)[-1] or (g.sym.get(r['m']) or {}).get('name') or ''
+            if nm and DISPATCH(nm): exits[r['c']].append((r['l'] or 0, nm, 'library call, target not followed'))
+            continue
         if r['m'] and r['m'] in g.sym and r['m'] != r['c']:
             sy = g.sym[r['m']]
             if (sy.get('file') or '').startswith('<') or sy.get('is_test'): continue
@@ -274,6 +713,9 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     declared = collections.Counter((sy.get('name') or '') for sy in g.sym.values()
                                    if sy.get('method_id') and not (sy.get('file') or '').startswith('<') and not sy.get('is_test'))
     for x in list(gaps):
+        # a call the graph could not resolve to a name declared NOWHERE here is a library the index does not hold (a
+        # mediator's Send with no package reference): the flow leaves the graph there too
+        exits[x] += [(l, n_, 'unresolved, declared nowhere in this graph') for l, n_ in gaps[x] if not declared[n_] and DISPATCH(n_)]
         gaps[x] = sorted({(l, n_) for l, n_ in gaps[x] if 0 < declared[n_] <= GAP_DECLS and n_ not in CONTAINER})
 
     # WHICH steps are shown is chosen breadth-first: the entry point's own calls are the outline of the mechanism and
@@ -304,7 +746,20 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
             walk(y, depth + 1, (l, t, f))
     for r in roots:
         walk(r, 0, None)
-    return roots, steps, gaps
+    # where the flow LEAVES the graph: a library call that hands the work on (publishEvent, Send, persist, a client
+    # stub's *Async), and a step with no body to continue from (an interface or abstract method, a mapper whose SQL is
+    # in XML). Unmarked, the flow just ended there, and the reader took the end of the printout for the end of the
+    # mechanism; in 75% of recorded sessions the next move was a grep for what came after.
+    marks = {}
+    for x in {x for _d, x, _v, again in steps if again is None}:
+        m = [f"leaves the graph: {nm}() L{l} ({why})" for l, nm, why in sorted(set(exits.get(x, ())))[:2]]
+        if not any(y in keep for _l, y, _t, _f in out.get(x, ())) and not gaps.get(x) and bodiless(g, x):
+            bound = text_bindings(g, [x], want_ext=('.xml', '.sql'))[:1]      # the best-proven one: a mapper of this type
+            m.append("no body in the graph (interface/abstract): the flow cannot continue from here"
+                     + ("; bound as text in " + ', '.join(f"{f}:{l}" for f, l, _d, _n in bound) if bound else
+                        f"; `impact {g.disp(x)}` lists what implements it"))
+        if m: marks[x] = m
+    return roots, steps, gaps, marks
 
 
 # with --source: fewer steps, each with its code, sized to ONE page. The flow is a reading order; split across pages,
@@ -312,7 +767,7 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
 FLOW_SOURCE_STEPS, FLOW_SOURCE_LINES, FLOW_SOURCE_CHARS = 16, 8, 3800   # code for the earliest steps until the budget, then names only
 
 
-def print_flow(g, roots, steps, gaps, chosen, show_source=False):
+def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
     if not steps: return False
     print("\nhow it runs — the call flow from " + ("where you started it" if chosen else "this task's entry points")
           + ", every callee in the order the calls are written, to depth " + str(FLOW_DEPTH)
@@ -344,6 +799,8 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False):
         gs = gaps.get(x, ())[:4]
         if gs:
             print(f"     {pad}   ⚠ unresolved here: " + ', '.join(f"{nm}() L{l}" for l, nm in gs))
+        for mk in (marks or {}).get(x, ()):
+            print(f"     {pad}   ⚠ {mk}")
         sy = g.sym.get(x) or {}
         if show_source and code_left[0] <= 0 and not code_cut[0]:
             code_cut[0] = True
@@ -404,9 +861,42 @@ def main(argv):
     body = task_text(task)
     terms = task_terms(body)
     if not terms: die("nothing to search for in that task description")
+    # what the question names that no graph here holds is said FIRST (#1571), and a scope that exists on disk but holds
+    # no indexed file is a text scope, not a typo (#1382). Only a scope the index does not know is checked on disk.
+    unknown_scopes = [x for x in scopes if not g.q("SELECT 1 FROM symbols WHERE file LIKE ? LIMIT 1", f'%{x}%')]
+    notice, named_langs, text_dirs, langs, mine = unseen(g, body, unknown_scopes)
+    main_lang = next(iter(langs))
+    fan = os.environ.get('AXIOMCODE_FANOUT') == '1' and len(langs) > 1
+    if fan and named_langs and not (COVERS.get(mine, {mine}) & named_langs):
+        # the question names a language, and this graph is another one: its matches could only be the generic words,
+        # printed as a full section per graph (#1603). Status 3 is "nothing to say"; the dispatcher leaves it out.
+        return 3
+    if fan:
+        owner = main_lang if not named_langs or (COVERS.get(main_lang, {main_lang}) & named_langs) else \
+            sorted(l for l in langs if COVERS.get(l, {l}) & named_langs)[0]
+        if owner != mine: notice = []                       # one graph says it, not every one
+    RESULT['not_indexed'] = list(notice)
+    for ln in notice: print(ln)
+    if notice: print()
+    if text_dirs:
+        scopes = [x for x in scopes if x.strip('/').lstrip('./') not in text_dirs]
     # the terms the report itself marked as code take the budget first (see winnow)
     terms = winnow(g, terms, strong=code_terms(body))
     scored = score_symbols(g, terms)
+    landed = landing(g, scored)
+    # --from names where the flow starts, which is also WHERE to look: a graph that declares it (under the caller's
+    # --in, when one is given) answers from there even when the task's words land nowhere in it, rather than refusing
+    # for want of a scope or a matching word. In a repository in several languages every graph is asked (ax_langs), and
+    # one that does not declare the name refuses, so the answer comes from the language that does.
+    fixed = [x.strip().replace('\\', '/') for x in scopes] if not scope_offered else []
+    from_ids = {sel: [x for x in g.resolve(sel)[1] if x in g.sym] for sel in starts}
+    held = {sel: [x for x in ids if not fixed or any(sc in (g.sym[x].get('file') or '') for sc in fixed)]
+            for sel, ids in from_ids.items()}
+    if starts and os.environ.get('AXIOMCODE_FANOUT') and not any(held.values()):
+        print(f"nothing named {', '.join(repr(s) for s in starts)} in this graph"
+              + (f" under {', '.join(fixed)}" if fixed and any(from_ids.values()) else '') + ".")
+        return 2
+    have_from = any(held.values())
     # --in: a scope the CALLER supplies is knowledge — a stack frame, the file it just read, the package
     # named in the issue's labels. That is worth more than any amount of inferring the package from prose,
     # so it restricts the seeds outright: everything outside it is dropped BEFORE seeding, and the entry
@@ -457,7 +947,7 @@ def main(argv):
                       + ("…" if n > 4 else "") + ")")
                 print("  no --in was given, so NOTHING below is narrowed to it — "
                       "pass --in <path> to narrow.\n")
-    bad = None if flat else require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
+    bad = None if flat or (have_from and not fixed) else require_scope(g, scopes, terms, rank=rank, flag=' --in-offered')
     if bad is not None: return bad
 
     # a symbol is kept when it is under ANY of the scopes -- the union, because the caller naming two roots
@@ -465,7 +955,11 @@ def main(argv):
     in_scope = lambda f: any(sc in (f or '') for sc in scopes)
     if scopes and not scope_offered:
         scored = {sid: v for sid, v in scored.items() if in_scope(g.sym.get(sid, {}).get('file'))}
-    if not scored:
+    # what the question NAMES comes before what its words match: a declaration spelled out, a route quoted
+    named = named_declarations(g, body) + route_seeds(g, body)
+    if scopes and not scope_offered:
+        named = [(sid, why) for sid, why in named if in_scope(g.sym.get(sid, {}).get('file'))]
+    if not scored and not named and not have_from:
         # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it,
         # ranked the same way the scope-less menu is: by where the words land, never by how big a directory is
         ranked = rank_dirs(g, scope_terms(g, task))
@@ -478,34 +972,52 @@ def main(argv):
     # themselves, and on Python every class has one, so they can be a third of this list while
     # naming nowhere to go.
     scored = {sid: v for sid, v in scored.items() if not is_synthetic(g.sym.get(sid, {}).get('name'))}
-    seeds = pick_seeds(g, scored, terms, seeds_wanted)
+    seeds = pick_seeds(g, scored, terms, seeds_wanted, named)
 
     RESULT['terms'] = list(terms)
     RESULT['scope'], RESULT['scope_offered'] = (scopes[0] if scopes else None), bool(scope_offered)
     RESULT['entry_points'] = [{'name': g.disp(sid), 'at': g.loc(sid),
-                               'why': (f"matches '{term}'" if term else 'best overall match')}
+                               'why': (term or 'best overall match')}
                               for sid, term, sc in seeds]
     print(f"task terms: {' · '.join(terms[:10])}" + (f" (+{len(terms)-10})" if len(terms) > 10 else ''))
     if explain is None: explain = explain_intent(task)
     # explaining: the flow below starts at its own roots and IS the answer, so the lexical entry points (a word
     # match per term) and the long file list are what a reader would spend the page on instead of the flow
     if explain: budget = min(budget, 0 if show_source else 5)   # with the code shown, the flow is the whole answer
-    if not explain: print(f"\nentry points ({len(seeds)}, best match per term — the graph's own words, not a guess):")
+    if not explain: print(f"\nentry points ({len(seeds)}; what the task names, then what matches most of its terms together, "
+                          f"then each term left over — the graph's own words, not a guess):")
     for sid, term, sc in (seeds if not explain else ()):
-        why = f"matches '{term}'" if term else "best overall match"
+        why = term or "best overall match"
         print(f"    {g.disp(sid):46.46}  {g.loc(sid):34.34}  {why}")
 
     if explain:
-        roots_ = [i_ for sel in starts for i_ in g.resolve(sel)[1] if i_ in g.sym]
+        roots_ = []
+        for sel in starts:
+            ids = from_ids[sel]
+            picked = from_starts(g, ids, landed, scopes if not scope_offered else ())
+            if ids and not picked:
+                print(f"--from {sel}: none of its {len(ids)} declaration(s) lies under --in; the flow starts at all of them")
+                picked = from_starts(g, ids, landed)
+            if len(picked) < len(ids):
+                print(f"--from {sel}: {len(ids)} declarations by that name; the flow starts at the {len(picked)} "
+                      + ("under --in" if scopes and not scope_offered else "where the task's words land")
+                      + f" ({', '.join(g.loc(x) for x in picked[:3])}{'…' if len(picked) > 3 else ''}); --in <path> picks another")
+            roots_ += picked
+        if starts and os.environ.get('AXIOMCODE_FANOUT'):
+            # how many of the task's words land in the files the flow reaches: ax_langs puts the language where they
+            # land first, since a common --from name (main, run, init) is declared in every language's graph
+            print(f"axiomcode-from-landing: {max((len(w) for w in flow_words(g, roots_, landed).values()), default=0)}",
+                  file=sys.stderr)
         if not roots_:
             # no --from: the entry points this verb already chose, the callable ones, first FLOW_ROOTS of them
             roots_ = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')][:FLOW_ROOTS]
-        roots, steps, gaps = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS)
+        roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS)
         RESULT['flow'] = [{'step': k + 1, 'depth': d, 'name': g.disp(x), 'at': g.loc(x),
                            'called_at_line': (via[0] if via else None), 'certainty': (ax_edges.direct_cert(via[1]) if via else 'entry'),
-                           'repeat_of': again, 'unresolved': [f"{nm} L{l}" for l, nm in gaps.get(x, ())[:4]]}
+                           'repeat_of': again, 'unresolved': [f"{nm} L{l}" for l, nm in gaps.get(x, ())[:4]],
+                           'leaves_graph': (marks.get(x, []) if again is None else [])}
                           for k, (d, x, via, again) in enumerate(steps)]
-        print_flow(g, roots, steps, gaps, bool(starts), show_source)
+        print_flow(g, roots, steps, gaps, bool(starts), show_source, marks)
 
     depth = neighbourhood(g, [s for s, _t, _sc in seeds])
     # A file can match the task by NAME and be reachable by no call at all — an enum of flags, a constants
@@ -600,6 +1112,44 @@ def main(argv):
                     print(f"    {'':22}   {k:5} | {ln.rstrip()[:110]}")
                 if b > a + SOURCE_LINES: print(f"    {'':22}   {'':5} | … +{b - a - SOURCE_LINES} more line(s)")
     if foot and budget > 0: print(foot + ", tests and benchmarks not listed")
+
+    # the text files bound to what was found (#1382): only when the question is about them (SQL, config, a template, a
+    # file or directory the graph does not hold), because finding them walks the tree
+    RESULT['text_bindings'] = []
+    if NONSOURCE_ASK.search(body) or text_dirs:
+        # the seeds first, then what they reach that has NO BODY (an interface or mapper method: its behaviour is bound
+        # somewhere the source does not hold, which is exactly what a text binding is), then the rest, nearest first
+        seed_ids = {s_ for s_, _t, _sc in seeds}
+        ring = [x for x, d in depth.items() if d <= 2 and x in g.sym and x not in seed_ids]
+        # an interface seed's implementations and what THEY call: the call closure does not cross an override, and
+        # "which SQL runs when an order is cancelled" seeds the service interface while the mapper call is in its impl
+        if g.has('overrides') and seed_ids:
+            ph = ','.join('?' * len(seed_ids))
+            impls = {r[0] for r in g.q(f"SELECT overriding_method_id FROM overrides WHERE method_id IN ({ph})", *seed_ids)} - seed_ids
+            for x, d in neighbourhood(g, [i for i in impls if i in g.sym], cap=1).items():
+                if x not in seed_ids and x in g.sym and x not in depth: depth[x] = d + 1; ring.append(x)
+        near = list(seed_ids) + sorted(ring, key=lambda x: (not bodiless(g, x), depth[x], x))[:300]
+        kinds = asked_exts(body)
+        binds = text_bindings(g, near, under=text_dirs, want_ext=kinds)
+        # the question named a kind of file (SQL: mapper XML or .sql): when some binding is of that kind, the others
+        # (a Postman collection, a README table that spells the method) are not what was asked
+        if kinds and any(f.endswith(kinds) for f, _l, _d, _n in binds):
+            binds = [b for b in binds if b[0].endswith(kinds)]
+        if binds:
+            print("\ntext files that name these declarations (not source: bound by the name written there, not by a call; "
+                  "the graph cannot follow into them):")
+            for f, l, d, nm in binds[:BINDINGS_SHOWN]:
+                print(f"    {f + ':' + str(l):56}  names {nm} ({d})")
+            if len(binds) > BINDINGS_SHOWN: print(f"    … +{len(binds) - BINDINGS_SHOWN} more")
+            RESULT['text_bindings'] = [{'file': f, 'line': l, 'declaration': d, 'name': nm} for f, l, d, nm in binds]
+        elif text_dirs:
+            hits = text_term_hits(g, text_dirs, terms)
+            if hits:
+                print(f"\ntext files under {', '.join(d + '/' for d in text_dirs)} that use the task's words (not source; "
+                      "matched by word, not by any declaration):")
+                for f, l, ts in hits[:BINDINGS_SHOWN]:
+                    print(f"    {f + ':' + str(l):56}  {', '.join(ts)}")
+                RESULT['text_bindings'] = [{'file': f, 'line': l, 'terms': ts} for f, l, ts in hits]
 
     print("\n" + BOUND)
     print("  narrow with `impact <name> --in <path>` or `path '*' <name> --in <path>`.")

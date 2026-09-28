@@ -1,0 +1,63 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a method whose one caller is untyped ([by name]) names that caller to check instead of calling the change local (#1573)",
+   "run": [
+    "impact",
+    "Store.tally"
+   ],
+   "want": [
+    "[by name] use",
+    "check src/store.js:7"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a method only a test calls is not called local: next: names the tests that reach it (#1552)",
+   "run": [
+    "impact",
+    "Store.counted"
+   ],
+   "want": [
+    "no production code depends on it, but 1 test(s) reach it"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: a method nothing calls, by any name, keeps the local answer",
+   "run": [
+    "impact",
+    "Store.spare"
+   ],
+   "want": [
+    "the change is local"
+   ],
+   "avoid": [
+    "[by name]",
+    "test(s) reach it"
+   ]
+  },
+  {
+   "why": "control: two functions that call nothing are independent",
+   "run": [
+    "path",
+    "lonely",
+    "onEvent"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "NOT shown",
+    "NOT independent"
+   ]
+  }
+ ]
+}
