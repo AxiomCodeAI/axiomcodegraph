@@ -27,6 +27,7 @@ the previous graph. Three pieces:
   ax_fresh.py worker <repo>                    the worker itself (what kick detaches)
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
   ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
+  ax_fresh.py chosen <repo>                    the --lang and --src an explicit index chose, which a rebuild keeps
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
@@ -309,6 +310,18 @@ def legacy_params(repo):
     src = os.path.relpath(os.path.realpath(run.get('source_dir') or repo), os.path.realpath(repo))
     return dict(lang=run.get('language', ''), src_arg='' if src == '.' or src.startswith('..') else src, library=run.get('library_roots') or '')
 
+def rebuild_env(t, **extra):
+    """the environment that rebuilds the graph a file table `t` describes, with the language, --src and --library it
+    was built with: what the background refresh runs, and what `axiomcode graph` runs when the graph is stale. Languages
+    DETECTED are detected again (a language the repository gained since gets its graph); only a --lang the user gave is
+    kept. A table from before this was recorded counts as detected: it was built with one language even where the
+    repository had several, and keeping that would keep the others out for good."""
+    env = dict(os.environ, AXIOMCODE_LANG='' if t.get('lang_auto', True) else t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''), **extra)
+    env.pop('AXIOMCODE_LIBRARY', None)
+    env.pop('AXIOMCODE_LANG_AUTO', None); env.pop('AXIOMCODE_GRAPH_LANG', None)
+    if t.get('library'): env['AXIOMCODE_LIBRARY'] = t['library']
+    return env
+
 def _flock(fd, block):
     """an advisory lock on fd; the OS releases it when the last holder of the file description exits, so a
     killed build never leaves a lock behind (no stale-lock timeout to guess)"""
@@ -447,14 +460,7 @@ def worker(repo):
             if st.get('failed_table') == fp: return 0
             n = sum(len(x) for x in c)
             why = (f"{n} file(s) changed" if n else f"HEAD moved to {(head(repo) or '')[:10]}") + f", found by {os.environ.get('AXIOMCODE_REFRESH_TRIGGER') or 'an edit'}"
-            # languages DETECTED are detected again (a language the repository gained since gets its graph); only a
-            # --lang the user gave is kept. A table from before this was recorded counts as detected: it was built with
-            # one language even where the repository had several, and keeping that would keep the others out for good
-            env = dict(os.environ, AXIOMCODE_LANG='' if t.get('lang_auto', True) else t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''),
-                       AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
-            env.pop('AXIOMCODE_LIBRARY', None)
-            env.pop('AXIOMCODE_LANG_AUTO', None); env.pop('AXIOMCODE_GRAPH_LANG', None)
-            if t.get('library'): env['AXIOMCODE_LIBRARY'] = t['library']
+            env = rebuild_env(t, AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
             t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
             else: print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
@@ -826,6 +832,13 @@ def main(argv):
             subdirs[:] = [x for x in subdirs if not prunes('python', x, os.path.basename(d))]
             n += sum(1 for f in files if python_script(os.path.join(d, f), f))
         print(n); return 0
+    if cmd == 'chosen':
+        # the --lang (and --src) the graph here was indexed with, as "<langs>\t<src>", when they were CHOSEN (an explicit
+        # --lang); nothing when its languages were detected, or there is no graph. axiomcode-build keeps them for a rebuild
+        # that names no language, so no rebuild path solves a language the index left out
+        t = load_table(repo)
+        if has_graph(repo) and t and t.get('lang_auto') is False and t.get('lang'): print(f"{t['lang']}\t{t.get('src_arg', '')}")
+        return 0
     if cmd == 'uptodate':
         # exit 0 when the recorded table was built with this language / --src / --library and no file differs
         lang, src_arg, lib = argv[3], argv[4] if len(argv) > 4 else '', argv[5] if len(argv) > 5 else ''

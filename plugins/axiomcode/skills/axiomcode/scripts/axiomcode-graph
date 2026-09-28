@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
-"""axiomcode-graph — the graph of a codebase, from the engine, as one page.
+"""axiomcode graph — the graph of a codebase as one interactive page.
 
-  axiomcode-graph build  [<repo>] [--library <root>[,<root>…]] [--out <page.html>]   run the engine (axiomcode-build) then write the page
-  axiomcode-graph export [<repo>] [--out <page.html>]                                 write the page from an existing graph.sqlite (no engine run)
+  axiomcode graph [<repo>] [--out <folder | page.html>]
+  axiomcode graph [<repo>] --lang <lang>[,<lang>…] [--src <subdir>] [--library <root>[,<root>…]] [--out …]
 
---library (or AXIOMCODE_LIBRARY) names the dependency roots — for Java the JDK and the third-party sources/IR. With them a call
-into a dependency resolves to a BLACK BOX (one per library type, drawn outside the disc in its own colour); without them it
-is unresolved, and the resolution rate is understated. The rate the page reports is over calls into client code; external
-calls are counted separately.
+With no flags the page is drawn from the graph `axiomcode index` built, and the engine does not run:
+  - the graph is up to date (no source file differs from the ones it was built from): the page is written from it
+    in seconds.
+  - it is out of date: it is rebuilt first exactly as it was indexed, with the same --lang, --src and --library, so
+    only the languages the index chose are solved and no graph appears for a language it left out.
+  - there is no graph yet: the repository is indexed first (every language present, or the flags given).
+Flags given here are a request for that graph, as `axiomcode index` takes them.
+
+A repository indexed in several languages is drawn in all of them, on one page. The command prints what it drew as
+prose, and the page's absolute path last. `axiomcode graph export [<repo>]` writes the page from the graph as it is,
+with no freshness check.
+
+--library names the dependency roots (for Java the JDK and the third-party sources/IR), and is given to
+`axiomcode index`. With them a call into a dependency resolves to a BLACK BOX (one per library type, drawn outside the
+disc in its own colour); without them it is unresolved, and the resolution rate is understated. The rate the page
+reports is over calls into client code; external calls are counted separately.
 
 The page (default <repo>/.axiomcode/graph/graph.html; one file, no network) draws the codebase as a disc:
 directories in the centre, their files on the next ring, the types in those files, and every method on the
@@ -31,57 +43,29 @@ def _b36(n):
     return s
 
 
-def export(repo, page=None):
+def graph_dbs(repo, gdir):
+    """every graph to draw: the main language's, then each other language's (.axiomcode/lang/<lang>), as the query verbs
+    ask them. A graph named in AXIOMCODE_GRAPH was chosen by the caller and is drawn alone."""
+    dbs = [os.path.join(gdir, 'out', 'graph.sqlite')]
+    if not os.environ.get('AXIOMCODE_GRAPH'):
+        ld = os.path.join(repo, '.axiomcode', 'lang')
+        for l in sorted(os.listdir(ld)) if os.path.isdir(ld) else ():
+            d = os.path.join(ld, l, 'out', 'graph.sqlite')
+            if os.path.exists(d): dbs.append(d)
+    return dbs
+
+
+def export(repo, page=None, how=''):
     repo = os.path.realpath(repo or '.')
     gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode')
     db = os.path.join(gdir, 'out', 'graph.sqlite')
     # the same door every other verb goes through: built on demand under the CLI, refused in words
     # that name the one command that helps under anything else.
     if not os.path.exists(db) and not ax_contract.ensure_graph(repo, db): sys.exit(ax_contract.no_graph(repo, db))
-    con = sqlite3.connect(db); con.row_factory = sqlite3.Row
-    q = lambda sql: con.execute(sql).fetchall()
-    has = lambda t: bool(con.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone())
-    run = {r['key']: r['value'] for r in q("SELECT key, value FROM run")}
-    src = run.get('source_dir') or repo
-    def rel(p):
-        a = p if os.path.isabs(p) else os.path.join(src, p)
-        a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
-        r = os.path.relpath(a, repo).replace(os.sep, '/'); return p.lstrip('/') if r.startswith('..') else r
-
-    # ── declarations: types and methods, with the display names the query skill uses when the index is there ──
-    nodes = {}
-    owner = {r['id']: r['owner_type_id'] for r in q("SELECT id, owner_type_id FROM methods WHERE provenance='client'")}
-    if has('symbols'):
-        for r in q("SELECT * FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL)"):
-            if r['method_id'] and r['kind'] in METHOD_KINDS:
-                nodes[r['method_id']] = dict(id=r['method_id'], k='method', sk=r['kind'], l=r['display'], f=r['file'], a=r['line'], b=r['end_line'], t=int(bool(r['is_test'])), sig=r['signature'] or '')
-            elif r['type_id'] and r['kind'] in TYPE_KINDS:
-                nodes[r['type_id']] = dict(id=r['type_id'], k='type', sk=r['kind'], l=r['display'], f=r['file'], a=r['line'], b=r['end_line'], t=int(bool(r['is_test'])))
-    else:
-        cat = lambda c: 'interface' if 'INTERFACE' in c else 'enum' if 'ENUM' in c else 'namespace' if 'NAMESPACE' in c else 'type' if 'ALIAS' in c or 'TYPEDEF' in c else 'class'
-        for r in q("SELECT * FROM types WHERE provenance='client'"):
-            f = rel(r['file_path']); nodes[r['id']] = dict(id=r['id'], k='type', sk=cat(r['category']), l=r['name'].replace('$', '.'), f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))))
-        for r in q("SELECT * FROM methods WHERE provenance='client'"):
-            f = rel(r['file_path']); o = (r['owner_qualified_name'] or '').replace('#', '.').split('.')[-1].replace('$', '.')
-            sk = 'constructor' if 'CONSTRUCTOR' in r['kind'] else 'module' if 'MODULE' in r['kind'] else 'method' if r['owner_type_id'] else 'function'
-            nodes[r['id']] = dict(id=r['id'], k='method', sk=sk, l=f"{o}.{r['name']}" if o else r['name'], f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))), sig=r['signature'] or '')
-    lib = {r['id']: (r['owner_qualified_name'] or r['qualified_name'].rsplit('.', 1)[0], r['name']) for r in q("SELECT id, qualified_name, name, owner_qualified_name FROM methods WHERE provenance<>'client'")}
-
-    # ── containment: dir → file → type → method (nested types under their outer; free functions under the file) ──
-    nesting = {r['type_id']: r['outer_type_id'] for r in q("SELECT type_id, outer_type_id FROM nesting")} if has('nesting') else {}
-    for n in list(nodes.values()):
-        fid = 'F:' + n['f']
-        if fid not in nodes:
-            d = os.path.dirname(n['f']) or '.'
-            nodes[fid] = dict(id=fid, k='file', l=n['f'], f=n['f'], t=int(bool(TESTRE.search(n['f']))), p='D:' + d)
-            if 'D:' + d not in nodes: nodes['D:' + d] = dict(id='D:' + d, k='dir', l=d, f='', t=int(bool(TESTRE.search(d + '/'))))
-        if n['k'] == 'type': n['p'] = nesting[n['id']] if nesting.get(n['id']) in nodes else fid
-        elif n['k'] == 'method': o = owner.get(n['id']); n['p'] = o if o in nodes else fid
-
-    # ── calls: one edge per (caller, callee) with the best tier and the site count; unresolved → a count on the caller ──
-    # only an ambiguous_* tier is unresolved. boundary_lib is a call into a library; the *_terminal, implicit_constructor and
-    # fan_capped tiers are correct ends (the platform, a synthesised constructor, a computed target) — the same rule as the
-    # query skill, so the two never disagree about what is a blind spot
+    # A REPOSITORY IN SEVERAL LANGUAGES is drawn in all of them: one page, each language's graph merged into it (their ids
+    # carry the language, so none collide; a directory holding two languages' files is one node). No edge joins two
+    # languages, as no query follows one.
+    nodes, owners, lib, nesting, anc, langs, runs = {}, {}, {}, {}, collections.defaultdict(set), [], []
     E, unresolved, terminal, LE = {}, collections.Counter(), collections.Counter(), {}
     boxes = collections.defaultdict(lambda: dict(sites=0, callers=set(), methods=collections.Counter()))   # one black box per library type
     def box(c, owner, name):
@@ -90,39 +74,92 @@ def export(repo, page=None):
     sites = collections.defaultdict(list)   # per caller: [line, written name, target id ('' = none), tier] — what makes a call in the source a link
     def site(c, r, target):
         if r['line'] and len(sites[c]) < 400: sites[c].append([r['line'], r['written'] or '', target, r['tier']])
-    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier, e.callee_label, s.start_line AS line, s.callee_name AS written FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id"):
-        c, t = r['caller_id'], r['callee_method_id']
-        if c not in nodes: continue
-        if not t or t not in nodes:
-            if t in lib: box(c, *lib[t]); site(c, r, 'L:' + lib[t][0])
-            elif r['tier'] == 'boundary_lib' and r['callee_label']:
-                # Python / JavaScript: the library target is a label — builtin:len, external:asyncio.get_running_loop — not a method row
-                prov, _, name = r['callee_label'].partition(':'); owner, _, meth = name.rpartition('.')
-                owner = owner or (('builtins' if prov == 'builtin' else name)); box(c, owner, meth or name); site(c, r, 'L:' + owner)
-            elif (r['tier'] or '').startswith('ambiguous'): unresolved[c] += 1; site(c, r, '')
-            else: terminal[c] += 1
-            continue
-        site(c, r, t)
-        e = E.get((c, t))
-        if e is None: E[(c, t)] = dict(s=c, t=t, tier=r['tier'], w=1)
+    skipped, tiers = None, collections.Counter()
+    for db in graph_dbs(repo, gdir):
+        con = sqlite3.connect(db); con.row_factory = sqlite3.Row
+        q = lambda sql: con.execute(sql).fetchall()
+        has = lambda t: bool(con.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone())
+        run = {r['key']: r['value'] for r in q("SELECT key, value FROM run")}; runs.append(run)
+        if run.get('language') and run['language'] not in langs: langs.append(run['language'])
+        src = run.get('source_dir') or repo
+        def rel(p, src=src):
+            a = p if os.path.isabs(p) else os.path.join(src, p)
+            a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
+            r = os.path.relpath(a, repo).replace(os.sep, '/'); return p.lstrip('/') if r.startswith('..') else r
+
+        # ── declarations: types and methods, with the display names the query skill uses when the index is there ──
+        owners.update({r['id']: r['owner_type_id'] for r in q("SELECT id, owner_type_id FROM methods WHERE provenance='client'")})
+        if has('symbols'):
+            for r in q("SELECT * FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL)"):
+                if r['method_id'] and r['kind'] in METHOD_KINDS:
+                    nodes[r['method_id']] = dict(id=r['method_id'], k='method', sk=r['kind'], l=r['display'], f=r['file'], a=r['line'], b=r['end_line'], t=int(bool(r['is_test'])), sig=r['signature'] or '')
+                elif r['type_id'] and r['kind'] in TYPE_KINDS:
+                    nodes[r['type_id']] = dict(id=r['type_id'], k='type', sk=r['kind'], l=r['display'], f=r['file'], a=r['line'], b=r['end_line'], t=int(bool(r['is_test'])))
         else:
-            e['w'] += 1
-            if r['tier'] == 'known_edge': e['tier'] = 'known_edge'
-    # a call through a holder the engine could name (#1206): the caller reaches every function the holder may hold. The call
-    # site itself resolves to the holder's bodiless base (Function.apply), so without these the stored function has no caller
-    if has('ext_fn_value_call'):
-        for r in q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call"):
-            c, t = r[0], r[1]
-            if c in nodes and t in nodes and (c, t) not in E: E[(c, t)] = dict(s=c, t=t, tier='fn_value', w=1)
+            cat = lambda c: 'interface' if 'INTERFACE' in c else 'enum' if 'ENUM' in c else 'namespace' if 'NAMESPACE' in c else 'type' if 'ALIAS' in c or 'TYPEDEF' in c else 'class'
+            for r in q("SELECT * FROM types WHERE provenance='client'"):
+                f = rel(r['file_path']); nodes[r['id']] = dict(id=r['id'], k='type', sk=cat(r['category']), l=r['name'].replace('$', '.'), f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))))
+            for r in q("SELECT * FROM methods WHERE provenance='client'"):
+                f = rel(r['file_path']); o = (r['owner_qualified_name'] or '').replace('#', '.').split('.')[-1].replace('$', '.')
+                sk = 'constructor' if 'CONSTRUCTOR' in r['kind'] else 'module' if 'MODULE' in r['kind'] else 'method' if r['owner_type_id'] else 'function'
+                nodes[r['id']] = dict(id=r['id'], k='method', sk=sk, l=f"{o}.{r['name']}" if o else r['name'], f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))), sig=r['signature'] or '')
+        lib.update({r['id']: (r['owner_qualified_name'] or r['qualified_name'].rsplit('.', 1)[0], r['name']) for r in q("SELECT id, qualified_name, name, owner_qualified_name FROM methods WHERE provenance<>'client'")})
+        if has('nesting'): nesting.update({r['type_id']: r['outer_type_id'] for r in q("SELECT type_id, outer_type_id FROM nesting")})
+
+        # ── calls: one edge per (caller, callee) with the best tier and the site count; unresolved → a count on the caller ──
+        # only an ambiguous_* tier is unresolved. boundary_lib is a call into a library; the *_terminal, implicit_constructor and
+        # fan_capped tiers are correct ends (the platform, a synthesised constructor, a computed target) — the same rule as the
+        # query skill, so the two never disagree about what is a blind spot
+        for r in q("SELECT e.caller_id, e.callee_method_id, e.tier, e.callee_label, s.start_line AS line, s.callee_name AS written FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id"):
+            c, t = r['caller_id'], r['callee_method_id']
+            if c not in nodes: continue
+            if not t or t not in nodes:
+                if t in lib: box(c, *lib[t]); site(c, r, 'L:' + lib[t][0])
+                elif r['tier'] == 'boundary_lib' and r['callee_label']:
+                    # Python / JavaScript: the library target is a label — builtin:len, external:asyncio.get_running_loop — not a method row
+                    prov, _, name = r['callee_label'].partition(':'); owner, _, meth = name.rpartition('.')
+                    owner = owner or (('builtins' if prov == 'builtin' else name)); box(c, owner, meth or name); site(c, r, 'L:' + owner)
+                elif (r['tier'] or '').startswith('ambiguous'): unresolved[c] += 1; site(c, r, '')
+                else: terminal[c] += 1
+                continue
+            site(c, r, t)
+            e = E.get((c, t))
+            if e is None: E[(c, t)] = dict(s=c, t=t, tier=r['tier'], w=1)
+            else:
+                e['w'] += 1
+                if r['tier'] == 'known_edge': e['tier'] = 'known_edge'
+        # a call through a holder the engine could name (#1206): the caller reaches every function the holder may hold. The call
+        # site itself resolves to the holder's bodiless base (Function.apply), so without these the stored function has no caller
+        if has('ext_fn_value_call'):
+            for r in q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call"):
+                c, t = r[0], r[1]
+                if c in nodes and t in nodes and (c, t) not in E: E[(c, t)] = dict(s=c, t=t, tier='fn_value', w=1)
+        for r in q("SELECT method_id, reason FROM entry_points"):
+            if r['method_id'] in nodes: nodes[r['method_id']].setdefault('e', []).append(r['reason'])
+        for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors"): anc[r['type_id']].add(r['ancestor_type_id'])
+        # two shapes share the name: the bundle's (file_path, reason, construct, start_line, …) and the index's (file, reason), which
+        # the index writes over the bundle's — read whichever is there
+        if has('skipped'):
+            cols = {r[1] for r in q("PRAGMA table_info(skipped)")}; col = lambda c: c if c in cols else 'NULL'
+            fc = 'file_path' if 'file_path' in cols else 'file'
+            skipped = (skipped or []) + [dict(f=rel(r[0]), r=r[1] or '', a=r[2], d=r[3] or '') for r in q(f"SELECT {fc}, reason, {col('start_line')}, {col('detail')} FROM skipped WHERE {fc} <> '' ORDER BY reason, {fc}")]
+        tiers.update(r[0] for r in q("SELECT tier FROM call_edges"))
+        con.close()
+
+    # ── containment: dir → file → type → method (nested types under their outer; free functions under the file) ──
+    for n in list(nodes.values()):
+        fid = 'F:' + n['f']
+        if fid not in nodes:
+            d = os.path.dirname(n['f']) or '.'
+            nodes[fid] = dict(id=fid, k='file', l=n['f'], f=n['f'], t=int(bool(TESTRE.search(n['f']))), p='D:' + d)
+            if 'D:' + d not in nodes: nodes['D:' + d] = dict(id='D:' + d, k='dir', l=d, f='', t=int(bool(TESTRE.search(d + '/'))))
+        if n['k'] == 'type': n['p'] = nesting[n['id']] if nesting.get(n['id']) in nodes else fid
+        elif n['k'] == 'method': o = owners.get(n['id']); n['p'] = o if o in nodes else fid
     for m, n in unresolved.items(): nodes[m]['u'] = n
     for m, ss in sites.items(): nodes[m]['cs'] = ss
     for owner, b in boxes.items():
         nodes['L:' + owner] = dict(id='L:' + owner, k='lib', l=owner, f='', sites=b['sites'], callers=len(b['callers']), methods=[f"{k}×{v}" if v > 1 else k for k, v in b['methods'].most_common(8)])
-    for r in q("SELECT method_id, reason FROM entry_points"):
-        if r['method_id'] in nodes: nodes[r['method_id']].setdefault('e', []).append(r['reason'])
     X = []   # extends / implements: direct ancestors only (type_ancestors is a closure)
-    anc = collections.defaultdict(set)
-    for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors"): anc[r['type_id']].add(r['ancestor_type_id'])
     for t, A in anc.items():
         if t in nodes:
             for a in A:
@@ -133,21 +170,13 @@ def export(repo, page=None):
     for n in nodes.values():
         if deg[n['id']]: n['d'] = deg[n['id']]
 
-    # two shapes share the name: the bundle's (file_path, reason, construct, start_line, …) and the index's (file, reason), which
-    # the index writes over the bundle's — read whichever is there
-    skipped = None
-    if has('skipped'):
-        cols = {r[1] for r in q("PRAGMA table_info(skipped)")}; col = lambda c: c if c in cols else 'NULL'
-        fc = 'file_path' if 'file_path' in cols else 'file'
-        skipped = [dict(f=rel(r[0]), r=r[1] or '', a=r[2], d=r[3] or '') for r in q(f"SELECT {fc}, reason, {col('start_line')}, {col('detail')} FROM skipped WHERE {fc} <> '' ORDER BY reason, {fc}")]
-    tiers = collections.Counter(r[0] for r in q("SELECT tier FROM call_edges"))
     sites = sum(tiers.values()); unres = sum(v for t, v in tiers.items() if t.startswith('ambiguous'))
     client = tiers.get('known_edge', 0) + tiers.get('multi_inferred', 0); external = sum(b['sites'] for b in boxes.values())
     terminal_n = sites - unres - client - external
-    data = dict(meta=dict(repo=os.path.basename(repo), language=run.get('language', '?'), built=time.strftime('%Y-%m-%d %H:%M'), sites=sites,
+    data = dict(meta=dict(repo=os.path.basename(repo), language=', '.join(langs) or '?', built=time.strftime('%Y-%m-%d %H:%M'), sites=sites,
                           client_sites=client, external_sites=external, terminal_sites=terminal_n, unresolved=unres, boxes=len(boxes),
                           client_rate=round(100 * client / max(1, sites - external - terminal_n)), overall_rate=round(100 * (sites - unres) / max(1, sites)),
-                          tiers=dict(tiers), library_roots=run.get('library_roots', '') or (run.get('language') != 'java' and 'n/a') or '', counts=dict(collections.Counter(n['k'] for n in nodes.values())), edges=len(E)),
+                          tiers=dict(tiers), library_roots=runs[0].get('library_roots', '') or ('java' not in langs and 'n/a') or '', counts=dict(collections.Counter(n['k'] for n in nodes.values())), edges=len(E)),
                 nodes=list(nodes.values()), calls=list(E.values()), libcalls=list(LE.values()), extends=X, skipped=skipped)
     data['meta']['fn_value_edges'] = sum(1 for e in E.values() if e['tier'] == 'fn_value')
     short = {}
@@ -174,29 +203,92 @@ def export(repo, page=None):
     data['files'] = files; data['meta']['repo_path'] = repo; data['meta']['sources'] = bool(files)
     tpl = open(os.path.join(HERE, 'viewer.html'), encoding='utf-8').read()
     open(page, 'w', encoding='utf-8').write(tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')).replace('</', '<\\/')))
-    m = data['meta']
-    print(f"{m['counts']} · {m['edges']} call edges · {m['sites']} call sites: client calls {m['client_rate']}% resolved ({m['client_sites']} resolved, {m['unresolved']} unresolved) · "
-          f"{m['external_sites']} external calls into {m['boxes']} black boxes · {m['terminal_sites']} terminal · {len(X)} extends"
-          + ("" if m['library_roots'] else "\n  built WITHOUT library roots: calls into the JDK / dependencies cannot resolve and count as unresolved — rerun `axiomcode-graph build . --library <jdk>,<other-lib>`"))
-    print(f"page: {os.path.relpath(page)}")
+    m, n = data['meta'], data['meta']['counts']
+    # PROSE, NOT A DICT: an agent relays this line to a person, and a raw {'dir': …} or a ../../../ path it had to resolve
+    # itself was what it relayed
+    if how: print(how)
+    k = lambda v, one, many: f"{v:,} {one if v == 1 else many}"
+    print(f"graph of {repo} ({m['language']}): {k(n.get('method', 0), 'function or method', 'functions and methods')}, "
+          f"{k(n.get('type', 0), 'type', 'types')}, {k(n.get('file', 0), 'file', 'files')} in {k(n.get('dir', 0), 'directory', 'directories')}; "
+          f"{k(m['edges'], 'call edge', 'call edges')}, {len(X):,} extends/implements.")
+    print(f"calls: {k(m['sites'], 'call site', 'call sites')}. Of the calls into this repository's own code {m['client_rate']}% resolved "
+          f"({m['client_sites']:,} resolved, {m['unresolved']:,} unresolved); {m['external_sites']:,} go into "
+          f"{k(m['boxes'], 'library type', 'library types')}, drawn as black boxes; {m['terminal_sites']:,} end at the platform.")
+    if not m['library_roots']:
+        print(f"indexed without library roots: calls into the JDK and other dependencies cannot resolve and count as unresolved. "
+              f"To resolve them, index again with them: axiomcode index {repo} --library <jdk>,<other-lib>")
+    print(f"page: {os.path.abspath(page)}")
 
 
-def build(repo, page, library=None):
-    repo = os.path.realpath(repo or '.')
-    if library: os.environ['AXIOMCODE_LIBRARY'] = ','.join(os.path.abspath(os.path.expanduser(x)) for x in library.split(','))
+def run_build(repo, env=None):
+    """axiomcode-build on repo, its progress on this process's stdout; exits with its status when it fails"""
     cands = [os.path.join(HERE, 'axiomcode-build'), os.path.join(os.environ.get('AXIOMCODE_ENGINE', ''), 'skills', 'axiomcode', 'scripts', 'axiomcode-build')]
     b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
     if not b: sys.exit("axiomcode-build not found beside this script (set AXIOMCODE_ENGINE to the engine checkout)")
-    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', b, repo])   # a bash script: Windows cannot exec it itself
+    sys.stdout.flush()
+    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', b, repo], env=env)   # a bash script: Windows cannot exec it itself
     if r.returncode: sys.exit(r.returncode)
-    export(repo, page)
+
+
+def recorded(repo):
+    """the file table of the graph that is there: the languages, --src and --library it was indexed with. A graph from
+    before the table has its main language, --src and --library in its run table; its other languages are the graphs
+    beside it. None when there is nothing to read them from."""
+    import ax_fresh
+    t = ax_fresh.load_table(repo)
+    if t: return t
+    t = ax_fresh.legacy_params(repo)
+    if not t: return None
+    ld = os.path.join(repo, '.axiomcode', 'lang')
+    others = sorted(l for l in (os.listdir(ld) if os.path.isdir(ld) else ()) if os.path.exists(os.path.join(ld, l, 'out', 'graph.sqlite')))
+    return dict(t, lang=','.join([t['lang']] + [l for l in others if l != t['lang']]), lang_auto=False, legacy=True)
+
+
+def build(repo, page, library=None):
+    """the page, from the graph that is there when it is current, else from a rebuild of it with the flags it was indexed
+    with. THE ENGINE RUNS ONLY WHEN IT HAS TO, AND ONLY FOR THE LANGUAGES THE INDEX CHOSE. This called axiomcode-build with
+    no flags, which detects every language in the tree: on a repository indexed with --lang python its answer never matched
+    the recorded graph, so every call rebuilt the graph from scratch in every language present, a JavaScript or TypeScript
+    compile for a few stray files included, and left a graph for each of them that later queries answered from."""
+    import ax_fresh
+    repo = os.path.realpath(repo or '.')
+    if library: os.environ['AXIOMCODE_LIBRARY'] = ','.join(os.path.abspath(os.path.expanduser(x)) for x in library.split(','))
+    db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
+    asked = [f"{k}={os.environ[v]}" for k, v in (('--lang', 'AXIOMCODE_LANG'), ('--src', 'AXIOMCODE_SRC'), ('--library', 'AXIOMCODE_LIBRARY')) if os.environ.get(v)]
+    if os.environ.get('AXIOMCODE_GRAPH'): return export(repo, page)        # a graph someone else built and placed: drawn as it is
+    if not os.path.lexists(db):
+        # no graph yet: the first index, with what was asked for (every language present, when nothing was)
+        t0 = time.time(); run_build(repo)
+        return export(repo, page, how=f"no graph yet: indexed {repo}{' with ' + ' '.join(asked) if asked else ''} in {time.time() - t0:.0f} s.")
+    if asked:
+        # flags given here are a request for that graph: axiomcode-build keeps the one there when it already is that graph
+        t0 = time.time(); run_build(repo)
+        return export(repo, page, how=f"graph built with {' '.join(asked)} ({time.time() - t0:.0f} s).")
+    t = recorded(repo)
+    if t is None:
+        return export(repo, page, how="drawn from the graph as it is: it records no index flags to rebuild it with.")
+    c = None if t.get('legacy') else ax_fresh.changes(repo, t)
+    langs = (t.get('lang') or '?').replace(',', ', ')
+    if c is not None and not any(c) and not ax_fresh.graph_broken(repo):
+        return export(repo, page, how=f"graph up to date ({langs}): drawn from it, no rebuild.")
+    n = sum(len(x) for x in c) if c else 0
+    flags = ' '.join(f for f in (('--lang ' + t['lang']) if not t.get('lang_auto', True) else 'every language present',
+                                 ('--src ' + t['src_arg']) if t.get('src_arg') else '', ('--library ' + t['library']) if t.get('library') else '') if f)
+    print(f"the graph is out of date ({n} file(s) changed since it was built): rebuilding it as it was indexed ({flags}) …" if n else
+          f"rebuilding the graph as it was indexed ({flags}) …", flush=True)
+    t0 = time.time(); run_build(repo, ax_fresh.rebuild_env(t, AXIOMCODE_REFRESH_REASON='axiomcode graph'))
+    return export(repo, page, how=f"graph rebuilt ({flags}) in {time.time() - t0:.0f} s.")
 
 
 if __name__ == '__main__':
     a = sys.argv[1:]; page = None; library = None
     if '--out' in a: i = a.index('--out'); page = os.path.abspath(os.path.expanduser(a[i + 1])); del a[i:i + 2]
     if '--library' in a: i = a.index('--library'); library = a[i + 1]; del a[i:i + 2]
-    verb, pos = (a[0] if a else ''), a[1:]
-    if verb == 'build': build(pos[0] if pos else '.', page, library)
-    elif verb == 'export': export(pos[0] if pos else '.', page)
-    else: print(__doc__.strip()); sys.exit(0 if verb in ('', '-h', '--help') else 2)
+    if a and a[0] in ('-h', '--help'): print(__doc__.strip()); sys.exit(0)
+    # `axiomcode graph [<repo>]` is the verb; `build` and `export` are the older spellings, still taken. A directory
+    # named `build` or `export` is a repository, not a subcommand
+    verb = a[0] if a and a[0] in ('build', 'export', 'draw') and not os.path.isdir(a[0]) else 'draw'
+    pos = a[1:] if a and verb == a[0] else a
+    if len(pos) > 1 or any(x.startswith('-') for x in pos): print(__doc__.strip(), file=sys.stderr); sys.exit(2)
+    if verb == 'export': export(pos[0] if pos else '.', page, how="drawn from the graph as it is (export: no freshness check, no rebuild).")
+    else: build(pos[0] if pos else '.', page, library)

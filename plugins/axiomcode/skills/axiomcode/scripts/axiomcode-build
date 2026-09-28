@@ -5,7 +5,9 @@
 #   AXIOMCODE_ENGINE  checkout of axiomcodegraph (default: the one this skill lives in)
 #   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
 #   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp, or a comma list of them, the first being
-#                     the main one (default: every language with files; the main one is the language with the most)
+#                     the main one (default: every language with files; the main one is the language with the most).
+#                     A rebuild that names no language keeps the ones an earlier --lang chose (and its --src); pass
+#                     --lang again, or AXIOMCODE_REINDEX=1, to choose again
 #   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
 #                     dependencies are declared unknown rather than guessed
 # A repository in several languages gets one graph per language. The main language's is the one it always had,
@@ -15,7 +17,23 @@
 # language's compile; until the last one is in, .axiomcode/out/building names the languages still to come.
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
+REPO="$(cd "${1:-.}" && pwd)"
+# A REBUILD THAT NAMES NO LANGUAGE KEEPS THE LANGUAGES THE INDEX CHOSE. Every rebuild comes here: an explicit `index`,
+# the background refresh after an edit or a commit, a query that repairs a broken graph, `graph`. One that named no
+# language detected every language in the tree, so on a repository indexed with --lang csharp it solved a few stray
+# .ts and .js files too (a JavaScript Souffle compile of up to an hour), left a graph for each that later queries
+# answered from, and recorded the detected list as the index's choice, so every refresh after it did the same. When
+# the graph here was built with an explicit --lang (lang_auto false in its file table), a request with no language
+# keeps that --lang, and the --src with it when none is given; a graph whose languages were detected is detected again.
+if [ -z "${AXIOMCODE_LANG:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ]; then
+  KEPT="$(python3 "$H/ax_fresh.py" chosen "$REPO" 2>/dev/null || true)"
+  if [ -n "$KEPT" ]; then
+    AXIOMCODE_LANG="${KEPT%%$'\t'*}"; export AXIOMCODE_LANG
+    [ -n "${AXIOMCODE_SRC:-}" ] || { AXIOMCODE_SRC="${KEPT#*$'\t'}"; export AXIOMCODE_SRC; }
+    [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "keeping the languages this graph was indexed with (--lang $AXIOMCODE_LANG${AXIOMCODE_SRC:+ --src $AXIOMCODE_SRC}); pass --lang, or AXIOMCODE_REINDEX=1, to choose again"
+  fi
+fi
+SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
 # THE ENGINE IS CHOSEN THE SAME WAY EVERY TIME, AND A BUILD THAT FINDS NONE SAYS WHERE IT LOOKED. The background
 # refresh runs this script from a hook, with the hook's PATH, the hook's Node and, installed from a marketplace, from a
 # plugin COPIED outside any checkout; an explicit `axiomcode index` runs it from inside the npm package. Each found an

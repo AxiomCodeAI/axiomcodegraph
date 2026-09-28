@@ -10,10 +10,12 @@
 #       --in is repeatable and takes a list, and several are COMBINED, not intersected, so a change that
 #       spans two roots is answerable in one call.
 #       Ends by saying what it could not see. Every other verb needs a name you already have; this one does not.
-#   axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]
-#       the graph as one page. Runs the pipeline only when the repo has no up-to-date graph (~1 s otherwise). <repo>
-#       defaults to the current directory; the page goes to <repo>/.axiomcode/graph/graph.html, or to --out: a folder
-#       gets <folder>/<repo>.html, a .html path is used as given. The page embeds the sources, so a node opens its code.
+#   axiomcode graph [<repo>] [--out <folder | page.html>]
+#       the graph as one page, every language the repository was indexed in. Drawn from the existing graph when it is up
+#       to date (seconds, no engine run); rebuilt first only when a source file changed, and then with the --lang, --src
+#       and --library it was indexed with, never for a language the index left out; indexed first when there is none.
+#       Prints what it drew and the page's absolute path: <repo>/.axiomcode/graph/graph.html, or --out (a folder gets
+#       <folder>/<repo>.html, a .html path is used as given). The page embeds the sources, so a node opens its code.
 #   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json] [--fresh]
 #       the shortest chain of calls from A to B per reached target, and with --every all the routes; through what?
 #       '*' as one endpoint: path '*' X = everything that can reach X, with the entry points among them; path X '*' = everything X reaches. Endpoints exactly as written in the code: Owner.method,
@@ -116,8 +118,8 @@ case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; the
 # check and an exec. The repository is the last argument that is a directory, as the verbs themselves take it, else the
 # working directory. No graph: nothing here, the verb builds its first one.
 # `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they do
-# not wait for the graph; they wait only when HEAD moved and the baseline has to follow it. `graph` builds (axiomcode-build)
-# before it draws, so it is current by construction.
+# not wait for the graph; they wait only when HEAD moved and the baseline has to follow it. `graph` checks the graph
+# itself: it draws from it when it is current, and rebuilds it with its own recorded flags only when it is not.
 # A flag's VALUE is never the repository: `--in plugins/core` names a directory under it, and taking that for the
 # repository found no .axiomcode/lang there, so a repository in several languages was asked in its main graph alone and
 # a scope that only another language's graph holds was refused as absent.
@@ -144,7 +146,7 @@ case "$cmd" in
   impact) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   changed) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   test-impact|tests) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
-  graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
+  graph)  exec python3 "$H/axiomcode-graph" ${ARGS[@]+"${ARGS[@]}"} ;;
   install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
   --verbs) verbs ;;                      # what this dispatcher answers to; bin/axiomcode asks, so the two cannot drift
   ""|-h|--help|help) if [ ${#ARGS[@]} -gt 0 ]; then verbhelp "${ARGS[0]}"; else helptext; fi ;;
