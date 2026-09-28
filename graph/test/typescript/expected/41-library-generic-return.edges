@@ -1,5 +1,6 @@
 ambiguous_unknown	METHOD_CALL	r356#ctlNonGenericLibReturn(string) @L28 -> -
 ambiguous_unknown	METHOD_CALL	r356#viaGenericLibReturn() @L35 -> -
+callback_registered	METHOD_CALL	r356#viaGenericLibReturn() @L35 -> r356#<arrow@35>(AlphaOp)
 known_edge	CONSTRUCTOR_CALL	r356#ctlClientGenericReturn() @L43 -> AlphaOp#<new>()
 known_edge	CONSTRUCTOR_CALL	r356#makeAlpha() @L48 -> AlphaOp#<new>()
 known_edge	CONSTRUCTOR_CALL	r356#viaGenericLibReturn() @L35 -> AlphaOp#<new>()

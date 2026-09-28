@@ -1,0 +1,80 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a callback handed to a library higher-order function (a `map` with no body) is reached from the function that hands it over, and from no other caller of `map`: one shared function-type node made every `.map` callback reachable from every `.map` call",
+   "run": [
+    "impact",
+    "RATE"
+   ],
+   "want": [
+    "scaled   src/app.ts:11",
+    "atStartup   src/app.ts:37",
+    "useEach   src/app.ts:47"
+   ],
+   "avoid": [
+    "src/app.ts:15",
+    "src/app.ts:24",
+    "src/app.ts:29"
+   ]
+  },
+  {
+   "why": "the function that writes `xs.map((x) => …)` reaches its own callback",
+   "run": [
+    "path",
+    "scaled",
+    "src/app.ts:12"
+   ],
+   "want": [
+    "1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "Array.map"
+   ]
+  },
+  {
+   "why": "and never a callback another function handed to the same `map`",
+   "run": [
+    "path",
+    "doubled",
+    "src/app.ts:12"
+   ],
+   "want": [],
+   "avoid": [
+    "1 of 1 target(s) reached"
+   ],
+   "expect_error": true
+  },
+  {
+   "why": "CONTROL: a NAMED function handed to `map` is still reached, from the site that names it",
+   "run": [
+    "path",
+    "named",
+    "double"
+   ],
+   "want": [
+    "1 of 1 target(s) reached",
+    "[callback_registered"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  },
+  {
+   "why": "CONTROL: a project higher-order function has a body that calls its parameter, so the callback it is handed is still reached through that call",
+   "run": [
+    "path",
+    "each",
+    "src/app.ts:48"
+   ],
+   "want": [
+    "1 of 1 target(s) reached",
+    "[dispatch]"
+   ],
+   "avoid": [
+    "no chain of resolved calls"
+   ]
+  }
+ ]
+}

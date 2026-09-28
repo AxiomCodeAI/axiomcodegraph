@@ -8,5 +8,6 @@ boundary_lib	FUNCTION_CALL	consumer#viaMappedType(Readonly) @L34 -> api#shape(Ce
 boundary_lib	FUNCTION_CALL	consumer#viaRequired(Required) @L38 -> api#shape(Cell)
 boundary_lib	METHOD_CALL	consumer#viaReceiver(Store,Row,Cell) @L52 -> Store#put(string,Row)
 boundary_lib	METHOD_CALL	consumer#viaReceiver(Store,Row,Cell) @L53 -> Store#put(string,Cell)
+callback_registered	FUNCTION_CALL	consumer#viaContextualCallback(readonly Row[]) @L23 -> consumer#<arrow@23>(?)
 known_edge	FUNCTION_CALL	consumer#viaInferredReturn() @L16 -> consumer#makeCount()
 known_edge	FUNCTION_CALL	consumer#viaInferredReturn() @L17 -> consumer#makeLabel()

@@ -1,5 +1,6 @@
 ambiguous_unknown	METHOD_CALL	r352#ctlComputedSpecifier(string) @L39 -> -
 ambiguous_unknown	METHOD_CALL	r352#viaThenCallback() @L27 -> -
+callback_registered	METHOD_CALL	r352#viaThenCallback() @L27 -> r352#<arrow@27>(?)
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#ctlComputedSpecifier(string) @L38 -> -
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#viaLiteralBare() @L17 -> -
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#viaLiteralDestructured() @L22 -> -

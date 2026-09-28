@@ -7,6 +7,7 @@ boundary_lib	FUNCTION_CALL	consumer#keyedFirst(Row) @L23 -> curried#at(T,T)
 boundary_lib	FUNCTION_CALL	consumer#keyedLast() @L27 -> curried#at(T)
 boundary_lib	FUNCTION_CALL	consumer#widestFirst() @L31 -> curried#widest(readonly T[])
 boundary_lib	FUNCTION_CALL	consumer#widestLast() @L35 -> curried#widest()
+callback_registered	METHOD_CALL	curried-local#pluck(unknown,unknown) @L33 -> curried-local#<arrow@33>()@L33
 known_edge	FUNCTION_CALL	consumer#localDataFirst() @L56 -> curried-local#pluck(readonly T[],'name')
 known_edge	FUNCTION_CALL	consumer#localDataLast() @L59 -> curried-local#pluck('name')
 known_edge	FUNCTION_CALL	consumer#localKeyed(Row) @L62 -> curried-local#at(T,T)

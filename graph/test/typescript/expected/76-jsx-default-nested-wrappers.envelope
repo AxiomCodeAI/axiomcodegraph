@@ -1,7 +1,3 @@
 value	parts#<function-type>@14:21 -> parts#<arrow>
-value	parts#<function-type>@14:21 -> parts#DefaultMemoInner
 value	parts#<function-type>@14:21 -> parts#NestedPickedInner
 value	parts#<function-type>@14:21 -> parts#PickedInner
-value	parts#<function-type>@16:47 -> parts#MemoFwdInner
-value	parts#<function-type>@17:36 -> app#<arrow>@6
-value	parts#<function-type>@17:36 -> app#<arrow>@8
