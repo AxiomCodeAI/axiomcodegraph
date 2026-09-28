@@ -70,6 +70,10 @@ One check needs no graph and is its own script:
                                          when the last one is: the others are held back, a query answers and names what it
                                          cannot see, a first query does not wait for them, one language alone is unchanged
                                          (#1555; builds real graphs, needs the engine)
+    python3 tests/query_rules.py         the query rules compile once per machine, never while a query waits: a first query
+                                         answers from the interpreter and starts one background compile into the user
+                                         cache, a second plugin copy reuses it, rules one line apart do not, an older
+                                         plugin's dl/.cache binary is still used (#1606; needs soufflé and c++, no engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

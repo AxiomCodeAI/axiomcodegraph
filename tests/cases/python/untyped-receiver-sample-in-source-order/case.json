@@ -1,0 +1,9 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "the callers on an untyped receiver are sampled in the text answer, four of them, in source order (file, then line), so two builds of the same tree show the same four; ordered by symbol id the sample changed from build to build",
+   "run": ["impact", "Pinger.ping"],
+   "want": ["write this method's name on an untyped receiver", "use_alpha alpha.py:1, use_beta beta.py:1, use_gamma gamma.py:1, use_mid mid.py:1"],
+   "avoid": ["use_zeta zeta.py:1"]},
+  {"why": "control: the sample only shortens that one line; every by-name caller is still a row, the one left out of the sample included",
+   "run": ["impact", "Pinger.ping"],
+   "want": ["[by name] use_zeta   zeta.py:2", "[by name] use_alpha   alpha.py:2", "[resolved] direct   svc.py:7"]}]}
