@@ -161,6 +161,10 @@ target/
 !graph/test/java/cases/62-build-output-is-not-source/src/**/target/**
 !graph/test/java/cases/62-build-output-is-not-source/src/**/build/
 !graph/test/java/cases/62-build-output-is-not-source/src/**/build/**
+# ...and the Gradle case: build/ beside a build script is the construct (the parser must skip it by that
+# anchor, not because git ignores it), and src/main/java/app/build/ is the control.
+!graph/test/java/cases/64-gradle-build-output-is-not-source/src/**/build/
+!graph/test/java/cases/64-gradle-build-output-is-not-source/src/**/build/**
 
 # ── Secrets & local configuration ────────────────────────────────────────────
 .env
