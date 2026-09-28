@@ -1,0 +1,12 @@
+ambiguous_unknown	DECORATOR_APPLICATION	app.handlers.<module> -> -
+ambiguous_unknown	DECORATOR_APPLICATION	app.tasks.<module> -> -
+ambiguous_unknown	DECORATOR_BARE	app.tasks.<module> -> -
+ambiguous_unknown	METHOD_CALL	app.models.Order.place -> -
+ambiguous_unknown	METHOD_CALL	app.producer.enqueue -> -
+ambiguous_unknown	METHOD_CALL	app.producer.reschedule -> -
+ambiguous_unknown	METHOD_CALL	app.producer.run_plain -> -
+boundary_lib	DECORATOR_CALL	app.handlers.<module> -> external:receiver
+boundary_lib	DECORATOR_CALL	app.tasks.<module> -> external:shared_task
+boundary_lib	SIMPLE_CALL	app.signals.<module> -> external:Signal
+known_edge	METHOD_CALL	app.producer.pause -> app.tasks.Animation.delay
+known_edge	SIMPLE_CALL	app.models.Order.archive -> app.handlers.audit

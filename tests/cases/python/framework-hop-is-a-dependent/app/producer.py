@@ -1,0 +1,17 @@
+from .tasks import Animation, plain, retry_report, send_report
+
+
+def enqueue(key):
+    send_report.delay(key)
+
+
+def reschedule(key):
+    retry_report.apply_async(args=[key], countdown=30)
+
+
+def pause(anim: Animation):
+    anim.delay(10)
+
+
+def run_plain(key):
+    plain.delay(key)
