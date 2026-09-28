@@ -27,7 +27,7 @@ Read / Grep results as `graph: …` lines.
 | "how does A reach B" · "everything that reaches X" | `axiomcode path A B` · `axiomcode path '*' X` |
 | "what did my edit touch" · "which tests do I run" | `axiomcode changed --impact` · `axiomcode test-impact` |
 | "is it safe to delete X" | `axiomcode impact X --delete` |
-| the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` · `axiomcode install` |
+| the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` (drawn from the existing graph in seconds; a stale one is rebuilt first with the flags it was indexed with; prints the page's absolute path) · `axiomcode install` |
 
 Rules that decide whether an answer means anything:
 
@@ -38,7 +38,8 @@ Rules that decide whether an answer means anything:
   briefly on its own only when the answer touches an edited file and the rebuild is nearly done.
 - **Before a delete or a rename, ask with `--fresh`** (MCP `fresh=true`): it waits for the rebuild, printing its
   progress, and answers from a graph that includes every edit.
-  A manual `index` with different flags (e.g. dropping `--library`) rebuilds a worse graph over the good one.
+  A manual `index` with different flags rebuilds a worse graph over the good one. A bare `index`, the background
+  refresh and `graph` keep the `--lang` (and `--src`, `--library`) the graph was indexed with; pass `--lang` to change it.
 - A repo in several languages is indexed in all of them, one graph each, and every query asks each graph; calls
   are not followed from one language to another. `--lang` restricts it, `--src src` narrows it; `--library <roots>` so calls into dependencies
   resolve (without it they are `ambiguous_unknown` — do not quote that resolution rate).

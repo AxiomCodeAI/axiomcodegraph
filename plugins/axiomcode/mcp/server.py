@@ -170,7 +170,7 @@ def axiomcode_test_impact(repo: str = ".", range: str = '', staged: bool = False
 
 @srv.tool()
 def axiomcode_graph(repo: str = ".", out: str = '') -> str:
-    """Draw the graph as one interactive HTML page (<repo>/.axiomcode/graph/graph.html, or out=<folder|page.html>); runs index first if there is no graph yet."""
+    """Draw the graph as one interactive HTML page, for a person: every language the repository was indexed in, at <repo>/.axiomcode/graph/graph.html or out=<folder|page.html>. Drawn from the existing graph when it is up to date (seconds, no engine run); a graph that is out of date is rebuilt first with the --lang, --src and --library it was indexed with, never for a language the index left out; with no graph yet the repository is indexed first. Answers with what it drew, in prose, and the page's absolute path."""
     return run(['graph', repo] + (['--out', out] if out else []))
 
 if __name__ == '__main__':
