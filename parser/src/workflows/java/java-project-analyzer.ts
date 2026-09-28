@@ -18,6 +18,7 @@ import { TypeAnnotation } from '@/analysis-types/java/TypeAnnotation';
 import { TypeParameter } from '@/analysis-types/java/TypeParameter';
 import { TypeReference } from '@/analysis-types/java/TypeReference';
 import { TypeRegistry } from '@/analysis-types/java/TypeRegistry';
+import { isGradleBuildOutput } from '@/utils/generated-output';
 import { EXCLUDED_DIRS, isJavaTestDir, ANALYSIS_OUTPUT_DIR, OUTPUT_TYPE_REGISTRY_CSV_FILENAME, OUTPUT_TYPE_PARAMETER_CSV_FILENAME, OUTPUT_TYPE_REFERENCE_CSV_FILENAME, OUTPUT_TYPE_ANNOTATION_CSV_FILENAME, OUTPUT_ANNOTATION_ARGUMENT_CSV_FILENAME, OUTPUT_METHOD_REGISTRY_CSV_FILENAME, OUTPUT_METHOD_PARAMETER_CSV_FILENAME, OUTPUT_METHOD_TYPE_PARAMETER_CSV_FILENAME, OUTPUT_ENUM_CONSTANT_CSV_FILENAME, OUTPUT_FIELD_REGISTRY_CSV_FILENAME, OUTPUT_FIELD_POSITION_CSV_FILENAME, OUTPUT_IMPORT_REGISTRY_CSV_FILENAME, OUTPUT_MODULE_REGISTRY_CSV_FILENAME, OUTPUT_MODULE_DIRECTIVE_CSV_FILENAME, OUTPUT_EXPRESSION_REFERENCE_CSV_FILENAME, OUTPUT_LOCAL_VARIABLE_REGISTRY_CSV_FILENAME, OUTPUT_BLOCK_REGISTRY_CSV_FILENAME, OUTPUT_COMMENT_REGISTRY_CSV_FILENAME, OUTPUT_SKIPPED_JAVA_FILES_CSV_FILENAME, JAVA_ENTITY_TYPES, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD } from '@/constants/consts';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
@@ -321,7 +322,12 @@ export class JavaProjectAnalyzer {
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const isTestDir = isJavaTestDir(entry.name);
-          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !(excludeTests && isTestDir)
+          // `build` is skipped only as a Gradle project's output, never by name: it is also a
+          // Java package name (see isGradleBuildOutput).
+          const excluded = entry.name === 'build'
+            ? isGradleBuildOutput(dirPath, entry.name)
+            : EXCLUDED_DIRS.has(entry.name);
+          if (!excluded && !entry.name.startsWith('.') && !(excludeTests && isTestDir)
               && !isGitIgnoredDir(path.join(dirPath, entry.name))) {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForJavaFiles(subPath, files, excludeTests);
