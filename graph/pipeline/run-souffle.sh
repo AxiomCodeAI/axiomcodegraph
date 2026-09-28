@@ -600,6 +600,22 @@ if [ -n "$PACKAGED" ]; then
 elif [ -x "$BIN" ]; then
   echo "▶ reusing cached binary"
 elif command -v souffle >/dev/null 2>&1; then
+  # ONE COMPILE PER ENGINE ID. Concurrent runs that miss the cache together (a suite's
+  # concurrent cases, several agents on one machine) each compiled the same engine: a
+  # multi-GB c++ per run, enough of them at once to exhaust memory. The first takes the
+  # lock and compiles; the others wait, then reuse its binary. A lock older than 30 min
+  # is a dead compile's (killed, out of memory) and is taken over.
+  COMPILE_LOCK="$BIN.lock"; _waited=0
+  until mkdir "$COMPILE_LOCK" 2>/dev/null; do
+    if [ -n "$(find "$COMPILE_LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$COMPILE_LOCK" 2>/dev/null || true; continue; fi
+    [ "$_waited" = 1 ] || echo "▶ another run is compiling this engine; waiting for it..."
+    _waited=1; sleep 3
+  done
+  trap 'rmdir "$COMPILE_LOCK" 2>/dev/null || true' EXIT
+fi
+if [ -z "$PACKAGED" ] && [ -x "$BIN" ] && [ -n "${COMPILE_LOCK:-}" ]; then
+  echo "▶ reusing the binary another run compiled"
+elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
   echo "▶ compiling souffle program (cache miss)..."
   INNER="$(find_souffle_include)"
   # Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell
@@ -636,7 +652,9 @@ elif command -v souffle >/dev/null 2>&1; then
     exit 1
   fi
   mv -f "$BIN.tmp.$$" "$BIN"
-else
+fi
+if [ -n "${COMPILE_LOCK:-}" ]; then rmdir "$COMPILE_LOCK" 2>/dev/null || true; trap - EXIT
+elif [ -z "$PACKAGED" ] && [ ! -x "$BIN" ]; then
   echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2
   echo "   • run \`npm install\` here — it fetches $ENGINE_PACKAGE_SCOPE/engine-<platform> for this machine (if these rules have been published), or" >&2
   echo "   • install souffle $SOUFFLE_VERSION to compile locally (macOS: brew install souffle; Ubuntu: the .deb from souffle-lang/souffle releases)." >&2
