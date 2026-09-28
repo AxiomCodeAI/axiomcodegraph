@@ -116,6 +116,8 @@ class G:
         self.repo = os.path.realpath(repo or '.')
         os.environ.setdefault('AXIOMCODE_REPO', self.repo)       # which repository's recorded engine dl_program looks in
         gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(self.repo, '.axiomcode')
+        # a CORRUPT graph is moved aside and rebuilt, and the last good graph answers meanwhile (ax_contract.usable_graph)
+        gdir = ax_contract.usable_graph(self.repo, gdir)
         self.db = os.path.join(gdir, 'out', 'graph.sqlite')
         # ONE door for every verb. impact, changed, context and test-impact all load this file as a
         # module and construct this class, so a repository with no graph is handled here, once, for
@@ -125,6 +127,7 @@ class G:
         if not os.path.exists(self.db) and not ax_contract.ensure_graph(self.repo, self.db):
             die(ax_contract.no_graph(self.repo, self.db))
         self.connect()
+        ax_contract.on_corrupt(self.repo, self.db)
         if not self.has('symbols'):
             # a graph that was built but never indexed: the index is this tool's own, and adding it
             # is seconds, so asking the caller to run one more command buys nothing.
