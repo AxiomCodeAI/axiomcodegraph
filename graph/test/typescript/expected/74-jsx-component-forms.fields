@@ -1,0 +1,8 @@
+ambiguous_unknown	read	parts#<module-init>() -> -
+known_edge	read	Panel#render() -> Panel#props
+known_edge	read	Panel#render() -> { title: string }#title
+known_edge	read	parts#Avatar({ src: string }) -> { src: string }#src
+known_edge	read	parts#Chip({ text: string }) -> { text: string }#text
+known_edge	read	parts#FieldImpl({ label: string },unknown) -> { label: string }#label
+known_edge	read	parts#UserCard({ id: string }) -> { id: string }#id
+known_edge	write	Panel#<new>({ title: string }) -> Panel#props

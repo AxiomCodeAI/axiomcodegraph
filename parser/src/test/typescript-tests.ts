@@ -1267,22 +1267,21 @@ function factBaseInvariants(): number {
 /**
  * Reserved enum values carry ZERO rows.
  *
- * TSX is out of freeze 1 (§4.15.1). The representation is decided — a JSX
- * element IS a call to its component, with the whole props object as argument 0
- * — and nothing emits it. The point of checking the emptiness is that the day
- * TSX is switched on it shows up HERE, as a gate failure naming the value, and
- * not as new rows appearing in a fact base with nobody noticing.
+ * A JSX component element IS a call to its component (§4.15.1): `<Badge/>`
+ * emits a JSX_ELEMENT / JSX_SELF_CLOSING row and a JSX_COMPONENT_CALL site.
+ * Attribute values and children are still rooted as JSX_EMBEDDED_EXPRESSION
+ * trees rather than hung off the element, so their two edge roles stay
+ * reserved, and switching them on must show up HERE as a named failure.
  */
 const RESERVED_TSX_VALUES = new Set([
-  'JSX_COMPONENT_CALL', 'JSX_ELEMENT', 'JSX_SELF_CLOSING',
   'JSX_ATTRIBUTE_VALUE', 'JSX_CHILD',
 ]);
 
 function tsxReservedButEmpty(): number {
   if (!parserPresent()) {
     return pendingCheck('TSX reserved but empty',
-      'no extractor yet. TSX is out of freeze 1: JSX_COMPONENT_CALL is reserved and must ' +
-      'carry ZERO rows, so switching TSX on shows up as a gate failure rather than as new rows');
+      'no extractor yet. JSX_ATTRIBUTE_VALUE and JSX_CHILD are reserved and must carry ZERO ' +
+      'rows, so switching them on shows up as a gate failure rather than as new rows');
   }
   const corpora = extractedCorpora();
   const failures: string[] = [];
@@ -1299,7 +1298,7 @@ function tsxReservedButEmpty(): number {
           const value = row[name] ?? '';
           if (RESERVED_TSX_VALUES.has(value)) {
             failures.push(`${slug}: ${file} row at ${row.startLine}:${row.startColumn} carries ` +
-              `reserved value ${name}=${value} — TSX is not in freeze 1`);
+              `reserved value ${name}=${value} — attributes and children are rooted, not edges`);
           }
         }
       }
@@ -1400,10 +1399,10 @@ function irCompleteness(): number {
  * The corpus cannot carry this. Corpus A has no `.tsx` file and its
  * expectations are blessed, so the fixture is built here and thrown away.
  *
- * What must NOT appear is the component call. `<Badge/>` as `Badge({...})` is
- * JSX_COMPONENT_CALL and stays at zero until TSX is switched on -- so this
- * check asserts both directions at once: every ordinary call present, every
- * reserved value still empty.
+ * The component element is a call too: `<Badge/>` is `Badge({...})`, a
+ * JSX_COMPONENT_CALL site, wherever it sits -- a child, a ternary branch, the
+ * body of a `.map` arrow. The CONTROL is the intrinsic element: `<div>` and
+ * `<span>` name no declaration and must produce no call site at all.
  */
 async function jsxBraceExpressionsWalked(): Promise<number> {
   if (!parserPresent()) {
@@ -1449,8 +1448,12 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
   const modules = relation(outputDir, 'all-typescript-modules.csv');
   const modulePath = new Map(modules
     .map((m) => [m.tsModuleUniqueHash ?? '', m.filePath ?? '']));
-  const emitted = new Set(relation(outputDir, 'all-typescript-call-sites.csv')
+  const siteRows = relation(outputDir, 'all-typescript-call-sites.csv');
+  const emitted = new Set(siteRows
     .map((r) => `${modulePath.get(r.tsModuleLinkHash ?? '') ?? '?'}:${r.startLine}:${r.startColumn}`));
+  const kindAt = new Map(siteRows.map((r) => [
+    `${modulePath.get(r.tsModuleLinkHash ?? '') ?? '?'}:${r.startLine}:${r.startColumn}`,
+    r.callKind ?? '']));
 
   const sf = ts.createSourceFile(path.join(root, 'panel.tsx'), source,
     ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -1478,7 +1481,28 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     }
   }
   let expected = 0;
+  let components = 0;
+  let intrinsics = 0;
   const walk = (node: ts.Node): void => {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxElement(node)) {
+      const tag = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
+      const p = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+      const key = `panel.tsx:${p.line + 1}:${p.character + 1}`;
+      const isComponent = /^[A-Z]/.test(tag.getText(sf));
+      if (isComponent) {
+        components += 1;
+        if (kindAt.get(key) !== 'JSX_COMPONENT_CALL') {
+          failures.push(`no JSX_COMPONENT_CALL at ${key} for \`${node.getText(sf).slice(0, 44)}\``
+            + ` (found ${kindAt.get(key) ?? 'nothing'})`);
+        }
+      } else {
+        intrinsics += 1;
+        if (emitted.has(key)) {
+          failures.push(`intrinsic \`<${tag.getText(sf)}>\` at ${key} became a call site `
+            + `(${kindAt.get(key)}) -- it names no declaration`);
+        }
+      }
+    }
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       expected += 1;
       const p = sf.getLineAndCharacterOfPosition(node.getStart(sf));
@@ -1492,7 +1516,7 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
   };
   ts.forEachChild(sf, walk);
 
-  // The other direction: the component invocation must still be absent.
+  // The edge roles that stay reserved: attributes and children are rooted trees.
   for (const [file, names] of [
     ['all-typescript-call-sites.csv', ['callKind']],
     ['all-typescript-expressions.csv', ['kind', 'edgeRole']],
@@ -1500,15 +1524,16 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     for (const row of relation(outputDir, file)) {
       for (const name of names) {
         if (RESERVED_TSX_VALUES.has(row[name] ?? '')) {
-          failures.push(`${file} carries reserved ${name}=${row[name]} — the component call ` +
-            'must stay empty while only the braces are walked');
+          failures.push(`${file} carries reserved ${name}=${row[name]} — attributes and ` +
+            'children are rooted as JSX_EMBEDDED_EXPRESSION, not hung off the element');
         }
       }
     }
   }
 
   console.log(`  ${expected} call/new node(s) in JSX attributes, children, spreads and a ` +
-    `nested map; ${expected - missingCalls} emitted, ${RESERVED_TSX_VALUES.size} reserved ` +
+    `nested map; ${expected - missingCalls} emitted; ${components} component element(s) as ` +
+    `calls, ${intrinsics} intrinsic element(s) as none; ${RESERVED_TSX_VALUES.size} reserved ` +
     'value(s) still empty');
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
   fs.rmSync(root, { recursive: true, force: true });
@@ -4538,8 +4563,8 @@ const CHECKS: Check[] = [
   { name: 'merge partition', proves: 'the parser\'s declarationGroupKey partition equals tsc\'s symbol partition', run: mergePartition },
   { name: 'tsc-adjudicated resolution', proves: 'every resolved call target equals getResolvedSignature', run: tscAdjudicatedResolution },
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
-  { name: 'TSX reserved but empty', proves: 'reserved enum values carry no rows until TSX is switched on', run: tsxReservedButEmpty },
-  { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site; only the component invocation is reserved', run: jsxBraceExpressionsWalked },
+  { name: 'TSX reserved but empty', proves: 'the JSX attribute and child edge roles carry no rows', run: tsxReservedButEmpty },
+  { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site, a component element is a JSX_COMPONENT_CALL, an intrinsic element is none', run: jsxBraceExpressionsWalked },
   { name: 'destructuring records its source', proves: 'a bound name carries the property or index it binds, so a renamed or positional binding is recoverable', run: destructuringRecordsItsSource },
   { name: 'no emitted value can split a row', proves: 'no value contains a character a consumer treats as a line break, so a row cannot tear', run: noValueCanSplitARow },
   { name: 'signatures link their return type', proves: 'a call through any callable shape reaches a result type, so a chain does not stop at it', run: signaturesLinkTheirReturnType },

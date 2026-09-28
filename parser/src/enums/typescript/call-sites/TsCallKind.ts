@@ -29,13 +29,14 @@
  * that resolved THROUGH AN INDEX SIGNATURE, which is a fact about the receiver's
  * TYPE. Syntax cannot tell the two apart, so syntax does not try.
  *
- * ## JSX_COMPONENT_CALL is RESERVED and carries ZERO rows
+ * ## JSX_COMPONENT_CALL — `<Badge/>` is a call to Badge
  *
- * TSX is out of the first freeze. The representation is settled — a JSX element
- * IS a call to its component, with the whole props object as argument 0 and
- * children folded into a reserved `children` prop, because a component has
- * exactly one parameter and mapping attributes positionally would be wrong. The
- * gate asserts the emptiness, so switching TSX on appears as a named failure.
+ * A JSX element whose tag names a binding IS a call to its component, with the
+ * whole props object as argument 0 and children folded into the `children`
+ * prop, because a component has exactly one parameter and mapping attributes
+ * positionally would be wrong. An intrinsic element (`<div>`) names no
+ * declaration and produces no site; a member tag (`<ui.Card/>`) is a
+ * METHOD_CALL on its receiver.
  *
  * Schema §4.15 c0, §4.15.1.
  */
@@ -58,6 +59,6 @@ export enum TsCallKind {
   DECORATOR_CALL = 'DECORATOR_CALL',
   /** `a?.b()` — same target as `a.b()`, different reachability. */
   OPTIONAL_CALL = 'OPTIONAL_CALL',
-  /** RESERVED for TSX. Must carry zero rows in freeze 1; the gate asserts it. */
+  /** `<Badge/>` — a JSX element whose tag is an identifier naming a component. */
   JSX_COMPONENT_CALL = 'JSX_COMPONENT_CALL',
 }

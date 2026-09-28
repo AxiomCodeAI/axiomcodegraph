@@ -1,0 +1,23 @@
+ambient_terminal	FUNCTION_CALL	app#<module-init>() @L4 -> parts#lazy(() ={ default: Fc })
+ambient_terminal	FUNCTION_CALL	parts#<module-init>() @L33 -> parts#memo(Fc)
+ambient_terminal	FUNCTION_CALL	parts#<module-init>() @L41 -> parts#forwardRef((props: P, ref: unknown) =)
+ambient_terminal	FUNCTION_CALL	parts#<module-init>() @L73 -> parts#makeFactory(() =)
+ambiguous_unknown	FUNCTION_CALL	parts#Badge(?) @L44 -> -
+ambiguous_unknown	FUNCTION_CALL	parts#FieldImpl({ label: string },unknown) @L39 -> -
+ambiguous_unknown	FUNCTION_CALL	settings#Settings() @L6 -> -
+ambiguous_unknown	METHOD_CALL	app#App() @L15 -> -
+ambiguous_unknown	METHOD_CALL	parts#formatName(string) @L25 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@4>() @L4 -> -
+known_edge	FUNCTION_CALL	app#useFactory() @L23 -> parts#<arrow@22>()@L22
+known_edge	FUNCTION_CALL	parts#FieldImpl({ label: string },unknown) @L39 -> parts#trackClick(string)
+known_edge	FUNCTION_CALL	parts#UserCard({ id: string }) @L34 -> parts#formatName(string)
+known_edge	FUNCTION_CALL	settings#Settings() @L6 -> settings#saveSettings()
+known_edge	JSX_COMPONENT_CALL	app#App() @L12 -> parts#Avatar({ src: string })
+known_edge	JSX_COMPONENT_CALL	app#App() @L13 -> Panel#<new>({ title: string })
+known_edge	JSX_COMPONENT_CALL	app#App() @L14 -> settings#Settings()
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L10 -> parts#<arrow@18>(T)
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L10 -> parts#FieldImpl({ label: string },unknown)
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L11 -> parts#<arrow@18>(T)
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L11 -> parts#Badge(?)
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L9 -> parts#<arrow@18>(T)
+multi_inferred	JSX_COMPONENT_CALL	app#App() @L9 -> parts#UserCard({ id: string })
