@@ -2031,6 +2031,62 @@ def main(argv):
         if libs: print("    into libraries (not traversed): " + ', '.join(str(x['lab']).split('(')[0] for x in libs[:6]) + (f" … +{len(libs) - 6}" if len(libs) > 6 else ''))
         if unres and seen_d: print(f"    bound: {unres} unresolved call(s) in its body — what those reach is not here")
 
+    # an override of a type the graph does not contain is called BY that library / framework: "nothing reaches it" would be a lie.
+    # Computed ahead of the delete verdict and `next:`, which both have to read it (#1388): each used to print its own
+    # "nothing" / "the change is local" one line under the `outside the graph:` note that said otherwise.
+    # A MARKER INTERFACE DECLARES NO METHOD, so no library calls a method THROUGH it, which is what the note says: an
+    # accessor on an entity that is Serializable was told a library calls it, and with `next:` now reading this list
+    # that became "not local" for every accessor of every entity. Sorted, because a set's order made the note differ
+    # between two runs of the same query.
+    MARKER = ('Serializable', 'Cloneable', 'RandomAccess', 'Remote', 'EventListener')
+    # WHICH SEEDS A LIBRARY SUPERTYPE CAN CALL AT ALL. A private, static or constructor body is never entered through
+    # the supertype, so a private helper in a servlet is as local as one in any class; a method that overrides a
+    # library method (an override row, or @Override) is certainly entered by it; any other instance method is entered
+    # only if it happens to override one, which the graph cannot tell while the supertype's members are not in it.
+    # 'yes' is said as a fact in `next:`, 'maybe' as the condition it is.
+    def via_super(m):
+        s = g.sym[m]
+        if not s.get('method_id'): return 'maybe' if s.get('type_id') else None
+        row = g.q("SELECT kind, visibility FROM methods WHERE id = ?", s['method_id']) if g.has('methods') else []
+        if row and (any(k in (row[0][0] or '').upper() for k in ('STATIC', 'CONSTRUCTOR', 'INITIALIZER'))
+                    or (row[0][1] or '').upper() == 'PRIVATE'): return None
+        if g.has('overrides') and g.q("SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id WHERE o.overriding_method_id = ? AND b.provenance <> 'client' LIMIT 1", s['method_id']): return 'yes'
+        if g.has('decorations') and g.q("SELECT 1 FROM decorations WHERE owner_id = ? AND name = 'Override' LIMIT 1", s['method_id']): return 'yes'
+        return 'maybe'
+    how = {}
+    for m in seeds:
+        if m not in g.sym: continue
+        own = g.sym[m].get('owner') or (g.sym[m]['display'] if g.sym[m].get('type_id') and not g.sym[m].get('method_id') else None)
+        v = via_super(m) if own else None
+        if v: how[own] = 'yes' if 'yes' in (how.get(own), v) else v
+    outside = []; outside_how = {}
+    for own in sorted(how):
+        for r in g.q("SELECT DISTINCT x.name FROM symbols s JOIN type_ancestors a ON a.type_id = s.type_id JOIN types x ON x.id = a.ancestor_type_id WHERE s.display = ? AND s.method_id IS NULL AND x.provenance <> 'client' ORDER BY x.name", own):
+            if r[0] not in MARKER: outside.append((own, r[0])); outside_how[r[0]] = 'yes' if 'yes' in (outside_how.get(r[0]), how[own]) else how[own]
+    dunder = sorted({g.sym[m]['name'] for m in seeds if m in g.sym and re.fullmatch(r'__\w+__', g.sym[m]['name'] or '')})
+    # A NAME IN A FILE THE INDEX DOES NOT READ AS SOURCE IS TWO KINDS OF EVIDENCE (#1388). A type written in full
+    # (a qualified class name in spring.factories, a services file, a mapper XML, a settings file) or a key a settings
+    # file defines is a binding: something loads the declaration by that name, so it counts against a delete and
+    # `next:` names it. Anything else is a lead, as a [by name] row is: a bare name ("names the type": the simple name
+    # as a whole token in any text file) is as often a JSON fixture, a SQL column or a template spelling the same word,
+    # and a method "in full" is only `Owner.method`, which a document or a test resource writes as readily as a
+    # binding does. On the test cases themselves both matched each case's own case.json. A key is defined only in a
+    # settings file; the same key spelled in any other text file is a mention, which the row's wording does not tell apart.
+    ext_strong = [x for x in ext if x[3] == 'names the type in full'
+                  or (x[3] == 'defines or overrides the key' and os.path.splitext(x[0])[1].lower() in Impact.KEYFILE_EXT)]
+    ext_weak = [x for x in ext if x not in ext_strong]
+    # WHAT "NOTHING HERE CALLS IT" IS MEASURED AGAINST: production code bound to it by an exact edge -- a strong direct
+    # user, or a method the closure reaches through exact edges. It used to be `not reached`, and a test or a [by name]
+    # row in the reach switched the library-supertype note off: a Validator's validate(), reached only by its test,
+    # was then called local with no note at all. And a method reached through the base it overrides (an abstract
+    # template method, whose caller is the base class's own body) printed that caller in the reach and was still
+    # called local, because `next:` read only the direct rows.
+    # `remote` (#1468): the client that calls it across a process is a dependent the engine joined at both ends, so it
+    # is a place to read, not a by-name lead, and it makes the declaration as non-local as a resolved caller does
+    STRONG_DIRECT = ('resolved', 'one of a set', 'registered', 'capped set', 'remote', 'framework')
+    prod_users = {c for c, role, why, cert, loc, n in D if cert in STRONG_DIRECT and not _is_t(c)}
+    prod_reach = sorted((m for m in reached if m in sure_set and not _is_t(m)), key=lambda m: (reached[m], g.loc(m)))
+    lone = not prod_users and not prod_reach
     # a green line over an empty set would be printed exactly where the answer is least trustworthy: say what was checked
     if want_delete:
         # is it safe to delete? every reason it is not, and — when there is none — what the graph cannot vouch for
@@ -2091,6 +2147,10 @@ def main(argv):
             why.append("it implements the abstract " + ', '.join(sorted(set(abstract_over))[:3]) +
                        ", so deleting it leaves the type without an implementation and the build fails")
         elif ov: why.append("it overrides " + ', '.join(sorted(set(ov))[:3]) + ", so the base's callers reach this body with no call site of its own")
+        # A FILE THE INDEX DOES NOT READ AS SOURCE CAN STILL LOAD IT (#1388). A spring.factories entry, a services file,
+        # a mapper XML: the rows were printed under "bound from outside the source" and then left out of the verdict,
+        # which read "nothing" for a class Spring instantiates at startup only because such a file names it.
+        if ext_strong: why.append(f"{len(ext_strong)} site(s) in {len({f for f, *_ in ext_strong})} file(s) outside the source {'define' if all(x[3].startswith('defines') for x in ext_strong) else 'name'} it ([text] above), so deleting it breaks them at RUN time")
         if why: print("  NOT SAFE — " + '; '.join(why) + ". They are listed above.")
         elif exported: print("  NOT SAFE TO ASSUME — no dependent in this graph, but it is declared " + '/'.join(exported) +
                              ": exported surface. For a library, no in-repo caller is the normal state of the public API,"
@@ -2101,11 +2161,14 @@ def main(argv):
                                       " — deleting it COMPILES, and the inherited body runs instead: a behaviour change, not a build break")
         if exported and why: bits.append("it is declared " + '/'.join(exported) + " — exported surface, so consumers outside this graph may call it too")
         if lits: bits.append(f"{len(lits)} string literal(s) equal to the name (reflection? a bean name? a config key?): " + ', '.join(f"{f}:{l}" for f, l in lits[:4]) + (' …' if len(lits) > 4 else ''))
+        if outside and lone: bits.append("it extends / implements " + ', '.join(sorted({a for _o, a in outside})[:3]) + ", which the graph does not contain — that library or framework can instantiate or call it with no call site here")
+        if ext_weak: bits.append(f"{len(ext_weak)} mention(s) of the name in {len({f for f, *_ in ext_weak})} file(s) outside the source ([text] above): "
+                                 + ', '.join(f"{f}:{l}" for f, l, *_ in ext_weak[:4]) + (' …' if len(ext_weak) > 4 else '') + " — each may be the same word meaning something else")
         if decs: bits.append("decorations on it: @" + ', @'.join(decs[:5]) + " — a framework may call it with no call site, and a decorator can hand the wrapper to the caller instead of this declaration")
         if u: bits.append(f"{u} unresolved call(s) inside the impacted set")
         if tests: bits.append(f"{len(tests)} test(s) reach it")
         for b in bits: print(f"    · {b}")
-        if not bits and not calls and not contract and not weak and not ov: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
+        if not bits and not calls and not contract and not weak and not ov and not ext: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
         if not vis and g.has('methods'): print("    · visibility is not recorded in this graph, so exported surface cannot be told from internal")
     # WHAT hops == 0 MEANS IS "NO ROW CLAIMS A CALL EDGE", NOT "NO ROW IS RESOLVED". The old parenthetical —
     # "every entry is by name, in scope, text, or one of a target set" — is a claim about the rows, and it is
@@ -2150,13 +2213,9 @@ def main(argv):
             print("bound: the closure could not start — no dependent above is an edge it can walk back from, so what "
                   "reaches THEM is not in this answer")
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
-    # an override of a type the graph does not contain is called BY that library / framework: "nothing reaches it" would be a lie
-    outside = []
-    for own in {g.sym[m]['owner'] for m in seeds if m in g.sym and g.sym[m].get('owner')}:
-        for r in g.q("SELECT DISTINCT x.name FROM symbols s JOIN type_ancestors a ON a.type_id = s.type_id JOIN types x ON x.id = a.ancestor_type_id WHERE s.display = ? AND s.method_id IS NULL AND x.provenance <> 'client'", own): outside.append((own, r[0]))
-    dunder = sorted({g.sym[m]['name'] for m in seeds if m in g.sym and re.fullmatch(r'__\w+__', g.sym[m]['name'] or '')})
     if dunder and not reached: print(f"outside the graph: {', '.join(dunder)} is a protocol method — the language runtime calls it (an operator, a conversion, a lifecycle hook), which is no call site, so nothing reaching it here does NOT mean nothing does")
-    if outside and not reached: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so nothing reaching it here does NOT mean nothing does")
+    if outside and lone: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so "
+                               + ("what reaches it above is not all that does" if reached else "nothing reaching it here does NOT mean nothing does"))
     if byname_seeds: print(f"through a call the engine could not resolve: {len(byname_seeds)} caller(s) write this method's name on an untyped receiver — counted in the reach above, so that part of it MAY not be real: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in sorted(byname_seeds)[:4]))
     byname = [x for x in D if x[3] in ('one of a set', 'by name', 'text')]
     # a label the answer USED must be explained here; a label it did not use must not be, or the note
@@ -2184,7 +2243,6 @@ def main(argv):
     # to do with them, and what NOT to spend reads on.
     # `framework` (#1509): the producer or publisher the engine joined to this through the framework's own
     # registration is a place bound to it, not a same-named lead, so it is named here rather than counted as one
-    STRONG_DIRECT = ('resolved', 'one of a set', 'registered', 'capped set', 'framework')
     must = [g.loc(c) for c, _ in contract]
     users = sorted({loc for c, role, why, cert, loc, n in D if cert in STRONG_DIRECT and not _is_t(c) and loc})
     weak_n = len({c for c, role, why, cert, loc, n in D if cert not in STRONG_DIRECT and cert != 'alongside'})
@@ -2192,7 +2250,62 @@ def main(argv):
     places = [x for x in dict.fromkeys(must + users) if x not in here]
     ti = '; `test-impact` after the edit for the tests' if tests else ''
     lead = f"; the {weak_n} [by name]/[text] row(s) are leads — open one only if the change is to the name or the signature" if weak_n else ''
-    if not places:
+    # "LOCAL" IS A CLAIM ABOUT EVERYTHING ABOVE IT, NOT ABOUT `D` (#1388). Two things this answer prints are not rows of
+    # D and were never read here: a name in a file the index does not read as source ([text] under "bound from outside
+    # the source"), and a supertype the graph does not contain (the `outside the graph:` note). Each means something
+    # calls or loads the declaration with no call site in the graph, so neither answer is local: the [text] sites are
+    # named as places to read, and the library supertype as the caller whose signature the declaration must keep.
+    ext_locs = list(dict.fromkeys(f"{f}:{l}" for f, l, *_ in ext_strong))
+    weak_ext = len({(f, l) for f, l, *_ in ext_weak})
+    other = ' other' if ext_strong else ''
+    if weak_ext: lead += (f"; the {weak_ext}{other} [text] mention(s) outside the source are leads too" if weak_n else
+                          f"; the {weak_ext}{other} [text] mention(s) outside the source are leads — open one only if the change is to the name")
+    # the callers the closure reached through the base this overrides, when no direct row names one: the nearest
+    # production ones are the places bound to it
+    if not places and prod_reach:
+        near = min(reached[m] for m in prod_reach)
+        places = [x for x in dict.fromkeys(g.loc(m) for m in prod_reach if reached[m] == near) if x not in here]
+    foreign = sorted({a for a, h in outside_how.items() if h == 'yes'}) if outside and lone else []
+    maybe = sorted({a for a, h in outside_how.items() if h == 'maybe'}) if outside and lone and not foreign else []
+    if dunder and not reached: foreign.append('the language runtime')
+    keep = (f"; {', '.join(foreign[:3])} calls it from outside the graph, so keep the signature it expects" if foreign else
+            f"; if it overrides a method of {', '.join(maybe[:3])} (not in the graph, so this cannot tell), that library calls it: keep that signature" if maybe else '')
+    nobody = 'nothing in this graph calls it' if not reached else 'nothing but tests and leads reaches it in this graph'
+    # THREE MORE THINGS THE ANSWER PRINTS THAT ARE NOT A RESOLVED PRODUCTION CALLER, AND EACH WAS CALLED "LOCAL"
+    # (#1467, #1573, #1552): an entry point the answer itself said the outside world calls; [by name] / [in scope] /
+    # [text] rows, whose callers may well be real (an untyped receiver is not an absent one); and tests the answer
+    # counted as reaching the change. "Local" is left for the answer that holds none of them.
+    ep_why = sorted(ep_by_reason)
+    weak_locs = list(dict.fromkeys(loc for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT.get(x[3], 99), x[4] or ''))
+                                   if cert not in STRONG_DIRECT and cert != 'alongside' and loc and loc not in here))
+    nt = len(tests)
+    tpart = (f"; {nt} test(s) reach it — run them after the edit (`test-impact`)" if nt else '')
+    if places: places = list(dict.fromkeys(places + [x for x in ext_locs if x not in here]))
+    if not places and ext_locs:
+        print(f"next: nothing resolved in the source depends on it, but {len(ext_locs)} site(s) outside the source {'define' if all(x[3].startswith('defines') for x in ext_strong) else 'name'} it and "
+              f"break at RUN time on a rename, a move or a delete — read {', '.join(here) or 'the declaration'}, then "
+              f"{', '.join(ext_locs[:6])}{' …' if len(ext_locs) > 6 else ''}{keep}{lead}")
+    elif not places and foreign:
+        print(f"next: {nobody}, but it is not local — {', '.join(foreign[:3])} calls it from outside the graph: "
+              f"read {', '.join(here) or 'the declaration'}; a body change is safe there, a change to its name or signature "
+              f"stops that caller reaching it{lead}")
+    elif not places and ep_why:
+        print(f"next: nothing in this graph calls it, but it is not local — it is {'an' if ep_why[0][:1] in 'aeiou' else 'a'} {'/'.join(ep_why[:3])} entry point, so its "
+              f"callers are outside the graph (the framework, a request, a client, a runner, a scheduler): read {', '.join(here) or 'the declaration'}; a body change "
+              f"is safe there, a change to its name, route, parameters or result breaks those callers{tpart}{lead}")
+    elif not places and maybe:
+        print(f"next: {nobody} — read {', '.join(here) or 'the declaration'}; a body change stays there, but "
+              f"it is declared on a subtype of {', '.join(maybe[:3])}, which the graph does not contain: if it overrides one of "
+              f"its methods (for a type: wherever one of its methods does), that library calls it with no call site here, so a "
+              f"change to that name or signature is not local{lead}")
+    elif not places and weak_n:
+        print(f"next: no resolved caller, but {weak_n} caller(s) above reach it by name or text, which the graph could not confirm — "
+              f"check {', '.join(weak_locs[:4]) or 'them'}{' …' if len(weak_locs) > 4 else ''} before treating the change as contained, "
+              f"then read {', '.join(here) or 'the declaration'}{tpart}")
+    elif not places and nt:
+        print(f"next: no production code depends on it, but {nt} test(s) reach it — read {', '.join(here) or 'the declaration'} "
+              f"and edit there, then run those tests (`test-impact` after the edit){lead}")
+    elif not places:
         print(f"next: nothing resolved depends on it, so the change is local — read {', '.join(here) or 'the declaration'} and edit there{lead}")
     elif len(places) <= 6:
         print(f"next: read {', '.join(here) or 'the declaration'}, then only these {len(places)} place(s) bound to it: {', '.join(places)}{lead}{ti}")

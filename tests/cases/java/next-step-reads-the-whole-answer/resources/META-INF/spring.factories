@@ -1,0 +1,3 @@
+org.springframework.context.ApplicationContextInitializer=\
+  com.example.Other,\
+  com.example.GreeterInitializer

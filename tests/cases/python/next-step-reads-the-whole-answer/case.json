@@ -1,0 +1,90 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a class named by its dotted path in a YAML file is not safe to delete, and next: names that file instead of calling the change local",
+   "run": [
+    "impact",
+    "Handler",
+    "--delete"
+   ],
+   "want": [
+    "NOT SAFE",
+    "outside the source name it",
+    "then config.yaml:1"
+   ],
+   "avoid": [
+    "the change is local",
+    "· nothing"
+   ]
+  },
+  {
+   "why": "control: a class nothing names outside the source keeps the local answer",
+   "run": [
+    "impact",
+    "Orphan"
+   ],
+   "want": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: a function that calls nothing is independent, and next: does not point at unresolved sites that were never printed",
+   "run": [
+    "path",
+    "lonely",
+    "on_event"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph",
+    "nothing in this graph connects them"
+   ],
+   "avoid": [
+    "NOT shown",
+    "unresolved sites named above"
+   ]
+  },
+  {
+   "why": "a fixture the tests take is not local: next: says the tests the answer counted reach it (#1552)",
+   "run": [
+    "impact",
+    "tests/conftest.py:7"
+   ],
+   "want": [
+    "test(s) reach it"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a function whose only callers are a fixture and the tests behind it is not local either (#1552)",
+   "run": [
+    "impact",
+    "client.py:5"
+   ],
+   "want": [
+    "test(s) reach it"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a method whose one caller is untyped ([by name]) names that caller to check instead of calling the change local (#1573)",
+   "run": [
+    "impact",
+    "Store.tally"
+   ],
+   "want": [
+    "[by name]",
+    "check store.py:7"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  }
+ ]
+}
