@@ -31,13 +31,17 @@ SRC = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs', '.cs')
 # the shell commands that are the search or read this directive competes with
 SEARCH = re.compile(r'(^|[;&|(]\s*|\s)(grep|egrep|rg|ag|ack|git\s+grep|find|fd|cat|head|tail|sed|awk|less)\b')
 
+# The MCP tools are named first and the shell verbs second (#1425): `axiomcode install` pre-approves only the tools,
+# so an agent that takes the first spelling it reads should be taking the one it is already allowed to call.
 FULL = (
     "graph: this repository has a resolved call graph, and it answers the question this search is asking.\n"
-    "  `axiomcode impact <name>` — everything a change to that declaration reaches, each entry labelled\n"
-    "     with how certain it is; finds callers that never spell the name (an interface, an override, a\n"
+    "  the axiomcode_impact tool (targets=[<name>]) — everything a change to that declaration reaches, each entry\n"
+    "     labelled with how certain it is; finds callers that never spell the name (an interface, an override, a\n"
     "     callback, DI, a config key), which is what a grep for the name cannot do.\n"
-    "  `axiomcode path <A> <B>` — how one thing reaches another.  `axiomcode context \"<task>\"` — where a\n"
-    "     task's words land.  `axiomcode changed` / `test-impact` — what an edit moved and which tests reach it.\n"
+    "  axiomcode_path — how one thing reaches another.  axiomcode_context — where a task's words land.\n"
+    "  axiomcode_changed / axiomcode_test_impact — what an edit moved and which tests reach it.\n"
+    "  Without those tools, the same verbs from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`,\n"
+    "     `axiomcode context \"<task>\"`, `axiomcode changed`, `axiomcode test-impact`.\n"
     "  Search raw files after that, to read or to change specific lines. If you hand this to a subagent,\n"
     "  carry this line into its prompt — exploration done in a child is exploration done without the graph."
 )
