@@ -14,3 +14,7 @@
   known_bean  container#AuditService.<constructor>(orders: OrderService) <- OrderService
   known_bean  container#OrderController.<constructor>(svc: OrderService) <- OrderService
   unsatisfied container#AuditController.<constructor>(extra: Unprovided) <- -
+── remote_unsent (3) ──
+  container#AuditController.one  http  /audit/{}
+  container#OrderController.add  http  /orders
+  container#OrderController.getOne  http  /orders/{}
