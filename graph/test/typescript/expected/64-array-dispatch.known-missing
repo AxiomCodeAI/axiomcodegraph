@@ -11,6 +11,13 @@
 # Measured against the TypeScript compiler's own answer (checker.getResolvedSignature,
 # via tools/tsc_oracle_case.mjs): oracle=7 engine=4 agree=4 extra=0. runDirect, and
 # each step's own call to measure, resolve and are the controls.
+#
+# They are no longer SILENT (#967): each is a `value_call` in
+# expected/64-array-dispatch.envelope, a dispatch-rung route that impact, path and
+# test selection walk. The call-site answer stays absent on purpose. For a collection
+# of several functions the compiler names one arbitrary member of the element union,
+# and a call-site answer could only match it by being wrong at every other element
+# (case 78 measures that).
 pipeline#runIterated(Node) -> steps#widenRange(Node)
 pipeline#runIndexed(Node) -> steps#widenRange(Node)
 pipeline#runByName(Node) -> steps#squareRange(Node)
