@@ -92,6 +92,9 @@ def main(argv):
     named, outside = by_scope(named)
     named, others = by_landing(named)
     answered = [n for n in named if n[2] == 0]
+    # a graph that could not answer at all keeps its `graph refresh:` lines (a corrupt graph moved aside and being rebuilt,
+    # ax_contract.usable_graph): dropped with its refusal, the answer read as whole while a language was missing from it
+    notes = ''.join(l + '\n' for n in named if n[2] != 0 and answered for l in n[4].splitlines() if l.startswith('graph refresh:'))
     if not answered:
         # a graph that does not hold the --in scope says only that; the graph that holds it has the refusal that
         # matters (nothing under it matches, or the name is not there), so a scope in one language is judged by it
@@ -110,7 +113,7 @@ def main(argv):
             print(json.dumps(base, indent=1))
         else:
             print(json.dumps(base, indent=1) if not isinstance(base, str) else base, end='' if isinstance(base, str) else '\n')
-        sys.stderr.write(''.join(n[4] for n in answered))
+        sys.stderr.write(''.join(n[4] for n in answered) + notes)
         return 0
 
     show = answered or named
@@ -121,6 +124,7 @@ def main(argv):
         if len(show) > 1 or not is_main:
             print(('' if i == 0 else '\n') + f"══ {lang} graph ══" + ('' if is_main else f"   (.axiomcode/lang/{lang})"), flush=True)
         sys.stdout.write(out); sys.stdout.flush(); sys.stderr.write(err); sys.stderr.flush()
+    if notes: sys.stderr.write(notes); sys.stderr.flush()
     if answered and others:
         print(f"\nthe --from name is also declared in the {', '.join(others)} graph(s), where its flow reaches "
               "half as many of the task's words or fewer; --lang <language> asks one of them")
