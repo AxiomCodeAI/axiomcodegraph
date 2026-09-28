@@ -1,0 +1,91 @@
+entry	framework_hook	App.Data.LoggingInterceptor.UnaryServerHandler
+entry	framework_hook	App.Data.MaxCount.IsValid
+entry	framework_hook	App.Data.MaxCount.get_Name
+entry	framework_hook	App.Data.UserValidator.<constructor>
+entry	framework_hook	App.Data.UserValidator.PreValidate
+entry	framework_hook	App.Pages.GetOrderHandler.Handle
+entry	framework_hook	App.Pages.LedgerScope.Dispose
+entry	framework_hook	App.Pages.LedgerScope.DisposeAsync
+entry	framework_hook	App.Pages.OrderPlacedHandler.Handle
+entry	framework_hook	App.Widgets.OwnerHandler.HandleRequirementAsync
+entry	framework_hook	App.Widgets.WidgetBinder.BindModelAsync
+entry	framework_hook	App.Widgets.WidgetListViewComponent.Invoke
+entry	framework_hook	App.Workers.CheckWidgets.Validate
+entry	framework_hook	App.Workers.ConfigureWidgets.Configure
+entry	framework_hook	App.Workers.DefaultWidgets.Configure
+entry	framework_hook	App.Workers.PostWidgets.PostConfigure
+entry	http	App.Pages.ItemsModel.OnGetAsync
+entry	http	App.Pages.OrdersModel.OnGet
+entry	http	App.Pages.OrdersModel.OnPostCancelAsync
+entry	hub	App.Widgets.AppHub.Ping
+entry	hub	App.Widgets.StatusHub.Status
+entry	hub	App.Widgets.WidgetHub.OnConnectedAsync
+entry	hub	App.Widgets.WidgetHub.Send
+entry	lifecycle	App.Workers.OrderSync.StartAsync
+entry	lifecycle	App.Workers.OrderSync.StartedAsync
+entry	lifecycle	App.Workers.OrderSync.StartingAsync
+entry	lifecycle	App.Workers.OrderSync.StopAsync
+entry	lifecycle	App.Workers.OrderSync.StoppedAsync
+entry	lifecycle	App.Workers.OrderSync.StoppingAsync
+entry	lifecycle	App.Workers.OrderWorker.ExecuteAsync
+entry	lifecycle	App.Workers.WidgetWorker.ExecuteAsync
+entry	main	Program.<Main>$
+entry	orm_hook	App.Data.AddUsers.Down
+entry	orm_hook	App.Data.AddUsers.Up
+entry	orm_hook	App.Data.AuditInterceptor.SavingChanges
+entry	orm_hook	App.Data.ShopContext.OnConfiguring
+entry	orm_hook	App.Data.ShopContext.OnModelCreating
+entry	orm_hook	App.Data.ShopContextFactory.CreateDbContext
+entry	orm_hook	App.Data.UserConfiguration.Configure
+reachable	App.Data.AddUsers.Down
+reachable	App.Data.AddUsers.Up
+reachable	App.Data.AuditInterceptor.SavingChanges
+reachable	App.Data.LoggingInterceptor.UnaryServerHandler
+reachable	App.Data.MaxCount.IsValid
+reachable	App.Data.MaxCount.get_Name
+reachable	App.Data.Rules.NotBlank
+reachable	App.Data.Rules.Short
+reachable	App.Data.ShopContext.<primary-constructor>
+reachable	App.Data.ShopContext.OnConfiguring
+reachable	App.Data.ShopContext.OnModelCreating
+reachable	App.Data.ShopContextFactory.CreateDbContext
+reachable	App.Data.UserConfiguration.Configure
+reachable	App.Data.UserValidator.<constructor>
+reachable	App.Data.UserValidator.PreValidate
+reachable	App.Pages.GetOrderHandler.Handle
+reachable	App.Pages.ItemsModel.OnGetAsync
+reachable	App.Pages.Ledger.Add
+reachable	App.Pages.Ledger.Close
+reachable	App.Pages.Ledger.Count
+reachable	App.Pages.Ledger.Flush
+reachable	App.Pages.LedgerScope.Dispose
+reachable	App.Pages.LedgerScope.DisposeAsync
+reachable	App.Pages.OrderPlacedHandler.Handle
+reachable	App.Pages.OrdersModel.OnGet
+reachable	App.Pages.OrdersModel.OnPostCancelAsync
+reachable	App.Widgets.AppHub.Ping
+reachable	App.Widgets.Catalog.Max
+reachable	App.Widgets.Catalog.Touch
+reachable	App.Widgets.OwnerHandler.HandleRequirementAsync
+reachable	App.Widgets.StatusHub.Status
+reachable	App.Widgets.WidgetBinder.BindModelAsync
+reachable	App.Widgets.WidgetHub.OnConnectedAsync
+reachable	App.Widgets.WidgetHub.Send
+reachable	App.Widgets.WidgetListViewComponent.Invoke
+reachable	App.Workers.CheckWidgets.Validate
+reachable	App.Workers.ConfigureWidgets.Configure
+reachable	App.Workers.DefaultWidgets.Configure
+reachable	App.Workers.OrderSync.StartAsync
+reachable	App.Workers.OrderSync.StartedAsync
+reachable	App.Workers.OrderSync.StartingAsync
+reachable	App.Workers.OrderSync.StopAsync
+reachable	App.Workers.OrderSync.StoppedAsync
+reachable	App.Workers.OrderSync.StoppingAsync
+reachable	App.Workers.OrderWorker.ExecuteAsync
+reachable	App.Workers.PostWidgets.PostConfigure
+reachable	App.Workers.Store.Goodbye
+reachable	App.Workers.Store.Save
+reachable	App.Workers.Store.Ship
+reachable	App.Workers.WidgetOptions.set_MaxCount
+reachable	App.Workers.WidgetWorker.ExecuteAsync
+reachable	Program.<Main>$

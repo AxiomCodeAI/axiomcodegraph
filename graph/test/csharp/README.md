@@ -204,6 +204,18 @@ not staged. That is the real shape: a project never has them, or its generated g
 code, in the source tree, and stubbing them into the fixture would test a program where
 they resolve. No compiler adjudicates a cross-process hop; the golden is the contract.
 
+## Entry points (`entry-points/`)
+
+`entry_point` and `entry_reachable`, rendered by qualified name by
+`tools/entry-points-test.sh` and diffed against `<case>/expected.entry`; `--bless`
+rewrites the goldens. Not under `cases/` for the same reason as `remote/`: the framework
+bases are not in the source, and stubbing them would make them the project's own.
+
+| case | what it pins |
+|---|---|
+| `entry-points/src` | one of each of `main`, `http`, `test` (three frameworks, the `Attribute` suffix) and `lifecycle`. Controls: an instance `Main`, a controller method with no route, a test class's plain method, a hosted service's own method |
+| `framework-bases` | every `cs_framework_callback` family in `framework-behavior/knobs.dl` (#1560): hosted services directly and through the project's own base, `IHostedLifecycleService`, options setup classes (one through the project's own interface), a view component, SignalR hubs (one through the project's own base), an authorization handler, a model binder, a gRPC interceptor, FluentValidation validators, EF Core model, migration, interceptor and design-time hooks, Razor Pages handlers (one through the project's own base), MediatR handlers, `Dispose`/`DisposeAsync`. Controls: the same method names on unrelated classes (`OnGet`, `Handle`, `Dispose`), a page model's helper and private `OnGet...`, a view component's helper, a hub's private and static methods, and subclasses of the project's own `Hub` and `Migration` |
+
 | case | what it pins |
 |---|---|
 | `01-grpc` | a call on a `<S>.<S>Client` (an injected field, a local built with `new`, a parameter, a using alias through a primary constructor; blocking, `Async` and streaming) reaches the `override` of the same rpc on a `<S>.<S>Base` subclass. Two services with an rpc of the same name stay apart. An rpc nothing serves is `unserved`, one nothing calls is `unsent`. Controls: `System.Net.Http.HttpClient` and `ControllerBase` have the generated SHAPE through their namespace and are not gRPC; a non-override helper on a service is not an rpc |
