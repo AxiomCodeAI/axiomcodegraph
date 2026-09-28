@@ -200,9 +200,107 @@ cs_test_lifecycle_attr("OneTimeSetUp").     cs_test_lifecycle_attr("OneTimeTearD
 cs_test_lifecycle_attr("TestInitialize").   cs_test_lifecycle_attr("TestCleanup").
 cs_test_lifecycle_attr("ClassInitialize").  cs_test_lifecycle_attr("ClassCleanup").
 cs_test_lifecycle_attr("AssemblyInitialize"). cs_test_lifecycle_attr("AssemblyCleanup").
+// cs_framework_callback(Base, Method, Reason): a framework calls Method on a type that
+// derives from Base or implements it, directly or through the project's own bases.
+// Base is the written simple name without type arguments. Method "*" is every public
+// instance method, which is how SignalR dispatches a hub call by name; "Prefix*" is every
+// public instance method whose name starts with Prefix (Razor Pages' `OnGet`, `OnPostAsync`).
 // A hosted service: the host calls these on the type it registered.
-cs_hosted_base("BackgroundService").
-cs_hosted_base("IHostedService").
-cs_hosted_method("ExecuteAsync").
-cs_hosted_method("StartAsync").
-cs_hosted_method("StopAsync").
+cs_framework_callback("BackgroundService", "ExecuteAsync", "lifecycle").
+cs_framework_callback("BackgroundService", "StartAsync", "lifecycle").
+cs_framework_callback("BackgroundService", "StopAsync", "lifecycle").
+cs_framework_callback("IHostedService", "ExecuteAsync", "lifecycle").
+cs_framework_callback("IHostedService", "StartAsync", "lifecycle").
+cs_framework_callback("IHostedService", "StopAsync", "lifecycle").
+// .NET 8: the host calls these around StartAsync and StopAsync.
+cs_framework_callback("IHostedLifecycleService", "StartingAsync", "lifecycle").
+cs_framework_callback("IHostedLifecycleService", "StartedAsync", "lifecycle").
+cs_framework_callback("IHostedLifecycleService", "StartAsync", "lifecycle").
+cs_framework_callback("IHostedLifecycleService", "StopAsync", "lifecycle").
+cs_framework_callback("IHostedLifecycleService", "StoppingAsync", "lifecycle").
+cs_framework_callback("IHostedLifecycleService", "StoppedAsync", "lifecycle").
+// Options: OptionsFactory<T>.Create runs every registered setup class on first `.Value`.
+cs_framework_callback("IConfigureOptions", "Configure", "framework_hook").
+cs_framework_callback("IConfigureNamedOptions", "Configure", "framework_hook").
+cs_framework_callback("IPostConfigureOptions", "PostConfigure", "framework_hook").
+cs_framework_callback("IValidateOptions", "Validate", "framework_hook").
+// ASP.NET Core: view components, authorization handlers, model binders.
+cs_framework_callback("ViewComponent", "Invoke", "framework_hook").
+cs_framework_callback("ViewComponent", "InvokeAsync", "framework_hook").
+cs_framework_callback("AuthorizationHandler", "HandleRequirementAsync", "framework_hook").
+cs_framework_callback("AuthorizationHandler", "HandleAsync", "framework_hook").
+cs_framework_callback("IAuthorizationHandler", "HandleAsync", "framework_hook").
+cs_framework_callback("IModelBinder", "BindModelAsync", "framework_hook").
+cs_framework_callback("IModelBinderProvider", "GetBinder", "framework_hook").
+// SignalR: a client invokes any public hub method by name.
+cs_framework_callback("Hub", "*", "hub").
+// gRPC: a registered interceptor's handlers wrap every call.
+cs_framework_callback("Interceptor", "UnaryServerHandler", "framework_hook").
+cs_framework_callback("Interceptor", "ClientStreamingServerHandler", "framework_hook").
+cs_framework_callback("Interceptor", "ServerStreamingServerHandler", "framework_hook").
+cs_framework_callback("Interceptor", "DuplexStreamingServerHandler", "framework_hook").
+cs_framework_callback("Interceptor", "BlockingUnaryCall", "framework_hook").
+cs_framework_callback("Interceptor", "AsyncUnaryCall", "framework_hook").
+cs_framework_callback("Interceptor", "AsyncServerStreamingCall", "framework_hook").
+cs_framework_callback("Interceptor", "AsyncClientStreamingCall", "framework_hook").
+cs_framework_callback("Interceptor", "AsyncDuplexStreamingCall", "framework_hook").
+// FluentValidation: the container builds every scanned validator, and the library
+// calls these overrides while validating.
+cs_framework_callback("AbstractValidator", "<constructor>", "framework_hook").
+cs_framework_callback("AbstractValidator", "<primary-constructor>", "framework_hook").
+cs_framework_callback("AbstractValidator", "PreValidate", "framework_hook").
+cs_framework_callback("AbstractValidator", "RaiseValidationException", "framework_hook").
+cs_framework_callback("PropertyValidator", "IsValid", "framework_hook").
+cs_framework_callback("PropertyValidator", "get_Name", "framework_hook").
+cs_framework_callback("PropertyValidator", "GetDefaultMessageTemplate", "framework_hook").
+cs_framework_callback("AsyncPropertyValidator", "IsValidAsync", "framework_hook").
+cs_framework_callback("AsyncPropertyValidator", "get_Name", "framework_hook").
+cs_framework_callback("AsyncPropertyValidator", "GetDefaultMessageTemplate", "framework_hook").
+// EF Core: the model builder, migrations, save interceptors and design-time tooling.
+cs_framework_callback("DbContext", "OnModelCreating", "orm_hook").
+cs_framework_callback("DbContext", "OnConfiguring", "orm_hook").
+cs_framework_callback("DbContext", "ConfigureConventions", "orm_hook").
+cs_framework_callback("IdentityDbContext", "OnModelCreating", "orm_hook").
+cs_framework_callback("IdentityDbContext", "OnConfiguring", "orm_hook").
+cs_framework_callback("IdentityUserContext", "OnModelCreating", "orm_hook").
+cs_framework_callback("IdentityUserContext", "OnConfiguring", "orm_hook").
+cs_framework_callback("IEntityTypeConfiguration", "Configure", "orm_hook").
+cs_framework_callback("Migration", "Up", "orm_hook").
+cs_framework_callback("Migration", "Down", "orm_hook").
+cs_framework_callback("Migration", "BuildTargetModel", "orm_hook").
+cs_framework_callback("ModelSnapshot", "BuildModel", "orm_hook").
+cs_framework_callback("IDesignTimeDbContextFactory", "CreateDbContext", "orm_hook").
+// Razor Pages: a request runs the page model's On<Verb>[Handler][Async] method.
+cs_framework_callback("PageModel", "OnGet*", "http").
+cs_framework_callback("PageModel", "OnPost*", "http").
+cs_framework_callback("PageModel", "OnPut*", "http").
+cs_framework_callback("PageModel", "OnDelete*", "http").
+cs_framework_callback("PageModel", "OnPatch*", "http").
+cs_framework_callback("PageModel", "OnHead*", "http").
+cs_framework_callback("PageModel", "OnOptions*", "http").
+cs_framework_callback("PageModel", "OnPageHandlerSelected", "framework_hook").
+cs_framework_callback("PageModel", "OnPageHandlerExecuting", "framework_hook").
+cs_framework_callback("PageModel", "OnPageHandlerExecuted", "framework_hook").
+cs_framework_callback("PageModel", "OnPageHandlerExecutionAsync", "framework_hook").
+// MediatR: the mediator resolves the handler for a request or notification type from the
+// container and calls it in process. An entry point, not a remote edge (see above).
+cs_framework_callback("IRequestHandler", "Handle", "framework_hook").
+cs_framework_callback("INotificationHandler", "Handle", "framework_hook").
+cs_framework_callback("IStreamRequestHandler", "Handle", "framework_hook").
+cs_framework_callback("IPipelineBehavior", "Handle", "framework_hook").
+cs_framework_callback("IStreamPipelineBehavior", "Handle", "framework_hook").
+cs_framework_callback("IRequestPreProcessor", "Process", "framework_hook").
+cs_framework_callback("IRequestPostProcessor", "Process", "framework_hook").
+cs_framework_callback("IRequestExceptionHandler", "Handle", "framework_hook").
+cs_framework_callback("IRequestExceptionAction", "Execute", "framework_hook").
+// Disposal: the container disposes what it built, and `using` disposes the rest, with no
+// written call to Dispose in either case.
+cs_framework_callback("IDisposable", "Dispose", "framework_hook").
+cs_framework_callback("IAsyncDisposable", "DisposeAsync", "framework_hook").
+cs_framework_save_hook("SavingChanges").     cs_framework_save_hook("SavingChangesAsync").
+cs_framework_save_hook("SavedChanges").      cs_framework_save_hook("SavedChangesAsync").
+cs_framework_save_hook("SaveChangesFailed"). cs_framework_save_hook("SaveChangesFailedAsync").
+cs_framework_save_hook("SaveChangesCanceled"). cs_framework_save_hook("SaveChangesCanceledAsync").
+cs_framework_save_hook("ThrowingConcurrencyException"). cs_framework_save_hook("ThrowingConcurrencyExceptionAsync").
+cs_framework_callback("SaveChangesInterceptor", n, "orm_hook") :- cs_framework_save_hook(n).
+cs_framework_callback("ISaveChangesInterceptor", n, "orm_hook") :- cs_framework_save_hook(n).
