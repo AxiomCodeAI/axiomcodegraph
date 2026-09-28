@@ -28,6 +28,7 @@ the previous graph. Three pieces:
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
   ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
   ax_fresh.py chosen <repo>                    the --lang and --src an explicit index chose, which a rebuild keeps
+  ax_fresh.py newer <repo>                     exit 0 (saying so) when a newer axiomcode built the graph: never rebuilt by this one
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
@@ -348,20 +349,35 @@ def built_by(engine):
 
 def _label(version, h): return f"{version} {h[:8]}" if h else version
 
-def engine_change(repo, t=None):
-    """'' when the graph was built by the axiomcode that would build it now, else what differs, written
-    "graph built by an older axiomcode (<old> -> <new>)". A table from before this was recorded differs. A graph
-    placed by AXIOMCODE_GRAPH is not this repository's build, and AXIOMCODE_NO_ENGINE_CHECK=1 turns the check off"""
-    if os.environ.get('AXIOMCODE_GRAPH') or os.environ.get('AXIOMCODE_NO_ENGINE_CHECK'): return ''
+def _vnum(v):
+    """a version as a tuple of numbers ('37' -> (37,), '0.1.7' -> (0, 1, 7)), None when it is not one"""
+    try: return tuple(int(x) for x in str(v).split('.'))
+    except (TypeError, ValueError): return None
+
+def _newer(old, impact, now_e):
+    """newer_build's comparison: the table's built_by against this axiomcode's IMPACT_VERSION and engine (engine_id)"""
+    oi, ni = _vnum(old.get('impact')), _vnum(impact)
+    if oi and ni and oi != ni:
+        return f"graph built by a newer axiomcode (IMPACT_VERSION {old.get('impact')}, this one has {impact})" if oi > ni else ''
+    ov, nv = old.get('engine_version'), (now_e[0] if now_e else None)
+    if _vnum(ov) and _vnum(nv) and _vnum(ov) > _vnum(nv):
+        return f"graph built by a newer axiomcode (engine {ov}, this one is {nv})"
+    return ''
+
+def built_by_state(repo, t=None):
+    """(older, newer): what engine_change and newer_build return, found with one look at the engine"""
+    if os.environ.get('AXIOMCODE_GRAPH') or os.environ.get('AXIOMCODE_NO_ENGINE_CHECK'): return '', ''
     t = t if t is not None else load_table(repo)
-    if not t: return ''
+    if not t: return '', ''
     old = t.get('built_by')
     rules, impact = plugin_id()
     eng = current_engine(repo)
     now_e = engine_id(eng) if eng else None
     if not isinstance(old, dict):
         new = f"{now_e[0]} {now_e[1]()[:8]}" if now_e else f"IMPACT_VERSION {impact}"
-        return f"graph built by an older axiomcode (one that did not record its engine -> {new})"
+        return f"graph built by an older axiomcode (one that did not record its engine -> {new})", ''
+    newer = _newer(old, impact, now_e)
+    if newer: return '', newer
     diff = []
     if now_e and old.get('engine_hash') and old.get('engine_stat') != now_e[2]:
         h = _seen_hash(repo, now_e)
@@ -371,7 +387,29 @@ def engine_change(repo, t=None):
         diff.append(f"engine unrecorded -> {_label(now_e[0], _seen_hash(repo, now_e))}")
     if old.get('rules') != rules: diff.append(f"rules {(old.get('rules') or 'unrecorded')[:8]} -> {rules[:8]}")
     if str(old.get('impact')) != impact: diff.append(f"IMPACT_VERSION {old.get('impact') or 'unrecorded'} -> {impact}")
-    return f"graph built by an older axiomcode ({'; '.join(diff)})" if diff else ''
+    return (f"graph built by an older axiomcode ({'; '.join(diff)})" if diff else ''), ''
+
+def newer_build(repo, t=None):
+    """'' unless the graph was built by a NEWER axiomcode than the one running now, else one line saying so.
+    NEVER A DOWNGRADE. Two plugin versions over one repository (an installed plugin's hooks and a checkout's own, in a
+    worktree) each took the other's graph for "built by another axiomcode" and rebuilt it with its own engine: the older
+    one rebuilt the newer graph with older rules, the newer one rebuilt it back, and every answer in between came from
+    whichever had won last. A difference is ordered where it can be: IMPACT_VERSION first (a number every change to the
+    exported facts raises), then the engine's version; a graph ahead on either is kept and answered from as it is. A
+    difference with no order (rules of another hash at the same versions) is not a downgrade and rebuilds as before"""
+    return built_by_state(repo, t)[1]
+
+def newer_note(n):
+    """what an answer from a graph a newer axiomcode built says"""
+    return (f"graph refresh: {n}; answering from it as is, and this older axiomcode does not rebuild it; rows in files "
+            "edited since are marked. Update this axiomcode, or `AXIOMCODE_REINDEX=1 axiomcode index` rebuilds it with this one")
+
+def engine_change(repo, t=None):
+    """'' when the graph was built by the axiomcode that would build it now, else what differs, written
+    "graph built by an older axiomcode (<old> -> <new>)". A table from before this was recorded differs. A graph
+    placed by AXIOMCODE_GRAPH is not this repository's build, and AXIOMCODE_NO_ENGINE_CHECK=1 turns the check off.
+    A graph a NEWER axiomcode built is not one to rebuild: '' (newer_build says what it is)"""
+    return built_by_state(repo, t)[0]
 
 def _seen_hash(repo, e):
     """the content hash of engine e: an engine whose files moved (a reinstall, a new checkout) but whose bytes did not
@@ -623,13 +661,15 @@ def status(repo):
     if c is None: return dict(state='unknown', note='the graph predates the file table; the next `axiomcode index` records it')
     changed, added, removed = c
     busy = building(repo)
-    eng = engine_change(repo)
+    eng, newer = built_by_state(repo)
+    # a graph a newer axiomcode built: answered from as it is, never rebuilt here (newer_build), and said on every answer
+    nw = {'newer': newer} if newer else {}
     if not (changed or added or removed) and not eng:
         # a build that already published this tree's main graph and is still solving other languages: the graph a query
         # reads is current, and waiting would be waiting for other languages' compiles
-        if busy: return dict(state='building', **pending(repo))
-        return dict(state='stale', changed=[unbuilt_row(repo)], added=[], removed=[]) if unbuilt(repo) else dict(state='fresh')
-    d = dict(state='building' if busy else 'stale', changed=changed, added=added, removed=removed)
+        if busy: return dict(state='building', **pending(repo), **nw)
+        return dict(state='stale', changed=[unbuilt_row(repo)], added=[], removed=[], **nw) if unbuilt(repo) else dict(state='fresh', **nw)
+    d = dict(state='building' if busy else 'stale', changed=changed, added=added, removed=removed, **nw)
     if eng: d['engine'] = eng
     if busy and not (changed or added or removed): d.update(pending(repo))
     if not busy and failed_on(st, c, eng): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
@@ -694,6 +734,13 @@ def worker(repo):
             time.sleep(debounce)
             t = load_table(repo)
             if not has_graph(repo): return 0
+            nb = newer_build(repo, t) if t else ''
+            if nb:
+                # NEVER A DOWNGRADE: whatever changed, this older axiomcode does not rebuild a newer one's graph; the
+                # newer one's own refresh does, and every answer meanwhile says so and marks the edited files' rows
+                write_state(repo, state='newer', checked=time.time(), newer=nb, checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', ''))
+                print(f"{time.strftime('%H:%M:%S')} refresh: {nb}; not rebuilding it with this older one", flush=True)
+                return 0
             if not t:
                 # a graph from before the file table: one build with its own parameters, which rebuilds only if git
                 # says the tree moved, and records the table either way; nothing to compare until then
@@ -762,7 +809,7 @@ def wait(repo, seconds):
         if s['state'] == 'unknown': kick(repo, 'a query'); return s     # a graph from before the file table: its first refresh records one
         # a FIRST build's other languages are not waited for: there is no graph of theirs to refresh, only a compile
         # that can take an hour (#1555). A rebuild's are, for the bounded while any refresh is.
-        if s['state'] in ('fresh', 'no graph') or s.get('failed') or s.get('first'): return s
+        if s['state'] in ('fresh', 'no graph') or s.get('failed') or s.get('first') or s.get('newer'): return s
         if s['state'] == 'stale': kick(repo, 'a query')       # idempotent: a no-op while a worker holds its lock
         if time.time() >= end: return s
         time.sleep(0.5)
@@ -771,6 +818,10 @@ def wait_baseline(repo, seconds):
     """for `changed` and `test-impact`: when HEAD moved since the baseline was set, start the refresher and wait for it
     to move the baseline (0.2 s when no file changed, a build of HEAD's text when the tree is dirty). '' or a note."""
     if not enabled(repo) or not base_moved(repo): return ''
+    if newer_build(repo):
+        return (f"graph refresh: HEAD moved since the baseline was set ({head(repo)[:10]}), and the graph was built by a newer "
+                "axiomcode, which this one does not rebuild: the baseline stays where it was, so this answer also counts what the "
+                "new commits changed")
     kick(repo, 'a query'); end = time.time() + seconds
     while time.time() < end:
         time.sleep(0.3)
@@ -820,6 +871,7 @@ def note(s, marked=None, named=None, off=False):
     graph predating the edit that wrote X, not X being absent. `off`: the refresher is switched off, nothing rebuilds"""
     # the languages a running build has still to publish (#1555) get a line of their own, before any line about edits
     first = pending_note(s)
+    if s.get('newer'): first = (first + '\n' if first else '') + newer_note(s['newer'])
     if s.get('state') not in ('stale', 'building'): return first
     if s.get('engine'):
         # BUILT BY ANOTHER AXIOMCODE: every row may differ from what this version answers, so none is marked; the line says so
@@ -838,6 +890,9 @@ def note(s, marked=None, named=None, off=False):
     if named:
         rows += '; ' + ', '.join(f"'{n}' is written in {f}" for n, f in named[:3]) + \
                 ", edited since the graph was built: a declaration added there is not in this graph yet, so finding nothing by that name does not mean it is absent"
+    if s.get('newer'):
+        return first + (f"graph refresh: this answer is from that graph, which predates edits to {head}" +
+                        (rows if marked is not None else '; read those files for their current text'))
     if off:
         return first + (f"graph refresh: OFF (AXIOMCODE_NO_REFRESH is set), no refresh is running — this answer is from a graph that "
                 f"predates edits to {head}" + (rows if marked is not None else '; read those files for their current text') +
@@ -1006,7 +1061,7 @@ def wait_fresh(repo, seconds, say=False, files=()):
     while True:
         s = status(repo)
         if (s['state'] in ('fresh', 'no graph', 'unknown') or not behind(s)) and not _waits_on(s, files): return True
-        if s.get('failed'): return False
+        if s.get('failed') or s.get('newer'): return False       # nothing here rebuilds a newer axiomcode's graph
         if s['state'] == 'stale': kick(repo, 'a query')
         now = time.time()
         if now >= end: return False
@@ -1042,12 +1097,14 @@ def query(repo, verb, argv, fresh=False):
         passthrough()
     if s['state'] in ('fresh', 'no graph') or not behind(s):
         # a build that published this tree's main graph and is solving the others (#1555): the answer is current and is
-        # given now, and says which languages it cannot see yet
-        if not pending_note(s): passthrough()
-        return with_note(pending_note(s))
-    if not s.get('failed') and not off: kick(repo, 'a query')
+        # given now, and says which languages it cannot see yet; one a newer axiomcode built says that
+        if not note(s): passthrough()
+        return with_note(note(s))
+    # a graph a newer axiomcode built is never rebuilt here: no refresh is started or waited for, as with refresh off
+    hold = off or bool(s.get('newer'))
+    if not s.get('failed') and not hold: kick(repo, 'a query')
     as_json = '--json' in argv
-    if fresh and not s.get('failed') and not off:
+    if fresh and not s.get('failed') and not hold:
         left = expected_left(repo)
         print(f"waiting for the graph to refresh (--fresh): " + (f"{len(edited(s))} file(s) changed since the graph was built" if edited(s) else s.get('engine', '')) +
               (f", the last build took {int(build_seconds(repo)[0])} s" if left is not None else '') + " …", file=sys.stderr, flush=True)
@@ -1058,7 +1115,7 @@ def query(repo, verb, argv, fresh=False):
     marked, n, touched = mark_answer(out, stale, as_json)
     named = names_in_edits(repo, query_names(verb, argv, repo), stale)
     touched = touched or bool(named)
-    if touched and not fresh and not s.get('failed') and not off:
+    if touched and not fresh and not s.get('failed') and not hold:
         budget = float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 30)
         left = expected_left(repo)
         if budget > 0 and not compiling(repo) and (left is None or left <= budget):
@@ -1080,6 +1137,7 @@ def query(repo, verb, argv, fresh=False):
             if isinstance(obj, dict):
                 obj['freshness'] = dict(state='off' if off else s['state'], edited=edited(s), rows_marked=n,
                                         **({'built_by': s['engine']} if s.get('engine') else {}),
+                                        **({'newer': s['newer']} if s.get('newer') else {}),
                                         **({'failed': s['failed']} if s.get('failed') else {}),
                                         **({'named_in_edits': [dict(name=a, file=b) for a, b in missed]} if missed else {}))
                 marked = json.dumps(obj, indent=1, ensure_ascii=False) + '\n'
@@ -1149,6 +1207,12 @@ def main(argv):
             if r.get('refreshed_at'): print(f"built {r['refreshed_at']} ({r.get('refresh_reason', '')})" + (f"; last checked {r['checked_at']}" if r.get('checked_at') else ''))
         return 0
     if cmd == 'kick': kick(repo); return 0
+    if cmd == 'newer':
+        # what axiomcode-build asks before it rebuilds: exit 0, saying why, when the graph here was built by a newer
+        # axiomcode, which this one must not rebuild (newer_build); 1 otherwise
+        n = newer_build(repo)
+        if n: print(f"{n}: kept, not rebuilt by this older axiomcode; update it, or AXIOMCODE_REINDEX=1 rebuilds the graph with this one")
+        return 0 if n else 1
     if cmd == 'baseline':
         n = wait_baseline(repo, float(argv[3]) if len(argv) > 3 else 30)
         if n: print(n, file=sys.stderr)

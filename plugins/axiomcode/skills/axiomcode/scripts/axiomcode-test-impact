@@ -1776,6 +1776,7 @@ def main(argv):
             by_target[t] = e; targets.append(t)
     repo = next((a for a in passthru if os.path.isdir(a)), '.')
     heads = [f"note: {changed['range_note']}"] if changed.get('range_note') else []
+    if changed.get('baseline_note'): heads.append(f"note: {changed['baseline_note']}")
     # A CHANGED TEST FILE IS ITSELF A TEST TO RUN: a new test file, or an edited one, has no test reaching it — it is one
     edited = sorted({e['file'] for e in entries if e.get('file', '').endswith(CODE) and (e.get('is_test') or TESTY.search(e['file']))})
     # WHAT NO CALL EDGE REACHES: files outside every indexed language (fixtures, case data), and changed code that is
@@ -1915,7 +1916,7 @@ def main(argv):
                           **({'tests_outside_src': out_src} if out_src and not tests else {}),
                           'named_in_test_text': {f: {'needle': n, 'tests': ts} for f, (n, ts) in loaded.items()},
                           'named_in_other_language_tests': len(other_lang),
-                          'range_note': changed.get('range_note'),
+                          'range_note': changed.get('range_note'), 'baseline_note': changed.get('baseline_note'),
                           'same_name_not_tests': name_hits.get('not_tests') or 0,
                           'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
                                    'framework instantiating by name, a subprocess, or a case built at runtime is not here'},
