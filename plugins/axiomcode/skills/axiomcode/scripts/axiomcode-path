@@ -517,15 +517,22 @@ class G:
 
     def library_calls(self, ids, cap=10):
         """the library / platform methods these methods call — the ends of the client graph, listed, never traversed"""
-        if not ids: return []
-        q = ','.join('?' * len(ids)); t = ','.join('?' * len(self.TERMINAL_TIERS))
-        rows = self.q(f"""SELECT COALESCE(m.qualified_name, e.callee_label, s.callee_name) AS lib, count(*) n,
-                                 (m.qualified_name IS NULL AND e.callee_label IS NULL) AS from_site
-                         FROM call_edges e LEFT JOIN methods m ON m.id = e.callee_method_id
-                                           LEFT JOIN call_sites s ON s.id = e.call_site_id
-                         WHERE e.caller_id IN ({q}) AND e.tier IN ({t})
-                           AND COALESCE(m.qualified_name, e.callee_label, s.callee_name) IS NOT NULL
-                         GROUP BY lib ORDER BY n DESC""", *ids, *self.TERMINAL_TIERS)
+        ids = list(ids)
+        if not ids: return [], []
+        t = ','.join('?' * len(self.TERMINAL_TIERS))
+        # in slices: a closure handed in whole can hold more ids than SQLite takes as parameters
+        tot = collections.Counter()
+        for i in range(0, len(ids), 900):
+            part = ids[i:i + 900]; q = ','.join('?' * len(part))
+            for r in self.q(f"""SELECT COALESCE(m.qualified_name, e.callee_label, s.callee_name) AS lib, count(*) n,
+                                       (m.qualified_name IS NULL AND e.callee_label IS NULL) AS from_site
+                               FROM call_edges e LEFT JOIN methods m ON m.id = e.callee_method_id
+                                                 LEFT JOIN call_sites s ON s.id = e.call_site_id
+                               WHERE e.caller_id IN ({q}) AND e.tier IN ({t})
+                                 AND COALESCE(m.qualified_name, e.callee_label, s.callee_name) IS NOT NULL
+                               GROUP BY lib""", *part, *self.TERMINAL_TIERS):
+                tot[(r['lib'], r['from_site'])] += r['n']
+        rows = [{'lib': l, 'from_site': f, 'n': n} for (l, f), n in sorted(tot.items(), key=lambda x: (-x[1], x[0][0]))]
         # TWO LISTS, because they are two different facts and only one of them is "a library".
         # A named callee IS the dependency: the engine resolved the call to a declaration outside the
         # client and stopped there on purpose. A site-named one is only the word written at the call —
@@ -1052,6 +1059,33 @@ def closure(g, sel, upstream, limit=40, depth=40):
     print(f"  (chain from any one of them: path <that method> {sel}" + (")" if upstream else " — or the reverse)"))
     return 0
 
+# entry-point reasons whose caller is a request, a runner, a timer, a process start or the container building its beans
+# at startup: nothing the client calls INTO a library lands there, so they do not make a no-chain pair "not shown to be
+# independent" (#1385). Every other reason does. The container kinds were measured, not assumed: counted as reachable,
+# a @Bean factory upstream of almost any method flipped 12 of 64 independent pairs on two real projects, every one
+# of them through a chain from a configuration class, none through a listener or a callback.
+NOT_FROM_A_LIBRARY_CALL = {'test', 'fixture', 'http', 'url', 'grpc_service', 'hub', 'cli', 'main', 'web_filter', 'web_listener',
+                           'scheduled', 'factory', 'bean_ctor', 'di_provider', 'lifecycle',
+                           'exported_from_entry_module', 'unimported_module'}
+
+def entered_in_process(g, ids):
+    """the methods among `ids` that code outside the graph enters in-process: an entry point of a kind a library call can
+    trigger, or an override of a method the graph does not contain. [(symbol id, why)], nearest to the endpoint first."""
+    mid = {g.sym[i]['method_id']: i for i in ids if i in g.sym and g.sym[i].get('method_id')}
+    out = {}
+    keys = list(mid)
+    for k in range(0, len(keys), 900):
+        part = keys[k:k + 900]; q = ','.join('?' * len(part))
+        if g.has('entry_points'):
+            for r in g.q(f"SELECT method_id, reason FROM entry_points WHERE method_id IN ({q})", *part):
+                if r['reason'] not in NOT_FROM_A_LIBRARY_CALL: out.setdefault(mid[r['method_id']], f"{r['reason']} entry point")
+        if g.has('overrides'):
+            for r in g.q(f"""SELECT o.overriding_method_id m, b.qualified_name b FROM overrides o JOIN methods b ON b.id = o.method_id
+                             WHERE o.overriding_method_id IN ({q}) AND b.provenance <> 'client'""", *part):
+                out.setdefault(mid[r['m']], f"overrides {r['b']}")
+    order = {i: n for n, i in enumerate(ids)}
+    return sorted(out.items(), key=lambda x: order.get(x[0], 0))
+
 # ── the query ────────────────────────────────────────────────────────────────────────────────────────────────────
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
@@ -1138,13 +1172,59 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             sites = g.q("SELECT s.file_path f, s.start_line ln FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ? AND s.callee_name = ?", c, g.sym[m2]['name'])
             print(f"    `{g.sym[m2]['name']}` called in {g.disp(c)} at " + ', '.join(f"{g.site_file(s['f'])}:{s['ln']}" for s in sites[:4]) + f" — receiver not typed; if it is {g.disp(m2)}, the chain is real")
         return 1
-    # "independent" would contradict the cross-process hop printed above, so say the narrower true thing
-    print("  and no unresolved site would connect them by name either: "
-          + ("no CALL connects them — the hop above is the only connection" if remote_found
-             else "the two are independent in this graph"))
+    # A LIBRARY CALL IS WHERE THE GRAPH STOPS, NOT WHERE THE CODE DOES (#1385). A start that publishes an event
+    # through a framework's publisher reaches the listener at run time, and the call that does it is a resolved
+    # `boundary_lib` edge -- not an unresolved site, so the by-name search above never sees it. "Independent" was
+    # printed for it word for word as for a start that calls nothing.
+    #
+    # Two facts together withhold the word, and neither alone does. One side (or what it reaches) calls into a
+    # library; and the OTHER side (or something that reaches it) is entered by code outside the graph running in the
+    # same process -- a listener, a lifecycle or ORM hook, a factory, a task, an override of a library method. A
+    # library call can land only on such a method. A route, a test or a main is entered by a request, a runner or
+    # a process start, never by a call the client makes into a library, so a controller that calls String.substring
+    # stays independent of another controller. With the library call alone deciding, 73 of 116 sampled independent
+    # pairs on three real Spring projects stopped being independent; with both facts, 2 did. A reason not in this
+    # list counts as reachable, so a new kind of entry point errs toward "not shown", never toward a false
+    # "independent".
+    lib_side = False
+    if not remote_found:
+        radj = collections.defaultdict(set)
+        for x, ys in adj.items():
+            for y in ys: radj[y].add(x)
+        def closure_of(ids, nbr):
+            own = [i for i in ids if i in g.sym and g.sym[i]['kind'] not in ('library', 'written')]
+            seen = set(own); fr = list(own)
+            while fr:
+                fr = list(dict.fromkeys(y for x in fr for y in nbr.get(x, ())
+                                        if y not in seen and y in g.sym and g.sym[y]['kind'] not in ('library', 'written')))
+                seen.update(fr)
+            return own, sorted(seen - set(own))
+        for (xs, lx), (ys, ly) in (((A_, la), (B_, lb)), ((B_, lb), (A_, la))):
+            own, rest = closure_of(xs, adj)
+            n0, u0 = g.library_calls(own); n1, u1 = g.library_calls(rest)
+            if not (n0 or u0 or n1 or u1): continue
+            entered = entered_in_process(g, sum(closure_of(ys, radj), []))
+            if not entered: continue
+            lib_side = True
+            print_boundary(g, own, f"{lx} calls into libraries", f"{lx} makes")
+            print_boundary(g, rest, f"the {len(rest)} method(s) {lx} reaches call into libraries", "they make")
+            print(f"  {ly} is entered from outside the graph in the same process, as such a call can do: "
+                  + ', '.join(f"{g.disp(m)} ({why}) {g.loc(m)}" for m, why in entered[:3])
+                  + (f" … +{len(entered) - 3}" if len(entered) > 3 else ''))
     # …but a framework may still connect them, and the graph holds the evidence for it: the target is registered
     # under a key, and the source writes that key. That is not a chain of calls, so it is reported and not walked.
-    for line in framework_note(g, B_, set(A_)) + framework_note(g, A_, set(B_)): print(line)
+    # Computed BEFORE the verdict line, which used to say "independent" one line above the note that joined them.
+    fw = framework_note(g, B_, set(A_)) + framework_note(g, A_, set(B_))
+    keyed = any('which is the key it is registered under' in l for l in fw)
+    # "independent" would contradict the cross-process hop printed above, so say the narrower true thing
+    print("  and no unresolved site would connect them by name either"
+          + (": no CALL connects them — the hop above is the only connection" if remote_found
+             else ": no CALL connects them, but one writes the key the other is registered under (below), so a framework"
+                  " does: NOT independent" if keyed
+             else " — but a library called above can reach the other at run time (an event, a callback, a hook) with no"
+                  " call edge to record it: NOT shown to be independent" if lib_side
+             else ": the two are independent in this graph"))
+    for line in fw: print(line)
     return 1
 
 # ── self-test: the engine's expected edges, through the whole tool ───────────────────────────────────────────────

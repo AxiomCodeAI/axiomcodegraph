@@ -1,0 +1,75 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "a type named in appsettings.json is not safe to delete, and next: names that file instead of calling the change local",
+   "run": [
+    "impact",
+    "Orphan",
+    "--delete"
+   ],
+   "want": [
+    "NOT SAFE",
+    "outside the source name it",
+    "then appsettings.json:1"
+   ],
+   "avoid": [
+    "the change is local",
+    "\u00b7 nothing"
+   ]
+  },
+  {
+   "why": "control: a type nothing names outside the source keeps the local answer",
+   "run": [
+    "impact",
+    "Listener"
+   ],
+   "want": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "an HTTP action the answer calls an entry point is not local: its callers are outside the graph (#1467)",
+   "run": [
+    "impact",
+    "WidgetController.Get"
+   ],
+   "want": [
+    "entry point, so its callers are outside the graph"
+   ],
+   "avoid": [
+    "the change is local"
+   ]
+  },
+  {
+   "why": "control: a plain method nothing calls in the same file keeps the local answer",
+   "run": [
+    "impact",
+    "Service.Lonely"
+   ],
+   "want": [
+    "the change is local"
+   ],
+   "avoid": [
+    "entry point"
+   ]
+  },
+  {
+   "why": "control: a console write cannot land on a method nothing outside the graph enters, so the pair stays independent",
+   "run": [
+    "path",
+    "Service.Place",
+    "Listener.On"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph",
+    "nothing in this graph connects them"
+   ],
+   "avoid": [
+    "NOT shown",
+    "unresolved sites named above"
+   ]
+  }
+ ]
+}

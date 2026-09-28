@@ -120,6 +120,22 @@ def next_path(text):
         a, la, b, lb = fw[0]
         return (f"next: no call connects them, the framework does: read {a} at {la}, where it hands over, and {b} at {lb}, "
                 f"which the framework runs; `impact {b}` for everything else that depends on it")
+    # WHAT FOLLOWS "no chain" DEPENDS ON WHY THERE IS NONE (#1385). The one sentence below used to close every
+    # no-chain answer, and it named "the unresolved sites above" under answers that had printed none: under an
+    # independent pair, and under one joined only by a library call.
+    if 'which is the key it is registered under' in text:
+        return ("next: the start writes the key the other is registered under (named above), so a framework connects "
+                "them and no call does; the `impact … --tests` command printed there follows that hop")
+    if 'NOT shown to be independent' in text:
+        return ("next: no chain of calls; the library calls named above are where one could continue: read the body "
+                "that makes them — one that publishes, schedules or registers what the entered method handles connects "
+                "the two at run time")
+    if 'the hop above is the only connection' in text:
+        return "next: the cross-process hop above is the only connection; `impact <its target>` lists it as a [remote] dependent"
+    if 'independent in this graph' in text:
+        return ("next: nothing in this graph connects them — no call, no unresolved site that could, and no library call "
+                "that could land on the other; for a connection through data (a table, a file, a message) look at what "
+                "each writes and reads")
     if re.search(r'no (chain|route|path)', text, re.I):
         return ("next: no resolved chain — the graph loses the call at one of the unresolved sites named above, so the "
                 "code may still connect them; read the start's body from those sites on")
