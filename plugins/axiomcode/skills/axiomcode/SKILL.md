@@ -95,6 +95,8 @@ and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 (with the unresolved sites that might connect them). Endpoints as written: `Owner.method`, `Type`, `file.ts:123`,
 `'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. Detail: `reference/path.md`.
 
+A fact no verb prints (decorations, bases, entry points by reason, field writers): `reference/schema.md` names the table per language.
+
 ## What it cannot see — say so instead of guessing
 
 Reflection, string dispatch, event buses; receivers the engine could not type; callbacks invoked by a library;
