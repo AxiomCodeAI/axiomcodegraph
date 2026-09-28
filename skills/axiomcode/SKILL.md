@@ -13,6 +13,11 @@ Read / Grep results as `graph: …` lines.
 
 **Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
 
+**A list of sites comes the way grep prints it.** The MCP `impact`, `path`, `test_impact` and `context` (without
+`source` / `explain` / `from_`) answer one site per line: `path:line: <the code on that line>  [resolved · hop 2 · test …]`,
+surest first, capped with a count of the rest; `limit=N` lists more, `full=True` gives the sectioned answer with `next:`.
+From the shell the same shape is `--grep` (`--grep-limit N`); without it the answer is the prose.
+
 ## Start here
 
 | the question in front of you | the call |
@@ -58,6 +63,7 @@ An answer's label is the **worst** rung on its route. Read it before acting on t
 | `[defines]` · `[protocol]` · `[decorator by name]` | closure from its definer · interpreter-called method · wrapper rebinding the name |
 | `[fixture]` · `[at import]` | injected before the test body · module raised on import, test never collected |
 | `[by key]` | joined through a registration **string** (route, signal, CLI command) — not an edge |
+| `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
 | `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
 
 Below `[sound]` / `[one of a set]` the order is a tie-break, not a measured ranking. `[sound]` means the edges

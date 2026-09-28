@@ -14,6 +14,9 @@ ambiguous_unknown	METHOD_CALL	pipeline#runForEach(Node) @L43 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#runIndexed(Node,number) @L30 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#runReduce(Node) @L46 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#runValues(Node) @L64 -> -
+callback_registered	METHOD_CALL	pipeline#<module-init>() @L11 -> steps#pushed(Node)
+callback_registered	METHOD_CALL	pipeline#runForEach(Node) @L43 -> pipeline#<arrow@43>(?)
+callback_registered	METHOD_CALL	pipeline#runReduce(Node) @L46 -> pipeline#<arrow@46>(?,?)
 known_edge	FUNCTION_CALL	pipeline#runDirect(Node) @L82 -> steps#halve(Node)
 known_edge	FUNCTION_CALL	pipeline#runRegistry(Node) @L51 -> pipeline#<arrow@10>(Node)
 known_edge	FUNCTION_CALL	steps#halve(Node) @L7 -> steps#measure(Node)

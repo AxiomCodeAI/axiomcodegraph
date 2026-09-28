@@ -85,6 +85,10 @@ for f in raw(os.path.join(out, 'site-in-partial-module.csv'), 2):
 for f in raw(os.path.join(out, 'unresolved-receiver.csv'), 4):
     pos, kind, _ = site.get(f[0], ('?', f[2], '?'))
     lines.add('unresolved       %s  %s %s  %s' % (pos, kind, f[1], f[3]))
+# unresolved_value_callee(CallExpr, Binding): the callee is a value, so the site may call anything (#1649)
+for f in raw(os.path.join(out, 'unresolved-value-callee.csv'), 2):
+    pos, _, text = site.get(f[0], ('?', '?', '?'))
+    lines.add('value_callee     %s  %s  %s' % (pos, text, f[1]))
 # package_entry(Prov, Package, Subpath, Condition, Source, Target, Outcome, ModuleHash)
 for f in raw(os.path.join(out, 'package-entry.csv'), 8):
     lines.add('package_entry    %s  %s  [%s]  %s  %s  %s  -> %s' % (

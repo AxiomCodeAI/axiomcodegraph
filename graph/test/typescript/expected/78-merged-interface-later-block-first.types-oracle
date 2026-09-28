@@ -1,0 +1,7 @@
+78-merged-interface-later-block-first [types]
+  precision 1.0000   (19 correct, 0 wrong)
+  recall    1.0000   (19 of 19 the compiler resolved)
+  sites 21   resolved 19 (90.5%)
+  tiers ambiguous_unknown=2  known_edge=17  multi_inferred=4
+  contexts METHOD_PARAM=23
+  not scored: 2 rows whose target is not a client declaration

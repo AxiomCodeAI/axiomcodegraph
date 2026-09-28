@@ -39,6 +39,7 @@
 #
 # Environment:
 #   AXIOM_PARSER   path to the parser entrypoint   (default parser/dist/index.js — the parser in this repository)
+#   AXIOM_SUITE_JOBS  cases run at once (default: the CPU count; 1 = one at a time, output uncaptured)
 #
 # NO EXTERNAL LIBRARY IR IS USED OR REQUIRED — see the note above the EMPTY_LIB line. A case
 # may however ship its own lib-src/ STUB library (kilobytes, in the repo), which is extracted
@@ -157,6 +158,8 @@ PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 . "$HERE/tools/oracle-build.sh"
 ORACLE_FLAGS=""
 WORK="$HERE/.work"
+# shellcheck source=../tools/case-pool.sh
+. "$ROOT/graph/test/tools/case-pool.sh"
 BLESS=0; KEEP=0; ORACLE=0; NO_TORTURE=0; FILTERS=()
 for a in "$@"; do case "$a" in
   --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;; --no-torture) NO_TORTURE=1;;
@@ -245,7 +248,11 @@ EMPTY_LIB="$WORK/.empty-library"; mkdir -p "$EMPTY_LIB"; LIB_ARG="$EMPTY_LIB"
 
 
 pass=0; fail=0; failed=()
-for dir in "$HERE"/cases/*/; do
+# One case: the body of what was the case loop, unchanged, inside a one-case `for` so its
+# `continue`s still mean "next case". pool_run (graph/test/tools/case-pool.sh) runs several
+# at once and prints them in case order.
+case_body() {
+for dir in "$@"; do
   name="$(basename "$dir")"
   if [ ${#FILTERS[@]} -gt 0 ]; then
     match=0; for f in "${FILTERS[@]}"; do [[ "$name" == *"$f"* ]] && match=1; done
@@ -592,6 +599,10 @@ PYEOF
     fail=$((fail+1)); failed+=("$name")
   fi
 done
+}
+echo "running with up to $(pool_jobs) job(s) at once (AXIOM_SUITE_JOBS; 1 = one at a time)"
+POOL_INTS="pass fail" POOL_ARRAYS="failed"
+pool_run case_body "$HERE"/cases/*/
 [ "$KEEP" = "1" ] || rm -rf "$WORK"
 # ── TORTURE: ten families of construct, scored per family ─────────────────────────────────────
 # The cases above each pin ONE rule. This asks what happens when a project uses everything at

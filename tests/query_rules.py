@@ -93,6 +93,17 @@ def main():
         env2 = dict(env, XDG_CACHE_HOME=os.path.join(work, 'xdg-empty'))
         out, err, _ = py(e, "print(d.program('q.dl')[0])", env2)
         check(out == legacy, "a binary left in the plugin's dl/.cache by an older version is used", out + err)
+        # ... unless it was built for another machine: a plugin copy synced from a Mac to Linux (or back) carries the
+        # other machine's binary under the right name, and running it was an OSError (Exec format error) mid-query
+        g = plugin(work, 'copy-g'); os.makedirs(os.path.join(g, 'dl', '.cache')); foreign = os.path.join(g, 'dl', '.cache', f'q-{key}')
+        with open(foreign, 'wb') as fh:
+            fh.write(b'\xcf\xfa\xed\xfe\x0c\x00\x00\x01' + b'\0' * 24 if sys.platform.startswith('linux')
+                     else b'\x7fELF\x02\x01\x01\x00' + b'\0' * 10 + b'\x3e\x00' + b'\0' * 12)
+        os.chmod(foreign, 0o755)
+        out, err, _ = py(g, "print(' '.join(d.program('q.dl')))", env2)
+        check(out.startswith('souffle ') and foreign not in out, "a dl/.cache binary built for another OS is not run: the interpreter answers", out + err)
+        out, _, _ = py(e, f"print(d.runs_here({legacy!r}))", env2)
+        check(out == 'True', 'control: the same check passes the binary this machine compiled', out)
 
         # 4. three queries at once on a cold cache: one compile, nothing left behind
         env3 = dict(env, XDG_CACHE_HOME=os.path.join(work, 'xdg-race')); q3 = os.path.join(work, 'xdg-race', 'axiomcode', 'queries')

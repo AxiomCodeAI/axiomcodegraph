@@ -1,0 +1,5 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "an object literal that carries a discriminated interface's tag is checked against it and never writes its name, so an added required property breaks it (#784)", "run": ["impact", "LiteralNode"], "want": ["transformLiteral   src/transformer.ts:5   — builds an object literal with the tag kind: 'LiteralNode'"], "avoid": ["isLiteral", "makeRaw"]},
+  {"why": "the base of the family reaches the literal through the member that extends it", "run": ["impact", "AstNode"], "want": ["builds an object literal with the tag kind: 'LiteralNode' of LiteralNode, which extends it"], "avoid": ["isLiteral"]},
+  {"why": "control: the other member's literal is its own, and a comparison with the tag builds nothing", "run": ["impact", "RawNode"], "want": ["makeRaw"], "avoid": ["transformLiteral", "isLiteral"]}]}

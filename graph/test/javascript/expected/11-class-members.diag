@@ -9,3 +9,4 @@ unresolved       main.js:26:17  FUNCTION_CALL_BIND Holder  no_target
 unresolved       main.js:26:55  CONSTRUCTOR_CALL Bound  callee_untyped
 unresolved       main.js:26:55  METHOD_CALL go  receiver_untyped
 unresolved       main.js:7:24  FUNCTION_CALL String  no_target
+value_callee     main.js:26:55  Bound  local

@@ -256,6 +256,23 @@ class Changed:
             res.append((name.lstrip('*.'), re.sub(r'\s+', ' ', typ)))
         return res
     @staticmethod
+    def before_expression_body(h):
+        """a header's text up to an expression body's `=>` written after its parameter list, at bracket depth 0 (a
+        lambda passed as a default value inside the parameters stays in them)"""
+        depth = 0; seen = False
+        for k, ch in enumerate(h):
+            if ch in '([{<': depth += 1; seen = seen or ch == '('
+            elif ch in ')]}>' and not (ch == '>' and k and h[k - 1] == '='): depth = max(0, depth - 1)
+            elif ch == '=' and h[k + 1:k + 2] == '>' and depth == 0 and seen: return h[:k].rstrip()
+        return h
+    @staticmethod
+    def lambda_header(line):
+        """the parameter list of the lambda written on a line, as text: `lambda x, y:` (Python), `(x, y) =>` / `x =>`
+        (C#, Java's `->`); None when the line holds no lambda header"""
+        t = strip_code(line)
+        m = re.search(r'\blambda\b([^:]*):', t) or re.search(r'(\([^()]*\)|[A-Za-z_]\w*)\s*(?:=>|->)', t)
+        return m.group(1).strip().strip('()').strip() if m else None
+    @staticmethod
     def field_parts(line):
         """(declared type, name) of a field line, in either spelling: `Type name = …;` or `name: Type = …`"""
         t = re.sub(r'\s*(//.*|/\*.*?\*/\s*|#.*)$', '', line).strip()
@@ -300,11 +317,26 @@ class Changed:
         if not old.strip() and new.strip(): return self.new_file(rel, new, decls, is_py), []
         if not decls: return [], [(rel, 'no declarations known here (not in the graph, or a different file spelling)', None)]
         hits = {}
-        def narrowest(ln, kinds=None):
+        # A LAMBDA IS PART OF WHAT ENCLOSES IT. Every lambda carries one name (`<lambda>`), so taken as the declaration
+        # an edit changed, a body edit inside one came back as "signature <lambda> -x", handed to impact as `<lambda>`,
+        # which matched every lambda in the graph (hundreds, most of them in unrelated fixtures), and test-impact ran
+        # their tests. An edited line is charged to the narrowest declaration that is not a lambda; a lambda stands on
+        # its own only where no method or field encloses it (top-level code), named `Enclosing.<lambda@L42>` and
+        # targeted by file:line (lambda_decl).
+        is_lam = lambda d: d[5] in P.LAMBDA_NAMES and d[3] not in ('field', 'const', 'enum_member', 'variable')
+        def narrowest(ln, kinds=None, lambdas=False):
             best = None
             for a, b, i, k, d, n in decls:
+                if is_lam((a, b, i, k, d, n)) != lambdas: continue
                 if a <= ln <= b and (kinds is None or k in kinds) and (best is None or (b - a) < (best[1] - best[0])): best = (a, b, i, k, d, n)
             return best
+        def lambda_decl(ln, m):
+            """the lambda that stands on its own at ln: one spans the line, and no method (a module body is not one)
+            holds it, nor a field whose initializer it is"""
+            lam = narrowest(ln, None, lambdas=True)
+            if not lam or (m and m[3] != 'module' and m[0] <= lam[0] and lam[1] <= m[1]): return None
+            if any(k in ('field', 'const', 'enum_member', 'variable') and a <= lam[0] <= max(b, a) for a, b, i, k, d, n in decls): return None
+            return lam
         def decl_after(ln, L):
             """the declaration whose header starts within 3 lines after ln (an annotation / decorator line belongs to it)"""
             for a, b, i, k, d, n in decls:
@@ -322,8 +354,13 @@ class Changed:
         for ln in sorted(old_changed):
             if OL[ln - 1].strip().startswith('@') and any(ln in range(1, dd[0]) for dd in decorated): continue
             f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')), None)
+            # a lambda's lines inside a field's initializer are the field's
+            if not f: f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if k in ('field', 'const', 'enum_member', 'variable') and a < ln
+                                and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None)
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
             t = narrowest(ln, {'class', 'interface', 'enum', 'type', 'namespace'})
+            lam = None if f else lambda_decl(ln, m)
+            if lam: hits.setdefault(('lambda', lam), set()).add(ln); continue
             key = None
             # a callable that starts on the type's own header line and ends within the type is one the front end
             # synthesised for it (an implicit constructor, a Python class body): the header is the TYPE's, or a new class
@@ -356,6 +393,15 @@ class Changed:
             decs = decorated.get((a, b, i, k, d, n))
             if a > len(OL): continue                                             # starts past the committed file: nothing of it is there
             entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(x for x in lines if x > 0), target_kind=('param' if kind == 'signature' else KIND(k)))
+            if kind == 'lambda':
+                # a lambda at the top level: its own body. Named by where it is, targeted by file:line in the graph's own
+                # lines; its parameter list is compared as written, so an unchanged header is never a parameter diff
+                entry.update(kind='body', symbol=self.g.lambda_label(i), target=self.g.lambda_target(i) or f"{rel}:{a}", target_kind='method', lambda_=True)
+                na = new_of.get(a)
+                oh, nh = self.lambda_header(OL[a - 1] if a <= len(OL) else ''), self.lambda_header(NL[na - 1] if na and na <= len(NL) else '')
+                if oh is not None and nh is not None and re.sub(r'\s', '', oh) != re.sub(r'\s', '', nh): entry['detail'] = f"lambda parameters ({oh}) → ({nh})"
+                if a in removed_lines and all(x in removed_lines for x in range(a, min(b, len(OL)) + 1) if not noise(OL[x - 1])): entry['kind'] = 'removed'
+                out.append(entry); continue
             span_lines = [x for x in range(a, min(b, len(OL)) + 1) if not noise(OL[x - 1])]
             gone = a in removed_lines and span_lines and sum(1 for x in span_lines if x in removed_lines) >= 0.6 * len(span_lines) and \
                    not any(re.search(rf'\b{re.escape(n)}\s*\(', NL[j - 1]) and ndepth_ok(j) for j in range(max(1, (new_of.get(a) or a) - 3), min(len(NL), (new_of.get(a) or a) + 3) + 1))
@@ -373,8 +419,13 @@ class Changed:
                 if na and na <= len(NL):
                     # the new header: from the mapped line, the first line holding the name, to its end
                     for s in range(max(1, na - 2), min(len(NL), na + 6) + 1):
-                        if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]):
+                        # read with comments blanked: a comment line above the header that mentions the name is not it
+                        if re.search(rf'\b{re.escape(n)}\b', strip_code(NL[s - 1], strings=False, hash_comments=is_py)):
                             nh_raw = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); nh = uncomment(NL[s - 1:self.header_end(NL, s)]); break
+                # AN EXPRESSION BODY IS NOT HEADER. `int Count() => xs.Count(x => x > 0);` is one line, and read to its `;`
+                # the whole body was header text: an edit inside the lambda it holds came back as a signature change
+                body_arrow = self.before_expression_body
+                oh, oh_raw, nh, nh_raw = body_arrow(oh), body_arrow(oh_raw), body_arrow(nh), body_arrow(nh_raw)
                 # the header may start on an annotation line: its arguments are not a parameter list, and its text is
                 # not a return type. Read the signature from the first line that is not a decoration
                 sig = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()
@@ -574,10 +625,10 @@ class Changed:
             for r in self.g.q(f"SELECT e.callee_method_id m, s.file f, s.display d FROM call_edges e JOIN symbols s ON s.id = e.caller_id WHERE e.callee_method_id IN ({q})", *mids):
                 if r['f'] != rel: callers.setdefault(r['m'], set()).add(r['d'])
             for m, cs in callers.items():
-                i = mids[m]; sy = self.g.all_sym[i]
-                out.append(dict(kind='added', symbol=sy['display'], id=i, file=rel, line=sy['line'], end=sy['end_line'] or sy['line'], old_lines=[],
+                i = mids[m]; sy = self.g.all_sym[i]; lam = self.g.is_lambda(i)
+                out.append(dict(kind='added', symbol=self.g.lambda_label(i) if lam else sy['display'], id=i, file=rel, line=sy['line'], end=sy['end_line'] or sy['line'], old_lines=[],
                                 detail=f"new, and already called from outside this file ({len(cs)} caller(s): {', '.join(sorted(cs)[:3])}{' …' if len(cs) > 3 else ''})",
-                                target=self.qualified(i, 'method') or sy['display'], target_kind='method', referenced=True))
+                                target=(self.g.lambda_target(i) if lam else None) or self.qualified(i, 'method') or sy['display'], target_kind='method', referenced=True))
         return out
     def whole_file(self, rel, why):
         """every callable the graph declares in a NAMED file, as changed: what `test-impact <file>` means when there is no
@@ -586,6 +637,11 @@ class Changed:
         pick = [d for d in spans if d[3] in ('method', 'function', 'constructor')] or [d for d in spans if d[3] in ('class', 'interface', 'enum', 'type')]
         out = []
         for a, b, i, k, d, n in pick:
+            if n in P.LAMBDA_NAMES:
+                # a lambda inside a method of this file is counted with that method; one at the top level by its line
+                if self.g.enclosing(i): continue
+                out.append(dict(kind='named', symbol=self.g.lambda_label(i), id=i, file=rel, line=a, end=b, old_lines=[], detail=why,
+                                target=self.g.lambda_target(i) or f"{rel}:{a}", target_kind='method')); continue
             out.append(dict(kind='named', symbol=d, id=i, file=rel, line=a, end=b, old_lines=[], detail=why,
                             target=self.qualified(i, 'method') or d, target_kind='type' if k in ('class', 'interface', 'enum', 'type') else 'method'))
         if not out: out.append(dict(kind='named', symbol=rel, id=None, file=rel, line=1, end=1, old_lines=[], detail=why + '; the graph declares nothing in it', target=None))

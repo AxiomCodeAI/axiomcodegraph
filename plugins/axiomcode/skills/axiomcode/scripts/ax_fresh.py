@@ -17,7 +17,7 @@ the previous graph. Three pieces:
                    every row that lies in a file changed since marked (`query`); they wait only when the answer
                    touches such a file and the refresh is expected within a small budget, or when asked (--fresh).
 
-  ax_fresh.py snapshot <repo> <lang> <src>     print the file table (JSON) — axiomcode-build stores it
+  ax_fresh.py snapshot <repo> <lang> <src>     print the file table (JSON), with what built the graph — axiomcode-build stores it
   ax_fresh.py status <repo> [--json]           fresh | stale (+ the changed files) | building | no graph
   ax_fresh.py kick <repo>                      start the worker if the graph is stale; never waits
   ax_fresh.py wait <repo> [<seconds>]          kick, then wait up to <seconds> for a fresh graph
@@ -241,6 +241,152 @@ def changes(repo, table=None):
                 if p.endswith(SOURCE[l]) and rel not in old: added.append(rel); break
     return sorted(changed), sorted(added), sorted(set(old) - seen)
 
+# ── WHAT BUILT THE GRAPH ───────────────────────────────────────────────────────────────────────────────────────────
+# A graph is current when the files it was built from are unchanged AND the axiomcode that built it is the one that
+# would build it now. Only the first was checked: after a plugin or engine update, `index` said "graph up to date" and
+# every query answered from a graph the previous engine had solved, with the previous rules, until someone deleted
+# .axiomcode by hand. So the file table also records what built it (`built_by`), and a difference is a stale graph:
+#   engine   a hash of what the engine builds a graph with (its parser, rules, pipeline, launcher), and its version
+#   rules    a hash of this plugin's code that shapes the graph and its answers: the query rules (dl/*.dl) and
+#            axiomcode-index, which writes the symbols every verb reads
+#   impact   IMPACT_VERSION, the version of the facts `impact` exports from the graph
+# The engine is found the way axiomcode-build finds it (AXIOMCODE_ENGINE, the checkout this plugin sits in, the engine
+# that built this graph, an `axiomcode` on PATH); when none of those is a built engine it is not compared, since
+# `npm root -g` is too slow to ask before every query. Only content counts: an install moved to another directory
+# with the same bytes is the same engine.
+ENGINE_TREES = ('bin', 'dist', 'graph', os.path.join('parser', 'dist'))
+ENGINE_FILES = ('package.json', os.path.join('parser', 'package.json'))
+ENGINE_SKIP_DIRS = frozenset({'test', 'node_modules', '__pycache__', '.cache'})
+ENGINE_SKIP_EXT = ('.map', '.md', '.d.ts', '.tsbuildinfo', '.pyc')
+
+def engine_ok(d):
+    return bool(d) and os.path.isfile(os.path.join(d, 'bin', 'axiomcode')) and os.path.isdir(os.path.join(d, 'graph')) \
+        and os.path.isfile(os.path.join(d, 'package.json'))
+
+def engine_built(d):
+    return engine_ok(d) and os.path.isfile(os.path.join(d, 'parser', 'dist', 'index.js'))
+
+def current_engine(repo):
+    """the engine the next build of repo would use (axiomcode-build's order, without its last resort, npm root -g), or
+    None when none of those is an engine"""
+    e = os.environ.get('AXIOMCODE_ENGINE')
+    if e and engine_ok(e): return e
+    w = H
+    while os.path.dirname(w) != w and not os.path.isfile(os.path.join(w, 'bin', 'axiomcode')): w = os.path.dirname(w)
+    if engine_built(w): return w
+    try: rec = open(os.path.join(repo, '.axiomcode', 'engine')).read().strip()
+    except OSError: rec = ''
+    if engine_built(rec): return rec
+    import shutil
+    p = shutil.which('axiomcode')
+    if p:
+        d = os.path.dirname(os.path.dirname(os.path.realpath(p)))
+        if engine_built(d): return d
+        d = os.path.join(os.path.dirname(p), 'node_modules', '@axiomcode', 'code-graph')
+        if engine_built(d): return d
+    return None
+
+def _engine_files(d):
+    for t in ENGINE_TREES:
+        for root, subdirs, files in os.walk(os.path.join(d, t)):
+            subdirs[:] = sorted(s for s in subdirs if s not in ENGINE_SKIP_DIRS and not s.startswith('.'))
+            for f in sorted(files):
+                if not f.endswith(ENGINE_SKIP_EXT): yield os.path.join(root, f)
+    for f in ENGINE_FILES:
+        if os.path.isfile(os.path.join(d, f)): yield os.path.join(d, f)
+
+_ENGINE_MEMO = {}
+
+def engine_id(d):
+    """(version, content hash, stat signature) of the engine at d. The stat signature (every file's size and mtime) is
+    what is compared first; the content hash, which reads every file, only when the signature differs, and it is kept
+    for that signature for the life of the process"""
+    stats = []
+    for p in _engine_files(d):
+        try: st = os.stat(p); stats.append((os.path.relpath(p, d), st.st_size, st.st_mtime_ns))
+        except OSError: pass
+    sig = hashlib.sha1(json.dumps(stats).encode()).hexdigest()
+    try: version = json.load(open(os.path.join(d, 'package.json'))).get('version', '?')
+    except (OSError, ValueError): version = '?'
+    return version, (lambda: _engine_hash(d, sig, stats)), sig
+
+def _engine_hash(d, sig, stats):
+    k = (os.path.realpath(d), sig)
+    if k not in _ENGINE_MEMO:
+        h = hashlib.sha1()
+        for rel, _, _ in stats:
+            h.update(rel.replace(os.sep, '/').encode() + b'\0')
+            try: h.update(digest(os.path.join(d, rel)).encode())
+            except OSError: pass
+        _ENGINE_MEMO[k] = h.hexdigest()
+    return _ENGINE_MEMO[k]
+
+IMPACT_VERSION_RE = re.compile(r"^\s*IMPACT_VERSION\s*=\s*'([^']*)'", re.M)
+
+def plugin_id():
+    """(rules hash, IMPACT_VERSION) of the plugin this script belongs to"""
+    h = hashlib.sha1()
+    dl = os.path.join(H, 'dl')
+    try: names = sorted(f for f in os.listdir(dl) if f.endswith('.dl'))
+    except OSError: names = []
+    for f in names + ['axiomcode-index']:
+        p = os.path.join(dl, f) if f.endswith('.dl') else os.path.join(H, f)
+        try: h.update(f.encode() + b'\0' + digest(p).encode())
+        except OSError: pass
+    try: m = IMPACT_VERSION_RE.search(open(os.path.join(H, 'axiomcode-impact'), errors='replace').read())
+    except OSError: m = None
+    return h.hexdigest(), (m.group(1) if m else '?')
+
+def built_by(engine):
+    """what a build with `engine` records in its file table"""
+    rules, impact = plugin_id()
+    d = dict(rules=rules, impact=impact)
+    if engine and engine_ok(engine):
+        version, content, sig = engine_id(engine)
+        d.update(engine=engine, engine_version=version, engine_hash=content(), engine_stat=sig)
+    return d
+
+def _label(version, h): return f"{version} {h[:8]}" if h else version
+
+def engine_change(repo, t=None):
+    """'' when the graph was built by the axiomcode that would build it now, else what differs, written
+    "graph built by an older axiomcode (<old> -> <new>)". A table from before this was recorded differs. A graph
+    placed by AXIOMCODE_GRAPH is not this repository's build, and AXIOMCODE_NO_ENGINE_CHECK=1 turns the check off"""
+    if os.environ.get('AXIOMCODE_GRAPH') or os.environ.get('AXIOMCODE_NO_ENGINE_CHECK'): return ''
+    t = t if t is not None else load_table(repo)
+    if not t: return ''
+    old = t.get('built_by')
+    rules, impact = plugin_id()
+    eng = current_engine(repo)
+    now_e = engine_id(eng) if eng else None
+    if not isinstance(old, dict):
+        new = f"{now_e[0]} {now_e[1]()[:8]}" if now_e else f"IMPACT_VERSION {impact}"
+        return f"graph built by an older axiomcode (one that did not record its engine -> {new})"
+    diff = []
+    if now_e and old.get('engine_hash') and old.get('engine_stat') != now_e[2]:
+        h = _seen_hash(repo, now_e)
+        if h != old['engine_hash']:
+            diff.append(f"engine {_label(old.get('engine_version', '?'), old['engine_hash'])} -> {_label(now_e[0], h)}")
+    elif now_e and not old.get('engine_hash'):
+        diff.append(f"engine unrecorded -> {_label(now_e[0], _seen_hash(repo, now_e))}")
+    if old.get('rules') != rules: diff.append(f"rules {(old.get('rules') or 'unrecorded')[:8]} -> {rules[:8]}")
+    if str(old.get('impact')) != impact: diff.append(f"IMPACT_VERSION {old.get('impact') or 'unrecorded'} -> {impact}")
+    return f"graph built by an older axiomcode ({'; '.join(diff)})" if diff else ''
+
+def _seen_hash(repo, e):
+    """the content hash of engine e: an engine whose files moved (a reinstall, a new checkout) but whose bytes did not
+    is hashed once, and its hash kept beside the graph for its stat signature, so later queries only stat it"""
+    p = os.path.join(out_dir(repo), 'engine-seen.json')
+    try: seen = json.load(open(p))
+    except (OSError, ValueError): seen = {}
+    if e[2] in seen: return seen[e[2]]
+    h = e[1]()
+    seen = {e[2]: h}                                           # the latest one only: this is a cache, not a history
+    tmp = p + f'.{os.getpid()}'
+    try: json.dump(seen, open(tmp, 'w')); os.replace(tmp, p)
+    except OSError: pass
+    return h
+
 def read_state(repo):
     try: return json.load(open(state_path(repo)))
     except (OSError, ValueError): return {}
@@ -260,6 +406,37 @@ def has_graph(repo):
 
 def graph_broken(repo):
     return has_graph(repo) and not os.path.exists(os.path.join(out_dir(repo), 'graph.sqlite'))
+
+def relink(repo, locked=False, say=True):
+    """graph.sqlite points into THIS repository's .axiomcode/out, by a name relative to it (#1605). A build before this
+    wrote an absolute pointer, which a copy of the repository kept: the copy answered from the original's graph and never
+    saw its own edits, and once the original moved it found its pointer dangling and rebuilt itself as "a build was
+    interrupted". A pointer that leaves this .axiomcode/out is re-pointed at the same graph here (the copy's own), and
+    says which case it was; one with no graph here to take is removed, so the query builds one. Returns what it did."""
+    out = out_dir(repo); p = os.path.join(out, 'graph.sqlite')
+    if not os.path.islink(p) or (not locked and building(repo)): return ''   # a running build owns the pointer
+    try: t = os.readlink(p)
+    except OSError: return ''
+    if not os.path.isabs(t): return ''          # relative: this out/'s own; dangling, it is an interrupted build to repair
+    parts = t.replace('\\', '/').rsplit('/.axiomcode/out/', 1)
+    tail = parts[1] if len(parts) == 2 and not os.path.normpath(parts[1]).startswith('..') else ''
+    own = os.path.join(out, tail) if tail else ''
+    there = parts[0] + '/.axiomcode/out' if tail else ''
+    # an older build's pointer into this very out/ stays this graph, dangling or not (a dangling one is a repair)
+    ours = bool(there) and os.path.isdir(there) and os.path.samefile(there, out)
+    try:
+        if ours or own and os.path.exists(own):
+            tmp = os.path.join(out, '.graph.sqlite.relink')
+            if os.path.lexists(tmp): os.remove(tmp)
+            os.symlink(tail, tmp); os.replace(tmp, p)
+        else: os.remove(p)
+    except OSError: return ''
+    if ours: return 'relative'
+    msg = (f"graph.sqlite pointed at another checkout's graph ({t})" + (" — this repository was copied from it" if os.path.exists(t)
+           else ", which is gone — this repository was moved or copied from it") +
+           (f"; re-pointed at its own graph (.axiomcode/out/{tail})" if own and os.path.exists(own) else "; this checkout has no graph of its own there, so one is built"))
+    if say: print(msg, file=sys.stderr)
+    return msg
 
 def graph_lang():
     """the language whose graph a verb reads when it is not the main one (AXIOMCODE_GRAPH_LANG, set by the dispatcher
@@ -395,18 +572,32 @@ def status(repo):
     if c is None: return dict(state='unknown', note='the graph predates the file table; the next `axiomcode index` records it')
     changed, added, removed = c
     busy = building(repo)
-    if not (changed or added or removed):
+    eng = engine_change(repo)
+    if not (changed or added or removed) and not eng:
         # a build that already published this tree's main graph and is still solving other languages: the graph a query
         # reads is current, and waiting would be waiting for other languages' compiles
         if busy: return dict(state='building', **pending(repo))
         return dict(state='stale', changed=[unbuilt_row(repo)], added=[], removed=[]) if unbuilt(repo) else dict(state='fresh')
     d = dict(state='building' if busy else 'stale', changed=changed, added=added, removed=removed)
-    if not busy and st.get('failed_table') == change_key(c): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
+    if eng: d['engine'] = eng
+    if busy and not (changed or added or removed): d.update(pending(repo))
+    if not busy and failed_on(st, c, eng): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
     return d
 
 def change_key(c):
     """identifies a change set, so a build that failed on it is not retried until the files move again"""
     return hashlib.sha1(json.dumps(c).encode()).hexdigest()
+
+def failed_on(st, c, engine=''):
+    """the last rebuild failed on exactly this change set and, when the graph is behind the installed axiomcode, on
+    the same difference: it is not retried until the files move or another axiomcode is installed. The difference is
+    compared only when there is one: a failed rebuild seen by a caller whose engine matches the graph (a shell without
+    the AXIOMCODE_ENGINE the refresher ran with) is still the failed rebuild of these files"""
+    return st.get('failed_table') == change_key(c) and (not engine or st.get('failed_engine', '') == engine)
+
+def behind(s):
+    """the graph is behind: files edited since it was built, or built by another axiomcode"""
+    return bool(edited(s) or s.get('engine'))
 
 def enabled(repo):
     return not os.environ.get('AXIOMCODE_NO_REFRESH') and not os.environ.get('AXIOMCODE_GRAPH') and has_graph(repo)
@@ -446,7 +637,7 @@ def worker(repo):
     lock = os.path.join(repo, '.axiomcode', 'refresh.lock')
     fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644)
     if not _flock(fd, False): return 0                        # single flight
-    debounce = float(os.environ.get('AXIOMCODE_REFRESH_DEBOUNCE') or 2); legacy_done = False
+    debounce = float(os.environ.get('AXIOMCODE_REFRESH_DEBOUNCE') or 2); legacy_done = False; engine_done = ''; eng = ''
     try:
         for _ in range(8):                                    # bounded: a tree rewritten faster than it builds must not spin forever
             time.sleep(debounce)
@@ -462,26 +653,33 @@ def worker(repo):
                 c = changes(repo, t)
                 if graph_broken(repo) and not (c and any(c)): c = [['.axiomcode/out/graph.sqlite (broken pointer)'], [], []]
                 elif unbuilt(repo) and not (c and any(c)): c = [[unbuilt_row(repo)], [], []]
-                if (c is None or not any(c)) and not base_moved(repo):
+                # BUILT BY ANOTHER AXIOMCODE: rebuilt with no file changed, once per worker. A rebuild that leaves the same
+                # difference behind (a build that could not record what built it) is not repeated
+                eng = engine_change(repo, t)
+                if eng and eng == engine_done: eng = ''
+                if (c is None or not any(c)) and not eng and not base_moved(repo):
                     write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', '')); return 0
                 c = c or [[], [], []]
             st = read_state(repo)
             # a build that FAILED on exactly this tree is not retried on every trigger: the next edit retries it
             fp = change_key(c)
-            if st.get('failed_table') == fp: return 0
+            if failed_on(st, c, eng): return 0
             n = sum(len(x) for x in c)
-            why = (f"{n} file(s) changed" if n else f"HEAD moved to {(head(repo) or '')[:10]}") + f", found by {os.environ.get('AXIOMCODE_REFRESH_TRIGGER') or 'an edit'}"
+            why = (f"{n} file(s) changed" if n else eng if eng else f"HEAD moved to {(head(repo) or '')[:10]}") + \
+                  (f"; {eng}" if n and eng else '') + f", found by {os.environ.get('AXIOMCODE_REFRESH_TRIGGER') or 'an edit'}"
+            engine_done = eng
             env = rebuild_env(t, AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
             t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
-            else: print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
+            if eng: print(f"{time.strftime('%H:%M:%S')} refresh: {eng}; rebuilding", flush=True)
+            elif not any(c): print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
             # the worker is detached and has no console, so Windows would give the console program bash a new, visible
             # window for the length of every rebuild; CREATE_NO_WINDOW keeps it hidden
             r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', os.path.join(H, 'axiomcode-build'), repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                **(dict(creationflags=0x08000000) if os.name == 'nt' else {}))
             took = round(time.time() - t0, 1)
             if r.returncode != 0:
-                write_state(repo, state='failed', finished=time.time(), seconds=took, failed_table=fp,
+                write_state(repo, state='failed', finished=time.time(), seconds=took, failed_table=fp, failed_engine=eng,
                             failed_log=os.path.join(repo, '.axiomcode', 'refresh.log'), failed_reason=failure_reason(r.stdout))
                 print(f"refresh: build failed after {took}s; the previous graph is kept\n{r.stdout[-800:]}", flush=True)
                 return 1
@@ -572,6 +770,13 @@ def note(s, marked=None, named=None, off=False):
     # the languages a running build has still to publish (#1555) get a line of their own, before any line about edits
     first = pending_note(s)
     if s.get('state') not in ('stale', 'building'): return first
+    if s.get('engine'):
+        # BUILT BY ANOTHER AXIOMCODE: every row may differ from what this version answers, so none is marked; the line says so
+        if off: says = "refresh is OFF (AXIOMCODE_NO_REFRESH is set), so nothing rebuilds it; `axiomcode index` does"
+        elif s.get('failed'): says = "the rebuild FAILED" + (f" — {s['failed_reason']}" if s.get('failed_reason') else '') + f" (see {s['failed']})"
+        else: says = "rebuilding in the background; --fresh waits for the rebuild"
+        first = (first + '\n' if first else '') + f"graph refresh: {s['engine']}; {says} — this answer is from that graph, " \
+            "and may lack what the installed version finds"
     files = edited(s)
     if not files: return first
     first = first + '\n' if first else ''
@@ -673,6 +878,7 @@ _FLAG_VALUE = {'--depth', '--in', '--limit', '--kind', '--page', '--budget', '--
 def query_names(verb, args, repo):
     """the names a query asks about (impact's targets, path's endpoints, context's --from), as written"""
     names, i, pos = [], 0, []
+    if '--' in args: args = args[args.index('--') + 1:]  # --grep runs the verb under ax_grep.py <verb> <repo> … --: not names
     while i < len(args):
         a = args[i]
         if a in _FLAG_VALUE:
@@ -748,7 +954,7 @@ def wait_fresh(repo, seconds, say=False, files=()):
     end = t0 = time.time(); end += seconds; last = t0
     while True:
         s = status(repo)
-        if (s['state'] in ('fresh', 'no graph', 'unknown') or not edited(s)) and not _waits_on(s, files): return True
+        if (s['state'] in ('fresh', 'no graph', 'unknown') or not behind(s)) and not _waits_on(s, files): return True
         if s.get('failed'): return False
         if s['state'] == 'stale': kick(repo, 'a query')
         now = time.time()
@@ -783,7 +989,7 @@ def query(repo, verb, argv, fresh=False):
     if s['state'] == 'unknown':
         if not off: kick(repo, 'a query')
         passthrough()
-    if s['state'] in ('fresh', 'no graph') or not edited(s):
+    if s['state'] in ('fresh', 'no graph') or not behind(s):
         # a build that published this tree's main graph and is solving the others (#1555): the answer is current and is
         # given now, and says which languages it cannot see yet
         if not pending_note(s): passthrough()
@@ -792,7 +998,7 @@ def query(repo, verb, argv, fresh=False):
     as_json = '--json' in argv
     if fresh and not s.get('failed') and not off:
         left = expected_left(repo)
-        print(f"waiting for the graph to refresh (--fresh): {len(edited(s))} file(s) changed since the graph was built" +
+        print(f"waiting for the graph to refresh (--fresh): " + (f"{len(edited(s))} file(s) changed since the graph was built" if edited(s) else s.get('engine', '')) +
               (f", the last build took {int(build_seconds(repo)[0])} s" if left is not None else '') + " …", file=sys.stderr, flush=True)
         if wait_fresh(repo, float(os.environ.get('AXIOMCODE_FRESH_MAX') or 600), say=True, files=True): passthrough()
         s = status(repo)
@@ -822,6 +1028,7 @@ def query(repo, verb, argv, fresh=False):
             obj = json.loads(marked)
             if isinstance(obj, dict):
                 obj['freshness'] = dict(state='off' if off else s['state'], edited=edited(s), rows_marked=n,
+                                        **({'built_by': s['engine']} if s.get('engine') else {}),
                                         **({'failed': s['failed']} if s.get('failed') else {}),
                                         **({'named_in_edits': [dict(name=a, file=b) for a, b in missed]} if missed else {}))
                 marked = json.dumps(obj, indent=1, ensure_ascii=False) + '\n'
@@ -837,11 +1044,16 @@ def main(argv):
     if cmd == 'lock':
         return 0 if _flock(int(argv[2]), '--try' not in argv) else 75
     repo = os.path.realpath(argv[2]) if len(argv) > 2 else os.getcwd()
+    if cmd in ('query', 'baseline', 'relink'): relink(repo, locked='--locked' in argv[3:4])   # every query verb passes here
+    if cmd == 'relink': return 0
     if cmd == 'snapshot':
         lang, src_arg = argv[3], (argv[4] if len(argv) > 4 else '')
         lib = os.environ.get('AXIOMCODE_LIBRARY', '')
+        # what built the graph (the engine axiomcode-build found, passed as AXIOMCODE_ENGINE), unless this table is taken
+        # for a graph an earlier build made (AXIOMCODE_BUILT_BY_UNKNOWN), which must not be credited to this one
+        by = {} if os.environ.get('AXIOMCODE_BUILT_BY_UNKNOWN') else dict(built_by=built_by(os.environ.get('AXIOMCODE_ENGINE') or current_engine(repo)))
         json.dump(dict(lang=lang, lang_auto=bool(os.environ.get('AXIOMCODE_LANG_AUTO')), src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
-                       files=snapshot(repo, lang, os.path.join(repo, src_arg))), sys.stdout); return 0
+                       files=snapshot(repo, lang, os.path.join(repo, src_arg)), **by), sys.stdout); return 0
     if cmd == 'count':
         # the SOURCE files of each language under repo, walked as the refresher walks (the parser's skip list and git's
         # ignore rules): java typescript python javascript csharp. axiomcode-build picks the main language from these, and
@@ -871,7 +1083,12 @@ def main(argv):
         t = load_table(repo)
         if not t or t.get('lang') != lang or t.get('src_arg', '') != src_arg or (t.get('library') or 'nolib') != (lib or 'nolib'): return 1
         c = changes(repo, t)
-        return 0 if c is not None and not any(c) else 1
+        if c is None or any(c): return 1
+        # the files are the graph's; the axiomcode that built it must be the one building now (axiomcode-build passes
+        # the engine it found as AXIOMCODE_ENGINE), or the graph is rebuilt, saying why
+        eng = engine_change(repo, t)
+        if eng: print(f"{eng}; rebuilding", flush=True); return 1
+        return 0
     if cmd == 'status':
         s = status(repo)
         if '--json' in argv: print(json.dumps(dict(s, **refreshed(repo))))

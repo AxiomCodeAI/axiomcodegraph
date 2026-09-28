@@ -7,6 +7,10 @@ ambiguous_unknown	FUNCTION_CALL	parts#FieldImpl({ label: string },unknown) @L39 
 ambiguous_unknown	FUNCTION_CALL	settings#Settings() @L6 -> -
 ambiguous_unknown	METHOD_CALL	app#App() @L15 -> -
 ambiguous_unknown	METHOD_CALL	parts#formatName(string) @L25 -> -
+callback_registered	FUNCTION_CALL	app#<module-init>() @L4 -> app#<arrow@4>()
+callback_registered	FUNCTION_CALL	parts#<module-init>() @L33 -> parts#UserCard({ id: string })
+callback_registered	FUNCTION_CALL	parts#<module-init>() @L41 -> parts#FieldImpl({ label: string },unknown)
+callback_registered	FUNCTION_CALL	parts#<module-init>() @L73 -> parts#buildDefault()
 intrinsic_terminal	DYNAMIC_IMPORT_CALL	app#<arrow@4>() @L4 -> -
 known_edge	FUNCTION_CALL	app#useFactory() @L23 -> parts#<arrow@22>()@L22
 known_edge	FUNCTION_CALL	parts#FieldImpl({ label: string },unknown) @L39 -> parts#trackClick(string)

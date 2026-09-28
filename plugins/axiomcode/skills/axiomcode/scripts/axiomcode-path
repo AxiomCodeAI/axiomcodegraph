@@ -65,6 +65,9 @@ def chain_json(g, chain):
 # declarations that describe a callable and have no body (score.py's bodiless_kinds)
 BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE',
                   'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE'}
+# the one name a front end gives every lambda it declares (Python and C#; Java declares none): a name that says nothing
+# about WHICH lambda, so it is never a target on its own (G.lambda_label, G.lambda_target)
+LAMBDA_NAMES = {'<lambda>'}
 
 # ONE SPELLING FOR EVERY LANGUAGE. Each front end writes a qualified name its own way: Java and C# `pkg.Owner.m`,
 # Python `pkg.module.f`, TypeScript `src/util#square`, JavaScript `src/util.square`. canon() maps all of them onto the
@@ -198,6 +201,61 @@ class G:
     def disp(self, i):
         r = self.sym.get(i) or self.all_sym.get(i); return r['display'] if r else i
 
+    # ── a lambda is named by where it is written ─────────────────────────────────────────────────────────────
+    # Every lambda of a language is declared under ONE name (`<lambda>`), so the name alone matches every lambda in the
+    # graph: an edit next to one was handed to impact as `<lambda>`, which answered for hundreds of declarations, and
+    # the lambdas of one class were one symbol `Owner.<lambda>`. A lambda is identified by the member that encloses it
+    # and its line, `Owner.method.<lambda@L42>`, and targeted by `file:line`, which names that one declaration.
+    def is_lambda(self, i):
+        r = self.all_sym.get(i) or self.sym.get(i)
+        return bool(r) and r.get('name') in LAMBDA_NAMES and r.get('method_id') is not None
+    def enclosing(self, i):
+        """the narrowest declaration other than a lambda or a module body whose span holds lambda `i`: a method, a
+        field whose initializer it is, or a type. None at the top level of a file."""
+        r = self.all_sym.get(i) or self.sym.get(i)
+        if not r or not r.get('file') or not r.get('line'): return None
+        a, b = r['line'], r.get('end_line') or r['line']
+        rows = self.q("""SELECT id, rowid, display, kind, name, line, end_line FROM symbols WHERE file = ? AND line <= ? AND COALESCE(end_line, line) >= ?
+                          AND id IS NOT ? AND kind NOT IN ('module', 'library', 'written') AND name NOT IN (%s)
+                          ORDER BY COALESCE(end_line, line) - line, CASE WHEN method_id IS NOT NULL THEN 0 WHEN type_id IS NULL THEN 1 ELSE 2 END""" % ','.join('?' * len(LAMBDA_NAMES)),
+                      r['file'], a, b, i, *sorted(LAMBDA_NAMES))
+        return dict(rows[0]) if rows else None
+    def lambda_label(self, i):
+        """`Owner.method.<lambda@L42>`: the enclosing member's name and the lambda's line"""
+        r = self.all_sym.get(i) or self.sym.get(i)
+        if not r: return str(i)
+        e = self.enclosing(i)
+        if e: pre = e['display']
+        else:
+            q = (r.get('qualified_name') or '').replace('.<locals>', '')
+            pre = q.rsplit('.', 1)[0] if '.' in q and not q.rsplit('.', 1)[0].endswith('>') else (r.get('owner') or os.path.splitext(os.path.basename(r.get('file') or ''))[0])
+        return f"{pre}.{r['name'][:-1]}@L{r.get('line')}>"
+    def decl_at_line(self, f, ln, spanning=None):
+        """('field', row) or ('type', row) when `f:ln` is the declaration line of a field, a constant, a property or a
+        type and no callable of its own is written there; None otherwise. A file:line names "the declaration at that
+        line", and the resolver took callables only, so a field line answered `no callable spans` in every language
+        and a C# class line too (#1426). What a front end synthesises ON such a line is not a callable of its own: a
+        lambda in a field's initializer is part of the field, and an implicit constructor on a type's header line is
+        the type's (a Python class body is a module node and is never a candidate here)."""
+        if spanning is None:
+            spanning = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
+        fields = [dict(x) for x in self.q("SELECT rowid, * FROM symbols WHERE file = ? AND line = ? AND method_id IS NULL AND type_id IS NULL AND kind IN ('field','const','enum_member','variable')", f, ln)]
+        types = [dict(x) for x in self.q("SELECT * FROM symbols WHERE file = ? AND line = ? AND type_id IS NOT NULL AND method_id IS NULL", f, ln)]
+        if not fields and not types: return None
+        fend = max([x.get('end_line') or x['line'] for x in fields], default=ln)
+        for x in spanning:
+            s = self.sym.get(x['id']) or self.all_sym.get(x['id']) or {}
+            if fields and self.is_lambda(x['id']) and ln <= (s.get('line') or 0) and (s.get('end_line') or 0) <= fend: continue
+            if types and s.get('kind') == 'constructor' and s.get('line') == ln and (s.get('end_line') or ln) == ln: continue
+            return None                                                   # a callable of its own is written on this line
+        return ('field', fields[0]) if fields else ('type', types[0])
+    def name(self, i):
+        """the name a reader is shown for a declaration: its display, and a lambda's place (lambda_label)"""
+        return self.lambda_label(i) if self.is_lambda(i) else self.disp(i)
+    def lambda_target(self, i):
+        r = self.all_sym.get(i) or self.sym.get(i)
+        return f"{r['file']}:{r['line']}" if r and r.get('file') and r.get('line') else None
+
     # ── endpoints: exact, or a short list of what is close ───────────────────────────────────────────────────
     IN = None
     def resolve(self, sel, fragment=False):
@@ -250,11 +308,42 @@ class G:
         m = re.match(r'^(.+?):(\d+)(?::\d+)?$', s)
         if m and ('/' in m.group(1) or '.' in m.group(1)):                            # file:line → the method containing it
             (f, outside), ln = self.repo_file(m.group(1)), int(m.group(2))
+            # A PARTIAL PATH NAMES ONE FILE OR IS REFUSED (#1599). `order.service.js:2` with the file under both src/ and
+            # lib/ took the smallest span across BOTH files, so the answer was for whichever function at that line was
+            # shorter, labelled with what was typed. The path is settled first: the file written in full, else the one
+            # file it is a suffix of; two or more are listed, each with what spans the line there.
+            files = sorted({x['file'] for x in self.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
+                            if x['file'] == f or (x['file'] or '').endswith('/' + f)})
+            if f in files: files = [f]
+            if len(files) > 1:
+                rows = []
+                for fx in files[:12]:
+                    at = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY end_line - line LIMIT 1", fx, ln, ln)
+                    rows.append(f"  {fx}:{ln}   " + (self.disp(at[0]['id']) if at else '(top-level code)'))
+                if len(files) > 12: rows.append(f"  … +{len(files) - 12} more")
+                die(f"'{m.group(1)}' matches {len(files)} indexed files — give enough of the path to name one:\n" + '\n'.join(rows))
+            if files: f = files[0]
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
-            r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, f"%/{f}", ln, ln)
+            r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
+            d = self.decl_at_line(f, ln, r)
+            if d and d[0] == 'type':                                      # a type's header line: the type, as its name answers
+                t = d[1]
+                ids = [x['id'] for x in self.q("SELECT id FROM symbols WHERE owner = ? AND file = ? AND method_id IS NOT NULL", t['display'], f)]
+                if t['id'] in self.callers_ids: ids.append(t['id'])
+                if ids: return f"{t['display']} (type at {s}: {len(ids)} methods)", ids
+            if d and d[0] == 'field':                                     # a field's line: what its name answers
+                fr = d[1]; nm = f"{fr['owner']}.{fr['name']}" if fr.get('owner') else fr['name']
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()): label, ids = self._resolve(nm)
+                    return f"{label} (field at {s})", ids
+                except SystemExit: pass
             if r:
                 ids = [x['id'] for x in r if x['span'] == r[0]['span']]
+                # a field initializer and what it holds on its one line (`static cfg = make({ run() {…} });`) share the
+                # span; the line names the innermost, the callable written inside the initializer (#1663)
+                sy = lambda i: (self.sym.get(i, {}).get('display'), self.sym.get(i, {}).get('qualified_name'))
+                ids = [j for j in ids if not any(ax_edges.init_holds(*sy(j), *sy(i)) for i in ids if i != j)] or ids
                 # AN ANNOTATION IS NOT THE FUNCTION. `export const f: (a: A) => B = (a) => …` puts a one-line call
                 # signature and the arrow on the same line, and the signature, being shortest, won: `impact file:171`
                 # answered for `<function-type>`. Where every pick is a bodiless signature, the callable that starts
@@ -262,8 +351,11 @@ class G:
                 if self.has('methods') and all(self.method_kind(i) in BODILESS_KINDS for i in ids):
                     start = {self.sym[i].get('line') for i in ids if i in self.sym}
                     ids += [x['id'] for x in r if x['id'] not in ids and self.sym.get(x['id'], {}).get('line') in start and self.method_kind(x['id']) not in BODILESS_KINDS]
-                return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
-            r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f, f"%/{f}")
+                return (f"{self.name(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
+            # top-level code: the module body that holds the line. A Python file has two (the file's and each class
+            # body's), and the first row came back whatever the line, so a module-level constant below a class was
+            # answered as that class's body
+            r = self.q("SELECT id FROM symbols WHERE file = ? AND kind = 'module' AND method_id IS NOT NULL ORDER BY (line <= ? AND COALESCE(end_line, line) >= ?) DESC, COALESCE(end_line, line) - line LIMIT 1", f, ln, ln)
             if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
             if outside: die(f"{m.group(1)} is outside the indexed repository {self.repo}: give the file relative to that root, or ask the graph of the repository it belongs to")
             die(f"no callable spans {s}")
@@ -297,6 +389,15 @@ class G:
         # printed the near miss `Router.#handleError`, which is what had just been asked for: a private method could not
         # be asked about at all, in the language where private methods are written that way. So the spelling as
         # written is tried against the index BEFORE any separator is rewritten.
+        # `Owner.method.<lambda@L42>`, the name changed and test-impact print for a lambda: the lambda at that line
+        # whose enclosing member is the prefix written
+        ml = re.match(r'^(?:(.*)\.)?<(\w+)@L(\d+)>$', s)
+        if ml:
+            want = canon(ml.group(1) or '')
+            ids = [x['id'] for x in self.q("SELECT id FROM symbols WHERE name = ? AND line = ? AND method_id IS NOT NULL", f"<{ml.group(2)}>", int(ml.group(3)))
+                   if not want or canon_is(self.lambda_label(x['id']).rsplit('.<', 1)[0], want)]
+            if ids: return (s if len(ids) == 1 else f"{s} ({len(ids)} declarations)"), ids
+            die(f"no <{ml.group(2)}> starts on line {ml.group(3)}" + (f" inside {ml.group(1)}" if ml.group(1) else '') + ": ask by file:line")
         verbatim = re.sub(r'\(.*\)$', '', s).strip()
         if '#' in verbatim:
             hit = self.q("SELECT id FROM symbols WHERE (display = ? OR qualified_name = ?) AND method_id IS NOT NULL", verbatim, verbatim)
@@ -568,9 +669,11 @@ class G:
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
-    # is up to date and nothing rebuilds). 3: on one line a JavaScript anonymous callable nests only where its name
-    # does (#1598); 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
-    EXPORT_VERSION = '3'
+    # is up to date and nothing rebuilds). 4: both 3s below, which landed on two branches under one number;
+    # 3 (0.1.5): on one line a JavaScript anonymous callable nests only where its name does (#1598);
+    # 3 (0.1.6): a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites);
+    # 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
+    EXPORT_VERSION = '4'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return
@@ -578,7 +681,12 @@ class G:
         # `generated` is a client declaration too: a Lombok accessor, a record member, a C# auto-property. The engine
         # synthesises it and RESOLVES the call sites that name it, so filtering the edge out lost every call into a
         # generated member — which, on a project whose models are all @Data, is most of what touches the models.
-        edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance IN ('client', 'generated')")]
+        # …except a call written inside a mocking library's stub or verification (`when(repo.find(1))`,
+        # `mock.Setup(r => r.Find(1))`): the receiver is a mock, so the real body never runs there, and walked as a call
+        # it made every test that stubs a method a `sound` route to it. impact lists those sites as "stubs it".
+        stubs = ax_edges.stub_sites(lambda s, p: self.q(s, *p)) if self.has('call_sites') else set()
+        edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance IN ('client', 'generated')")
+                 if r['call_site_id'] not in stubs]
         # calls into libraries: an edge to a terminal node (a library method has no out-edges here — nothing is inferred about its
         # body), so `path '*' java.nio.file.Files.readAllBytes` can ask who reaches that library call
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
@@ -606,7 +714,7 @@ class G:
             have = {(a, b) for a, b, _ in edges}
             edges += [(r[0], r[1], 'dispatch') for r in self.q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call") if (r[0], r[1]) not in have]
         self.write('edge', edges)
-        self.write('byname', [(r[0], r[1]) for r in self.q("SELECT DISTINCT s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
+        self.write('byname', sorted({(r[1], r[2]) for r in self.q("SELECT s.id, s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''") if r[0] not in stubs}))
         self.write('named', [(r['name'], r['id']) for r in self.sym.values() if r['method_id'] and r['kind'] != 'module' and r['name']])
         t = f'{stamp}.{os.getpid()}.tmp'; open(t, 'w').write(want); replace_file(t, stamp)
     def write(self, name, rows, d=None):
@@ -1332,6 +1440,24 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             print(f"  {ly} is entered from outside the graph in the same process, as such a call can do: "
                   + ', '.join(f"{g.disp(m)} ({why}) {g.loc(m)}" for m, why in entered[:3])
                   + (f" … +{len(entered) - 3}" if len(entered) > 3 else ''))
+    # A CALL WHOSE CALLEE IS A VALUE CAN LAND ANYWHERE (#1649). `cb()` on a parameter, `f()` on a loop variable,
+    # `table[k]()`: nothing about the name narrows the target, so the by-name search above finds no lead and
+    # "independent" was printed for a start that hands control to whatever it was given. The engine marks such a
+    # site (`unresolved_value_callee`); one in either side's closure makes the connection unknown, not absent.
+    opaque = []
+    if not (remote_found or lib_side) and g.has('ext_unresolved_value_callee'):
+        for xs, lx in ((A_, la), (B_, lb)):
+            seen = {i for i in xs if i in g.sym and g.sym[i]['kind'] not in ('library', 'written')}; fr = list(seen)
+            while fr:
+                fr = [y for y in dict.fromkeys(y for x in fr for y in adj.get(x, ())) if y not in seen and y in g.sym
+                      and g.sym[y]['kind'] not in ('library', 'written')]
+                seen.update(fr)
+            ids = sorted(seen); rows = []
+            for i in range(0, len(ids), 900):
+                part = ids[i:i + 900]
+                rows += g.q("SELECT s.caller_id c, s.callee_name n, s.file_path f, s.start_line ln, v.c1 why FROM ext_unresolved_value_callee v"
+                            " JOIN call_sites s ON s.id = v.c0 WHERE s.caller_id IN (%s)" % ','.join('?' * len(part)), *part)
+            if rows: opaque.append((lx, sorted(rows, key=lambda r: (g.site_file(r['f']), r['ln'] or 0))))
     # …but a framework may still connect them, and the graph holds the evidence for it: the target is registered
     # under a key, and the source writes that key. That is not a chain of calls, so it is reported and not walked.
     # Computed BEFORE the verdict line, which used to say "independent" one line above the note that joined them.
@@ -1342,7 +1468,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     # a claim about the model and not the code. An endpoint the engine already made an entry point is modelled, and
     # the library-call rule above decides it.
     unmod = []
-    if not (remote_found or keyed or lib_side):
+    if not (remote_found or keyed or lib_side or opaque):
         called = {y for ys in adj.values() for y in ys}
         eps = set()
         ends = [i for i in list(B_) + list(A_) if i in g.sym and g.sym[i]['kind'] not in ('library', 'written') and i not in called]
@@ -1357,10 +1483,20 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   " does: NOT independent" if keyed
              else " — but a library called above can reach the other at run time (an event, a callback, a hook) with no"
                   " call edge to record it: NOT shown to be independent" if lib_side
+             else f" — but {' and '.join(lx for lx, _ in opaque)} make{'s' if len(opaque) == 1 else ''} a call whose callee is a"
+                  f" value, not a name (below): any function passed, stored or exported may be what it calls, so the"
+                  f" connection is UNKNOWN, not absent" if opaque
              else f" — but NOT CHECKED: {'; '.join(s_ for _i, s_ in unmod[:3])} — a framework calls it and the graph does not"
                   f" model how, so the other may reach it through that framework. Before treating them as independent run: "
                   f"{grep_for(g, g.sym[unmod[0][0]]['name'])}" if unmod
              else ": the two are independent in this graph"))
+    WHY = {'parameter': 'a parameter', 'loop_variable': 'a loop variable', 'local': 'a local', 'computed': 'a computed member',
+           'dynamic_code': 'code built at run time'}
+    for lx, rows in opaque:
+        print(f"  {lx} reaches {len(rows)} call(s) through a value:")
+        for r in rows[:4]:
+            print(f"    `{r['n'] or '[…]'}()` in {g.disp(r['c'])} at {g.site_file(r['f'])}:{r['ln']} — the callee is {WHY.get(r['why'], r['why'])}")
+        if len(rows) > 4: print(f"    … +{len(rows) - 4} more")
     for line in fw: print(line)
     return 1
 

@@ -1,0 +1,7 @@
+known_edge	read	options#guarded(boolean,Options) -> Options#onError
+known_edge	read	options#plain(Options) -> Options#onError
+known_edge	read	options#reportWith(Callable) -> Callable#report
+known_edge	read	options#tagList(Options) -> Options#tags
+known_edge	read	options#withLet(Options) -> Options#onError
+known_edge	read	options#withNullish(Options) -> Options#format
+known_edge	read	options#withOr(Options) -> Options#onError

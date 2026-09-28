@@ -54,7 +54,7 @@ those five files. Nothing a reader is shown got better; what got better is WHY t
 the graph can follow rather than a file named after the changed module. A recall number that does not move
 is not the same as a change that does nothing, and the rung on each row is where the difference is.
 """
-import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections
+import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections, functools, posixpath, shlex
 
 TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', re.I)
 
@@ -121,7 +121,7 @@ def concrete_test_classes(db, names):
 
 # How a suite is invoked, per language. Only the shapes this graph is built for; anything else prints the
 # files and lets the reader decide, which is better than inventing a command that does not run.
-def command_for(lang, files, classes, db=None):
+def command_for(lang, files, classes, db=None, repo='.'):
     if lang in ('java', 'csharp') and db:
         # a class to select by name: the test's owner, else its file's basename (a Java or C# test class is its file)
         names = classes or [os.path.splitext(os.path.basename(f))[0] for f in files]
@@ -147,8 +147,1185 @@ def command_for(lang, files, classes, db=None):
     if lang == 'python':
         return "pytest " + " ".join(sorted(files)[:40])
     if lang in ('typescript', 'javascript'):
-        return "npx vitest run " + " ".join(sorted(files)[:40])
+        return "\n".join(js_plan(repo, files)[0]) or None
     return None
+
+
+# A TypeScript or JavaScript test file is run by whatever its PACKAGE runs it with, and nothing about the
+# language says which: vitest collects `*.test.ts` and ignores `services-tests.ts`, a script suite is run as
+# `npx tsx src/test/x.ts` from its package, and `npx vitest run <file>` on a file vitest does not collect
+# exits 1 with "No test files found" (#1570). So each file is placed with the runner that would collect it —
+# read off the package's config and dependencies, with that runner's own include globs — and failing that
+# with the command its package scripts or its own header give for it. A file nothing collects is said so,
+# never handed to a runner that will not run it.
+#
+# A runner's collection is read the way the runner reads it, not by the first `include` in the file: vitest's
+# test include is the one directly under `test:` (not `coverage.include`), each inline project collects on its
+# own, `exclude` takes files back out, and vite.config.* is its config when there is no vitest.config.*; jest's
+# testMatch is relative to <rootDir>, testRegex replaces it, and `jest --config x` in a script is a config too.
+# The nearest directory whose runner collects the file is where the command runs from, so a nested
+# e2e/jest.config.ts runs its own files. A runner with a config outranks one that is only a dependency.
+#
+# A config is read as the value the file exports (_js_config), so the include is found wherever the file puts it:
+# behind defineConfig or a config function, in a const or a shorthand property, spread from the runner's own
+# defaults, merged by mergeConfig, re-exported or imported from a file beside it. A value it still cannot read
+# (computed at load time, from a package it does not know) is unknown, and unknown is never taken as the
+# runner's defaults: an unknown include keeps the command, an unknown exclude takes nothing out.
+_CONF_EXT = ('ts', 'mts', 'cts', 'js', 'mjs', 'cjs')
+_RUNNERS = (
+    # runner, config files, package.json key, command
+    ('vitest', tuple(f'vitest.config.{e}' for e in _CONF_EXT) + tuple(f'vitest.workspace.{e}' for e in _CONF_EXT)
+     + ('vitest.workspace.json',), None, 'npx vitest run'),
+    ('jest', tuple(f'jest.config.{e}' for e in _CONF_EXT) + ('jest.config.json',), 'jest', 'npx jest'),
+    ('mocha', ('.mocharc.js', '.mocharc.cjs', '.mocharc.json', '.mocharc.jsonc', '.mocharc.yml', '.mocharc.yaml'),
+     'mocha', 'npx mocha'),
+    ('playwright', tuple(f'playwright.config.{e}' for e in _CONF_EXT), None, 'npx playwright test'),
+)
+_VITEST_INCLUDE = ('**/*.{test,spec}.?(c|m)[jt]s?(x)',)
+_VITEST_EXCLUDE = ('**/node_modules/**', '**/dist/**', '**/cypress/**', '**/.{idea,git,cache,output,temp}/**',
+                   '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*')
+_JEST_MATCH = ('**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)')
+_PW_MATCH = ('**/*.@(spec|test).?(c|m)[jt]s?(x)',)
+_NODE_TEST = ('**/*.test.?(c|m)[jt]s', '**/*-test.?(c|m)[jt]s', '**/*_test.?(c|m)[jt]s', '**/test-*.?(c|m)[jt]s',
+              '**/test.?(c|m)[jt]s', '**/test/**/*.?(c|m)[jt]s')
+_CRA_MATCH = ('src/**/__tests__/**/*.{js,jsx,ts,tsx}', 'src/**/*.{spec,test}.{js,jsx,ts,tsx}')
+
+_JS_TOK = re.compile(r"""(?P<ws>\s+|//[^\n]*|/\*.*?\*/)
+                       |(?P<s>"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)
+                       |(?P<id>[A-Za-z_$][\w$]*|\d[\w.]*)
+                       |(?P<p>\.\.\.|.)""", re.S | re.X)
+_JS_RE = re.compile(r'/((?:[^/\\\n\[]|\\.|\[(?:[^\]\\\n]|\\.)*\])+)/[a-z]*')
+
+
+def _unq(s):
+    """A JS or JSON string literal's text."""
+    return re.sub(r'\\(.)', lambda m: {'n': '\n', 't': '\t'}.get(m.group(1), m.group(1)), s[1:-1])
+
+
+class _Unknown:
+    """A config value this cannot read: a call it does not know, an env lookup, a file it cannot load."""
+    def __repr__(self): return '?'
+
+
+_UNK = _Unknown()
+_PARTIAL = '\0partial'          # an object with a spread this cannot read: any key it does not spell is unknown
+
+
+class _Fn:
+    """A function value: what it returns (a runner calls a config function and reads its result)."""
+    def __init__(self, ret): self.ret = ret
+
+
+_VITEST_MOD = {'configDefaults': {'include': list(_VITEST_INCLUDE), 'exclude': list(_VITEST_EXCLUDE)},
+               'defaultInclude': list(_VITEST_INCLUDE), 'defaultExclude': list(_VITEST_EXCLUDE)}
+_JEST_DEFAULTS = {'testMatch': list(_JEST_MATCH), 'testRegex': [], 'testPathIgnorePatterns': ['/node_modules/']}
+_KNOWN_MODULES = {'vitest/config': _VITEST_MOD, 'vitest/node': _VITEST_MOD, 'vitest': _VITEST_MOD,
+                  'jest-config': {'defaults': _JEST_DEFAULTS}}
+_IDENTITY = {'defineConfig', 'defineProject', 'defineWorkspace', 'defineVitestConfig', 'defineVitestProject'}
+_OPS = set('|&?:+-*%<>=!^~')
+
+
+def _js_tokens(text):
+    """(kind, text, newline-before) for each token: `s` string, `re` regex, `id` word or number, `p` punctuation."""
+    toks, i, n, nl = [], 0, len(text), False
+    while i < n:
+        prev = toks[-1][1] if toks else ''
+        if text[i] == '/' and (prev in ('', ':', '[', ',', '(', '=', '!', '&', '|', '?', '{', ';', 'return')
+                               ) and not text.startswith(('//', '/*'), i):
+            m = _JS_RE.match(text, i)
+            if m:
+                toks.append(('re', m.group(1), nl)); i = m.end(); nl = False; continue
+        m = _JS_TOK.match(text, i)
+        if m.lastgroup != 'ws':
+            toks.append((m.lastgroup, m.group(0), nl)); nl = False
+        elif '\n' in m.group(0):
+            nl = True
+        i = m.end()
+    return toks
+
+
+class _PkgMod(dict):
+    """A package's exports: the values this knows (vitest's configDefaults), else the export's name, so a call to
+    it (defineConfig, mergeConfig) is still read by name."""
+
+
+def _get(obj, key):
+    """obj[key] the way a runner reads its options: None when absent, _UNK when it cannot be known."""
+    if not isinstance(obj, dict): return None if obj is None else _UNK
+    if key in obj: return obj[key]
+    if isinstance(obj, _PkgMod): return ('global', key)
+    return _UNK if obj.get(_PARTIAL) else None
+
+
+def _merge(a, b):
+    """vite's mergeConfig: objects merge key by key, arrays concatenate, anything else is replaced."""
+    if a is _UNK or b is _UNK: return _UNK
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = dict(a)
+        for k, v in b.items():
+            out[k] = _merge(out[k], v) if k in out and k != _PARTIAL else v
+        return out
+    if isinstance(a, list) or isinstance(b, list):
+        return (a if isinstance(a, list) else [] if a is None else [a]) + (b if isinstance(b, list) else [b])
+    return a if b is None else b
+
+
+def _resolve_module(base_dir, spec):
+    for cand in (spec, *(spec + '.' + e for e in _CONF_EXT + ('json',)),
+                 *(posixpath.join(spec, 'index.' + e) for e in _CONF_EXT)):
+        p = os.path.join(base_dir, cand)
+        if os.path.isfile(p): return p
+    # `./x.js` written for a file that is `./x.ts` (TypeScript's own import spelling)
+    stem, ext = os.path.splitext(spec)
+    if ext in ('.js', '.mjs', '.cjs'):
+        for e in ('ts', 'mts', 'cts'):
+            p = os.path.join(base_dir, f'{stem}.{e}')
+            if os.path.isfile(p): return p
+    return None
+
+
+_LOADING = set()
+
+
+@functools.lru_cache(maxsize=None)
+def _js_module(path):
+    """A config file's exports as {'default': value, name: value}; each value a Python dict/list/str, a
+    ('re', src) regex, a _Fn, or _UNK where the file does not say it literally (or through a const, a spread, a
+    shorthand, a re-export, an import of a file beside it, defineConfig or mergeConfig)."""
+    if path in _LOADING or len(_LOADING) > 6: return {'default': _UNK}
+    _LOADING.add(path)
+    try:
+        text = _read(path)
+        toks = _js_tokens(text)
+        if path.endswith(('.json', '.jsonc')):
+            try:
+                return {'default': json.loads(text)}
+            except ValueError:  # a .json with comments (jsonc) is read as the JS expression it is
+                toks = [('id', 'export', False), ('id', 'default', False)] + toks
+        return _JsEval(path, toks).exports
+    except Exception:
+        return {'default': _UNK}
+    finally:
+        _LOADING.discard(path)
+
+
+def _js_config(path):
+    """The value a config file exports, a config function's result taken for the function."""
+    v = _js_module(path).get('default', _UNK)
+    return v.ret if isinstance(v, _Fn) else v
+
+
+class _JsEval:
+    """Reads the module-level JS a config file is written in, enough to know what it exports. Not a JS engine:
+    any expression it does not know evaluates to _UNK, and parsing never fails, only gives up on a value."""
+    CLOSE = {')', ']', '}', ',', ';'}
+
+    def __init__(self, path, toks):
+        self.dir, self.t, self.exports = os.path.dirname(path), toks, {}
+        env = {}
+        self.block(0, len(toks), env, None)
+        if 'default' not in self.exports:
+            self.exports['default'] = _UNK
+
+    def v(self, i):
+        return self.t[i][1] if i < len(self.t) else ''
+
+    def kind(self, i):
+        return self.t[i][0] if i < len(self.t) else ''
+
+    def nl(self, i):
+        return self.t[i][2] if i < len(self.t) else True
+
+    def skip_balanced(self, i):
+        """Past the bracket at i and everything up to its match."""
+        depth = 0
+        while i < len(self.t):
+            x = self.v(i)
+            if self.kind(i) == 'p' and x in '([{': depth += 1
+            elif self.kind(i) == 'p' and x in ')]}':
+                depth -= 1
+                if depth <= 0: return i + 1
+            i += 1
+        return i
+
+    def skip_type(self, i, stop):
+        """Past a TypeScript type, up to a token in `stop` at depth 0, or a line break that ends the statement."""
+        depth, start = 0, i
+        while i < len(self.t):
+            x = self.v(i)
+            if depth == 0 and x in stop and self.kind(i) == 'p': return i
+            if depth == 0 and i > start and self.nl(i) and self.v(i - 1) not in ('|', '&', ':', '=', ',', '<', '>') \
+                    and x not in ('|', '&', '.', '[', '<', '{', '=', ':'):
+                return i
+            if x in '([{<' and self.kind(i) == 'p': depth += 1
+            elif x in ')]}>' and self.kind(i) == 'p':
+                if x == '>' and self.v(i - 1) == '=': pass       # `=>` in a function type
+                else: depth -= 1
+            i += 1
+        return i
+
+    def module(self, spec):
+        if spec in _KNOWN_MODULES: return {'default': _PkgMod(_KNOWN_MODULES[spec]), **_KNOWN_MODULES[spec]}
+        if spec.startswith('.'):
+            p = _resolve_module(self.dir, spec)
+            if p: return _js_module(p)
+        return {}
+
+    def imported(self, spec, name):
+        mod = self.module(spec)
+        if not spec.startswith('.'):            # a package: its known values, else the export by name
+            mod = _PkgMod(mod)
+            return mod if name == '*' else _get(mod, name)
+        if name == '*': return mod or _UNK
+        return mod.get(name, _UNK)
+
+    # ---- statements ---------------------------------------------------------------------------------------------
+    def block(self, i, end, env, rets):
+        """Statements from i to end. `rets` collects a function body's return values (None at module level)."""
+        while i < end:
+            x, k = self.v(i), self.kind(i)
+            if k == 'p' and x in (';', ',', '}', ')', ']'):
+                i += 1; continue
+            if k == 'id' and x == 'import' and self.v(i + 1) not in ('(', '.'):
+                i = self.stmt_import(i + 1, env); continue
+            if k == 'id' and x == 'export':
+                i = self.stmt_export(i + 1, env, rets); continue
+            if k == 'id' and x in ('const', 'let', 'var'):
+                i = self.stmt_decl(i + 1, env); continue
+            if k == 'id' and x in ('function', 'async') and (x == 'function' or self.v(i + 1) == 'function'):
+                j = i + 1 if x == 'function' else i + 2
+                if self.v(j) == '*': j += 1
+                name = self.v(j) if self.kind(j) == 'id' else None
+                fn, i = self.function(j + 1 if name else j, env)
+                if name: env[name] = fn
+                continue
+            if k == 'id' and x in ('type', 'interface', 'declare', 'enum', 'namespace') and self.kind(i + 1) == 'id':
+                j = self.skip_type(i + 2, {'=', '{', ';'})
+                if self.v(j) == '=':
+                    i = self.skip_type(j + 1, {';'}); continue
+                i = self.skip_balanced(j) if self.v(j) == '{' else j + 1; continue
+            if k == 'id' and x == 'return' and rets is not None:
+                val, i = self.expr(i + 1, env)
+                rets.append(val); continue
+            if k == 'id' and x in ('if', 'for', 'while', 'switch', 'with', 'catch'):
+                i = self.skip_balanced(i + 1) if self.v(i + 1) == '(' else i + 1; continue
+            if k == 'id' and x in ('else', 'try', 'finally', 'do'):
+                i += 1; continue
+            if k == 'p' and x == '{':
+                j = self.skip_balanced(i)
+                sub = [] if rets is not None else None
+                self.block(i + 1, j - 1, dict(env), sub)
+                if rets is not None: rets.extend(sub + ([_UNK] if sub else []))   # a return under a condition
+                i = j; continue
+            if k == 'id' and x == 'module' and self.v(i + 1) == '.' and self.v(i + 2) == 'exports':
+                if self.v(i + 3) == '=':
+                    self.exports['default'], i = self.expr(i + 4, env); continue
+                if self.v(i + 3) == '.' and self.v(i + 5) == '=':
+                    val, i = self.expr(i + 6, env)
+                    d = self.exports.get('default')
+                    if isinstance(d, dict): d[self.v(i + 4)] = val
+                    continue
+            if k == 'id' and x == 'exports' and self.v(i + 1) == '.' and self.v(i + 3) == '=':
+                name = self.v(i + 2)
+                self.exports[name], i = self.expr(i + 4, env); continue
+            _, j = self.expr(i, env)
+            i = j if j > i else i + 1
+        return i
+
+    def stmt_import(self, i, env):
+        if self.kind(i) == 's':
+            return i + 1                                      # import 'side-effect'
+        if self.v(i) == 'type': i += 1
+        names = []                                            # (local, imported)
+        while i < len(self.t) and self.v(i) != 'from':
+            x = self.v(i)
+            if x == '*' and self.v(i + 1) == 'as':
+                names.append((self.v(i + 2), '*')); i += 3; continue
+            if x == '{':
+                j = i + 1
+                while j < len(self.t) and self.v(j) != '}':
+                    if self.kind(j) in ('id', 's') and self.v(j) != 'type':
+                        imp = _unq(self.v(j)) if self.kind(j) == 's' else self.v(j)
+                        if self.v(j + 1) == 'as':
+                            names.append((self.v(j + 2), imp)); j += 3
+                        else:
+                            names.append((imp, imp)); j += 1
+                        continue
+                    j += 1
+                i = j + 1; continue
+            if self.kind(i) == 'id':
+                names.append((x, 'default'))
+            i += 1
+        spec = _unq(self.v(i + 1)) if self.kind(i + 1) == 's' else ''
+        for local, imp in names:
+            env[local] = self.imported(spec, imp) if spec else _UNK
+        return i + 2
+
+    def stmt_export(self, i, env, rets):
+        x = self.v(i)
+        if x == 'default':
+            self.exports['default'], j = self.expr(i + 1, env)
+            return j
+        if x in ('const', 'let', 'var'):
+            before = dict(env)
+            j = self.stmt_decl(i + 1, env)
+            for name, val in env.items():
+                if before.get(name, None) is not val: self.exports[name] = val
+            return j
+        if x in ('function', 'async'):
+            j = i + 1 if x == 'function' else i + 2
+            name = self.v(j) if self.kind(j) == 'id' else None
+            fn, j = self.function(j + 1 if name else j, env)
+            if name: env[name] = self.exports[name] = fn
+            return j
+        if x == 'type' and self.v(i + 1) == '{' or x == '{' or x == '*':
+            if x == 'type': i += 1
+            pairs, j = [], i + 1
+            if x == '*':
+                j = i + 1
+                if self.v(j) == 'as': pairs.append((self.v(j + 1), '*')); j += 2
+            else:
+                while j < len(self.t) and self.v(j) != '}':
+                    if self.kind(j) in ('id', 's'):
+                        src = _unq(self.v(j)) if self.kind(j) == 's' else self.v(j)
+                        if self.v(j + 1) == 'as':
+                            pairs.append((self.v(j + 2), src)); j += 3
+                        else:
+                            pairs.append((src, src)); j += 1
+                        continue
+                    j += 1
+                j += 1
+            if self.v(j) == 'from' and self.kind(j + 1) == 's':
+                spec = _unq(self.v(j + 1))
+                for out, src in pairs:
+                    self.exports[out] = self.imported(spec, src)
+                return j + 2
+            for out, src in pairs:
+                self.exports[out] = env.get(src, _UNK)
+            return j
+        return i
+
+    def stmt_decl(self, i, env):
+        while i < len(self.t):
+            if self.kind(i) == 'id':
+                name, i = self.v(i), i + 1
+                if self.v(i) == '!': i += 1
+                if self.v(i) == ':': i = self.skip_type(i + 1, {'=', ',', ';'})
+                if self.v(i) == '=':
+                    env[name], i = self.expr(i + 1, env)
+                else:
+                    env[name] = None
+            elif self.v(i) in ('{', '['):
+                pat_end = self.skip_balanced(i)
+                j = pat_end
+                if self.v(j) == ':': j = self.skip_type(j + 1, {'=', ',', ';'})
+                val = _UNK
+                if self.v(j) == '=':
+                    val, j = self.expr(j + 1, env)
+                self.destructure(i, pat_end, val, env)
+                i = j
+            else:
+                return i
+            if self.v(i) != ',': return i
+            i += 1
+        return i
+
+    def destructure(self, i, end, val, env):
+        """`{ a, b: c, ...rest }` / `[a, b]` bound from val (a name it cannot bind is _UNK)."""
+        if self.v(i) == '[':
+            names = [self.v(j) for j in range(i + 1, end - 1) if self.kind(j) == 'id']
+            for n, name in enumerate(names):
+                env[name] = val[n] if isinstance(val, list) and n < len(val) else _UNK
+            return
+        j = i + 1
+        while j < end - 1:
+            if self.v(j) == '...' and self.kind(j + 1) == 'id':
+                env[self.v(j + 1)] = _UNK; j += 2; continue
+            if self.kind(j) in ('id', 's'):
+                key = _unq(self.v(j)) if self.kind(j) == 's' else self.v(j)
+                local = key
+                if self.v(j + 1) == ':' and self.kind(j + 2) == 'id':
+                    local = self.v(j + 2); j += 2
+                env[local] = _get(val, key)
+                j += 1
+                if self.v(j) == '=':                          # a default: skip it
+                    while j < end - 1 and self.v(j) != ',': j = self.skip_balanced(j) if self.v(j) in '([{' else j + 1
+                continue
+            j += 1
+
+    # ---- expressions --------------------------------------------------------------------------------------------
+    def function(self, i, env):
+        """A function from its parameter list at i (a `name` already consumed): (_Fn, index after it)."""
+        if self.v(i) == '<': i = self.skip_type(i + 1, {'>'}) + 1          # generics
+        if self.v(i) == '(':
+            i = self.skip_balanced(i)
+        elif self.kind(i) == 'id':
+            i += 1
+        if self.v(i) == ':': i = self.skip_type(i + 1, {'{', '='})
+        if self.v(i) == '=' and self.v(i + 1) == '>': i += 2
+        if self.v(i) == '{':
+            j = self.skip_balanced(i)
+            rets = []
+            self.block(i + 1, j - 1, dict(env), rets)
+            return _Fn(rets[0] if len(rets) == 1 else _UNK), j
+        val, j = self.expr(i, env)
+        return _Fn(val), j
+
+    def arrow_at(self, i):
+        """Whether an arrow function's parameters start at i (`(a, b) =>`, `x =>`, `(x): T =>`)."""
+        if self.kind(i) == 'id' and self.v(i + 1) == '=' and self.v(i + 2) == '>': return True
+        if self.v(i) != '(': return False
+        j = self.skip_balanced(i)
+        if self.v(j) == ':': j = self.skip_type(j + 1, {'='})
+        return self.v(j) == '=' and self.v(j + 1) == '>'
+
+    def expr(self, i, env):
+        val, i = self.unary(i, env)
+        while i < len(self.t) and self.kind(i) == 'p' and self.v(i) in _OPS:
+            if self.v(i) == '=' and self.v(i + 1) == '>': break
+            if self.v(i) == '?' and self.v(i + 1) == '.': break
+            while self.kind(i) == 'p' and self.v(i) in _OPS and not (self.v(i) == '-' and self.v(i + 1) == '-'):
+                i += 1
+            if self.v(i) in self.CLOSE: break
+            rhs, i = self.unary(i, env)
+            val = _UNK
+        while self.kind(i) == 'id' and self.v(i) in ('as', 'satisfies') and not self.nl(i):
+            i = self.skip_type(i + 1, {',', ';', ')', ']', '}'})
+        return val, i
+
+    def unary(self, i, env):
+        x = self.v(i)
+        if x in ('await', 'typeof', 'void', 'delete', 'new') and self.kind(i) == 'id':
+            val, j = self.unary(i + 1, env)
+            return (val if x == 'await' else _UNK), j
+        if self.kind(i) == 'p' and x in ('!', '-', '+', '~', '...'):
+            _, j = self.unary(i + 1, env)
+            return _UNK, j
+        val, i = self.primary(i, env)
+        return self.postfix(val, i, env)
+
+    def postfix(self, val, i, env):
+        while i < len(self.t):
+            x = self.v(i)
+            if x == '.' or (x == '?' and self.v(i + 1) == '.'):
+                i += 2 if x == '?' else 1
+                if self.v(i) in ('(', '['): continue          # `?.(` / `?.[`
+                name, i = self.v(i), i + 1
+                # a member of a name this does not know is kept by name (`vite.mergeConfig`), and read as unknown
+                val = ('global', name) if isinstance(val, tuple) and val[0] == 'global' else \
+                    (_get(val, name) if isinstance(val, dict) else _UNK)
+                continue
+            if x == '!' and self.v(i + 1) != '=':
+                i += 1; continue
+            if x == '[' and not self.nl(i):
+                key, j = self.expr(i + 1, env)
+                i = self.skip_balanced(i)
+                val = (_get(val, key) if isinstance(val, dict) and isinstance(key, str) else
+                       val[int(key)] if isinstance(val, list) and isinstance(key, str) and key.isdigit()
+                       and int(key) < len(val) else _UNK)
+                continue
+            if x == '<' and isinstance(val, tuple) and val[0] == 'global':
+                j = self.skip_type(i + 1, {'>'})
+                if self.v(j) == '>' and self.v(j + 1) == '(':
+                    i = j + 1; continue
+                return val, i
+            if x == '(' and not self.nl(i):
+                args, j = [], i + 1
+                while j < len(self.t) and self.v(j) != ')':
+                    a, k = self.expr(j, env)
+                    args.append(a)
+                    j = k if k > j else j + 1
+                    if self.v(j) == ',': j += 1
+                i = j + 1
+                val = self.call(val, args)
+                continue
+            if self.kind(i) == 's' and self.v(i).startswith('`'):   # a tagged template
+                i += 1; val = _UNK; continue
+            break
+        return (None if isinstance(val, tuple) and val[0] == 'global' and val[1] == 'undefined'
+                else _UNK if isinstance(val, tuple) and val[0] == 'global' else val), i
+
+    def call(self, fn, args):
+        name = fn[1] if isinstance(fn, tuple) and fn[0] == 'global' else None
+        if name in _IDENTITY:
+            a = args[0] if args else _UNK
+            return a.ret if isinstance(a, _Fn) else a
+        if name == 'mergeConfig':
+            out = None
+            for a in args[:2]:
+                a = a.ret if isinstance(a, _Fn) else a
+                out = a if out is None else _merge(out, a)
+            return _UNK if out is None else out
+        if name == 'require' and args and isinstance(args[0], str):
+            return self.imported(args[0], 'default') if args[0].startswith('.') else self.imported(args[0], '*')
+        if isinstance(fn, _Fn):
+            return fn.ret
+        return _UNK
+
+    def primary(self, i, env):
+        x, k = self.v(i), self.kind(i)
+        if k == 's':
+            if x.startswith('`') and '${' in x: return _UNK, i + 1
+            return _unq(x), i + 1
+        if k == 're':
+            return ('re', x), i + 1
+        if k == 'p' and x == '{':
+            return self.object(i, env)
+        if k == 'p' and x == '[':
+            return self.array(i, env)
+        if k == 'id' and x == 'async' and (self.arrow_at(i + 1) or self.v(i + 1) == 'function'):
+            return self.primary(i + 1, env)
+        if self.arrow_at(i):
+            return self.function(i, env)
+        if k == 'p' and x == '(':
+            val, j = self.expr(i + 1, env)
+            return val, self.skip_balanced(i)
+        if k == 'id' and x == 'function':
+            j = i + 1
+            if self.v(j) == '*': j += 1
+            if self.kind(j) == 'id' and self.v(j + 1) in ('(', '<'): j += 1
+            return self.function(j, env)
+        if k == 'id' and x == 'class':
+            j = i + 1
+            while j < len(self.t) and self.v(j) != '{': j += 1
+            return _UNK, self.skip_balanced(j)
+        if k == 'id':
+            if x in ('true', 'false'): return x == 'true', i + 1
+            if x == 'null': return None, i + 1
+            if x[0].isdigit(): return x, i + 1
+            if x == 'import' and self.v(i + 1) in ('(', '.'):
+                return ('global', 'import()'), i + 1
+            if x in env: return env[x], i + 1
+            return ('global', x), i + 1
+        return _UNK, i                                      # nothing here this can read: do not advance
+
+    def object(self, i, env):
+        out, j = {}, i + 1
+        while j < len(self.t) and self.v(j) != '}':
+            x, k = self.v(j), self.kind(j)
+            if x == ',':
+                j += 1; continue
+            if x == '...':
+                val, j = self.expr(j + 1, env)
+                val = val.ret if isinstance(val, _Fn) else val
+                if isinstance(val, dict): out.update(val)
+                else: out[_PARTIAL] = True
+                continue
+            if x == '[':                                    # a computed key: its entry cannot be named
+                j = self.skip_balanced(j)
+                out[_PARTIAL] = True
+                if self.v(j) == ':': _, j = self.expr(j + 1, env)
+                elif self.v(j) == '(': _, j = self.function(j, env)
+                continue
+            if k in ('id', 's'):
+                key = _unq(x) if k == 's' else x
+                if k == 'id' and x in ('get', 'set', 'async') and self.kind(j + 1) in ('id', 's') \
+                        and self.v(j + 2) == '(':
+                    j += 1; key = self.v(j)
+                if self.v(j + 1) == '?': j += 1
+                nxt = self.v(j + 1)
+                if nxt == ':':
+                    out[key], j = self.expr(j + 2, env)
+                elif nxt in ('(', '<'):
+                    fn, j = self.function(j + 1, env); out[key] = fn
+                elif nxt == '=':                            # a destructuring default, not an object literal
+                    out[key], j = _UNK, j + 2
+                    _, j = self.expr(j, env)
+                else:
+                    out[key] = env.get(key, _UNK); j += 1   # shorthand `{ test }`
+                continue
+            _, nj = self.expr(j, env)
+            j = nj if nj > j else j + 1
+        return out, j + 1
+
+    def array(self, i, env):
+        out, j = [], i + 1
+        while j < len(self.t) and self.v(j) != ']':
+            if self.v(j) == ',':
+                j += 1; continue
+            if self.v(j) == '...':
+                val, j = self.expr(j + 1, env)
+                out.extend(val if isinstance(val, list) else [_UNK])
+                continue
+            val, nj = self.expr(j, env)
+            out.append(val)
+            j = nj if nj > j else j + 1
+        return out, j + 1
+
+
+def _glob_re(g):
+    """A runner's include glob as a regex over a /-separated path: **, *, ?, [..], {a,b}, ?(..) and +(..)."""
+    out, i = '', 0
+    g = g[2:] if g.startswith('./') else g
+    while i < len(g):
+        c = g[i]
+        if g.startswith('**/', i):
+            out += '(?:.*/)?'; i += 3; continue
+        if g.startswith('**', i):
+            out += '.*'; i += 2; continue
+        if c in '?+*@!' and g.startswith('(', i + 1):
+            j = g.index(')', i + 2)
+            alts = '|'.join(_glob_re(a) for a in g[i + 2:j].split('|'))
+            out += f"(?:{alts})" + {'?': '?', '+': '+', '*': '*', '@': '', '!': ''}[c]; i = j + 1; continue
+        if c == '*':
+            out += '[^/]*'
+        elif c == '?':
+            out += '[^/]'
+        elif c == '[':
+            j = g.index(']', i + 1); out += g[i:j + 1]; i = j + 1; continue
+        elif c == '{':
+            j = g.index('}', i + 1)
+            out += '(?:' + '|'.join(_glob_re(a) for a in g[i + 1:j].split(',')) + ')'; i = j + 1; continue
+        else:
+            out += re.escape(c)
+        i += 1
+    return out
+
+
+def _globs_match(globs, rel):
+    for g in globs:
+        try:
+            if re.fullmatch(_glob_re(g), rel): return True
+        except (ValueError, re.error):
+            return True         # a glob this cannot read is not evidence the file is left out
+    return False
+
+
+def _read(p, n=None):
+    try:
+        with open(p, encoding='utf-8', errors='replace') as fh:
+            return fh.read() if n is None else fh.read(n)
+    except OSError:
+        return ''
+
+
+def _package_of_file(repo, rel):
+    """The directory (relative to repo, '' for the root) of the nearest package.json above a file."""
+    d = os.path.dirname(rel)
+    while True:
+        if os.path.isfile(os.path.join(repo, d, 'package.json')): return d
+        if not d: return ''
+        d = os.path.dirname(d)
+
+
+def _pkg_json(repo, d):
+    """The package.json in `d` as a dict, {} when unreadable, None when there is none."""
+    t = _read(os.path.join(repo, d, 'package.json'))
+    if not t: return None
+    try:
+        pj = json.loads(t)
+        return pj if isinstance(pj, dict) else {}
+    except ValueError:
+        return {}
+
+
+def _under(rel, base):
+    """rel taken relative to base (both from the same directory), or None when it is not under it."""
+    base = posixpath.normpath(base or '.')
+    if base == '.': return rel
+    r = posixpath.relpath(rel, base)
+    return None if r.startswith('../') or r == '..' else r
+
+
+def _pats_match(pats, rel, glob_rel=None):
+    """Whether any glob (matched on glob_rel) or regex (searched in '/'+rel) of `pats` takes this file."""
+    for p in pats:
+        if isinstance(p, tuple):
+            try:
+                if re.search(p[1], '/' + rel): return True
+            except re.error:
+                return True
+        elif _globs_match((p,), rel if glob_rel is None else glob_rel):
+            return True
+    return False
+
+
+def _pat_list(v):
+    """A pattern option as a list (a lone string or regex is one pattern): None when unset, _UNK when unreadable."""
+    if v is None or v is _UNK or isinstance(v, list): return v
+    if isinstance(v, str) or isinstance(v, tuple) and v[:1] == ('re',): return [v]
+    return _UNK
+
+
+def _pats_take(pats, rel, unknown, glob_rel=None):
+    """Whether a pattern list takes rel — or `unknown` when it does not say (a pattern this could not read)."""
+    if pats is _UNK: return unknown
+    unread = False
+    for p in pats:
+        if isinstance(p, str) or isinstance(p, tuple) and p[:1] == ('re',):
+            if _pats_match([p], rel, glob_rel): return True
+        else:
+            unread = True
+    return unknown if unread else False
+
+
+def _member_dirs(entries, rel):
+    """The directories on rel's path that a list of workspace / project globs names (a `!glob` takes one out)."""
+    parts, out = rel.split('/')[:-1], []
+    neg = [e[1:] for e in entries if isinstance(e, str) and e.startswith('!')]
+    for e in entries:
+        if not isinstance(e, str) or e.startswith('!'): continue
+        e = e.replace('<rootDir>/', '').rstrip('/')
+        e = e[2:] if e.startswith('./') else e
+        if re.search(r'\.(c|m)?[jt]s$|\.json$', e): e = posixpath.dirname(e) or '.'
+        for k in range(0, len(parts) + 1):
+            pre = '/'.join(parts[:k]) or '.'
+            if _globs_match((e,), pre) and not any(_globs_match((n.rstrip('/'),), pre) for n in neg) \
+                    and pre not in out:
+                out.append(pre)
+    return out
+
+
+_VITEST_CONFS = tuple(f'vitest.config.{e}' for e in _CONF_EXT)
+_VITE_CONFS = tuple(f'vite.config.{e}' for e in _CONF_EXT)
+_VITEST_WS = tuple(f'vitest.workspace.{e}' for e in _CONF_EXT) + ('vitest.workspace.json',)
+
+
+def _first_file(repo, d, names):
+    return next((c for c in names if os.path.isfile(os.path.join(repo, d, c))), None)
+
+
+def _members(repo, d, root, pat, under, confs):
+    """(directory, config file or None), both from d, of each project a `projects` / workspace entry names on the
+    path `under` (rel from root): a directory glob with its own config (the first of `confs`), or a config glob."""
+    pat = posixpath.normpath(pat[2:] if pat.startswith('./') else pat)
+    for m in _member_dirs([pat], under):
+        mdir = posixpath.normpath(posixpath.join(root, m))
+        full = os.path.join(repo, d, mdir)
+        if re.search(r'\.(c|m)?[jt]s$|\.json$', pat):
+            names = sorted(os.listdir(full)) if os.path.isdir(full) else []
+            conf = next((c for c in names if _globs_match((pat,), posixpath.normpath(posixpath.join(m, c)))), None)
+            if conf: yield mdir, posixpath.join(mdir, conf)
+        else:
+            yield mdir, _first_file(repo, d, [posixpath.join(mdir, c) for c in confs])
+
+
+# How vitest decides what it collects, from the directory it runs in:
+#  - its config is vitest.config.*, else vite.config.* (a `test` block there is vitest's), else none (defaults);
+#    `--config x` on the command line is another;
+#  - the config is what the file exports: through defineConfig, a config function, mergeConfig, a const, a
+#    spread, a shorthand property, a re-export or an import of a file beside it;
+#  - `test.projects` (or `test.workspace`, or a vitest.workspace.* file) makes each project collect on its own —
+#    an inline project from the root (with the root's options only when it says `extends: true`), a directory
+#    from its own vitest.config.* / vite.config.*, rooted there;
+#  - a project collects a file under `test.dir` (else `root`, else the directory vitest runs in) that its
+#    `test.include` (default **/*.{test,spec}.?(c|m)[jt]s?(x)) or `includeSource` takes and its `test.exclude`
+#    (default node_modules, dist, …) does not. `coverage.include` is coverage's, never the test include.
+# What the config does not say literally is not read as the default: an include this cannot read collects the
+# file, an exclude this cannot read excludes nothing.
+def _vitest_takes(repo, d, cfg, ws, rel, root='.', depth=0):
+    cfg = cfg.ret if isinstance(cfg, _Fn) else cfg
+    if cfg is None: cfg = {}
+    if not isinstance(cfg, dict): return True
+    test = _get(cfg, 'test')
+    if test is None: test = {}
+    if not isinstance(test, dict): return True
+    r = _get(test, 'root')
+    if r is None: r = _get(cfg, 'root')
+    if r is not None and not isinstance(r, str): return True
+    root = posixpath.normpath(posixpath.join(root, r)) if r else root
+    projects = _get(test, 'projects')
+    if projects is None: projects = _get(test, 'workspace')
+    if isinstance(projects, str):
+        p = os.path.join(repo, d, root, projects)
+        projects = _js_config(p) if os.path.isfile(p) else _UNK
+    if projects is None and ws:
+        projects = _js_config(os.path.join(repo, d, ws))
+    if projects is not None:
+        if depth > 2 or not isinstance(projects, list): return True
+        return any(_vitest_member_takes(repo, d, cfg, test, p, rel, root, depth) for p in projects)
+    dr = _get(test, 'dir')
+    if dr is not None and not isinstance(dr, str): return True
+    base = posixpath.normpath(posixpath.join(root, dr)) if dr else root
+    r = _under(rel, base)
+    if r is None: return False
+    exc = _pat_list(_get(test, 'exclude'))
+    if _pats_take(list(_VITEST_EXCLUDE) if exc is None else exc, r, False): return False
+    inc = _pat_list(_get(test, 'include'))
+    src = _pat_list(_get(test, 'includeSource'))
+    return bool(_pats_take(list(_VITEST_INCLUDE) if inc is None else inc, r, True)
+                or src is not None and _pats_take(src, r, False))
+
+
+def _vitest_member_takes(repo, d, cfg, test, p, rel, root, depth):
+    p = p.ret if isinstance(p, _Fn) else p
+    if isinstance(p, dict):
+        # an inline project: rooted where the root config is; it has the root's options only with `extends: true`
+        own = dict(p)
+        if _get(own, 'extends') is True:
+            base = {k: v for k, v in cfg.items() if k != 'test'}
+            base['test'] = {k: v for k, v in test.items() if k not in ('projects', 'workspace')}
+            own = _merge(base, {k: v for k, v in own.items() if k != 'extends'})
+        return _vitest_takes(repo, d, own, None, rel, root, depth + 1)
+    if not isinstance(p, str): return True
+    under = _under(rel, root)
+    if p.startswith('!') or under is None: return False
+    # a directory is a project with its own vitest.config.* / vite.config.*, or vitest's defaults, rooted there
+    return any(_vitest_takes(repo, d, _js_config(os.path.join(repo, d, conf)) if conf else {}, None, rel, mdir,
+                             depth + 1)
+               for mdir, conf in _members(repo, d, root, p, under, _VITEST_CONFS + _VITE_CONFS))
+
+
+def _vitest_collects(repo, d, conf, ws=None):
+    """How vitest run from `d` with config `conf` (a path from d, None for none) collects: a function of the path
+    from d, True when vitest collects it or its config does not say."""
+    cfg = _js_config(os.path.join(repo, d, conf)) if conf else {}
+    return lambda rel: _vitest_takes(repo, d, cfg, ws, rel)
+
+
+# How jest decides what it collects: its config (jest.config.*, the package.json `jest` key, or `--config x`) as
+# the file exports it; `projects` makes each project collect on its own (a directory from its own config, rooted
+# there); a file collects when it is under rootDir (default: the config's directory) and one of `roots`, no
+# testPathIgnorePatterns regex matches it, and testRegex (when set) or testMatch takes it — testMatch in order,
+# a `!glob` taking back what an earlier glob took. collectCoverageFrom and the coverage* keys are coverage's.
+def _jest_globs(globs, rel):
+    kept, negatives, unread = None, 0, False
+    for g in globs:
+        if isinstance(g, tuple) and g[:1] == ('re',):
+            g = g[1]
+        if not isinstance(g, str):
+            unread = True; continue
+        g = g.replace('<rootDir>/', '')
+        if g.startswith('!'):
+            negatives += 1
+            if _globs_match((g[1:],), rel): kept = False
+        elif _globs_match((g,), rel):
+            kept = True
+    if unread and kept is not False: return True
+    return kept is not False if negatives == len(globs) else bool(kept)
+
+
+def _jest_takes(repo, d, cfg, base, rel, depth=0):
+    cfg = cfg.ret if isinstance(cfg, _Fn) else cfg
+    if cfg is None: cfg = {}
+    if not isinstance(cfg, dict): return True
+    rd = _get(cfg, 'rootDir')
+    if rd is not None and not isinstance(rd, str): return True
+    root = posixpath.normpath(posixpath.join(base, rd.replace('<rootDir>', '.'))) if rd else base
+    projects = _get(cfg, 'projects')
+    if projects is not None:
+        if depth > 2 or not isinstance(projects, list): return True
+        for p in projects:
+            p = p.ret if isinstance(p, _Fn) else p
+            if isinstance(p, dict):
+                if _jest_takes(repo, d, p, root, rel, depth + 1): return True
+                continue
+            if not isinstance(p, str): return True
+            under = _under(rel, root)
+            if under is None or p.startswith('!'): continue
+            for mdir, conf in _members(repo, d, root, p.replace('<rootDir>', '.'), under, _RUNNERS[1][1]):
+                mcfg = _js_config(os.path.join(repo, d, conf)) if conf else \
+                    (_pkg_json(repo, posixpath.join(d, mdir)) or {}).get('jest') or {}
+                if _jest_takes(repo, d, mcfg, mdir, rel, depth + 1): return True
+        return False
+    r = _under(rel, root)
+    if r is None: return False
+    roots = _get(cfg, 'roots')
+    if isinstance(roots, list) and roots and all(isinstance(x, str) for x in roots):
+        if not any(_under(r, x.replace('<rootDir>', '.')) is not None for x in roots): return False
+    ign = _get(cfg, 'testPathIgnorePatterns')
+    for p in (ign if isinstance(ign, list) else ['/node_modules/'] if ign is None else []):
+        try:
+            if isinstance(p, str) and re.search(p.replace('<rootDir>', ''), '/' + r): return False
+        except re.error:
+            pass
+    rx = _pat_list(_get(cfg, 'testRegex'))
+    if rx is _UNK: return True
+    if rx:
+        return bool(_pats_take([p if isinstance(p, tuple) or not isinstance(p, str) else ('re', p) for p in rx],
+                               r, True))
+    tm = _pat_list(_get(cfg, 'testMatch'))
+    if tm is _UNK: return True
+    return _jest_globs(list(_JEST_MATCH) if tm is None else tm, r)
+
+
+def _jest_collects(repo, d, cfg, base):
+    """How jest run from `d` with the config value `cfg` (from the file at `base`, relative to d) collects."""
+    return lambda rel: _jest_takes(repo, d, cfg, base, rel)
+
+
+def _playwright_collects(repo, d, conf):
+    """playwright: testDir (default the config's directory), testMatch, testIgnore — top level or per project."""
+    cfg = _js_config(os.path.join(repo, d, conf)) if conf else {}
+    cfg = cfg.ret if isinstance(cfg, _Fn) else cfg
+
+    def one(o, top, rel):
+        get = lambda k: _get(o, k) if _get(o, k) is not None else _get(top, k)
+        td = get('testDir')
+        if td is not None and not isinstance(td, str): return True
+        r = _under(rel, posixpath.normpath(td) if td else '.')
+        if r is None: return False
+        ign = _pat_list(get('testIgnore'))
+        if ign and _pats_take(ign, r, False): return False
+        m = _pat_list(get('testMatch'))
+        return bool(_pats_take(list(_PW_MATCH) if m is None else m, r, True))
+
+    def collects(rel):
+        if not isinstance(cfg, dict): return True
+        projects = _get(cfg, 'projects')
+        if projects is _UNK: return True
+        if isinstance(projects, list) and projects:
+            return any(not isinstance(p, dict) or one(p, cfg, rel) for p in projects)
+        return one({}, cfg, rel)
+    return collects
+
+
+def _script_words(v):
+    """Each shell command in a package script as its words; a quoted command (`glob -c "tsx --test"`) is split too."""
+    out = []
+    for seg in re.split(r'&&|\|\||;|\|', v):
+        words = []
+        for q in re.findall(r'"([^"]*)"|\'([^\']*)\'|(\S+)', seg):
+            words += next((x for x in q if x), '').split()
+        out.append(words)
+    return out
+
+
+def _node_test(words):
+    """(command, include globs) for a `node --test` / `tsx --test` command line, or None."""
+    for i, w in enumerate(words):
+        if posixpath.basename(w) not in ('node', 'tsx'): continue
+        k, opts = i + 1, [w]
+        while k < len(words) and words[k].startswith('-'):
+            opts.append(words[k])
+            if words[k] in ('--import', '-r', '--require', '--loader', '--experimental-loader') and k + 1 < len(words):
+                k += 1; opts.append(words[k])
+            k += 1
+        if '--test' not in opts: continue
+        globs = []
+        for x in words[k:]:
+            if x.startswith('-'): continue
+            x = x[2:] if x.startswith('./') else x
+            if re.search(r'[*?{]|\.(c|m)?[jt]sx?$', x): globs.append(x)
+            elif '/' in x or re.fullmatch(r'[\w.-]+', x): globs.append(x.rstrip('/') + '/**/*.?(c|m)[jt]s')
+        cmd = 'npx tsx --test' if posixpath.basename(w) == 'tsx' else ' '.join(opts)
+        return cmd, tuple(globs) or _NODE_TEST
+    return None
+
+
+_MOCHA_VALUED = {'--require', '-r', '--extension', '--config', '--reporter', '-R', '--timeout', '-t', '--ui', '-u',
+                 '--file', '--ignore', '--exclude', '--spec', '--grep', '-g', '--fgrep', '-f', '--slow', '-s',
+                 '--reporter-option', '--reporter-options', '-O', '--node-option', '-n', '--package', '--jobs', '-j',
+                 '--retries', '--import', '--loader', '--watch-files', '--watch-ignore'}
+
+
+def _mocha_rc(repo, d, conf):
+    """A .mocharc as a dict (spec, extension, recursive, ignore); YAML read for those keys only."""
+    if not conf.endswith(('.yml', '.yaml')):
+        return _js_config(os.path.join(repo, d, conf))
+    text, out = _read(os.path.join(repo, d, conf)), {}
+    for key in ('spec', 'extension', 'ignore', 'recursive'):
+        m = re.search(r'^' + key + r':[ \t]*(.*)$((?:\n[ \t]+-.*)*)', text, re.M)
+        if not m: continue
+        vals = [s.strip(' \'"-[]') for s in ([m.group(1)] if m.group(1).strip() else []) + m.group(2).split('\n')]
+        vals = [x.strip(' \'"') for v in vals for x in v.split(',') if x.strip(' \'"')]
+        out[key] = (vals[0] == 'true') if key == 'recursive' and vals else vals
+    return out
+
+
+# How mocha decides what it runs: the specs on its command line (and --spec), else the config's `spec`, else the
+# ./test directory; a directory spec takes the files in it (and below it with --recursive) with one of the
+# --extension / `extension` extensions (default js, cjs, mjs); --ignore takes files back out. The command keeps
+# the script's own flags (--require tsx/cjs …), since a TypeScript spec does not load without them.
+def _mocha_run(repo, d, rc, args):
+    """(collects(path from d), the flags to run one file with) for mocha run with `args` over the config `rc`."""
+    rc = rc if isinstance(rc, dict) else _UNK
+    specs, exts, ignore, flags, rec, i = [], [], [], [], False, 0
+    while i < len(args):
+        a = args[i]
+        key, _, inline = a.partition('=')
+        val = inline if inline else (args[i + 1] if key in _MOCHA_VALUED and i + 1 < len(args) else None)
+        step = 1 if inline or key not in _MOCHA_VALUED else 2
+        if key == '--config' and val and os.path.isfile(os.path.join(repo, d, val)):
+            rc = _mocha_rc(repo, d, val)
+        if key == '--spec' and val: specs.append(val)
+        elif key == '--extension' and val: exts += val.split(',')
+        elif key in ('--ignore', '--exclude') and val: ignore.append(val)
+        elif key == '--recursive': rec = True
+        if not a.startswith('-'):
+            specs.append(a)
+        elif key not in ('--spec', '--watch', '-w', '--watch-files', '--watch-ignore'):
+            flags += args[i:i + step]
+        i += step
+
+    def opt(k):
+        v = _get(rc, k) if rc is not _UNK else _UNK
+        return v if v is _UNK or v is None or isinstance(v, (list, bool)) else [v] if isinstance(v, str) else _UNK
+
+    rspec, rext, rign = opt('spec'), opt('extension'), opt('ignore')
+    if _UNK in (rspec, rext): return (lambda rel: True), flags
+    exts = exts or rext or ['js', 'cjs', 'mjs']
+    rec = rec or opt('recursive') is True
+    globs = []
+    for s in specs + (rspec or []) or ['test']:
+        if not isinstance(s, str): return (lambda rel: True), flags
+        s = s[2:] if s.startswith('./') else s
+        if re.search(r'[*?{]|\.(c|m)?[jt]sx?$', s): globs.append(s)
+        else: globs.append(s.rstrip('/') + ('/**/*.{' if rec else '/*.{') + ','.join(e.lstrip('.') for e in exts) + '}')
+    ignore += [g for g in (rign if isinstance(rign, list) else []) if isinstance(g, str)]
+    return (lambda rel: _pats_match(globs, rel) and not _pats_match(ignore, rel)), flags
+
+
+@functools.lru_cache(maxsize=None)
+def _runners_of(repo, d):
+    """[(runner, collects(path from d), command)] the directory `d` runs tests with, the configured ones first."""
+    pj = _pkg_json(repo, d) or {}
+    deps = {**(pj.get('dependencies') or {}), **(pj.get('devDependencies') or {})}
+    scripts = [str(v) for v in (pj.get('scripts') or {}).values()]
+    said = ' '.join(scripts)
+    found = []                              # (strength, order, name, collects, command)
+
+    def conf_of(configs):
+        return next((c for c in configs if os.path.isfile(os.path.join(repo, d, c))), None)
+
+    # vitest: vitest.config.* (else vite.config.* when the package uses vitest) and the workspace file, and each
+    # `vitest --config x` a script runs
+    uses_vitest = 'vitest' in deps or re.search(r'\bvitest\b', said)
+    vconf = conf_of(_VITEST_CONFS) or (uses_vitest and conf_of(_VITE_CONFS)) or None
+    ws = conf_of(_VITEST_WS)
+    if vconf or ws or uses_vitest:
+        cfg = _js_config(os.path.join(repo, d, vconf)) if vconf else None
+        strength = 3 if ws or vconf and (vconf.startswith('vitest.') or _get(cfg, 'test') is not None
+                                         or re.search(r'\btest\b', _read(os.path.join(repo, d, vconf)))) \
+            else 2 if re.search(r'\bvitest\b', said) else 1
+        found.append((strength, 0, 'vitest', _vitest_collects(repo, d, vconf, ws), 'npx vitest run'))
+    for s in scripts:
+        m = re.search(r'\bvitest\b[^&|;]*?(?:--config[= ]|-c\s+)(["\']?)([^\s"\'{]+)\1', s)
+        if m and os.path.isfile(os.path.join(repo, d, m.group(2))) and m.group(2) != vconf:
+            found.append((3, 0, 'vitest', _vitest_collects(repo, d, m.group(2)),
+                          f'npx vitest run --config {shlex.quote(m.group(2))}'))
+
+    # jest: its config file or package.json key, each `jest --config x` a script runs, react-scripts' own jest
+    jconf = conf_of(_RUNNERS[1][1])
+    uses_jest = 'jest' in deps or re.search(r'\bjest\b', said)
+    if jconf or 'jest' in pj:
+        cfg = _js_config(os.path.join(repo, d, jconf)) if jconf else pj.get('jest')
+        found.append((3, 1, 'jest', _jest_collects(repo, d, cfg, '.'), 'npx jest'))
+    elif uses_jest:
+        found.append((2 if re.search(r'\bjest\b', said) else 1, 1, 'jest', _jest_collects(repo, d, {}, '.'),
+                      'npx jest'))
+    for s in scripts:
+        m = re.search(r'\bjest\b[^&|;]*?(?:--config[= ]|-c\s+)(["\']?)([^\s"\'{]+)\1', s)
+        if m and os.path.isfile(os.path.join(repo, d, m.group(2))):
+            p = m.group(2)
+            base = posixpath.dirname(p[2:] if p.startswith('./') else p) or '.'
+            found.append((3, 1, 'jest', _jest_collects(repo, d, _js_config(os.path.join(repo, d, p)), base),
+                          f'npx jest --config {shlex.quote(p)}'))
+        if re.search(r'\b(react-scripts|craco|react-app-rewired)\s+test\b', s):
+            tool = re.search(r'\b(react-scripts|craco|react-app-rewired)\s+test\b', s).group(1)
+            found.append((2, 1, 'jest', lambda rel: _pats_match(_CRA_MATCH, rel),
+                          f'npx {tool} test --watchAll=false'))
+
+    # mocha: .mocharc / the package.json key, and each script that runs mocha with its own flags and specs
+    mconf = conf_of(_RUNNERS[2][1])
+    if mconf or 'mocha' in pj or 'mocha' in deps or re.search(r'\bmocha\b', said):
+        rc = _mocha_rc(repo, d, mconf) if mconf else pj.get('mocha') or {}
+        strength = 3 if mconf or 'mocha' in pj else 2 if re.search(r'\bmocha\b', said) else 1
+        runs = [ws[[posixpath.basename(w) for w in ws].index('mocha') + 1:]
+                for s in scripts for ws in _script_words(s) if 'mocha' in [posixpath.basename(w) for w in ws]]
+        for args in runs or [[]]:
+            collects, flags = _mocha_run(repo, d, rc, args)
+            found.append((strength, 2, 'mocha', collects, ' '.join(['npx mocha'] + [shlex.quote(f) for f in flags])))
+
+    # node's own runner: `node --test` / `tsx --test` in a script
+    for s in scripts:
+        for ws in _script_words(s):
+            nt = _node_test(ws)
+            if nt:
+                found.append((2, 3, 'node', (lambda rel, g=nt[1]: _pats_match(g, rel)), nt[0]))
+
+    # playwright
+    pconf = conf_of(_RUNNERS[3][1])
+    if pconf or '@playwright/test' in deps or 'playwright' in deps or re.search(r'\bplaywright\s+test\b', said):
+        found.append((3 if pconf else 2 if re.search(r'\bplaywright\s+test\b', said) else 1, 4, 'playwright',
+                      _playwright_collects(repo, d, pconf), 'npx playwright test'))
+    found.sort(key=lambda x: (-x[0], x[1]))
+    return [(name, collects, cmd) for _, _, name, collects, cmd in found]
+
+
+def _script_for(repo, pkg, prel):
+    """The command a package script, or the file's own usage line, gives for running this one file."""
+    pj_text = _read(os.path.join(repo, pkg, 'package.json'))
+    try:
+        scripts = (json.loads(pj_text).get('scripts') or {}) if pj_text else {}
+    except ValueError:
+        scripts = {}
+    for k, v in scripts.items():
+        # a script that RUNS the file, not one that lints, formats or type-checks it
+        if (re.search(r'(^|[\s/"\'])' + re.escape(prel) + r'($|[\s"\'])', str(v))
+                and re.search(r'\b(tsx|ts-node(-esm)?|node|bun|deno|jest|vitest|mocha|playwright|ava|tap|uvu|cypress)\b',
+                              str(v))):
+            return f"npm run {shlex.quote(k)}"
+    for k, v in scripts.items():
+        # a test script whose own glob takes the file (`tape-runner test/test-*.js`) runs it, with the rest
+        if re.search(r'test|spec|e2e', k) and any(re.search(r'[*?]', w) and _globs_match((w[2:] if w.startswith('./')
+                                                                                      else w,), prel)
+                                                   for ws in _script_words(str(v)) for w in ws):
+            return f"npm run {shlex.quote(k)}"
+    runner = r'(?:(?:npx|pnpm(?: exec)?|yarn|bunx)\s+)?(?:tsx|ts-node(?:-esm)?|node(?:\s+--[\w-]+(?:=\S+)?)*|bun(?: run)?|deno run(?:\s+-\S+)*)'
+    lead = r'(?:^|[\s*/#`$])('
+    # the file's own usage line first, then the package's README: where a script suite says how it is run
+    head = _read(os.path.join(repo, pkg, prel), 4000)
+    for text, exact_only in ((head, False), (_read(os.path.join(repo, pkg, 'README.md')), True)):
+        m = re.search(lead + runner + r')\s+(?:\./)?' + re.escape(prel) + r'(?=$|[\s`\'"])', text, re.M)
+        if m:
+            return f"{m.group(1)} {prel}"
+        if exact_only: continue
+        # a header written from another directory (`npx tsx x-tests.ts` from beside it) names the file by basename
+        base = os.path.basename(prel)
+        m = re.search(lead + runner + r')\s+(\S*' + re.escape(base) + r')(?=$|[\s`\'"])', text, re.M)
+        if m and os.path.isfile(os.path.join(repo, pkg, m.group(2))):
+            return f"{m.group(1)} {m.group(2)}"
+    return None
+
+
+def js_plan(repo, files):
+    """(commands, files no runner collects): each file with the runner its own package would run it with."""
+    by_runner = collections.OrderedDict()
+    singles, unrun = [], []
+    repo = os.path.realpath(repo)
+    for f in sorted(files)[:40]:
+        # the nearest directory whose runner collects the file runs it: a member's own config first, then the
+        # root's (a workspace member with no runner of its own is run by the root's, with paths from the root)
+        hit, any_pkg, d = None, False, os.path.dirname(f)
+        while hit is None:
+            any_pkg = any_pkg or _pkg_json(repo, d) is not None
+            drel = f[len(d) + 1:] if d else f
+            hit = next(((d, drel, c) for _, collects, c in _runners_of(repo, d) if collects(drel)), None)
+            if not d: break
+            d = os.path.dirname(d)
+        if hit is None and not any_pkg and _globs_match(_VITEST_INCLUDE, f):
+            # no package anywhere above it: a file named the way vitest and jest both collect keeps the command
+            # this always printed; any other file has no runner to be handed to
+            hit = ('', f, _RUNNERS[0][3])
+        if hit:
+            by_runner.setdefault((hit[0], hit[2]), []).append(hit[1]); continue
+        pkg = _package_of_file(repo, f)
+        cmd = _script_for(repo, pkg, f[len(pkg) + 1:] if pkg else f)
+        if cmd:
+            singles.append((pkg, cmd))
+        else:
+            unrun.append(f)
+    def cd(pkg, cmd):
+        return f"(cd {shlex.quote(pkg)} && {cmd})" if pkg else cmd
+    cmds = [cd(pkg, f"{c} " + " ".join(shlex.quote(x) for x in fs)) for (pkg, c), fs in by_runner.items()]
+    seen = set()
+    for pkg, c in singles:
+        if (pkg, c) not in seen:
+            seen.add((pkg, c)); cmds.append(cd(pkg, c))
+    return cmds, unrun
+
+
+def print_unrun(lang, repo, files):
+    """Say which selected files no runner collects, so a reader does not take the command as the whole run."""
+    if lang not in ('typescript', 'javascript'): return
+    unrun = js_plan(repo, files)[1]
+    if unrun:
+        print(f"\n  {len(unrun)} selected file(s) are collected by no test runner their package configures (no"
+              f" include glob matches, and no package script or usage line in the file runs it) — no command"
+              f" is given for them; read how each is run before trusting it ran:")
+        for f in unrun[:6]:
+            print(f"     {f}")
 
 
 
@@ -433,6 +1610,8 @@ def main(argv):
         i = passthru.index('--in'); scope = ['--in', passthru[i + 1]]
 
     tests = {}                      # test id -> record
+    stub_only, stub_by = {}, collections.defaultdict(set)   # tests that only stub a body-edited declaration
+    fw_entries, fw_greps = {}, []                             # entry points a framework enters: their tests are not counted
     unreadable, notes = [], []
     pulled = collections.defaultdict(set)
     unseen = []
@@ -457,6 +1636,23 @@ def main(argv):
             if rid and rid not in tests:
                 tests[rid] = dict(rec, hops=None, certainty='inherited')
                 pulled[rid].add(batch[0])
+        # a test that only STUBS the declaration on a mock (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`) runs
+        # none of it: impact does not count it, and a body edit cannot fail it. A signature edit or a removal can (the
+        # stub no longer compiles, or stubs a method nothing calls), so there it is selected, labelled as what it is.
+        for rec in d.get('framework_entries') or []:
+            fw_entries.setdefault(rec.get('id') or rec.get('display'), rec)
+        if d.get('framework_grep') and d['framework_grep'] not in fw_greps: fw_greps.append(d['framework_grep'])
+        # a batch of several declarations breaks a stub when any of them is a signature change or a removal
+        breaks = any((by_target[t].get('kind') or '') in STUB_BREAKING for t in batch)
+        bt = batch[0] if len(batch) == 1 else f"{len(batch)} declarations"
+        for rec in d.get('stub_tests') or []:
+            rid = rec.get('id')
+            if not rid: continue
+            if breaks:
+                if rid not in tests: tests[rid] = dict(rec, hops=None)
+                pulled[rid].add(bt)
+            else:
+                stub_only.setdefault(rid, rec); stub_by[rid].add(bt)
 
     files = sorted({r.get('at', '').split(':')[0] for r in tests.values() if r.get('at')})
     # A selected test carrying no location drops out of `files`, and `files` is what the command PRINTS and
@@ -484,7 +1680,7 @@ def main(argv):
     run_classes = classes + sorted({os.path.splitext(os.path.basename(r['at'].split(':')[0]))[0] for r in ownerless}) \
         if classes and lang in ('java', 'csharp') else classes
     replaced = concrete_test_classes(db, run_classes)[1] if lang in ('java', 'csharp') else {}
-    cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db)
+    cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db, repo)
 
     if as_json:
         print(json.dumps({'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
@@ -494,7 +1690,10 @@ def main(argv):
                           'edited_test_files': edited,
                           'command': cmd_all,
                           'abstract_replaced': replaced,
+                          'not_collected': js_plan(repo, run_files)[1] if lang in ('typescript', 'javascript') else [],
                           'not_reached_from': unseen,
+                          'framework_entries': list(fw_entries.values()), 'framework_grep': fw_greps,
+                          'stub_only_not_selected': [dict(r, stubs=sorted(stub_by[i])) for i, r in stub_only.items() if i not in tests],
                           'unreadable_answers': [t for t, _ in unreadable],
                           'same_package_only': pkg_hits,
                           'same_name_only': name_hits.get('files') or [],
@@ -526,9 +1725,11 @@ def main(argv):
                 print(f"    {f}")
             # `lang` is guessed from the files the graph named, and here it named none — so guess it from
             # the tier's own files, or the one runnable sentence this block exists to produce is empty.
-            cmd = command_for(lang or _guess_lang(nf), nf[:limit], [], db)
+            nlang = lang or _guess_lang(nf)
+            cmd = command_for(nlang, nf[:limit], [], db, repo)
             if cmd:
-                print(f"\n  {cmd}")
+                print("\n  " + cmd.replace("\n", "\n  "))
+            print_unrun(nlang, repo, nf[:limit])
         if pkg_hits:
             n = sum(len(v) for v in pkg_hits.values())
             print(f"\n  BY PACKAGE ONLY — {n} test file(s) live under the same package as a changed file")
@@ -538,7 +1739,8 @@ def main(argv):
                 for f in sorted(fs)[:limit]:
                     print(f"    {f}")
         if edited and cmd_all:
-            print(f"\n  {cmd_all}")
+            print("\n  " + cmd_all.replace("\n", "\n  "))
+            print_unrun(lang, repo, run_files)
     elif tests:
         print(f"\ntests to run: {len(tests)} test(s) in {len(files)} file(s)")
         for f in files[:limit]:
@@ -558,9 +1760,11 @@ def main(argv):
             print(f"\n  {len(each)} abstract test class(es) run nothing by name, so the command runs the classes that extend them: "
                   + '; '.join(each[:4]) + (f"; +{len(each) - 4} more (--json: abstract_replaced)" if len(each) > 4 else ''))
         if cmd_all:
-            print(f"\n  {cmd_all}")
+            print("\n  " + cmd_all.replace("\n", "\n  "))
+        print_unrun(lang, repo, run_files)
     elif edited and cmd_all:
-        print(f"\n  {cmd_all}")
+        print("\n  " + cmd_all.replace("\n", "\n  "))
+        print_unrun(lang, repo, run_files)
     if outside or loaded:
         # NOT A CALL: a file no graph reads, or a program a test starts by name. The tests that name it are the lead
         if outside:
@@ -571,8 +1775,8 @@ def main(argv):
             for f, (n, ts) in sorted(loaded.items()):
                 print(f"    {f}   named as '{n}' by: " + ", ".join(ts[:6]) + (f" … +{len(ts) - 6}" if len(ts) > 6 else ""))
             both = sorted(set(run_files) | set(loaded_files))
-            cmd = command_for(_guess_lang(both) or lang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in loaded_files] if classes else [], db)
-            if cmd: print(f"\n  with the tests above: {cmd}")
+            cmd = command_for(_guess_lang(both) or lang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in loaded_files] if classes else [], db, repo)
+            if cmd: print("\n  with the tests above: " + cmd.replace("\n", "\n  "))
         missed = [f for f in outside if f not in loaded]
         if missed:
             print(f"  no test names {', '.join(missed[:6])}{' …' if len(missed) > 6 else ''} in its text: which suite reads "
@@ -586,6 +1790,18 @@ def main(argv):
         print(f"\n  {', '.join(list(progs)[:4])} also run(s) as a program (a __main__ / main entry): a test that starts it "
               "as a subprocess, or drives it from case data, is not a call edge and no test names it by file — the "
               "selection is a lower bound for it")
+    if fw_entries and not tests:
+        fe = list(fw_entries.values())
+        print(f"\n  NOT COUNTED: {len(fe)} entry point(s) of the change are entered by a framework ("
+              + ', '.join(f"{r.get('display')} {r.get('signal') or ''}".strip() for r in fe[:3]) + (f" … +{len(fe) - 3}" if len(fe) > 3 else '')
+              + ") — a test that drives them through it (a request, an event, a mediator send) is not selected unless a [by key]"
+              " route joins it, so the selection is a lower bound; to find those tests: " + ' ; '.join(fw_greps[:2]))
+    so = [r for i, r in stub_only.items() if i not in tests]
+    if so:
+        sf = collections.Counter((r.get('at') or '').split(':')[0] for r in so)
+        print(f"\n  not selected: {len(so)} test(s) only stub a changed declaration on a mock (when/verify, Setup/Verify,"
+              " Received/Returns) and run none of it, so a body edit cannot fail them; a signature change or a removal"
+              " selects them: " + ', '.join(f"{f} ({n})" for f, n in sf.most_common(4)) + (f" … +{len(sf) - 4}" if len(sf) > 4 else ''))
     if unlocated:
         print(f"\n  {len(unlocated)} selected test(s) carry no location, so they are named here rather than"
               f" in the list above and cannot appear in the command:")
@@ -613,6 +1829,11 @@ def main(argv):
           "does not encode — reflection, a service loader, a framework that instantiates by name, a subprocess, a case "
           "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")
     return 0
+
+
+# the change kinds (axiomcode changed) that break a test which only stubs the declaration: its stub is written
+# against the name and the parameters
+STUB_BREAKING = {'signature', 'removed'}
 
 
 def _guess_lang(files):

@@ -70,6 +70,8 @@
 .decl call_resolved(c0:symbol)
 .decl unresolved_receiver(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 .decl unresolved_covered(c0:symbol)
+.decl value_callee_open(c0:symbol, c1:symbol)
+.decl unresolved_value_callee(c0:symbol, c1:symbol)
 
 // ── containment/ownership.dl ──
 .decl call_caller_method(c0:symbol, c1:symbol)

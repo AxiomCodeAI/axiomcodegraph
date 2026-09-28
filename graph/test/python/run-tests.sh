@@ -36,6 +36,7 @@
 #
 # Environment:
 #   AXIOM_PARSER      parser entrypoint        (default parser/dist/index.js — the parser in this repository)
+#   AXIOM_SUITE_JOBS  cases run at once (default: the CPU count; 1 = one at a time, output uncaptured)
 #   AXIOM_PY_ORACLE   harness checkout         (--oracle only; default ../../../callchain-oracle/python)
 #   AXIOM_PY_PYTHON   pinned interpreter       (default python3.10; also used by the
 #                     tier-1 attribution preflight, which is version-sensitive)
@@ -92,6 +93,8 @@ PINNED_PY="$PY"
 GUARD_PY="$PINNED_PY"
 command -v "$GUARD_PY" >/dev/null 2>&1 || GUARD_PY="$PY"
 WORK="$HERE/.work"
+# shellcheck source=../tools/case-pool.sh
+. "$ROOT/graph/test/tools/case-pool.sh"
 export AXIOM_PY_ORACLE="$ORACLE_HOME"
 
 BLESS=0; KEEP=0; ORACLE=0; ORACLE_ONLY=0; FILTERS=()
@@ -266,7 +269,11 @@ fi
 
 pass=0; fail=0; failed=()
 
-for dir in "$HERE"/cases/*/; do
+# One case: the body of what was the case loop, unchanged, inside a one-case `for` so its
+# `continue`s still mean "next case". pool_run (graph/test/tools/case-pool.sh) runs several
+# at once and prints them in case order.
+case_body() {
+for dir in "$@"; do
   name="$(basename "$dir")"
   [ -d "$dir/src" ] || continue
   if [ ${#FILTERS[@]} -gt 0 ]; then
@@ -412,6 +419,10 @@ for dir in "$HERE"/cases/*/; do
     fail=$((fail+1)); failed+=("$name")
   fi
 done
+}
+echo "running with up to $(pool_jobs) job(s) at once (AXIOM_SUITE_JOBS; 1 = one at a time)"
+POOL_INTS="pass fail" POOL_ARRAYS="failed"
+pool_run case_body "$HERE"/cases/*/
 
 # ── THE WHOLE-PROJECT FIXTURES ───────────────────────────────────────────────
 # test/python/projects holds two realistic projects, 29 files and ~1,040 lines, which

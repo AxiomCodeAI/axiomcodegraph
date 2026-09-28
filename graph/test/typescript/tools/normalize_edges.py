@@ -282,6 +282,10 @@ def main():
         if pairs_only:
             if f[1] not in n.m or f[3] not in n.m:
                 continue
+            # a function the site HANDS OVER (`xs.map(cb)`) is not a call the compiler lists at that
+            # site: the pairs are scored against the compiler, the .edges golden still carries it
+            if f[5] == 'callback_registered':
+                continue
             seen.add(f"{n.label(f[1])} -> {n.label(f[3])}")
         else:
             ln = site_line.get(f[0], '?')

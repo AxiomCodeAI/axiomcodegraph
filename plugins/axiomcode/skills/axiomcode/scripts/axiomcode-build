@@ -135,6 +135,7 @@ if ! python3 "$H/ax_fresh.py" lock 9 --try; then
   [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO; waiting for it …"
   python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
 fi
+python3 "$H/ax_fresh.py" relink "$REPO" --locked || true   # a pointer copied from another checkout is this one's again (#1605)
 BUILD_T0=$SECONDS                        # how long a build takes to a usable graph: a query decides from it whether to wait (#1595)
 # THE QUERY RULES COMPILE BESIDE THE ENGINE, NOT AFTER THE GRAPH (#1606). They do not depend on the graph, only on this
 # plugin's dl/*.dl, and impact.dl alone takes 45-140 s. Started once the graph was published, the compile raced the first
@@ -224,6 +225,7 @@ build_head_graph(){
     if env -u AXIOMCODE_BACKGROUND -u AXIOMCODE_KEEP_BASE AXIOMCODE_NO_REFRESH=1 AXIOMCODE_LIBRARY="$LIBS" bash "$H/axiomcode-build" "$T" > "$REPO/.axiomcode/base-build.log" 2>&1; then
       # graph.sqlite is a symlink, or (Windows without the symlink privilege) the copy Git Bash made instead of one
       D="$(readlink "$T/.axiomcode/out/graph.sqlite" 2>/dev/null || true)"; [ -n "$D" ] || D="$T/.axiomcode/out/graph.sqlite"
+      case "$D" in /*|[A-Za-z]:*) ;; *) D="$T/.axiomcode/out/$D" ;; esac   # the pointer is relative to its directory
       if [ -f "$D" ]; then
         local NB="$REPO/.axiomcode/base.new"; rm -rf "$NB"; mkdir -p "$NB/out"; mv "$D" "$NB/out/graph.sqlite"
         for D in "$T"/.axiomcode/lang/*/out/graph.sqlite; do          # and every other language's, beside it
@@ -242,7 +244,7 @@ LANGDIR="$REPO/.axiomcode/lang"      # one graph directory per language other th
 # file the parser reads with its hash; when none differs the graph is current whatever git says: a dirty tree whose
 # edits are already indexed is not rebuilt, and a tree edited and restored, which git calls clean against a graph built
 # from the edit, is. A commit that changed no file moves the stamp, not the graph.
-if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
+if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   [ -f "$REPO/.axiomcode/engine" ] || printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine" || true
@@ -254,7 +256,7 @@ if [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" 
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
 python3 "$H/dl_program.py" --no-wait || true   # say whether the query rules are compiled (started at the top); never wait
   # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
-  python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
+  AXIOMCODE_BUILT_BY_UNKNOWN=1 python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
 if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
 else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"; fi
@@ -265,8 +267,9 @@ else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript 
 # throwaway index: the user's index and checkout are not touched, and .axiomcode is excluded above. Kept only if the
 # build succeeds.
 # THE FILE TABLE, taken now for the same reason: an edit made while the parser runs must leave the graph stale, so the
-# next refresh picks it up. Committed only if the build succeeds.
-python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null || rm -f "$OUT/.files.json.new"
+# next refresh picks it up. Committed only if the build succeeds. It records what built the graph, the engine above
+# and this plugin's rules, so a graph an older axiomcode built is not "up to date" after an update.
+AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null || rm -f "$OUT/.files.json.new"
 INDEXED_TREE=""
 if [ -n "$GD" ]; then
   TMPIDX="$(mktemp "${TMPDIR:-/tmp}/axiomcode-index.XXXXXX")"
@@ -295,7 +298,10 @@ rm -rf "$PREV"
 # is seconds); only then does the build fail, and says why.
 swap(){ local i=0; until mv -f "$1" "$2" 2>/dev/null; do i=$((i+1)); [ $i -ge 120 ] && { echo "could not replace $2: another process holds it open" >&2; return 1; }; sleep 0.5; done; }
 keep_live(){ ln -f "$1" "$OUT/.live.sqlite" 2>/dev/null || cp -p "$1" "$OUT/.live.sqlite"; }   # a hard link, or a copy where the file system has none
-point(){ ln -sfn "$1" "$OUT/.graph.sqlite.new" && swap "$OUT/.graph.sqlite.new" "$OUT/graph.sqlite"; }
+# THE POINTER IS RELATIVE TO ITS DIRECTORY (#1605). An absolute one survived a copy of the repository: the copy answered
+# from the original's graph, and once the original moved it rebuilt itself as "interrupted". Made from inside $OUT, so
+# Git Bash's copy in place of a link resolves the same relative name.
+point(){ local t="${1#"$OUT"/}"; (cd "$OUT" && ln -sfn "$t" .graph.sqlite.new) && swap "$OUT/.graph.sqlite.new" "$OUT/graph.sqlite"; }
 real(){ python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
 if [ -d "$OUT/$LANG_ARG" ]; then
   if [ -f "$OUT/$LANG_ARG/graph.sqlite" ]; then

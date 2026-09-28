@@ -1,8 +1,8 @@
 77-package-published-entries [fields]
   precision 0.0000   (0 correct, 0 wrong)
   recall    0.0000   (0 of 1 the compiler resolved)
-  sites 1   resolved 0 (0.0%)
-  tiers ambiguous_unknown=1
-  access read=1
-  not scored: 1 rows whose target is not a client declaration
+  sites 2   resolved 0 (0.0%)
+  tiers ambiguous_unknown=2
+  access read=2
+  not scored: 2 rows whose target is not a client declaration
     MISSING index#useStore(number) READ vanilla#value

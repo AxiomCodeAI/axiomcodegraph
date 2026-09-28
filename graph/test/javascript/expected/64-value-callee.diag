@@ -1,0 +1,16 @@
+import_cause     handlers.js:2:14  path  builtin
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       handlers.js:11:27  METHOD_CALL join  no_target
+unresolved       handlers.js:4:29  METHOD_CALL forEach  receiver_untyped
+unresolved       handlers.js:4:51  FUNCTION_CALL h  callee_untyped
+unresolved       handlers.js:5:38  COMPUTED_CALL   dynamic
+unresolved       handlers.js:6:30  FUNCTION_CALL cb  callee_untyped
+unresolved       handlers.js:7:51  FUNCTION_CALL f  callee_untyped
+unresolved       handlers.js:8:50  FUNCTION_CALL fn  callee_untyped
+unresolved       handlers.js:9:31  FUNCTION_CALL_CALL cb  callee_untyped
+value_callee     handlers.js:4:51  h  parameter
+value_callee     handlers.js:5:38  table[k]  computed
+value_callee     handlers.js:6:30  cb  parameter
+value_callee     handlers.js:7:51  f  loop_variable
+value_callee     handlers.js:8:50  fn  local
+value_callee     handlers.js:9:31  cb.call  parameter

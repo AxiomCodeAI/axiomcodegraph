@@ -16,8 +16,11 @@ what keeps `cache.get(key)` out of the answer. A declaration handed to anything 
 here: the reference alone says it is passed as a value (`valueref` in dl/impact.dl), and naming the receiving call as
 one that "calls it where the graph cannot follow" was wrong for every synchronous collection operation (#1166).
 """
+import re
 
 ROUTE_VERB = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'connect', 'all', 'use', 'route'}
+# the verbs that name an HTTP method; `all`, `use` and `route` register or mount without naming one
+HTTP_VERB = ROUTE_VERB - {'all', 'use', 'route'}
 
 # A CALLBACK IS NOT RECOGNISED BY THE VERB ALONE, and a curated list of verbs was the wrong instrument.
 # The route leg has two independent signals -- an HTTP verb AND a path-shaped literal on the same line -- and it is
@@ -80,7 +83,8 @@ def registrations(q, site_file=None):
     # handler does depend on it — so only the key is withheld.
     tf = {f for (f,) in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")} if _has(q, 'symbols') else set()
     out = {}
-    for name, site_kind, fp, a, b in q("""SELECT callee_name, kind, file_path, start_line, end_line FROM call_sites
+    verbs = {}                             # (file, line) -> {HTTP verb: first column}, for the wording below
+    for name, site_kind, fp, a, b, col in q("""SELECT callee_name, kind, file_path, start_line, end_line, end_column FROM call_sites
                                       WHERE callee_name IS NOT NULL AND start_line > 0"""):
         f = sf(fp); b = b or a
         if b < a or b - a > MAX_SITE_SPAN:
@@ -98,7 +102,179 @@ def registrations(q, site_file=None):
             # a route beats a plain callback on the same line: `router.use('/x', wrap(handler))` is a route site
             if (f, l) not in out or kind == 'route':
                 out[(f, l)] = (kind, key, why)
+            if short.lower() in HTTP_VERB and (l == b or a == b):
+                vs = verbs.setdefault((f, l), {}); vs[short.upper()] = min(vs.get(short.upper(), col or 0), col or 0)
+    # `router.route('/').get(h)` is two route-shaped calls on one line, and `route` said nothing about the method: the
+    # line's HTTP verbs name it, in the order written. A chain registering two (`.get(a).post(b)`) names both, because
+    # a line is all a reference records and it cannot say which argument list the handler sat in
+    for (f, l), (k, key, w) in list(out.items()):
+        vs = verbs.get((f, l))
+        if k == 'route' and vs:
+            m = re.match(r'registered as a \w+ route (".*?") here', w)
+            if m: out[(f, l)] = (k, key, f"registered as a {'/'.join(sorted(vs, key=vs.get))} route {m.group(1)} here — the router calls it, no call site does")
     return sorted((ref_at.get((f, l), ''), f, l, k, key, w) for (f, l), (k, key, w) in out.items())
+
+
+# A CONST HOLDING A WRAPPED HANDLER — `const h = catchAsync(async (req, res) => …)`, then `router.get('/a', h)` — is a
+# field, not a method, so it has no call edge of its own to carry the route wording. What both backends join instead
+# (`const_route` in dl/impact.dl, graph_sql.direct_for_field) is two facts read from the source at the call sites the
+# engine recorded, and neither is "the name appears on a route line":
+#
+#   route_args     the name is written IN A HANDLER POSITION of the route call: a top-level argument after the path
+#                  (or an element of an array argument, which a router flattens) that is a bare name or a member
+#                  chain ending in it. The receiver (`router.get`), an options object (`{ schema: { 200: S } }`), an
+#                  argument of a nested call (`validate(bodySchema)`, `express.static(dir)`) and the path are not
+#                  handed to the router to call, and a name written there is read, not registered.
+#   const_values   the const HOLDS A FUNCTION: its initializer is a function, a reference to a declared function, or
+#                  a call that returns one — a callee the engine says returns a function (`returns_fn`), or a wrapper
+#                  that is handed a function (`asyncHandler(async (req, res) => …)`, nested wrappers too). A plain
+#                  object, a schema builder, `express.Router()`, `require(…)`, a string or a number never is: a router
+#                  mounted with `app.use('/p', router)` is a mount, not a handler.
+
+_IDENT = r'[A-Za-z_$][\w$]*'
+_CHAIN = re.compile(rf'({_IDENT})(?:\s*\??\.\s*({_IDENT}))*\s*$')
+_OPEN, _CLOSE = '([{', ')]}'
+
+
+def _match(text, i):
+    """the index just past the bracket group opening at text[i] (strings and comments are already blanked)"""
+    d = 0
+    for j in range(i, len(text)):
+        c = text[j]
+        if c in _OPEN: d += 1
+        elif c in _CLOSE:
+            d -= 1
+            if d == 0: return j + 1
+    return len(text)
+
+
+def _split_args(text, lo, hi):
+    """[(start, end)] of the top-level comma-separated items in text[lo:hi]"""
+    out, d, s = [], 0, lo
+    for j in range(lo, hi):
+        c = text[j]
+        if c in _OPEN: d += 1
+        elif c in _CLOSE: d -= 1
+        elif c == ',' and d == 0: out.append((s, j)); s = j + 1
+    if text[s:hi].strip(): out.append((s, hi))
+    return out
+
+
+def _fn_literal(t):
+    """`function …`, `async (a, b) => …`, `req => …`, `(req: Request): void => …`"""
+    t = t.lstrip()
+    if re.match(r'(async\s+)?function\b', t): return True
+    m = re.match(r'(async\s*)?', t); t = t[m.end():]
+    if re.match(rf'{_IDENT}\s*=>', t): return True
+    if t.startswith('('):
+        return bool(re.match(r'\s*(:[^=;{}]*)?=>', t[_match(t, 0):]))
+    return False
+
+
+def route_args(q, code, site_file=None):
+    """{(caller, file, line, name)}: `name` written in a handler position of a route-shaped call made by `caller`."""
+    if not _has(q, 'call_sites') or code is None:
+        return set()
+    sf = site_file or (lambda x: x)
+    out = set()
+    for c, name, fp, a, ac, b, bc in q("""SELECT caller_id, callee_name, file_path, start_line, start_column, end_line, end_column
+                                          FROM call_sites WHERE callee_name IS NOT NULL AND start_line > 0 AND file_path IS NOT NULL"""):
+        if name.split('.')[-1].lower() not in ROUTE_VERB: continue
+        b = b or a
+        if b < a or b - a > MAX_SITE_SPAN: continue
+        f = sf(fp); L = code(f) or []
+        if b > len(L): continue
+        text = '\n'.join(L[a - 1:b]); starts = [0]
+        for ln in L[a - 1:b - 1]: starts.append(starts[-1] + len(ln) + 1)
+        end = starts[-1] + (bc - 1 if bc else len(L[b - 1]))       # end_column is one past the call's `)`
+        close = text.rfind(')', 0, end)
+        if close < 0: continue
+        d, j = 0, close                                             # back to the `(` that opens THIS call's arguments
+        while j >= 0:
+            if text[j] in _CLOSE: d += 1
+            elif text[j] in _OPEN:
+                d -= 1
+                if d == 0: break
+            j -= 1
+        if j < 0: continue
+        line_of = lambda k: a + sum(1 for s0 in starts[1:] if s0 <= k)
+        # every argument is looked at: the path is a string (blanked), and a path or prefix held in a const is not a
+        # function, which `const_values` decides. `.route('/p').post(a, b)` has no path in its own argument list
+        todo = _split_args(text, j + 1, close)
+        while todo:
+            lo, hi = todo.pop()
+            t = text[lo:hi]; st = t.strip()
+            if st.startswith('[') and st.endswith(']'):             # an array of handlers: the router flattens it
+                k = lo + t.index('['); todo += _split_args(text, k + 1, lo + t.rindex(']')); continue
+            m = _CHAIN.match(st)
+            if not m or st.startswith(('...', 'new ')): continue
+            last = re.search(rf'({_IDENT})\s*$', st)
+            out.add((c, f, line_of(lo + t.rindex(last.group(1))), last.group(1)))
+    return out
+
+
+def const_values(q, code, decls, site_file=None):
+    """For each (file, line, name) const declaration: ({(file, line)} that hold a function, {(file, line, wrapper)} the
+    client callable its initializer calls, {(file, line, name)} the function it is an alias of)."""
+    callable_, wrap, alias = set(), set(), set()
+    if not decls or code is None:
+        return callable_, wrap, alias
+    sf = site_file or (lambda x: x)
+    fns = {n for (n,) in q("SELECT DISTINCT name FROM symbols WHERE method_id IS NOT NULL AND name IS NOT NULL AND name NOT LIKE '<%'")}
+    rets = {w for w, _m in returned_functions(q)}
+    callee_at = {}
+    for fp, l, col, m in q("""SELECT s.file_path, s.start_line, s.start_column, e.callee_method_id FROM call_sites s JOIN call_edges e
+                              ON e.call_site_id = s.id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL
+                              AND s.file_path IS NOT NULL AND s.start_line > 0"""):
+        callee_at.setdefault((sf(fp), l, col), set()).add(m)
+
+    def call_value(text, i, f, a, starts, depth=0):
+        """(callable?, wrappers) for the expression at text[i:]"""
+        m = re.compile(rf'\s*(await\s+|new\s+)?({_IDENT}(?:\s*\??\.\s*{_IDENT})*)\s*').match(text, i)
+        if not m or m.group(1): return False, set()
+        k = m.end(); chain = m.group(2); k0 = m.start(2)
+        ln = a + sum(1 for s0 in starts[1:] if s0 <= k0); col = k0 - starts[ln - a] + 1
+        ws = callee_at.get((f, ln, col), set())
+        if k >= len(text) or text[k] != '(':                          # a reference: an alias of a declared function
+            last = re.split(r'\s*\??\.\s*', chain)[-1]
+            return (last in fns and depth == 0 and not re.match(r'\s*[\[+\-*/%?`]', text[k:k + 2]), {('alias', last)})
+        if chain.split('.')[-1].strip() in ('require', 'import'): return False, set()
+        ok = bool(ws & rets); groups = 0
+        while k < len(text) and text[k] == '(' and groups < 3:       # `wrap(fn)` and curried `wrap(opts)(fn)`
+            e = _match(text, k); groups += 1
+            for lo, hi in _split_args(text, k + 1, e - 1):
+                t = text[lo:hi]
+                if _fn_literal(t): ok = True
+                elif depth < 3:
+                    inner, _w = call_value(text, lo, f, a, starts, depth + 1)
+                    if inner or (re.fullmatch(rf'\s*{_IDENT}(\s*\.\s*{_IDENT})*\s*', t) and re.split(r'\s*\.\s*', t.strip())[-1] in fns): ok = True
+            k = e
+            while k < len(text) and text[k] in ' \t': k += 1
+        if k < len(text) and text[k] == '.': return False, set()     # `express.Router().use(…)`: a method of the result
+        return ok, {('wrap', w) for w in ws}
+
+    for f, l, n in decls:
+        L = code(f) or []
+        if not (0 < l <= len(L)): continue
+        chunk = L[l - 1:l + 40]; text = '\n'.join(chunk); starts = [0]
+        for ln in chunk[:-1]: starts.append(starts[-1] + len(ln) + 1)
+        m = re.search(rf'(?<![\w$.]){re.escape(n)}\s*(?::[^=;\n]*)?=(?![=>])', text[:len(chunk[0])])
+        if not m: continue
+        if _fn_literal(text[m.end():]): callable_.add((f, l)); continue
+        ok, how = call_value(text, m.end(), f, l, starts)
+        if ok: callable_.add((f, l))
+        for kind, x in how:
+            if kind == 'wrap': wrap.add((f, l, x))
+            elif ok: alias.add((f, l, x))
+    return callable_, wrap, alias
+
+
+def returned_functions(q):
+    """{(wrapper, fn)}: the engine's own `ext_return_value` — the function a callable returns. `catchAsync` returns
+    `(req, res, next) => …`, and that is the function the route line hands over for every const it wrapped."""
+    if not _has(q, 'ext_return_value'):
+        return set()
+    return {(w, m) for w, k, m in q("SELECT c0, c1, c2 FROM ext_return_value") if k == 'func' and m}
 
 
 def value_ref_rows(q, names, ids, site_file=None, at=None, lines=None):
@@ -210,7 +386,112 @@ def decoration_keys(q, site_file=None):
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')
             out.append((owner, sf(f) if f else '', l or 0, kind, key, why))
+    out += _prefixed_routes(q, out, sf)
     return sorted(set(out))
+
+
+# A HANDLER'S ROUTE IS ITS TYPE'S PREFIX AND ITS OWN PATH. `@RequestMapping("/orders/{id}")` on the class and a bare
+# `@GetMapping` on the method serve "/orders/{id}"; `@PostMapping("lines")` beside it serves "/orders/{id}/lines"; a
+# path written without its leading slash (`@RequestMapping("widgets")`) is served from the root all the same. Read one
+# decoration at a time, the prefix registered the CLASS, which no closure walks, and a relative path registered
+# nothing, so a test driving such a handler over HTTP reached nothing: a request test for a class-mapped controller
+# counted 0 tests. A decoration is a mapping when its NAME says so (…Mapping, JAX-RS @Path, a verb, ASP.NET's
+# [Route] / [HttpGet]); a `@Transactional` beside it is not a route. ASP.NET's [controller] and [action] tokens are
+# the type's name without its Controller suffix and the method's name.
+import collections, re
+_MAPPING = re.compile(r'^(\w*Mapping|Path|GET|POST|PUT|DELETE|PATCH|Http(Get|Post|Put|Delete|Patch)|Route)$')
+
+
+def _first_path(text):
+    m = re.search(r'"([^"\s]{0,120})"', (text or '').replace('"""', '"'))
+    return m.group(1) if m else None
+
+
+def _join(a, b):
+    return '/' + '/'.join(x.strip('/') for x in (a, b) if x and x.strip('/'))
+
+
+def _prefixed_routes(q, rows, sf):
+    if not _has(q, 'symbols'):
+        return []
+    seen = {(r[0], r[4]) for r in rows}
+    sym = {i: (d, n, o, bool(t) and not m) for i, d, n, o, t, m in q("SELECT id, display, name, owner, type_id, method_id FROM symbols WHERE display IS NOT NULL")}
+    prefix = collections.defaultdict(set)                      # type display -> the paths its own mapping serves
+    methods = []
+    for owner, name, text, f, l in q("SELECT owner_id, name, text, file, line FROM decorations WHERE owner_id IS NOT NULL"):
+        short = (name or '').split('.')[-1]
+        if not _MAPPING.match(short) or owner not in sym: continue
+        p_ = _first_path(text)
+        d, n, o, is_type = sym[owner]
+        if is_type:
+            if p_: prefix[d].add(p_)
+        else:
+            methods.append((owner, short, p_, f, l))
+    out = []
+    for mid, short, p_, f, l in methods:
+        d, n, o, _t = sym[mid]
+        tname = (o or '').split('.')[-1]
+        for pre in sorted(prefix.get(o) or {''}):
+            key = _join(pre, p_ or '')
+            key = key.replace('[controller]', re.sub(r'Controller$', '', tname).lower()).replace('[action]', (n or '').lower())
+            if key == '/' and not (pre or p_): continue
+            if (mid, key) in seen: continue
+            seen.add((mid, key))
+            out.append((mid, sf(f) if f else '', l or 0, 'route', key,
+                        f'registered as a route "{key}" by @{short}' + (" under its type's prefix" if pre else '') + ' — the router calls it, no call site does'))
+    return out
+
+
+# THE HTTP METHOD A ROUTE ANSWERS, AND THE ONE A TEST SENDS. "/orders" is two handlers when one answers GET and the other
+# POST, and a test that posts an order drives only the second. Joined on the path alone, every test that lists orders
+# reached the handler that creates one, and a path five tests write (one per verb) was refused as a key that
+# identifies nothing. The verb is read where it is written: the handler's decoration (`@GetMapping`, `[HttpPost]`,
+# `@router.put`, `@RequestMapping(method = DELETE)`, JAX-RS `@DELETE` beside `@Path`) and the request call that
+# carries the path literal (`.put("/orders/{id}", id)`, `client.delete(...)`, `DeleteAsync(...)`). Either side unknown
+# joins as before.
+_VERBS = ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
+_VERB_NAME = re.compile(r'^(?:(Get|Post|Put|Delete|Patch)Mapping|Http(Get|Post|Put|Delete|Patch)|(GET|POST|PUT|DELETE|PATCH)|(get|post|put|delete|patch))$')
+
+
+def route_verbs(q, site_file=None):
+    """{(decl, key, VERB)}: the HTTP method each decoration-registered route answers, where a decoration says it."""
+    if not _has(q, 'decorations'):
+        return set()
+    verbs = collections.defaultdict(set)
+    for owner, name, text in q("SELECT owner_id, name, text FROM decorations WHERE owner_id IS NOT NULL"):
+        short = (name or '').split('.')[-1]
+        m = _VERB_NAME.match(short)
+        if m:
+            verbs[owner].add(next(g for g in m.groups() if g).upper())
+        elif _MAPPING.match(short) or short == 'route':
+            for v in re.findall(r'\b(GET|POST|PUT|DELETE|PATCH)\b', text or ''): verbs[owner].add(v)
+    out = set()
+    for decl, _f, _l, kind, key, _w in decoration_keys(q, site_file):
+        if kind == 'route':
+            for v in verbs.get(decl, ()): out.add((decl, key, v))
+    return out
+
+
+def literal_verbs(q, at, site_file=None):
+    """{(caller, literal, VERB)}: a path literal written as the argument of a request call named for one HTTP method —
+    the innermost such call whose span holds the literal's line."""
+    if not (_has(q, 'literals') and _has(q, 'call_sites')):
+        return set()
+    sf = site_file or (lambda x: x)
+    calls = collections.defaultdict(list)
+    for n, f, a, b in q("SELECT callee_name, file_path, start_line, end_line FROM call_sites WHERE callee_name IS NOT NULL AND start_line > 0"):
+        short = re.sub(r'Async$', '', (n or '').split('.')[-1].split('<')[0]).upper()
+        if short in _VERBS: calls[sf(f) if f else ''].append((a, b or a, short))
+    out = set()
+    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        if not (isinstance(v, str) and v.startswith('/')): continue
+        f2 = sf(f) if f else ''
+        hold = [(b - a, -a, verb) for a, b, verb in calls.get(f2, ()) if a <= l <= b]
+        if not hold: continue
+        verb = min(hold)[2]
+        c = at(f, l)
+        if c: out.add((c, v, verb))
+    return out
 
 
 # ── a registration written as a CALL that no verb list knows ─────────────────────────────────────────────────

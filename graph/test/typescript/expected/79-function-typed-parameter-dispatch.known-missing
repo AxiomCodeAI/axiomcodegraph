@@ -1,0 +1,7 @@
+# Accepted gaps for 79-function-typed-parameter-dispatch — each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# CONTROL: an indexed access whose key is a UNION names several members. The compiler merges the two
+# identical signatures into one; the engine declines to pick a member for a non-literal key.
+logger#controlUnionKey(StoreApi['getState' | 'getInitialState'],Pick1) -> StoreApi#<arrow@14>()

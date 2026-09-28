@@ -27,12 +27,15 @@
 #
 # Environment:
 #   AXIOM_PARSER   path to the parser entrypoint  (default parser/dist/index.js in this repository)
+#   AXIOM_SUITE_JOBS  cases run at once (default: the CPU count; 1 = one at a time, output uncaptured)
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 WORK="$HERE/.work"
+# shellcheck source=../tools/case-pool.sh
+. "$ROOT/graph/test/tools/case-pool.sh"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
 for a in "$@"; do case "$a" in
   --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;;
@@ -76,7 +79,11 @@ oracle_check() {
   check_golden "$w/actual.oracle" "$golden" "oracle golden"
 }
 
-for dir in "$HERE"/cases/*/; do
+# One case: the body of what was the case loop, unchanged, inside a one-case `for` so its
+# `continue`s still mean "next case". pool_run (graph/test/tools/case-pool.sh) runs several
+# at once and prints them in case order.
+case_body() {
+for dir in "$@"; do
   name="$(basename "$dir")"
   if [ ${#FILTERS[@]} -gt 0 ]; then
     match=0; for f in "${FILTERS[@]}"; do [[ "$name" == *"$f"* ]] && match=1; done
@@ -124,6 +131,10 @@ for dir in "$HERE"/cases/*/; do
   if [ $ok = 1 ]; then echo "ok"; pass=$((pass+1)); else fail=$((fail+1)); failed+=("$name"); fi
   [ "$KEEP" = "1" ] || rm -rf "$w"
 done
+}
+echo "running with up to $(pool_jobs) job(s) at once (AXIOM_SUITE_JOBS; 1 = one at a time)"
+POOL_INTS="pass fail" POOL_ARRAYS="failed"
+pool_run case_body "$HERE"/cases/*/
 echo; echo "passed: $pass  failed: $fail"
 [ $fail -eq 0 ] || { printf '  %s\n' "${failed[@]}"; exit 1; }
 # bin/axiomcode --library staging: every source-tree entry gets its own intermediate

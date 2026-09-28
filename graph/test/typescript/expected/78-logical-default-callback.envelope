@@ -1,0 +1,5 @@
+value	options#<function-type>@5:28 -> options#defaultOnError
+value	options#<function-type>@6:25 -> options#<arrow>@18
+value_call	options#withLet -> options#defaultOnError
+value_call	options#withNullish -> options#<arrow>@18
+value_call	options#withOr -> options#defaultOnError

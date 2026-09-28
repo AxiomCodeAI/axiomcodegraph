@@ -1,0 +1,11 @@
+{"lang": "typescript",
+ "src": "src",
+ "checks": [
+  {"why": "entry points tied on score go to code a reader can follow before their names are compared: `\"store\".Statement.run` and `Alpha.run` are typings in a .d.ts and `AaaHarness.run` is test code, and all three sort before `Beta.run` by name",
+   "run": ["context", "how does run work"],
+   "want": ["   1 Beta.run ", "   3 Worker.run "],
+   "avoid": ["   1 \"store\"", "   1 Alpha.run ", "   1 AaaHarness.run "]},
+  {"why": "control: a declaration the question names is the subject whatever file it is in; the tie-break does not move it",
+   "run": ["context", "how does Alpha.run work"],
+   "want": ["   1 Alpha.run "],
+   "avoid": []}]}

@@ -1,0 +1,29 @@
+{
+ "lang": "typescript",
+ "src": "app",
+ "checks": [
+  {
+   "why": "a script suite vitest does not collect (src/test/cart-tests.ts, run as `npx tsx src/test/cart-tests.ts` per its header) gets that command from its package, not `npx vitest run`; a file nothing runs is named as such (#1570)",
+   "run": ["test-impact", "--old", "{repo}/old.ts", "--new", "{repo}/new.ts", "--file", "app/src/cart.ts"],
+   "want": [
+    "(cd app && npx tsx src/test/cart-tests.ts)",
+    "collected by no test runner",
+    "app/src/test/orphan-tests.ts"
+   ],
+   "avoid": ["npx vitest run app/src/test/cart-tests.ts", "vitest run src/test/cart-tests.ts", "npx tsx src/test/orphan-tests.ts", "Traceback"]
+  },
+  {
+   "why": "CONTROL: a *.test.ts file the package's vitest collects keeps `npx vitest run`, run from its package",
+   "run": ["test-impact", "--old", "{repo}/old.ts", "--new", "{repo}/new.ts", "--file", "app/src/cart.ts"],
+   "want": ["(cd app && npx vitest run src/cart.test.ts)"],
+   "avoid": ["Traceback"]
+  },
+  {
+   "why": "the --json answer carries the same commands and the files nothing collects",
+   "run": ["test-impact", "--old", "{repo}/old.ts", "--new", "{repo}/new.ts", "--file", "app/src/cart.ts", "--json"],
+   "stdout_json": true,
+   "want": ["npx tsx src/test/cart-tests.ts", "\"not_collected\"", "app/src/test/orphan-tests.ts"],
+   "avoid": ["Traceback"]
+  }
+ ]
+}

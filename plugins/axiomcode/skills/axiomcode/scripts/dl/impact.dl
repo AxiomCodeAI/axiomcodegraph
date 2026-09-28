@@ -18,6 +18,11 @@
 //   qualifier(f, l, n, Q)             on line f:l the name n is written qualified as Q.n
 //   typeref(c, n, ctx, f, l)          a type reference to n in context ctx (field type, method param …) inside c, at f:l
 //   typeref_file(f, n, ctx)           the same when the parser gives no line (Java): the file only
+//   type_alias(t)                     t is a TypeScript type alias: a reference on its own lines is held by it, not the module
+//   jsx_props(tag, n)                 an IntrinsicElements member: the attributes of <tag> are checked against type n
+//   jsx_tag(c, tag, f, l)             an intrinsic element <tag …> rendered inside c, at f:l
+//   discriminant(t, k, v)             type t declares property k typed as the one string literal v
+//   keyed_literal(c, k, v, f, l)      an object literal inside c writes the property k: 'v', at f:l
 //   type_in_file(T, f)                type T is declared in file f
 //   literal(c, v, f, l)               a string literal v inside c
 //   field(F, T, n, f, l)              field F named n declared in type T at f:l
@@ -39,6 +44,7 @@
 .decl edge(a:symbol, b:symbol, t:symbol)                          .input edge
 .decl named(n:symbol, m:symbol)                                   .input named
 .decl calls(c:symbol, m:symbol, tier:symbol, f:symbol, l:number)  .input calls
+.decl handoff_at(c:symbol, m:symbol, f:symbol, l:number)          .input handoff_at
 .decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
 .decl named_site(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input named_site
 .decl member(t:symbol, s:symbol, n:symbol, k:symbol)              .input member
@@ -52,6 +58,11 @@
 .decl qualifier(f:symbol, l:number, n:symbol, q:symbol)           .input qualifier
 .decl typeref(c:symbol, n:symbol, ctx:symbol, f:symbol, l:number) .input typeref
 .decl typeref_file(f:symbol, n:symbol, ctx:symbol)                .input typeref_file
+.decl type_alias(t:symbol)                                         .input type_alias
+.decl jsx_props(tag:symbol, n:symbol)                              .input jsx_props
+.decl jsx_tag(c:symbol, tag:symbol, f:symbol, l:number)            .input jsx_tag
+.decl discriminant(t:symbol, k:symbol, v:symbol)                   .input discriminant
+.decl keyed_literal(c:symbol, k:symbol, v:symbol, f:symbol, l:number) .input keyed_literal
 .decl type_in_file(t:symbol, f:symbol)                            .input type_in_file
 .decl literal(c:symbol, v:symbol, f:symbol, l:number)             .input literal
 .decl dec_literal(c:symbol, d:symbol, v:symbol, f:symbol, l:number) .input dec_literal
@@ -331,10 +342,27 @@ route_site(f, l) :- registration(_, f, l, "route", _, _).
 // fast path reads the same one, so the rules and the fast path cannot disagree about a tier — which
 // is how the two copies of the binary test drifted apart from the rest of the vocabulary to begin with.
 .decl cert_tier(tier:symbol, cert:symbol, why:symbol)             .input cert_tier
-direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", cert_tier(t, cert, why), !bean_call(q, c, m), !route_site(f, l).
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", t != "stub", cert_tier(t, cert, why), !bean_call(q, c, m), !route_site(f, l), !via_site(c, m, f, l).
+// A CALL WRITTEN AGAINST A BASE THIS DECLARATION IS OVERRIDE-EQUIVALENT TO (#1542). The service-layer shape: a controller
+// holds an interface-typed field and calls through it. Before this the caller of an implementation showed only under
+// "reaches those" (the dispatch hop), and a caller the engine had NARROWED to the implementation (an injected field whose
+// bean it resolved) was missing from the interface method altogether, so `impact` there said the change was local.
+// The rows are graph_sql.via_base_rows, read by the SQL port too: for the base itself, a multi_inferred edge is the
+// call the code names ("calls it", resolved); for each override the engine kept at that site, "calls it (via the
+// interface)", resolved only when nothing else can run there; for a narrowed call, the base when the receiver read at
+// the call is a field declared with the base's type. An override the engine left out of a site's set gets no row, so a
+// caller whose receiver resolves to a sibling implementation does not become a caller of this one. `via_site` is the
+// plain row each one replaces, so a caller is not listed twice for one call.
+.decl via_base(c:symbol, m:symbol, why:symbol, cert:symbol, f:symbol, l:number, e:symbol)   .input via_base
+.decl via_site(c:symbol, m:symbol, f:symbol, l:number)                            .input via_site
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), via_base(c, m, why, cert, f, l, _), !is_target_decl(q, c).
+// A call written inside a mock's stub or verification (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`): the exporter
+// gives it the tier "stub" (ax_edges.stub_sites). It names the method, so a rename or a new parameter breaks it, and it
+// runs nothing: the receiver is a mock. Its own row, whatever else the caller does; it is not an edge of the closure.
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, "stub", f, l), cert_tier("stub", cert, why).
 // a registration names the row: the edge is the engine's, the sentence is the registration's, and the
 // certainty stays the tier's — a route handed over as a value is still handed over as a value.
-direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", cert_tier(t, cert, _), !bean_call(q, c, m), registration(_, f, l, "route", _, why).
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", t != "stub", cert_tier(t, cert, _), !bean_call(q, c, m), registration(_, f, l, "route", _, why).
 // A call INTO a method of a container-managed bean. Whether the container's proxy is on the path decides whether a
 // behavioural annotation added to the method (a transaction, a cache, an async dispatch, a retry, an authorization
 // check) reaches this caller at all: a call from inside the bean goes through `this` and never through the proxy.
@@ -342,24 +370,30 @@ direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, 
 .decl bean_call(q:symbol, c:symbol, m:symbol)
 // Not for an event either: the event system invokes a listener on the container's bean, so the proxy IS on that
 // path, and "an instance it obtained itself" would be false (#1391). It keeps its tier's own row above.
-bean_call(q, c, m) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), calls(c, m, t, _, _), t != "multi_inferred", t != "event_dispatch".
+bean_call(q, c, m) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), calls(c, m, t, _, _), t != "multi_inferred", t != "event_dispatch", t != "stub".
 // the type that the container hands the bean to: a field injection names the type, a constructor or setter names the method
 .decl receives_bean(t:symbol, into:symbol)
 receives_bean(t, into) :- injected(t, into, _), typ(into, _, _).
 receives_bean(t, into) :- injected(t, x, _), owner(x, into).
+// …and a point the engine WIRED to this bean, whatever type it declares: an `@Autowired Store store` given the JdbcStore
+// bean receives it through the container, and keyed on the declared type alone its caller "obtained it itself" (#1384)
+.decl injected_bean(t:symbol, into:symbol)                                        .input injected_bean
+receives_bean(t, into) :- injected_bean(t, into), typ(into, _, _).
+receives_bean(t, into) :- injected_bean(t, x), owner(x, into).
 direct(q, c, "uses", "calls it from inside the same bean — through this, not through the container proxy, so an added proxied annotation does NOT apply to this caller", "resolved", f, l) :-
-    bean_call(q, c, m), owner(m, ot), owner(c, ot), calls(c, m, _, f, l).
+    bean_call(q, c, m), owner(m, ot), owner(c, ot), calls(c, m, t, f, l), t != "stub".
 direct(q, c, "uses", "calls it on the injected bean — the container proxy is on the path, so an added proxied annotation applies here", "resolved", f, l) :-
-    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, receives_bean(ot, cot), calls(c, m, _, f, l).
+    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, receives_bean(ot, cot), calls(c, m, t, f, l), t != "stub".
 direct(q, c, "uses", "calls it on an instance it obtained itself, not from the container — no proxy on the path, so an added proxied annotation does not apply here", "resolved", f, l) :-
-    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, !receives_bean(ot, cot), calls(c, m, _, f, l).
-direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
+    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, !receives_bean(ot, cot), calls(c, m, t, f, l), t != "stub".
+direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l), !via_site(c, m, f, l).
 // `!is_target_decl`: `this.rows.find(...)` inside `OrdersService.find` is the ARRAY's find, and with the receiver
 // untyped it matched the target by name — printing the declaration as a reader of itself. Worse, that row made the
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
 // reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
 // one self-match. A recursive call needs no row either — the body is what is changing.
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", !is_target_decl(q, c).
+direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
 
 // ── a method handed over as a VALUE, never called where it is named ──────────────────────────────────────────
 // `app.get('/orders/:id', getOrder)`, `useEffect(load)`, `items.map(format)`, `handlers = {"x": handle_x}`: the
@@ -421,6 +455,47 @@ fref(q, c, rk, f, l) :- enum_member_target(q, fl), field(fl, t, n, ff, fll), ref
 .decl frole(rk:symbol, role:symbol, why:symbol)
 frole("qualified", "uses", "writes/reads it"). frole("bare", "reads", "reads it").
 
+// A CONST THAT HOLDS A WRAPPED HANDLER is registered where it is handed to a route, not read there.
+// `const listAdmins = catchAsync(async (req, res) => …)` then `router.get('/admins', listAdmins)`: the declaration is
+// a const, not a method, so the method-target route wording (`route_site` above) never applied and the answer said
+// only "[by name] … reads it" at the registration. Two conditions, both required, both read by ax_registration:
+//   - `route_arg(c, f, l, n)`: the name is written IN A HANDLER POSITION of a route call `c` makes — a top-level
+//     argument or an element of an array argument, bare or at the end of a member chain. Not the receiver
+//     (`router.get`), not inside an options object (`{ schema: { 200: TaskSchema } }`), not an argument of a nested
+//     call (`validate(bodySchema)`), and not inside an inline handler, whose reads are the handler's.
+//   - `callable_const(ff, fll)`: the const HOLDS A FUNCTION — a function, a reference to a declared one, or a call that
+//     returns one (a callee the engine says returns a function, or a wrapper handed a function). A schema, an options
+//     object, `express.Router()` (a router mounted with `app.use('/p', router)` is a mount) or a module never does.
+// Then:
+//   - registered: the function the const holds is known — the wrapper's returned function (`init_wrapper`,
+//     `returns_fn`) or the function it aliases (`init_alias`) — and the route line hands THAT function over
+//     (`handoff_at`). A hand-off of some other function on the same line (`.post(protect, admin, h)`) is not evidence.
+//   - by name: otherwise (a library wrapper says nothing about what it returns). The route's wording, the name's rung.
+.decl route_arg(c:symbol, f:symbol, l:number, n:symbol)           .input route_arg
+.decl callable_const(f:symbol, l:number)                          .input callable_const
+.decl init_wrapper(f:symbol, l:number, w:symbol)                  .input init_wrapper
+.decl init_alias(f:symbol, l:number, n:symbol)                    .input init_alias
+.decl returns_fn(w:symbol, m:symbol)                              .input returns_fn
+.decl const_holds(ff:symbol, fll:number, m:symbol)
+const_holds(ff, fll, m) :- init_wrapper(ff, fll, w), returns_fn(w, m).
+const_holds(ff, fll, m) :- init_alias(ff, fll, n), named(n, m).
+.decl const_handed(q:symbol, c:symbol, f:symbol, l:number, ff:symbol, fll:number)
+const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
+    fref(q, c, _, f, l), route_site(f, l), route_arg(c, f, l, n).
+.decl const_route_edge(q:symbol, c:symbol, m:symbol, f:symbol, l:number)
+const_route_edge(q, c, m, f, l) :- const_handed(q, c, f, l, ff, fll), const_holds(ff, fll, m), handoff_at(c, m, f, l).
+.decl const_route(q:symbol, c:symbol, cert:symbol, f:symbol, l:number)
+const_route(q, c, cert, f, l) :- const_route_edge(q, c, _, f, l), cert_tier("callback_registered", cert, _).
+direct(q, c, "uses", why, cert, f, l) :- const_route(q, c, cert, f, l), registration(_, f, l, "route", _, why).
+// the row claims the hand-off edge on that line, so `verified:` looks it up like any registered row
+direct_edge(q, c, m) :- const_route_edge(q, c, m, _, _).
+.decl const_route_byname(q:symbol, c:symbol, f:symbol, l:number)
+const_route_byname(q, c, f, l) :- const_handed(q, c, f, l, _, _), !const_route(q, c, _, f, l).
+direct(q, c, "uses", why, "by name", f, l) :- const_route_byname(q, c, f, l), registration(_, f, l, "route", _, why).
+.decl const_routed(q:symbol, c:symbol, f:symbol, l:number)
+const_routed(q, c, f, l) :- const_route(q, c, _, f, l).
+const_routed(q, c, f, l) :- const_route_byname(q, c, f, l).
+
 // A field access the ENGINE resolved. The site is bound to THIS declaration, so it is not a name
 // match against every field of that name, and its direction is known. Sites the engine could not
 // bind (tier ambiguous_unknown) are left to the name rules below, which is where they belong.
@@ -437,15 +512,15 @@ direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl
 fa_known(q, c) :- target(q, "field", fl, _), fa_bound(c, fl, _, _, _).
 fa_known(q, c) :- target(q, "field", fl, _), field(fl, _, n, _, _), fa_bound(c, fl2, _, _, _), fl2 != fl, field(fl2, _, n, _, _).
 // in scope: inside the owner, a subtype, or a nested type — or the type node itself (a field initializer)
-direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s), !fa_known(q, c).
-direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), scope(t, c), !fa_known(q, c).
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s), !fa_known(q, c), !const_routed(q, c, f, l).
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), scope(t, c), !fa_known(q, c), !const_routed(q, c, f, l).
 // qualified elsewhere: the qualifier written on the line decides — the owner's own name confirms, another type's name excludes
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c).
+    owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c).
+    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c).
+    owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // THE SAME, IN A CALLABLE THAT HAS NO OWNER TYPE. Every rule above starts at `owner(c, s)`, which in Java and
 // TypeScript is always there — and in Python and JavaScript a module-level function has no owner at all, so a
 // qualified read of a field from one was matched by no rule and vanished from the answer. `price_order` reading
@@ -453,15 +528,22 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
 // own class touched it. The qualifier decides here exactly as it does above: the owner's own name confirms,
 // another TYPE's name excludes, and a variable (which is what a Python qualifier usually is) is `by name`.
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c).
+    !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n).
-direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, _, _, _), !owner(c, _), !scope(t, c).
+    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l).
+direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f).
+// a bare name in a file that declares ANOTHER field of that name is that file's own: `const listAdmins = ['root']` in
+// one module and a wrapped handler of the same name in another are two declarations, and each answer carried the
+// other's readers. A function of that name declared in the file is its own the same way: `module.exports = { createUser }`
+// in a service that declares `const createUser = async (body) => …` is not a reader of the controller's wrapped handler
+.decl shadowed_in(fl:symbol, n:symbol, f:symbol)
+shadowed_in(fl, n, f) :- target(_, "field", fl, _), field(fl, _, n, _, _), field(fl2, _, n, f, _), fl2 != fl.
+shadowed_in(fl, n, f) :- target(_, "field", fl, _), field(fl, _, n, ff, _), named(n, m), decl_file(m, f), f != ff.
 // a declared accessor is the field's door. The door is a CALL, so it carries the call's tier like every other
 // call-derived rule here: a site the engine could not narrow to one declaration is `one of a set`, not `resolved`.
 // Binding the tier as a wildcard and hardcoding "resolved" made the accessor door the one place in this file that
@@ -502,6 +584,19 @@ direct(q, c, "produces", "instantiates it (unresolved site)", "by name", f, l) :
 direct(q, c, "produces", "reflects on its .class — deserialization or a framework produces it here", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, "CLASS_LITERAL", f, l), !inside_target(q, c).
 direct(q, c, "uses", "references it", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, ek, f, l), ek != "CLASS_LITERAL", !local_kind(ek), !member_kind(ek), !inside_target(q, c).
 direct(q, c, "uses", cat("names it (", ctx, ")"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, f, l), !inside_target(q, c).
+// the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such alias,
+// and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes and never writes MapState.
+.decl alias_over(q:symbol, a:symbol)
+alias_over(q, a) :- target(q, "type", t, _), typ(t, n, _), typeref(a, n, _, _, _), type_alias(a), !inside_target(q, a).
+alias_over(q, a) :- alias_over(q, b), typ(b, n, _), typeref(a, n, _, _, _), type_alias(a), !inside_target(q, a).
+direct(q, c, "uses", cat("names ", an, ", a type alias over it (", ctx, ")"), "by name", f, l) :- alias_over(q, a), typ(a, an, _), typeref(c, an, ctx, f, l), c != a, !inside_target(q, c).
+// an INTRINSIC ELEMENT whose attributes are checked against it (#784): `<h1 class="x">` never writes FormElementProps
+direct(q, c, "uses", cat("renders <", tag, ">, whose attributes are checked against it"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), jsx_props(tag, n), jsx_tag(c, tag, f, l), !inside_target(q, c).
+direct(q, c, "uses", cat("renders <", tag, ">, whose attributes are checked against ", sn, ", which extends it"), "by name", f, l) :- target(q, "type", t, _), extends(s, t), typ(s, sn, _), jsx_props(tag, sn), jsx_tag(c, tag, f, l), !inside_target(q, c).
+// an OBJECT LITERAL that carries its discriminant (#784): `freeze({ kind: 'LiteralNode', fragments })` is checked against
+// LiteralNode and never writes the name, so an added required property breaks it
+direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "'"), "by name", f, l) :- target(q, "type", t, _), discriminant(t, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
+direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "' of ", sn, ", which extends it"), "by name", f, l) :- target(q, "type", t, _), extends(s, t), typ(s, sn, _), discriminant(s, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
 direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c).
 direct(q, c, "uses", cat("uses ", n, ", imported from it"), "by name", f, l) :- target(q, "type", _, _), importuse(c, n, f, l), !inside_target(q, c).
 direct(q, c, "reads", cat("calls the generated getter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "get"), field(fl, t, _, _, _), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).
@@ -614,6 +709,8 @@ seed(q, m) :- seed_of(q, m).
 // merely that the caller calls something
 .decl direct_edge(q:symbol, c:symbol, callee:symbol)
 direct_edge(q, c, m) :- target(q, "method", m, _), calls(c, m, _, _, _).
+// a via_base row claims the engine's edge at its site: the base's, or the override the call was narrowed to (#1542)
+direct_edge(q, c, e) :- target(q, "method", m, _), via_base(c, m, _, _, _, _, e), !is_target_decl(q, c).
 direct_edge(q, c, a) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, _), member(t, a, an, _), calls(c, a, _, _, _).
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), member(t, k, _, "constructor"), calls(c, k, _, _, _).
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), holds(h, t), member(h, k, _, "constructor"), calls(c, k, _, _, _).
@@ -643,7 +740,7 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
-seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, _, _, _), !seed(q, c).
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", !seed(q, c).
 // and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
 // a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
 // registered"), and the closure stopped there: the answer named the callable that hands it over and then said the
@@ -739,10 +836,33 @@ key_use_fan(k, n) :- key_written(_, k), n = count : { key_written(_, k) }.
 key_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
 key_capped(k) :- key_use_fan(k, n), key_use_cap(c), n > c.
 .output key_capped
-.decl fw_edge(a:symbol, b:symbol, how:symbol)
-fw_edge(a, b, "by key") :- literal(a, k, _, _), reg_key(b, _, k), a != b, !key_capped(k).
+// THE HTTP METHOD, where both sides name one (ax_registration.route_verbs / literal_verbs): a test that POSTs "/orders"
+// drives the handler that answers POST, not the one beside it that answers GET. A side that names none joins as before.
+// The writer cap is counted per registration over the writers whose method fits it, so a path five tests write, one
+// verb each, is not refused on behalf of a handler only two of them can reach; a key with no verb anywhere counts
+// exactly as before.
+//   reg_verb(b, k, v)                 route k registered by b answers the HTTP method v
+//   lit_verb(a, k, v)                 a writes the path k as the argument of a request call for the method v
+.decl reg_verb(b:symbol, k:symbol, v:symbol)                      .input reg_verb
+.decl lit_verb(a:symbol, k:symbol, v:symbol)                      .input lit_verb
+.decl key_join(a:symbol, b:symbol, k:symbol, w:symbol)
+key_join(a, b, k, k) :- literal(a, k, _, _), reg_key(b, _, k), a != b.
 // the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
-fw_edge(a, b, "by key") :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b, !key_capped(r).
+key_join(a, b, r, w) :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b.
+.decl verb_fits(a:symbol, b:symbol, k:symbol, w:symbol)
+verb_fits(a, b, k, w) :- key_join(a, b, k, w), !reg_verb(b, k, _).
+verb_fits(a, b, k, w) :- key_join(a, b, k, w), !lit_verb(a, w, _).
+verb_fits(a, b, k, w) :- key_join(a, b, k, w), lit_verb(a, w, v), reg_verb(b, k, v).
+.decl reg_capped(k:symbol)
+reg_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
+// the writers of the key as registered (an alias spelling is not counted, as before). A helper relation, not
+// `count : { verb_fits(_, b, k, k) }`: Soufflé 2.5 counts an aggregate atom with a repeated variable as 1.
+.decl exact_fit(a:symbol, b:symbol, k:symbol)
+exact_fit(a, b, k) :- verb_fits(a, b, k, k).
+.decl use_fan_for(b:symbol, k:symbol, n:number)
+use_fan_for(b, k, n) :- reg_key(b, _, k), n = count : { exact_fit(_, b, k) }.
+.decl fw_edge(a:symbol, b:symbol, how:symbol)
+fw_edge(a, b, "by key") :- verb_fits(a, b, k, _), !reg_capped(k), use_fan_for(b, k, n), key_use_cap(c), n <= c.
 // a decorator that REBINDS THE NAME: `@audited def summarise` leaves `summarise` denoting the wrapper, so every
 // caller written with that name runs the wrapper. This one is the engine's own resolution, not a name match.
 fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b.
@@ -896,6 +1016,26 @@ inherited_test(q, s, m, d) :- test_hit(q, m, d, _), owner(m, t), extends(s, t), 
 test_near(q, m, d) :- test_hit(q, m, d, _), d = min x : test_hit(q, m, x, _).
 .output test_near
 .output test_hit
+
+// ── a test that only STUBS the change: named, and never counted as running it ─────────────────────────────────
+// `when(repo.find(1))`, `verify(repo).save(x)`, `mock.Setup(r => r.Find(1))` name a method the closure reaches and run
+// none of it. The tier "stub" keeps them out of `edge`, so they are not routes; this says which tests hold one, so a
+// signature change still finds them. The callable that writes the stub (a test, a lambda in it, a setUp, a helper the
+// setUp calls) is walked up through the same edges as the closure, and a test is found from it by the same three
+// shapes a route ends in: the test itself, a fixture that runs before the tests of its type, a helper of that type.
+.decl stub_at(q:symbol, x:symbol)
+stub_at(q, x) :- reach(q, c, _), calls(x, c, "stub", _, _).
+// A stub site the engine could not resolve (a Moq lambda whose parameter it did not type) is only a NAME: it leaves
+// seed_byname, so it is no route, and it is not listed here either, since the same name is often another type's method.
+.decl stub_near(q:symbol, a:symbol)
+stub_near(q, x) :- stub_at(q, x).
+stub_near(q, o) :- stub_at(q, x), lex_in(o, x).
+stub_near(q, a) :- stub_near(q, b), edge(a, b, _).
+.decl test_stub(q:symbol, m:symbol)
+test_stub(q, m) :- stub_near(q, m), test_method(m).
+test_stub(q, m) :- stub_near(q, fx), fixture(fx), !test_method(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
+test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f).
+.output test_stub
 
 // ── bound from outside the source ──────────────────────────────────────────────────────────────────────────────
 // A name written in a file the index does not read as source: an XML mapper, a META-INF/services file, a
