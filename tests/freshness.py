@@ -57,7 +57,8 @@ def ts_list(rel, name):
 
 def prune_checks():
     parser = {
-        'java': ts_list('constants/consts.ts', 'EXCLUDED_DIRS'),
+        # the Java walk skips `build` only beside a Gradle build script (isGradleBuildOutput), never by name
+        'java': ts_list('constants/consts.ts', 'EXCLUDED_DIRS') - {'build'},
         'typescript': ts_list('constants/typescript-constants.ts', 'TS_SKIP_DIRECTORIES'),
         'javascript': ts_list('constants/javascript-constants.ts', 'JS_SKIP_DIRECTORIES'),
         'python': ts_list('workflows/python/python-project-analyzer.ts', 'DEFAULT_EXCLUDES'),
@@ -72,13 +73,16 @@ def prune_checks():
             'python': ['app/out/calc.py', 'app/build/calc.py', 'target/t.py', 'coverage/c.py', 'build/lib/gen.py',
                        'build/frontend.py', '.venv/v.py', 'pkg.egg-info/e.py', 'dist/d.py', 'app/ok.py'],
             'java': ['src/main/java/app/coverage/Calc.java', 'src/main/java/app/Ok.java', 'out/O.java', 'target/T.java',
-                     'build/B.java', '.hidden/H.java'],
+                     'build/B.java', '.hidden/H.java', 'src/main/java/app/build/StepBuilder.java',
+                     'mod/build.gradle.kts', 'mod/build/generated/sources/annotationProcessor/java/main/app/Gen.java',
+                     'mod/src/main/java/app/build/Step.java'],
             'csharp': ['src/Shop/build/Calc.cs', 'src/Shop/out/O.cs', 'target/T.cs', 'coverage/C.cs', 'src/Shop/Ok.cs',
                        'src/Shop/obj/G.cs', 'bin/B.cs', 'packages/P.cs'],
         }
         read = {  # what the parser reads (True) or skips (False), by its own lists
             'python': [True, True, True, True, False, True, False, False, False, True],
-            'java': [True, True, False, False, False, False],
+            # a `build` package is read; only a Gradle module's build/ (beside mod/build.gradle.kts, itself watched) is skipped
+            'java': [True, True, False, False, True, False, True, True, False, True],
             'csharp': [True, True, True, True, True, False, False, False],
         }
         for lang, files in tree.items():

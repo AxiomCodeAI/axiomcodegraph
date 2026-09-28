@@ -1,4 +1,4 @@
-cases compared 48   agreeing 48
+cases compared 49   agreeing 49
 CONSTRUCTOR-RULE disagreements: 0 cases, 0 rows
 OTHER disagreements: 0
 rows naming no method: 0

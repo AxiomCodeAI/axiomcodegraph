@@ -51,3 +51,25 @@ export function isGeneratedOutputDirectory(parent: string, name: string): boolea
     || (fs.existsSync(path.join(directory, 'navigation.html'))
       && fs.existsSync(path.join(directory, 'scripts', 'sourceset_dependencies.js')));
 }
+
+/**
+ * The files that make a directory the root of a Gradle project or module. Gradle writes that
+ * project's output (compiled classes, processed resources, and generated sources such as
+ * `build/generated/sources/annotationProcessor/java/main`) into a `build` directory beside them.
+ */
+export const GRADLE_BUILD_FILES = ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'] as const;
+
+/**
+ * Is `parent/name` a Gradle project's output directory, whose `.java` files a build wrote?
+ *
+ * Anchored on its owner, the way `target` is anchored on a `pom.xml` above: a `build` beside a
+ * Gradle build or settings script. `build` is also an ordinary Java package name (builders, build
+ * steps: `src/main/java/app/build/StepBuilder.java`), and pruning every directory of that name
+ * dropped such a package from the graph with no skipped-file row to say so. A `build` inside a
+ * source tree or a package path has no build script beside it, so it is walked.
+ * Used by the Java source walk (java-project-analyzer.ts); the refresher's file table
+ * (ax_fresh.py `gradle_output`) applies the same rule, so freshness and the language count agree.
+ */
+export function isGradleBuildOutput(parent: string, name: string): boolean {
+  return name === 'build' && GRADLE_BUILD_FILES.some((file) => fs.existsSync(path.join(parent, file)));
+}
