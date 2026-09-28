@@ -292,14 +292,15 @@ def named_declarations(g, text):
     return out
 
 
-ROUTE = re.compile(r'(?<![\w.])(/?[A-Za-z0-9_{}:*-]+(?:/[A-Za-z0-9_{}:*.-]+)+/?|/[A-Za-z0-9_{}:-]{2,})(?![\w/])')
+ROUTE = re.compile(r'(?<![\w.])(/?[A-Za-z0-9_{}:*-]+(?:/[A-Za-z0-9_{}:*.-]+)+/?|/[A-Za-z0-9_{}:-]{2,}/?)(?![\w/])')
 FILE_EXT = re.compile(r'\.[A-Za-z0-9]{1,6}$')
 
 
 def _route_parts(r):
     r = (r or '').strip().strip('"\'`').lower()
     r = re.sub(r'^[a-z]+://[^/]+', '', r).split('?')[0]
-    return [('*' if (p.startswith('{') or p.startswith(':') or p == '*') else p) for p in r.strip('/').split('/') if p]
+    # a parameter in any spelling a route table uses: `{id}`, `:id`, `*`, and `<int:pk>` (a Python route converter)
+    return [('*' if (p.startswith('{') or p.startswith(':') or p.startswith('<') or p == '*') else p) for p in r.strip('/').split('/') if p]
 
 
 def _route_eq(a, b):
@@ -321,7 +322,19 @@ def route_seeds(g, text):
     hits = []                                   # (symbol id, route as written)
     def serve(mid, route):
         if mid in g.sym: hits.append((mid, route))
-    for tbl in ('ext_remote_unserved', 'ext_remote_unsent'):
+    # the path a url_dispatch edge says its view is served at: the engine composed it through every include() that
+    # mounts the table, so it is the one source that names the handler of `/api/v1/status/` when no line spells it
+    tables = set()                              # route files whose every literal path the engine already composed
+    if g.has('ext_framework_edge') and g.has('symbols'):
+        for r in g.q("""SELECT s.id AS sid, e.c3 AS path, t.file AS tf FROM ext_framework_edge e
+                        JOIN symbols s ON s.method_id = e.c1 JOIN symbols t ON t.method_id = e.c0
+                        WHERE e.c2 = 'url_dispatch' AND e.c3 LIKE '/%'"""):
+            tables.add(r['tf'])
+            if any(_route_eq(_route_parts(r['path']), a) for a in asked): serve(r['sid'], r['path'])
+    # a route the engine answered is not searched again as text: the literal scan below is the fallback for a route
+    # no edge carries, and on an answered one it only adds the table's module and every literal that spells a suffix
+    asked = [a for a in asked if not any(_route_eq(_route_parts(r), a) for _s, r in hits)]
+    for tbl in ('ext_remote_unserved', 'ext_remote_unsent') if asked else ():
         if g.has(tbl):
             for r in g.q(f"SELECT c0, c2 FROM {tbl}"):
                 if any(_route_eq(_route_parts(r['c2']), a) for a in asked): serve(r['c0'], r['c2'])
@@ -329,10 +342,10 @@ def route_seeds(g, text):
     # A class-level prefix (@RequestMapping("/api") over @GetMapping("/widgets")) is met by accepting a suffix match
     # when the rest of the asked route is itself a literal in the same file.
     lits = []
-    if g.has('decorations'):
+    if asked and g.has('decorations'):
         for r in g.q("SELECT owner_id, text, file, line FROM decorations WHERE text LIKE '%/%' OR text LIKE '%\"%'"):
             for v in re.findall(r'"([^"]*)"', r['text'] or ''): lits.append((v, r['file'], r['line'], r['owner_id']))
-    if g.has('literals'):
+    if asked and g.has('literals'):
         for r in g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40"):
             lits.append(((r['value'] or '').strip('"'), r['file'], r['line'], None))
     by_file = collections.defaultdict(set)
@@ -342,6 +355,9 @@ def route_seeds(g, text):
         if s.get('method_id') and s.get('line') and not (s.get('file') or '').startswith('<'):
             spans[s['file']].append((s['line'], s.get('end_line') or s['line'], sid))
     for v, f, l, owner in lits:
+        # a pattern in a route table the engine read is one segment of a longer served path, not the path itself:
+        # `path("status/", ...)` under `include()` at `api/v1/` is not served at `/status/`
+        if f in tables: continue
         vp = _route_parts(v)
         if not vp or ('/' not in v and not owner): continue       # a bare word in a string is not a route
         ok = any(_route_eq(vp, a) for a in asked) or any(
@@ -349,7 +365,9 @@ def route_seeds(g, text):
         if not ok: continue
         if owner and owner in g.sym: serve(owner, v); continue
         inner = sorted((e - b, sid) for b, e, sid in spans.get(f, ()) if b <= (l or 0) <= e)
-        if inner: serve(inner[0][1], v)
+        # A TEST REQUESTS A ROUTE, IT DOES NOT SERVE ONE. `self.client.get("/api/v1/status/")` puts the literal inside
+        # a test method, and labelling that method "serves the route" sent a reader to the caller instead of the view.
+        if inner and not g.sym[inner[0][1]].get('is_test') and not TESTY.search(f or ''): serve(inner[0][1], v)
     out, seen = [], set()
     for sid, route in hits:
         if sid not in seen: seen.add(sid); out.append((sid, f"serves the route {route.strip()}"))

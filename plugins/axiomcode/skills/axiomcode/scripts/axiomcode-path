@@ -867,9 +867,11 @@ def framework_note(g, ids, writers=()):
         return []
     out = []
     try:
-        regs = [r for r in ax_registration.all_registrations(g.q, g.site_file) if r[0] in ids]
+        every = ax_registration.all_registrations(g.q, g.site_file)
     except Exception:
         return []
+    regs = [r for r in every if r[0] in ids]
+    registered = {r[4] for r in every if r[4]}                 # a key registered verbatim elsewhere wins over a pattern
     keys = {}
     for decl, f, l, kind, key, why in regs[:4]:
         out.append(f"  {g.disp(decl)} is {why} ({f}:{l})")
@@ -887,10 +889,10 @@ def framework_note(g, ids, writers=()):
         hit = []
         for v, f, l in g.q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
             if not isinstance(v, str): continue
-            for key, decl in keys.items():
-                if v == key or ax_registration.route_matches(v, key):
-                    c = at(f, l)
-                    if c in writers: hit.append((g.disp(c), v, key, g.site_file(f) if f else f, l))
+            for key in ax_registration.route_candidates(v, registered):
+                if key not in keys: continue
+                c = at(f, l)
+                if c in writers: hit.append((g.disp(c), v, key, g.site_file(f) if f else f, l))
         for c, v, key, f, l in sorted(set(hit))[:3]:
             out.append(f"  {c} writes \"{v}\" at {f}:{l}, which is the key it is registered under" + (f' ("{key}")' if v != key else '')
                        + " — the framework connects them, no call does")
