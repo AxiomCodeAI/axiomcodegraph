@@ -252,6 +252,11 @@ DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set')
 #     whose sites (the `new Runnable() {…}` itself, or the call a lambda is passed to) spans a site of the anon's own.
 #     The narrowest such site wins, so an anon inside an anon nests under the inner method, not the outer one. An anon
 #     that makes no call has no site to place it by and keeps the stack's answer.
+#   · a front end whose qualified names follow the source's own nesting (JavaScript: `keys.outer.<function-expression>`
+#     is written inside `keys.outer`, `keys.<arrow>` beside it) says outright which callable on a line holds an
+#     anonymous one, with or without a call site: on an equal span it nests only under a callable whose qualified name
+#     its own extends. `function first() {…} const xs = [1].map(function (v) {…});` are siblings (#1598). Java, C# and
+#     TypeScript name a lambda or an anonymous class after its type, not its method, so there the name says nothing.
 # Only these scopes are anonymous. A named constructor or initializer (`<constructor>`, `<primary-constructor>`,
 # `<static-init>`, `<clinit>`, `<classbody>`, `<module>`) is a sibling of the methods written beside it.
 _ANON_SCOPE = re.compile(r'(?:^|\.)<(?:anon[ >]|lambda>|arrow>|function-expression>|locals>)')
@@ -278,14 +283,21 @@ def sites_of(q):
     return sites
 
 
+_LEXICAL_IDS = ('JS_METHOD_',)     # front ends whose qualified name of a callable extends the one it is written in
+
+
 def defines_edges(callables, sites=None):
-    """(definer, defined, 'defines') for callables given as (file, line, end_line, id, display, method_id).
+    """(definer, defined, 'defines') for callables given as (file, line, end_line, id, display, method_id[, qualified_name]).
     `sites(method_ids)` returns (caller_id, line, col, end_line, end_col) for the call sites of those callables; it is
     asked only about lines where more than one callable could have defined an anonymous one."""
-    byfile = {}; mid_of = {}
-    for f, ln, en, i, disp, mid in callables:
+    byfile = {}; mid_of = {}; lex = {}
+    for f, ln, en, i, disp, mid, *qn in callables:
         if not (ln and en) or str(mid or i).startswith('generated:'): continue
         byfile.setdefault(f, []).append((ln, -en, anon_depth(disp), i)); mid_of[i] = mid or i
+        if qn and qn[0] and str(mid or i).startswith(_LEXICAL_IDS): lex[i] = qn[0]
+    def may_hold(c, x):
+        """on an equal span: c may be x's definer unless both names follow the nesting and x's does not extend c's"""
+        return c not in lex or x not in lex or lex[x].startswith(lex[c] + '.')
     parent = {}; groups = []
     for f, rows in byfile.items():
         rows.sort(); st = []
@@ -293,7 +305,10 @@ def defines_edges(callables, sites=None):
             # pop what ends before this one ends (END against END, not against this one's start: the two agree on nested
             # spans and not on overlapping ones), and a sibling: the same span at the same depth
             while st and (st[-1][1] < -neg or (st[-1][0] == ln and st[-1][1] == -neg and st[-1][2] >= d)): st.pop()
-            if st and st[-1][3] != i: parent[f, i] = st[-1][3]
+            # past an equal span the name says it is not written in (kept on the stack: a later one may be)
+            j = len(st) - 1
+            while j >= 0 and st[j][0] == ln and st[j][1] == -neg and not may_hold(st[j][3], i): j -= 1
+            if j >= 0 and st[j][3] != i: parent[f, i] = st[j][3]
             st.append((ln, -neg, d, i))
         # equal spans holding an anonymous callable and more than one other candidate to have written it
         span = {}
