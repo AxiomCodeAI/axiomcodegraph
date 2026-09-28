@@ -191,8 +191,10 @@ constructor), `TYPE_ONLY_TARGET` (the compiler named a JSDoc function type),
 
 ## What is not built
 
-* **JSX component calls do not exist in the IR.** The JavaScript schema has no JSX call
-  kind, so `<Comp/>` is neither a site nor a miss; the oracle counts and excludes them.
+* **JSX components reached through a wrapper are not followed.** `<Comp/>` is an edge
+  (kind `JSX_ELEMENT`, call-edge-generation/jsx.dl) and its attributes are the props the
+  component receives; a tag whose value is `memo(C)`, `connect(…)(C)` or another unstaged
+  library's return stays `ambiguous_unknown`. The oracle still excludes JSX sites.
 * **Primitive results are not typed.** `this.greet().toUpperCase()` is
   `ambiguous_unknown`, not `ambient_terminal`: nothing here knows `greet` returns a
   string.

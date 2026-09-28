@@ -1,0 +1,8 @@
+App.jsx:20:27 FUNCTION_CALL format  EXACT  App.jsx:26:1
+App.jsx:25:30 FUNCTION_CALL div  EXACT  App.jsx:7:1
+App.jsx:26:32 FUNCTION_CALL String  LIB_AMBIENT_OK  
+components/TodoList.jsx:4:40 FUNCTION_CALL save  EXACT  components/TodoList.jsx:9:1
+components/TodoList.jsx:6:15 METHOD_CALL map  LIB_AMBIENT_OK  
+components/ui.jsx:3:43 METHOD_CALL map  LIB_AMBIENT_OK  
+main.jsx:3:1 FUNCTION_CALL mount  EXACT  main.jsx:4:1
+# defects: 0

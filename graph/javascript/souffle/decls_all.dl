@@ -42,6 +42,14 @@
 .decl accessor_target_count(c0:symbol, c1:symbol, c2:number)
 .decl accessor_class(c0:symbol, c1:symbol, c2:symbol)
 
+// ── call-edge-generation/jsx.dl ──
+.decl jsx_element_tag(c0:symbol, c1:symbol)
+.decl jsx_tag_value(c0:symbol, c1:symbol, c2:symbol)
+.decl jsx_renders(c0:symbol, c1:symbol)
+.decl jsx_caller(c0:symbol, c1:symbol)
+.decl jsx_target_count(c0:symbol, c1:number)
+.decl jsx_class(c0:symbol, c1:symbol)
+
 // ── call-edge-generation/calls.dl ──
 .decl method_prov(c0:symbol, c1:symbol)
 .decl client_calls_client(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
