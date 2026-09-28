@@ -80,7 +80,8 @@ def main(argv):
     repo, script, args = os.path.realpath(argv[0]), argv[1], argv[2:]
     gs = graphs(repo)
     if len(gs) == 1:                                    # one language: the verb itself, nothing added
-        os.execv(sys.executable, [sys.executable, os.path.join(H, script)] + args)
+        import ax_exec                                  # never os.execv: on Windows it returns 0 before the answer (#1640)
+        ax_exec.become([sys.executable, os.path.join(H, script)] + args)
     first = main_language(repo)
     with concurrent.futures.ThreadPoolExecutor(len(gs)) as ex:
         res = list(ex.map(lambda g: ask(script, args, *g), gs))

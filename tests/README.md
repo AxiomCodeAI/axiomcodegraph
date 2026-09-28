@@ -56,6 +56,9 @@ One check needs no graph and is its own script:
                                          no rules and no soufflé impact answers from SQL (builds real graphs, needs the engine)
     python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
                                          unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
+    python3 tests/no_exec.py             impact, path and context answer, with their exit status, where os.exec* does not
+                                         replace the process, as on Windows; no script or hook calls os.exec* but
+                                         ax_exec.py (#1640; indexes a case, so it needs the engine)
     python3 tests/multi_language.py      a repository in several languages is indexed in all of them and every query asks
                                          each graph: nothing dropped, a one-graph answer unchanged, an edit reported once,
                                          refreshed, upgraded from a one-language graph (builds real graphs, needs the engine)
