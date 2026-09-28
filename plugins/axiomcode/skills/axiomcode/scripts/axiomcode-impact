@@ -444,6 +444,9 @@ class Impact:
         if '#' in verb:
             hit = self.g.q("SELECT id FROM symbols WHERE (display = ? OR qualified_name = ?) AND method_id IS NOT NULL", verb, verb)
             if hit: return [('method', verb + (f" ({len(hit)} declarations)" if len(hit) > 1 else ''), [x['id'] for x in hit])]
+            # …and a private FIELD (`Vault.#secret`, `#secret`) the same way: rewritten, it asked for `Vault..secret`
+            rows = self.field_rows(verb) if kind in (None, 'field') and re.search(r'(^|\.)#[A-Za-z_$]', verb) else []
+            if rows: return [('field', f"{rows[0]['kind']} {rows[0]['display']}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows)]
         base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
         m0 = re.match(r'^(.+)\.<new>$', base)
