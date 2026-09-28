@@ -93,6 +93,9 @@ BASH = os.environ.get('AXIOMCODE_BASH') or 'bash'
 # refresher to look: a rebuild if a file changed or HEAD moved, otherwise only the time of the check is recorded. An
 # active session updates that time itself, so the timer mostly fires for one that has gone quiet.
 SEEN = set()
+# the flags whose next argument is their value, as the dispatcher skips them when it looks for the repository
+VALUED = {'--in', '--from', '--budget', '--seeds', '--depth', '--limit', '--tests-in', '--kind', '--range', '--old',
+          '--new', '--file', '--page', '--page-budget', '--out'}
 def _timer(interval):
     import time
     while True:
@@ -115,7 +118,9 @@ def run(args, cwd=None, timeout=900):
         return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
                 "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")
     except subprocess.TimeoutExpired:
-        repo = next((a for a in reversed(args[1:]) if os.path.isdir(a)), cwd or os.getcwd())
+        # a flag's value (`--in <dir>`) is not the repository
+        pos = [a for i, a in enumerate(args[1:], 1) if args[i - 1] not in VALUED]
+        repo = next((a for a in reversed(pos) if os.path.isdir(a)), cwd or os.getcwd())
         try:
             sys.path.insert(0, os.path.dirname(AX)); import ax_contract, ax_fresh
             if ax_fresh.building(os.path.realpath(repo)): return ax_contract.building_note(os.path.realpath(repo))
