@@ -1,0 +1,17 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a constructor written on the same line as a method is its sibling, not something the method defines: opening a box does not construct one",
+   "run": ["path", "Users.OpenBox", "Util.X"],
+   "want": ["no chain of resolved calls connects"],
+   "avoid": ["defines"], "expect_error": true},
+  {"why": "nor is a primary constructor defined by the method written beside it",
+   "run": ["path", "Users.CountShelf", "Shelf.<primary-constructor>"],
+   "want": ["no chain of resolved calls connects"],
+   "avoid": ["defines"], "expect_error": true},
+  {"why": "control: the constructor's own caller still reaches what it calls",
+   "run": ["path", "Users.MakeBox", "Util.X"],
+   "want": ["Box.<constructor>", "Util.X"],
+   "avoid": ["defines"]},
+  {"why": "control: a lambda on that line is defined by the method whose call it is passed to",
+   "run": ["path", "Users.CountShelf", "Util.Z"],
+   "want": ["Shelf.Count", "[defines · not a call] Shelf.<lambda>", "Util.Z"]}]}

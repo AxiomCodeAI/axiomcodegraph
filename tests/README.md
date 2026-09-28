@@ -54,6 +54,8 @@ One check needs no graph and is its own script:
                                          the verb and the Python found without starting programs, a first build that reports its
                                          stage instead of holding the call (indexes a small project, so it needs the engine;
                                          --no-engine for the rest)
+    python3 tests/facts_cache.py         path and impact do not answer from edges an older plugin exported: the export's
+                                         stamp carries a version, so an upgrade re-exports (#1402; indexes a case)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

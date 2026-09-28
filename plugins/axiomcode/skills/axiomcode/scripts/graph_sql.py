@@ -470,22 +470,12 @@ def _edges(q):
     # second keeps it, which is not the same set. The id is a hash of the display, so an anonymous class collides
     # across files (`Database.Vendor.<anon TriFunction>.apply` has rows in six), which is why this matters at all.
     one = {}
-    for i, f, ln, en, mid, kind in q("""SELECT id, file, line, end_line, method_id, kind FROM symbols
+    for i, f, ln, en, mid, kind, disp in q("""SELECT id, file, line, end_line, method_id, kind, display FROM symbols
                                         WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
-        one[i] = (f, ln, en, mid, kind)
-    byfile = {}
-    for i, (f, ln, en, mid, kind) in one.items():
-        if mid and kind != 'module' and ln and en:
-            byfile.setdefault(f, []).append((ln, -en, i))
-    # The stack pops on END LINE against the current end line — `while st and st[-1][1] < -neg` — not on the top's
-    # end against the current's START. The two agree on properly nested spans and disagree on overlapping ones,
-    # which is 10 defines edges here and 56 phantom nodes once the closure walks them.
-    for f, rows in byfile.items():
-        rows.sort(); st = []
-        for ln, neg, i in rows:
-            while st and st[-1][1] < -neg: st.pop()
-            if st and st[-1][2] != i: e.append((st[-1][2], i, 'defines'))
-            st.append((ln, -neg, i))
+        one[i] = (f, ln, en, mid, kind, disp)
+    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399)
+    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid) for i, (f, ln, en, mid, kind, disp) in one.items()
+                                if mid and kind != 'module'), ax_edges.sites_of(lambda s, p: q(s, *p)))
     have = {(a, b) for a, b, _ in e}
     # the same narrowing the path tool applies: a candidate whose owner type is never instantiated anywhere is not a
     # dispatch the program can take. Without it the closure gains edges Soufflé never had (25 extra nodes on a
