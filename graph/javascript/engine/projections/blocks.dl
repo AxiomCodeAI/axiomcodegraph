@@ -30,6 +30,11 @@ block_condition("lib", k, c, h) :- lib_js_block(k, _, _, _, _, _, _, c, _, _, _,
 block_child("client", p, k, idx, h) :- js_block(k, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
 block_child("lib", p, k, idx, h) :- lib_js_block(k, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
 
+// ── block_owner(Kind, OwnerMethod, BlockHash) ──────────────────────────────
+// The callable whose body holds the block: a write is conditional when a branching
+// block of its OWN callable contains it (#1706).
+block_owner(k, m, h) :- js_block(k, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, h), m != "".
+
 // ── block_span(Prov, OwnerModule, StartLine, StartCol, EndLine, EndCol, BlockHash) ──
 // A block opens no scope of its own unless it declares something, so the span is
 // the one handle on "the expressions inside this block" (#701).
