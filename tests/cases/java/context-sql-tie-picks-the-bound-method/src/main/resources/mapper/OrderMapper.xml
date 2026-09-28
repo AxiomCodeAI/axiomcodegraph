@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="demo.order.OrderMapper">
+  <select id="findByNumber" resultType="demo.order.Order">select id, ref from orders where ref = #{number}</select>
+</mapper>

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="demo.widget.WidgetMapper">
+  <select id="findByNumber" resultType="demo.widget.Widget">select id from widgets where code = #{number}</select>
+</mapper>
