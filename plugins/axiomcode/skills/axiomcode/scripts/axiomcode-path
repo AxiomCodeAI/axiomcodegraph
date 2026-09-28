@@ -270,6 +270,10 @@ class G:
             r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
             if r:
                 ids = [x['id'] for x in r if x['span'] == r[0]['span']]
+                # a field initializer and what it holds on its one line (`static cfg = make({ run() {…} });`) share the
+                # span; the line names the innermost, the callable written inside the initializer (#1663)
+                sy = lambda i: (self.sym.get(i, {}).get('display'), self.sym.get(i, {}).get('qualified_name'))
+                ids = [j for j in ids if not any(ax_edges.init_holds(*sy(j), *sy(i)) for i in ids if i != j)] or ids
                 # AN ANNOTATION IS NOT THE FUNCTION. `export const f: (a: A) => B = (a) => …` puts a one-line call
                 # signature and the arrow on the same line, and the signature, being shortest, won: `impact file:171`
                 # answered for `<function-type>`. Where every pick is a bodiless signature, the callable that starts
