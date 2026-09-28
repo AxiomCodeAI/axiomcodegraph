@@ -2297,7 +2297,10 @@ def main(argv):
     # (a [test] entry point, a test row) but that the count does not credit -- a runner entry this tool does not
     # collect (a custom test attribute, a script's main), a remote hop the test walk does not take -- made "tests: 0"
     # sit under a [test] row. They are named here, and `next:` counts them as tests to run.
-    test_rows = sorted(({m for m, _ in ent if _is_t(m)} | {c for c, role, why, cert, loc, n in D if _is_t(c) and cert != 'alongside'}) - set(tests),
+    # A test that only stubs it on a mock, or reaches it only through a type it holds as one, is not one of them: it is
+    # the [stubs it] line below, which says it is not counted because a body change cannot fail it.
+    test_rows = sorted(({m for m, _ in ent if _is_t(m)} | {c for c, role, why, cert, loc, n in D if _is_t(c) and cert not in ('alongside', 'stubs it')
+                                                          and not why.startswith('stubs a method of this name')}) - set(tests) - set(stubbed),
                        key=lambda m: (g.disp(m), g.loc(m)))
     if test_rows:
         print(f"    {'and ' if tests else 'but '}{len(test_rows)} callable(s) in test code listed above reach it by a route this count does not credit "

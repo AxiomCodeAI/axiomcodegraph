@@ -20,7 +20,8 @@
     "[fixture]",
     "MoqStubTests::",
     "[by name] 1 test",
-    "[by name] 2 test"
+    "[by name] 2 test",
+    "callable(s) in test code listed above reach it"
    ]
   },
   {
@@ -32,6 +33,9 @@
    ],
    "want": [
     "SnapshotTests::VerifiesASnapshot"
+   ],
+   "avoid": [
+    "callable(s) in test code listed above reach it"
    ]
   },
   {
@@ -55,6 +59,9 @@
    "want": [
     "only stub it on a mock",
     "[resolved] Checkout.Total"
+   ],
+   "avoid": [
+    "callable(s) in test code listed above reach it"
    ]
   }
  ]

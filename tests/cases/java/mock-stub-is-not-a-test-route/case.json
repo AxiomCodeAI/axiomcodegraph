@@ -22,7 +22,8 @@
    "avoid": [
     "[sound] 3",
     "[sound] 4",
-    "[fixture]"
+    "[fixture]",
+    "callable(s) in test code listed above reach it"
    ]
   },
   {
@@ -47,6 +48,9 @@
    "want": [
     "only stub it on a mock",
     "[resolved] Checkout.total"
+   ],
+   "avoid": [
+    "callable(s) in test code listed above reach it"
    ]
   },
   {
