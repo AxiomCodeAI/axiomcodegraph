@@ -30,6 +30,7 @@ each verb:
      reaches B in 11 calls" is false when five of the eleven are containment. `calls_in()` is what
      a hop count is taken from.
 """
+import re
 
 # ── how certain a hop is. Lower is more certain; the reader prefers the lowest at every step. ──────
 TIER_RANK = {
@@ -179,6 +180,92 @@ EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'capped set'}
 # tiers; a summary that names the caller once takes the best of them, which is the honest reading of
 # "at least one resolved call exists here".
 DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set')
+
+
+# ── `defines`: a callable written inside another one's body ────────────────────────────────────────────────
+# Nobody calls a lambda or an anonymous class's method by name, but it runs only after its definer did, so the walk
+# takes the hop. A declaration carries no columns, only a line span, and a span is evidence of containment only when it was
+# WRITTEN and is STRICTLY wider. Two spans that were not:
+#   · a member the engine synthesises (a Lombok accessor or constructor; id `generated:…`) is given its
+#     type's span, so it "contained" every method of the type and each generated
+#     accessor defined every other (#1402). No line declares it, so it defines nothing and nothing defines it.
+#   · two callables on one line have the same span, and the stack used to push the second as the first's child,
+#     in whichever direction their ids sorted (#1399): `modeA() { } modeB() { }`, a one-line record's accessors,
+#     a C# `{ get; set; }` pair. On an equal span the only containment the name can vouch for is an anonymous
+#     callable inside a named one (`Runnable r() { return new Runnable() { public void run() {…} }; }`,
+#     `int f() => xs.Sum(x => x.n);`): it nests under the callable with fewer anonymous scopes in its display.
+#     Two at the same depth are siblings.
+#   · when a line holds more than one candidate definer (`Runnable a() { return new Runnable() {…}; } Runnable b() {…}`,
+#     or an anonymous class inside another's method), the display cannot say which one it sits in: the anon's display
+#     names its type, not its method. The call sites can: they carry columns, and the definer is the callable one of
+#     whose sites (the `new Runnable() {…}` itself, or the call a lambda is passed to) spans a site of the anon's own.
+#     The narrowest such site wins, so an anon inside an anon nests under the inner method, not the outer one. An anon
+#     that makes no call has no site to place it by and keeps the stack's answer.
+# Only these scopes are anonymous. A named constructor or initializer (`<constructor>`, `<primary-constructor>`,
+# `<static-init>`, `<clinit>`, `<classbody>`, `<module>`) is a sibling of the methods written beside it.
+_ANON_SCOPE = re.compile(r'(?:^|\.)<(?:anon[ >]|lambda>|arrow>|function-expression>|locals>)')
+
+
+def anon_depth(display):
+    """how many anonymous scopes (`<anon X>`, `<lambda>`, `<arrow>`, `<function-expression>`, `<locals>`) a callable's
+    display passes through"""
+    return len(_ANON_SCOPE.findall(display or ''))
+
+
+def _within(inner, outer):
+    """a call site's (line, col, end_line, end_col) lies inside another's and is not the same one"""
+    return inner != outer and outer[:2] <= inner[:2] and inner[2:] <= outer[2:]
+
+
+def sites_of(q):
+    """the `sites` argument of defines_edges over a graph: q(sql, params) -> rows"""
+    def sites(ids):
+        for k in range(0, len(ids), 500):
+            part = ids[k:k + 500]
+            yield from q(f"""SELECT caller_id, start_line, start_column, end_line, end_column FROM call_sites
+                             WHERE caller_id IN ({','.join('?' * len(part))})""", tuple(part))
+    return sites
+
+
+def defines_edges(callables, sites=None):
+    """(definer, defined, 'defines') for callables given as (file, line, end_line, id, display, method_id).
+    `sites(method_ids)` returns (caller_id, line, col, end_line, end_col) for the call sites of those callables; it is
+    asked only about lines where more than one callable could have defined an anonymous one."""
+    byfile = {}; mid_of = {}
+    for f, ln, en, i, disp, mid in callables:
+        if not (ln and en) or str(mid or i).startswith('generated:'): continue
+        byfile.setdefault(f, []).append((ln, -en, anon_depth(disp), i)); mid_of[i] = mid or i
+    parent = {}; groups = []
+    for f, rows in byfile.items():
+        rows.sort(); st = []
+        for ln, neg, d, i in rows:
+            # pop what ends before this one ends (END against END, not against this one's start: the two agree on nested
+            # spans and not on overlapping ones), and a sibling: the same span at the same depth
+            while st and (st[-1][1] < -neg or (st[-1][0] == ln and st[-1][1] == -neg and st[-1][2] >= d)): st.pop()
+            if st and st[-1][3] != i: parent[f, i] = st[-1][3]
+            st.append((ln, -neg, d, i))
+        # equal spans holding an anonymous callable and more than one other candidate to have written it
+        span = {}
+        for ln, neg, d, i in rows: span.setdefault((ln, neg), []).append((d, i))
+        for g in span.values():
+            if any(d for d, _ in g) and (len(g) > 2 or all(d for d, _ in g)): groups.append((f, g))
+    if groups and sites:
+        want = {mid_of[i] for _, g in groups for _, i in g}
+        at = {}
+        for c, ln, col, en, ecol in sites(sorted(want)):
+            if None not in (ln, col, en, ecol): at.setdefault(c, []).append((ln, col, en, ecol))
+        for f, g in groups:
+            for d, x in g:
+                if not d: continue
+                best = None                     # the innermost containing site: latest start, then earliest end
+                for _, c in g:
+                    if c == x: continue
+                    for o in at.get(mid_of[c], ()):
+                        if any(_within(s, o) for s in at.get(mid_of[x], ())):
+                            k = (-o[0], -o[1], o[2], o[3])
+                            if best is None or k < best[0]: best = (k, c)
+                if best: parent[f, x] = best[1]
+    return [(p, i, 'defines') for (_, i), p in parent.items()]
 
 
 def best_cert(certs):
