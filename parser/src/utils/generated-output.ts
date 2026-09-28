@@ -31,8 +31,12 @@ import * as path from 'path';
  * Without this, one generated `script.js` made a Maven repository a JavaScript
  * repository too: axiomcode-build counted it, built a second graph from javadoc's
  * own helpers, and every query asked that graph as well.
- * axiomcode-build's language count (ax_fresh.py `webcount`) applies the same
- * rules, so the language it detects is one the parser then finds files for.
+ * Used by the JavaScript and TypeScript walks and detectors, and by the project
+ * scan (project-scanner.ts), which must not register such a directory as a
+ * JavaScript root of its own: a walk never tests its own root. axiomcode-build's
+ * language count and the refresher's file table (ax_fresh.py `generated_output`)
+ * apply the same rules, so the language it detects is one the parser then finds
+ * files for.
  */
 export function isGeneratedOutputDirectory(parent: string, name: string): boolean {
   if (name === 'target' && fs.existsSync(path.join(parent, 'pom.xml'))) {
