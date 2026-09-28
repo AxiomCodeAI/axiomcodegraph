@@ -210,7 +210,112 @@ def decoration_keys(q, site_file=None):
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')
             out.append((owner, sf(f) if f else '', l or 0, kind, key, why))
+    out += _prefixed_routes(q, out, sf)
     return sorted(set(out))
+
+
+# A HANDLER'S ROUTE IS ITS TYPE'S PREFIX AND ITS OWN PATH. `@RequestMapping("/orders/{id}")` on the class and a bare
+# `@GetMapping` on the method serve "/orders/{id}"; `@PostMapping("lines")` beside it serves "/orders/{id}/lines"; a
+# path written without its leading slash (`@RequestMapping("widgets")`) is served from the root all the same. Read one
+# decoration at a time, the prefix registered the CLASS, which no closure walks, and a relative path registered
+# nothing, so a test driving such a handler over HTTP reached nothing: a request test for a class-mapped controller
+# counted 0 tests. A decoration is a mapping when its NAME says so (…Mapping, JAX-RS @Path, a verb, ASP.NET's
+# [Route] / [HttpGet]); a `@Transactional` beside it is not a route. ASP.NET's [controller] and [action] tokens are
+# the type's name without its Controller suffix and the method's name.
+import collections, re
+_MAPPING = re.compile(r'^(\w*Mapping|Path|GET|POST|PUT|DELETE|PATCH|Http(Get|Post|Put|Delete|Patch)|Route)$')
+
+
+def _first_path(text):
+    m = re.search(r'"([^"\s]{0,120})"', (text or '').replace('"""', '"'))
+    return m.group(1) if m else None
+
+
+def _join(a, b):
+    return '/' + '/'.join(x.strip('/') for x in (a, b) if x and x.strip('/'))
+
+
+def _prefixed_routes(q, rows, sf):
+    if not _has(q, 'symbols'):
+        return []
+    seen = {(r[0], r[4]) for r in rows}
+    sym = {i: (d, n, o, bool(t) and not m) for i, d, n, o, t, m in q("SELECT id, display, name, owner, type_id, method_id FROM symbols WHERE display IS NOT NULL")}
+    prefix = collections.defaultdict(set)                      # type display -> the paths its own mapping serves
+    methods = []
+    for owner, name, text, f, l in q("SELECT owner_id, name, text, file, line FROM decorations WHERE owner_id IS NOT NULL"):
+        short = (name or '').split('.')[-1]
+        if not _MAPPING.match(short) or owner not in sym: continue
+        p_ = _first_path(text)
+        d, n, o, is_type = sym[owner]
+        if is_type:
+            if p_: prefix[d].add(p_)
+        else:
+            methods.append((owner, short, p_, f, l))
+    out = []
+    for mid, short, p_, f, l in methods:
+        d, n, o, _t = sym[mid]
+        tname = (o or '').split('.')[-1]
+        for pre in sorted(prefix.get(o) or {''}):
+            key = _join(pre, p_ or '')
+            key = key.replace('[controller]', re.sub(r'Controller$', '', tname).lower()).replace('[action]', (n or '').lower())
+            if key == '/' and not (pre or p_): continue
+            if (mid, key) in seen: continue
+            seen.add((mid, key))
+            out.append((mid, sf(f) if f else '', l or 0, 'route', key,
+                        f'registered as a route "{key}" by @{short}' + (" under its type's prefix" if pre else '') + ' — the router calls it, no call site does'))
+    return out
+
+
+# THE HTTP METHOD A ROUTE ANSWERS, AND THE ONE A TEST SENDS. "/orders" is two handlers when one answers GET and the other
+# POST, and a test that posts an order drives only the second. Joined on the path alone, every test that lists orders
+# reached the handler that creates one, and a path five tests write (one per verb) was refused as a key that
+# identifies nothing. The verb is read where it is written: the handler's decoration (`@GetMapping`, `[HttpPost]`,
+# `@router.put`, `@RequestMapping(method = DELETE)`, JAX-RS `@DELETE` beside `@Path`) and the request call that
+# carries the path literal (`.put("/orders/{id}", id)`, `client.delete(...)`, `DeleteAsync(...)`). Either side unknown
+# joins as before.
+_VERBS = ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
+_VERB_NAME = re.compile(r'^(?:(Get|Post|Put|Delete|Patch)Mapping|Http(Get|Post|Put|Delete|Patch)|(GET|POST|PUT|DELETE|PATCH)|(get|post|put|delete|patch))$')
+
+
+def route_verbs(q, site_file=None):
+    """{(decl, key, VERB)}: the HTTP method each decoration-registered route answers, where a decoration says it."""
+    if not _has(q, 'decorations'):
+        return set()
+    verbs = collections.defaultdict(set)
+    for owner, name, text in q("SELECT owner_id, name, text FROM decorations WHERE owner_id IS NOT NULL"):
+        short = (name or '').split('.')[-1]
+        m = _VERB_NAME.match(short)
+        if m:
+            verbs[owner].add(next(g for g in m.groups() if g).upper())
+        elif _MAPPING.match(short) or short == 'route':
+            for v in re.findall(r'\b(GET|POST|PUT|DELETE|PATCH)\b', text or ''): verbs[owner].add(v)
+    out = set()
+    for decl, _f, _l, kind, key, _w in decoration_keys(q, site_file):
+        if kind == 'route':
+            for v in verbs.get(decl, ()): out.add((decl, key, v))
+    return out
+
+
+def literal_verbs(q, at, site_file=None):
+    """{(caller, literal, VERB)}: a path literal written as the argument of a request call named for one HTTP method —
+    the innermost such call whose span holds the literal's line."""
+    if not (_has(q, 'literals') and _has(q, 'call_sites')):
+        return set()
+    sf = site_file or (lambda x: x)
+    calls = collections.defaultdict(list)
+    for n, f, a, b in q("SELECT callee_name, file_path, start_line, end_line FROM call_sites WHERE callee_name IS NOT NULL AND start_line > 0"):
+        short = re.sub(r'Async$', '', (n or '').split('.')[-1].split('<')[0]).upper()
+        if short in _VERBS: calls[sf(f) if f else ''].append((a, b or a, short))
+    out = set()
+    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        if not (isinstance(v, str) and v.startswith('/')): continue
+        f2 = sf(f) if f else ''
+        hold = [(b - a, -a, verb) for a, b, verb in calls.get(f2, ()) if a <= l <= b]
+        if not hold: continue
+        verb = min(hold)[2]
+        c = at(f, l)
+        if c: out.add((c, v, verb))
+    return out
 
 
 # ── a registration written as a CALL that no verb list knows ─────────────────────────────────────────────────

@@ -331,10 +331,14 @@ route_site(f, l) :- registration(_, f, l, "route", _, _).
 // fast path reads the same one, so the rules and the fast path cannot disagree about a tier — which
 // is how the two copies of the binary test drifted apart from the rest of the vocabulary to begin with.
 .decl cert_tier(tier:symbol, cert:symbol, why:symbol)             .input cert_tier
-direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", cert_tier(t, cert, why), !bean_call(q, c, m), !route_site(f, l).
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", t != "stub", cert_tier(t, cert, why), !bean_call(q, c, m), !route_site(f, l).
+// A call written inside a mock's stub or verification (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`): the exporter
+// gives it the tier "stub" (ax_edges.stub_sites). It names the method, so a rename or a new parameter breaks it, and it
+// runs nothing: the receiver is a mock. Its own row, whatever else the caller does; it is not an edge of the closure.
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, "stub", f, l), cert_tier("stub", cert, why).
 // a registration names the row: the edge is the engine's, the sentence is the registration's, and the
 // certainty stays the tier's — a route handed over as a value is still handed over as a value.
-direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", cert_tier(t, cert, _), !bean_call(q, c, m), registration(_, f, l, "route", _, why).
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", t != "stub", cert_tier(t, cert, _), !bean_call(q, c, m), registration(_, f, l, "route", _, why).
 // A call INTO a method of a container-managed bean. Whether the container's proxy is on the path decides whether a
 // behavioural annotation added to the method (a transaction, a cache, an async dispatch, a retry, an authorization
 // check) reaches this caller at all: a call from inside the bean goes through `this` and never through the proxy.
@@ -342,24 +346,25 @@ direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, 
 .decl bean_call(q:symbol, c:symbol, m:symbol)
 // Not for an event either: the event system invokes a listener on the container's bean, so the proxy IS on that
 // path, and "an instance it obtained itself" would be false (#1391). It keeps its tier's own row above.
-bean_call(q, c, m) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), calls(c, m, t, _, _), t != "multi_inferred", t != "event_dispatch".
+bean_call(q, c, m) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), calls(c, m, t, _, _), t != "multi_inferred", t != "event_dispatch", t != "stub".
 // the type that the container hands the bean to: a field injection names the type, a constructor or setter names the method
 .decl receives_bean(t:symbol, into:symbol)
 receives_bean(t, into) :- injected(t, into, _), typ(into, _, _).
 receives_bean(t, into) :- injected(t, x, _), owner(x, into).
 direct(q, c, "uses", "calls it from inside the same bean — through this, not through the container proxy, so an added proxied annotation does NOT apply to this caller", "resolved", f, l) :-
-    bean_call(q, c, m), owner(m, ot), owner(c, ot), calls(c, m, _, f, l).
+    bean_call(q, c, m), owner(m, ot), owner(c, ot), calls(c, m, t, f, l), t != "stub".
 direct(q, c, "uses", "calls it on the injected bean — the container proxy is on the path, so an added proxied annotation applies here", "resolved", f, l) :-
-    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, receives_bean(ot, cot), calls(c, m, _, f, l).
+    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, receives_bean(ot, cot), calls(c, m, t, f, l), t != "stub".
 direct(q, c, "uses", "calls it on an instance it obtained itself, not from the container — no proxy on the path, so an added proxied annotation does not apply here", "resolved", f, l) :-
-    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, !receives_bean(ot, cot), calls(c, m, _, f, l).
+    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, !receives_bean(ot, cot), calls(c, m, t, f, l), t != "stub".
 direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
 // `!is_target_decl`: `this.rows.find(...)` inside `OrdersService.find` is the ARRAY's find, and with the receiver
 // untyped it matched the target by name — printing the declaration as a reader of itself. Worse, that row made the
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
 // reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
 // one self-match. A recursive call needs no row either — the body is what is changing.
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", !is_target_decl(q, c).
+direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
 
 // ── a method handed over as a VALUE, never called where it is named ──────────────────────────────────────────
 // `app.get('/orders/:id', getOrder)`, `useEffect(load)`, `items.map(format)`, `handlers = {"x": handle_x}`: the
@@ -643,7 +648,7 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
-seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, _, _, _), !seed(q, c).
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", !seed(q, c).
 // and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
 // a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
 // registered"), and the closure stopped there: the answer named the callable that hands it over and then said the
@@ -739,10 +744,33 @@ key_use_fan(k, n) :- key_written(_, k), n = count : { key_written(_, k) }.
 key_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
 key_capped(k) :- key_use_fan(k, n), key_use_cap(c), n > c.
 .output key_capped
-.decl fw_edge(a:symbol, b:symbol, how:symbol)
-fw_edge(a, b, "by key") :- literal(a, k, _, _), reg_key(b, _, k), a != b, !key_capped(k).
+// THE HTTP METHOD, where both sides name one (ax_registration.route_verbs / literal_verbs): a test that POSTs "/orders"
+// drives the handler that answers POST, not the one beside it that answers GET. A side that names none joins as before.
+// The writer cap is counted per registration over the writers whose method fits it, so a path five tests write, one
+// verb each, is not refused on behalf of a handler only two of them can reach; a key with no verb anywhere counts
+// exactly as before.
+//   reg_verb(b, k, v)                 route k registered by b answers the HTTP method v
+//   lit_verb(a, k, v)                 a writes the path k as the argument of a request call for the method v
+.decl reg_verb(b:symbol, k:symbol, v:symbol)                      .input reg_verb
+.decl lit_verb(a:symbol, k:symbol, v:symbol)                      .input lit_verb
+.decl key_join(a:symbol, b:symbol, k:symbol, w:symbol)
+key_join(a, b, k, k) :- literal(a, k, _, _), reg_key(b, _, k), a != b.
 // the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
-fw_edge(a, b, "by key") :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b, !key_capped(r).
+key_join(a, b, r, w) :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b.
+.decl verb_fits(a:symbol, b:symbol, k:symbol, w:symbol)
+verb_fits(a, b, k, w) :- key_join(a, b, k, w), !reg_verb(b, k, _).
+verb_fits(a, b, k, w) :- key_join(a, b, k, w), !lit_verb(a, w, _).
+verb_fits(a, b, k, w) :- key_join(a, b, k, w), lit_verb(a, w, v), reg_verb(b, k, v).
+.decl reg_capped(k:symbol)
+reg_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
+// the writers of the key as registered (an alias spelling is not counted, as before). A helper relation, not
+// `count : { verb_fits(_, b, k, k) }`: Soufflé 2.5 counts an aggregate atom with a repeated variable as 1.
+.decl exact_fit(a:symbol, b:symbol, k:symbol)
+exact_fit(a, b, k) :- verb_fits(a, b, k, k).
+.decl use_fan_for(b:symbol, k:symbol, n:number)
+use_fan_for(b, k, n) :- reg_key(b, _, k), n = count : { exact_fit(_, b, k) }.
+.decl fw_edge(a:symbol, b:symbol, how:symbol)
+fw_edge(a, b, "by key") :- verb_fits(a, b, k, _), !reg_capped(k), use_fan_for(b, k, n), key_use_cap(c), n <= c.
 // a decorator that REBINDS THE NAME: `@audited def summarise` leaves `summarise` denoting the wrapper, so every
 // caller written with that name runs the wrapper. This one is the engine's own resolution, not a name match.
 fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b.
@@ -896,6 +924,26 @@ inherited_test(q, s, m, d) :- test_hit(q, m, d, _), owner(m, t), extends(s, t), 
 test_near(q, m, d) :- test_hit(q, m, d, _), d = min x : test_hit(q, m, x, _).
 .output test_near
 .output test_hit
+
+// ── a test that only STUBS the change: named, and never counted as running it ─────────────────────────────────
+// `when(repo.find(1))`, `verify(repo).save(x)`, `mock.Setup(r => r.Find(1))` name a method the closure reaches and run
+// none of it. The tier "stub" keeps them out of `edge`, so they are not routes; this says which tests hold one, so a
+// signature change still finds them. The callable that writes the stub (a test, a lambda in it, a setUp, a helper the
+// setUp calls) is walked up through the same edges as the closure, and a test is found from it by the same three
+// shapes a route ends in: the test itself, a fixture that runs before the tests of its type, a helper of that type.
+.decl stub_at(q:symbol, x:symbol)
+stub_at(q, x) :- reach(q, c, _), calls(x, c, "stub", _, _).
+// A stub site the engine could not resolve (a Moq lambda whose parameter it did not type) is only a NAME: it leaves
+// seed_byname, so it is no route, and it is not listed here either, since the same name is often another type's method.
+.decl stub_near(q:symbol, a:symbol)
+stub_near(q, x) :- stub_at(q, x).
+stub_near(q, o) :- stub_at(q, x), lex_in(o, x).
+stub_near(q, a) :- stub_near(q, b), edge(a, b, _).
+.decl test_stub(q:symbol, m:symbol)
+test_stub(q, m) :- stub_near(q, m), test_method(m).
+test_stub(q, m) :- stub_near(q, fx), fixture(fx), !test_method(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
+test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f).
+.output test_stub
 
 // ── bound from outside the source ──────────────────────────────────────────────────────────────────────────────
 // A name written in a file the index does not read as source: an XML mapper, a META-INF/services file, a

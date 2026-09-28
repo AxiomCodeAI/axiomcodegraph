@@ -30,7 +30,7 @@ each verb:
      reaches B in 11 calls" is false when five of the eleven are containment. `calls_in()` is what
      a hop count is taken from.
 """
-import re
+import collections, re
 
 # ── how certain a hop is. Lower is more certain; the reader prefers the lowest at every step. ──────
 TIER_RANK = {
@@ -56,6 +56,7 @@ TIER_RANK = {
     'ambiguous_dynamic': 8,     # a call through C# `dynamic`: undecidable from source by design
     'ambiguous_unknown': 8,
     'by-name': 9,               # not resolved at all: the names simply match
+    'stub': 9,                  # written inside a mock's stub or verification: named, never run (stub_sites)
 }
 UNRANKED = 10                   # an engine tier this table has not been taught — least certain, never silent
 
@@ -82,6 +83,7 @@ TIER_NOTE = {
     'fan_capped':           'the candidate set was too large to enumerate — a sample, not the set',
     'written':              'the call is written at that line',
     'by-name':              'unresolved — the names match and nothing more',
+    'stub':                 'written inside a mock\'s stub or verification; the real method does not run there',
 }
 
 # ── what the hop IS, in one word that means the same thing in every language ───────────────────────
@@ -160,6 +162,7 @@ DIRECT_CERT = {
     'callback_registered': 'registered', 'event_dispatch': 'registered',
     'ambient_terminal': 'registered', 'dynamic_terminal': 'registered', 'intrinsic_terminal': 'registered',
     'fan_capped': 'capped set',
+    'stub': 'stubs it',             # a call inside a mock's stub or verification (stub_sites below): named, never run
 }
 DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and this table cannot name — never `resolved`
 
@@ -167,6 +170,7 @@ DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and
 DIRECT_WHY = {
     'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
     'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
+    'stubs it': 'stubs it on a mock: the real method does not run there, and the test breaks only if the name or parameters change',
 }
 # …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
 # value (a JavaScript callback's wording): the dependent sends it, and a framework runs the handler for what is sent.
@@ -225,12 +229,12 @@ def entry_outside(reason):
 # instead: the membership is exactly what it was before this table existed, so no row leaves any
 # set — only the label it is printed under changes. It matters most for the --delete verdict, where
 # dropping a hand-off would turn "something still holds this" into "safe to delete".
-EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'capped set'})
+EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'capped set', 'stubs it'})
 
 # most certain first. A caller with several call sites to the same callee can hold sites of different
 # tiers; a summary that names the caller once takes the best of them, which is the honest reading of
 # "at least one resolved call exists here".
-DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set')
+DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set', 'stubs it')
 
 
 # ── `defines`: a callable written inside another one's body ────────────────────────────────────────────────
@@ -317,6 +321,140 @@ def defines_edges(callables, sites=None):
                             if best is None or k < best[0]: best = (k, c)
                 if best: parent[f, x] = best[1]
     return [(p, i, 'defines') for (_, i), p in parent.items()]
+
+
+# ── a STUB SITE: a call written inside a mocking library's stub or verification ─────────────────────────────
+# `when(repo.find(id)).thenReturn(x)`, `verify(repo).save(x)`, `mock.Setup(r => r.Find(id))`,
+# `sub.Received().Save(x)`, `sub.Find(id).Returns(x)`. The engine resolves `repo.find` to the declared method, which
+# is right about the NAME (a rename or a new parameter breaks the test) and wrong about EXECUTION: the receiver is a
+# mock, so the real body never runs there. Walked as a call, every stub was a `[sound]` route from the test to the
+# real method, and "which tests run this body" was answered with the tests that replace it. Measured on a Spring REST
+# project: all 8 tests named for a service method stubbed it on a @MockBean, and none of them ran it.
+#
+# A site is a stub site by its POSITION against the wrapper's own call site (the parser records both spans), never by
+# its own name, and only when the wrapper did NOT resolve to a client declaration: a project method called `when` or
+# `Setup` is not the library's. Three shapes, one knob table per language:
+#   arg     the stubbed call is the wrapper's ARGUMENT, the outermost call in it: `when(x.m(a()))` marks m and not a(),
+#           which runs for real to build the stub's argument; `mock.Setup(x => x.M())` marks M
+#   prefix  the wrapper's RESULT is the stubbed call's receiver: `verify(x).m()`, `sub.Received(1).M()`. Mockito's
+#           `doReturn(v).when(x).m()` is this shape too, and `when` counts here only behind a do* call, because an HTTP
+#           test DSL writes a request as `given().when().get("/orders")` and that `get` is the request, not a stub
+#   recv    the stubbed call is the wrapper's RECEIVER: NSubstitute's `sub.M(a).Returns(v)`
+# Python has no row on purpose: unittest.mock replaces an attribute by STRING (`patch("pkg.mod.f")`,
+# `patch.object(C, "m")`) and a MagicMock receiver is untyped, so no call on a mock resolves to a client method.
+STUB_WRAPPERS = {
+    'java': {
+        'arg': {'when', 'given'},                                          # Mockito.when, BDDMockito.given
+        'prefix': {'verify', 'should'},                                    # verify(x).m(), then(x).should().m()
+        'prefix_after_do': {'when'},                                       # doReturn(v).when(x).m()
+        'recv': set(),
+        'lambda_arg': False,
+    },
+    'csharp': {
+        # Moq's mock.Setup(x => x.M()), FakeItEasy's A.CallTo(() => f.M()). The stubbed call is written in a LAMBDA
+        # (lambda_arg below): a snapshot library's `Verify(await svc.Get())` runs Get for real, and a BDD runner's
+        # `.When(x => GetOrders())` runs its lambda, so `When` is not in the table at all
+        'arg': {'Setup', 'SetupGet', 'SetupSet', 'SetupSequence', 'SetupProperty', 'Verify', 'VerifyGet', 'VerifySet',
+                'CallTo', 'CallToSet'},
+        'lambda_arg': True,
+        'prefix': {'Received', 'DidNotReceive', 'ReceivedWithAnyArgs', 'DidNotReceiveWithAnyArgs'},   # NSubstitute
+        'prefix_after_do': set(),
+        'recv': {'Returns', 'ReturnsForAnyArgs', 'ReturnsNull', 'ReturnsNullForAnyArgs', 'Throws', 'ThrowsAsync',
+                 'ThrowsForAnyArgs', 'ThrowsAsyncForAnyArgs'},                                        # NSubstitute
+    },
+}
+STUB_DO = {'doReturn', 'doThrow', 'doNothing', 'doAnswer', 'doCallRealMethod'}
+STUB_LANG = {'java': 'java', 'kt': 'java', 'groovy': 'java', 'cs': 'csharp'}
+STUB_TIER = 'stub'
+
+
+def _short(name):
+    """a call site's callee as written, reduced to its simple name: `Mockito.when` -> when, `Substitute.For<T>` -> For"""
+    n = re.sub(r'<.*$', '', (name or '').replace('()', '')).strip()
+    return n.rsplit('.', 1)[-1]
+
+
+def _stub_lang(f):
+    return STUB_LANG.get((f or '').rsplit('.', 1)[-1]) if '.' in (f or '') else None
+
+
+def stub_sites(q):
+    """the ids of the call sites written inside a mocking library's stub or verification (STUB_WRAPPERS above).
+    q(sql, params) -> rows. Only the files holding a wrapper-named call site are read."""
+    names = {n for lang in STUB_WRAPPERS.values() for k in ('arg', 'prefix', 'prefix_after_do', 'recv') for n in lang[k]}
+    files = sorted({f for f, n in q("SELECT DISTINCT file_path, callee_name FROM call_sites WHERE callee_name IS NOT NULL", ())
+                    if _stub_lang(f) and _short(n) in names})
+    out = set()
+    for f in files:
+        lang = STUB_WRAPPERS[_stub_lang(f)]
+        rows = [(r[0], _short(r[1]), (r[2], r[3], r[4], r[5]), bool(r[6]), bool(r[7])) for r in q(
+            """SELECT s.id, s.callee_name, s.start_line, s.start_column, s.end_line, s.end_column,
+                      EXISTS (SELECT 1 FROM call_edges e WHERE e.call_site_id = s.id AND e.callee_provenance = 'client'
+                              AND e.callee_method_id IS NOT NULL),
+                      EXISTS (SELECT 1 FROM symbols y WHERE y.id = s.caller_id AND y.display LIKE '%<lambda>%')
+               FROM call_sites s WHERE s.file_path = ?""", (f,)) if None not in r[2:6]]
+        spans = [(i, sp) for i, _, sp, _, _ in rows]
+        in_lambda = {i for i, _, _, _, lam in rows if lam}
+        wraps = [(n, sp) for _, n, sp, client, _ in rows if not client]      # the LIBRARY's wrapper, never a project method
+        def outermost(cands):               # the candidates no other candidate encloses
+            return {i for i, sp in cands if not any(_within(sp, o) for _, o in cands)}
+        def nearest(cands):                 # the candidates enclosing no other candidate
+            return {i for i, sp in cands if not any(_within(o, sp) for _, o in cands)}
+        for n, w in wraps:
+            if n in lang['arg']:
+                # inside the wrapper's span and NOT inside its receiver chain, which starts where the wrapper starts:
+                # `given().body(new HashMap<>() {…}).when().put("/orders/1")` holds the HashMap inside `when`'s span, as
+                # the receiver's argument, not as when's
+                recv = [sp for _, sp in spans if _within(sp, w) and sp[:2] == w[:2]]
+                out |= outermost([(i, sp) for i, sp in spans if _within(sp, w) and sp[:2] > w[:2]
+                                  and not any(sp == r or _within(sp, r) for r in recv)
+                                  and (i in in_lambda or not lang['lambda_arg'])])
+            if n in lang['prefix'] or (n in lang['prefix_after_do'] and
+                                       any(x in STUB_DO and _within(sp, w) and sp[:2] == w[:2] for x, sp in wraps)):
+                out |= nearest([(i, sp) for i, sp in spans if _within(w, sp) and sp[:2] == w[:2]])
+            if n in lang['recv']:
+                out |= outermost([(i, sp) for i, sp in spans if _within(sp, w) and sp[:2] == w[:2]])
+    return out
+
+
+# ── a MOCKED TYPE: a test class that holds a mock of T never runs T's methods ────────────────────────────────────
+# `@MockBean OrderService orders` in a web test replaces the bean the controller is handed, so a request the test sends
+# reaches the controller and stops at the mock: a change to OrderService's body cannot fail that test, however the
+# route to it is drawn. Read off the test class's FIELDS (and those of the classes it extends): a mock-making
+# annotation on the field, a Moq `Mock<T>` field type, or a mock factory written in the field's initializer. A spy
+# (@Spy, @SpyBean, Substitute.ForPartsOf) runs the real methods and is not a mock here; neither is @InjectMocks, the
+# object under test. A mock held in a LOCAL is not read (no fact records a local's initializer), so a test that builds
+# its mocks inside the method keeps its routes.
+MOCK_FIELD_DECOR = {'Mock', 'MockBean', 'MockitoBean'}
+MOCK_FACTORY = {'mock', 'For', 'Fake'}                     # Mockito.mock(T.class), Substitute.For<T>(), A.Fake<T>()
+_MOCK_GENERIC = re.compile(r'^(?:\w+\.)*Mock<\s*([\w.]+)')
+
+
+def _simple_type(t):
+    return re.sub(r'<.*$', '', (t or '').strip()).split('.')[-1]
+
+
+def mocked_types(q, line_of=None):
+    """{test type simple name: {mocked type simple name}} from the fields a test class declares. q(sql, params);
+    line_of(file, line) -> the source line, read only where the parser kept `Mock` and dropped its type argument (C#)."""
+    try:
+        fields = q("SELECT id, type_name, owner_qualified_name, file_path, start_line FROM fields WHERE owner_qualified_name IS NOT NULL", ())
+    except Exception:
+        return {}
+    dec = collections.defaultdict(set)
+    for oid, name in q("SELECT owner_id, name FROM decorations WHERE owner_id IS NOT NULL", ()):
+        dec[oid].add((name or '').split('.')[-1])
+    fac = collections.defaultdict(set)
+    for f, l, n in q("SELECT file_path, start_line, callee_name FROM call_sites WHERE callee_name IS NOT NULL", ()):
+        if _short(n) in MOCK_FACTORY: fac[(f, l)].add(_short(n))
+    out = collections.defaultdict(set)
+    for fid, tn, owner, f, l in fields:
+        m = _MOCK_GENERIC.match(tn or '')
+        if not m and _simple_type(tn) == 'Mock' and line_of and f and l:
+            m = re.search(r'\bMock<\s*([\w.]+)', line_of(f, l) or '')
+        t = m.group(1).split('.')[-1] if m else (_simple_type(tn) if (dec.get(fid, set()) & MOCK_FIELD_DECOR or fac.get((f, l))) else None)
+        if t: out[owner.split('.')[-1]].add(t)
+    return dict(out)
 
 
 def best_cert(certs):

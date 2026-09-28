@@ -1,0 +1,13 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a handler's route is its type's @RequestMapping prefix and its own mapping, and it is joined only to the requests that send its HTTP method: the three GETs of /orders drive list, the two POSTs do not",
+   "run": ["impact", "OrdersController.list", "--tests"],
+   "want": ["tests: 3 of 6 test method(s)", "OrdersListTest::listsOrders", "[by key]"],
+   "avoid": ["OrdersCreateTest"]},
+  {"why": "near miss: the same path under the other verb reaches the other handler, and five tests writing one path are not refused as a key that identifies nothing, since each handler is written by fewer than the cap",
+   "run": ["impact", "OrdersController.create", "--tests"],
+   "want": ["tests: 2 of 6 test method(s)", "OrdersCreateTest::createsAnOrder", "OrdersCreateTest::rejectsAnEmptyOrder"],
+   "avoid": ["OrdersListTest", "OrdersCreateTest::addsALine"]},
+  {"why": "a relative method path joins the type's prefix: @PostMapping(\"lines\") under /orders serves /orders/lines",
+   "run": ["impact", "OrdersController.addLine", "--tests"],
+   "want": ["tests: 1 of 6", "OrdersCreateTest::addsALine"]}]}

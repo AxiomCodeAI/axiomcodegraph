@@ -112,8 +112,10 @@ def ckey(k):
 # and it is not a call to the declaration at all, so it cannot outrank a target set.
 # `framework` (#1509) sits directly below `remote` for the same reason: the engine joined both ends on the
 # framework's own registration, so it outranks every name match, and it is not a call to the declaration.
+# `stubs it` (a call inside a mock's stub or verification) is the engine's resolution, so it outranks every name match,
+# and runs nothing, so it sits below every hop that does: a rename breaks it, a body change never does.
 CERT = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'remote': 4, 'framework': 5,
-        'in scope': 6, 'by name': 7, 'text': 8, 'alongside': 9}
+        'stubs it': 6, 'in scope': 7, 'by name': 8, 'text': 9, 'alongside': 10}
 def also_text(whys, shown=2):
     """the other reasons a row's callable has, said on the same line: `; also: <reason>` (one row per dependent)"""
     if not whys: return ''
@@ -696,7 +698,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '32'          # 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '33'          # 33: calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -871,12 +873,16 @@ class Impact:
         # on cert_tier, and a tier with no row would drop its dependents out of the answer entirely rather
         # than mislabel them, which is the worse of the two failures. ax_edges.direct_cert has the default.
         W('cert_tier', sorted({(t, ax_edges.direct_cert(t), ax_edges.direct_why(t))
-                               for (t,) in g.q("SELECT DISTINCT tier FROM call_edges")}))
-        W('calls', [(r['caller_id'], r['callee_method_id'], r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
-                    for r in g.q("SELECT e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
+                               for t in {r[0] for r in g.q("SELECT DISTINCT tier FROM call_edges")} | {ax_edges.STUB_TIER}}))
+        # a call written inside a mock's stub or verification keeps its row and loses its tier: "stub" (ax_edges.stub_sites)
+        stubs = ax_edges.stub_sites(lambda s, p: g.q(s, *p)) if g.has('call_sites') else set()
+        W('calls', [(r['caller_id'], r['callee_method_id'], ax_edges.STUB_TIER if r['call_site_id'] in stubs else r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
+                    for r in g.q("SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
         CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')
-        W('unresolved', [(r['caller_id'], (r['callee_name'] or '').split('.')[-1], 'new' if r['kind'] in CTOR else 'method', g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
-                         for r in g.q("SELECT s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
+        # an unresolved site inside a mock's stub or verification (a Moq lambda whose parameter the engine did not type)
+        # is the kind "stub": still a name match for the rows, never a by-name seed of the closure
+        W('unresolved', [(r['caller_id'], (r['callee_name'] or '').split('.')[-1], 'new' if r['kind'] in CTOR else ax_edges.STUB_TIER if r['id'] in stubs else 'method', g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
+                         for r in g.q("SELECT s.id, s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
         # a call site with a name that the engine did NOT bind to a client declaration: unresolved, or sent to a library
         # because the callee is generated (a dataclass constructor is a call to the class itself). The generated-member
         # rules look here, so a generated accessor or constructor is found whichever way the engine classified the site
@@ -944,6 +950,9 @@ class Impact:
                                             + ax_registration.registrations(g.q, g.site_file)):
             if rd in g.sym and key: regk.append((rd, kind, key))
         W('reg_key_fact', sorted(set(regk)))
+        # the HTTP method each side names, where it names one (ax_registration.route_verbs / literal_verbs)
+        W('reg_verb', sorted(x for x in ax_registration.route_verbs(g.q, g.site_file) if x[0] in g.sym))
+        W('lit_verb', sorted(ax_registration.literal_verbs(g.q, self.at, g.site_file)))
         # THE NAME A DECORATOR REBINDS. `@audited def summarise(...)` leaves the name `summarise` denoting what
         # `audited(summarise)` RETURNED — the wrapper — and the engine resolves that (ext_decorated_name_target).
         # Every caller written `summarise(...)` therefore runs the wrapper, and a change to the wrapper reaches
@@ -1406,7 +1415,7 @@ class Impact:
             prof('query facts written'); r = subprocess.run(prog + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
             if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
             out = {}
-            for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired', 'caller_handles', 'caller_unhandled', 'target_throws'):
+            for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired', 'caller_handles', 'caller_unhandled', 'target_throws'):
                 rows = []
                 for l in open(os.path.join(O, n + '.csv')):
                     p = l.rstrip('\n').split('\t')
@@ -1777,6 +1786,10 @@ def main(argv):
     inh = {}
     for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
         if m in tests and int(d) <= depth and s_ in g.sym: inh.setdefault(s_, []).append(m)
+    # a test that only STUBS the change on a mock (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`): it names the
+    # declaration, so a rename or a new parameter breaks it, and never runs it, so it is not a route and not counted
+    stubbed = sorted({x[0] for x in res.get('test_stub', []) if x[0] in g.sym and x[0] not in tests},
+                     key=lambda m: (g.sym[m]['file'] or '', g.sym[m]['display'] or '', m))
     byname_seeds = {x[0] for x in res['seed_byname'] if x[0] in g.sym}
     # the callers on an untyped receiver are SAMPLED in the text answer, so their order decides which are shown. Symbol
     # ids are not stable between two builds of the same tree, so ordering by id showed a different sample each build:
@@ -1788,13 +1801,51 @@ def main(argv):
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
     # an `alongside` row is not a place the change is observed from: it must stay out of the entry points, as it stays out
     # of the seeds — a reader is promised that an entry point reaches the change (#762)
-    direct_ids = {c for c, role, why, cert, loc, n in D if cert != 'alongside'} | {c for c, _ in contract}
+    # …nor is a stub on a mock: it names the declaration and runs none of it
+    direct_ids = {c for c, role, why, cert, loc, n in D if cert != 'alongside' and cert != 'stubs it'
+                  and not why.startswith('stubs a method of this name')} | {c for c, _ in contract}
     direct_ids = {c for c in direct_ids if c in g.sym}
     ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
     inside = list({*reached, *seeds, *direct_ids})               # the direct rows are not in seed for a method target
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
     chains = {m: I.chain(m, parent) for m in tests}
+    # A TEST THAT HOLDS A MOCK OF A TYPE ON ITS ROUTE never runs that type's methods (ax_edges.mocked_types): a web test
+    # with `@MockBean OrderService` reaches the controller over HTTP and stops at the mock, so a route through
+    # OrderService is not a route, whatever its rung. Read off the route the answer prints (the nearest one); the test
+    # moves to the stub listing, named for the type it mocks.
+    mock_via = {}
+    if tests:
+        def _line_of(f, l):
+            try: return I.lines(g.site_file(f))[l - 1]
+            except Exception: return ''
+        mocks = ax_edges.mocked_types(lambda s_, p_: g.q(s_, *p_), _line_of)
+        if mocks:
+            tsimple = {r['type_id']: (r['display'] or '').split('.')[-1] for r in g.q("SELECT type_id, display FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
+            anc = collections.defaultdict(set)
+            for r in g.q("SELECT type_id, ancestor_type_id FROM type_ancestors") if g.has('type_ancestors') else []:
+                if r[0] in tsimple and r[1] in tsimple: anc[tsimple[r[0]]].add(tsimple[r[1]])
+            up_names = lambda n: {n} | anc.get(n, set())
+            for m in list(tests):
+                own = (g.sym[m]['owner'] or '').split('.')[-1]
+                held = set().union(*(mocks.get(x, set()) for x in up_names(own)))
+                if not held: continue
+                via = tests[m][1]
+                ch = (chains.get(m) or []) if not via else [m] + I.chain(via, parent)
+                # the hop's OWN type, or a supertype of it only where the hop is a dispatch choice (the caller's call was
+                # resolved to the mocked interface, and the implementation is one of its candidates). A real CachingStore
+                # wrapping a mocked IStore implements that interface too, and a test that calls the real one
+                # directly reaches it through a resolved call, which is not through the mock.
+                for a_, n in zip(ch, ch[1:]):
+                    ow = ((g.sym.get(n) or {}).get('owner') or '').split('.')[-1]
+                    if not ow: continue
+                    ts = {t for x, t in parent.get(a_, ()) if x == n}
+                    hit = ({ow} | (anc.get(ow, set()) if ts & {'dispatch', 'multi_inferred'} else set())) & held
+                    if hit:
+                        mock_via[m] = sorted(hit)[0]; break
+            for m in mock_via:
+                tests.pop(m, None); chains.pop(m, None)
+            stubbed = sorted(set(stubbed) | set(mock_via), key=lambda m: (g.sym[m]['file'] or '', g.sym[m]['display'] or '', m))
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
     # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
     # a tier no rung is written for, collected as the routes are labelled so it can be SAID rather than
@@ -1926,6 +1977,22 @@ def main(argv):
             hops += 1
             if not any((c, t) in real for t in asserted.get(c, ())): bad += 1
     prose_hits = getattr(getattr(I, '_ns', None), 'prose', set())
+    # the closure's own framework-entered entry points (not the target: `unmod` speaks for it), with the route each
+    # serves when a decoration registers one, and one search for the tests that drive them
+    fw_ent, fw_grep = [], ''
+    _ent_ids = [m for m, _d in sorted(ent, key=lambda x: (x[1], g.disp(x[0]))) if m not in set(seeds) and not g.sym[m]['is_test']] if not tests else []
+    if _ent_ids:
+        _routes = collections.defaultdict(set)
+        for rd, _f, _l, kind, key, _w in ax_registration.decoration_keys(g.q, g.site_file):
+            if kind == 'route' and rd in _ent_ids: _routes[rd].add(key)
+        for m in _ent_ids:
+            own = [sig for _i, sig in P.unmodelled_entry(g, [m]) if ' on its type ' not in sig and 'does not contain' not in sig]
+            if own or _routes.get(m):
+                fw_ent.append((m, (own[0].split(' on ')[0] if own else '') + (f' "{sorted(_routes[m])[0]}"' if _routes.get(m) else '')))
+        pre = sorted({re.split(r'[{<:]', k)[0] for m, _ in fw_ent for k in _routes.get(m, ()) if len(re.split(r'[{<:]', k)[0]) > 1})[:4]
+        names = sorted({g.sym[m]['name'] for m, _ in fw_ent if g.sym[m].get('name')})[:4]
+        fw_grep = ("grep -rnF " + ' '.join(f"-e '\"{p_}'" for p_ in pre) + f" {P.grep_roots(g)}") if pre else \
+                  ("grep -rnw " + ' '.join(f'-e "{n}"' for n in names) + f" {P.grep_roots(g)}" if names else '')
     if as_json:
         print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'also': contract_also.get(c, []), 'at': g.loc(c), 'for': sorted(contract_for[c])} for c, why in contract],
@@ -1935,6 +2002,10 @@ def main(argv):
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0]))],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
                           'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
+                          'framework_entries': [{'id': m, 'display': g.disp(m), 'signal': sig, 'at': g.loc(m)} for m, sig in fw_ent],
+                          'framework_grep': fw_grep,
+                          'stub_tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'at': g.loc(m), 'certainty': 'stubs it',
+                                          **({'mocks': mock_via[m]} if m in mock_via else {})} for m in stubbed],
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=by_place)],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how, **({'prose': True} if (n, f, l) in prose_hits else {})} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
@@ -2135,6 +2206,14 @@ def main(argv):
             srch = (f'grep -rn "\\.{nm[0]}(" {P.grep_roots(g)}' if len(nm) == 1 else P.grep_for(g, nm[0]) if nm else '')
             print(f"    +{len({c for c, *_ in collapsed})} [by name] (the same method name on an untyped receiver; may be another method)"
                   + (f" — {srch} lists them" if srch else '') + "; --page all or --limit N prints each row")
+        # a test callable that only STUBS it on a mock names it and runs none of it: said apart, never as "reach it"
+        tstub = [r for r in tst if r[3] == 'stubs it' or r[2].startswith('stubs a method of this name')]
+        tst = [r for r in tst if r not in tstub]
+        if tstub and not want_tests:
+            sbyf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in tstub if r[4])
+            print(f"    +{len({c for c, *_ in tstub})} test callable(s) in {len(sbyf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in sbyf.most_common(4))
+                  + (' …' if len(sbyf) > 4 else '') + " only stub it on a mock (when/verify, Setup/Verify, Received/Returns): they name it and"
+                  " run none of it, so they break on a rename or a new parameter and never on a body change")
         if tst and not want_tests:
             # the count names its files: a pointer that says only "+31" leaves the reader not knowing what was cut or
             # where, which is what the crowding rule exists to prevent (tests/cases/typescript/anonymous-crowding)
@@ -2227,7 +2306,25 @@ def main(argv):
     if not tests and unmod:
         print(f"    NOT CHECKED: {unmod_sig} — a framework calls it and the graph does not model how, so a test that enters "
               f"through that framework (a request, a started context, an event) reaches it with no route counted here: {unmod_grep}")
+    # …and the same for what REACHES it: an entry point of this closure that a framework enters (a route handler, a
+    # listener, a message handler) is driven by tests through the framework — a request, an event, a mediator send —
+    # and a route is counted only where a key or an edge joins the two. Said, with the search that finds those tests,
+    # rather than letting the count stand as if it were the whole set.
+    # only where the count is 0: beside counted tests it is one more line on every answer that crosses a web layer, and
+    # the claim it corrects ("no test reaches it") is not being made
+    if fw_ent and not tests:
+        shown = ', '.join(f"{g.disp(m)} {sig}" for m, sig in fw_ent[:3]) + (f" … +{len(fw_ent) - 3}" if len(fw_ent) > 3 else '')
+        print(f"    NOT COUNTED: {len(fw_ent)} entry point(s) of this change are entered by a framework ({shown}) — a test that drives"
+              f" them through it (a request, an event, a mediator send) reaches the change with no route here unless a [by key] row"
+              f" says so, so the count is a lower bound; to find those tests: {fw_grep}")
     if weak_tests: print(f"    {len(weak_tests)} of them only through a dependent that is not an exact edge")
+    if stubbed:
+        sbf = collections.Counter(g.sym[m]['file'] for m in stubbed)
+        mk = sorted({mock_via[m] for m in stubbed if m in mock_via})
+        print(f"    [stubs it] {len(stubbed)} more test(s) only stub it on a mock (when/verify, Setup/Verify, Received/Returns)"
+              + (f" or reach it only through a type they hold as a mock ({', '.join(mk[:3])}{' …' if len(mk) > 3 else ''})" if mk else '')
+              + " and never run it: not counted above, since a body change cannot fail them; a rename or a new parameter does — "
+              + ', '.join(f"{f} ({n})" for f, n in sbf.most_common(4)) + (f" … +{len(sbf) - 4}" if len(sbf) > 4 else ''))
     if tests:
         byc = collections.Counter(test_cert.values())
         print("    how sure each route is: " + ', '.join(f"{n} {c}" for c, n in sorted(byc.items(), key=lambda x: CERT_RANK[x[0]])) + f"  —  {len(sure)} reach it through resolved single-target calls within 3 hops")
@@ -2279,6 +2376,15 @@ def main(argv):
                 else:
                     print(f"      {f} ({len(ms)}){via}: " + ', '.join(tname(m) for m in shown) + (f" … +{len(ms) - limit} more (--limit N)" if len(ms) > limit else ''))
         if not want_why: print("    --why adds each test's route (with --tests-in <file> to keep it short)")
+    if want_tests and stubbed:
+        sfiles = collections.defaultdict(list)
+        for m in stubbed:
+            if not tests_in or tests_in in (g.sym[m]['file'] or ''): sfiles[g.sym[m]['file']].append(m)
+        if sfiles:
+            print(f"    [stubs it] {sum(len(ms) for ms in sfiles.values())} test(s) in {len(sfiles)} file(s), not counted: each stubs it on a mock and never runs it"
+                  " (they break on a rename or a new parameter, never on a body change):")
+            for f, ms in sorted(sfiles.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+                print(f"      {f} ({len(ms)}): " + ', '.join(tname(m) for m in ms[:limit]) + (f" … +{len(ms) - limit} more (--limit N)" if len(ms) > limit else ''))
     # --depends: the downstream direction (#761). `impact` walks callers only, so what the target itself calls is
     # never reported, and that is what an agent editing it has to change alongside. Same edges, read the other way;
     # the same certainty vocabulary, printed as its own section so the two questions are never confused.
@@ -2454,6 +2560,7 @@ def main(argv):
         if decs: bits.append("decorations on it: @" + ', @'.join(decs[:5]) + " — a framework may call it with no call site, and a decorator can hand the wrapper to the caller instead of this declaration")
         if u: bits.append(f"{u} unresolved call(s) inside the impacted set")
         if tests: bits.append(f"{len(tests)} test(s) reach it")
+        if stubbed: bits.append(f"{len(stubbed)} test(s) stub it on a mock or hold its type as one ([stubs it] above): deleting it breaks the stubs they write, though no body change fails them")
         for b in bits: print(f"    · {b}")
         if not bits and not calls and not contract and not weak and not ov and not ext and not fw_why: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
         if not vis and g.has('methods'): print("    · visibility is not recorded in this graph, so exported surface cannot be told from internal")

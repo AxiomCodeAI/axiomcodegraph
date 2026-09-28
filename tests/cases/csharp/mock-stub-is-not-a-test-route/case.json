@@ -1,0 +1,61 @@
+{
+ "lang": "csharp",
+ "checks": [
+  {
+   "why": "a call written in a Moq Setup/Verify lambda or on an NSubstitute Received()/Returns() runs none of the real method, in a test or in the test class's constructor: those tests are not counted, and the tests that call the real object, directly or through the class under test, are. A stub the engine resolved is listed apart; one in a lambda whose parameter it did not type is only a name, and is neither counted nor listed",
+   "run": [
+    "impact",
+    "Prices.Price",
+    "--tests"
+   ],
+   "want": [
+    "tests: 3 of 7 test method(s)",
+    "RealPriceTests::RunsThePrice",
+    "RealPriceTests::TotalsWithTheRealPrice",
+    "[stubs it] 2 test(s) in 1 file(s), not counted",
+    "SubstituteStubTests::StubsWithReturns",
+    "CheckoutWithMockTests::TotalsWithAMockedPrice"
+   ],
+   "avoid": [
+    "[fixture]",
+    "MoqStubTests::",
+    "[by name] 1 test",
+    "[by name] 2 test"
+   ]
+  },
+  {
+   "why": "near miss: a snapshot library's Verify(value) takes no lambda, so the call that builds its argument runs and the test is counted",
+   "run": [
+    "impact",
+    "Prices.Price",
+    "--tests"
+   ],
+   "want": [
+    "SnapshotTests::VerifiesASnapshot"
+   ]
+  },
+  {
+   "why": "near miss: a call in the stubbed call's argument list runs for real to build the argument",
+   "run": [
+    "impact",
+    "Ids.First",
+    "--tests"
+   ],
+   "want": [
+    "tests: 1 of 7",
+    "SubstituteStubTests::StubsWithReturns"
+   ]
+  },
+  {
+   "why": "the stubs stay dependents of the declaration, as stubs, so a rename still finds them",
+   "run": [
+    "impact",
+    "Prices.Price"
+   ],
+   "want": [
+    "only stub it on a mock",
+    "[resolved] Checkout.Total"
+   ]
+  }
+ ]
+}
