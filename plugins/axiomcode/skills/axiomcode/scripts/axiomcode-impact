@@ -1672,6 +1672,42 @@ def scope_targets(g, rs):
     return out, narrowed
 
 
+# A TEST TREE THE INDEX NEVER READ. `index --src app` reads app/ only, and a project whose tests sit in a sibling tests/
+# then has no test in the graph at all: every answer said "tests: 0 of 0" or "0 of N", which reads as "nothing tests
+# this" when the truth is "the tests were never looked at". So when no test is counted and the graph was built from a
+# subtree, the test files of the graph's language lying outside it are counted and named, with the index that reads them.
+OUTSIDE_EXT = {'python': ('.py',), 'java': ('.java', '.kt'), 'csharp': ('.cs',), 'typescript': ('.ts', '.tsx'),
+               'javascript': ('.js', '.mjs', '.cjs', '.jsx')}
+OUTSIDE_TEST = re.compile(r'(^|/)(tests?|__tests__|specs?)/|(^|/)test_[^/]*\.py$|_test\.py$|Tests?\.(java|kt|cs)$|IT\.java$'
+                          r'|\.(test|spec)\.[cm]?[jt]sx?$')
+OUTSIDE_SKIP = {'.git', '.axiomcode', 'node_modules', '.venv', 'venv', 'env', '.tox', 'build', 'dist', 'target', 'bin', 'obj',
+                '__pycache__', '.mypy_cache', '.pytest_cache', 'site-packages'}
+
+
+def tests_outside_src(g, cap=20000):
+    """(the --src the graph was built from, [test files of its language outside it]) — ('', []) for a whole-repo graph"""
+    try:
+        run = dict(g.q("SELECT key, value FROM run"))
+    except Exception:
+        return '', []
+    root = os.path.realpath(g.repo); src = os.path.realpath(run.get('source_dir') or root)
+    rel = os.path.relpath(src, root)
+    if rel == '.' or rel.startswith('..'): return '', []
+    ext = OUTSIDE_EXT.get((run.get('language') or '').lower())
+    if not ext: return rel.replace(os.sep, '/'), []
+    out, seen = [], 0
+    for d, dirs, fs in os.walk(root):
+        dirs[:] = sorted(x for x in dirs if x not in OUTSIDE_SKIP and not x.startswith('.') and os.path.join(d, x) != src)
+        for f in fs:
+            seen += 1
+            if seen > cap: return rel.replace(os.sep, '/'), out
+            if not f.endswith(ext): continue
+            r = os.path.relpath(os.path.join(d, f), root).replace(os.sep, '/')
+            # a Python test tree also holds __init__.py, conftest.py and helpers: only the modules a runner collects count
+            if OUTSIDE_TEST.search(r) and (not f.endswith('.py') or re.fullmatch(r'test\w*\.py|\w+_test\.py', f)): out.append(r)
+    return rel.replace(os.sep, '/'), sorted(out)
+
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
     # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
@@ -1904,6 +1940,7 @@ def main(argv):
         return (f, int(ln), g.disp(c), c) if f and ln.isdigit() else (g.loc(c), 0, g.disp(c), c)
     sure_set = {x[0] for x in res['reach_sure']}                 # reached from the dependents that ARE an exact edge
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
+    out_src = tests_outside_src(g) if not tests else ('', [])
     # an `alongside` row is not a place the change is observed from: it must stay out of the entry points, as it stays out
     # of the seeds — a reader is promised that an entry point reaches the change (#762)
     # …nor is a stub on a mock: it names the declaration and runs none of it
@@ -2124,7 +2161,7 @@ def main(argv):
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=by_place)],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how, **({'prose': True} if (n, f, l) in prose_hits else {})} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
-                          'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
+                          'test_universe': universe, **({'tests_outside_src': dict(zip(('src', 'files'), out_src))} if out_src[1] else {}), 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
     for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
     # --tests-only: every section is still COMPUTED (the tests are derived from them) but only the tests section,
@@ -2408,6 +2445,11 @@ def main(argv):
     weak_tests = [m for m in tests if m not in sure_set]
     sys.stdout = _stdout
     print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
+    if out_src[1]:
+        print(f"    NOT SEEN: the graph was indexed with --src {out_src[0]}, and {len(out_src[1])} test file(s) lie outside it ("
+              + ', '.join(out_src[1][:3]) + (f" … +{len(out_src[1]) - 3}" if len(out_src[1]) > 3 else '')
+              + "), so no test there is counted: 0 here is not 'nothing tests this'. Index without --src (or with one that"
+              " holds the tests) to count them")
     # THE TESTS LINE AGREES WITH THE ROWS ABOVE IT. A callable in test code that this answer LISTS as reaching the change
     # (a [test] entry point, a test row) but that the count does not credit -- a runner entry this tool does not
     # collect (a custom test attribute, a script's main), a remote hop the test walk does not take -- made "tests: 0"

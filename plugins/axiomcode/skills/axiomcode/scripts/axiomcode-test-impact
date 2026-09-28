@@ -122,6 +122,10 @@ def concrete_test_classes(db, names):
 # How a suite is invoked, per language. Only the shapes this graph is built for; anything else prints the
 # files and lets the reader decide, which is better than inventing a command that does not run.
 def command_for(lang, files, classes, db=None, repo='.'):
+    # a runner is handed only files of its own language: a text tier can name a .cs or .ts fixture beside a Python
+    # test, and `pytest Foo.cs` runs nothing the answer meant
+    if lang in LANG_EXT:
+        files = [f for f in files if f.endswith(LANG_EXT[lang])]
     if lang in ('java', 'csharp') and db:
         # a class to select by name: the test's owner, else its file's basename (a Java or C# test class is its file)
         names = classes or [os.path.splitext(os.path.basename(f))[0] for f in files]
@@ -145,10 +149,131 @@ def command_for(lang, files, classes, db=None, repo='.'):
         return 'dotnet test --filter "' + "|".join(f"FullyQualifiedName~{n}" for n in sorted(
             {_os.path.splitext(_os.path.basename(f))[0] for f in files})[:40]) + '"'
     if lang == 'python':
-        return "pytest " + " ".join(sorted(files)[:40])
+        return "\n".join(py_plan(repo, files)[0]) or None
     if lang in ('typescript', 'javascript'):
         return "\n".join(js_plan(repo, files)[0]) or None
     return None
+
+
+LANG_EXT = {'python': ('.py',), 'java': ('.java',), 'csharp': ('.cs',)}
+LANG_FAMILY = {'python': 'py', 'java': 'java', 'csharp': 'cs', 'typescript': 'js', 'javascript': 'js'}
+PY_TEST_FILE = re.compile(r'(^|/)(test[^/]*|[^/]*_test)\.py$')          # what pytest, unittest and Django collect by default
+
+
+def collected_by(lang, rel):
+    """whether `lang`'s runner would run the file `rel` as a test module: a text match is a lead on any file, a command
+    names only test modules of its own language (TypeScript and JavaScript are placed by js_plan, which says so)"""
+    if lang == 'python': return bool(PY_TEST_FILE.search(rel))
+    if lang in LANG_EXT: return rel.endswith(LANG_EXT[lang])
+    return lang in ('typescript', 'javascript') and family(rel) == 'js'
+
+
+# A Python test file is run by whatever its PROJECT runs tests with, and pytest is only one of three. A Django project
+# with no pytest anywhere runs `python manage.py test`, which takes dotted module labels; a unittest project runs
+# `python -m unittest`; handing either one `pytest tests/x.py` fails (pytest is not installed) or runs without what the
+# project set up (settings, a test database). So the runner is read off the project the file belongs to, in the order
+# a project states it: a pytest config section or conftest.py, the command its CI / tox / Makefile runs, its declared
+# dependencies, the test file's own imports, and only then the shape of the project (a Django manage.py) and of the
+# file (a TestCase). With nothing to go on it stays pytest, which also runs unittest classes.
+PY_MARKERS = ('pyproject.toml', 'setup.cfg', 'setup.py', 'tox.ini', 'pytest.ini', 'manage.py', 'requirements.txt', 'Pipfile')
+PY_DEPS = ('pyproject.toml', 'setup.cfg', 'setup.py', 'Pipfile', 'tox.ini', 'environment.yml')
+PY_CMDS = ('tox.ini', 'Makefile', 'noxfile.py', 'justfile', '.gitlab-ci.yml', '.travis.yml')
+PYTEST_WORD = re.compile(r'(?<![\w.-])py\.?test(?![\w])')
+PYTEST_CONF = re.compile(r'^\s*\[(?:tool\.pytest[\w.]*|tool:pytest|pytest)\]', re.M)
+PY_RUN = (('pytest', re.compile(r'(?<![\w./-])(?:python[\d.]*\s+-m\s+)?py\.?test(?![\w-])')),
+          ('django', re.compile(r'\bmanage\.py\s+test\b')),
+          ('unittest', re.compile(r'-m\s+unittest\b')))
+
+
+def _py_project(repo, rel):
+    """the nearest directory above `rel` that a Python project is configured in, else the repository root ('')"""
+    d = os.path.dirname(rel)
+    while d:
+        if any(os.path.isfile(os.path.join(repo, d, n)) for n in PY_MARKERS): return d
+        d = os.path.dirname(d)
+    return ''
+
+
+def _py_texts(repo, d, names, globs=()):
+    """the text of each named file (and glob) in the project directory and at the repository root"""
+    import glob as _g
+    out = []
+    for base in dict.fromkeys((d, '')):
+        paths = [os.path.join(repo, base, n) for n in names]
+        for g in globs: paths += sorted(_g.glob(os.path.join(repo, base, g)))[:20]
+        out += [t for t in (_read(p, 200_000) for p in paths) if t]
+    return out
+
+
+def _django_manage(repo, d):
+    """the directory of the Django manage.py in the project (or at the root), or None: a manage.py that is not
+    Django's (a Flask CLI names itself manage.py too) runs no tests"""
+    for base in dict.fromkeys((d, '')):
+        t = _read(os.path.join(repo, base, 'manage.py'), 20_000)
+        if t and re.search(r'\bdjango\b|DJANGO_SETTINGS_MODULE', t): return base
+    return None
+
+
+def py_runner(repo, d, files):
+    """'pytest' | 'django' | 'unittest': how the project in directory `d` runs the test files `files`"""
+    confs = _py_texts(repo, d, ('pyproject.toml', 'setup.cfg', 'tox.ini'))
+    if os.path.isfile(os.path.join(repo, d, 'pytest.ini')) or any(PYTEST_CONF.search(t) for t in confs):
+        return 'pytest'
+    for f in files:                              # a conftest.py from a selected file up to its project: pytest's own file
+        x = os.path.dirname(f)
+        while True:
+            if os.path.isfile(os.path.join(repo, x, 'conftest.py')): return 'pytest'
+            if x == d or not x: break
+            x = os.path.dirname(x)
+    # the command the project's own automation runs: CI, tox, nox, make
+    cmds = _py_texts(repo, d, PY_CMDS, ('.github/workflows/*.y*ml',))
+    for kind, rx in PY_RUN:
+        if any(rx.search(t) for t in cmds): return kind
+    # a declared dependency on pytest or a plugin of it (pytest-django, pytest-xdist)
+    if any(PYTEST_WORD.search(t) for t in _py_texts(repo, d, PY_DEPS, ('requirements*.txt', 'requirements/*.txt'))):
+        return 'pytest'
+    texts = [_read(os.path.join(repo, f), 200_000) or '' for f in files]
+    if any(re.search(r'^\s*(?:import\s+pytest|from\s+pytest\b)|@pytest\.', t, re.M) for t in texts): return 'pytest'
+    if _django_manage(repo, d) is not None: return 'django'
+    # nothing says pytest: a TestCase module runs under the standard library, a bare `def test_` needs pytest
+    if texts and all(re.search(r'\bunittest\b', t) and re.search(r'\bTestCase\b', t) for t in texts): return 'unittest'
+    return 'pytest'
+
+
+# a test the runner collects, declared as code (at the start of a line, so a test written inside a string is not one)
+PY_HAS_TESTS = re.compile(r'^\s*(?:async\s+)?def\s+test\w*\s*\(|^class\s+\w*Test\w*\s*[(:]|^class\s+\w+\([^)]*TestCase', re.M)
+PY_MAIN = re.compile(r'^if\s+__name__\s*==\s*[\'"]__main__[\'"]|^#!.*\bpython', re.M)
+PY_EXITS = re.compile(r'^sys\.exit\(', re.M)            # a module that exits at import is a script whatever it declares
+
+
+def py_plan(repo, files):
+    """(commands, files no runner runs): each selected Python test file with the command its own project runs tests
+    with, one line per project. A file that declares no test is not a runner's: one that runs as a program (a test
+    script that exits non-zero on failure) is run as one, and a module under a test tree that is neither (a fixture, a
+    helper) is named apart rather than handed to pytest, which would collect nothing from it and exit 5."""
+    groups = collections.OrderedDict()
+    scripts, unrun = [], []
+    for f in sorted(files):
+        t = _read(os.path.join(repo, f), 400_000)
+        if t and (PY_EXITS.search(t) or not PY_HAS_TESTS.search(t)):
+            (scripts if PY_EXITS.search(t) or PY_MAIN.search(t) else unrun).append(f); continue
+        groups.setdefault(_py_project(repo, f), []).append(f)
+    out = []
+    for d, fs in groups.items():
+        runner = py_runner(repo, d, fs)
+        base = _django_manage(repo, d) if runner == 'django' else d
+        if base is None or (base and not all(_under(f, base) for f in fs)): runner, base = 'unittest', d
+        rel = [posixpath.relpath(f, base) if base else f for f in fs]
+        mods = [os.path.splitext(r)[0].replace('/', '.') for r in rel]
+        if runner == 'pytest':
+            cmd = "pytest " + " ".join(rel[:40])
+        elif runner == 'unittest' and not all(re.fullmatch(r'[A-Za-z_]\w*(\.[A-Za-z_]\w*)*', m) for m in mods):
+            cmd = "python -m unittest " + " ".join(rel[:40])            # a path no dotted name imports: named as a file
+        else:
+            cmd = ("python manage.py test " if runner == 'django' else "python -m unittest ") + " ".join(mods[:40])
+        out.append(f"(cd {shlex.quote(base)} && {cmd})" if base else cmd)
+    out += [f"python {shlex.quote(f)}" for f in scripts[:40]]
+    return out, unrun
 
 
 # A TypeScript or JavaScript test file is run by whatever its PACKAGE runs it with, and nothing about the
@@ -1318,6 +1443,13 @@ def js_plan(repo, files):
 
 def print_unrun(lang, repo, files):
     """Say which selected files no runner collects, so a reader does not take the command as the whole run."""
+    if lang == 'python':
+        unrun = py_plan(repo, [f for f in files if f.endswith('.py')])[1]
+        if unrun:
+            print(f"\n  {len(unrun)} selected file(s) declare no test and do not run as a program (a fixture or helper under"
+                  " a test tree): no command is given for them; the tests that import them are the ones to run: "
+                  + ', '.join(unrun[:6]) + (f" … +{len(unrun) - 6}" if len(unrun) > 6 else ''))
+        return
     if lang not in ('typescript', 'javascript'): return
     unrun = js_plan(repo, files)[1]
     if unrun:
@@ -1390,7 +1522,9 @@ def stems_of(rel):
     for suf in _STEM_SUF:
         if s.endswith(suf) and len(s) > len(suf):
             out.add(s[:-len(suf)])
-    return {x for x in out if len(x) > 2}
+    # a name every package repeats is no module's name: __init__.py, __main__.py and conftest.py are in every test tree,
+    # and "named after __init__" once listed fifteen of them as the tests of one
+    return {x for x in out if len(x) > 2 and not re.fullmatch(r'__\w+__|conftest', x)}
 
 
 def family(rel):
@@ -1472,11 +1606,14 @@ def needles(rel, program=False):
     return [n for n in dict.fromkeys(out) if len(n) > 3]
 
 
-def loaders(repo, wanted, edited=()):
+def loaders(repo, wanted, edited=(), lang=None, others=None):
     """{changed file: (the needle that matched, [test files naming it])} for files no call edge can reach a test from:
     changed files outside every indexed language, and code that also runs as a program. The most specific needle any
     test names wins, and only the tests naming it are kept, so a bare directory name is used only when nothing names the
-    file itself. A text match, not a call: printed as its own tier."""
+    file itself. A text match, not a call: printed as its own tier. With `lang` (the graph's language), only that language's
+    files are read, BEFORE the most specific needle is chosen: another language's test naming the full path must not
+    outrank this language's test naming the file (`others` maps each file to the other-language tests naming it), and a
+    test module the runner collects outranks a helper or fixture beside it that names the file more fully."""
     if not wanted: return {}
     want = {f: needles(f, prog) for f, prog in wanted.items()}
     # a path or a file name stands alone (not inside a longer name); a bare word (a directory, a program's name) only
@@ -1484,15 +1621,25 @@ def loaders(repo, wanted, edited=()):
     pats = {n: re.compile((r'(?<![\w.-])' + re.escape(n) + r'(?![\w-])') if ('.' in n or '/' in n) else
                           (r'[\'"/]' + re.escape(n) + r'[\'"/]'))
             for ns in want.values() for n in ns}
+    fam = LANG_FAMILY.get(lang)
     hits = {f: {} for f in wanted}                                          # file -> needle index -> [tests]
+    runs = {f: {} for f in wanted}                                          # the same, for test modules the runner collects
     for t, text in test_texts(repo):
         if t in wanted or t in edited: continue
+        if fam and family(t) != fam:
+            if others is not None:
+                for f, ns in want.items():
+                    if any(n in text and re.search(pats[n], text) for n in ns): others.setdefault(f, set()).add(t)
+            continue
         for f, ns in want.items():
             for k, n in enumerate(ns):
                 if n in text and re.search(pats[n], text):
-                    hits[f].setdefault(k, []).append(t); break
+                    hits[f].setdefault(k, []).append(t)
+                    if fam and collected_by(lang, t): runs[f].setdefault(k, []).append(t)
+                    break
     out = {}
-    for f, by in hits.items():
+    for f in wanted:
+        by = runs[f] or hits[f]
         if by:
             k = min(by); out[f] = (want[f][k], sorted(by[k]))
     return out
@@ -1590,7 +1737,14 @@ def main(argv):
         try: txt = open(os.path.join(repo, f), errors='replace').read(400_000)
         except OSError: continue
         if PROGRAM.search(txt): progs[f] = True
-    loaded = loaders(os.path.realpath(repo), dict({f: False for f in outside}, **progs), edited) if (outside or progs) else {}
+    # ONE LANGUAGE PER ANSWER. This answer is one language's graph (a repository in several has one graph each, and each
+    # is asked on its own): a test file of another language that names the file is that language's answer to give, and
+    # read here it once put .cs, .java and .ts fixtures on a `pytest` line. It is counted, not listed.
+    glang = (changed.get('lang') or '').lower() or _guess_lang([e.get('file', '') for e in entries if e.get('file', '').endswith(CODE)])
+    other_by = {}
+    loaded = loaders(os.path.realpath(repo), dict({f: False for f in outside}, **progs), edited, glang, other_by) \
+        if (outside or progs) else {}
+    other_lang = set().union(*other_by.values()) if other_by else set()
     loaded_files = sorted({t for _, ts in loaded.values() for t in ts})
 
     if not targets and not edited and not loaded and not outside:
@@ -1615,6 +1769,7 @@ def main(argv):
     unreadable, notes = [], []
     pulled = collections.defaultdict(set)
     unseen = []
+    out_src = None                                            # a test tree the graph's --src left out (impact says so)
     batches = [[t] for t in targets] if len(targets) <= 8 else [targets[k:k + 60] for k in range(0, len(targets), 60)]
     disp = {by_target[t].get('symbol'): t for t in targets}
     for batch in batches:
@@ -1642,6 +1797,7 @@ def main(argv):
         for rec in d.get('framework_entries') or []:
             fw_entries.setdefault(rec.get('id') or rec.get('display'), rec)
         if d.get('framework_grep') and d['framework_grep'] not in fw_greps: fw_greps.append(d['framework_grep'])
+        if d.get('tests_outside_src'): out_src = d['tests_outside_src']
         # a batch of several declarations breaks a stub when any of them is a signature change or a removal
         breaks = any((by_target[t].get('kind') or '') in STUB_BREAKING for t in batch)
         bt = batch[0] if len(batch) == 1 else f"{len(batch)} declarations"
@@ -1698,7 +1854,9 @@ def main(argv):
                           'same_package_only': pkg_hits,
                           'same_name_only': name_hits.get('files') or [],
                           'outside_index': outside,
+                          **({'tests_outside_src': out_src} if out_src and not tests else {}),
                           'named_in_test_text': {f: {'needle': n, 'tests': ts} for f, (n, ts) in loaded.items()},
+                          'named_in_other_language_tests': len(other_lang),
                           'range_note': changed.get('range_note'),
                           'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
                                    'framework instantiating by name, a subprocess, or a case built at runtime is not here'},
@@ -1716,6 +1874,11 @@ def main(argv):
         print("\nno test in the graph reaches any of them.")
         print("  that is not the same as 'no test covers this': a function invoked through an array, a")
         print("  table or a plugin list has no resolved caller, so a test that drives it looks unrelated.")
+        if out_src:
+            fs = out_src.get('files') or []
+            print(f"  NOT SEEN: the graph was indexed with --src {out_src.get('src')}, and {len(fs)} test file(s) lie outside it ("
+                  + ', '.join(fs[:3]) + (f" … +{len(fs) - 3}" if len(fs) > 3 else '') + "): no test there was looked at."
+                  " Index without --src (or with one that holds the tests) before reading 'no test' as an answer.")
         nf = name_hits.get('files') or []
         if nf:
             print(f"\n  BY NAME ONLY — {len(nf)} test file(s) are NAMED AFTER a changed file")
@@ -1765,7 +1928,7 @@ def main(argv):
     elif edited and cmd_all:
         print("\n  " + cmd_all.replace("\n", "\n  "))
         print_unrun(lang, repo, run_files)
-    if outside or loaded:
+    if outside or loaded or other_lang:
         # NOT A CALL: a file no graph reads, or a program a test starts by name. The tests that name it are the lead
         if outside:
             print(f"\n{len(outside)} changed file(s) outside every indexed language (no declaration to follow): "
@@ -1774,10 +1937,21 @@ def main(argv):
             print(f"  [text] {len(loaded_files)} test file(s) name them in their text — they load or start them; run these too:")
             for f, (n, ts) in sorted(loaded.items()):
                 print(f"    {f}   named as '{n}' by: " + ", ".join(ts[:6]) + (f" … +{len(ts) - 6}" if len(ts) > 6 else ""))
-            both = sorted(set(run_files) | set(loaded_files))
-            cmd = command_for(_guess_lang(both) or lang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in loaded_files] if classes else [], db, repo)
+            # the runner of the graph's language, handed only the files it collects: the text tier matches path words in
+            # every file of a test tree, fixtures in other languages included, and a majority of those once chose the
+            # runner and put .cs and .ts fixtures on a `pytest` line
+            rlang = lang or _guess_lang(run_files or loaded_files)
+            runnable = [f for f in loaded_files if collected_by(rlang, f)]
+            both = sorted(set(run_files) | set(runnable))
+            cmd = command_for(rlang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in runnable] if classes else [], db, repo)
             if cmd: print("\n  with the tests above: " + cmd.replace("\n", "\n  "))
-        missed = [f for f in outside if f not in loaded]
+            if len(runnable) < len(loaded_files):
+                print(f"  ({len(loaded_files) - len(runnable)} of the files naming them are not {rlang or 'runnable'} test files"
+                      " (fixtures, case data, another language's tests), so no command above runs them)")
+        if other_lang:
+            print(f"  {len(other_lang)} test file(s) in another language name them too; that language's graph answers for them"
+                  f" (this answer is the {glang} graph's)")
+        missed = [f for f in outside if f not in loaded and f not in other_by]
         if missed:
             print(f"  no test names {', '.join(missed[:6])}{' …' if len(missed) > 6 else ''} in its text: which suite reads "
                   "it is not visible here, so 'no test' is NOT an answer for it — grep the test tree for its directory")
