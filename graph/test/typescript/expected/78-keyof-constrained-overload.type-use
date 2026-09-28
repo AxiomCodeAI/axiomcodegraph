@@ -1,0 +1,4 @@
+ambiguous_unknown	METHOD_PARAM	0	app [METHOD_PARAM] -> -
+known_edge	METHOD_PARAM	0	app [METHOD_PARAM] -> Registry
+known_edge	TYPE_ELEMENT	1	Registry [METHOD] -> Slots
+known_edge	TYPE_ELEMENT	1	Registry [TYPE_PARAMETER] -> Slots
