@@ -2944,6 +2944,83 @@ async function annotationCanDeclareASignatureSet(): Promise<number> {
   }
 }
 
+/**
+ * An annotation the parser cannot read is not a licence to name the initialiser (#536).
+ *
+ * tsc resolves a call through a variable's ANNOTATION. Where the annotation needs
+ * the checker -- an indexed access through a generic alias, a named interface --
+ * the parser fell through to the arrow initialiser and claimed it with
+ * `overloadCandidateCount = 1`, where tsc sees an overload pair. The row now stays
+ * unresolved, which the engine measures instead of trusting.
+ */
+async function uncheckableAnnotationLeavesCallUnresolved(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('an uncheckable annotation leaves the call unresolved',
+      'no extractor yet. An annotation may need the checker');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-uncheckable-', {
+    'store.ts': [
+      'type SetStateInternal<T> = {',                         // 1
+      '  _(partial: T | Partial<T>, replace?: false): void;', // 2
+      '  _(state: T, replace: true): void;',                  // 3
+      "}['_'];",                                              // 4
+      'export interface StoreApi<T> { setState: SetStateInternal<T> }', // 5
+    ].join('\n'),
+    'a.ts': [
+      "import type { StoreApi } from './store';",             // 1
+      'interface Twice { (a: string): void; (a: number): void }', // 2
+      'export function wire<S>(state: S): void {',            // 3
+      "  const fromTools: StoreApi<S>['setState'] = (..._a: unknown[]): void => {};", // 4
+      '  fromTools(state);',                                  // 5 -> needs the checker
+      '  const twice: Twice = (_a: string | number): void => {};', // 6
+      "  twice('x');",                                        // 7 -> needs the checker
+      '  const bare = (_a: string): void => {};',             // 8
+      "  bare('x');",                                         // 9 -> control: the arrow
+      '  const typed: (a: string) => void = (_a: string): void => {};', // 10
+      "  typed('x');",                                        // 11 -> control: the annotation
+      '}',
+    ].join('\n'),
+  });
+  try {
+    const methodLine = new Map(relation(outputDir, 'all-typescript-methods.csv')
+      .map((r) => [r['tsMethodUniqueHash'] ?? '', r['startLine'] ?? '']));
+    const calls = relation(outputDir, 'all-typescript-call-sites.csv');
+    const failures: string[] = [];
+    const expect = (line: string, targetLine: string, count: string, kind: string): void => {
+      const row = calls.find((r) => r['startLine'] === line);
+      if (row === undefined) {
+        failures.push(`no call site at line ${line}`);
+        return;
+      }
+      const got = methodLine.get(row['resolvedSignatureLinkHash'] ?? '') ?? '<none>';
+      if (got !== targetLine) {
+        failures.push(`call at line ${line} resolved to a method at line ${got}, `
+          + `expected ${targetLine}`);
+      }
+      if ((row['overloadCandidateCount'] ?? '') !== count) {
+        failures.push(`call at line ${line} reports overloadCandidateCount `
+          + `${row['overloadCandidateCount']}, expected ${count}`);
+      }
+      if ((row['resolvedTargetKind'] ?? '') !== kind) {
+        failures.push(`call at line ${line} reports resolvedTargetKind `
+          + `${row['resolvedTargetKind']}, expected ${kind}`);
+      }
+    };
+    // tsc names an arm of the annotation; the parser cannot, so it names nothing.
+    expect('5', '<none>', '0', 'UNRESOLVED');
+    expect('7', '<none>', '0', 'UNRESOLVED');
+    // Controls: an unannotated arrow and a function-type annotation still resolve.
+    expect('9', '8', '1', 'PROJECT_IMPLEMENTATION');
+    expect('11', '10', '1', 'PROJECT_SIGNATURE');
+    console.log('  4 call(s): two through an annotation that needs the checker left unresolved, '
+      + 'an unannotated arrow and a function-type annotation unchanged');
+    for (const f of failures.slice(0, 8)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
 
 /**
  * An object literal's property KEY reaches the IR (#111).
@@ -4586,6 +4663,7 @@ const CHECKS: Check[] = [
   { name: 'a decorator is descended once', proves: 'a callable inside a decorator argument is one ts_method, not two colliding on one key as a false overload set', run: decoratorDescendedOnce },
   { name: 'declaration extensions are whole extensions', proves: '`.d.cts` and `.d.mts` are single extensions, so no stem keeps a stray `.d`', run: declarationExtensionsAreWholeExtensions },
   { name: 'an annotation can declare a signature set', proves: 'a type literal holding several call signatures is resolved as the set it is, and arity picks the arm tsc picks', run: annotationCanDeclareASignatureSet },
+  { name: 'an uncheckable annotation leaves the call unresolved', proves: 'a call through a variable whose annotation needs the checker names neither the initialiser nor a single candidate', run: uncheckableAnnotationLeavesCallUnresolved },
   { name: 'object-literal keys reach the IR', proves: 'a property key is emitted as its own row, joinable to its value, never bound as a scope reference, and absent when computed', run: objectLiteralKeysReachTheIr },
   { name: 'empty imports record their module edge', proves: 'an import that binds nothing still emits a resolved row, so a package imported only for its ambient declarations can be staged', run: emptyImportsRecordTheirModuleEdge },
   { name: 'reopened type members share a group key', proves: 'a member of a declaration-merged type has one identity across files, so two signatures of it are overload siblings rather than a wrong answer', run: reopenedTypeMembersShareAGroupKey },
