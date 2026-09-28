@@ -20,7 +20,7 @@ WHAT IT DECLINES. A constructor: impact.dl counts who instantiates the type, whi
 answering from call_edges alone under-reported (4 callers as 2). impact() returns None there and the caller falls
 back, which is right for that kind.
 """
-import os, re, sqlite3, json, collections, sys
+import bisect, os, re, sqlite3, json, collections, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_edges
 import ax_registration
 
@@ -1801,6 +1801,105 @@ def direct_for_newconst(q, tids, code, inside):
     return sorted(set(rows)), switchers
 
 
+def type_aliases(q):
+    """`type_alias(a)` with each alias's span and name: file -> [(line, end, id)], and id -> name (#784).
+
+    A TypeScript `type DraftState = ObjectState | MapState` is a declaration of its own, but no callable spans it, so
+    the innermost-callable walk charged every name on its right-hand side to the module initializer. That lost the
+    one hop that matters: the code that breaks when a union member changes names only the alias."""
+    if not (_has(q, 'types') and _has(q, 'symbols')): return {}, {}
+    spans, names = {}, {}
+    for i, n, f, a, b in q("""SELECT s.id, s.name, s.file, s.line, s.end_line FROM symbols s JOIN types t ON t.id = s.id
+                              WHERE t.category = 'TYPE_ALIAS_TYPE' AND s.file IS NOT NULL AND s.line > 0"""):
+        spans.setdefault(f, []).append((a, b or a, i)); names[i] = n
+    return spans, names
+
+
+def typeref_holder(at, spans, modules):
+    """`typeref(c, …)`'s c for a type reference at (f, l): the innermost callable, except that a reference on a type
+    alias's own lines, where the only callable spanning it is the module, belongs to the alias. An alias declared
+    inside a function body keeps the function: that is where its users are."""
+    def holder(f, l):
+        c = at(f, l)
+        if c is None or c in modules:
+            best = None
+            for a, b, i in spans.get(f, ()):
+                if a <= l <= b and (best is None or b - a < best[0]): best = (b - a, i)
+            if best: return best[1]
+        return c
+    return holder
+
+
+def jsx_props(q):
+    """`jsx_props(tag, n)`: the types an intrinsic element's attributes are checked against, read off the members of every
+    `IntrinsicElements` interface the project declares — `h1: FormElementProps` — each name in the member's type, so
+    `React.DetailedHTMLProps<React.FormHTMLAttributes<HTMLFormElement>, …>` gives FormHTMLAttributes too (#784)."""
+    if not (_has(q, 'fields') and _has(q, 'types')): return set()
+    out = set()
+    for tag, tn in q("""SELECT f.name, f.type_name FROM fields f JOIN types t ON t.id = f.owner_type_id
+                        WHERE t.name = 'IntrinsicElements' AND f.type_name IS NOT NULL AND f.type_name <> ''"""):
+        out |= {(tag, n) for n in re.findall(r'(?:[\w$]+\.)*([A-Za-z_$][\w$]*)', tn)}
+    return out
+
+
+_JSX_OPEN = re.compile(r'<([a-z][\w-]*)(?=[\s/>])')
+_JSX_AFTER_WORD = {'return', 'yield', 'await', 'throw', 'case', 'default', 'else'}   # `return <img/>` is an element
+
+
+def jsx_tags(files, code, at, tags):
+    """`jsx_tag(c, tag, f, l)`: an intrinsic element `<h1 …>` opened in a .tsx / .jsx file, charged to the callable it is
+    rendered in. Only the tags an IntrinsicElements table names, and only where `<` cannot close a type argument or a
+    comparison: the character before it is not an identifier, a `)`, a `]` or a `.` (`useState<boolean>`, `a<b`)."""
+    rows = []
+    if not tags: return rows
+    for f in sorted(files):
+        if not f.endswith(('.tsx', '.jsx')): continue
+        text = '\n'.join(code(f)); nl = [i for i, ch in enumerate(text) if ch == '\n']
+        for m in _JSX_OPEN.finditer(text):
+            if m.group(1) not in tags: continue
+            j = m.start() - 1
+            while j >= 0 and text[j] in ' \t\r\n': j -= 1
+            if j >= 0 and (text[j].isalnum() or text[j] in '_$)].'):
+                w = re.search(r'[\w$]+$', text[max(0, j - 15):j + 1])
+                if not (w and w.group(0) in _JSX_AFTER_WORD): continue
+            l = bisect.bisect_left(nl, m.start()) + 1
+            c = at(f, l)
+            if c: rows.append((c, m.group(1), f, l))
+    return rows
+
+
+def discriminants(q):
+    """`discriminant(t, k, v)`: t declares a property k whose type is the one string literal v — the tag of a
+    discriminated union, `readonly kind: 'LiteralNode'` (#784)."""
+    if not (_has(q, 'fields') and _has(q, 'types')): return set()
+    out = set()
+    for t, k, tn in q("""SELECT owner_type_id, name, type_name FROM fields
+                         WHERE owner_type_id IS NOT NULL AND (type_name LIKE '''%''' OR type_name LIKE '"%"')"""):
+        m = re.fullmatch(r"""\s*(['"])([^'"\\]+)\1\s*""", tn or '')
+        if m: out.add((t, k, m.group(2)))
+    return out
+
+
+def keyed_literals(q, code, at, values):
+    """`keyed_literal(c, k, v, f, l)`: an object literal inside c writes the property `k: 'v'` — the discriminant of a
+    type it builds without naming it. Read from the literals table, which holds string EXPRESSIONS only (a literal
+    type `kind: 'X'` in an interface is not there), then confirmed on the line: `node.kind === 'X'` compares and
+    builds nothing, so it is not a row."""
+    rows = []
+    if not values or not _has(q, 'literals'): return rows
+    for v, f, l in q(f"SELECT DISTINCT value, file, line FROM literals WHERE value IN ({','.join('?' * len(values))})",
+                     *sorted(values)):
+        L = code(f); text = L[l - 1] if 0 < l <= len(L) else ''
+        c = at(f, l)
+        if not c: continue
+        # the reader blanks a string's body, quotes included, so `kind: 'X'` reads as `kind:` and a run of blanks as
+        # wide as the string; a reader that does not blank it leaves the quoted form
+        w = len(v) + 2
+        keys = re.findall(rf"""([A-Za-z_$][\w$]*)\s*:\s*(?:(['"]){re.escape(v)}\2|\s{{{w}}}(?=\s|[,}}]|$))""", text)
+        rows.extend((c, k, v, f, l) for k, _q in keys)
+    return sorted(set(rows))
+
+
 def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     """`direct(q,c,role,why,cert,f,l)` for a TYPE target — who instantiates it, calls into it, names it.
 
@@ -1817,6 +1916,11 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     for t in tids:
         r = q("SELECT name, kind FROM symbols WHERE id=?", t)
         if r: names[t] = (r[0][0], r[0][1])
+    aspans, anames = type_aliases(q)
+    holder = typeref_holder(at, aspans, {i for (i,) in q("SELECT id FROM symbols WHERE kind = 'module'")}
+                            if aspans else set())
+    def trefs(n): return q("SELECT name, file, line, context FROM type_refs WHERE line > 0 AND name = ?", n)
+    over, todo = set(), []                                  # alias_over(q, a), and the aliases still to expand
 
     # ── a type the container INJECTS (rule 186) ────────────────────────────────────────────────────────────
     #   direct(q,c,"uses",cat("receives it by dependency injection (",kind,") — …"),"resolved","",0)
@@ -1939,14 +2043,73 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
                     rows.append((c, 'uses', 'references it', 'by name', f, l))
         # 273 — the name written in a type position: the context says which (a field type, a parameter, a cast)
         if _has(q, 'type_refs'):
-            for nm, f, l, ctx in q("""SELECT name, file, line, context FROM type_refs
-                                      WHERE line > 0 AND name = ?""", n):
-                c = at(f, l)
+            for nm, f, l, ctx in trefs(n):
+                c = holder(f, l)
                 if c and c not in inside: rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l))
+                if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
         # 274 — the name in the text of a file the parser gave no line for
         for c, nm, f, l in textuse:
             if nm == n and c not in inside:
                 rows.append((c, 'uses', 'names it (a signature or a declaration)', 'text', f, l))
+    # the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such
+    # alias, and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes
+    # and never writes MapState.
+    #   alias_over(q,a) :- target(q,"type",t,_), typ(t,n,_), typeref(a,n,_,_,_), type_alias(a), !inside_target(q,a)
+    #   alias_over(q,a) :- alias_over(q,b), typ(b,n,_), typeref(a,n,_,_,_), type_alias(a), !inside_target(q,a)
+    #   direct(q,c,"uses",cat("names ",an,", a type alias over it (",ctx,")"),"by name",f,l)
+    #     :- alias_over(q,a), typ(a,an,_), typeref(c,an,ctx,f,l), c != a, !inside_target(q,c)
+    while todo:
+        b = todo.pop()
+        for _nm, f, l, _ctx in trefs(anames[b]):
+            c = holder(f, l)
+            if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
+    for a in sorted(over):
+        an = anames[a]
+        for _nm, f, l, ctx in trefs(an):
+            c = holder(f, l)
+            if c and c != a and c not in inside:
+                rows.append((c, 'uses', f'names {an}, a type alias over it ({ctx})', 'by name', f, l))
+    # an INTRINSIC ELEMENT whose attributes are checked against it (#784): `<h1 class="x">` never writes FormElementProps
+    #   direct(q,c,"uses",cat("renders <",tag,">, whose attributes are checked against it"),"by name",f,l)
+    #     :- target(q,"type",t,_), typ(t,n,_), jsx_props(tag,n), jsx_tag(c,tag,f,l), !inside_target(q,c)
+    #   … and the same through a props type that extends it: cat("…checked against ",sn,", which extends it")
+    #     :- target(q,"type",t,_), extends(s,t), typ(s,sn,_), jsx_props(tag,sn), jsx_tag(c,tag,f,l), !inside_target(q,c)
+    props = jsx_props(q) if code is not None else set()
+    if props:
+        own = {names[t][0] for t in tids if t in names}
+        subs = {} if not _has(q, 'type_ancestors') else {
+            n: s for s, n in q(f"""SELECT a.type_id, s.name FROM type_ancestors a JOIN symbols s ON s.id = a.type_id
+                                  WHERE a.ancestor_type_id IN ({','.join('?' * len(tids))})""", *tids)}
+        why = {}
+        for tag, n in props:
+            if n in own: why.setdefault(tag, set()).add('it')
+            if n in subs: why.setdefault(tag, set()).add(f'{n}, which extends it')
+        files = {f for (f,) in q("SELECT DISTINCT file FROM symbols WHERE file LIKE '%.tsx' OR file LIKE '%.jsx'")}
+        for c, tag, f, l in jsx_tags(files, code, at, set(why)):
+            if c in inside: continue
+            for w in sorted(why[tag]):
+                rows.append((c, 'uses', f'renders <{tag}>, whose attributes are checked against {w}', 'by name', f, l))
+    # an OBJECT LITERAL that carries its discriminant (#784): `freeze({ kind: 'LiteralNode', fragments })` builds a
+    # LiteralNode and is checked against it, so an added required property breaks it; it never writes the name.
+    #   direct(q,c,"produces",cat("builds an object literal with its tag ",k,": '",v,"'"),"by name",f,l)
+    #     :- target(q,"type",t,_), discriminant(t,k,v), keyed_literal(c,k,v,f,l), !inside_target(q,c)
+    #   … and through a subtype: cat("… with the tag ",k,": '",v,"' of ",sn,", which extends it")
+    #     :- target(q,"type",t,_), extends(s,t), typ(s,sn,_), discriminant(s,k,v), keyed_literal(c,k,v,f,l), !inside_target(q,c)
+    if code is not None and tids:
+        disc = discriminants(q)
+        tset = set(tids)
+        sub = {} if not _has(q, 'type_ancestors') else {
+            s: n for s, n in q(f"""SELECT a.type_id, s.name FROM type_ancestors a JOIN symbols s ON s.id = a.type_id
+                                  WHERE a.ancestor_type_id IN ({','.join('?' * len(tids))})""", *tids)}
+        want = {}
+        for t, k, v in disc:
+            if t in tset: want.setdefault((k, v), set()).add('')
+            elif t in sub: want.setdefault((k, v), set()).add(f' of {sub[t]}, which extends it')
+        if want:
+            for c, k, v, f, l in keyed_literals(q, code, at, {v for _k, v in want}):
+                if c in inside or (k, v) not in want: continue
+                for w in sorted(want[(k, v)]):
+                    rows.append((c, 'produces', f"builds an object literal with the tag {k}: '{v}'{w}", 'by name', f, l))
     # 275 — a name imported FROM the type (a static import), used here. Keyed on the imported member, not on the
     # type's own name, so it is not inside the per-type loop.
     for c, nm, f, l in importuse:
