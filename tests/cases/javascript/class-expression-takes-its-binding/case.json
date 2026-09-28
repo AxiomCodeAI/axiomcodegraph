@@ -1,0 +1,48 @@
+{
+ "lang": "javascript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a class expression in a static field is that field's nested class: its method displayed as `Outer.<anonymous-class>.ping`",
+   "run": ["impact", "lib.js:4"],
+   "want": ["change: Outer.Inner.ping (at lib.js:4)"],
+   "avoid": ["<anonymous-class>"]
+  },
+  {
+   "why": "the nested class is asked for by the name it displays as, and is one declaration, not a class and a field",
+   "run": ["impact", "Outer.Inner"],
+   "want": ["change: class Outer.Inner"],
+   "avoid": ["<anonymous-class>", "declared as"]
+  },
+  {
+   "why": "a class expression bound to a variable takes the variable's name, and the variable is not a second declaration of it",
+   "run": ["impact", "Plain.go"],
+   "want": ["change: Plain.go"],
+   "avoid": ["<anonymous-class>"]
+  },
+  {
+   "why": "`impact Plain` answers for the class, not a const and a class of one name",
+   "run": ["impact", "Plain"],
+   "want": ["change: class Plain"],
+   "avoid": ["const Plain", "declared as"]
+  },
+  {
+   "why": "a class expression assigned to a property is named by the property, owned by the receiver as written",
+   "run": ["impact", "lib.js:20"],
+   "want": ["change: registry.Widget.render (at lib.js:20)"],
+   "avoid": ["<anonymous-class>"]
+  },
+  {
+   "why": "CONTROL: a named class expression keeps its own name; the variable it initialises stays a variable",
+   "run": ["impact", "lib.js:27"],
+   "want": ["change: Real.hi (at lib.js:27)"],
+   "avoid": ["Alias.hi"]
+  },
+  {
+   "why": "CONTROL: a function expression bound to a variable is still named by it",
+   "run": ["impact", "helper"],
+   "want": ["change: helper"],
+   "avoid": ["<function-expression>"]
+  }
+ ]
+}
