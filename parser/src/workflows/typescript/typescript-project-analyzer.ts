@@ -25,6 +25,8 @@ import {
   newCompletenessAccumulator,
 } from '@/parsers/typescript/extractors/ts-ir-completeness';
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
+import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
+import { extractTsPackageEntries } from '@/parsers/typescript/ts-package-entry-extractor';
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
 import { TsRelationWriter } from './ts-relation-writer';
 import { EntityUtils } from '@/utils/entity-utils';
@@ -386,6 +388,37 @@ export class TypeScriptProjectAnalyzer {
       await writerFor(TYPESCRIPT_CSV_FILES.IMPORTS).append(facts.imports);
       await writerFor(TYPESCRIPT_CSV_FILES.EXPORTS).append(facts.exports);
     }
+    // What each package in this program PUBLISHES (#847), resolved against the
+    // modules this program walked. Only a package.json at or under the program root:
+    // the nearest-ancestor walk runs to the filesystem root, and a config above the
+    // root describes a different package whose files this program does not hold.
+    const packageJson = new PackageJsonResolver();
+    const packageJsonPaths = new Set<string>();
+    const insideRoot = (p: string): boolean =>
+      p === path.join(rootDir, 'package.json') || p.startsWith(rootDir + path.sep);
+    const rootPackage = packageJson.packageAt(rootDir);
+    if (rootPackage !== undefined) {
+      packageJsonPaths.add(rootPackage.path);
+    }
+    for (const file of files) {
+      const governing = packageJson.resolve(file).packageJsonPath;
+      if (governing !== '' && insideRoot(governing)) {
+        packageJsonPaths.add(governing);
+      }
+    }
+    for (const packageJsonPath of [...packageJsonPaths].sort()) {
+      const packageFacts = packageJson.packageAt(path.dirname(packageJsonPath));
+      if (packageFacts === undefined) {
+        continue;
+      }
+      await writerFor(TYPESCRIPT_CSV_FILES.PACKAGE_ENTRIES).append(extractTsPackageEntries({
+        facts: packageFacts,
+        packageJsonPath: toRelative(pathAnchor, packageJsonPath),
+        moduleHashOf: (absolutePath) => projectModuleHashes.get(absolutePath),
+        walkedFiles: files.map((file) => path.normalize(file)),
+        serviceVersionLinkHash,
+      }));
+    }
     // Published here only when this call OWNS the writers. A caller driving
     // several programs into one set publishes once, after the last of them.
     if (shared === undefined) {
@@ -422,6 +455,7 @@ export class TypeScriptProjectAnalyzer {
         ts_export: writerFor(TYPESCRIPT_CSV_FILES.EXPORTS).rowCount,
         ts_comment: writerFor(TYPESCRIPT_CSV_FILES.COMMENTS).rowCount,
         ts_parse_gap: writerFor(TYPESCRIPT_CSV_FILES.PARSE_GAPS).rowCount,
+        ts_package_entry: writerFor(TYPESCRIPT_CSV_FILES.PACKAGE_ENTRIES).rowCount,
       },
       irCompleteness: completeness,
     };

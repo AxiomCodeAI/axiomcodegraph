@@ -15,6 +15,7 @@ lib_ts_import	all-typescript-imports
 lib_ts_method	all-typescript-methods
 lib_ts_method_parameter	all-typescript-method-parameters
 lib_ts_module	all-typescript-modules
+lib_ts_package_entry	all-typescript-package-entries
 lib_ts_parse_gap	all-typescript-parse-gaps
 lib_ts_type	all-typescript-types
 lib_ts_type_heritage	all-typescript-type-heritages

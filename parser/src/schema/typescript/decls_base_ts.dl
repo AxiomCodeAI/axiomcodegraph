@@ -36,7 +36,7 @@
 //     be reached. ts_call_site.isTypeOnlyTarget must always be "false".
 //
 // NOT STAGED (declared for symmetry only — library IR is declarations, not bodies):
-//   lib_ts_expression, lib_ts_call_site, lib_ts_block, lib_ts_variable, lib_ts_parse_gap
+//   lib_ts_expression, lib_ts_call_site, lib_ts_block, lib_ts_variable, lib_ts_parse_gap, lib_ts_package_entry
 //
 // ENGINE-POPULATED (the parser writes no row, in either provenance):
 //   ts_type_satisfies
@@ -229,6 +229,15 @@
 // (10 columns)
 .decl ts_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
 .decl lib_ts_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+
+// What a package PUBLISHES: one row per package.json entry (main, module, exports, types,
+// source), with c5 the walked SOURCE module the target compiles from. Same eleven columns as
+// js_package_entry. The target is usually build output the parser never walks, so c6 says
+// whether the module was the target itself (RESOLVED) or found by the source convention
+// (RESOLVED_FROM_BUILD_OUTPUT); every other outcome carries no module hash.
+// (11 columns)
+.decl ts_package_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol)
+.decl lib_ts_package_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol)
 
 // Structural satisfaction. DECLARED BUT NEVER STAGED BY THE PARSER: satisfaction needs
 // isTypeAssignableTo, the parser has no checker, and a parser-emitted row would be a guess

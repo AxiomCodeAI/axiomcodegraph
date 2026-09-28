@@ -590,3 +590,5 @@
 .decl decorator_module(c0:symbol,c1:symbol,c2:symbol)
 .decl member_sig_access(c0:symbol,c1:symbol)
 .decl method_kind_is_assignable_signature(c0:symbol)
+.decl package_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol)
+.decl cfg_published_module(c0:symbol)

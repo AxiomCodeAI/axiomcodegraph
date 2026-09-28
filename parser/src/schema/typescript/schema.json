@@ -1188,6 +1188,39 @@
     ]
    }
   },
+  "ts_package_entry": {
+   "columns": [
+    "packageName",
+    "subpath",
+    "condition",
+    "entrySource",
+    "targetPath",
+    "targetModuleLinkHash",
+    "targetOutcome",
+    "packageJsonPath",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "tsPackageEntryUniqueHash"
+   ],
+   "domains": {
+    "entrySource": [
+     "DEFAULT_INDEX",
+     "EXPORTS",
+     "MAIN",
+     "MODULE",
+     "SOURCE",
+     "TYPES"
+    ],
+    "targetOutcome": [
+     "BLOCKED",
+     "NO_SOURCE_MODULE",
+     "PATTERN",
+     "RESOLVED",
+     "RESOLVED_FROM_BUILD_OUTPUT",
+     "RESOLVED_FROM_PATTERN"
+    ]
+   }
+  },
   "ts_type_satisfies": {
    "columns": [
     "sourceGroupKey",
