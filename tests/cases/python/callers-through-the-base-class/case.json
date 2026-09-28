@@ -1,0 +1,15 @@
+{"lang": "python",
+ "checks": [
+  {"why": "a caller typed on the base class is a direct caller of each subclass override, via the base class: one of a set, since the base or the other subclass may run there (#1542)",
+   "run": ["impact", "MailNotifier.send"],
+   "want": ["[one of a set] alert", "[one of a set] Desk.ring", "calls it (via the base class)"]},
+  {"why": "near-miss control: a caller whose receiver is annotated with the other subclass is not a caller of this one",
+   "run": ["impact", "MailNotifier.send"],
+   "avoid": ["sms_only"]},
+  {"why": "control: the other subclass keeps its own concrete caller",
+   "run": ["impact", "SmsNotifier.send"],
+   "want": ["[resolved] sms_only"]},
+  {"why": "the base method: the call written against it names it, resolved",
+   "run": ["impact", "Notifier.send"],
+   "want": ["[resolved] alert", "[resolved] Desk.ring"],
+   "avoid": ["[one of a set] alert"]}]}

@@ -730,7 +730,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '36'          # 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '37'          # 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -832,6 +832,7 @@ class Impact:
         # the type written on the field's own declaration line. Without it `holds` is file scoped: one field of type T
         # in a file makes every type declared in that file a holder of T
         ftypes = []
+        import graph_sql
         for rid, f in self.fields.items():
             # THE SAME ID THE `field` FACT USED. This built `f:<rowid>` unconditionally while `field` used the graph's
             # own id where there is one, so on any bundle whose fields carry ids the two relations never joined: every
@@ -841,11 +842,8 @@ class Impact:
             fid = f['id'] or f"f:{rid}"
             if not f.get('file') or not f.get('line'): continue
             L = self.lines(f['file']); line = L[f['line'] - 1] if f['line'] <= len(L) else ''
-            m = re.search(rf'([A-Za-z_$][\w$.]*)\s*(?:<[^;=]*>)?\s*(?:\[\s*\])*\s+{re.escape(f["name"])}\s*[;=,)]', line)
-            if m: ftypes.append((fid, m.group(1).split('.')[-1]))
-            else:
-                m = re.search(rf'{re.escape(f["name"])}\s*:\s*([A-Za-z_$][\w$.]*)', line)        # name: Type
-                if m: ftypes.append((fid, m.group(1).split('.')[-1]))
+            t = graph_sql.field_decl_type(line, f['name'])                  # `Type name;` or `name: Type`
+            if t: ftypes.append((fid, t))
         W('field_type', ftypes)
         W('extends', [(r[0], r[1]) for r in g.q("SELECT type_id, ancestor_type_id FROM type_ancestors")])
         W('nested', [(r[0], r[1]) for r in g.q("SELECT type_id, outer_type_id FROM nesting")] if g.has('nesting') else [])
@@ -1295,6 +1293,13 @@ class Impact:
         # hook's fast path read the same rows
         import graph_sql
         W('registers', sorted({(t, by, kind) for t, rows in graph_sql._registers(g.q).items() for by, kind in rows}))
+        # the bean an injection point was WIRED to, whatever type the point declares (#1384), and the callers that reach
+        # a declaration through a base it is override-equivalent to (#1542): both graph_sql's, so the rules and the SQL
+        # port read the same rows
+        W('injected_bean', graph_sql.bean_injections(g.q))
+        via, via_sites = graph_sql.via_base_rows(g.q, self.lines, stubs)
+        W('via_base', sorted({(c, m, why, cert, g.site_file(f) if f else '', l, e) for c, m, why, cert, f, l, e in via}))
+        W('via_site', sorted({(c, m, g.site_file(f) if f else '', l) for c, m, f, l in via_sites}))
         W('bean_factory', sorted(set(factories)))
         # A CROSS-PROCESS HOP IS A DEPENDENT, AND IT WAS IN THE DATABASE UNREAD (#1108).
         # framework-behavior emits remote_edge for a hop no call site expresses -- a queue, a route, a

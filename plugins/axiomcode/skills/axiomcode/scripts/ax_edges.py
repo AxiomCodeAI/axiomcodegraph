@@ -184,6 +184,22 @@ def direct_why(tier):
     return TIER_WHY.get(tier) or DIRECT_WHY.get(direct_cert(tier), 'calls it')
 
 
+# …and a call written against a declaration this one is override-equivalent to (#1542): the caller names the interface
+# or base method, and the declaration asked about is what runs there. Worded by the kind of type declaring the base.
+# The service-layer shape (a controller holding an interface-typed field, the implementation behind it) is the common
+# one; before this row its callers showed only under "reaches those", and an agent read that as "few callers".
+VIA_BASE_WHY = {
+    'interface': 'calls it (via the interface)',
+    'class': 'calls it (via the base class)',
+}
+BODILESS_BASE = {'interface', 'protocol', 'trait'}   # a base of this kind cannot itself be what runs at the call
+
+
+def via_base_why(base_kind):
+    """what a direct row says for a caller that reaches this declaration through a base declaration of this kind"""
+    return VIA_BASE_WHY['interface' if (base_kind or '').lower() in BODILESS_BASE else 'class']
+
+
 # ── entry points: what the reason token means, said in words ───────────────────────────────────────────────
 # `entry_points.reason` is an engine token (`orm_hook`, `bean_ctor`, `framework_hook`). Printed raw inside a fixed
 # sentence it read "is a orm_hook entry point … Changing it changes what the outside world can call" for a model

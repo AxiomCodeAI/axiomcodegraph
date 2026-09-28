@@ -332,7 +332,20 @@ route_site(f, l) :- registration(_, f, l, "route", _, _).
 // fast path reads the same one, so the rules and the fast path cannot disagree about a tier — which
 // is how the two copies of the binary test drifted apart from the rest of the vocabulary to begin with.
 .decl cert_tier(tier:symbol, cert:symbol, why:symbol)             .input cert_tier
-direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", t != "stub", cert_tier(t, cert, why), !bean_call(q, c, m), !route_site(f, l).
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", t != "stub", cert_tier(t, cert, why), !bean_call(q, c, m), !route_site(f, l), !via_site(c, m, f, l).
+// A CALL WRITTEN AGAINST A BASE THIS DECLARATION IS OVERRIDE-EQUIVALENT TO (#1542). The service-layer shape: a controller
+// holds an interface-typed field and calls through it. Before this the caller of an implementation showed only under
+// "reaches those" (the dispatch hop), and a caller the engine had NARROWED to the implementation (an injected field whose
+// bean it resolved) was missing from the interface method altogether, so `impact` there said the change was local.
+// The rows are graph_sql.via_base_rows, read by the SQL port too: for the base itself, a multi_inferred edge is the
+// call the code names ("calls it", resolved); for each override the engine kept at that site, "calls it (via the
+// interface)", resolved only when nothing else can run there; for a narrowed call, the base when the receiver read at
+// the call is a field declared with the base's type. An override the engine left out of a site's set gets no row, so a
+// caller whose receiver resolves to a sibling implementation does not become a caller of this one. `via_site` is the
+// plain row each one replaces, so a caller is not listed twice for one call.
+.decl via_base(c:symbol, m:symbol, why:symbol, cert:symbol, f:symbol, l:number, e:symbol)   .input via_base
+.decl via_site(c:symbol, m:symbol, f:symbol, l:number)                            .input via_site
+direct(q, c, "uses", why, cert, f, l) :- target(q, "method", m, _), via_base(c, m, why, cert, f, l, _), !is_target_decl(q, c).
 // A call written inside a mock's stub or verification (`when(repo.find(1))`, `mock.Setup(r => r.Find(1))`): the exporter
 // gives it the tier "stub" (ax_edges.stub_sites). It names the method, so a rename or a new parameter breaks it, and it
 // runs nothing: the receiver is a mock. Its own row, whatever else the caller does; it is not an edge of the closure.
@@ -352,13 +365,18 @@ bean_call(q, c, m) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), c
 .decl receives_bean(t:symbol, into:symbol)
 receives_bean(t, into) :- injected(t, into, _), typ(into, _, _).
 receives_bean(t, into) :- injected(t, x, _), owner(x, into).
+// …and a point the engine WIRED to this bean, whatever type it declares: an `@Autowired Store store` given the JdbcStore
+// bean receives it through the container, and keyed on the declared type alone its caller "obtained it itself" (#1384)
+.decl injected_bean(t:symbol, into:symbol)                                        .input injected_bean
+receives_bean(t, into) :- injected_bean(t, into), typ(into, _, _).
+receives_bean(t, into) :- injected_bean(t, x), owner(x, into).
 direct(q, c, "uses", "calls it from inside the same bean — through this, not through the container proxy, so an added proxied annotation does NOT apply to this caller", "resolved", f, l) :-
     bean_call(q, c, m), owner(m, ot), owner(c, ot), calls(c, m, t, f, l), t != "stub".
 direct(q, c, "uses", "calls it on the injected bean — the container proxy is on the path, so an added proxied annotation applies here", "resolved", f, l) :-
     bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, receives_bean(ot, cot), calls(c, m, t, f, l), t != "stub".
 direct(q, c, "uses", "calls it on an instance it obtained itself, not from the container — no proxy on the path, so an added proxied annotation does not apply here", "resolved", f, l) :-
     bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, !receives_bean(ot, cot), calls(c, m, t, f, l), t != "stub".
-direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
+direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l), !via_site(c, m, f, l).
 // `!is_target_decl`: `this.rows.find(...)` inside `OrdersService.find` is the ARRAY's find, and with the receiver
 // untyped it matched the target by name — printing the declaration as a reader of itself. Worse, that row made the
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
@@ -668,6 +686,8 @@ seed(q, m) :- seed_of(q, m).
 // merely that the caller calls something
 .decl direct_edge(q:symbol, c:symbol, callee:symbol)
 direct_edge(q, c, m) :- target(q, "method", m, _), calls(c, m, _, _, _).
+// a via_base row claims the engine's edge at its site: the base's, or the override the call was narrowed to (#1542)
+direct_edge(q, c, e) :- target(q, "method", m, _), via_base(c, m, _, _, _, _, e), !is_target_decl(q, c).
 direct_edge(q, c, a) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, _), member(t, a, an, _), calls(c, a, _, _, _).
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), member(t, k, _, "constructor"), calls(c, k, _, _, _).
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), holds(h, t), member(h, k, _, "constructor"), calls(c, k, _, _, _).
