@@ -51,8 +51,9 @@ def certain(repo):
         return False
 
 
-def impact(repo, target, depth=DEPTH):
-    """{contract, reads, byname, reached, tests, overloads} for one declaration, or None when it is not in the graph."""
+def impact(repo, target, depth=DEPTH, file=None):
+    """{contract, reads, byname, reached, tests, overloads} for one declaration, or None when it is not in the graph.
+    `file`: the file the declaration is in, when the caller knows it (an edit does)"""
     db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     if not os.path.exists(db): return None
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
@@ -95,6 +96,13 @@ def impact(repo, target, depth=DEPTH):
                 rows = q("SELECT id, kind, method_id FROM symbols WHERE file=? AND method_id IS NOT NULL", (target,)).fetchall()
             if not rows and '.' not in target and '/' not in target:
                 rows = q("SELECT id, kind, method_id FROM symbols WHERE name=? AND method_id IS NOT NULL", (target,)).fetchall()
+        # ONE DECLARATION, NOT EVERY ONE OF ITS NAME. A display is not unique: two modules both called `utils` each
+        # with a `helper`, two packages each with a `Config.load`. An edit knows its file, and without it the removal of
+        # one `helper` was answered with the callers and tests of the other as well
+        if file and len(rows) > 1:
+            ph_ = ','.join('?' * len(rows))
+            keep = {r_[0] for r_ in q(f"SELECT id FROM symbols WHERE id IN ({ph_}) AND file = ?", (*[r_[0] for r_ in rows], file))}
+            if keep: rows = [r_ for r_ in rows if r_[0] in keep]
         if not rows: return None
         # A FIELD is declined for the same reason a constructor is, and the failure it caused was worse. What
         # depends on a field is a READ or a WRITE — rows in `refs` and `field_access`, not in `call_edges` — so
@@ -266,11 +274,11 @@ def _at(q, ids):
     return out
 
 
-def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
+def impact_shaped(repo, target, depth=DEPTH, tests_shown=3, file=None):
     """the same dict shape `hooks/changes.py` already formats from `axiomcode impact --json`, so the hook's
     presentation is untouched by the swap. `reached` and `tests` are lists because the formatter takes len() of
     them; only the first few tests carry names, which is all it prints."""
-    r = impact(repo, target, depth)
+    r = impact(repo, target, depth, file=file)
     if r is None: return None
     db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'), 'out', 'graph.sqlite')
     con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)

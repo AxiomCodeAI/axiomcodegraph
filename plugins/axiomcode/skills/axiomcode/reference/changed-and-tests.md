@@ -8,8 +8,17 @@ extends / implements, type parameters), `removed`, and `added` lines outside any
 nothing depends on new code yet). By default it reads the working tree against **the commit the graph was built from** (the
 build stamps it), so an uncommitted edit is always measured against the tree the graph describes; `--range a..b` reads two
 commits (when the graph is at the newer side, the declarations are the new text's and the direction is turned around),
-`--staged` the index, `--old/--new/--file` two texts of one file. Each line ends with the target `impact` takes for it — a
-signature with one parameter changed is `Owner.m(param)` — and `--impact` runs impact on all of them as one change set.
+`--staged` the index, `--old/--new/--file` two texts of one file, `--against-head` the working tree against HEAD (what the
+edit hooks ask after a rebase or a pull the baseline has not followed yet, so the commits that came in are not counted as
+edits). Each line ends with the target `impact` takes for it — a signature with one parameter changed is `Owner.m(param)`
+— and `--impact` runs impact on all of them as one change set.
+
+The graph's line numbers are in the text it was indexed from, and the text an edit is read against can be a later one (an
+edit made before the background refresh caught up, a range). Each declaration is carried onto that text by a line diff, and
+one whose own line was rewritten is found again by what it declares, nearest first. A declaration still written elsewhere
+in the new text is not `removed`: a moved one is `body` (moved), and one found only by name, or a field whose line went
+while it is still assigned, says `may have changed`. Read that as "look at it", not as a verdict. When the graph's rows and
+the text it records disagree (a refresh raced an edit), a `note:` says the declarations were placed by name.
 
 What to pass, and what the answer says when the question cannot be answered the way it was asked:
 

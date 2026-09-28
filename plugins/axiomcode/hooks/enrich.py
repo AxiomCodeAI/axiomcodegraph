@@ -183,10 +183,10 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         19 of 40 sampled methods; it also carries #833, which kills that script at import wherever
         importlib.machinery is not incidentally bound."""
         try:
-            j = graph_sql.impact_shaped(cwd, d.get('shown_target') or d['target'])
+            j = graph_sql.impact_shaped(cwd, d.get('shown_target') or d['target'], file=d.get('file'))
             if j is not None: return d, j
         except Exception: pass
-        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d.get('shown_target') or d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'] or d.get('shown_target'), cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         results = list(ex.map(impact, decls[:3])); bodies = list(ex.map(impact, body[:3]))
@@ -213,7 +213,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         if reads:
             lines.append(f"    reads / uses it ({len(reads)}): " + names(reads) if not j.get('_sql')
                          else f"    reads / uses it — resolved callers: " + names(reads)
-                              + f" (the fast path; `axiomcode impact {d.get('shown_target') or d['target']}` adds the by-name, in-scope and text layers)")
+                              + f" (the fast path; `axiomcode impact {d['target'] or d.get('shown_target')}` adds the by-name, in-scope and text layers)")
         # `reached` is a LIST OF PLACEHOLDERS from the SQL shim (graph_sql.impact_shaped fills it with None,
         # deliberately, because both hooks only take len() of it — resolving a location for rows nobody prints cost
         # 5.7 s against 1.7 s on a wide target). Iterating it and calling .get() therefore raised AttributeError and
