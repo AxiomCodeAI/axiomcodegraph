@@ -20,14 +20,21 @@ One throwaway repository in TypeScript (the main language: most files), Python a
   control        a repository in one language gets no .axiomcode/lang and no fan-out
   build output   a Maven repository's target/ and a generated javadoc are not a JavaScript project (#1545); the same
                  repository with JavaScript of its own, one file in a directory named target, still gets that graph
+  stopped        a first query builds the graph, and the caller stops it mid-build (a timeout, Ctrl-C, a host that ends the
+                 process group): the build is not the query's, it goes on and publishes every graph, and the next query
+                 answers from them without building again. `axiomcode index` stopped after its main language is solved
+                 publishes that graph before it stops, and the graph stays stale until the others are built. Controls:
+                 one stopped before anything is solved stops at once and leaves no graph; a repository in one language
+                 behaves the same
 
     python3 tests/multi_language.py [-v]
 """
-import json, os, shutil, subprocess, sys, tempfile, time
+import fcntl, json, os, shutil, signal, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX = os.path.join(ROOT, 'bin', 'axiomcode')
 FRESH = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'ax_fresh.py')
+BUILD = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode-build')
 
 FILES = {
     'tsconfig.json': '{ "compilerOptions": { "strict": true }, "include": ["src"] }\n',
@@ -86,6 +93,37 @@ def settle(repo, env):
         quiet_since = None if busy else (quiet_since or time.time())
         if quiet_since and time.time() - quiet_since > 3: return
         time.sleep(0.2)
+
+
+def building(repo):
+    """a build holds the repository's build lock"""
+    try: fd = os.open(os.path.join(repo, '.axiomcode', 'build.lock'), os.O_RDWR)
+    except OSError: return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); return False
+    except OSError: return True
+    finally: os.close(fd)
+
+
+def until(cond, seconds):
+    end = time.time() + seconds
+    while time.time() < end:
+        if cond(): return True
+        time.sleep(0.05)
+    return False
+
+
+def stopped_query(repo, env, verb_args):
+    """a first query in its own process group, stopped by a signal to that group once its build holds the lock, as a
+    caller's timeout stops it; then the build (if it survived) is waited for. Returns whether the build was running when
+    the query was stopped"""
+    p = subprocess.Popen([AX] + verb_args, cwd=repo, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    started = until(lambda: building(repo) or p.poll() is not None, 300) and p.poll() is None
+    try: os.killpg(p.pid, signal.SIGTERM)
+    except OSError: pass
+    p.wait(); time.sleep(0.5)
+    until(lambda: not building(repo), 900)
+    return started
 
 
 def main(argv):
@@ -233,6 +271,48 @@ def main(argv):
         check(tab.get('lang') == 'typescript', 'control: its file table names the one language', json.dumps({k: tab.get(k) for k in ('lang', 'lang_auto')}))
         st = json.loads(sh(one, sys.executable, FRESH, 'status', '.', '--json', env=quiet).stdout or '{}')
         check(st.get('state') == 'fresh', 'control: and it is fresh', json.dumps(st))
+
+        # ── stopped ───────────────────────────────────────────────────────────────────────────────────────────
+        kq = os.path.join(work, 'stopped'); make(kq, FILES)
+        ran = stopped_query(kq, quiet, ['impact', 'add', '.'])
+        main_db = os.path.join(kq, '.axiomcode', 'out', 'graph.sqlite')
+        langs = {l: os.path.exists(os.path.join(kq, '.axiomcode', 'lang', l, 'out', 'graph.sqlite')) for l in ('python', 'javascript')}
+        check(ran and os.path.exists(main_db) and all(langs.values()),
+              'stopped: a first query stopped mid-build leaves the build running, and it publishes the main graph and every other one',
+              json.dumps(dict(build_was_running=ran, main=os.path.exists(main_db), **langs)) + '\n' + ' '.join(sorted(os.listdir(os.path.join(kq, '.axiomcode', 'out')))))
+        q = sh(kq, AX, 'impact', 'add', '.', env=quiet)
+        check(q.returncode == 0 and '══ python graph' in q.stdout and 'building one' not in q.stderr and 'graph build is' not in q.stderr,
+              'stopped: and the next query answers from those graphs, without building again', q.stdout[-600:] + q.stderr[-600:])
+        # `axiomcode index` stopped once its main language is solved publishes that graph first
+        ki = os.path.join(work, 'stopped-index'); make(ki, FILES)
+        prog = os.path.join(ki, '.axiomcode', 'out', '.progress')
+        b = subprocess.Popen(['bash', BUILD, ki], cwd=ki, env=quiet, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        solved = until(lambda: 'typescript ok' in (open(prog).read() if os.path.exists(prog) else ''), 600)
+        os.killpg(b.pid, signal.SIGTERM); out, _ = b.communicate()
+        ptr = os.path.join(ki, '.axiomcode', 'out', 'graph.sqlite')
+        check(solved and b.returncode != 0 and os.path.exists(ptr) and os.path.exists(os.path.join(ki, '.axiomcode', 'out', 'stamp')),
+              'stopped: an index stopped after its main language is solved publishes that graph before it stops', f'rc={b.returncode} solved={solved}\n{out}')
+        q = sh(ki, AX, 'impact', 'square', '.', env=quiet)
+        check(q.returncode == 0 and 'area' in q.stdout and 'building one' not in q.stderr,
+              'stopped: and a query answers from it without building', q.stdout[-600:] + q.stderr[-600:])
+        st = json.loads(sh(ki, sys.executable, FRESH, 'status', '.', '--json', env=quiet).stdout or '{}')
+        r = sh(ki, AX, 'index', '.', env=quiet)
+        check(st.get('state') == 'stale' and 'up to date' not in r.stdout
+              and all(os.path.exists(os.path.join(ki, '.axiomcode', 'lang', l, 'out', 'graph.sqlite')) for l in ('python', 'javascript')),
+              'stopped: the languages it did not build leave the graph stale, and the next build builds them', json.dumps(st) + '\n' + r.stdout[-600:])
+        # control: stopped before anything is solved, it stops (no graph to keep) and the next query builds one
+        kc = os.path.join(work, 'stopped-early'); make(kc, FILES)
+        b = subprocess.Popen(['bash', BUILD, kc], cwd=kc, env=quiet, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        until(lambda: building(kc), 60)
+        t0 = time.time(); os.killpg(b.pid, signal.SIGTERM); out, _ = b.communicate(); took = time.time() - t0
+        check(b.returncode != 0 and took < 15 and not os.path.lexists(os.path.join(kc, '.axiomcode', 'out', 'graph.sqlite')),
+              f'control: an index stopped before its main language is solved stops at once ({took:.1f}s) and leaves no graph', f'rc={b.returncode}\n{out}')
+        # control: a repository in one language, its first query stopped mid-build, gets its graph the same way
+        k1 = os.path.join(work, 'stopped-one'); make(k1, {k: v for k, v in FILES.items() if k.startswith(('src/', 'tsconfig'))})
+        ran = stopped_query(k1, quiet, ['impact', 'square', '.'])
+        q = sh(k1, AX, 'impact', 'square', '.', env=quiet)
+        check(ran and not os.path.exists(os.path.join(k1, '.axiomcode', 'lang')) and q.returncode == 0 and 'area' in q.stdout and 'building one' not in q.stderr,
+              'stopped: in a repository of one language too, the stopped first query\'s build completes and the next query answers', q.stdout[-400:] + q.stderr[-400:])
 
         # ── build output ──────────────────────────────────────────────────────────────────────────────────────
         mvn = os.path.join(work, 'maven'); make(mvn, MAVEN)
