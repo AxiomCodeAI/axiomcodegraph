@@ -18,8 +18,8 @@ day the defect is fixed.
 
 **Status: fixed.** A component element emits a JSX_ELEMENT / JSX_SELF_CLOSING row and a
 JSX_COMPONENT_CALL site; `callee-resolution.dl` rule (13) resolves it, and also follows a
-wrapper's argument 0 (`memo`, `forwardRef`) and a `lazy()` loader's default export. Pinned
-by cases 10 and 74. The measurement below is kept as the record of the defect.
+wrapper's argument 0 (`memo`, `forwardRef`, `observer`, `withX`) and what a `lazy` /
+`dynamic` loader settles to. Pinned by cases 10, 74 and 75. The measurement below is kept as the record of the defect.
 
 **Severity: blocking for any React / Preact / Solid codebase.**
 

@@ -1,0 +1,11 @@
+oracle=21 engine=19 agree=15 missing=6 (known 6, NEW 0) extra=4
+  known    app#<arrow@57>(?) -> parts#<arrow@15>(T)
+  known    app#Page() -> app#MadeInner()
+  known    app#RenameCall({ run: () =) -> app#<arrow@66>()
+  known    app#RenameTag({ icon: Fc }) -> parts#<arrow@15>(T)
+  known    app#ShorthandCall({ Button: () =) -> app#<arrow@63>()
+  known    app#ShorthandTag({ Button: Fc }) -> parts#<arrow@15>(T)
+  extra    app#Page() -> app#MemoInner()
+  extra    app#Page() -> app#ObservedImpl()
+  extra    app#Page() -> heavy#Heavy()
+  extra    app#Page() -> heavy#NamedHeavy()
