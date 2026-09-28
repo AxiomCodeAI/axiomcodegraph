@@ -1213,6 +1213,11 @@ function callArgumentCount(node: ts.Node): number {
   if (ts.isNewExpression(node)) {
     return node.arguments?.length ?? 0;
   }
+  // A component receives ONE argument, the props object, whatever the markup
+  // spells as attributes and children.
+  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+    return 1;
+  }
   return 0;
 }
 

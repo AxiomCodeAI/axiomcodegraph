@@ -40,6 +40,10 @@
 - **No chain is an answer with a bound.** "no chain of resolved calls" is followed by whether unresolved sites *would*
   connect the two by name, and at which `file:line` — that is the site to read, not a path to claim. The `bound:` line
   counts unresolved calls on the chain shown: other chains may exist that the graph cannot see.
+  When a framework joins the two ends directly (a Python `.delay()` and the task it enqueues, a signal `send` and its
+  `@receiver`, a route table and its view, a `Depends()` default and its provider, a test and the fixture it names), the
+  answer prints that hop with its mechanism and the engine's confidence, labelled framework-mediated, and no longer calls
+  the two independent. It is not a call, so it is never part of a chain.
 - **A call into a library is an endpoint too — with or without `--library`.** `path '*' 'new ArrayList'`,
   `path '*' Files.readAllBytes`, `path '*' readAllBytes`, `path '*' 'Collections.*'`, `path '*' open`: the name as the parser
   wrote it at the call site (kind `new` or method, and the receiver written before it), matched at every unresolved site,

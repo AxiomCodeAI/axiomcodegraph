@@ -1,0 +1,84 @@
+// ============================================================================
+// CALL-EDGE-GEN · JSX ELEMENTS  (`<Component …/>` renders Component)
+//
+// A JSX element whose tag is a reference — `<TodoList/>`, `<ui.Panel/>` — is a call
+// of that component by the renderer: a function component runs with the element's
+// props as its first argument; a class component is constructed with them and its
+// `render` runs. The parser emits the element as a JSX_ELEMENT expression with the
+// tag under JSX_TAG_NAME and each attribute as a JSX_ATTRIBUTE_VALUE row (role
+// PROPERTY_KEY, name = the prop) whose PROPERTY_VALUE child is the value. No
+// js_call_site row exists for it, so before this file the element was neither an
+// edge nor a miss: `impact TodoList` answered "nothing uses it".
+//
+// An INTRINSIC tag (`<div/>`, `<my-element/>`) is JSX_INTRINSIC_ELEMENT and has no
+// tag reference: it names no project code and gets no row here.
+//
+// Two effects, both through the ordinary value layer:
+//   1. an edge per element: call_chain_edge(Element, Caller, -, Component, …,
+//      "JSX_ELEMENT"), tiered like a call (one target known_edge, several
+//      multi_inferred); a tag with no value is ambiguous_unknown — a declared miss,
+//      never silence.
+//   2. the element's attributes are an object value keyed by the element, and it is
+//      what the component receives: `<TodoItem onToggle={handleToggle}/>` makes
+//      `onToggle(todo)` inside `TodoItem({ onToggle })` resolve to handleToggle.
+//      Brace children are the `children` prop (a render prop is a function).
+//
+// Not modelled: a component reached only through a library wrapper
+// (`memo(C)`, `connect(…)(C)`, `forwardRef(fn)`) whose library is not staged — the
+// tag's value is the wrapper's return, which is unknown, and the element stays an
+// ambiguous_unknown row.
+// ============================================================================
+
+// ── the element and what its tag holds ──────────────────────────────────────
+jsx_element_tag(je, tag) :- expr_kind(_, "JSX_ELEMENT", _, je), expr_child(_, je, "JSX_TAG_NAME", _, tag).
+jsx_tag_value(je, k, i) :- jsx_element_tag(je, tag), expr_value(tag, k, i).
+// A CommonJS module value renders through its default export, as a call of it does.
+jsx_tag_value(je, k, i) :- jsx_element_tag(je, tag), expr_value(tag, "module", mod),
+    module_export_value(mod, "default", k, i), k != "module".
+
+// ── jsx_renders(Element, Component) — the callables the element runs ───────
+// A function component (a constructor FUNCTION is callable_value's "ctor" half).
+jsx_renders(je, m) :- jsx_tag_value(je, k, i), callable_value(k, i, m).
+// A class component: constructed, then rendered.
+jsx_renders(je, m) :- jsx_tag_value(je, "ctor", t), type_construct_target(t, m).
+jsx_renders(je, m) :- jsx_tag_value(je, "ctor", t), type_member(t, "render", m).
+
+// ── the props object ────────────────────────────────────────────────────────
+// Keyed by the element, as an object literal is keyed by the literal.
+prop_value("obj", je, n, k, i) :- expr_kind(_, "JSX_ELEMENT", _, je),
+    expr_child(_, je, "PROPERTY_KEY", _, a), expr_kind(_, "JSX_ATTRIBUTE_VALUE", _, a), expr_name(_, n, a),
+    expr_child(_, a, "PROPERTY_VALUE", _, v), expr_value(v, k, i).
+// `<C {...rest}/>` hands over every property of `rest`.
+prop_value("obj", je, n, k, i) :- expr_kind(_, "JSX_ELEMENT", _, je),
+    expr_child(_, je, "SPREAD_OPERAND", _, o), expr_value(o, k0, i0), prop_value(k0, i0, n, k, i).
+// `<C>{(x) => …}</C>` — a brace child is `props.children`.
+prop_value("obj", je, "children", k, i) :- expr_kind(_, "JSX_ELEMENT", _, je),
+    expr_child(_, je, "OPERAND", _, c), expr_value(c, k, i).
+
+// A function component's first parameter receives the props — client functions only,
+// and not a fan-capped one, exactly as argument flow at a call.
+param_value(p, "obj", je) :- jsx_tag_value(je, k, i), k != "ctor", callable_value(k, i, m),
+    method_decl("client", _, _, _, _, _, _, m), !method_is_hot(m, _),
+    param_decl(_, _, "0", m, p), !param_is_rest(_, p).
+// A class component: its constructor receives them, and `this.props` holds them.
+param_value(p, "obj", je) :- jsx_tag_value(je, "ctor", t), type_construct_target(t, m),
+    method_decl("client", _, _, _, _, _, _, m), !method_is_hot(m, _),
+    param_decl(_, _, "0", m, p), !param_is_rest(_, p).
+prop_value("inst", t, "props", "obj", je) :- jsx_tag_value(je, "ctor", t), type_decl("client", _, _, _, _, t).
+
+// ── the rows ────────────────────────────────────────────────────────────────
+// The caller is the callable whose body holds the markup; top-level markup
+// (`root.render(<App/>)`) belongs to the module initializer, as a top-level call does.
+jsx_caller(je, m) :- jsx_element_tag(je, _), expr_owner(_, m, _, je), m != "".
+jsx_caller(je, init) :- jsx_element_tag(je, _), expr_owner(_, "", mod, je), module_init(_, init, mod).
+jsx_target_count(je, n) :- jsx_element_tag(je, _), n = count : { jsx_renders(je, _) }.
+jsx_class(je, "known_edge") :- jsx_target_count(je, 1).
+jsx_class(je, "multi_inferred") :- jsx_target_count(je, n), n >= 2.
+
+call_chain_edge(je, caller, "-", m, "client", cls, "JSX_ELEMENT") :- jsx_renders(je, m),
+    method_prov(m, "client"), jsx_caller(je, caller), jsx_class(je, cls).
+call_chain_edge(je, caller, "-", m, "lib", "boundary_lib", "JSX_ELEMENT") :- jsx_renders(je, m),
+    method_prov(m, "lib"), jsx_caller(je, caller).
+// A tag that names something the value layer could not follow: a declared unknown.
+call_chain_edge(je, caller, "-", "-", "-", "ambiguous_unknown", "JSX_ELEMENT") :-
+    jsx_target_count(je, 0), jsx_caller(je, caller).

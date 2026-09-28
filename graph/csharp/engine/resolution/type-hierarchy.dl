@@ -223,6 +223,15 @@ type_ancestor("client", gk, agk) :-
 type_self_or_ancestor(prov, gk, gk) :- type_group(prov, _, gk).
 type_self_or_ancestor(prov, gk, agk) :- type_ancestor(prov, gk, agk).
 
+// type_ancestor_type(Prov, TypeHash, AncestorTypeHash) -- type_ancestor keyed on the
+// DECLARATION rather than the merged group, which is what the exported graph keys a
+// type on: `types.id`, `methods.owner_type_id`. A partial type has one row per part,
+// so every part is a subtype of every ancestor of the whole. The ancestor keeps its
+// own provenance, so a client type deriving from a staged library type joins to the
+// library's declaration.
+type_ancestor_type(prov, t, at) :-
+    type_ancestor(prov, gk, agk), type_group(prov, t, gk), type_group(_, at, agk).
+
 // type_subtype(Prov, Sub, Super) -- the reverse direction, which is what CHA fan-out
 // needs: given a declared receiver type, every type that could be there at runtime.
 type_subtype(prov, sub, super) :- type_ancestor(prov, sub, super).

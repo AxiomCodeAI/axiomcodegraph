@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  exported_from_entry_module components#App   components.tsx:37
+  exported_from_entry_module components#Badge   components.tsx:27
+  exported_from_entry_module components#LibApp   components.tsx:51
+  exported_from_entry_module components#Panel   components.tsx:23
+  unimported_module components#<module>   components.tsx:1

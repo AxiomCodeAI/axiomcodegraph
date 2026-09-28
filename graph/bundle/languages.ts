@@ -353,7 +353,10 @@ const CSHARP: LanguageAdapter = {
   prefixes: { method: 'CS_METHOD_', type: 'CS_TYPE_', expression: 'CS_EXPRESSION_', module: 'CS_MODULE_' },
   raw: {
     callEdges: CALL_EDGES,
-    typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [1, 2] },
+    // keyed on the declaration, not the partial-type group type_ancestor itself uses,
+    // so it joins types.id
+    typeAncestors: { file: 'resolution-type-ancestor-type.csv', columns: [1, 2] },
+    overrides: { file: 'resolution-virtual-override.csv', columns: [0, 1] },
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     entryReachable: { file: 'entry-reachable.csv', columns: [0] },
     dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },

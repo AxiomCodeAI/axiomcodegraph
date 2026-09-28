@@ -4,60 +4,100 @@
 # symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
 #   AXIOMCODE_ENGINE  checkout of axiomcodegraph (default: the one this skill lives in)
 #   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
-#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp (default: the language with the most files)
+#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript | csharp, or a comma list of them, the first being
+#                     the main one (default: every language with files; the main one is the language with the most)
 #   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
 #                     dependencies are declared unknown rather than guessed
+# A repository in several languages gets one graph per language. The main language's is the one it always had,
+# .axiomcode/out/graph.sqlite; every other language's is .axiomcode/lang/<lang>/out/graph.sqlite, and the query verbs
+# (the `axiomcode` dispatcher) ask each of them. Each graph is one language: no call is followed from one to another.
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
-# the engine checkout: walk up from this script until a bin/axiomcode is found (skills/… or plugins/axiomcode/skills/…)
-ENGINE_SET="${AXIOMCODE_ENGINE:+1}"
-if [ -z "${AXIOMCODE_ENGINE:-}" ]; then E="$H"; while [ "$E" != "/" ] && [ ! -x "$E/bin/axiomcode" ]; do E="$(dirname "$E")"; done; AXIOMCODE_ENGINE="$E"; fi
-# THE WALK-UP ONLY WORKS FROM A CHECKOUT. Installed from a marketplace the plugin is COPIED under
-# ~/.claude/plugins/cache/..., where nothing above it is an engine, so the walk ends at / and every verb
-# dies -- the install reports success and the first query fails. Fall back to the published engine:
-# an `axiomcode` on PATH (npm global bin, resolved through its symlink) or the global node_modules.
-# Each candidate is CHECKED -- an executable of that name from something else entirely is not our engine,
-# and this machine has exactly that from an older unrelated package.
-# A CHECKOUT FOUND BY THE WALK MUST BE BUILT. Gemini CLI and Codex install from the repository itself, so
-# the walk from an installed copy now ends at a clone -- bin/, graph/ and package.json present, parser/dist
-# not, since it is not in git -- and that clone was taken over the built engine `npm i -g` installed. An
-# unbuilt checkout is still used when nothing else is found, so a developer keeps the "parser not built"
-# advice; an engine named in AXIOMCODE_ENGINE is used as given whenever it is one.
-# python3's sqlite3 module, not the sqlite3 CLI: python3 is a stated requirement, the CLI is not, and stock Ubuntu
-# and Git for Windows ship without it.
+# THE ENGINE IS CHOSEN THE SAME WAY EVERY TIME, AND A BUILD THAT FINDS NONE SAYS WHERE IT LOOKED. The background
+# refresh runs this script from a hook, with the hook's PATH, the hook's Node and, installed from a marketplace, from a
+# plugin COPIED outside any checkout; an explicit `axiomcode index` runs it from inside the npm package. Each found an
+# engine its own way, so on a machine with two Node installs (two npm global roots, and the `axiomcode` on PATH a
+# Windows .cmd/.sh shim rather than a symlink into the package) the refresh found none on every edit while the
+# explicit index kept working, and the graph went stale. The order, first built engine wins:
+#   1. AXIOMCODE_ENGINE, used as given whenever it is an engine (named loudly and skipped when it is not)
+#   2. the checkout this script sits in (the walk up from skills/… or plugins/axiomcode/skills/…)
+#   3. the engine that built this repository's graph last time (.axiomcode/engine, written by a successful build),
+#      so the refresh uses exactly what the explicit index used, whatever PATH it inherits
+#   4. an `axiomcode` on PATH: through its symlink (npm on POSIX), or the package beside npm's shim (Windows)
+#   5. $(npm root -g)/@axiomcode/code-graph
+#   6. an UNBUILT checkout found by the walk, so a developer keeps the "parser not built" advice
+# Gemini CLI and Codex install from the repository itself, so the walk from an installed copy can end at an unbuilt
+# clone; that is why 2 needs a built engine and 6 exists. python3's sqlite3 module, not the sqlite3 CLI: python3 is a
+# stated requirement, the CLI is not, and stock Ubuntu and Git for Windows ship without it.
 has_symbols() { python3 -c 'import sqlite3, sys; sys.exit(0 if sqlite3.connect(sys.argv[1]).execute("SELECT 1 FROM sqlite_master WHERE name=?", ("symbols",)).fetchone() else 1)' "$1" 2>/dev/null; }
 engine_ok() { [ -x "$1/bin/axiomcode" ] && [ -d "$1/graph" ] && [ -f "$1/package.json" ]; }
 engine_built() { engine_ok "$1" && [ -f "$1/parser/dist/index.js" ]; }
-if ! { if [ -n "$ENGINE_SET" ]; then engine_ok "$AXIOMCODE_ENGINE"; else engine_built "$AXIOMCODE_ENGINE"; fi; }; then
-  for cand in \
-    "$(command -v axiomcode 2>/dev/null | while read -r l; do while [ -L "$l" ]; do l="$(cd "$(dirname "$l")" && pwd)/$(readlink "$l")"; done; dirname "$(dirname "$l")"; done)" \
-    "$(npm root -g 2>/dev/null)/@axiomcode/code-graph"; do
-    [ -n "$cand" ] || continue
-    if engine_built "$cand"; then AXIOMCODE_ENGINE="$cand"; break; fi
-  done
+# a Windows path from npm (C:\Users\…) in the form this bash tests files with
+unixpath() { if [ -n "$1" ] && command -v cygpath >/dev/null 2>&1; then cygpath -u "$1" 2>/dev/null || printf %s "$1"; else printf %s "$1"; fi; }
+WALK="$H"; while [ "$WALK" != "/" ] && [ ! -x "$WALK/bin/axiomcode" ]; do WALK="$(dirname "$WALK")"; done
+RECORDED="$(cat "$REPO/.axiomcode/engine" 2>/dev/null | tr -d '\r' || true)"; RECORDED="$(unixpath "$RECORDED")"
+ENGINE=""; TRIED=()
+try_engine() {   # try_engine <how> <dir> [any]: take <dir> when it is a built engine (or any engine, with `any`)
+  [ -n "$ENGINE" ] && return 0
+  if [ -z "$2" ]; then TRIED+=("$1: not set"); return 0; fi
+  if { [ "${3:-}" = any ] && engine_ok "$2"; } || engine_built "$2"; then ENGINE="$2"; ENGINE_HOW="$1"; return 0; fi
+  if engine_ok "$2"; then TRIED+=("$1: $2 (an engine checkout, but its parser is not built)")
+  else TRIED+=("$1: $2 (no bin/axiomcode, graph/ and package.json there)"); fi
+}
+if [ -n "${AXIOMCODE_ENGINE:-}" ]; then
+  try_engine AXIOMCODE_ENGINE "$(unixpath "$AXIOMCODE_ENGINE")" any
+  [ -n "$ENGINE" ] || echo "⚠️  AXIOMCODE_ENGINE=$AXIOMCODE_ENGINE is not an engine checkout; looking elsewhere" >&2
 fi
-ENGINE="$AXIOMCODE_ENGINE"
-[ -x "$ENGINE/bin/axiomcode" ] || {
-  echo "axiomcode: no engine found." >&2
+[ "$WALK" != / ] && try_engine "this plugin's checkout" "$WALK" || TRIED+=("this plugin's checkout: none above $H")
+[ -n "$RECORDED" ] && try_engine "the engine that built this graph (.axiomcode/engine)" "$RECORDED"
+PATHBIN="$(command -v axiomcode 2>/dev/null || true)"
+if [ -n "$PATHBIN" ]; then
+  l="$PATHBIN"; while [ -L "$l" ]; do t="$(readlink "$l")"; case "$t" in /*) l="$t";; *) l="$(cd "$(dirname "$l")" && pwd)/$t";; esac; done
+  try_engine "axiomcode on PATH ($PATHBIN)" "$(dirname "$(dirname "$l")")"
+  # npm on Windows writes axiomcode / axiomcode.cmd / axiomcode.ps1 SHIMS into its prefix, beside node_modules
+  try_engine "the package beside the axiomcode shim on PATH" "$(dirname "$PATHBIN")/node_modules/@axiomcode/code-graph"
+else TRIED+=("axiomcode on PATH: none"); fi
+if [ -z "$ENGINE" ]; then                  # npm is slow to start: asked only when nothing before it answered
+  NPMROOT="$(unixpath "$(npm root -g 2>/dev/null | tr -d '\r' || true)")"
+  [ -n "$NPMROOT" ] && try_engine "npm root -g" "$NPMROOT/@axiomcode/code-graph" || TRIED+=("npm root -g: no npm on PATH")
+fi
+[ "$WALK" != / ] && try_engine "this plugin's checkout (unbuilt)" "$WALK" any
+[ -n "$ENGINE" ] || {
+  echo "axiomcode: no engine found — the graph cannot be built or refreshed." >&2
   echo "  The skill queries a graph; the ENGINE builds it, and it ships separately because it carries" >&2
   echo "  native solver binaries. Installed from a marketplace the plugin is copied outside any" >&2
   echo "  checkout, so there is nothing to find above it. Fix with ONE of:" >&2
   echo "    npm i -g @axiomcode/code-graph        (then this resolves it automatically)" >&2
   echo "    AXIOMCODE_ENGINE=/path/to/axiomcodegraph" >&2
-  echo "  Looked in: $H upwards, \`command -v axiomcode\`, and \$(npm root -g)/@axiomcode/code-graph" >&2
+  echo "  Looked in, in order:" >&2
+  for t in "${TRIED[@]}"; do echo "    - $t" >&2; done
   exit 1; }
-# no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently
-count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
-py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx'); cs=$(count -name '*.cs')
+AXIOMCODE_ENGINE="$ENGINE"
+# THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
+# rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
+# the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
+read -r ja ts py js cs <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0)"
 LANG_ARG="${AXIOMCODE_LANG:-}"
+# EVERY LANGUAGE IN THE REPOSITORY IS INDEXED. Only the one with the most files used to be, and the rest were dropped
+# without a word: a Python edit in a TypeScript repository touched "no declaration the graph knows". LANG_ARG is the
+# main language (its graph is the one every older reader knows); LANGS is all of them, main first.
 if [ -z "$LANG_ARG" ]; then
   LANG_ARG=java; best=$ja
   [ "$ts" -gt "$best" ] && { LANG_ARG=typescript; best=$ts; }
   [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
   [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
   [ "$cs" -gt "$best" ] && { LANG_ARG=csharp; best=$cs; }
+  LANGS="$LANG_ARG"
+  for l in java:$ja typescript:$ts python:$py javascript:$js csharp:$cs; do
+    [ "${l%%:*}" != "$LANG_ARG" ] && [ "${l#*:}" -gt 0 ] && LANGS="$LANGS,${l%%:*}"
+  done
+  export AXIOMCODE_LANG_AUTO=1           # recorded in the file table: a refresh detects the languages again
+else
+  LANGS="$LANG_ARG"; LANG_ARG="${LANGS%%,*}"; unset AXIOMCODE_LANG_AUTO
 fi
+unset AXIOMCODE_GRAPH_LANG               # a build writes every language's graph, never one chosen for a query
+OTHER_LANGS=""; [ "$LANGS" != "$LANG_ARG" ] && OTHER_LANGS="${LANGS#*,}"
 OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
 # ONE BUILD AT A TIME PER REPOSITORY. The background refresher (ax_fresh.py) and an explicit `axiomcode index` both
 # write $OUT/$LANG_ARG; two at once clobber each other's graph. The lock is on fd 9, which this shell holds for its
@@ -69,7 +109,7 @@ if ! python3 "$H/ax_fresh.py" lock 9 --try; then
 fi
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
-STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
+STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANGS-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
 # ASKING FOR LESS IS NOT A CACHE MISS. The stamp includes the library roots, so a bare `index` on a repo whose
 # graph was built WITH roots does not match, and the rebuild that follows spends the full build cost to arrive
 # at a client-only graph: every call into a dependency ambiguous_unknown, the resolution rate understated,
@@ -79,7 +119,7 @@ STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-$
 # The library field is a list of PATHS, and paths contain hyphens (`other-lib`), so the stamp cannot be split
 # on its last hyphen -- that cuts inside the path and no two stamps ever compare equal. Split on the known
 # prefix instead: everything before the library field is fixed-format and built right here.
-PREFIX="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-"
+PREFIX="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANGS-${AXIOMCODE_SRC:-.}-"
 if [ -z "${AXIOMCODE_LIBRARY:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ] && [ -f "$OUT/stamp" ] && [ -f "$OUT/graph.sqlite" ]; then
   PREV="$(cat "$OUT/stamp")"
   if [ "${PREV#"$PREFIX"}" != "$PREV" ] && [ "${PREV#"$PREFIX"}" != nolib ]; then
@@ -95,12 +135,13 @@ OLD_INDEXED="$(cat "$OUT/indexed-tree" 2>/dev/null || true)"; OLD_COMMIT="$(cut 
 # the baseline `changed` diffs against (base-tree). An explicit index moves it to the tree it indexed (#1222); a
 # BACKGROUND refresh keeps it, or every edit would drop out of `changed` and `test-impact` a minute after it was made,
 # and moves it only when HEAD moved (a commit, a checkout), to the tree of the new HEAD.
+KEEP_BASE="${AXIOMCODE_BACKGROUND:-}${AXIOMCODE_KEEP_BASE:-}"   # a refresh, or a repair of a broken graph (ax_contract.ensure_graph)
 set_base(){
   [ -n "$GD" ] || return 0
-  if [ -n "${AXIOMCODE_BACKGROUND:-}" ] && [ -f "$OUT/base-tree" ] && [ "$(cat "$OUT/base-commit" 2>/dev/null)" = "$HEAD_SHA" ]; then :
-  elif [ -n "${AXIOMCODE_BACKGROUND:-}" ] && [ ! -f "$OUT/base-tree" ] && [ -n "$OLD_INDEXED" ] && [ "$OLD_COMMIT" = "$HEAD_SHA" ]; then
+  if [ -n "$KEEP_BASE" ] && [ -f "$OUT/base-tree" ] && [ "$(cat "$OUT/base-commit" 2>/dev/null)" = "$HEAD_SHA" ]; then :
+  elif [ -n "$KEEP_BASE" ] && [ ! -f "$OUT/base-tree" ] && [ -n "$OLD_INDEXED" ] && [ "$OLD_COMMIT" = "$HEAD_SHA" ]; then
     echo "$OLD_INDEXED" > "$OUT/base-tree"                    # a graph from before base-tree: its baseline was the tree it indexed
-  elif [ -n "${AXIOMCODE_BACKGROUND:-}" ]; then
+  elif [ -n "$KEEP_BASE" ]; then
     # HEAD MOVED (a commit, a merge, a pull, a checkout): the baseline is the new commit. Kept where it was, every
     # commit's edits would stay "changed" and test-impact would select for all of them, growing with each commit.
     # Not the working tree either: after a pull, the edits still uncommitted are exactly what `changed` must show.
@@ -117,13 +158,23 @@ commit_base(){ [ -n "$GD" ] && echo "$HEAD_SHA" > "$OUT/base-commit"; return 0; 
 # (not copied) to .axiomcode/base when a background refresh replaces it, and those verbs read it (ax_fresh.py
 # baseline_graph); it is dropped when the baseline catches up with the graph. Mapping the new graph's spans onto the
 # baseline's text by a line diff was tried first: on 7 real commits it changed the answer on 3.
+# the baseline graph directory is assembled beside it and swapped in by rename, never emptied in place: `changed` reads
+# it while a refresh runs, and found it half there (a graph.sqlite, no tree, or no directory at all)
+install_base(){ local B="$REPO/.axiomcode/base"; rm -rf "$B.old"; [ -d "$B" ] && mv "$B" "$B.old"; mv "$B.new" "$B"; rm -rf "$B.old"; BASE_SAVED=1; }
 keep_base_graph(){
   local B="$REPO/.axiomcode/base" BT; BT="$(cat "$OUT/base-tree" 2>/dev/null || true)"
   if [ -z "$BT" ] || [ "$BT" = "$INDEXED_TREE" ]; then rm -rf "$B"; return 0; fi
   if [ "$BT" = "$OLD_INDEXED" ] && [ -n "$PREV" ] && [ -f "$PREV/graph.sqlite" ] && [ ! -L "$PREV/graph.sqlite" ]; then
-    rm -rf "$B"; mkdir -p "$B/out"; mv "$PREV/graph.sqlite" "$B/out/graph.sqlite"; echo "$BT" > "$B/tree"; BASE_SAVED=1
+    rm -rf "$B.new"; mkdir -p "$B.new/out"; mv "$PREV/graph.sqlite" "$B.new/out/graph.sqlite"; echo "$BT" > "$B.new/tree"
+    # every other language's graph still describes the same tree: it is replaced only after this, so a hard link keeps
+    # it for the baseline while the live one stays in place for the queries that arrive meanwhile
+    local l; for l in ${OTHER_LANGS//,/ }; do
+      [ -f "$LANGDIR/$l/out/graph.sqlite" ] && mkdir -p "$B.new/lang/$l/out" && { ln -f "$LANGDIR/$l/out/graph.sqlite" "$B.new/lang/$l/out/graph.sqlite" 2>/dev/null || cp -p "$LANGDIR/$l/out/graph.sqlite" "$B.new/lang/$l/out/graph.sqlite"; }
+    done
+    install_base
   elif [ "$(cat "$B/tree" 2>/dev/null)" != "$BT" ]; then build_head_graph "$BT"
   fi
+  return 0
 }
 # the baseline is HEAD and the working tree is not: no graph describes HEAD's text, so one is built from it, exported
 # with `git archive` into a scratch directory (the user's checkout and index are never touched). node_modules is not in
@@ -136,25 +187,32 @@ build_head_graph(){
     local LIBS="" r; if [ -n "${AXIOMCODE_LIBRARY:-}" ]; then
       local IFS=','; for r in $AXIOMCODE_LIBRARY; do case "$r" in /*|[A-Za-z]:*) ;; *) r="$REPO/$r" ;; esac; LIBS="${LIBS:+$LIBS,}$r"; done; unset IFS
     fi
-    if env -u AXIOMCODE_BACKGROUND AXIOMCODE_NO_REFRESH=1 AXIOMCODE_LIBRARY="$LIBS" bash "$H/axiomcode-build" "$T" > "$REPO/.axiomcode/base-build.log" 2>&1; then
-      D="$(readlink "$T/.axiomcode/out/graph.sqlite" 2>/dev/null || true)"
-      if [ -n "$D" ] && [ -f "$D" ]; then
-        rm -rf "$REPO/.axiomcode/base"; mkdir -p "$REPO/.axiomcode/base/out"; mv "$D" "$REPO/.axiomcode/base/out/graph.sqlite"
-        echo "$1" > "$REPO/.axiomcode/base/tree"; BASE_SAVED=1
+    if env -u AXIOMCODE_BACKGROUND -u AXIOMCODE_KEEP_BASE AXIOMCODE_NO_REFRESH=1 AXIOMCODE_LIBRARY="$LIBS" bash "$H/axiomcode-build" "$T" > "$REPO/.axiomcode/base-build.log" 2>&1; then
+      # graph.sqlite is a symlink, or (Windows without the symlink privilege) the copy Git Bash made instead of one
+      D="$(readlink "$T/.axiomcode/out/graph.sqlite" 2>/dev/null || true)"; [ -n "$D" ] || D="$T/.axiomcode/out/graph.sqlite"
+      if [ -f "$D" ]; then
+        local NB="$REPO/.axiomcode/base.new"; rm -rf "$NB"; mkdir -p "$NB/out"; mv "$D" "$NB/out/graph.sqlite"
+        for D in "$T"/.axiomcode/lang/*/out/graph.sqlite; do          # and every other language's, beside it
+          [ -f "$D" ] || continue; local L; L="$(basename "$(dirname "$(dirname "$D")")")"
+          mkdir -p "$NB/lang/$L/out"; mv "$D" "$NB/lang/$L/out/graph.sqlite"
+        done
+        echo "$1" > "$NB/tree"; install_base
       fi
     fi
   fi
   rm -rf "$T"
 }
 BASE_SAVED=""
+LANGDIR="$REPO/.axiomcode/lang"      # one graph directory per language other than the main one: <lang>/out/graph.sqlite
 # FRESH IS "THE FILES THE GRAPH WAS BUILT FROM", NOT "A CLEAN GIT STATUS". The file table (ax_fresh.py) records every
 # file the parser reads with its hash; when none differs the graph is current whatever git says: a dirty tree whose
 # edits are already indexed is not rebuilt, and a tree edited and restored, which git calls clean against a graph built
 # from the edit, is. A commit that changed no file moves the stamp, not the graph.
-if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
+if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
-  echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0
+  [ -f "$REPO/.axiomcode/engine" ] || printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine" || true
+  echo "graph up to date (${LANGS//,/, }) at $OUT/graph.sqlite"; exit 0
 fi
 if [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
@@ -164,9 +222,10 @@ python3 "$H/dl_program.py" || true   # compile the query rules once, here where 
 # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
   # a graph from before the file table: it was built from this clean commit, so the table of the files now IS its table
-  python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
+  python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null && mv "$OUT/.files.json.new" "$OUT/files.json" || rm -f "$OUT/.files.json.new"
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
-echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
+if [ -z "$OTHER_LANGS" ]; then echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"
+else echo "building ${LANGS//,/ + } graphs for $SRC … (java $ja · typescript $ts · python $py · javascript $js · csharp $cs files)"; fi
 # THE TREE THE GRAPH IS BUILT FROM (#1222). The graph's spans are line numbers in the working tree as the parser reads
 # it, and that tree need not be the commit in the stamp: uncommitted edits are indexed too. `changed` compared the
 # working tree against the COMMIT, so after an index with edits every position was off, and a span past the end of the
@@ -175,7 +234,7 @@ echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · pytho
 # build succeeds.
 # THE FILE TABLE, taken now for the same reason: an edit made while the parser runs must leave the graph stale, so the
 # next refresh picks it up. Committed only if the build succeeds.
-python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANG_ARG" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null || rm -f "$OUT/.files.json.new"
+python3 "$H/ax_fresh.py" snapshot "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" > "$OUT/.files.json.new" 2>/dev/null || rm -f "$OUT/.files.json.new"
 INDEXED_TREE=""
 if [ -n "$GD" ]; then
   TMPIDX="$(mktemp "${TMPDIR:-/tmp}/axiomcode-index.XXXXXX")"
@@ -195,18 +254,49 @@ rm -rf "$PREV"
 # none BUILDS one (ax_contract.ensure_graph) -- a second, full build racing this one. So the live database gets a hard
 # link that survives the move, the pointer goes there first, and every re-point is a rename, which is atomic
 # (`ln -sfn` unlinks and then links).
-point(){ ln -sfn "$1" "$OUT/.graph.sqlite.new" && mv -f "$OUT/.graph.sqlite.new" "$OUT/graph.sqlite"; }
+# ON WINDOWS A RENAME ONTO A FILE ANOTHER PROCESS HAS OPEN IS REFUSED, and without the symlink privilege Git Bash's `ln -s`
+# makes graph.sqlite a copy, which every query holds open while it answers: the swap at the end of a rebuild failed
+# under a query, `set -e` ended the build, and the rebuild was lost. Each rename is retried for up to a minute (a query
+# is seconds); only then does the build fail, and says why.
+swap(){ local i=0; until mv -f "$1" "$2" 2>/dev/null; do i=$((i+1)); [ $i -ge 120 ] && { echo "could not replace $2: another process holds it open" >&2; return 1; }; sleep 0.5; done; }
+keep_live(){ ln -f "$1" "$OUT/.live.sqlite" 2>/dev/null || cp -p "$1" "$OUT/.live.sqlite"; }   # a hard link, or a copy where the file system has none
+point(){ ln -sfn "$1" "$OUT/.graph.sqlite.new" && swap "$OUT/.graph.sqlite.new" "$OUT/graph.sqlite"; }
+real(){ python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
 if [ -d "$OUT/$LANG_ARG" ]; then
-  if [ -f "$OUT/$LANG_ARG/graph.sqlite" ]; then ln -f "$OUT/$LANG_ARG/graph.sqlite" "$OUT/.live.sqlite" && point "$OUT/.live.sqlite"; fi
+  if [ -f "$OUT/$LANG_ARG/graph.sqlite" ]; then
+    keep_live "$OUT/$LANG_ARG/graph.sqlite" && point "$OUT/.live.sqlite" || { echo "could not keep the graph queries are reading ($OUT/$LANG_ARG); not rebuilding over it" >&2; exit 1; }
+  fi
   mv "$OUT/$LANG_ARG" "$PREV"
 fi
-restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && point "$OUT/$LANG_ARG/graph.sqlite"; fi; rm -f "$OUT/.live.sqlite"; return 0; }
+# the other languages' engine output goes to $OUT/<lang>, which the engine wants empty. Their live graphs are not there
+# (they are under .axiomcode/lang), but graph.sqlite may still point there, at a graph from a build whose main language
+# was that one: it gets the same hard link first
+for l in ${OTHER_LANGS//,/ }; do
+  if [ -d "$OUT/$l" ]; then
+    if [ "$(real "$OUT/graph.sqlite")" = "$(cd "$OUT/$l" && pwd -P)/graph.sqlite" ]; then
+      keep_live "$OUT/$l/graph.sqlite" && point "$OUT/.live.sqlite" || { echo "could not keep the graph queries are reading ($OUT/$l); not rebuilding over it" >&2; exit 1; }
+    fi
+    rm -rf "$OUT/$l"
+  fi
+done
+# a failed build puts the previous graph back. The live link goes only when graph.sqlite no longer points at it: when this
+# build's main language is not the last one's, that link IS the previous graph (its directory is gone), and removing it
+# left graph.sqlite dangling — every later query rebuilt from scratch, and the refresher, finding "no graph", stopped
+restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && point "$OUT/$LANG_ARG/graph.sqlite"; fi
+  [ -f "$OUT/.live.sqlite" ] && [ "$(real "$OUT/graph.sqlite")" != "$(real "$OUT/.live.sqlite")" ] && rm -f "$OUT/.live.sqlite"; return 0; }
 LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
-"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
+ENGINE_RC=0
+"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANGS" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || ENGINE_RC=$?
+# one language failing does not cost the others their graphs (the engine solves each on its own): only the MAIN
+# language's failure fails the build. Another language's is named below, never dropped in silence.
+if [ "$ENGINE_RC" != 0 ] && { [ -z "$OTHER_LANGS" ] || [ ! -f "$OUT/$LANG_ARG/graph.sqlite" ]; }; then
+  restore; echo "build failed — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1
+fi
 # the new database: a FILE under $OUT/$LANG_ARG. Matched as `*/$LANG_ARG/*` it was any path with the language's name
 # in it, the repository's own included: a repository at .../python/app matched the graph.sqlite SYMLINK, the link was
 # pointed at itself, the previous graph deleted, and every verb after it reported no graph.
-DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -type f -name graph.sqlite -not -path "$PREV/*" | head -1)"
+DB="$(find "$OUT/$LANG_ARG" -type f -name graph.sqlite 2>/dev/null | head -1)"; NOT_OTHER=(); for l in ${OTHER_LANGS//,/ }; do NOT_OTHER+=(-not -path "$OUT/$l/*"); done   # never another language's graph
+[ -n "$DB" ] || DB="$(find "$OUT" -type f -name graph.sqlite -not -path "$PREV/*" ${NOT_OTHER[@]+"${NOT_OTHER[@]}"} | head -1)"
 [ -n "$DB" ] || { restore; echo "build produced no graph.sqlite — the graph that was there is untouched; see $REPO/.axiomcode/build.log"; exit 1; }
 # A QUERY NEVER READS A HALF-BUILT GRAPH. The new database gets its symbols, refs and views BEFORE graph.sqlite points
 # at it; until the pointer moves, every verb (and the hooks) keeps answering from the previous graph. Only then is the
@@ -217,7 +307,7 @@ AXIOMCODE_INDEX_DB="$DB" python3 "$H/axiomcode-index" "$REPO" || { restore; echo
 # the tree and commit it describes. Written before the swap: a write to the live graph later would change its mtime,
 # which keys the impact-facts cache, and cost the next query a re-export.
 REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
-python3 - "$DB" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
+stamp_meta(){ python3 - "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
 import sqlite3, sys
 db, at, reason, tree, commit = sys.argv[1:6]
 with sqlite3.connect(db) as c:
@@ -225,12 +315,33 @@ with sqlite3.connect(db) as c:
     c.executemany("INSERT INTO index_meta VALUES (?,?)", [('refreshed_at', at), ('refresh_reason', reason),
                   ('refreshed_tree', tree), ('refreshed_commit', commit)])
 PY
+}
+stamp_meta "$DB"
+# EVERY OTHER LANGUAGE'S GRAPH, indexed where the engine wrote it and only then moved into place, as the main one is.
+# One that did not build is NAMED: its previous graph, if any, keeps answering, and this build says it is behind.
+READY=(); FAILED=()
+for l in ${OTHER_LANGS//,/ }; do
+  LDB="$OUT/$l/graph.sqlite"
+  if [ -f "$LDB" ] && AXIOMCODE_INDEX_DB="$LDB" python3 "$H/axiomcode-index" "$REPO"; then stamp_meta "$LDB"; READY+=("$l"); else FAILED+=("$l"); fi
+done
 echo "$STAMP" > "$OUT/stamp"
+# the engine that built this graph: the next build, the background refresh above all, starts its search there (see the top)
+printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine.new" && mv -f "$REPO/.axiomcode/engine.new" "$REPO/.axiomcode/engine" || true
 if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else rm -f "$OUT/indexed-tree"; fi
 set_base "$INDEXED_TREE"
-point "$DB"; rm -f "$OUT/.live.sqlite"
+point "$DB" || { restore; exit 1; }; rm -f "$OUT/.live.sqlite"
 if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
-keep_base_graph; commit_base
+keep_base_graph
+for l in ${READY[@]+"${READY[@]}"}; do
+  mkdir -p "$LANGDIR/$l/out"; swap "$OUT/$l/graph.sqlite" "$LANGDIR/$l/out/graph.sqlite" || true   # a rename: atomic
+  rmdir "$OUT/$l" 2>/dev/null || true
+done
+# a language the repository no longer has (or that --lang left out) must not keep answering from an old graph
+for d in "$LANGDIR"/*/; do
+  [ -d "$d" ] || continue; l="$(basename "$d")"
+  case ",$OTHER_LANGS," in *",$l,"*) ;; *) rm -rf "$d" "$REPO/.axiomcode/base/lang/$l";; esac
+done
+commit_base
 rm -rf "$PREV"
 python3 - "$OUT/graph.sqlite" <<'PY'
 import sqlite3, sys
@@ -245,4 +356,19 @@ python3 "$H/dl_program.py" || true   # compile the query rules once, here where 
 # a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
 # left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
 [ -n "$BASE_SAVED" ] && AXIOMCODE_GRAPH="$REPO/.axiomcode/base" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
-echo "graph at $OUT/graph.sqlite"
+for l in ${READY[@]+"${READY[@]}"}; do
+  echo "$l: $(python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$LANGDIR/$l/out/graph.sqlite")"
+  AXIOMCODE_GRAPH="$LANGDIR/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
+  [ -n "$BASE_SAVED" ] && [ -f "$REPO/.axiomcode/base/lang/$l/out/graph.sqlite" ] && { AXIOMCODE_GRAPH="$REPO/.axiomcode/base/lang/$l" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true; }
+done
+if [ ${#FAILED[@]} -gt 0 ]; then
+  for l in "${FAILED[@]}"; do
+    if [ -f "$LANGDIR/$l/out/graph.sqlite" ]; then echo "⚠️  the $l graph did not build: $l questions are answered from its PREVIOUS graph, which predates this tree; see $REPO/.axiomcode/build.log"
+    else echo "⚠️  the $l graph did not build: no query sees this repository's $l code; see $REPO/.axiomcode/build.log"; fi
+  done
+fi
+if [ ${#READY[@]} -gt 0 ]; then
+  echo "graph at $OUT/graph.sqlite ($LANG_ARG)$(for l in "${READY[@]}"; do printf ', %s' "$LANGDIR/$l/out/graph.sqlite ($l)"; done)"
+else
+  echo "graph at $OUT/graph.sqlite"
+fi

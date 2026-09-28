@@ -2,6 +2,7 @@ import * as ts from 'typescript';
 
 import {
   ExpressionOwner,
+  jsxTagReference,
   TsExpressionExtractor,
 } from '@/parsers/typescript/extractors/ts-expression-extractor';
 import { TsExpressionOwnerKind, TsRootContext } from '@/enums/typescript/expressions';
@@ -502,8 +503,16 @@ export class TsExpressionWalker {
       // nothing ever rooted it and the call vanished. Rooting it here covers
       // attribute values, children, and spreads at once, wherever the JSX sits.
       //
-      // The tag is deliberately NOT walked: `<Badge/>` as a call to Badge is
-      // JSX_COMPONENT_CALL, which is reserved and stays at zero rows.
+      // A component ELEMENT is a call in its own right: `<Badge/>` calls Badge.
+      // One that is already a row -- `cond ? <A/> : <B/>`, `x && <A/>` -- was
+      // reached by the worklist as an operand; any other is rooted here, which
+      // is what reaches an element nested in another element's children.
+      if ((ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child))
+        && jsxTagReference(child) !== undefined
+        && !this.options.extractor.rowByNode.has(nodeId(child, this.sf))) {
+        this.root(child, TsRootContext.JSX_EMBEDDED_EXPRESSION);
+        return;
+      }
       if (ts.isJsxExpression(child)) {
         this.root(child.expression, TsRootContext.JSX_EMBEDDED_EXPRESSION);
         return;

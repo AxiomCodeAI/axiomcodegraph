@@ -267,6 +267,23 @@ direct(q, c, "uses", cat("calls it across a process boundary (", cat(tr, cat(") 
 direct(q, c, "uses", cat("serves what this sends across a process boundary (", cat(tr, cat(") at ", cat(dest, cat(" [", cat(conf, "]")))))), "remote", "", 0)
     :- target(q, "method", m, _), remote(m, c, tr, dest, conf), c != m.
 
+// ── a hop a framework makes inside one process (#1509) ──────────────────────────────────────────────
+// framework(From, To, Mechanism, Detail, Confidence) is the engine's framework_edge: a task enqueued with
+// .delay() and the task body, a signal sent and its @receiver, a route table and its view, a Depends()
+// default and its provider, a test and the fixture it names. Both ends are client code and no call site
+// joins them, so every rule above is silent: `impact` on a receiver said the change was local while the
+// publisher sat one row away.
+//
+// ONE DIRECTION ONLY. The end that hands over (the publisher, the producer, the handler declaring the
+// dependency) depends on the end the framework runs. The reverse is not a dependency for every mechanism,
+// a provider does not depend on the handler asking for it, so it is claimed for none.
+// Certainty is `framework`, never `resolved`: the reason carries the mechanism, what joined the two ends and
+// the engine's own confidence (`registered`, or `by_name` for a fixture), so a reader can tell the hop from
+// an invocation. A direct row only, not a seed of the closure: the contract `remote` keeps, for the same reason.
+.decl framework(f:symbol, t:symbol, mech:symbol, detail:symbol, conf:symbol)             .input framework
+direct(q, c, "uses", cat("framework-mediated, not a call: ", cat(mech, cat(" via ", cat(detail, cat(" [", cat(conf, "]")))))), "framework", "", 0)
+    :- target(q, "method", m, _), framework(c, m, mech, detail, conf), c != m.
+
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "type", t, _), injected(t, c, kind), !inside_target(q, c).
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "clinit", t, _), injected(t, c, kind).
 // a method that DEFINES a bean (@Bean): whoever is injected with the type it returns. Keyed on `bean_factory`,

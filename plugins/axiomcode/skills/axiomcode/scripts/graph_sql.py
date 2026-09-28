@@ -161,6 +161,14 @@ def impact(repo, target, depth=DEPTH):
         for d, tier in q(f"""SELECT DISTINCT s.display, ce.tier FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
                              WHERE ce.callee_method_id IN ({ph})""", ids):
             _reads[d].add(ax_edges.direct_cert(tier))
+        # …and the end a FRAMEWORK hands it over from (#1509): a task's .delay() producer, a signal's sender, a route
+        # table, a Depends() default. The rules list it as a `framework` dependent, so this does too, or the hook
+        # line and `impact` name different dependents for the same declaration. A direct row only, as in the rules:
+        # it does not enter the walk below.
+        if 'ext_framework_edge' in _tables(con):
+            for (d,) in q(f"""SELECT DISTINCT s.display FROM ext_framework_edge f JOIN symbols s ON s.id=f.c0
+                                WHERE f.c1 IN ({ph}) AND f.c0 <> f.c1""", ids):
+                _reads[d].add('framework')
         read_cert = {d: ax_edges.best_cert(cs) for d, cs in _reads.items()}
         reads = sorted(_reads)
         # reads / uses it, by name: a site naming this method whose receiver the engine could not type. The parser
@@ -488,7 +496,7 @@ def _edges(q):
                                          AND (dc.basis = 'value' OR m.owner_type_id IS NULL
                                               OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)
                                               OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
-    if q("SELECT 1 FROM sqlite_master WHERE name='ext_fn_value_call'").fetchone():
+    if q("SELECT 1 FROM sqlite_master WHERE name='ext_fn_value_call'"):                 # g.q returns the rows (a list)
         disp |= {(r[0], r[1]) for r in q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call")}      # the route through a named holder (#1206)
     e = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in e] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]
     return e
@@ -2311,6 +2319,11 @@ def _throws_catches(code, f, ln, en):
 
 
 
+def framework_why(mech, detail, conf):
+    """the reason a `framework` direct row carries, exactly as dl/impact.dl writes it (#1509)"""
+    return f"framework-mediated, not a call: {mech} via {detail} [{conf}]"
+
+
 def _has_framework_hops(q, at=None, site_file=None):
     """True when this graph carries a hop the rules traverse and this port does not.
 
@@ -2404,6 +2417,11 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             mph = ','.join('?' * len(mids))
             con += contract_for_method(q, mids)
             d = direct_for_method(q, mids, code, rel, at, lines)
+            # direct(q,c,"uses",…,"framework","",0) :- target(q,"method",m,_), framework(c,m,…) (#1509)
+            if _has(q, 'ext_framework_edge'):
+                d += [(c, 'uses', framework_why(mech, det, conf), 'framework', '', 0) for c, mech, det, conf in
+                      sorted({tuple(r) for r in q(f"""SELECT c0, c2, c3, c4 FROM ext_framework_edge
+                                      WHERE c1 IN ({mph}) AND c0 <> c1 AND c0 <> ''""", *mids)})]
             dr += d
             # seed_of(q,m) for a method target is the target and what the contract binds to it
             seeds |= set(mids) | {c for c, _ in con}

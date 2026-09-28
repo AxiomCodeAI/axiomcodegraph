@@ -114,6 +114,12 @@ def next_path(text):
                 + ', '.join(f"{n} {loc}" for n, loc in first)
                 + (" — read it" if len(first) == 1 else " — read those") + "; farther hops matter only if these pass the change on"
                 + (f" (of {total.group(1)} in all)" if total else ''))
+    # a framework hop (#1509) is the connection when no call is: both ends are printed, so point at them
+    fw = re.findall(r'a framework connects them: (\S+) ' + LOC + r' → (\S+) ' + LOC, text)
+    if fw:
+        a, la, b, lb = fw[0]
+        return (f"next: no call connects them, the framework does: read {a} at {la}, where it hands over, and {b} at {lb}, "
+                f"which the framework runs; `impact {b}` for everything else that depends on it")
     if re.search(r'no (chain|route|path)', text, re.I):
         return ("next: no resolved chain — the graph loses the call at one of the unresolved sites named above, so the "
                 "code may still connect them; read the start's body from those sites on")

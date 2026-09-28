@@ -18,6 +18,7 @@ import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { ServicesParser } from '@/parsers/services/services-parser';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 interface SkippedServicesFile {
   filePath: string;
@@ -215,7 +216,7 @@ export class ServicesProjectAnalyzer {
         continue;
       }
 
-      if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.')) {
+      if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.') || isGitIgnoredDir(subPath)) {
         continue;
       }
 

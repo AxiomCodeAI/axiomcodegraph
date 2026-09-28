@@ -11,6 +11,7 @@ import { XmlParser } from '@/parsers/xml/xml-parser';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
 import { groupOwnedFiles, resolveFileOwners } from '@/utils/file-ownership';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 /**
  * Analyzes XML files within projects and extracts
@@ -174,7 +175,7 @@ export class XmlProjectAnalyzer {
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(path.join(dirPath, entry.name))) {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForXmlFiles(subPath, files);
           }

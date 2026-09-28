@@ -145,6 +145,17 @@ dispatch_target("client", ifaceM, impl, "interface_impl") :- implements_member("
 dispatch_target(prov, ifaceM, ifaceM, "default_interface_impl") :-
     interface_has_default_impl(prov, ifaceM).
 
+// THE DECLARED HALF OF THE ENVELOPE. override_pair(Base, Candidate) -- an override
+// or an interface implementation in client code, which is what a call bound to Base
+// may run instead. Without it a consumer asking what must change with an interface
+// method found nothing: the call edges name the implementations, and nothing named
+// the interface member they implement. Exported as the override table and as the
+// `nominal` basis of the envelope, the shape Java gives the same pair.
+override_pair(m, d) :-
+    dispatch_target(_, m, d, r), d != m, (r = "override" ; r = "interface_impl"),
+    method_decl("client", _, _, _, d).
+method_dispatch_candidate(m, d, "nominal") :- override_pair(m, d).
+
 // An override is also a target through everything IT overrides, transitively, which
 // the closure above gives. What it must NOT pick up is a HIDING method.
 dispatch_excluded_hiding(prov, m, h) :-

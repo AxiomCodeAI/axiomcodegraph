@@ -30,7 +30,7 @@ When no resolved chain exists, the optimistic closure — every unresolved site 
 written there — says whether one WOULD exist and through which unresolved site(s). That is printed as a bridge to
 look at, never as a path.
 """
-import contextlib, io, json, os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob
+import contextlib, io, json, os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract
@@ -89,9 +89,21 @@ def link_facts(src, dst):
     except OSError: shutil.copyfile(src, dst)
 
 
+def replace_file(tmp, dst):
+    """os.replace, which on Windows is refused while another process has dst open (a solver reading the facts): retried
+    briefly, then written over in place, which is what every write did before"""
+    for i in range(10):
+        try: os.replace(tmp, dst); return
+        except PermissionError:
+            if os.name != 'nt': raise
+            time.sleep(0.2)
+    shutil.copyfile(tmp, dst); os.remove(tmp)
+
+
 class G:
     def __init__(self, repo):
         self.repo = os.path.realpath(repo or '.')
+        os.environ.setdefault('AXIOMCODE_REPO', self.repo)       # which repository's recorded engine dl_program looks in
         gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(self.repo, '.axiomcode')
         self.db = os.path.join(gdir, 'out', 'graph.sqlite')
         # ONE door for every verb. impact, changed, context and test-impact all load this file as a
@@ -121,7 +133,23 @@ class G:
         self.decorations_from_sites()
 
     def connect(self):
-        self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
+        """open the graph, and remember WHICH file was opened. graph.sqlite is a pointer the build re-points when a
+        refresh lands (#1305): read again later — its mtime keys the exported facts — it can name the NEW graph while this
+        connection reads the old one, which stamped the old graph's facts as the new one's, or name nothing for an instant,
+        which raised FileNotFoundError mid-answer. So the file is looked at once, around the open, and retried if the
+        pointer moved in between."""
+        for _ in range(5):
+            try: before = os.stat(self.db)
+            except FileNotFoundError:
+                if not ax_contract.ensure_graph(self.repo, self.db): die(ax_contract.no_graph(self.repo, self.db))
+                continue
+            self.con = sqlite3.connect(self.db)
+            try: after = os.stat(self.db)
+            except FileNotFoundError: after = None
+            if after and (after.st_ino, after.st_mtime) == (before.st_ino, before.st_mtime): break
+            self.con.close()
+        self.db_mtime = before.st_mtime
+        self.con.row_factory = sqlite3.Row
         self.con.create_function('canon_is', 2, canon_is, deterministic=True)
 
     # ── decorations the front end records as calls, not as decorations ───────────────────────────────────────
@@ -517,7 +545,7 @@ class G:
 
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     def export(self):
-        stamp = os.path.join(self.facts, 'stamp'); want = str(os.path.getmtime(self.db))
+        stamp = os.path.join(self.facts, 'stamp'); want = str(self.db_mtime)
         if os.path.exists(stamp) and open(stamp).read() == want: return
         os.makedirs(self.facts, exist_ok=True)
         # `generated` is a client declaration too: a Lombok accessor, a record member, a C# auto-property. The engine
@@ -558,10 +586,14 @@ class G:
         self.write('edge', edges)
         self.write('byname', [(r[0], r[1]) for r in self.q("SELECT DISTINCT s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
         self.write('named', [(r['name'], r['id']) for r in self.sym.values() if r['method_id'] and r['kind'] != 'module' and r['name']])
-        open(stamp, 'w').write(want)
+        t = f'{stamp}.{os.getpid()}.tmp'; open(t, 'w').write(want); replace_file(t, stamp)
     def write(self, name, rows, d=None):
-        with open(os.path.join(d or self.facts, name + '.facts'), 'w') as f:
+        # written aside and renamed into place: a query reading the facts while another process (the build's warm-up,
+        # a second query) re-exports them saw a truncated file, and answered from part of the graph
+        p = os.path.join(d or self.facts, name + '.facts'); tmp = f"{p}.{os.getpid()}.tmp"
+        with open(tmp, 'w') as f:
             for r in rows: f.write('\t'.join(str(x) for x in r) + '\n')
+        replace_file(tmp, p)
     def edges(self):
         return [tuple(l.rstrip('\n').split('\t')) for l in open(os.path.join(self.facts, 'edge.facts'))] + list(self.EXTRA)
 
@@ -605,8 +637,7 @@ def run_dl(g, queries, programs=('path.dl',)):
     # is only needed for the ones that fall back to the interpreter.
     progs = {p: dl_program.program(p) for p in programs}
     if any(v[0] == 'souffle' for v in progs.values()) and not shutil.which('souffle'):
-        die(f"no compiled path rules for this version on this machine: the {dl_program.SCOPE}/engine-{dl_program.npm_platform()} package\n"
-            "  ships them for each release (reinstall @axiomcode/code-graph), or install soufflé (brew install souffle-lang/souffle/souffle)")
+        die(dl_program.rules_unavailable('path'))
     F = tempfile.mkdtemp(prefix='axpath-'); O = tempfile.mkdtemp(prefix='axpath-out-')
     for n in ('byname', 'named'): link_facts(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
     if g.EXTRA:
@@ -1082,6 +1113,19 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   f"   [{tr}] at {dest} ({conf})")
             print(f"    no call site expresses this hop, so no chain of calls can contain it;"
                   f" `impact {g.disp(to)}` lists it as a [remote] dependent.")
+            remote_found = True
+    # A FRAMEWORK HOP INSIDE ONE PROCESS WAS THE SAME FALSE "INDEPENDENT" (#1509). `order_placed.send()` and its
+    # @receiver, `send_report.delay()` and the task body: the engine writes framework_edge for the pair and no call
+    # site expresses it. Reported beside the cross-process hop and for the same reason not woven into a chain: it
+    # is framework-mediated, and a reader has to be able to tell that from an invocation.
+    if g.has('ext_framework_edge') and A_ and B_:
+        rows = g.q("SELECT c0, c1, c2, c3, c4 FROM ext_framework_edge WHERE (c0 IN (%s) AND c1 IN (%s)) OR (c0 IN (%s) AND c1 IN (%s))"
+                   % (','.join('?' * len(A_)), ','.join('?' * len(B_)), ','.join('?' * len(B_)), ','.join('?' * len(A_))),
+                   *(list(A_) + list(B_) + list(B_) + list(A_)))
+        for fr, to, mech, detail, conf in sorted({(r[0], r[1], r[2], r[3], r[4]) for r in rows if r[0] != r[1]}):
+            print(f"  BUT a framework connects them: {g.disp(fr)} {g.loc(fr)} → {g.disp(to)} {g.loc(to)}   [framework: {mech} via {detail}] ({conf})")
+            print(f"    framework-mediated, not a call: no call site expresses this hop, so no chain of calls can contain it;"
+                  f" `impact {g.disp(to)}` lists {g.disp(fr)} as a [framework] dependent.")
             remote_found = True
     for q, srcs, word in (('fwd', A_, f"{la} → {lb}"), ('rev', B_, f"{lb} → {la}")):
         hits = sorted(res['hit_opt'][q], key=lambda h: (int(h[1]), h[0]))

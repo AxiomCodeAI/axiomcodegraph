@@ -1,0 +1,2 @@
+#!/bin/sh
+python3 -c 'from pricing import price; print(price(1, 1))'

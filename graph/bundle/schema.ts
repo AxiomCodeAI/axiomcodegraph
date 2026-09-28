@@ -143,7 +143,7 @@ export const CORE_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'overrides',
-    description: 'Virtual-dispatch pairs: (base method, overriding method) wherever a call to the base may run the override. Java only, and kept for compatibility — it is exactly `dispatch_candidates` filtered to `basis = nominal`. Prefer `dispatch_candidates`, which is populated in every language.',
+    description: 'Virtual-dispatch pairs: (base method, overriding method) wherever a call to the base may run the override. Java and C# only, and kept for compatibility — it is exactly `dispatch_candidates` filtered to `basis = nominal`. Prefer `dispatch_candidates`, which is populated in every language.',
     columns: [
       { name: 'method_id', type: 'TEXT', key: true, indexed: true, description: 'FK → methods.id — the base (declared) method.' },
       { name: 'overriding_method_id', type: 'TEXT', key: true, indexed: true, description: 'FK → methods.id — the override in a subtype.' },
@@ -623,7 +623,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'DYNAMIC_IMPORT_CALL', languages: T, meaning: '`import(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'DECORATOR_CALL', languages: T, meaning: 'A decorator application `@d` / `@d(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'OPTIONAL_CALL', languages: T, meaning: '`f?.(…)`.' },
-  { table: 'call_edges', column: 'kind', value: 'JSX_COMPONENT_CALL', languages: T, meaning: '`<Component …/>` (reserved by the parser; emitted by nothing yet).' },
+  { table: 'call_edges', column: 'kind', value: 'JSX_COMPONENT_CALL', languages: T, meaning: '`<Component …/>` — a JSX element naming a component; `<div>` emits no site.' },
   { table: 'call_edges', column: 'kind', value: 'PROPERTY_READ', languages: ['typescript', 'javascript'], meaning: 'Reading `obj.x` where `x` is a `get` accessor runs the getter (engine-authored). No written call; the site is the property-access expression. A compound assignment or `++` reads before it writes, so it carries this and PROPERTY_WRITE.' },
   { table: 'call_edges', column: 'kind', value: 'PROPERTY_WRITE', languages: ['typescript', 'javascript'], meaning: 'Assigning `obj.x = v` where `x` is a `set` accessor runs the setter (engine-authored). No written call; the site is the property-access expression on the left.' },
   // — JavaScript (the parser's JsCallKind)
@@ -640,6 +640,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'TAGGED_TEMPLATE_CALL', languages: S, meaning: 'tag`…`.' },
   { table: 'call_edges', column: 'kind', value: 'DYNAMIC_CODE_CALL', languages: S, meaning: '`eval(…)` / `new Function(…)` — unknowable by construction.' },
   { table: 'call_edges', column: 'kind', value: 'DYNAMIC_IMPORT_CALL', languages: S, meaning: '`import(…)` — a module load that is also a site.' },
+  { table: 'call_edges', column: 'kind', value: 'JSX_ELEMENT', languages: S, meaning: '`<Component …/>` — the renderer runs the component (a function component, or a class component\'s constructor and `render`) with the element\'s attributes as its props. Engine-authored: no written call; the site is the JSX element expression. An intrinsic tag (`<div/>`) is no site.' },
   // — Python (the parser's callKind, plus engine-authored decorator/metaclass forms)
   { table: 'call_edges', column: 'kind', value: 'SIMPLE_CALL', languages: P, meaning: '`f(…)` — a bare name.' },
   { table: 'call_edges', column: 'kind', value: 'METHOD_CALL', languages: P, meaning: '`obj.m(…)`.' },
@@ -691,7 +692,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'entry_points', column: 'reason', value: 'orm_hook', languages: P, meaning: 'A lifecycle or validation hook registered by decoration. The data layer calls it; nothing in the client does.' },
 
   // dispatch_candidates.basis
-  { table: 'dispatch_candidates', column: 'basis', value: 'nominal', languages: ['java', 'typescript'], meaning: 'A written extends/implements reaches the candidate\'s owner from the base\'s owner. The strongest evidence there is: the author declared the relationship.' },
+  { table: 'dispatch_candidates', column: 'basis', value: 'nominal', languages: ['java', 'typescript', 'csharp'], meaning: 'A written extends/implements reaches the candidate\'s owner from the base\'s owner. The strongest evidence there is: the author declared the relationship.' },
   { table: 'dispatch_candidates', column: 'basis', value: 'structural', languages: T, meaning: 'No declaration; the candidate\'s owner satisfies the base\'s owner by SHAPE. Emitted only for supertypes with no nominal implementor at all, so it never competes with a declared answer — but it is a heuristic, and a consumer that wants declarations only filters it out.' },
   { table: 'dispatch_candidates', column: 'basis', value: 'value', languages: ['java', 'typescript', 'csharp', 'python'], meaning: 'A function stored in a field, variable or parameter whose type is the base\'s callable type; a call through that holder may run it. In TypeScript also a function written as an implementation of an interface\'s member signature: an object-literal member of a literal typed by the interface (#1208), or a function assigned to the member through a property chain, `inst.i.run = (x) => …` (#1283). In C# also what one delegate member is assigned from another (`a.Run = a.Parse`). In Python, a function assigned onto an instance\'s member from outside its class, which shadows the class\'s method of that name. The base is the signature the call resolves to (bodiless), so the pair is how a walk over callers reaches the function that runs. Flow-derived rather than declared: a consumer that wants declarations only filters it out.' },
   { table: 'dispatch_candidates', column: 'basis', value: 'mro', languages: P, meaning: 'The subtype\'s C3 linearisation picks the candidate for that attribute name. Not merely "the subtype declares this name" — a name a sibling base wins is attributed to that sibling.' },
@@ -764,7 +765,6 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'csharp', table: 'skipped', note: 'EMPTY — the C# front end writes no skipped-files report. It takes the opposite line: a construct its grammar does not cover fails the run rather than skipping the file, so there is no per-file decision to record. An empty table here is not evidence that every file was read.' },
   { language: 'csharp', table: 'type_instantiated', note: 'EMPTY — the C# engine derives the instantiation set but does not export it. Dispatch in C# is not narrowed by it either (see the README of the C# engine).' },
   { language: 'csharp', table: 'type_use', note: 'EMPTY — the C# front end does not export type uses yet.' },
-  { language: 'csharp', table: 'overrides', note: 'EMPTY — C# records the dispatch envelope in dispatch_candidates, not as override rows.' },
   { language: 'javascript', table: 'dispatch_candidates', note: 'EMPTY — JavaScript has no declared dispatch to widen from: a multi_inferred set is already the values the receiver may hold (see call_edges), so there is no envelope to record.' },
   { language: 'javascript', table: 'skipped', note: 'A DIRECTORY_EXCLUDED row\'s file_path is a PRUNED DIRECTORY, not a file, and `detail` carries how many files are behind it; those files have no rows of their own. So `SELECT count(*) FROM skipped` is not the number of files missing, and a join on file_path will not match them. Filter the reason out when you want per-file rows.' },
   { language: 'python', table: 'skipped', note: 'The only front end that positions a skip: a PY2_CONSTRUCT_DETECTED row carries the construct and its line and column, so the file can be triaged without re-running the parser.' },
