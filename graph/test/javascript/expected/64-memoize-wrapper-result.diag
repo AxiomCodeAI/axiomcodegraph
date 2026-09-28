@@ -1,0 +1,3 @@
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       memoize.js:7:14  FUNCTION_CALL fn  callee_untyped
+unresolved       memoize.js:7:14  FUNCTION_CALL fn  param_fan_capped
