@@ -281,7 +281,10 @@ def build(repo, page, library=None):
                                  ('--src ' + t['src_arg']) if t.get('src_arg') else '', ('--library ' + t['library']) if t.get('library') else '') if f)
     print(f"the graph is out of date ({n} file(s) changed since it was built): rebuilding it as it was indexed ({flags}) …" if n else
           f"rebuilding the graph as it was indexed ({flags}) …", flush=True)
-    t0 = time.time(); run_build(repo, ax_fresh.rebuild_env(t, AXIOMCODE_REFRESH_REASON='axiomcode graph'))
+    # a REFRESH, not an index: the baseline `changed` and `test-impact` measure edits against stays where it was, as the
+    # background refresh keeps it. Rebuilt as an explicit index it moved to the edited tree, and the edits it held dropped
+    # out of both ("no changed declaration" over a real edit)
+    t0 = time.time(); run_build(repo, ax_fresh.rebuild_env(t, AXIOMCODE_REFRESH_REASON='axiomcode graph', AXIOMCODE_KEEP_BASE='1'))
     return export(repo, page, how=f"graph rebuilt ({flags}) in {time.time() - t0:.0f} s.")
 
 

@@ -181,8 +181,12 @@ set_base(){
     # commit's edits would stay "changed" and test-impact would select for all of them, growing with each commit.
     # Not the working tree either: after a pull, the edits still uncommitted are exactly what `changed` must show.
     (cd "$REPO" && git rev-parse 'HEAD^{tree}' 2>/dev/null) > "$OUT/base-tree.new" && mv "$OUT/base-tree.new" "$OUT/base-tree" || rm -f "$OUT/base-tree.new"
-  elif [ -n "$1" ]; then echo "$1" > "$OUT/base-tree"
-  else rm -f "$OUT/base-tree"; fi
+  elif [ -n "$1" ]; then
+    # an explicit index sets the baseline to the tree it indexed; when that is not HEAD's (edits were uncommitted), the
+    # edits are IN the baseline from now on, and `changed` / `test-impact` say when and by what (base-set)
+    [ "$(cat "$OUT/base-tree" 2>/dev/null)" = "$1" ] || printf '%s\t%s\n' "$(date +%s)" "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" > "$OUT/base-set"
+    echo "$1" > "$OUT/base-tree"
+  else rm -f "$OUT/base-tree" "$OUT/base-set"; fi
 }
 # the commit the baseline follows, written LAST: `changed` waits while it differs from HEAD, so it must not say "moved"
 # before the baseline's graph exists (keep_base_graph), or `changed` reads a baseline with no graph for it
@@ -247,6 +251,12 @@ LANGDIR="$REPO/.axiomcode/lang"      # one graph directory per language other th
 # A GRAPH A QUERY FOUND CORRUPT (ax_fresh.quarantine leaves .axiomcode/out/corrupt) is rebuilt even though no file moved:
 # the files still match the table, so without this the build said "up to date" over a graph that could not be read.
 if [ -f "$OUT/corrupt" ]; then echo "rebuilding: $(head -1 "$OUT/corrupt")"; fi
+# A GRAPH A NEWER AXIOMCODE BUILT is never rebuilt by this older one (ax_fresh.py newer_build): two plugin versions over
+# one repository rebuilt each other's graph back and forth. It is kept whatever changed, and every answer says so;
+# AXIOMCODE_REINDEX=1 rebuilds it with this one on purpose. A corrupt graph is rebuilt all the same.
+if [ -z "${AXIOMCODE_REINDEX:-}" ] && [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && NEWER="$(AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" newer "$REPO")"; then
+  echo "$NEWER"; exit 0
+fi
 if [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
