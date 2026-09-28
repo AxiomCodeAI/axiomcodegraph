@@ -1,0 +1,9 @@
+ambiguous_unknown	METHOD_CALL	options#<arrow@46>(?) @L46 -> -
+ambiguous_unknown	METHOD_CALL	options#defaultFormat(number,number) @L18 -> -
+ambiguous_unknown	METHOD_CALL	options#defaultOnError(string) @L15 -> -
+ambiguous_unknown	METHOD_CALL	options#tagList(Options) @L46 -> -
+known_edge	FUNCTION_CALL	options#guarded(boolean,Options) @L53 -> options#<arrow@5>(string)
+known_edge	FUNCTION_CALL	options#plain(Options) @L39 -> options#<arrow@5>(string)
+known_edge	FUNCTION_CALL	options#withLet(Options) @L33 -> options#<arrow@5>(string)
+known_edge	FUNCTION_CALL	options#withNullish(Options) @L27 -> options#<arrow@6>(number,number)
+known_edge	FUNCTION_CALL	options#withOr(Options) @L22 -> options#<arrow@5>(string)

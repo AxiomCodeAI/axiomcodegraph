@@ -1,0 +1,7 @@
+78-logical-default-callback [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 8   resolved 8 (100.0%)
+  tiers known_edge=8
+  contexts FIELD_TYPE=2  METHOD_PARAM=6
+  not scored: 0 rows whose target is not a client declaration
