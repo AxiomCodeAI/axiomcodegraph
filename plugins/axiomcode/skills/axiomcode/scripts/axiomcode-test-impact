@@ -54,7 +54,7 @@ those five files. Nothing a reader is shown got better; what got better is WHY t
 the graph can follow rather than a file named after the changed module. A recall number that does not move
 is not the same as a change that does nothing, and the rung on each row is where the difference is.
 """
-import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections
+import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections, functools, posixpath, shlex
 
 TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', re.I)
 
@@ -158,17 +158,105 @@ def command_for(lang, files, classes, db=None, repo='.'):
 # read off the package's config and dependencies, with that runner's own include globs — and failing that
 # with the command its package scripts or its own header give for it. A file nothing collects is said so,
 # never handed to a runner that will not run it.
+#
+# A runner's collection is read the way the runner reads it, not by the first `include` in the file: vitest's
+# test include is the one directly under `test:` (not `coverage.include`), each inline project collects on its
+# own, `exclude` takes files back out, and vite.config.* is its config when there is no vitest.config.*; jest's
+# testMatch is relative to <rootDir>, testRegex replaces it, and `jest --config x` in a script is a config too.
+# The nearest directory whose runner collects the file is where the command runs from, so a nested
+# e2e/jest.config.ts runs its own files. A runner with a config outranks one that is only a dependency.
+_CONF_EXT = ('ts', 'mts', 'cts', 'js', 'mjs', 'cjs')
 _RUNNERS = (
-    # runner, config files, package.json key, default include (relative to the package), command
-    ('vitest', ('vitest.config.ts', 'vitest.config.mts', 'vitest.config.js', 'vitest.config.mjs',
-                'vitest.config.cjs', 'vitest.config.cts', 'vitest.workspace.ts', 'vitest.workspace.js'),
-     None, ('**/*.{test,spec}.?(c|m)[jt]s?(x)',), 'npx vitest run'),
-    ('jest', ('jest.config.ts', 'jest.config.js', 'jest.config.mjs', 'jest.config.cjs', 'jest.config.json'),
-     'jest', ('**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)'), 'npx jest'),
+    # runner, config files, package.json key, command
+    ('vitest', tuple(f'vitest.config.{e}' for e in _CONF_EXT) + tuple(f'vitest.workspace.{e}' for e in _CONF_EXT)
+     + ('vitest.workspace.json',), None, 'npx vitest run'),
+    ('jest', tuple(f'jest.config.{e}' for e in _CONF_EXT) + ('jest.config.json',), 'jest', 'npx jest'),
     ('mocha', ('.mocharc.js', '.mocharc.cjs', '.mocharc.json', '.mocharc.jsonc', '.mocharc.yml', '.mocharc.yaml'),
-     'mocha', ('test/*.{js,cjs,mjs}',), 'npx mocha'),
+     'mocha', 'npx mocha'),
+    ('playwright', tuple(f'playwright.config.{e}' for e in _CONF_EXT), None, 'npx playwright test'),
 )
-_INCLUDE_KEY = {'vitest': r'\binclude', 'jest': r'\btestMatch', 'mocha': r'\bspec'}
+_VITEST_INCLUDE = ('**/*.{test,spec}.?(c|m)[jt]s?(x)',)
+_VITEST_EXCLUDE = ('**/node_modules/**', '**/dist/**', '**/cypress/**', '**/.{idea,git,cache,output,temp}/**')
+_JEST_MATCH = ('**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)')
+_MOCHA_SPEC = ('test/*.{js,cjs,mjs}',)
+_PW_MATCH = ('**/*.@(spec|test).?(c|m)[jt]s?(x)',)
+_NODE_TEST = ('**/*.test.?(c|m)[jt]s', '**/*-test.?(c|m)[jt]s', '**/*_test.?(c|m)[jt]s', '**/test-*.?(c|m)[jt]s',
+              '**/test.?(c|m)[jt]s', '**/test/**/*.?(c|m)[jt]s')
+_CRA_MATCH = ('src/**/__tests__/**/*.{js,jsx,ts,tsx}', 'src/**/*.{spec,test}.{js,jsx,ts,tsx}')
+
+_JS_TOK = re.compile(r"""(?P<ws>\s+|//[^\n]*|/\*.*?\*/)
+                       |(?P<s>"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)
+                       |(?P<id>[A-Za-z_$][\w$]*|\d[\w.]*)
+                       |(?P<p>\.\.\.|.)""", re.S | re.X)
+_JS_RE = re.compile(r'/((?:[^/\\\n\[]|\\.|\[(?:[^\]\\\n]|\\.)*\])+)/[a-z]*')
+
+
+def _unq(s):
+    """A JS or JSON string literal's text."""
+    return re.sub(r'\\(.)', lambda m: {'n': '\n', 't': '\t'}.get(m.group(1), m.group(1)), s[1:-1])
+
+
+def _js_keys(text, keys):
+    """Every `key: value` in a JS or JSON config whose key is in `keys`, as (path, key, value, owner, parents).
+
+    path is the chain of keys enclosing it, owner the id of the object it sits in, parents each object's
+    enclosing object. value is a list of the string (or regex, as ('re', src)) literals, or None when the value
+    is not a literal this can read — a reader must then assume the file is in, not out."""
+    toks, i, n = [], 0, len(text)
+    while i < n:
+        prev = toks[-1][1] if toks else ''
+        if text[i] == '/' and prev in (':', '[', ',', '(', '=') and not text.startswith(('//', '/*'), i):
+            m = _JS_RE.match(text, i)
+            if m:
+                toks.append(('re', m.group(1))); i = m.end(); continue
+        m = _JS_TOK.match(text, i)
+        kind = m.lastgroup
+        if kind != 'ws':
+            toks.append((kind, m.group(0)))
+        i = m.end()
+    out, stack, parents, nid, j = [], [], {}, 0, 0
+    collecting = None
+    while j < len(toks):
+        kind, v = toks[j]
+        if kind in ('id', 's') and j + 1 < len(toks) and toks[j + 1][1] == ':' and stack and stack[-1][0] == '{':
+            key = _unq(v) if kind == 's' else v
+            owner = stack[-1][2]
+            path = tuple(k for _, k, _ in stack if k)
+            j += 2
+            nxt = toks[j] if j < len(toks) else ('', '')
+            if key in keys:
+                if nxt[0] == 's':
+                    out.append((path, key, [_unq(nxt[1])], owner, parents))
+                elif nxt[0] == 're':
+                    out.append((path, key, [('re', nxt[1])], owner, parents))
+                elif nxt[1] == '[':
+                    collecting = (len(stack) + 1, [])
+                    out.append((path, key, collecting[1], owner, parents))
+                else:
+                    out.append((path, key, None, owner, parents))
+            if nxt[1] in '{[(' and nxt[1]:
+                stack.append((nxt[1], key, None)); j += 1
+                if nxt[1] == '{':
+                    nid += 1; parents[nid] = next((o for b, _, o in reversed(stack[:-1]) if b == '{'), None)
+                    stack[-1] = ('{', key, nid)
+                    if key in keys: out[-1] = (path, key, ('obj', nid), owner, parents)
+            continue
+        if kind == 's' and stack and stack[-1][0] == '[' and all(b != '{' for b, _, _ in stack):
+            out.append(((), '', [_unq(v)], None, parents))    # a bare list entry: a workspace member
+        if v in ('{', '[', '('):
+            oid = None
+            if v == '{':
+                nid += 1; oid = nid; parents[nid] = next((o for b, _, o in reversed(stack) if b == '{'), None)
+            stack.append((v, None, oid))
+        elif v in ('}', ']', ')'):
+            if collecting and len(stack) == collecting[0]:
+                collecting = None
+            if stack: stack.pop()
+        elif collecting and len(stack) == collecting[0]:
+            if kind == 's': collecting[1].append(_unq(v))
+            elif kind == 're': collecting[1].append(('re', v))
+        j += 1
+    return out
 
 
 def _glob_re(g):
@@ -226,30 +314,272 @@ def _package_of_file(repo, rel):
         d = os.path.dirname(d)
 
 
-def _runners_of(repo, pkg):
-    """[(runner, include globs, command)] the package at `pkg` runs its tests with, most specific first."""
-    pj_text = _read(os.path.join(repo, pkg, 'package.json'))
+def _pkg_json(repo, d):
+    """The package.json in `d` as a dict, {} when unreadable, None when there is none."""
+    t = _read(os.path.join(repo, d, 'package.json'))
+    if not t: return None
     try:
-        pj = json.loads(pj_text) if pj_text else {}
+        pj = json.loads(t)
+        return pj if isinstance(pj, dict) else {}
     except ValueError:
-        pj = {}
-    deps = {**(pj.get('dependencies') or {}), **(pj.get('devDependencies') or {})}
-    scripts = ' '.join(str(v) for v in (pj.get('scripts') or {}).values())
-    out = []
-    for name, configs, key, default, cmd in _RUNNERS:
-        conf = next((c for c in configs if os.path.isfile(os.path.join(repo, pkg, c))), None)
-        if not (conf or (key and key in pj) or name in deps or re.search(rf'\b{name}\b', scripts)):
-            continue
-        text = _read(os.path.join(repo, pkg, conf)) if conf else json.dumps(pj.get(key) or {}) if key else ''
-        globs = default
-        m = re.search(_INCLUDE_KEY[name] + r'["\']?\s*[:=]\s*(\[[^\]]*\]|["\'][^"\']+["\'])', text)
-        if m:
-            found = re.findall(r'["\']([^"\']+)["\']', m.group(1))
-            globs = tuple(found) if found else ('**',)
-        elif re.search(_INCLUDE_KEY[name] + r'\b', text):
-            globs = ('**',)     # an include this cannot read: assume the file is in it rather than out
-        out.append((name, globs, cmd))
+        return {}
+
+
+def _under(rel, base):
+    """rel taken relative to base (both from the same directory), or None when it is not under it."""
+    base = posixpath.normpath(base or '.')
+    if base == '.': return rel
+    r = posixpath.relpath(rel, base)
+    return None if r.startswith('../') or r == '..' else r
+
+
+def _lit(v):
+    """A key's literal value as a list: [] when absent, None when it is there but not a literal."""
+    return v if v is None or isinstance(v, list) else None
+
+
+def _pats_match(pats, rel, glob_rel=None):
+    """Whether any glob (matched on glob_rel) or regex (searched in '/'+rel) of `pats` takes this file."""
+    for p in pats:
+        if isinstance(p, tuple):
+            try:
+                if re.search(p[1], '/' + rel): return True
+            except re.error:
+                return True
+        elif _globs_match((p,), rel if glob_rel is None else glob_rel):
+            return True
+    return False
+
+
+def _member_dirs(entries, rel):
+    """The directories on rel's path that a list of workspace / project globs names."""
+    parts, out = rel.split('/')[:-1], []
+    for e in entries:
+        if not isinstance(e, str): continue
+        e = e.replace('<rootDir>/', '').rstrip('/')
+        e = e[2:] if e.startswith('./') else e
+        if re.search(r'\.(c|m)?[jt]s$|\.json$', e): e = posixpath.dirname(e)
+        for k in range(1, len(parts) + 1):
+            pre = '/'.join(parts[:k])
+            if _globs_match((e,), pre): out.append(pre)
     return out
+
+
+def _vitest_collects(texts, repo, d):
+    """How a vitest config (and workspace file) collects: a function of the path from its directory."""
+    projects = []                   # (root, include, exclude) — one per test block, each collecting on its own
+    members = []
+    for t in texts:
+        recs = _js_keys(t, {'test', 'include', 'exclude', 'root', 'projects', 'workspace'})
+        tests = [r[2][1] for r in recs if r[1] == 'test' and isinstance(r[2], tuple)]
+        for tid in tests:
+            own = {r[1]: r[2] for r in recs if r[3] == tid}
+            if 'projects' in own or 'workspace' in own:
+                members += [e for k in ('projects', 'workspace') for e in (own.get(k) or [])]
+                continue
+            root = own.get('root') or next((r[2] for r in recs if r[1] == 'root' and r[3] == r[4].get(tid)), None)
+            projects.append((root[0] if isinstance(root, list) and root else '.',
+                             own.get('include', _VITEST_INCLUDE), own.get('exclude') or []))
+        members += [e for r in recs if r[1] == '' for e in r[2]]
+    if not projects and not members:
+        projects.append(('.', _VITEST_INCLUDE, []))
+
+    def collects(rel):
+        for root, inc, exc in projects:
+            r = _under(rel, root)
+            if r is None: continue
+            if _pats_match(_VITEST_EXCLUDE, r) or _pats_match(exc, r): continue
+            # an include this cannot read (a variable, only spreads) is not evidence the file is left out
+            if not isinstance(inc, (list, tuple)) or not inc or _pats_match(inc, r): return True
+        for m in _member_dirs(members, rel):
+            # a member with a vitest config of its own is read from there; one without collects vitest's defaults
+            if any(os.path.isfile(os.path.join(repo, d, m, c)) for c in _RUNNERS[0][1]): continue
+            if _pats_match(_VITEST_INCLUDE, _under(rel, m)): return True
+        return False
+    return collects
+
+
+def _jest_collects(text, base, repo, d):
+    """How a jest config at `base` (from the runner's directory `d`) collects."""
+    keys = {'testMatch', 'testRegex', 'rootDir', 'roots', 'testPathIgnorePatterns', 'projects'}
+    recs = _js_keys(text, keys)
+    top = [r for r in recs if r[1] == 'projects']
+    owners = collections.OrderedDict()
+    for r in recs:
+        if r[1] in keys and r[1] != 'projects':
+            owners.setdefault(r[3], {})[r[1]] = r[2]
+    root_opts = {}
+    if top:
+        root_opts = owners.pop(top[0][3], {})
+        groups = list(owners.values())
+        members = top[0][2] or []
+    else:
+        merged = {}
+        for o in owners.values():
+            for k, v in o.items(): merged.setdefault(k, v)
+        groups, members = [merged], []
+
+    def one(o, rel):
+        rd = o.get('rootDir', root_opts.get('rootDir'))
+        rd = rd[0] if isinstance(rd, list) and rd and isinstance(rd[0], str) else '.'
+        r = _under(rel, posixpath.join(base, rd.replace('<rootDir>', '.')))
+        if r is None: return False
+        roots = o.get('roots')
+        if isinstance(roots, list) and roots:
+            if not any(_under(r, x.replace('<rootDir>', '.')) is not None for x in roots if isinstance(x, str)):
+                return False
+        ign = o.get('testPathIgnorePatterns')
+        for p in (ign if isinstance(ign, list) else ['/node_modules/']):
+            try:
+                if isinstance(p, str) and re.search(p.replace('<rootDir>', ''), '/' + r): return False
+            except re.error:
+                pass
+        if 'testRegex' in o:
+            v = o['testRegex']
+            return True if v is None else _pats_match([p if isinstance(p, tuple) else ('re', p) for p in v], r)
+        m = o.get('testMatch', list(_JEST_MATCH))
+        if m is None: return True
+        return _pats_match([p.replace('<rootDir>/', '') if isinstance(p, str) else p for p in m], r)
+
+    def collects(rel):
+        if any(one(o, rel) for o in groups): return True
+        return any(_pats_match(_JEST_MATCH, _under(rel, m)) for m in _member_dirs(members, rel)
+                   if not any(os.path.isfile(os.path.join(repo, d, m, c)) for c in _RUNNERS[1][1]))
+    return collects
+
+
+def _playwright_collects(text):
+    recs = _js_keys(text, {'testDir', 'testMatch', 'testIgnore'})
+    dirs = [v[0] for _, k, v, _, _ in recs if k == 'testDir' and isinstance(v, list) and v] or ['.']
+    match = [p for _, k, v, _, _ in recs if k == 'testMatch' for p in (v or ['**'])] or list(_PW_MATCH)
+    ignore = [p for _, k, v, _, _ in recs if k == 'testIgnore' for p in (v or [])]
+
+    def collects(rel):
+        for dr in dirs:
+            r = _under(rel, dr)
+            if r is not None and not (ignore and _pats_match(ignore, r)) and _pats_match(match, r): return True
+        return False
+    return collects
+
+
+def _script_words(v):
+    """Each shell command in a package script as its words; a quoted command (`glob -c "tsx --test"`) is split too."""
+    out = []
+    for seg in re.split(r'&&|\|\||;|\|', v):
+        words = []
+        for q in re.findall(r'"([^"]*)"|\'([^\']*)\'|(\S+)', seg):
+            words += next((x for x in q if x), '').split()
+        out.append(words)
+    return out
+
+
+def _node_test(words):
+    """(command, include globs) for a `node --test` / `tsx --test` command line, or None."""
+    for i, w in enumerate(words):
+        if posixpath.basename(w) not in ('node', 'tsx'): continue
+        k, opts = i + 1, [w]
+        while k < len(words) and words[k].startswith('-'):
+            opts.append(words[k])
+            if words[k] in ('--import', '-r', '--require', '--loader', '--experimental-loader') and k + 1 < len(words):
+                k += 1; opts.append(words[k])
+            k += 1
+        if '--test' not in opts: continue
+        globs = []
+        for x in words[k:]:
+            if x.startswith('-'): continue
+            x = x[2:] if x.startswith('./') else x
+            if re.search(r'[*?{]|\.(c|m)?[jt]sx?$', x): globs.append(x)
+            elif '/' in x or re.fullmatch(r'[\w.-]+', x): globs.append(x.rstrip('/') + '/**/*.?(c|m)[jt]s')
+        cmd = 'npx tsx --test' if posixpath.basename(w) == 'tsx' else ' '.join(opts)
+        return cmd, tuple(globs) or _NODE_TEST
+    return None
+
+
+@functools.lru_cache(maxsize=None)
+def _runners_of(repo, d):
+    """[(runner, collects(path from d), command)] the directory `d` runs tests with, the configured ones first."""
+    pj = _pkg_json(repo, d) or {}
+    deps = {**(pj.get('dependencies') or {}), **(pj.get('devDependencies') or {})}
+    scripts = [str(v) for v in (pj.get('scripts') or {}).values()]
+    said = ' '.join(scripts)
+    found = []                              # (strength, order, name, collects, command)
+
+    def conf_of(configs):
+        return next((c for c in configs if os.path.isfile(os.path.join(repo, d, c))), None)
+
+    # vitest: vitest.config.* and the workspace file, else vite.config.* when vitest is what the package uses
+    vconfs = [c for c in _RUNNERS[0][1] if os.path.isfile(os.path.join(repo, d, c))]
+    uses_vitest = 'vitest' in deps or re.search(r'\bvitest\b', said)
+    vite = conf_of(tuple(f'vite.config.{e}' for e in _CONF_EXT))
+    if not any(c.startswith('vitest.config.') for c in vconfs) and vite and uses_vitest:
+        vconfs.append(vite)
+    if vconfs or uses_vitest:
+        texts = [_read(os.path.join(repo, d, c)) for c in vconfs]
+        strength = 3 if vconfs and any(re.search(r'\btest\s*:', t) or c.startswith('vitest.') for c, t in
+                                       zip(vconfs, texts)) else 2 if re.search(r'\bvitest\b', said) else 1
+        found.append((strength, 0, 'vitest', _vitest_collects(texts, repo, d), 'npx vitest run'))
+
+    # jest: its config file or package.json key, each `jest --config x` a script runs, react-scripts' own jest
+    jconf = conf_of(_RUNNERS[1][1])
+    uses_jest = 'jest' in deps or re.search(r'\bjest\b', said)
+    if jconf or 'jest' in pj:
+        text = _read(os.path.join(repo, d, jconf)) if jconf else json.dumps({'x': pj.get('jest')})
+        found.append((3, 1, 'jest', _jest_collects(text, '.', repo, d), 'npx jest'))
+    elif uses_jest:
+        found.append((2 if re.search(r'\bjest\b', said) else 1, 1, 'jest', _jest_collects('', '.', repo, d), 'npx jest'))
+    for s in scripts:
+        m = re.search(r'\bjest\b[^&|;]*?(?:--config[= ]|-c\s+)(["\']?)([^\s"\'{]+)\1', s)
+        if m and os.path.isfile(os.path.join(repo, d, m.group(2))):
+            p = m.group(2)
+            base = posixpath.dirname(p[2:] if p.startswith('./') else p) or '.'
+            found.append((3, 1, 'jest', _jest_collects(_read(os.path.join(repo, d, p)), base, repo, d),
+                          f'npx jest --config {shlex.quote(p)}'))
+        if re.search(r'\b(react-scripts|craco|react-app-rewired)\s+test\b', s):
+            tool = re.search(r'\b(react-scripts|craco|react-app-rewired)\s+test\b', s).group(1)
+            found.append((2, 1, 'jest', lambda rel: _pats_match(_CRA_MATCH, rel),
+                          f'npx {tool} test --watchAll=false'))
+
+    # mocha: .mocharc spec, the package.json key, or the specs its script names
+    mconf = conf_of(_RUNNERS[2][1])
+    if mconf or 'mocha' in pj or 'mocha' in deps or re.search(r'\bmocha\b', said):
+        text = _read(os.path.join(repo, d, mconf)) if mconf else json.dumps({'x': pj.get('mocha') or {}})
+        if mconf and mconf.endswith(('.yml', '.yaml')):
+            m = re.search(r'^spec:\s*(.*)$((?:\n\s+-.*)*)', text, re.M)
+            spec = ([s.strip(' \'"-') for s in ([m.group(1)] if m.group(1).strip() else []) + m.group(2).split('\n')
+                     if s.strip(' \'"-')] if m else [])
+        else:
+            spec = next((r[2] for r in _js_keys(text, {'spec'})), [])
+        for words in (_script_words(s) for s in scripts):
+            for ws in words:
+                if 'mocha' in [posixpath.basename(w) for w in ws]:
+                    i = [posixpath.basename(w) for w in ws].index('mocha')
+                    rec = '--recursive' in ws
+                    for x in ws[i + 1:]:
+                        if x.startswith('-') or spec is None: continue
+                        x = x[2:] if x.startswith('./') else x
+                        if re.search(r'[*?{]|\.(c|m)?[jt]sx?$', x): spec.append(x)
+                        elif re.fullmatch(r'[\w./-]+', x):
+                            spec.append(x.rstrip('/') + ('/**/*.{js,cjs,mjs}' if rec else '/*.{js,cjs,mjs}'))
+        spec = None if spec is None else [s[2:] if isinstance(s, str) and s.startswith('./') else s for s in spec]
+        found.append((3 if mconf or 'mocha' in pj else 2 if re.search(r'\bmocha\b', said) else 1, 2, 'mocha',
+                      (lambda rel, spec=spec: True if spec is None else _pats_match(spec or _MOCHA_SPEC, rel)),
+                      'npx mocha'))
+
+    # node's own runner: `node --test` / `tsx --test` in a script
+    for s in scripts:
+        for ws in _script_words(s):
+            nt = _node_test(ws)
+            if nt:
+                found.append((2, 3, 'node', (lambda rel, g=nt[1]: _pats_match(g, rel)), nt[0]))
+
+    # playwright
+    pconf = conf_of(_RUNNERS[3][1])
+    if pconf or '@playwright/test' in deps or 'playwright' in deps or re.search(r'\bplaywright\s+test\b', said):
+        found.append((3 if pconf else 2 if re.search(r'\bplaywright\s+test\b', said) else 1, 4, 'playwright',
+                      _playwright_collects(_read(os.path.join(repo, d, pconf)) if pconf else ''),
+                      'npx playwright test'))
+    found.sort(key=lambda x: (-x[0], x[1]))
+    return [(name, collects, cmd) for _, _, name, collects, cmd in found]
 
 
 def _script_for(repo, pkg, prel):
@@ -260,8 +590,17 @@ def _script_for(repo, pkg, prel):
     except ValueError:
         scripts = {}
     for k, v in scripts.items():
-        if re.search(r'(^|[\s/"\'])' + re.escape(prel) + r'($|[\s"\'])', str(v)):
-            return f"npm run {k}"
+        # a script that RUNS the file, not one that lints, formats or type-checks it
+        if (re.search(r'(^|[\s/"\'])' + re.escape(prel) + r'($|[\s"\'])', str(v))
+                and re.search(r'\b(tsx|ts-node(-esm)?|node|bun|deno|jest|vitest|mocha|playwright|ava|tap|uvu|cypress)\b',
+                              str(v))):
+            return f"npm run {shlex.quote(k)}"
+    for k, v in scripts.items():
+        # a test script whose own glob takes the file (`tape-runner test/test-*.js`) runs it, with the rest
+        if re.search(r'test|spec|e2e', k) and any(re.search(r'[*?]', w) and _globs_match((w[2:] if w.startswith('./')
+                                                                                      else w,), prel)
+                                                   for ws in _script_words(str(v)) for w in ws):
+            return f"npm run {shlex.quote(k)}"
     runner = r'(?:(?:npx|pnpm(?: exec)?|yarn|bunx)\s+)?(?:tsx|ts-node(?:-esm)?|node(?:\s+--[\w-]+(?:=\S+)?)*|bun(?: run)?|deno run(?:\s+-\S+)*)'
     lead = r'(?:^|[\s*/#`$])('
     # the file's own usage line first, then the package's README: where a script suite says how it is run
@@ -283,29 +622,32 @@ def js_plan(repo, files):
     """(commands, files no runner collects): each file with the runner its own package would run it with."""
     by_runner = collections.OrderedDict()
     singles, unrun = [], []
+    repo = os.path.realpath(repo)
     for f in sorted(files)[:40]:
-        pkg = _package_of_file(repo, f)
-        prel = f[len(pkg) + 1:] if pkg else f
-        runners = _runners_of(repo, pkg)
-        if not runners and pkg:
-            # a workspace member with no runner of its own is run by the root's, with paths from the root
-            root = _runners_of(repo, '')
-            if root: pkg, prel, runners = '', f, root
-        if not runners:
-            # nothing configured anywhere: a file named the way vitest and jest both collect keeps the command
+        # the nearest directory whose runner collects the file runs it: a member's own config first, then the
+        # root's (a workspace member with no runner of its own is run by the root's, with paths from the root)
+        hit, any_pkg, d = None, False, os.path.dirname(f)
+        while hit is None:
+            any_pkg = any_pkg or _pkg_json(repo, d) is not None
+            drel = f[len(d) + 1:] if d else f
+            hit = next(((d, drel, c) for _, collects, c in _runners_of(repo, d) if collects(drel)), None)
+            if not d: break
+            d = os.path.dirname(d)
+        if hit is None and not any_pkg and _globs_match(_VITEST_INCLUDE, f):
+            # no package anywhere above it: a file named the way vitest and jest both collect keeps the command
             # this always printed; any other file has no runner to be handed to
-            runners = [('vitest', _RUNNERS[0][3], _RUNNERS[0][4])]
-        runner = next(((n, c) for n, globs, c in runners if _globs_match(globs, prel)), None)
-        if runner:
-            by_runner.setdefault((pkg, runner[1]), []).append(prel); continue
-        cmd = _script_for(repo, pkg, prel)
+            hit = ('', f, _RUNNERS[0][3])
+        if hit:
+            by_runner.setdefault((hit[0], hit[2]), []).append(hit[1]); continue
+        pkg = _package_of_file(repo, f)
+        cmd = _script_for(repo, pkg, f[len(pkg) + 1:] if pkg else f)
         if cmd:
             singles.append((pkg, cmd))
         else:
             unrun.append(f)
     def cd(pkg, cmd):
-        return f"(cd {pkg} && {cmd})" if pkg else cmd
-    cmds = [cd(pkg, f"{c} " + " ".join(fs)) for (pkg, c), fs in by_runner.items()]
+        return f"(cd {shlex.quote(pkg)} && {cmd})" if pkg else cmd
+    cmds = [cd(pkg, f"{c} " + " ".join(shlex.quote(x) for x in fs)) for (pkg, c), fs in by_runner.items()]
     seen = set()
     for pkg, c in singles:
         if (pkg, c) not in seen:
