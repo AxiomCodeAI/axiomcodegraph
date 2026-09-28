@@ -61,6 +61,10 @@ One check needs no graph and is its own script:
                                          --no-engine for the rest)
     python3 tests/facts_cache.py         path and impact do not answer from edges an older plugin exported: the export's
                                          stamp carries a version, so an upgrade re-exports (#1402; indexes a case)
+    python3 tests/publish_order.py       a repository in several languages is queryable when its main language is solved, not
+                                         when the last one is: the others are held back, a query answers and names what it
+                                         cannot see, a first query does not wait for them, one language alone is unchanged
+                                         (#1555; builds real graphs, needs the engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 
