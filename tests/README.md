@@ -35,6 +35,11 @@ One check needs no graph and is its own script:
     python3 tests/enrich_budget.py       what a Read or a Grep adds to a session is capped: a declaration annotated once,
                                          the budget said spent once, its second half kept for edges into unopened files
                                          (#1199; indexes a small project, so it needs the engine)
+    python3 tests/enrich_lines.py        what one enrichment line says: a caller count of 0 says why (entry point, by-name
+                                         sites, a framework annotation), production callers before tests, a base before its
+                                         overrides, no annotation for a shell grep over output or logs, nothing for an edit
+                                         that changes no declaration, one line of tests for a body edit (#1507, #1546, #1604;
+                                         indexes a small project, so it needs the engine)
     python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in, finds the
                                          engine the last build used before PATH (the refresh runs from a hook, with the
                                          hook's PATH), follows a Windows npm shim, and names every place it looked when

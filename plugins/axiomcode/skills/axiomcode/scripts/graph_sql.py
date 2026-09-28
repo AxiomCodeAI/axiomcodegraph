@@ -247,7 +247,7 @@ def impact(repo, target, depth=DEPTH):
             reads = sorted(set(reads) | set(own))
             byname = sorted(set(byname) - set(reads))
         return dict(target=target, overloads=len(ids), contract=contract, reads=reads, read_cert=read_cert, byname=byname,
-                    reached=max(0, n - len(ids)), tests=t, test_names=test_names, depth=depth)
+                    reached=max(0, n - len(ids)), tests=t, test_names=test_names, test_ids=sorted(tset), depth=depth)
     finally:
         con.close()
 
@@ -290,7 +290,8 @@ def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
                  for d in r.get('test_names', [])[:tests_shown]]
         tests += [dict(display='', owner='', name='')] * max(0, r['tests'] - len(tests))
         return dict(contract=[dict(display=d, why='overrides it', at=at.get(d, '')) for d in r['contract']],
-                    direct=direct, reached=[None] * r['reached'], tests=tests, unresolved_inside=0, _sql=True)
+                    direct=direct, reached=[None] * r['reached'], tests=tests, unresolved_inside=0, _sql=True,
+                    test_ids=r.get('test_ids', []))   # the hooks build a runnable test command from these
     finally:
         con.close()
 

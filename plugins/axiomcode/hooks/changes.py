@@ -17,7 +17,7 @@ import concurrent.futures, json, os, re, subprocess, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
 import graph_sql
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _host
+import _host, _graphline
 
 ev = _host.read(); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')): sys.exit(0)
@@ -43,7 +43,10 @@ def changed(args, timeout=12):
     except Exception: return {}
 
 def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'removed')):
-    """the blast radius of up to three changed declarations, a few lines each"""
+    """the blast radius of up to three changed declarations, a few lines each; `head` is formatted with {n}, how many.
+    A BODY-ONLY change breaks no caller, so it gets no blast radius: one line of the tests that reach it and the command
+    that runs them (_graphline.body_line), after the declarations that can break something."""
+    body = [d for d in decls if d['kind'] == 'body']; decls = [d for d in decls if d['kind'] != 'body']
     def impact(d):
         """SQL first. The Datalog run this replaced was a median 6.94 s on a 1.2M-LOC bundle, p90 23.8 s, and 17 of 38
         randomly sampled methods blew the 14 s timeout below — so on roughly half of real edits the hook printed
@@ -52,13 +55,14 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         It returns None for what it does not cover (a constructor, whose callers are instantiations rather than call
         edges); that falls through to impact.dl, which is still right for those."""
         try:
-            j = graph_sql.impact_shaped(cwd, d['target'])
+            j = graph_sql.impact_shaped(cwd, d.get('shown_target') or d['target'])
             if j is not None: return d, j
         except Exception: pass
-        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d.get('shown_target') or d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
-    lines = [head]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+        results = list(ex.map(impact, decls[:3])); bodies = list(ex.map(impact, body[:3]))
+    lines = [head.format(n=len(decls))] if decls else []
     # ordered as ax_edges.DIRECT_ORDER and impact's CERT are: an edge the engine asserted outranks a
     # name or a text match, and neither a hand-off nor a truncated fan-out outranks a resolved call.
     rank = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'in scope': 4, 'by name': 5, 'text': 6}
@@ -98,7 +102,7 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         if reads:
             lines.append(f"    reads / uses it ({len(reads)}): " + names(reads) if not j.get('_sql')
                          else f"    reads / uses it — resolved callers: " + names(reads)
-                              + f" (the fast path; `axiomcode impact {d['target']}` adds the by-name, in-scope and text layers)")
+                              + f" (the fast path; `axiomcode impact {d.get('shown_target') or d['target']}` adds the by-name, in-scope and text layers)")
         # WHICH SIDE ANSWERED, in one word. The two paths give different answers by design — the fast path reads
         # call_edges and the rules add the by-name, in-scope and text layers — so a count nobody can attribute is a
         # count nobody can check. This cost a whole re-derivation once: three declarations reported 0 reached and
@@ -106,6 +110,9 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         # was the fast path answering, the rules answering, or the CLI having given up.
         lines.append(f"    [{'fast path' if j.get('_sql') else 'rules'}] reaches {len(rc)} more callable(s) through resolved calls within 12 hops; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more: axiomcode changed --impact")
+    if bodies:
+        lines.append(_graphline.body_line(os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(cwd, '.axiomcode'), 'out', 'graph.sqlite'),
+                                          bodies + [(d, {}) for d in body[3:]]))
     return lines
 
 def key(d): return f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}"
@@ -125,7 +132,7 @@ if event == 'PreToolUse' and tool in ('Edit', 'Write', 'MultiEdit'):
     j = changed(['--old', fp, '--new', tmp, '--file', rel]); os.unlink(tmp)
     risky = [d for d in j.get('changed', []) if d.get('target') and d['kind'] in ('signature', 'field', 'type', 'removed')]
     if risky:
-        lines = summarize(risky, f"graph: this edit is about to change {len(risky)} declaration(s) in {rel} in a way that reaches callers — before it lands:")
+        lines = summarize(risky, "graph: this edit is about to change {n} declaration(s) in " + rel.replace('{', '{{').replace('}', '}}') + " in a way that reaches callers — before it lands:")
         st = load_state(); st['reported'] = list(dict.fromkeys(st.get('reported', []) + [key(d) for d in risky])); save_state(st)
 elif event in ('PostToolUse', 'UserPromptSubmit'):
     # after the fact, an edit is measured against the baseline graph, where what it removed still has its callers;
@@ -145,14 +152,14 @@ if event == 'PostToolUse' and tool == 'Bash':
     st = load_state(); seen = set(st.get('reported', []))
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
     if new:
-        lines = summarize(new, f"graph: after that command, {len(new)} declaration(s) changed in the working tree (against the graph's commit {(j.get('built_at') or '')[:10]}) —")
+        lines = summarize(new, f"graph: after that command, {{n}} declaration(s) changed in the working tree (against the graph's commit {(j.get('built_at') or '')[:10]}) —")
         st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
 elif event == 'UserPromptSubmit':
     j = changed([], timeout=18)
     st = load_state(); seen = set(st.get('reported', []))
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
     if new:
-        lines = summarize(new, f"graph: {len(new)} declaration(s) changed in the working tree since the graph's commit {(j.get('built_at') or '')[:10]} and were not reported yet —")
+        lines = summarize(new, f"graph: {{n}} declaration(s) changed in the working tree since the graph's commit {(j.get('built_at') or '')[:10]} and were not reported yet —")
         st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
 try:
     with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'event': event, 'tool': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines), 'input': {k: v for k, v in inp.items() if k in ('file_path', 'command', 'old_string', 'new_string')}, 'text': '\n'.join(lines)}) + '\n')
