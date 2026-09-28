@@ -1104,7 +1104,8 @@ def entered_in_process(g, ids):
         part = keys[k:k + 900]; q = ','.join('?' * len(part))
         if g.has('entry_points'):
             for r in g.q(f"SELECT method_id, reason FROM entry_points WHERE method_id IN ({q})", *part):
-                if r['reason'] not in NOT_FROM_A_LIBRARY_CALL: out.setdefault(mid[r['method_id']], ax_edges.entry_phrase(r['reason']))
+                if r['reason'] not in NOT_FROM_A_LIBRARY_CALL: out.setdefault(mid[r['method_id']], f"{r['reason']} entry point" if ax_edges.entry_outside(r['reason'])
+                                                                         else ax_edges.entry_phrase(r['reason']))
         if g.has('overrides'):
             for r in g.q(f"""SELECT o.overriding_method_id m, b.qualified_name b FROM overrides o JOIN methods b ON b.id = o.method_id
                              WHERE o.overriding_method_id IN ({q}) AND b.provenance <> 'client'""", *part):
