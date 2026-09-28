@@ -672,7 +672,7 @@ Methods the runtime invokes without a client call site — process roots, test m
 
 **Notes**
 
-- **python** — EMPTY. The Python rule set does not derive entry points; entry_reachable is therefore empty too.
+- **python** — Framework entry points only: url, http, orm_hook, task, signal_receiver, fixture, di_provider and grpc_service. There is no test and no main reason: a pytest test is recognised by the query layer from its file and name, not here.
 
 ### `entry_reachable`
 
@@ -729,7 +729,7 @@ Every field-like storage location the graph refers to: all client fields and enu
 
 **Notes**
 
-- **all** — JAVA AND TYPESCRIPT, for the same reason as field_access: declared everywhere, populated by those two front ends.
+- **all** — JAVA, TYPESCRIPT AND C#. EMPTY for Python and JavaScript: a Python attribute is a symbols row of kind field. In C# it holds true fields only; a property is a symbols row of kind field with a property id, and its accessors are methods rows (PROPERTY_GET, PROPERTY_SET, PROPERTY_INIT).
 - **typescript** — An enum member is absent: the parser gives it its own table with no declared type, and the property-access relation resolves through the field table. `Colour.Red` is therefore an unresolved field access, unlike Java where an enum constant is a fields row.
 - **java** — A library field is listed when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches, OR when a config_binding row names it as the field a configuration key binds to. The second was added in #890: a @Value field on a library type that nothing reads has no access edge, so config_binding named a field the table did not list and the join lost the row silently.
 
@@ -888,7 +888,7 @@ THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the con
 
 **Notes**
 
-- **all** — JAVA AND TYPESCRIPT. Declared in every bundle and EMPTY for Python and JavaScript, so the schema does not churn as the remaining front ends land (#663).
+- **all** — JAVA AND TYPESCRIPT. Declared in every bundle and EMPTY for Python, JavaScript and C#, so the schema does not churn as the remaining front ends land (#663).
 - **typescript** — The context set is TypeScript's own and is wider than Java's: AS_TARGET, SATISFIES_TARGET, TYPE_ALIAS_RHS, the CONDITIONAL_* family, MAPPED_*, INDEX_SIGNATURE_* and TEMPLATE_SPAN have no Java counterpart. A use inside a conditional type IS a use of that type and is recorded as one.
 - **typescript** — Only a reference whose KIND can name a declaration is a row: TYPE_REFERENCE and IMPORT_TYPE. ARRAY, UNION, TUPLE and PARENTHESIZED are structure whose CHILDREN are the named references; PRIMITIVE, LITERAL, TYPE_VARIABLE, MAPPED, CONDITIONAL, INDEXED_ACCESS and INTRINSIC name nothing declared.
 - **java** — EVERY DEPTH is here, unlike the receiver-typing relations the engine uses internally, which filter to depth 0. A field of type `Map<String, Widget>` produces three rows. Filter on `depth = 0` when you want the type an expression has rather than every type its declaration mentions.

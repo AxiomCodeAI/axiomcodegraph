@@ -36,6 +36,7 @@ import { softKeywordTypeCall } from './python-gates/soft-keyword-type-call';
 import { asyncIteration } from './python-gates/async-iteration';
 import { splatCallee } from './python-gates/splat-callee';
 import { cachedProperty } from './python-gates/cached-property';
+import { fieldLines } from './python-gates/field-lines';
 import { pep604Union } from './python-gates/pep604-union';
 
 const VERIFIED = 'src/test-data/python/verified';
@@ -587,6 +588,8 @@ const CHECKS: Check[] = [
     proves: 'a call whose result is splatted is a named static call, not a dynamic one' },
   { name: 'cached property', run: cachedProperty,
     proves: 'a @cached_property is a property getter — a read that runs a body — not a method nobody calls' },
+  { name: 'field lines', run: fieldLines,
+    proves: 'a field row sits on the line of its write, 1-based; never on the class line above it' },
   { name: 'PEP 604 unions', run: pep604Union,
     proves: 'a union is decomposed whatever its operands look like; a subscripted operand does not collapse it' },
   { name: 'async iteration', run: asyncIteration,
