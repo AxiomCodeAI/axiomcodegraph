@@ -430,31 +430,39 @@ frole("qualified", "uses", "writes/reads it"). frole("bare", "reads", "reads it"
 // A CONST THAT HOLDS A WRAPPED HANDLER is registered where it is handed to a route, not read there.
 // `const listAdmins = catchAsync(async (req, res) => …)` then `router.get('/admins', listAdmins)`: the declaration is
 // a const, not a method, so the method-target route wording (`route_site` above) never applied and the answer said
-// only "[by name] … reads it" at the registration. Both legs need the name read on a route line BY THE CALLABLE
-// MAKING THE ROUTE CALL (`route_call`): a read inside an inline handler on that line
-// (`router.get('/n', (req, res) => res.json(count))`) is attributed to the handler, and stays a read.
-//   - registered: the declaration line calls a wrapper, the engine says what function that wrapper returns
-//     (`returns_fn`), and the route line hands THAT function over (`handoff_at`, on every line the call spans, since a
-//     chained registration records its edges on the statement's first line and names the handler on a later one).
-//     A hand-off of some other function on the same line (`.post(protect, admin, h)` hands `admin`) is not evidence.
-//   - by name: the wrapper is a library's, so nothing says what it returns — the const holds a call's result
-//     (`init_call`, not a `require`) and is an argument of the registration. The route's wording, the name's rung,
-//     as for a method named on a route line with no edge (`registered` above).
-// Bare (`router.get('/a', listAdmins)`) or qualified through the module (`.post(auth(), userController.createUser)`).
-.decl route_call(c:symbol, f:symbol, l:number)                    .input route_call
-.decl init_call(f:symbol, l:number)                               .input init_call
+// only "[by name] … reads it" at the registration. Two conditions, both required, both read by ax_registration:
+//   - `route_arg(c, f, l, n)`: the name is written IN A HANDLER POSITION of a route call `c` makes — a top-level
+//     argument or an element of an array argument, bare or at the end of a member chain. Not the receiver
+//     (`router.get`), not inside an options object (`{ schema: { 200: TaskSchema } }`), not an argument of a nested
+//     call (`validate(bodySchema)`), and not inside an inline handler, whose reads are the handler's.
+//   - `callable_const(ff, fll)`: the const HOLDS A FUNCTION — a function, a reference to a declared one, or a call that
+//     returns one (a callee the engine says returns a function, or a wrapper handed a function). A schema, an options
+//     object, `express.Router()` (a router mounted with `app.use('/p', router)` is a mount) or a module never does.
+// Then:
+//   - registered: the function the const holds is known — the wrapper's returned function (`init_wrapper`,
+//     `returns_fn`) or the function it aliases (`init_alias`) — and the route line hands THAT function over
+//     (`handoff_at`). A hand-off of some other function on the same line (`.post(protect, admin, h)`) is not evidence.
+//   - by name: otherwise (a library wrapper says nothing about what it returns). The route's wording, the name's rung.
+.decl route_arg(c:symbol, f:symbol, l:number, n:symbol)           .input route_arg
+.decl callable_const(f:symbol, l:number)                          .input callable_const
+.decl init_wrapper(f:symbol, l:number, w:symbol)                  .input init_wrapper
+.decl init_alias(f:symbol, l:number, n:symbol)                    .input init_alias
 .decl returns_fn(w:symbol, m:symbol)                              .input returns_fn
+.decl const_holds(ff:symbol, fll:number, m:symbol)
+const_holds(ff, fll, m) :- init_wrapper(ff, fll, w), returns_fn(w, m).
+const_holds(ff, fll, m) :- init_alias(ff, fll, n), named(n, m).
+.decl const_handed(q:symbol, c:symbol, f:symbol, l:number, ff:symbol, fll:number)
+const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
+    fref(q, c, _, f, l), route_site(f, l), route_arg(c, f, l, n).
 .decl const_route_edge(q:symbol, c:symbol, m:symbol, f:symbol, l:number)
-const_route_edge(q, c, m, f, l) :- target(q, "field", fl, _), field(fl, _, _, ff, fll), calls(_, w, _, ff, fll), returns_fn(w, m),
-    fref(q, c, _, f, l), route_site(f, l), route_call(c, f, l), handoff_at(c, m, f, l).
+const_route_edge(q, c, m, f, l) :- const_handed(q, c, f, l, ff, fll), const_holds(ff, fll, m), handoff_at(c, m, f, l).
 .decl const_route(q:symbol, c:symbol, cert:symbol, f:symbol, l:number)
 const_route(q, c, cert, f, l) :- const_route_edge(q, c, _, f, l), cert_tier("callback_registered", cert, _).
 direct(q, c, "uses", why, cert, f, l) :- const_route(q, c, cert, f, l), registration(_, f, l, "route", _, why).
 // the row claims the hand-off edge on that line, so `verified:` looks it up like any registered row
 direct_edge(q, c, m) :- const_route_edge(q, c, m, _, _).
 .decl const_route_byname(q:symbol, c:symbol, f:symbol, l:number)
-const_route_byname(q, c, f, l) :- target(q, "field", fl, _), field(fl, _, _, ff, fll), init_call(ff, fll),
-    fref(q, c, _, f, l), route_site(f, l), route_call(c, f, l), !const_route(q, c, _, f, l).
+const_route_byname(q, c, f, l) :- const_handed(q, c, f, l, _, _), !const_route(q, c, _, f, l).
 direct(q, c, "uses", why, "by name", f, l) :- const_route_byname(q, c, f, l), registration(_, f, l, "route", _, why).
 .decl const_routed(q:symbol, c:symbol, f:symbol, l:number)
 const_routed(q, c, f, l) :- const_route(q, c, _, f, l).

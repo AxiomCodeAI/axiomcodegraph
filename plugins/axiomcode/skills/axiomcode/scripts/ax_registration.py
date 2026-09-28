@@ -116,30 +116,157 @@ def registrations(q, site_file=None):
 
 
 # A CONST HOLDING A WRAPPED HANDLER — `const h = catchAsync(async (req, res) => …)`, then `router.get('/a', h)` — is a
-# field, not a method, so it has no call edge of its own to carry the route wording. The three facts below are what
-# both backends join instead (`const_route` in dl/impact.dl, graph_sql.direct_for_field):
+# field, not a method, so it has no call edge of its own to carry the route wording. What both backends join instead
+# (`const_route` in dl/impact.dl, graph_sql.direct_for_field) is two facts read from the source at the call sites the
+# engine recorded, and neither is "the name appears on a route line":
+#
+#   route_args     the name is written IN A HANDLER POSITION of the route call: a top-level argument after the path
+#                  (or an element of an array argument, which a router flattens) that is a bare name or a member
+#                  chain ending in it. The receiver (`router.get`), an options object (`{ schema: { 200: S } }`), an
+#                  argument of a nested call (`validate(bodySchema)`, `express.static(dir)`) and the path are not
+#                  handed to the router to call, and a name written there is read, not registered.
+#   const_values   the const HOLDS A FUNCTION: its initializer is a function, a reference to a declared function, or
+#                  a call that returns one — a callee the engine says returns a function (`returns_fn`), or a wrapper
+#                  that is handed a function (`asyncHandler(async (req, res) => …)`, nested wrappers too). A plain
+#                  object, a schema builder, `express.Router()`, `require(…)`, a string or a number never is: a router
+#                  mounted with `app.use('/p', router)` is a mount, not a handler.
 
-def route_calls(q, site_file=None):
-    """{(caller, file, line)}: the callable making a route-shaped call (`get`, `route`, `use` …), on every line the call
-    spans. A name read on a route line by THAT callable is an argument of the registration; one read inside an inline
-    handler on the same line (`router.get('/n', (req, res) => res.json(count))`) belongs to the handler, and is a read."""
-    import ax_edges
-    sf = site_file or (lambda x: x)
-    out = set()
-    for c, name, fp, a, b in q("""SELECT caller_id, callee_name, file_path, start_line, end_line FROM call_sites
-                                  WHERE callee_name IS NOT NULL AND start_line > 0 AND file_path IS NOT NULL"""):
-        if name.split('.')[-1].lower() in ROUTE_VERB:
-            out.update((c, sf(fp), l) for l in ax_edges.site_lines(a, b))
+_IDENT = r'[A-Za-z_$][\w$]*'
+_CHAIN = re.compile(rf'({_IDENT})(?:\s*\??\.\s*({_IDENT}))*\s*$')
+_OPEN, _CLOSE = '([{', ')]}'
+
+
+def _match(text, i):
+    """the index just past the bracket group opening at text[i] (strings and comments are already blanked)"""
+    d = 0
+    for j in range(i, len(text)):
+        c = text[j]
+        if c in _OPEN: d += 1
+        elif c in _CLOSE:
+            d -= 1
+            if d == 0: return j + 1
+    return len(text)
+
+
+def _split_args(text, lo, hi):
+    """[(start, end)] of the top-level comma-separated items in text[lo:hi]"""
+    out, d, s = [], 0, lo
+    for j in range(lo, hi):
+        c = text[j]
+        if c in _OPEN: d += 1
+        elif c in _CLOSE: d -= 1
+        elif c == ',' and d == 0: out.append((s, j)); s = j + 1
+    if text[s:hi].strip(): out.append((s, hi))
     return out
 
 
-def init_call_lines(q, site_file=None):
-    """{(file, line)}: lines a call starts on, other than `require(…)`. A const declared on one holds what a call
-    returned; `const ctrl = require('./ctrl')` holds a module, which is read on a route line, not registered there."""
+def _fn_literal(t):
+    """`function …`, `async (a, b) => …`, `req => …`, `(req: Request): void => …`"""
+    t = t.lstrip()
+    if re.match(r'(async\s+)?function\b', t): return True
+    m = re.match(r'(async\s*)?', t); t = t[m.end():]
+    if re.match(rf'{_IDENT}\s*=>', t): return True
+    if t.startswith('('):
+        return bool(re.match(r'\s*(:[^=;{}]*)?=>', t[_match(t, 0):]))
+    return False
+
+
+def route_args(q, code, site_file=None):
+    """{(caller, file, line, name)}: `name` written in a handler position of a route-shaped call made by `caller`."""
+    if not _has(q, 'call_sites') or code is None:
+        return set()
     sf = site_file or (lambda x: x)
-    return {(sf(fp), a) for name, fp, a in q("""SELECT callee_name, file_path, start_line FROM call_sites
-                                                 WHERE callee_name IS NOT NULL AND start_line > 0 AND file_path IS NOT NULL""")
-            if name.split('.')[-1] != 'require'}
+    out = set()
+    for c, name, fp, a, ac, b, bc in q("""SELECT caller_id, callee_name, file_path, start_line, start_column, end_line, end_column
+                                          FROM call_sites WHERE callee_name IS NOT NULL AND start_line > 0 AND file_path IS NOT NULL"""):
+        if name.split('.')[-1].lower() not in ROUTE_VERB: continue
+        b = b or a
+        if b < a or b - a > MAX_SITE_SPAN: continue
+        f = sf(fp); L = code(f) or []
+        if b > len(L): continue
+        text = '\n'.join(L[a - 1:b]); starts = [0]
+        for ln in L[a - 1:b - 1]: starts.append(starts[-1] + len(ln) + 1)
+        end = starts[-1] + (bc - 1 if bc else len(L[b - 1]))       # end_column is one past the call's `)`
+        close = text.rfind(')', 0, end)
+        if close < 0: continue
+        d, j = 0, close                                             # back to the `(` that opens THIS call's arguments
+        while j >= 0:
+            if text[j] in _CLOSE: d += 1
+            elif text[j] in _OPEN:
+                d -= 1
+                if d == 0: break
+            j -= 1
+        if j < 0: continue
+        line_of = lambda k: a + sum(1 for s0 in starts[1:] if s0 <= k)
+        # every argument is looked at: the path is a string (blanked), and a path or prefix held in a const is not a
+        # function, which `const_values` decides. `.route('/p').post(a, b)` has no path in its own argument list
+        todo = _split_args(text, j + 1, close)
+        while todo:
+            lo, hi = todo.pop()
+            t = text[lo:hi]; st = t.strip()
+            if st.startswith('[') and st.endswith(']'):             # an array of handlers: the router flattens it
+                k = lo + t.index('['); todo += _split_args(text, k + 1, lo + t.rindex(']')); continue
+            m = _CHAIN.match(st)
+            if not m or st.startswith(('...', 'new ')): continue
+            last = re.search(rf'({_IDENT})\s*$', st)
+            out.add((c, f, line_of(lo + t.rindex(last.group(1))), last.group(1)))
+    return out
+
+
+def const_values(q, code, decls, site_file=None):
+    """For each (file, line, name) const declaration: ({(file, line)} that hold a function, {(file, line, wrapper)} the
+    client callable its initializer calls, {(file, line, name)} the function it is an alias of)."""
+    callable_, wrap, alias = set(), set(), set()
+    if not decls or code is None:
+        return callable_, wrap, alias
+    sf = site_file or (lambda x: x)
+    fns = {n for (n,) in q("SELECT DISTINCT name FROM symbols WHERE method_id IS NOT NULL AND name IS NOT NULL AND name NOT LIKE '<%'")}
+    rets = {w for w, _m in returned_functions(q)}
+    callee_at = {}
+    for fp, l, col, m in q("""SELECT s.file_path, s.start_line, s.start_column, e.callee_method_id FROM call_sites s JOIN call_edges e
+                              ON e.call_site_id = s.id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL
+                              AND s.file_path IS NOT NULL AND s.start_line > 0"""):
+        callee_at.setdefault((sf(fp), l, col), set()).add(m)
+
+    def call_value(text, i, f, a, starts, depth=0):
+        """(callable?, wrappers) for the expression at text[i:]"""
+        m = re.compile(rf'\s*(await\s+|new\s+)?({_IDENT}(?:\s*\??\.\s*{_IDENT})*)\s*').match(text, i)
+        if not m or m.group(1): return False, set()
+        k = m.end(); chain = m.group(2); k0 = m.start(2)
+        ln = a + sum(1 for s0 in starts[1:] if s0 <= k0); col = k0 - starts[ln - a] + 1
+        ws = callee_at.get((f, ln, col), set())
+        if k >= len(text) or text[k] != '(':                          # a reference: an alias of a declared function
+            last = re.split(r'\s*\??\.\s*', chain)[-1]
+            return (last in fns and depth == 0 and not re.match(r'\s*[\[+\-*/%?`]', text[k:k + 2]), {('alias', last)})
+        if chain.split('.')[-1].strip() in ('require', 'import'): return False, set()
+        ok = bool(ws & rets); groups = 0
+        while k < len(text) and text[k] == '(' and groups < 3:       # `wrap(fn)` and curried `wrap(opts)(fn)`
+            e = _match(text, k); groups += 1
+            for lo, hi in _split_args(text, k + 1, e - 1):
+                t = text[lo:hi]
+                if _fn_literal(t): ok = True
+                elif depth < 3:
+                    inner, _w = call_value(text, lo, f, a, starts, depth + 1)
+                    if inner or (re.fullmatch(rf'\s*{_IDENT}(\s*\.\s*{_IDENT})*\s*', t) and re.split(r'\s*\.\s*', t.strip())[-1] in fns): ok = True
+            k = e
+            while k < len(text) and text[k] in ' \t': k += 1
+        if k < len(text) and text[k] == '.': return False, set()     # `express.Router().use(…)`: a method of the result
+        return ok, {('wrap', w) for w in ws}
+
+    for f, l, n in decls:
+        L = code(f) or []
+        if not (0 < l <= len(L)): continue
+        chunk = L[l - 1:l + 40]; text = '\n'.join(chunk); starts = [0]
+        for ln in chunk[:-1]: starts.append(starts[-1] + len(ln) + 1)
+        m = re.search(rf'(?<![\w$.]){re.escape(n)}\s*(?::[^=;\n]*)?=(?![=>])', text[:len(chunk[0])])
+        if not m: continue
+        if _fn_literal(text[m.end():]): callable_.add((f, l)); continue
+        ok, how = call_value(text, m.end(), f, l, starts)
+        if ok: callable_.add((f, l))
+        for kind, x in how:
+            if kind == 'wrap': wrap.add((f, l, x))
+            elif ok: alias.add((f, l, x))
+    return callable_, wrap, alias
 
 
 def returned_functions(q):

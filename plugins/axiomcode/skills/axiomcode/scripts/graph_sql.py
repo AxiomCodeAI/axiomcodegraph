@@ -1939,27 +1939,29 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
     for f_ in fids:
         r_ = field_rec(q, f_)
         if r_ and r_[1]: decl_sites.setdefault(r_[1], set()).add((r_[2], r_[3]))
-    # const_route / const_route_byname in dl/impact.dl: a const read on a route line by the callable making the route
-    # call. Registered when its declaration line calls a wrapper whose returned function (`returns_fn`) that line hands
-    # over; by name when the declaration holds some other call's result. Like the rules, keyed on the QUERY: any target
-    # declaration qualifies the site.
-    route_why, rcall, handed_to, ret_of, dcalls, inits = {}, set(), collections.defaultdict(set), collections.defaultdict(set), set(), set()
+    # const_handed / const_route / const_route_byname in dl/impact.dl: a const written in a HANDLER POSITION of a route
+    # call (`route_arg`) whose declaration holds a function (`callable_const`). Registered when the function it holds
+    # (`init_wrapper` + `returns_fn`, or `init_alias`) is what that line hands over; by name otherwise. Like the rules,
+    # keyed on the QUERY: any target declaration qualifies the site.
+    route_why, rargs, handed_to, holds, callable_names = {}, set(), collections.defaultdict(set), set(), set()
     if decl_sites:
-        inits = ax_registration.init_call_lines(q, rel)
-        dsites = {s for ss in decl_sites.values() for s in ss}
-        if dsites & inits:                                                   # init_call(ff,fll) on ANY target declaration
+        rargs = ax_registration.route_args(q, code, rel)
+        decls = sorted({(f_, l_, n_) for n_, ss in decl_sites.items() if n_ in {x[3] for x in rargs} for f_, l_ in ss})
+        fcall, fwrap, falias = ax_registration.const_values(q, code, decls, rel)
+        callable_names = {n_ for f_, l_, n_ in decls if (f_, l_) in fcall}
+        if callable_names:
             for _d, rf_, rl_, k_, _key, w_ in ax_registration.registrations(q, rel):
                 if k_ == 'route': route_why[(rf_, rl_)] = w_
-    if route_why:
-        rcall = ax_registration.route_calls(q, rel)
-        for w_, m_ in ax_registration.returned_functions(q): ret_of[w_].add(m_)
-        for w_, fp_, l_ in q("""SELECT e.callee_method_id, s.file_path, s.start_line FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
-                                WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL"""):
-            if (rel(fp_) if fp_ else '', l_ or 0) in dsites: dcalls.update(ret_of.get(w_, ()))   # calls(_,w,_,ff,fll), returns_fn(w,m)
-        for c_, m_, fp_, l_, e_ in q("""SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line, s.end_line FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
-                                    WHERE e.tier = 'callback_registered' AND e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL"""):
-            if m_ in dcalls:
-                for ln_ in ax_edges.site_lines(l_, e_): handed_to[(c_, rel(fp_) if fp_ else '', ln_)].add(m_)    # handoff_at
+            ret_of = collections.defaultdict(set)
+            for w_, m_ in ax_registration.returned_functions(q): ret_of[w_].add(m_)
+            for f_, l_, w_ in fwrap:
+                if (f_, l_) in fcall: holds.update(ret_of.get(w_, ()))                      # const_holds :- init_wrapper, returns_fn
+            for f_, l_, an_ in falias:                                                      # const_holds :- init_alias, named
+                if (f_, l_) in fcall: holds.update(m_ for (m_,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL", an_))
+            for c_, m_, fp_, l_, e_ in q("""SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line, s.end_line FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
+                                        WHERE e.tier = 'callback_registered' AND e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL"""):
+                if m_ in holds:
+                    for ln_ in ax_edges.site_lines(l_, e_): handed_to[(c_, rel(fp_) if fp_ else '', ln_)].add(m_)    # handoff_at
     reg_cert = ax_edges.direct_cert('callback_registered')
     for fid in fids:
         rec = field_rec(q, fid)
@@ -2015,7 +2017,7 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
         own_decl |= {r[0] for r in q("SELECT file FROM symbols WHERE name = ? AND method_id IS NOT NULL AND file IS NOT NULL", n) if r[0] != ff}
         for c, rk, rf, rl, _e in fref:
             s_ = owner_of.get(c)
-            if (rf, rl) in route_why and (c, rf, rl) in rcall:                  # const_route*: bare or qualified
+            if (rf, rl) in route_why and n in callable_names and (c, rf, rl, n) in rargs:   # const_handed: bare or qualified
                 if handed_to.get((c, rf, rl)):
                     rows.append((c, 'uses', route_why[(rf, rl)], reg_cert, rf, rl))
                     de += [(c, m_) for m_ in handed_to[(c, rf, rl)]]          # direct_edge(q,c,m) :- const_route_edge
