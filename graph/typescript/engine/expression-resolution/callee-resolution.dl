@@ -564,9 +564,28 @@ jsx_component_wrapper(w) :- call_site("client", _, n, _, _, w, _),
 jsx_component_wrapper(w) :- call_site("client", _, n, _, _, w, _),
     match("with[A-Z].*", n).
 jsx_wrapped_component(v, m) :- var_initializer("client", _, w, v),
-    jsx_component_wrapper(w),
+    jsx_wrapper_renders(w, m).
+// What a wrapper call renders: its argument 0, or — when that argument is itself a
+// wrapper call, `memo(forwardRef(function Inner() {…}))` — what the inner one renders.
+jsx_wrapper_renders(w, m) :- jsx_component_wrapper(w),
     expr_child("client", w, "ARGUMENT", "0", a),
     expr_callable(a, m).
+jsx_wrapper_renders(w, m) :- jsx_component_wrapper(w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    jsx_component_wrapper(a),
+    jsx_wrapper_renders(a, m).
+// A wrapper call that IS the module's default export, `export default memo(Card)`,
+// binds no variable: the tag reaches it through a default import of that module.
+jsx_default_export_renders(mod, m) :- export_decl("client", "default", _, "DEFAULT_EXPRESSION", mod, h),
+    export_expression("client", w, h),
+    jsx_wrapper_renders(w, m).
+expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    !callee_names_local(ce),
+    import_binding("client", "DEFAULT", cn, _, mod, ih),
+    import_target_module(ih, "client", mod2),
+    jsx_default_export_renders(mod2, m).
 // A LOADER — `lazy(() => import("./Settings"))`, Next.js `dynamic(...)`, `loadable(...)`.
 // Argument 0 is not the component: it returns a module, or a promise of one, and what
 // renders is the component that settles out of it.

@@ -1,0 +1,5 @@
+oracle=12 engine=16 agree=12 missing=0 (known 0, NEW 0) extra=4
+  extra    app#App() -> objparts#ObjDefault()
+  extra    app#App() -> objparts#ObjNamed()
+  extra    app#App() -> parts#DefaultMemoInner()
+  extra    app#App() -> parts#MemoFwdInner({},unknown)
