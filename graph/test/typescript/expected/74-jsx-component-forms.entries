@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  exported_from_entry_module app#App   app.tsx:6
+  exported_from_entry_module app#useFactory   app.tsx:22
+  unimported_module app#<module>   app.tsx:1

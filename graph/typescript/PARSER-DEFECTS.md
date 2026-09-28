@@ -16,6 +16,11 @@ day the defect is fixed.
 
 ## PD-TS-1 — JSX component calls are not emitted at all
 
+**Status: fixed.** A component element emits a JSX_ELEMENT / JSX_SELF_CLOSING row and a
+JSX_COMPONENT_CALL site; `callee-resolution.dl` rule (13) resolves it, and also follows a
+wrapper's argument 0 (`memo`, `forwardRef`) and a `lazy()` loader's default export. Pinned
+by cases 10 and 74. The measurement below is kept as the record of the defect.
+
 **Severity: blocking for any React / Preact / Solid codebase.**
 
 `ts_call_site.callKind = JSX_COMPONENT_CALL` is declared in the schema (§4.15.1) and

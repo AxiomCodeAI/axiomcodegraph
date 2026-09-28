@@ -1,0 +1,18 @@
+74-jsx-component-forms [fields]
+  precision 0.2857   (2 correct, 5 wrong)
+  recall    0.2500   (2 of 8 the compiler resolved)
+  sites 8   resolved 7 (87.5%)
+  tiers ambiguous_unknown=1  known_edge=7
+  access read=7  write=1
+  not scored: 1 rows whose target is not a client declaration
+    WRONG   Panel#render() READ { title: string }#title
+    WRONG   parts#Avatar({ src: string }) READ { src: string }#src
+    WRONG   parts#Chip({ text: string }) READ { text: string }#text
+    WRONG   parts#FieldImpl({ label: string },unknown) READ { label: string }#label
+    WRONG   parts#UserCard({ id: string }) READ { id: string }#id
+    MISSING Panel#render() READ Panel#title
+    MISSING parts#Avatar({ src: string }) READ parts#src
+    MISSING parts#Badge(?) READ parts#n
+    MISSING parts#Chip({ text: string }) READ parts#text
+    MISSING parts#FieldImpl({ label: string },unknown) READ parts#label
+    MISSING parts#UserCard({ id: string }) READ parts#id

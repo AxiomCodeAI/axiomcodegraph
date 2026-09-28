@@ -491,7 +491,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `DYNAMIC_IMPORT_CALL` | typescript | `import(…)`. |
 | `DECORATOR_CALL` | typescript | A decorator application `@d` / `@d(…)`. |
 | `OPTIONAL_CALL` | typescript | `f?.(…)`. |
-| `JSX_COMPONENT_CALL` | typescript | `<Component …/>` (reserved by the parser; emitted by nothing yet). |
+| `JSX_COMPONENT_CALL` | typescript | `<Component …/>` — a JSX element naming a component; `<div>` emits no site. |
 | `PROPERTY_READ` | typescript, javascript | Reading `obj.x` where `x` is a `get` accessor runs the getter (engine-authored). No written call; the site is the property-access expression. A compound assignment or `++` reads before it writes, so it carries this and PROPERTY_WRITE. |
 | `PROPERTY_WRITE` | typescript, javascript | Assigning `obj.x = v` where `x` is a `set` accessor runs the setter (engine-authored). No written call; the site is the property-access expression on the left. |
 | `FUNCTION_CALL` | javascript | `f(…)` — a bare callee, resolved by the binder. |

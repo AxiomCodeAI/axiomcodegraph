@@ -28,12 +28,13 @@
  * expects, so parentheses are transparent and the operand takes their place.
  * `(a).b()` therefore has exactly the shape of `a.b()`.
  *
- * ## The JSX members are RESERVED and carry ZERO rows
+ * ## JSX component elements are calls
  *
- * TSX is out of the first freeze. The representation is decided — a JSX element
- * IS a call to its component, with the whole props object as argument 0 — and
- * nothing emits it. The gate asserts the emptiness, so the day TSX is switched
- * on it appears as a named gate failure rather than as new rows nobody noticed.
+ * A JSX element whose tag names a component IS a call to it, with the whole
+ * props object as argument 0: JSX_ELEMENT / JSX_SELF_CLOSING, 1:1 with a call
+ * site, with the tag as its METHOD_NAME child. Attribute values and children are
+ * rooted as their own JSX_EMBEDDED_EXPRESSION trees. An intrinsic element emits
+ * no row.
  *
  * Schema §4.14 c0, §4.15.1.
  */
@@ -94,9 +95,9 @@ export enum TsExpressionKind {
   SPREAD_ELEMENT = 'SPREAD_ELEMENT',
   /** `import("m")` — a module edge, and a call site of kind DYNAMIC_IMPORT_CALL. */
   DYNAMIC_IMPORT = 'DYNAMIC_IMPORT',
-  /** RESERVED for TSX. Carries zero rows in freeze 1. */
+  /** `<Panel>…</Panel>` naming a component. 1:1 with a call site. */
   JSX_ELEMENT = 'JSX_ELEMENT',
-  /** RESERVED for TSX. Carries zero rows in freeze 1. */
+  /** `<Badge/>` naming a component. 1:1 with a call site. */
   JSX_SELF_CLOSING = 'JSX_SELF_CLOSING',
   /** `delete a`, `typeof a`, `void a` — `operatorString` says which. */
   DELETE_TYPEOF_VOID = 'DELETE_TYPEOF_VOID',

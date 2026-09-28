@@ -136,7 +136,9 @@ export function loadProgram(srcDir, libDir, toolName) {
   function labelOf(decl) {
     if (decl === undefined) return undefined;
     const sf = decl.getSourceFile();
-    if (!reachable.has(path.resolve(sf.fileName))) return undefined;
+    // An intrinsic JSX element (`<div>`) resolves to a signature the checker
+    // synthesises, whose declaration hangs in no file: it names nothing to score.
+    if (sf === undefined || !reachable.has(path.resolve(sf.fileName))) return undefined;
 
     let owner;
     let p = decl.parent;

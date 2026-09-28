@@ -511,6 +511,34 @@ expr_call_candidate(ce, ctor) :- call_site("client", "JSX_COMPONENT_CALL", cn, _
     call_module(cs, mod),
     name_binds(mod, cn, _, "TYPE", t),
     constructor_in_scope(t, ctor).
+// A WRAPPED component — `const Card = memo(function Card() {…})`, `forwardRef(Inner)`,
+// `observer(View)`. The binding holds whatever the wrapper returned, which is typed as
+// the library's own component type, so the rules above find no function behind it.
+// What renders is the function handed to the wrapper as argument 0, and a wrapper that
+// did not render it would not be a component wrapper. JSX only: the same shape at an
+// ordinary call site is a factory, and there argument 0 says nothing about what runs.
+expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    jsx_wrapped_component(v, m).
+jsx_wrapped_component(v, m) :- var_initializer("client", _, w, v),
+    expr_kind("client", "CALL_EXPRESSION", _, w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    expr_callable(a, m),
+    !jsx_loader_function(m).
+// `lazy(() => import("./Settings"))` — argument 0 is a LOADER, not the component: it
+// returns a module, and the component is that module's default export. The loader
+// itself never renders anything, so it is excluded above.
+jsx_loader_function(f) :- method_returns_expr(f, ie),
+    expr_namespace(ie, _, _).
+jsx_wrapped_component(v, m) :- var_initializer("client", _, w, v),
+    expr_kind("client", "CALL_EXPRESSION", _, w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    expr_callable(a, f),
+    method_returns_expr(f, ie),
+    expr_namespace(ie, prov, mod2),
+    module_export(prov, mod2, "default", "METHOD", m).
 
 // ============================================================================
 // DISPATCH FAN — a supertype-typed receiver reaches its implementations

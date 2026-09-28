@@ -136,10 +136,10 @@ demonstrable false positive.
 
 Stated because a graph you cannot trust the boundaries of is not useful.
 
-* **JSX component calls do not exist in the IR.** The engine's rules are written; the
-  parser emits zero rows carrying `JSX_COMPONENT_CALL` (PARSER-DEFECTS.md, PD-TS-1).
-  144 of zustand's 4,346 sites are invisible today, and on a React application the
-  ratio would invert.
+* **A JSX member tag is only as good as its receiver.** `<Badge/>` is a
+  `JSX_COMPONENT_CALL` resolved by tag name, including through `memo()` / `forwardRef()`
+  wrappers and `lazy(() => import(...))`; `<ui.Card/>` is a `METHOD_CALL` and resolves
+  only where `ui.Card(...)` would. `<div>` produces no site.
 * **Generic inference through a callback** — `map<U>(f: (t: T) => U): U[]` — is not
   substituted. `U` is bound by the argument's return type, which is inference rather
   than substitution, and guessing it would fabricate. Those sites stay unresolved and

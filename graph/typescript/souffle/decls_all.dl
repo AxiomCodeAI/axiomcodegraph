@@ -259,6 +259,8 @@
 .decl invocation_site(c0:symbol,c1:symbol)
 .decl jdk_max_depth(c0:number)
 .decl jsx_intrinsic_site(c0:symbol)
+.decl jsx_loader_function(c0:symbol)
+.decl jsx_wrapped_component(c0:symbol,c1:symbol)
 .decl lib_boundary_reason(c0:symbol,c1:symbol)
 .decl lib_capped()
 .decl lib_export_relative_base(c0:symbol,c1:symbol)

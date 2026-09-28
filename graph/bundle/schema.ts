@@ -623,7 +623,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'DYNAMIC_IMPORT_CALL', languages: T, meaning: '`import(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'DECORATOR_CALL', languages: T, meaning: 'A decorator application `@d` / `@d(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'OPTIONAL_CALL', languages: T, meaning: '`f?.(…)`.' },
-  { table: 'call_edges', column: 'kind', value: 'JSX_COMPONENT_CALL', languages: T, meaning: '`<Component …/>` (reserved by the parser; emitted by nothing yet).' },
+  { table: 'call_edges', column: 'kind', value: 'JSX_COMPONENT_CALL', languages: T, meaning: '`<Component …/>` — a JSX element naming a component; `<div>` emits no site.' },
   { table: 'call_edges', column: 'kind', value: 'PROPERTY_READ', languages: ['typescript', 'javascript'], meaning: 'Reading `obj.x` where `x` is a `get` accessor runs the getter (engine-authored). No written call; the site is the property-access expression. A compound assignment or `++` reads before it writes, so it carries this and PROPERTY_WRITE.' },
   { table: 'call_edges', column: 'kind', value: 'PROPERTY_WRITE', languages: ['typescript', 'javascript'], meaning: 'Assigning `obj.x = v` where `x` is a `set` accessor runs the setter (engine-authored). No written call; the site is the property-access expression on the left.' },
   // — JavaScript (the parser's JsCallKind)
