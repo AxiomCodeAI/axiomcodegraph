@@ -1,0 +1,14 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a call through an interface-typed receiver is a caller of the interface member, and every implementation must change with it; a call on a freshly constructed receiver binds to the class and is not a caller of the interface, and a same-named method on an unrelated class is not an implementation",
+   "run": ["impact", "IShape.Area"],
+   "want": ["must change with it", "Circle.Area", "Sq.Area", "overrides it", "AreaService.Total   src/AreaService.cs:8   — calls it"],
+   "avoid": ["Plot.Area", "Direct.One   src/Direct.cs:5   — calls it", "no override table"]},
+  {"why": "an implementation is bound to the interface member it implements",
+   "run": ["impact", "Circle.Area"],
+   "want": ["IShape.Area", "it overrides this"],
+   "avoid": ["no override table"]},
+  {"why": "a call through an abstract-class receiver is a caller of the abstract method, and its override must change with it",
+   "run": ["impact", "Report.Render"],
+   "want": ["TextReport.Render", "overrides it", "AreaService.Print   src/AreaService.cs:12   — calls it"],
+   "avoid": ["no override table"]}]}

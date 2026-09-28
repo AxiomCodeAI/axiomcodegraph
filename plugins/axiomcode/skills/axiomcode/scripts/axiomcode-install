@@ -35,12 +35,15 @@ END = '<!-- END axiomcode -->'
 BLOCK = """<!-- BEGIN axiomcode -->
 ## Finding code in this repository
 
-This repository has a resolved call graph. Ask it FIRST — from the shell, or through the
+This repository has a resolved call graph. Ask it FIRST, through the
 `mcp__plugin_axiomcode_axiomcode__axiomcode_*` tools; no skill needs loading:
 
-    axiomcode context "<the task, in your words>"   # where the work is, when you have no name yet
-    axiomcode impact <Owner.method>                 # what a change reaches: contract, users, tests
-    axiomcode path <A> <B>                          # how A reaches B
+    axiomcode_context  task="<the task, in your words>"   # where the work is, when you have no name yet
+    axiomcode_impact   targets=["<Owner.method>"]          # what a change reaches: contract, users, tests
+    axiomcode_path     from_="<A>" to="<B>"                # how A reaches B
+
+Only when those tools are not in your list, the same from the shell: `axiomcode context "<task>"`,
+`axiomcode impact <Owner.method>`, `axiomcode path <A> <B>`.
 
 **Trust the answer.** A `[resolved]` / `[sound]` row has already been looked up again in the graph
 (the `verified:` line) — do not re-derive it by grepping or opening the other files it names. Every

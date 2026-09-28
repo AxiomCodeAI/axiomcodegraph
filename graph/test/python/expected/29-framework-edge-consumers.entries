@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  signal_receiver app.handlers.on_placed   app/handlers.py:10
+  task       app.tasks.retry_report   app/tasks.py:13
+  task       app.tasks.send_report   app/tasks.py:8

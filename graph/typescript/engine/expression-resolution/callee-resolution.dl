@@ -81,12 +81,14 @@ expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
     cn != "",
     call_module(cs, mod),
     !callee_expr_bound(ce),
+    !callee_names_local(ce),
     name_binds(mod, cn, _, "METHOD", m).
 expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
     call_kind_is_plain_call(ck),
     cn != "",
     call_module(cs, mod),
     !callee_expr_bound(ce),
+    !callee_names_local(ce),
     name_binds(mod, cn, _, "VARIABLE", v),
     var_is_function(v, m).
 // The same bound name, where the value is not a function declaration but a VARIABLE
@@ -100,6 +102,7 @@ expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
     cn != "",
     call_module(cs, mod),
     !callee_expr_bound(ce),
+    !callee_names_local(ce),
     name_binds(mod, cn, _, "VARIABLE", v),
     var_type(v, _, t),
     call_signature_in_scope(t, m).
@@ -108,11 +111,26 @@ expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
     cn != "",
     call_module(cs, mod),
     !callee_expr_bound(ce),
+    !callee_names_local(ce),
     name_binds(mod, cn, _, "VARIABLE", v),
     var_shape(v, sh),
     call_signature_in_scope(sh, m).
 
 callee_expr_bound(ce) :- call_callee_expr(_, ce, ne), expr_callable(ne, _).
+
+// The binder bound the callee to a LOCAL — a parameter (plain or destructured, where
+// `({ Button }) => Button()` and `({ icon: Button }) => <Button/>` both bind one), or
+// a variable other than the module-scope one of that name. The local shadows whatever
+// the module scope calls by that name, so looking the name up there lands on an
+// unrelated declaration, usually an import (#1562). The site stays with what the local
+// itself resolves to, or unresolved; a module-level const is still its own binding.
+callee_names_local(ce) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "PARAMETER", _, ne).
+callee_names_local(ce) :- call_callee_expr(cs, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    call_site("client", _, cn, _, _, ce, cs),
+    call_module(cs, mod),
+    !name_binds(mod, cn, _, "VARIABLE", v).
 
 call_kind_is_plain_call("FUNCTION_CALL").
 call_kind_is_plain_call("OPTIONAL_CALL").
@@ -495,13 +513,20 @@ expr_call_candidate(ce, m) :- call_site("client", "INDEX_CALL", _, _, recv, ce, 
 // it correctly reaches no project declaration — and downstream that must be
 // classified as an ambient terminal, not as a blind spot, or every DOM element in a
 // React codebase is counted as a failure.
+//
+// Looked up by name in the module scope, so a tag the binder bound to a LOCAL — a
+// prop destructured as `({ icon: Icon }) => <Icon/>`, the commonest way a component
+// renders a component it was handed — is kept out exactly as rule (2) keeps out a
+// plain call: the prop is not the module's `Icon`.
 expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
     cn != "",
     call_module(cs, mod),
+    !callee_names_local(ce),
     name_binds(mod, cn, _, "METHOD", m).
 expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
     cn != "",
     call_module(cs, mod),
+    !callee_names_local(ce),
     name_binds(mod, cn, _, "VARIABLE", v),
     var_is_function(v, m).
 // A class component — `<MyView/>` where MyView extends React.Component — invokes its
@@ -509,8 +534,81 @@ expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _
 expr_call_candidate(ce, ctor) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
     cn != "",
     call_module(cs, mod),
+    !callee_names_local(ce),
     name_binds(mod, cn, _, "TYPE", t),
     constructor_in_scope(t, ctor).
+// A WRAPPED component — `const Card = memo(function Card() {…})`, `forwardRef(Inner)`,
+// `observer(View)`. The binding holds whatever the wrapper returned, which is typed as
+// the library's own component type, so the rules above find no function behind it.
+// What renders is the function handed to the wrapper as argument 0. JSX only: the same
+// shape at an ordinary call site is a factory, and there argument 0 says nothing about
+// what runs.
+expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    !callee_names_local(ce),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    jsx_wrapped_component(v, m).
+// ONLY a component wrapper. Argument 0 of an arbitrary call is not what its result
+// renders: `makeThing(() => build())` returns something else entirely, and
+// `useMemo(() => Comp, [])` returns what its argument RETURNS, not the argument. The
+// wrappers are named by the libraries that define them — `memo` and `forwardRef`
+// (React, Preact), `observer` (MobX) — and by the higher-order-component convention,
+// `withRouter(Page)`: a `with` prefix and a capital. Read off the call site's callee
+// name, so `React.memo(...)` counts as `memo(...)`.
+jsx_wrapper_name("memo").
+jsx_wrapper_name("forwardRef").
+jsx_wrapper_name("observer").
+jsx_component_wrapper(w) :- call_site("client", _, n, _, _, w, _),
+    jsx_wrapper_name(n).
+jsx_component_wrapper(w) :- call_site("client", _, n, _, _, w, _),
+    match("with[A-Z].*", n).
+jsx_wrapped_component(v, m) :- var_initializer("client", _, w, v),
+    jsx_component_wrapper(w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    expr_callable(a, m).
+// A LOADER — `lazy(() => import("./Settings"))`, Next.js `dynamic(...)`, `loadable(...)`.
+// Argument 0 is not the component: it returns a module, or a promise of one, and what
+// renders is the component that settles out of it.
+//
+// The returned expression is read at its ROOT. method_returns_expr holds for every node
+// under a return, and `import("./heavy").then((m) => m.NamedHeavy)` has the namespace
+// as a sub-expression: matched anywhere, it rendered the module's DEFAULT export for a
+// loader that projected a named one.
+jsx_loader_name("lazy").
+jsx_loader_name("dynamic").
+jsx_loader_name("loadable").
+jsx_loader_returns(v, r) :- var_initializer("client", _, w, v),
+    call_site("client", _, n, _, _, w, _),
+    jsx_loader_name(n),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    expr_callable(a, f),
+    method_returns_expr(f, r),
+    expr_kind("client", _, "ROOT", r).
+// What the loader settles to is its returned value, or — through `.then(cb)` on the
+// module — what the callback returns. The callback's value is read the same way, so a
+// concise body that is not itself a call (`(m) => m.NamedHeavy`) has no returned row
+// and stays with the loader's declared type rather than guessing.
+jsx_loader_value(v, r) :- jsx_loader_returns(v, r).
+jsx_loader_value(v, x) :- jsx_loader_returns(v, r),
+    call_site("client", _, "then", _, recv, r, _),
+    expr_namespace(recv, _, _),
+    callback_arg(r, "0", lm),
+    method_returns_expr(lm, x),
+    expr_kind("client", _, "ROOT", x).
+// …the module itself: its default export renders.
+jsx_wrapped_component(v, m) :- jsx_loader_value(v, r),
+    expr_namespace(r, prov, mod2),
+    module_export(prov, mod2, "default", "METHOD", m).
+// …a component projected out of it, `(await import("./heavy")).NamedHeavy` or
+// `.then((m) => { return m.NamedHeavy; })` (the Next.js named-export form).
+jsx_wrapped_component(v, m) :- jsx_loader_value(v, x),
+    expr_callable(x, m).
+// …or re-wrapped for `lazy`, `{ default: m.NamedHeavy }`: the `default` property of
+// the object it settles to.
+jsx_wrapped_component(v, m) :- jsx_loader_value(v, x),
+    objlit_prop(x, "default", val),
+    expr_callable(val, m).
 
 // ============================================================================
 // DISPATCH FAN — a supertype-typed receiver reaches its implementations

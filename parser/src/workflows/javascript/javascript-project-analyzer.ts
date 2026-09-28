@@ -46,6 +46,7 @@ import { JsTypeHeritageRegistry } from '@/analysis-types/javascript/JsTypeHerita
 import { JsTypeReferenceRegistry } from '@/analysis-types/javascript/JsTypeReferenceRegistry';
 import { JsTypeRegistry } from '@/analysis-types/javascript/JsTypeRegistry';
 import { JsVariableRegistry } from '@/analysis-types/javascript/JsVariableRegistry';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 /**
  * Each relation's header, from its registry, so an EMPTY relation still writes
@@ -733,6 +734,9 @@ function collectJavaScriptFiles(
     for (const entry of entries) {
       const full = path.join(directory, entry.name);
       if (entry.isDirectory()) {
+        if (isGitIgnoredDir(full) && !(directory === rootDir && walkUnderRoot.has(entry.name))) {
+          continue;
+        }
         if (!excludes.has(entry.name) || (directory === rootDir && walkUnderRoot.has(entry.name))) {
           walk(full);
           continue;

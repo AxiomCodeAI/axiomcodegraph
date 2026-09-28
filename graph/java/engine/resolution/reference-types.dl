@@ -39,7 +39,8 @@ field_type_resolves(prov, field, ref, t) :- java_type_reference(_, "FIELD_TYPE",
 // position-0 references, so each caught type is still captured.
 local_var_type_resolves(prov, local, ref, t) :- java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref),
     type_ref_resolves(prov, ref, t).
-// A `var` local has no written type reference, so the rule above yields nothing. Infer
+// A `var` local's only reference is written `var` and resolves to nothing, so the rule above
+// yields nothing (and external-types.dl keeps it from naming an external type). Infer
 // the type from a direct object-creation initializer (var x = new Holder<String>()): the
 // created type — carrying its written type arguments — becomes the local's resolved type,
 // which feeds callee resolution AND type-argument binding uniformly. Gated on the isVar

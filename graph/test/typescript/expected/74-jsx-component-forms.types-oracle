@@ -1,0 +1,7 @@
+74-jsx-component-forms [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 7   resolved 6 (85.7%)
+  tiers ambiguous_unknown=1  known_edge=6
+  contexts FIELD_TYPE=1  METHOD_PARAM=1  METHOD_RETURN=4  VARIABLE_TYPE=1
+  not scored: 1 rows whose target is not a client declaration

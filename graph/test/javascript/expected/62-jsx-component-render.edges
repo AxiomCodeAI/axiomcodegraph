@@ -1,0 +1,18 @@
+App.jsx:17:7 JSX_ELEMENT <TodoList heading={title} />  ->  known_edge  components/TodoList.jsx:3:1 TodoList
+App.jsx:18:7 JSX_ELEMENT <Panel {...extra} />  ->  known_edge  components/Panel.jsx:4:3 render
+App.jsx:19:7 JSX_ELEMENT <ui.Badge count={1} />  ->  known_edge  components/ui.jsx:1:1 Badge
+App.jsx:20:27 FUNCTION_CALL format  ->  known_edge  App.jsx:26:1 format
+App.jsx:20:7 JSX_ELEMENT <ui.List>{(item) => format(item)}</ui.List>  ->  known_edge  components/ui.jsx:3:1 List
+App.jsx:25:30 FUNCTION_CALL div  ->  known_edge  App.jsx:7:1 div
+App.jsx:26:32 FUNCTION_CALL String  ->  ambient_terminal  -
+components/Panel.jsx:5:36 METHOD_CALL this.props.onClose  ->  known_edge  App.jsx:25:1 closeAll
+components/TodoItem.jsx:3:29 FUNCTION_CALL onToggle  ->  known_edge  components/TodoList.jsx:4:3 handleToggle
+components/TodoList.jsx:4:40 FUNCTION_CALL save  ->  known_edge  components/TodoList.jsx:9:1 save
+components/TodoList.jsx:6:15 METHOD_CALL todos.map  ->  ambient_terminal  -
+components/TodoList.jsx:6:15 METHOD_CALL todos.map  ->  callback_registered  components/TodoList.jsx:6:25 <arrow>
+components/TodoList.jsx:6:32 JSX_ELEMENT <TodoItem key={t.text} todo={t} onToggle={handleToggle} />  ->  known_edge  components/TodoItem.jsx:2:1 TodoItem
+components/ui.jsx:3:43 METHOD_CALL [1, 2].map  ->  ambient_terminal  -
+components/ui.jsx:3:43 METHOD_CALL [1, 2].map  ->  callback_registered  components/ui.jsx:3:54 <arrow>
+components/ui.jsx:3:61 METHOD_CALL props.children  ->  known_edge  App.jsx:20:17 <arrow>
+main.jsx:3:1 FUNCTION_CALL mount  ->  known_edge  main.jsx:4:1 mount
+main.jsx:3:7 JSX_ELEMENT <App title="todos" />  ->  known_edge  App.jsx:13:1 App

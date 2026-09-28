@@ -110,8 +110,10 @@ def ckey(k):
 # `remote` follows the same rule for the same reason (#1108): a cross-process hop is an edge the
 # engine asserted, joined on a destination it resolved at BOTH ends, so it outranks every name match --
 # and it is not a call to the declaration at all, so it cannot outrank a target set.
-CERT = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'remote': 4,
-        'in scope': 5, 'by name': 6, 'text': 7, 'alongside': 8}
+# `framework` (#1509) sits directly below `remote` for the same reason: the engine joined both ends on the
+# framework's own registration, so it outranks every name match, and it is not a call to the declaration.
+CERT = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'remote': 4, 'framework': 5,
+        'in scope': 6, 'by name': 7, 'text': 8, 'alongside': 9}
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
@@ -198,7 +200,7 @@ class Impact:
         """the source with comments and string literals blanked (same length, same line breaks): a name in a javadoc, a
         docstring or a string is not a use. Block /* */, line // and # (Python), '…' "…" `…` and triple-quoted strings."""
         if ('code', file) in self.src: return self.src[('code', file)]
-        t = '\n'.join(self.lines(file)); out = []; i = 0; n = len(t); py = file.endswith('.py')
+        t = '\n'.join(self.lines(file)); out = []; i = 0; n = len(t); py = file.endswith(('.py', '.pyi')) or bool(re.match(r'#![^\n]*\bpython[0-9.]*\b', t))
         triple = py or file.endswith(('.java', '.kt', '.scala', '.groovy'))      # a Java text block is """ too
         js = file.endswith(('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx'))
         prev = ''                                                                # the last code character seen
@@ -565,7 +567,10 @@ class Impact:
         die(f"{whole}: no declaration of {bare} takes ({', '.join(want)}). "
             f"It is declared as: " + ' · '.join(sigs or ['(unknown)']) + " — write one of those, or drop the parentheses for all of them")
     SOURCE_EXT = {'.java','.py','.ts','.tsx','.js','.jsx','.mjs','.cjs','.kt','.kts','.scala','.go','.rb','.cs','.class','.jar'}
-    SKIP_DIR = {'.git','node_modules','target','build','out','dist','.axiomcode','.idea','.gradle','venv','.venv','__pycache__','.mvn'}
+    # and tool output nobody writes a binding in: a framework's build cache (.next, .nuxt, .turbo), coverage reports, package
+    # manager caches. The refresher already ignores them (ax_fresh.PRUNE_ALL); scanned here, a dev server's build folder
+    # was thousands of files opened on every query, and a name in a compiled chunk is not a place a rename breaks.
+    SKIP_DIR = {'.git','node_modules','target','build','out','dist','.axiomcode','.idea','.gradle','venv','.venv','__pycache__','.mvn'} | __import__('ax_fresh').PRUNE_ALL
     # prose is not a run-time binding: a name in a changelog does not break when it is renamed
     PROSE_EXT = {'.md','.adoc','.rst','.log','.lock','.txt'}
     # `import` is not a call and the parser records no edge for it, so what a file imports is read from its own
@@ -593,6 +598,9 @@ class Impact:
         out = set()
         for f in files:
             ext = os.path.splitext(f)[1].lower()
+            if not ext:                                                                  # a python shebang script (#1376)
+                try: ext = '.py' if re.match(r'#![^\n]*\bpython[0-9.]*\b', (self.lines(f) or [''])[0]) else ''
+                except Exception: ext = ''
             rx = self.IMPORT_RE.get(ext)
             if not rx: continue
             try: text = '\n'.join(self.lines(f))
@@ -620,39 +628,22 @@ class Impact:
                 if tgt and tgt != f: out.add((f, tgt))
         return sorted(out)
 
+    def _nonsource(self):
+        """the non-source scan, cached per graph (ax_nonsource.py): a query opens only the files that changed since the
+        last one read them, and searches only those whose words include a name asked for. AXIOMCODE_NO_SCAN_CACHE=1
+        scans every file, as before; the two give the same answer (tests/latency.py)."""
+        if not hasattr(self, '_ns'):
+            import ax_nonsource
+            indexed = {sy['file'] for sy in self.g.sym.values() if sy.get('file')}         # a shebang script is source too (#1376)
+            self._ns = ax_nonsource.NonSource(self.g.repo, self.g.facts, indexed, self.SKIP_DIR, self.SOURCE_EXT | self.PROSE_EXT)
+        return self._ns
     def nonsource_files(self):
         """every text file in the tree that is NOT source the index read. A name bound from one of these (a mapper XML,
         a services file, a properties file, a build script, a spec) breaks at run time and the compiler is silent."""
-        if hasattr(self, '_nsf'): return self._nsf
-        out = []
-        for root, dirs, files in os.walk(self.g.repo):
-            dirs[:] = [d for d in dirs if d not in self.SKIP_DIR and not d.startswith('.axiomcode')]
-            for fn in files:
-                ext = os.path.splitext(fn)[1].lower()
-                if ext in self.SOURCE_EXT or ext in self.PROSE_EXT: continue
-                fp = os.path.join(root, fn)
-                try:
-                    if os.path.getsize(fp) > 512 * 1024: continue
-                    with open(fp, 'rb') as fh: head = fh.read(2048)
-                    if b'\0' in head: continue
-                except OSError: continue
-                out.append(os.path.relpath(fp, self.g.repo).replace(os.sep, '/'))
-                if len(out) > 4000: break
-        self._nsf = sorted(out); return self._nsf
+        return self._nonsource().files()
     def nonsource_hits(self, names):
         """-> [(name, file, line)] where one of `names` is written as a whole token in a non-source file"""
-        names = sorted({n for n in names if n and len(n) > 2}, key=len, reverse=True)
-        if not names: return []
-        pat = re.compile(r'(?<![\w.$-])(' + '|'.join(re.escape(n) for n in names) + r')(?![\w$-])')
-        hits = []
-        for rel in self.nonsource_files():
-            try: text = open(os.path.join(self.g.repo, rel), errors='replace').read()
-            except OSError: continue
-            if not any(n in text for n in names): continue
-            for i, line in enumerate(text.split('\n'), 1):
-                for m in pat.finditer(line): hits.append((m.group(1), rel, i))
-                if len(hits) > 2000: break
-        return hits
+        return self._nonsource().hits(names)
     KEYFILE_EXT = {'.properties','.yml','.yaml','.conf','.ini','.cfg','.env'}
     def config_key_sites(self, keys):
         """a key DEFINED or overridden in a settings file, matched on the canonical form so the spelling there
@@ -684,14 +675,14 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '26'          # 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '27'          # 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
     #  — bump this whenever a fact this writes changes shape, or an already-indexed repository reuses the old file
     #    against the new program and every query dies with "cannot parse fact file <name>.facts".
     def export(self):
-        g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
+        g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{g.db_mtime}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
         # "Cannot open fact file X.facts": accept it only when it holds every relation the program reads
         need = set(re.findall(r'\.decl (\w+)\([^)]*\)\s+\.input', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dl', 'impact.dl')).read())) - PER_QUERY
@@ -1133,7 +1124,18 @@ class Impact:
                              g.q("SELECT c0, c1, c2, c3, c4 FROM ext_remote_edge")
                              if r[0] and r[1] and r[0] != r[1]})
         W('remote', remote)
-        open(stamp, 'w').write(want); return D
+        # A FRAMEWORK HOP INSIDE ONE PROCESS WAS UNREAD IN EXACTLY THE SAME WAY (#1509). The Python engine writes
+        # framework_edge for a task and its .delay() producer, a signal and its @receiver, a route table and its
+        # view, a Depends() default and its provider, and nothing here selected it: `impact` on a receiver said the
+        # change was local, and a producer showed up only as a same-named [by name] lead. Its own relation and its
+        # own certainty for the reason `remote` has one: it is not a call and must not read as one.
+        fw = []
+        if g.has('ext_framework_edge'):
+            fw = sorted({(r[0], r[1], r[2], r[3], r[4]) for r in
+                         g.q("SELECT c0, c1, c2, c3, c4 FROM ext_framework_edge")
+                         if r[0] and r[1] and r[0] != r[1]})
+        W('framework', fw)
+        t = f'{stamp}.{os.getpid()}.tmp'; open(t, 'w').write(want); P.replace_file(t, stamp); return D
 
     # ── one query: the target facts, the text-level facts, one Soufflé run ──────────────────────────────────────
     def run(self, targets, q='q'):
@@ -1233,7 +1235,14 @@ class Impact:
         # stamped, and the program is a native binary compiled once — while this side rebuilds members,
         # edges, test sets and the symbol view in Python on every invocation, and a CLI call is a fresh
         # process. Until that setup is cached per graph the rules win. AXIOMCODE_SQL=1 selects this path.
-        if os.environ.get('AXIOMCODE_SQL'):
+        # NO RULES TO RUN (no shipped binary for this machine, no soufflé): the SQL port answers instead, and says so once.
+        # It agrees with the rules on every target kind it takes; only a kind it does not take still fails, with advice
+        # for THIS operating system (dl_program.rules_unavailable), not a Homebrew command on Windows.
+        no_rules = not os.environ.get('AXIOMCODE_SQL') and self.program()[0] == 'souffle' and not shutil.which('souffle')
+        if no_rules and not getattr(Impact, '_said_sql', False):
+            print("impact: no compiled rules for this machine and no soufflé — answering from the SQL port "
+                  "(same answers; `axiomcode index` says how to install the rules)", file=sys.stderr); Impact._said_sql = True
+        if os.environ.get('AXIOMCODE_SQL') or no_rules:
             import graph_sql
             _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource, self.code, self.at,
                                                 inside, textuse, importuse, self.lines)
@@ -1254,18 +1263,25 @@ class Impact:
         if os.environ.get('AXIOMCODE_BACKEND'): print('backend=datalog', file=sys.stderr)
         prog = self.program()                                                        # the compiled rules, or the interpreter
         if prog[0] == 'souffle' and not shutil.which('souffle'):
-            die(f"no compiled impact.dl for these rules on this machine: the {dl_program.SCOPE}/engine-{dl_program.npm_platform()} package\n"
-                "  ships one for each release (reinstall @axiomcode/code-graph so it is fetched), or install soufflé\n"
-                "  (brew install souffle-lang/souffle/souffle) to compile or interpret the rules here")
-        prof('query facts written'); r = subprocess.run(prog + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
-        if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
-        out = {}
-        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired', 'caller_handles', 'caller_unhandled', 'target_throws'):
-            rows = []
-            for l in open(os.path.join(O, n + '.csv')):
-                p = l.rstrip('\n').split('\t')
-                if p[0] in QS: rows.append(p[1:] + [p[0]])                                   # … + the query id, so each row says which target it came from
-            out[n] = rows
+            die(dl_program.rules_unavailable('impact'))
+        # THE SOLVE IS A FUNCTION OF ITS FACTS. The same question on the same graph -- page 2 of an answer, a repeat, the
+        # impact `changed --impact` and `test-impact` ask again for one edit -- hands the rules the same fact files, so
+        # what they derived the first time is what they derive now: it is kept, keyed by the rules, the graph's fact
+        # export and every per-query fact, and read back instead of running the solver again. AXIOMCODE_NO_SOLVE_CACHE=1 runs it.
+        key = self.solve_key(prog, F, D); hit = self.solve_cached(D, key)
+        if hit is not None:
+            prof('solve read from the cache'); out = hit
+        else:
+            prof('query facts written'); r = subprocess.run(prog + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
+            if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
+            out = {}
+            for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired', 'caller_handles', 'caller_unhandled', 'target_throws'):
+                rows = []
+                for l in open(os.path.join(O, n + '.csv')):
+                    p = l.rstrip('\n').split('\t')
+                    if p[0] in QS: rows.append(p[1:] + [p[0]])                               # … + the query id, so each row says which target it came from
+                out[n] = rows
+            self.solve_store(D, key, out)
         out['_targets'] = QS
         # AXIOMCODE_DUMP_SOLVE=<dir>: record what the rules derived, so the SQL port can be developed and diffed
         # against real output without re-running a 26 s query for every iteration.
@@ -1278,6 +1294,43 @@ class Impact:
 
     def souffle_include(self):
         return dl_program.souffle_include()
+
+    # the facts a query writes itself; every other file in its fact directory is the graph's export, linked in
+    PER_QUERY_WRITTEN = ('nonsource', 'qual_name', 'key_cap', 'key_use_cap', 'target', 'textuse', 'importuse', 'inside_target')
+    SOLVE_CACHE_MAX = 200
+    def solve_key(self, prog, F, D):
+        """what a solve is a function of: the rules, the graph export (its stamp, and the size of each linked file, so a
+        relation left empty for this target kind is told apart), and the text of every fact this query wrote"""
+        import hashlib
+        h = hashlib.sha1()
+        h.update(dl_program.rules_id(os.path.join(HERE, 'dl', 'impact.dl')).encode()); h.update(b'\0')
+        for st in (os.path.join(D, 'stamp'), os.path.join(self.g.facts, 'stamp')):
+            try: h.update(open(st, 'rb').read())
+            except OSError: h.update(b'-')
+            h.update(b'\0')
+        for n in sorted(os.listdir(F)):
+            p = os.path.join(F, n); h.update(n.encode()); h.update(b'\0')
+            if n[:-6] in self.PER_QUERY_WRITTEN:
+                with open(p, 'rb') as fh: h.update(fh.read())
+            else: h.update(str(os.path.getsize(p)).encode())
+            h.update(b'\0')
+        return h.hexdigest()
+    def solve_cached(self, D, key):
+        if os.environ.get('AXIOMCODE_NO_SOLVE_CACHE'): return None
+        try:
+            with open(os.path.join(D, 'solve', key + '.json')) as fh: return json.load(fh)
+        except (OSError, ValueError): return None
+    def solve_store(self, D, key, out):
+        if os.environ.get('AXIOMCODE_NO_SOLVE_CACHE'): return
+        d = os.path.join(D, 'solve')
+        try:
+            os.makedirs(d, exist_ok=True)
+            tmp = os.path.join(d, f'.{key}.{os.getpid()}')
+            with open(tmp, 'w') as fh: json.dump(out, fh)
+            os.replace(tmp, os.path.join(d, key + '.json'))
+            old = sorted((e for e in os.scandir(d) if e.name.endswith('.json')), key=lambda e: e.stat().st_mtime)
+            for e in old[:max(0, len(old) - self.SOLVE_CACHE_MAX)]: os.remove(e.path)
+        except OSError: pass
 
     def program(self):
         """the rules compiled to a native binary once and cached by the program's hash — see dl_program.py, which every
@@ -1417,6 +1470,7 @@ def main(argv):
         # warm. `axiomcode index` calls this: left to first use, that cost lands inside hooks/changes.py's timeout=14,
         # several queries at once, and the edit-time impact is lost exactly when a change is being made.
         g = G(repo); g.IN = IN; I = Impact(g); D = I.export()
+        I.nonsource_files()                     # and read the non-source files once, so no query opens them all (ax_nonsource.py)
         print(f"impact facts ready ({os.path.relpath(D, os.path.abspath(repo))})")
         return 0
     if from_text is not None:
@@ -1987,7 +2041,7 @@ def main(argv):
         # reference. Letting the new label fall out of this list would turn "something still uses this" into
         # "safe to delete", which is the one verdict here that costs anything to get wrong.
         calls = [x for x in D if (x[3] == 'resolved' and ('calls' in x[2] or 'instantiates' in x[2] or 'through' in x[2] or 'inject' in x[2]))
-                 or x[3] in ('registered', 'capped set')]
+                 or x[3] in ('registered', 'capped set', 'framework')]    # a task's producer, a signal's sender (#1509)
         weak = [x for x in D if x[3] in ('one of a set', 'by name', 'text', 'in scope')]
         lits = [r for n_ in names for r in g.q("SELECT file, line FROM literals WHERE value = ?", n_)] if g.has('literals') else []
         decs = sorted({r[0].split('.')[-1] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", t)})
@@ -2121,11 +2175,17 @@ def main(argv):
         # target reached ONLY through hand-offs there were no by-name entries at all, so the label the whole
         # answer was written in went unexplained.
         print("note: " + REGISTERED_NOTE)
+    if any(x[3] == 'framework' for x in D):
+        print("note: [framework] is a hop the framework makes and no call site expresses (a task enqueued, a signal sent, "
+              "a route table entry, a Depends() default, a fixture parameter): the engine joined both ends on the "
+              "framework's own registration, so it is a dependent and not a call, and it may run in another worker or later")
     # NEXT: ONE STEP, SO THE ANSWER CLOSES THE QUESTION (#1202). An answer that ends in a list of callers reads as a
     # list of leads, and agents opened every one: a run that `context` had already pointed at the one file to fix
     # read six more, following callers an answer had listed. The resolved rows are verified above -- this says what
     # to do with them, and what NOT to spend reads on.
-    STRONG_DIRECT = ('resolved', 'one of a set', 'registered', 'capped set')
+    # `framework` (#1509): the producer or publisher the engine joined to this through the framework's own
+    # registration is a place bound to it, not a same-named lead, so it is named here rather than counted as one
+    STRONG_DIRECT = ('resolved', 'one of a set', 'registered', 'capped set', 'framework')
     must = [g.loc(c) for c, _ in contract]
     users = sorted({loc for c, role, why, cert, loc, n in D if cert in STRONG_DIRECT and not _is_t(c) and loc})
     weak_n = len({c for c, role, why, cert, loc, n in D if cert not in STRONG_DIRECT and cert != 'alongside'})

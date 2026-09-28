@@ -29,6 +29,7 @@ import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
 import { TsRelationWriter } from './ts-relation-writer';
 import { EntityUtils } from '@/utils/entity-utils';
 import { stripTsExtension } from '@/parsers/typescript/ts-module-paths';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 /**
  * Walks a TypeScript repository, extracts the fact spine, and exports it as TSV.
@@ -721,7 +722,7 @@ function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): str
     for (const entry of entries) {
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (!excludes.has(entry.name) && !entry.name.startsWith('.')) {
+        if (!excludes.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(full)) {
           walk(full);
         }
         continue;

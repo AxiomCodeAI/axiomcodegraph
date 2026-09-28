@@ -97,6 +97,10 @@ def engine_roots():
     copied under its own directory has no node_modules above it, which is why the last two exist."""
     roots = [HERE]
     if os.environ.get('AXIOMCODE_ENGINE'): roots.append(os.environ['AXIOMCODE_ENGINE'])
+    # the engine that built the graph being asked (<repo>/.axiomcode/engine, recorded by axiomcode-build): the same
+    # package the build used, found without PATH, which a hook or a second Node install can point elsewhere
+    rec = recorded_engine()
+    if rec: roots.append(rec)
     b = shutil.which('axiomcode')
     if b:
         roots.append(os.path.dirname(os.path.dirname(os.path.realpath(b))))
@@ -104,6 +108,38 @@ def engine_roots():
         # the package, so realpath leads nowhere near it: the package is <that dir>/node_modules/@axiomcode/code-graph
         roots.append(os.path.join(os.path.dirname(b), 'node_modules', SCOPE, 'code-graph'))
     return roots
+
+
+def recorded_engine(repo=None):
+    """the engine recorded by the last build of the repository asked about: AXIOMCODE_REPO (set by the verbs once they
+    know their repository), else the working directory or the nearest parent holding a .axiomcode"""
+    d = os.path.realpath(repo or os.environ.get('AXIOMCODE_REPO') or os.getcwd())
+    while True:
+        p = os.path.join(d, '.axiomcode', 'engine')
+        if os.path.isfile(p):
+            try: return open(p).read().strip() or None
+            except OSError: return None
+        up = os.path.dirname(d)
+        if up == d: return None
+        d = up
+
+
+def rules_unavailable(stem='impact'):
+    """why the query rules cannot run on this machine, with what to do about it FOR THIS OS, or '' when they can: no
+    shipped binary for these rules in any engine package found, and no soufflé to compile or interpret them"""
+    if shutil.which('souffle'): return ''
+    plat = npm_platform() or f'{sys.platform}-{platform.machine().lower()}'
+    looked = ', '.join(dict.fromkeys(os.path.abspath(r) for r in engine_roots()))
+    if sys.platform.startswith(('win', 'cygwin', 'msys')):
+        fix = (f"reinstall the package so npm fetches {SCOPE}/engine-{plat} for this machine: `npm i -g @axiomcode/code-graph` "
+               "(with two Node installs, run it with the Node whose global folder the plugin uses, or set AXIOMCODE_ENGINE to "
+               "that package's folder); soufflé has no native Windows build")
+    elif sys.platform == 'darwin':
+        fix = f"`npm i -g @axiomcode/code-graph` (fetches {SCOPE}/engine-{plat}), or install soufflé: brew install souffle-lang/souffle/souffle"
+    else:
+        fix = f"`npm i -g @axiomcode/code-graph` (fetches {SCOPE}/engine-{plat}), or install soufflé from its releases or your distribution's package"
+    return (f"no compiled {stem} rules for this version on this machine ({plat}): none of the engine packages found "
+            f"(looked from: {looked}) ships them, and soufflé is not installed to build them.\n  Fix: {fix}")
 
 
 def packaged(stem, key):
@@ -192,6 +228,12 @@ def warm(verbose=True):
     if verbose:
         ok = sum(1 for _, s in done if s != 'interpreter')
         print(f"datalog rules ready: {ok}/{len(done)} compiled (" + ', '.join(f'{n}={s}' for n, s in done) + ")")
+        # THE INTERPRETER WITHOUT SOUFFLÉ IS NOT A MODE, IT IS A FAILURE, and it has to be said here, where the index is,
+        # not by the first `impact` after it: "0/4 compiled (…=interpreter)" read as a slower setting, and impact then
+        # failed with advice for another operating system
+        if ok < len(done) and not shutil.which('souffle'):
+            why = rules_unavailable()
+            print(f"⚠️  {why}\n  Until then impact answers from its SQL port (the same answers, slower on large graphs) and path from SQL, as by default.")
     return done
 
 

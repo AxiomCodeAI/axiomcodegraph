@@ -44,11 +44,11 @@ import { EntityUtils } from '@/utils/entity-utils';
  * `ts_type_reference` — the ONE expression-to-type edge in the schema, and a
  * type FK precisely so that no call-graph rule can cross it (§3.3).
  *
- * `JSX_COMPONENT_CALL`, `JSX_ELEMENT`, `JSX_SELF_CLOSING`,
- * `JSX_ATTRIBUTE_VALUE` and `JSX_CHILD` are reserved and emitted by nothing.
- * TSX is out of freeze 1, the representation is decided (§4.15.1), and the gate
- * asserts the emptiness so that switching TSX on shows up as a gate failure
- * rather than as new rows appearing unremarked.
+ * A JSX element naming a component is a call (§4.15.1): a JSX_ELEMENT or
+ * JSX_SELF_CLOSING row with its tag as the METHOD_NAME child, and a
+ * JSX_COMPONENT_CALL site. `JSX_ATTRIBUTE_VALUE` and `JSX_CHILD` stay reserved:
+ * attribute values and children are rooted as their own trees by the walker, and
+ * the gate asserts the emptiness so that switching them on shows up as a failure.
  */
 
 /** One enqueued child: the node plus the edge that reaches it. */
@@ -177,7 +177,8 @@ export class TsExpressionExtractor {
     this.rowByNode.set(nodeId(item.node, this.sf), row);
     this.emitted.push({ node: item.node, row });
     if (kind === TsExpressionKind.CALL_EXPRESSION || kind === TsExpressionKind.NEW_EXPRESSION
-      || kind === TsExpressionKind.TAGGED_TEMPLATE) {
+      || kind === TsExpressionKind.TAGGED_TEMPLATE || kind === TsExpressionKind.JSX_ELEMENT
+      || kind === TsExpressionKind.JSX_SELF_CLOSING) {
       this.callNodes.push({ node: item.node, owner: item.owner });
     }
 
@@ -448,6 +449,16 @@ export function expressionKindOf(node: ts.Node): TsExpressionKind | undefined {
     case ts.SyntaxKind.VoidExpression: {
       return TsExpressionKind.DELETE_TYPEOF_VOID;
     }
+    case ts.SyntaxKind.JsxElement:
+    case ts.SyntaxKind.JsxSelfClosingElement: {
+      // `<Badge/>` IS a call to Badge. `<div>` is an intrinsic element that no
+      // project declaration can bind, so it produces no row -- a call site that
+      // can only ever resolve into `JSX.IntrinsicElements` would be noise.
+      if (jsxTagReference(node) === undefined) {
+        return undefined;
+      }
+      return ts.isJsxElement(node) ? TsExpressionKind.JSX_ELEMENT : TsExpressionKind.JSX_SELF_CLOSING;
+    }
     case ts.SyntaxKind.ParenthesizedExpression: {
       // A parenthesised expression is not a fact — it is punctuation. Emitting
       // a row for it would put a node between a call and its receiver that no
@@ -510,6 +521,13 @@ function childEdgesOf(node: ts.Node): ChildEdge[] {
       push(argument, TsEdgeRole.ARGUMENT, index);
       index += 1;
     }
+    return out;
+  }
+  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+    // The tag only. Attribute values, children and spreads are rooted by the
+    // walker as JSX_EMBEDDED_EXPRESSION trees, and a nested element is rooted
+    // there as its own component call.
+    push(jsxTagReference(node), TsEdgeRole.METHOD_NAME, 0);
     return out;
   }
   if (ts.isTaggedTemplateExpression(node)) {
@@ -844,6 +862,44 @@ export function calleeOf(node: ts.Node): ts.Node | undefined {
   if (ts.isTaggedTemplateExpression(node)) {
     return unwrapParentheses(node.tag);
   }
+  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+    return jsxTagReference(node);
+  }
+  return undefined;
+}
+
+/**
+ * The tag of a JSX element when it names a COMPONENT, or `undefined` for an
+ * intrinsic element.
+ *
+ * `<Badge/>` and `<ui.Card/>` reference a binding; `<div>`, `<my-el>` and
+ * `<svg:circle>` do not, and no declaration in the project can be their
+ * target. The rule is the one the JSX transform applies: an identifier whose
+ * first character is a lowercase letter, or that is not a valid identifier at
+ * all (`<my-el>` parses as one), is a string tag.
+ */
+export function jsxTagReference(node: ts.Node): ts.Expression | undefined {
+  const tagName = ts.isJsxElement(node)
+    ? node.openingElement.tagName
+    : ts.isJsxSelfClosingElement(node)
+      ? node.tagName
+      : undefined;
+  if (tagName === undefined || ts.isJsxNamespacedName(tagName)) {
+    return undefined;
+  }
+  if (ts.isPropertyAccessExpression(tagName)) {
+    return tagName;
+  }
+  if (ts.isIdentifier(tagName)) {
+    const text = tagName.text;
+    const first = text.charAt(0);
+    const isLowercaseLetter = first.toUpperCase() !== first;
+    const points = [...text].map((c) => c.codePointAt(0) ?? 0);
+    const isValidIdentifier = points.length > 0
+      && ts.isIdentifierStart(points[0]!, ts.ScriptTarget.Latest)
+      && points.slice(1).every((point) => ts.isIdentifierPart(point, ts.ScriptTarget.Latest));
+    return !isLowercaseLetter && isValidIdentifier ? tagName : undefined;
+  }
   return undefined;
 }
 
@@ -900,6 +956,14 @@ function isDecoratorCall(node: ts.Node): boolean {
 function callKindOf(node: ts.Node, callee: ts.Node | undefined): TsCallKind {
   if (ts.isNewExpression(node)) {
     return TsCallKind.CONSTRUCTOR_CALL;
+  }
+  // `<Badge/>` binds its tag by name. `<ui.Card/>` is a member of a value, and
+  // that is exactly a method call's shape: the receiver's type or namespace
+  // decides the target, which the member rules already resolve.
+  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+    return callee && ts.isPropertyAccessExpression(callee)
+      ? TsCallKind.METHOD_CALL
+      : TsCallKind.JSX_COMPONENT_CALL;
   }
   // Checked before the callee shape, because `@a.b.Get("/x")` is a decorator
   // call first and a property-access callee second. Which one wins decides

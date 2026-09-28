@@ -27,14 +27,33 @@ One check needs no graph and is its own script:
     python3 tests/manifests.py           every agent's manifest (Claude, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
                                          them, and Gemini's skill and Cursor's rule are current copies
+    python3 tests/mcp_first.py           the description, the install block and the orient and directive hooks name the
+                                         MCP tool before the shell verb, and still carry the shell verb for a host
+                                         without the server (#1425; indexes one case, so it needs the engine)
     python3 tests/hosts.py               each hook tells Cursor and Gemini CLI what it tells the original host,
                                          in their own event names and output shape (indexes one case, so it needs the engine)
     python3 tests/enrich_budget.py       what a Read or a Grep adds to a session is capped: a declaration annotated once,
                                          the budget said spent once, its second half kept for edges into unopened files
                                          (#1199; indexes a small project, so it needs the engine)
-    python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
+    python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in, finds the
+                                         engine the last build used before PATH (the refresh runs from a hook, with the
+                                         hook's PATH), follows a Windows npm shim, and names every place it looked when
+                                         it finds none
+    python3 tests/refresh_races.py       what a refresh after an edit can leave behind, each with a control: a broken
+                                         graph pointer is repaired and keeps the baseline; a query mid-build waits for it
+                                         and starts no build; a failed build never leaves the pointer dangling; a failed
+                                         refresh says why; git-ignored directories are neither parsed nor watched; with
+                                         no rules and no soufflé impact answers from SQL (builds real graphs, needs the engine)
     python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
                                          unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
+    python3 tests/multi_language.py      a repository in several languages is indexed in all of them and every query asks
+                                         each graph: nothing dropped, a one-graph answer unchanged, an edit reported once,
+                                         refreshed, upgraded from a one-language graph (builds real graphs, needs the engine)
+    python3 tests/latency.py             what a query repeats on every call is done once, with the same answer: the non-source
+                                         scan cached per graph, a repeated impact solve read back, one tree walk for every language,
+                                         the verb and the Python found without starting programs, a first build that reports its
+                                         stage instead of holding the call (indexes a small project, so it needs the engine;
+                                         --no-engine for the rest)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

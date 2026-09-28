@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a removed class and its one method are two declarations, each listed once: the method's header line and its body lines used to give it two rows, and the class was named by its implicit constructor instead of by its own name",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/Meter.java"],
+   "want": ["changed declarations (2)", "removed    Meter ", "Meter.read"],
+   "avoid": ["Meter.Meter"]}]}

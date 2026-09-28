@@ -1,0 +1,14 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a script with a python shebang and no .py extension is a module: the function it calls has it as a caller, and it is not listed among the files the index does not read as source",
+   "run": ["impact", "price"],
+   "want": ["report"],
+   "avoid": ["[text] make-report"]},
+  {"why": "a shell script that only runs python3 is not read as Python: its mention of the function stays a text match, not a caller",
+   "run": ["impact", "price"],
+   "want": ["[text] deploy:2"],
+   "avoid": ["deploy.<module>"]},
+  {"why": "an edit inside a shebang script names the function it changed, so test-impact has a declaration to start from",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new.txt", "--file", "make-report"],
+   "want": ["body", "report"],
+   "avoid": ["no declarations known here", "no changed declaration"]}]}

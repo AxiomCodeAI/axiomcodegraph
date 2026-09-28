@@ -1,4 +1,8 @@
 boundary_lib	CONSTRUCTOR_CALL	components#LibApp() @L54 -> Theme#<new>()
+boundary_lib	JSX_COMPONENT_CALL	components#LibApp() @L53 -> ui#Card(CardProps)
 boundary_lib	METHOD_CALL	components#LibApp() @L54 -> Theme#color()
 known_edge	CONSTRUCTOR_CALL	components#App() @L44 -> Widget#<new>()
+known_edge	JSX_COMPONENT_CALL	components#App() @L38 -> components#Panel(Props)
+known_edge	JSX_COMPONENT_CALL	components#App() @L40 -> components#Panel(Props)
+known_edge	JSX_COMPONENT_CALL	components#App() @L41 -> components#Badge()
 known_edge	METHOD_CALL	components#App() @L45 -> Widget#render()
