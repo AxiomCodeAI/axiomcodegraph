@@ -1,0 +1,43 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a Nest provider is handed to a controller's constructor by the container, with no call site; impact on the provider has to name the class that receives it",
+   "run": [
+    "impact",
+    "CatalogService"
+   ],
+   "want": [
+    "receives it by dependency injection (ctor_param)",
+    "CatalogController.<constructor>"
+   ]
+  },
+  {
+   "why": "near miss: the same constructor parameter on a class no decorator marks is an ordinary constructor call, not an injection",
+   "run": [
+    "impact",
+    "PriceTable"
+   ],
+   "want": [
+    "Quote.total"
+   ],
+   "avoid": [
+    "dependency injection"
+   ]
+  },
+  {
+   "why": "near miss: a parameter wired by an integration's token decorator (@InjectRepository) is not a slot for its declared type, even when that type is itself a provider",
+   "run": [
+    "impact",
+    "StockRepo"
+   ],
+   "want": [
+    "StockService.inStock"
+   ],
+   "avoid": [
+    "dependency injection"
+   ]
+  }
+ ]
+}
