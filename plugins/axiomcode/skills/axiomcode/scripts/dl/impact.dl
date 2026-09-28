@@ -39,6 +39,7 @@
 .decl edge(a:symbol, b:symbol, t:symbol)                          .input edge
 .decl named(n:symbol, m:symbol)                                   .input named
 .decl calls(c:symbol, m:symbol, tier:symbol, f:symbol, l:number)  .input calls
+.decl handoff_at(c:symbol, m:symbol, f:symbol, l:number)          .input handoff_at
 .decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
 .decl named_site(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input named_site
 .decl member(t:symbol, s:symbol, n:symbol, k:symbol)              .input member
@@ -426,6 +427,39 @@ fref(q, c, rk, f, l) :- enum_member_target(q, fl), field(fl, t, n, ff, fll), ref
 .decl frole(rk:symbol, role:symbol, why:symbol)
 frole("qualified", "uses", "writes/reads it"). frole("bare", "reads", "reads it").
 
+// A CONST THAT HOLDS A WRAPPED HANDLER is registered where it is handed to a route, not read there.
+// `const listAdmins = catchAsync(async (req, res) => …)` then `router.get('/admins', listAdmins)`: the declaration is
+// a const, not a method, so the method-target route wording (`route_site` above) never applied and the answer said
+// only "[by name] … reads it" at the registration. Both legs need the name read on a route line BY THE CALLABLE
+// MAKING THE ROUTE CALL (`route_call`): a read inside an inline handler on that line
+// (`router.get('/n', (req, res) => res.json(count))`) is attributed to the handler, and stays a read.
+//   - registered: the declaration line calls a wrapper, the engine says what function that wrapper returns
+//     (`returns_fn`), and the route line hands THAT function over (`handoff_at`, on every line the call spans, since a
+//     chained registration records its edges on the statement's first line and names the handler on a later one).
+//     A hand-off of some other function on the same line (`.post(protect, admin, h)` hands `admin`) is not evidence.
+//   - by name: the wrapper is a library's, so nothing says what it returns — the const holds a call's result
+//     (`init_call`, not a `require`) and is an argument of the registration. The route's wording, the name's rung,
+//     as for a method named on a route line with no edge (`registered` above).
+// Bare (`router.get('/a', listAdmins)`) or qualified through the module (`.post(auth(), userController.createUser)`).
+.decl route_call(c:symbol, f:symbol, l:number)                    .input route_call
+.decl init_call(f:symbol, l:number)                               .input init_call
+.decl returns_fn(w:symbol, m:symbol)                              .input returns_fn
+.decl const_route_edge(q:symbol, c:symbol, m:symbol, f:symbol, l:number)
+const_route_edge(q, c, m, f, l) :- target(q, "field", fl, _), field(fl, _, _, ff, fll), calls(_, w, _, ff, fll), returns_fn(w, m),
+    fref(q, c, _, f, l), route_site(f, l), route_call(c, f, l), handoff_at(c, m, f, l).
+.decl const_route(q:symbol, c:symbol, cert:symbol, f:symbol, l:number)
+const_route(q, c, cert, f, l) :- const_route_edge(q, c, _, f, l), cert_tier("callback_registered", cert, _).
+direct(q, c, "uses", why, cert, f, l) :- const_route(q, c, cert, f, l), registration(_, f, l, "route", _, why).
+// the row claims the hand-off edge on that line, so `verified:` looks it up like any registered row
+direct_edge(q, c, m) :- const_route_edge(q, c, m, _, _).
+.decl const_route_byname(q:symbol, c:symbol, f:symbol, l:number)
+const_route_byname(q, c, f, l) :- target(q, "field", fl, _), field(fl, _, _, ff, fll), init_call(ff, fll),
+    fref(q, c, _, f, l), route_site(f, l), route_call(c, f, l), !const_route(q, c, _, f, l).
+direct(q, c, "uses", why, "by name", f, l) :- const_route_byname(q, c, f, l), registration(_, f, l, "route", _, why).
+.decl const_routed(q:symbol, c:symbol, f:symbol, l:number)
+const_routed(q, c, f, l) :- const_route(q, c, _, f, l).
+const_routed(q, c, f, l) :- const_route_byname(q, c, f, l).
+
 // A field access the ENGINE resolved. The site is bound to THIS declaration, so it is not a name
 // match against every field of that name, and its direction is known. Sites the engine could not
 // bind (tier ambiguous_unknown) are left to the name rules below, which is where they belong.
@@ -442,15 +476,15 @@ direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl
 fa_known(q, c) :- target(q, "field", fl, _), fa_bound(c, fl, _, _, _).
 fa_known(q, c) :- target(q, "field", fl, _), field(fl, _, n, _, _), fa_bound(c, fl2, _, _, _), fl2 != fl, field(fl2, _, n, _, _).
 // in scope: inside the owner, a subtype, or a nested type — or the type node itself (a field initializer)
-direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s), !fa_known(q, c).
-direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), scope(t, c), !fa_known(q, c).
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s), !fa_known(q, c), !const_routed(q, c, f, l).
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), scope(t, c), !fa_known(q, c), !const_routed(q, c, f, l).
 // qualified elsewhere: the qualifier written on the line decides — the owner's own name confirms, another type's name excludes
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c).
+    owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c).
+    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c).
+    owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // THE SAME, IN A CALLABLE THAT HAS NO OWNER TYPE. Every rule above starts at `owner(c, s)`, which in Java and
 // TypeScript is always there — and in Python and JavaScript a module-level function has no owner at all, so a
 // qualified read of a field from one was matched by no rule and vanished from the answer. `price_order` reading
@@ -458,15 +492,22 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
 // own class touched it. The qualifier decides here exactly as it does above: the owner's own name confirms,
 // another TYPE's name excludes, and a variable (which is what a Python qualifier usually is) is `by name`.
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c).
+    !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n).
-direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, _, _, _), !owner(c, _), !scope(t, c).
+    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l).
+direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f).
+// a bare name in a file that declares ANOTHER field of that name is that file's own: `const listAdmins = ['root']` in
+// one module and a wrapped handler of the same name in another are two declarations, and each answer carried the
+// other's readers. A function of that name declared in the file is its own the same way: `module.exports = { createUser }`
+// in a service that declares `const createUser = async (body) => …` is not a reader of the controller's wrapped handler
+.decl shadowed_in(fl:symbol, n:symbol, f:symbol)
+shadowed_in(fl, n, f) :- target(_, "field", fl, _), field(fl, _, n, _, _), field(fl2, _, n, f, _), fl2 != fl.
+shadowed_in(fl, n, f) :- target(_, "field", fl, _), field(fl, _, n, ff, _), named(n, m), decl_file(m, f), f != ff.
 // a declared accessor is the field's door. The door is a CALL, so it carries the call's tier like every other
 // call-derived rule here: a site the engine could not narrow to one declaration is `one of a set`, not `resolved`.
 // Binding the tier as a wildcard and hardcoding "resolved" made the accessor door the one place in this file that

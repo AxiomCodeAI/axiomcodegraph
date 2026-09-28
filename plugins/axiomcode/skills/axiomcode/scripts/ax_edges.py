@@ -479,3 +479,12 @@ def best_cert(certs):
 def direct_cert(tier):
     """how sure a DIRECT dependent row is, from the edge's tier."""
     return DIRECT_CERT.get(tier, DIRECT_CERT_DEFAULT)
+
+
+def site_lines(start, end, cap=40):
+    """every line a call site spans. A chained call (`router\\n  .route('/')\\n  .post(h)`) records its edges on the
+    statement's first line while an argument sits on a later one. Capped: a site spanning a whole callback body is
+    not a hand-off on every line of it."""
+    start = start or 0
+    if not end or end <= start or end - start > cap: return [start]
+    return list(range(start, end + 1))

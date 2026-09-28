@@ -16,8 +16,11 @@ what keeps `cache.get(key)` out of the answer. A declaration handed to anything 
 here: the reference alone says it is passed as a value (`valueref` in dl/impact.dl), and naming the receiving call as
 one that "calls it where the graph cannot follow" was wrong for every synchronous collection operation (#1166).
 """
+import re
 
 ROUTE_VERB = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'connect', 'all', 'use', 'route'}
+# the verbs that name an HTTP method; `all`, `use` and `route` register or mount without naming one
+HTTP_VERB = ROUTE_VERB - {'all', 'use', 'route'}
 
 # A CALLBACK IS NOT RECOGNISED BY THE VERB ALONE, and a curated list of verbs was the wrong instrument.
 # The route leg has two independent signals -- an HTTP verb AND a path-shaped literal on the same line -- and it is
@@ -80,7 +83,8 @@ def registrations(q, site_file=None):
     # handler does depend on it — so only the key is withheld.
     tf = {f for (f,) in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")} if _has(q, 'symbols') else set()
     out = {}
-    for name, site_kind, fp, a, b in q("""SELECT callee_name, kind, file_path, start_line, end_line FROM call_sites
+    verbs = {}                             # (file, line) -> {HTTP verb: first column}, for the wording below
+    for name, site_kind, fp, a, b, col in q("""SELECT callee_name, kind, file_path, start_line, end_line, end_column FROM call_sites
                                       WHERE callee_name IS NOT NULL AND start_line > 0"""):
         f = sf(fp); b = b or a
         if b < a or b - a > MAX_SITE_SPAN:
@@ -98,7 +102,52 @@ def registrations(q, site_file=None):
             # a route beats a plain callback on the same line: `router.use('/x', wrap(handler))` is a route site
             if (f, l) not in out or kind == 'route':
                 out[(f, l)] = (kind, key, why)
+            if short.lower() in HTTP_VERB and (l == b or a == b):
+                vs = verbs.setdefault((f, l), {}); vs[short.upper()] = min(vs.get(short.upper(), col or 0), col or 0)
+    # `router.route('/').get(h)` is two route-shaped calls on one line, and `route` said nothing about the method: the
+    # line's HTTP verbs name it, in the order written. A chain registering two (`.get(a).post(b)`) names both, because
+    # a line is all a reference records and it cannot say which argument list the handler sat in
+    for (f, l), (k, key, w) in list(out.items()):
+        vs = verbs.get((f, l))
+        if k == 'route' and vs:
+            m = re.match(r'registered as a \w+ route (".*?") here', w)
+            if m: out[(f, l)] = (k, key, f"registered as a {'/'.join(sorted(vs, key=vs.get))} route {m.group(1)} here — the router calls it, no call site does")
     return sorted((ref_at.get((f, l), ''), f, l, k, key, w) for (f, l), (k, key, w) in out.items())
+
+
+# A CONST HOLDING A WRAPPED HANDLER — `const h = catchAsync(async (req, res) => …)`, then `router.get('/a', h)` — is a
+# field, not a method, so it has no call edge of its own to carry the route wording. The three facts below are what
+# both backends join instead (`const_route` in dl/impact.dl, graph_sql.direct_for_field):
+
+def route_calls(q, site_file=None):
+    """{(caller, file, line)}: the callable making a route-shaped call (`get`, `route`, `use` …), on every line the call
+    spans. A name read on a route line by THAT callable is an argument of the registration; one read inside an inline
+    handler on the same line (`router.get('/n', (req, res) => res.json(count))`) belongs to the handler, and is a read."""
+    import ax_edges
+    sf = site_file or (lambda x: x)
+    out = set()
+    for c, name, fp, a, b in q("""SELECT caller_id, callee_name, file_path, start_line, end_line FROM call_sites
+                                  WHERE callee_name IS NOT NULL AND start_line > 0 AND file_path IS NOT NULL"""):
+        if name.split('.')[-1].lower() in ROUTE_VERB:
+            out.update((c, sf(fp), l) for l in ax_edges.site_lines(a, b))
+    return out
+
+
+def init_call_lines(q, site_file=None):
+    """{(file, line)}: lines a call starts on, other than `require(…)`. A const declared on one holds what a call
+    returned; `const ctrl = require('./ctrl')` holds a module, which is read on a route line, not registered there."""
+    sf = site_file or (lambda x: x)
+    return {(sf(fp), a) for name, fp, a in q("""SELECT callee_name, file_path, start_line FROM call_sites
+                                                 WHERE callee_name IS NOT NULL AND start_line > 0 AND file_path IS NOT NULL""")
+            if name.split('.')[-1] != 'require'}
+
+
+def returned_functions(q):
+    """{(wrapper, fn)}: the engine's own `ext_return_value` — the function a callable returns. `catchAsync` returns
+    `(req, res, next) => …`, and that is the function the route line hands over for every const it wrapped."""
+    if not _has(q, 'ext_return_value'):
+        return set()
+    return {(w, m) for w, k, m in q("SELECT c0, c1, c2 FROM ext_return_value") if k == 'func' and m}
 
 
 def value_ref_rows(q, names, ids, site_file=None, at=None, lines=None):
