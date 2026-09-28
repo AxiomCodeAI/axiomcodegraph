@@ -123,7 +123,10 @@ A = {
     # each made the function or class it names look declared as a second kind, so `impact C` refused as ambiguous
     decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
                 kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
-           dict(file='all-javascript-fields.csv', kind=lambda r: 'field', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
+           # a class field names its class by type id, not qualified name: without it the field had no owner, so
+           # `impact Vault.x` matched it only by qualified_name and every reader in the class was a name match at best
+           dict(file='all-javascript-fields.csv', id='jsFieldUniqueHash', kind=lambda r: 'field', name='name', owner=None, ownerType='ownerTypeLinkHash',
+                fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
     # `const foo = () => …`: the variable's initializerExpressionLinkHash is the FUNCTION_EXPRESSION row whose
     # introducesDeclarationLinkHash is the method — two hops, where TypeScript has boundFunctionLinkHash in one
     boundNames=dict(file='all-javascript-variables.csv', name='name', only=lambda r: r.get('initializerKind') == 'FUNCTION',
@@ -375,7 +378,7 @@ for d in A['decls']:
         if d.get('only') and not d['only'](r): continue
         name = r.get(d['name'], '');
         if not name: continue
-        fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else None
+        fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else (tdisplay(r.get(d['ownerType'], '')) or None) if d.get('ownerType') else None
         # the owner as a link to the declaring type's row (C#): its display and qualified name come from that row, so a
         # nested type's member is `Outer.Inner.Member` and two types' same-named members stay two symbols
         ot = types.get(r.get(d['ownerVia'], '')) if d.get('ownerVia') else None

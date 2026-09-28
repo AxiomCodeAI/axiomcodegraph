@@ -1,0 +1,19 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "a private class field is written with its # (Vault.#secret): read as a member separator, the lookup asked for 'Vault..secret' and found nothing, though the field is in the graph under that very name",
+   "run": ["impact", "Vault.#secret"],
+   "want": ["change: field Vault.#secret", "Vault.reveal"],
+   "avoid": ["nothing named", "[in scope] Ledger.peek", "[resolved] Ledger.peek"]},
+  {"why": "the bare #secret names the private field too, in every class that declares one",
+   "run": ["impact", "#secret"],
+   "want": ["field Vault.#secret", "Vault.reveal", "Ledger.peek"],
+   "avoid": ["nothing named"]},
+  {"why": "control: a private METHOD written with its # still resolves to the method, not to a field",
+   "run": ["impact", "Vault.#hide"],
+   "want": ["change: Vault.#hide", "Vault.describe"],
+   "avoid": ["field"]},
+  {"why": "control: a public field is answered under its owner, and a sibling that does not touch it is not a reader",
+   "run": ["impact", "Vault.label"],
+   "want": ["change: field Vault.label", "Vault.#hide"],
+   "avoid": ["[in scope] Vault.reveal", "[resolved] Vault.reveal"]}
+ ]}
