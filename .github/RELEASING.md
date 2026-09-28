@@ -66,4 +66,7 @@ from Actions at any time (it publishes only if you tick `publish`).
 
 Compiled engines are cached by ENGINE_ID, the hash of a language's rules and the Soufflé version,
 so a change that touches no rules reuses every engine and a rule change recompiles only its own
-language. The nightly and every real publish build fresh.
+language. Precisely: sha256 over the pinned Soufflé version, the bytes of the program file that is
+compiled, and every file it includes, in include order. The program is generated once, verified and
+then hashed, so the id is path-independent (the same from any checkout) and rule-sensitive (any rule,
+map or manifest change moves it), and it never comes from a second rendering of the program (#1593). The nightly and every real publish build fresh.

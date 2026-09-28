@@ -139,6 +139,13 @@ if ! bash "$ROOT/graph/test/tools/engine-id-test.sh"; then
   echo "aborting: the engine id is not a function of the rules alone"
   exit 1
 fi
+# A line lost while the program is generated or hashed (an interrupted pipe write under load)
+# must be refused or harmless, never a different id with exit 0: that id misses the cached
+# binary and a warm rebuild becomes a full compile.
+if ! bash "$ROOT/graph/test/tools/engine-id-lost-line-test.sh"; then
+  echo "aborting: a lost line changes the engine id silently"
+  exit 1
+fi
 if ! bash "$ROOT/graph/test/tools/engine-package-test.sh"; then
   echo "aborting: the packaged-engine path does not check what it runs"
   exit 1
