@@ -297,13 +297,21 @@ class Impact:
         # `Owner.m.<lambda@L42>`: the resolver matched the enclosing member it names, so its prefix is checked
         if re.search(r'<\w+@L\d+>$', typed.strip()): return ''
         typed = re.sub(r'\(.*\)$', '', typed).replace('#', '.').strip('.')
+        # `pkg.Owner.m:local` names a local of `pkg.Owner.m`: the declaration the prefix is checked against is the method
+        typed = re.sub(r':[A-Za-z_]\w*$', '', typed)
         if typed.count('.') < 2: return ''          # Owner.member carries no prefix to validate
+        # A PAYLOAD CAN NEST. A parameter, a local and a type parameter come back as `(declaration ids, name)`, the
+        # static initializer as `(ids, type ids)`: read one level deep, the ids list was neither a row nor an id, no
+        # name was collected, and every qualified `pkg.Owner.m(p)` died as "matches no package". That is the exact
+        # target `changed` and `test-impact` hand over for a parameter edit, so each one was refused. Walk it all.
         names = []
-        for _k, _lab, ids in out:
-            for i in (ids if isinstance(ids, (list, tuple, set)) else [ids]):
-                if isinstance(i, dict): names += [i.get('qualified_name'), i.get('display')]
-                elif isinstance(i, str) and i in self.g.sym:
-                    names += [self.g.sym[i].get('qualified_name'), self.g.sym[i].get('display')]
+        def collect(x):
+            if isinstance(x, dict): names.extend([x.get('qualified_name'), x.get('display')])
+            elif isinstance(x, (list, tuple, set)):
+                for y in x: collect(y)
+            elif isinstance(x, str) and x in self.g.sym:
+                names.extend([self.g.sym[x].get('qualified_name'), self.g.sym[x].get('display')])
+        for _k, _lab, ids in out: collect(ids)
         low = typed.lower()
         for n in names:
             if not n: continue
