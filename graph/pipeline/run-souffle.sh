@@ -536,6 +536,16 @@ echo "▶ engine id = $ENGINE_ID (rules + souffle $SOUFFLE_VERSION)"
 # per-run intermediate. Default IN-REPO so a checkout is self-contained (.souffle-cache/ is
 # gitignored); point AXIOM_SOUFFLE_CACHE at a shared dir to amortise it.
 CACHE_DIR="$CACHE_ROOT"
+# -march: `native` by default, tuned for the machine that compiles and runs it. A binary
+# that is restored onto OTHER machines — a CI cache shared across hosted runners, whose CPUs
+# differ — must not be: AXIOM_ENGINE_MARCH=portable compiles for the compiler's baseline
+# target instead, as the published engines are (build-engines.yml). Any other value is
+# passed through as -march=<value>. ENGINE_ID does not cover this, so whoever shares a
+# cache across machines keys it on the setting (ci.yml does).
+case "${AXIOM_ENGINE_MARCH:-native}" in
+  portable) MARCH_FLAG=();;
+  *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
+esac
 EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
 BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
 
@@ -611,7 +621,7 @@ elif command -v souffle >/dev/null 2>&1; then
   [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
   CXX_PLATFORM=""
   case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
-  if ! c++ -std=c++17 -O3 -march=native -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
+  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
     rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
   fi
   # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
@@ -698,13 +708,14 @@ while [ "$iter" -lt 50 ]; do
       INNER="${INNER:-$(find_souffle_include)}"
       souffle -I "$SRC" -g "$INT/profile-program.cpp" -p "$AXIOM_SOUFFLE_PROFILE" "$PROG" \
         2> "$INT/.souffle-prof-gen.log" || { cat "$INT/.souffle-prof-gen.log" >&2; exit 1; }
-      c++ -std=c++17 -O3 -march=native -w -I "$INNER" \
+      c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w -I "$INNER" \
         "$INT/profile-program.cpp" -o "$PBIN" || exit 1
     fi
     echo "▶ solving with profiling -> $AXIOM_SOUFFLE_PROFILE"
     "$PBIN" -F "$FACTS" -D "$RAW" -p "$AXIOM_SOUFFLE_PROFILE"
   else
-    # A cached binary is compiled with -march=native. Restored onto a CPU without one of
+    # A cached binary is compiled with -march=native (unless AXIOM_ENGINE_MARCH says
+    # otherwise). Restored onto a CPU without one of
     # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
     # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
     # later run the same way: drop the cache entry, so the next run recompiles, and say so.
