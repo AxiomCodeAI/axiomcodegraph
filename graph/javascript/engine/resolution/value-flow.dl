@@ -519,13 +519,23 @@ expr_value(e, "free", cat(mod, ":", n)) :- expr_kind(_, "IDENTIFIER", _, e),
 // functions all held the same 552 values. But where the object behind a typedef is
 // not tracked, the shape is the only carrier of a HANDLER stored on it:
 // `context.cachedGetErrors = c => …`, later `cachedGetErrors(compilation)`, was 9
-// real edges on that bundler. So a write through a shape keeps what a call needs, a
-// function or a class (shape_stores_kind), and drops the data stores that made the
-// width. Both tests are on kinds, so the rules stay monotone.
+// real edges on that bundler. So a write through a shape keeps every value a call
+// can later be made on or through (shape_stores_kind): a function or a class; an
+// instance, object literal or module namespace whose members are called
+// (`ctx.logger = new Logger()`, then `ctx.logger.log()`, where nothing but the
+// typedef carries ctx); and an array or collection of handlers that is iterated
+// (`ctx.list = [a, b]; for (const f of ctx.list) f()`). It drops the string,
+// symbol and other scalar stores, which were the width. Both tests are on kinds,
+// so the rules stay monotone.
 shared_identity_kind("ambient").
 shared_identity_kind("str").
 shape_stores_kind("func").
 shape_stores_kind("ctor").
+shape_stores_kind("inst").
+shape_stores_kind("obj").
+shape_stores_kind("module").
+shape_stores_kind("arr").
+shape_stores_kind("coll").
 member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt),
     expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), !shared_identity_kind(k),

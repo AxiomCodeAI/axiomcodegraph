@@ -1,3 +1,4 @@
 package_entry    64-shared-identity-writes  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       main.js:13:36  METHOD_CALL fn  no_target
+unresolved       main.js:60:35  METHOD_CALL toUpperCase  receiver_untyped
 unresolved       main.js:9:31  METHOD_CALL fn  no_target
