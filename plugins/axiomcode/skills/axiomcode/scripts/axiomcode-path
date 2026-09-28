@@ -1083,6 +1083,19 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             print(f"    no call site expresses this hop, so no chain of calls can contain it;"
                   f" `impact {g.disp(to)}` lists it as a [remote] dependent.")
             remote_found = True
+    # A FRAMEWORK HOP INSIDE ONE PROCESS WAS THE SAME FALSE "INDEPENDENT" (#1509). `order_placed.send()` and its
+    # @receiver, `send_report.delay()` and the task body: the engine writes framework_edge for the pair and no call
+    # site expresses it. Reported beside the cross-process hop and for the same reason not woven into a chain: it
+    # is framework-mediated, and a reader has to be able to tell that from an invocation.
+    if g.has('ext_framework_edge') and A_ and B_:
+        rows = g.q("SELECT c0, c1, c2, c3, c4 FROM ext_framework_edge WHERE (c0 IN (%s) AND c1 IN (%s)) OR (c0 IN (%s) AND c1 IN (%s))"
+                   % (','.join('?' * len(A_)), ','.join('?' * len(B_)), ','.join('?' * len(B_)), ','.join('?' * len(A_))),
+                   *(list(A_) + list(B_) + list(B_) + list(A_)))
+        for fr, to, mech, detail, conf in sorted({(r[0], r[1], r[2], r[3], r[4]) for r in rows if r[0] != r[1]}):
+            print(f"  BUT a framework connects them: {g.disp(fr)} {g.loc(fr)} → {g.disp(to)} {g.loc(to)}   [framework: {mech} via {detail}] ({conf})")
+            print(f"    framework-mediated, not a call: no call site expresses this hop, so no chain of calls can contain it;"
+                  f" `impact {g.disp(to)}` lists {g.disp(fr)} as a [framework] dependent.")
+            remote_found = True
     for q, srcs, word in (('fwd', A_, f"{la} → {lb}"), ('rev', B_, f"{lb} → {la}")):
         hits = sorted(res['hit_opt'][q], key=lambda h: (int(h[1]), h[0]))
         if not hits: continue

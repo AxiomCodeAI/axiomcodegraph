@@ -1,0 +1,10 @@
+── framework_edge (3) ──
+  signal_dispatch    registered  app.models.Order.place (app/models.py) -> app.handlers.on_placed (app/handlers.py)   [signal]
+  task_dispatch      registered  app.producer.enqueue (app/producer.py) -> app.tasks.send_report (app/tasks.py)   [delay]
+  task_dispatch      registered  app.producer.reschedule (app/producer.py) -> app.tasks.retry_report (app/tasks.py)   [apply_async]
+── framework_unjoined (3) ──
+     1  signal_dispatch    no_receiver
+     2  task_dispatch      delay
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──

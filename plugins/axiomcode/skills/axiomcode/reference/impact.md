@@ -29,6 +29,12 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 - **what the container injects** — a type registered as a bean, or a method that defines one, lists the callables the
   container hands it to (`ctor_param`, a field injection): `receives it by dependency injection — the container hands it
   over, no call site`. Swapping a `@Bean` implementation reaches its consumers this way.
+- **what a framework hands over (Python)**: the engine's `framework_edge` joins a task body to its `.delay()` /
+  `.apply_async()` producer, a `@receiver` to the `send` of the same signal object, a view to its route table, a
+  `Depends()` provider to the handler declaring it, and a fixture to the test naming it. The end that hands over is listed
+  as `[framework]`, with the mechanism, what joined the ends and the engine's confidence: `framework-mediated, not a call:
+  task_dispatch via delay [registered]`. It ranks below `[remote]` and above every name match, and like `[remote]` it is a
+  direct row that does not seed the closure. An unrelated method that shares the name (`Animation.delay`) gains nothing.
 - **a handler nothing calls is still used** — a declaration handed over as a *value* (`app.get('/orders/:id', getOrder)`,
   `background.add_task(send_receipt, id)`, `setTimeout(flush, 1000)`, `handlers = {"x": handle_x}`) has no call site
   anywhere: the call happens inside the framework, or later, or never. Every other rule here is about call sites, so this
