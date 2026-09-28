@@ -613,7 +613,7 @@ class G:
         callers = set(); typed = bool(ids)
         if self.has('type_refs'):
             for r in self.q("SELECT file, line FROM type_refs WHERE name = ? AND line > 0", name):
-                e = self.enclosing(r['file'], r['line'])
+                e = self.enclosing_at(r['file'], r['line'])
                 if e: callers.add(e); typed = True
         # A NAME IS NOT A TYPE BECAUSE IT IS WRITTEN. An identifier reference says only that the word occurs: a local
         # `const labelOf = new Map()`, a parameter, a field. Those uses were each counted as "a use of type labelOf",
@@ -627,7 +627,7 @@ class G:
         if self.has('refs'):
             for r in self.q("SELECT file, line, kind, entity_kind FROM refs WHERE name = ? AND line > 0", name):
                 if (r['entity_kind'] or '') in VALUE_BINDINGS: continue
-                e = self.enclosing(r['file'], r['line'])
+                e = self.enclosing_at(r['file'], r['line'])
                 if not e: continue
                 callers.add(e)
                 typed = typed or r['entity_kind'] == 'TYPE' or (name[:1].isupper() and (r['kind'] or '') not in MEMBER_REFS
@@ -640,8 +640,9 @@ class G:
             ids.append(node); parts.append(f"referenced by name in {len(callers)} method(s)")
         if not ids: return None
         return f"type {s} (not declared here; matched: " + ', '.join(parts) + ")", ids
-    def enclosing(self, f, ln):
-        """the narrowest callable whose span holds file:line"""
+    def enclosing_at(self, f, ln):
+        """the narrowest callable whose span holds file:line (not `enclosing`, which is a lambda's: two methods of one
+        name in one class, the later silently replaced the earlier and every lambda lookup died in a TypeError)"""
         e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", f, ln, ln)
         return e[0]['id'] if e else None
     def unqualified_on(self, f, ln, name):
@@ -660,7 +661,7 @@ class G:
         if not self.has('refs'): return ''
         name = s.split('.')[-1]; seen = {}
         for r in self.q("SELECT file, line, entity_kind FROM refs WHERE name = ? AND line > 0 ORDER BY file, line", name):
-            e = self.enclosing(r['file'], r['line'])
+            e = self.enclosing_at(r['file'], r['line'])
             if e and e not in seen: seen[e] = (r['entity_kind'] or '').lower().replace('_', ' ')
         if not seen: return ''
         rows = [f"    [by name] {self.disp(e)}   {self.loc(e)}" + (f"   — a {k} named {name}" if k in VALUE_KINDS_SHOWN else '') for e, k in list(seen.items())[:cap]]
