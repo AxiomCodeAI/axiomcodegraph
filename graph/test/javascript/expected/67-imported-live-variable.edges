@@ -1,0 +1,8 @@
+main.js:11:38 FUNCTION_CALL fixed  ->  ambient_terminal  -
+main.js:12:38 FUNCTION_CALL ready  ->  known_edge  hub.js:8:22 <arrow>
+main.js:13:40 METHOD_CALL hub.fixed  ->  ambient_terminal  -
+main.js:5:41 FUNCTION_CALL handler  ->  ambient_terminal  -
+main.js:6:35 METHOD_CALL hub.handler  ->  ambient_terminal  -
+main.js:7:42 FUNCTION_CALL hook  ->  ambient_terminal  -
+main.js:8:40 FUNCTION_CALL relayed  ->  ambient_terminal  -
+main.js:9:41 METHOD_CALL barrel.handler  ->  ambient_terminal  -
