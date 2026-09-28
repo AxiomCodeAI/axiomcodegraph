@@ -102,10 +102,12 @@ def _ti():
     return _TI or None
 
 
-def _command_for(lang, files, classes, db=None):
-    """the runnable command `axiomcode test-impact` prints, from the same function"""
-    try: return _ti().command_for(lang, files, classes, db)
+def _command_for(lang, files, classes, db=None, repo='.'):
+    """the runnable command `axiomcode test-impact` prints, from the same function; a TypeScript/JavaScript selection
+    can need one command per package and runner, joined with '; ' here because the hook's answer is one line"""
+    try: cmd = _ti().command_for(lang, files, classes, db, repo)
     except Exception: return None
+    return cmd.replace("\n", "; ") if cmd else cmd
 
 
 def _concrete(db, classes):
@@ -119,7 +121,7 @@ LANG = {e: ls[0] for e, ls in _where.BY_EXT.items()}          # one table for ev
 SHOWN = 6
 
 
-def body_line(db, results):
+def body_line(db, results, repo='.'):
     """ONE line for an edit that changed only bodies: which declarations, how many tests reach them, how to run those.
     `results` is [(changed-declaration, impact-json)], the same pairs the blast-radius block is built from."""
     names = [d['symbol'] for d, _ in results]
@@ -149,7 +151,7 @@ def body_line(db, results):
     fl, cl = sorted(files), sorted(owners)
     if lang in ('java', 'csharp') and cl:
         cl = sorted(_concrete(db, cl))      # before the cut, so the command and the "+N more" count the same classes
-    cmd = _command_for(lang, fl[:SHOWN], cl[:SHOWN])
+    cmd = _command_for(lang, fl[:SHOWN], cl[:SHOWN], None, repo)
     more = (len({c.split('.')[-1] for c in cl}) if lang in ('java', 'csharp') and cl else len(fl)) - SHOWN
     tail = (f"; run: {cmd}" + (f" (+{more} more: axiomcode test-impact)" if more > 0 else '')) if cmd else "; axiomcode test-impact gives the command"
     return f"graph: body edit of {what}: {n} test(s) reach it{tail}"

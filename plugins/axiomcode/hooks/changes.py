@@ -118,7 +118,7 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more: axiomcode changed --impact")
     if bodies:
         lines.append(_graphline.body_line(os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(cwd, '.axiomcode'), 'out', 'graph.sqlite'),
-                                          bodies + [(d, {}) for d in body[3:]]))
+                                          bodies + [(d, {}) for d in body[3:]], cwd))
     return lines
 
 def key(d): return f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}"
