@@ -148,6 +148,10 @@ A = {
     # a member's name (`obj.Count`, `this.value`) is in potentialQualifiedName; a bare name is in literalValue
     expr=dict(file='all-csharp-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'csModuleLinkHash'),
               refKinds={'NAME_REFERENCE', 'MEMBER_ACCESS'}, entityKind='referencedEntityKind',
+              # `_o.Limit` is a MEMBER_ACCESS row AND a NAME_REFERENCE child `Limit` in the MEMBER_NAME role: one access,
+              # stored once, as the qualified access it is (#1445). Kept twice, the child was a BARE reference, and a bare
+              # name elsewhere is a by-name reader whatever its qualifier says, so `_r.Limit` was listed under AuditOptions.Limit
+              memberName=dict(role='edgeRole', value='MEMBER_NAME', parent='parentExpressionHash', id='csExpressionUniqueHash'),
               # the literal TYPE column is literalKind here, not literalType as in java/typescript/python
               litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
@@ -436,14 +440,21 @@ c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 # ── references, literals, comments ───────────────────────────────────────────────────────────────
 e = A['expr']; refs = []; lits = []
 namecol = e['name'] if isinstance(e['name'], str) else dict(x.split(':') for x in e['name'])
+mname = e.get('memberName'); child_ek = {}
+if mname:   # the member-name child's entity kind, for the access that stands for it (the parent's own is UNKNOWN until resolved)
+    for r in rows(e['file']):
+        if r.get(mname['role']) == mname['value'] and r.get(mname['parent']): child_ek[r[mname['parent']]] = r.get(e['entityKind'], '')
 for r in rows(e['file']):
     k = r.get(e['kind'], '')
+    if mname and r.get(mname['role']) == mname['value'] and r.get(mname['parent']): continue
     if k in e['refKinds']:
         col = namecol if isinstance(namecol, str) else namecol.get(k)
         n = (r.get(col, '') if col else '') or (r.get(e['nameFallback'], '') if e.get('nameFallback') else '')
         if not n: continue
         n = n.rsplit('.', 1)[-1]
-        refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, r.get(e['entityKind'], '')))
+        ek = r.get(e['entityKind'], '')
+        if mname and ek in ('', 'UNKNOWN'): ek = child_ek.get(r.get(mname['id'], ''), ek) or ek
+        refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, ek))
     elif k in e['litKinds'] and r.get(e['litType'][0]) == e['litType'][1]:
         v = (r.get(e['litValue']) or '')
         if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
