@@ -13,6 +13,9 @@ where the server did not start, has nothing else to call, and the skill has to k
     python3 tests/mcp_first.py      indexes one case, so it needs the engine, as hosts.py does
 """
 import json, os, re, shutil, subprocess, sys, tempfile
+# the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
+# second run of this script reuses the first run's session ids and hears nothing
+os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUG = os.path.join(ROOT, 'plugins', 'axiomcode')

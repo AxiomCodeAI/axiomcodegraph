@@ -28,7 +28,7 @@ if not cwd or not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.s
 if tool in ('Edit', 'Write', 'MultiEdit') and inp.get('file_path'):
     os.environ.update(_where.lang_env(cwd, inp['file_path']))
 SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
-SRC = re.compile(r'\.(java|ts|tsx|js|mjs|cjs|py)$'); TEST = re.compile(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_')
+TEST = _where.TEST                               # what counts as source and as test: one table, _where.py
 STATE = os.path.join(cwd, '.axiomcode', f"hooks-state-{ev.get('session_id', 'x')}.json")
 def load_state():
     try: return json.load(open(STATE))
@@ -126,7 +126,7 @@ def key(d): return f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}
 lines = []
 if event == 'PreToolUse' and tool in ('Edit', 'Write', 'MultiEdit'):
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
-    if not SRC.search(rel) or TEST.search(rel) or not os.path.exists(fp): sys.exit(0)
+    if not _where.is_source(fp) or TEST.search(rel) or not os.path.exists(fp): sys.exit(0)
     cur = open(fp, errors='replace').read(); new = cur
     if tool == 'Write': new = str(inp.get('content', ''))
     else:
@@ -153,7 +153,7 @@ elif event in ('PostToolUse', 'UserPromptSubmit'):
     if bg: os.environ['AXIOMCODE_GRAPH'] = bg
 if event == 'PostToolUse' and tool == 'Bash':
     c = str(inp.get('command', ''))
-    if not re.search(r'\bsed\s+-i|\bpatch\b|\bgit\s+(apply|checkout|switch|pull|merge|rebase|revert|cherry-pick|stash\s+pop|reset\s+--hard|restore)\b|>>?\s*\S+\.(java|ts|tsx|js|py)\b|\b(python3?|node|bash|sh)\s+\S+|\bmv\b|\bcp\b|\brm\b', c): sys.exit(0)
+    if not re.search(r'\bsed\s+-i|\bpatch\b|\bgit\s+(apply|checkout|switch|pull|merge|rebase|revert|cherry-pick|stash\s+pop|reset\s+--hard|restore)\b|>>?\s*\S+\.(' + _where.SOURCE_ALT + r')\b|\b(python3?|node|bash|sh)\s+\S+|\bmv\b|\bcp\b|\brm\b', c): sys.exit(0)
     j = changed([], timeout=18)
     st = load_state(); seen = set(st.get('reported', []))
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]

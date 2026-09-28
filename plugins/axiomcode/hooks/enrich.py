@@ -113,7 +113,7 @@ if tool == 'Bash':
         if files and all(os.path.splitext(a)[1] and os.path.splitext(a)[1].lower() not in _graphline.LANG for a in files): sys.exit(0)
     if m: tool = 'Grep'; inp = {'pattern': m.group(3)}; _from_shell = True
     else:
-        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py|cs))\b', c)
+        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:' + _where.SOURCE_ALT + r'))\b', c)
         # a relative file is relative to where the shell is when it runs: the session's directory, or a `cd` before it
         if m: base, _ = _where.bash_where(c[:m.start()], scwd)
         if m and m.re.groups == 3: tool = 'Read'; inp = {'file_path': _where._abs(m.group(3), base), 'offset': int(m.group(1)), 'limit': int(m.group(2)) - int(m.group(1)) + 1}
@@ -160,7 +160,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     # with it, who produces or writes it, who reads it, what reaches those, the tests. The moment this is useful is now.
     import concurrent.futures
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
-    if not re.search(r'\.(java|ts|tsx|js|mjs|cjs|py)$', rel) or re.search(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_', rel): sys.exit(0)
+    if not _where.is_source(fp) or _where.is_test(rel): sys.exit(0)
     SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
     try: ch = json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), cwd, rel, '--json'], capture_output=True, text=True, timeout=10).stdout or '{}')
     except Exception: ch = {}

@@ -68,9 +68,65 @@ def run(script, args):
     return r.returncode, r.stdout, r.stderr
 
 
+def concrete_test_classes(db, names):
+    """(names, {abstract: [concrete subclasses]}): each ABSTRACT class among `names` replaced by the concrete classes
+    that extend it. A test declared in an abstract base runs only as a member of a subclass, so `mvn -Dtest=AbstractX`
+    runs nothing (surefire skips an abstract class), and `dotnet test --filter FullyQualifiedName~AbstractX` matches
+    nothing (an inherited test is named after the class that runs it). A concrete base is kept: its tests run in it.
+    The graph records no modifiers, so `abstract` is read from the declaration in the source, which the types table
+    locates. Returns `names` unchanged when there is no graph to ask."""
+    import sqlite3
+    try:
+        con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+        types = con.execute("SELECT id, name, qualified_name, file_path FROM types").fetchall()
+        anc = con.execute("SELECT type_id, ancestor_type_id FROM type_ancestors").fetchall()
+        root = dict(con.execute("SELECT key, value FROM index_meta").fetchall()).get('repo', '')
+        con.close()
+    except Exception:
+        return list(names), {}
+    by_name, info = collections.defaultdict(list), {}
+    for tid, n, qn, f in types:
+        info[tid] = (n, f)
+        by_name[n].append(tid)
+        if qn: by_name[qn].append(tid)
+    subs = collections.defaultdict(set)
+    for t, a in anc:
+        if t != a: subs[a].add(t)
+    texts = {}
+    def is_abstract(tid):
+        n, f = info[tid]
+        if not f: return False
+        f = f if os.path.isabs(f) else os.path.join(root, f)
+        if f not in texts:
+            try: texts[f] = open(f, errors='replace').read()
+            except OSError: texts[f] = ''
+        # a declaration line, not a comment: modifiers (or annotations) and then `class Name`
+        return re.search(r'^[ \t]*(?:[\w@]+[ \t]+)*abstract[ \t]+(?:\w+[ \t]+)*class[ \t]+' + re.escape(n) + r'\b',
+                         texts[f], re.M) is not None
+    out, replaced = [], {}
+    for c in names:
+        tids = by_name.get(c) or by_name.get(c.split('.')[-1]) or []
+        if not tids or not any(is_abstract(t) for t in tids):
+            out.append(c); continue
+        seen, todo, concrete = set(), list(tids), set()
+        while todo:                                   # every class below it, however deep (type_ancestors may be direct only)
+            for s in subs.get(todo.pop(), ()):
+                if s in seen: continue
+                seen.add(s); todo.append(s)
+                if not is_abstract(s): concrete.add(info[s][0])
+        replaced[c] = sorted(concrete)
+        out += sorted(concrete)
+    return list(dict.fromkeys(out)), replaced
+
+
 # How a suite is invoked, per language. Only the shapes this graph is built for; anything else prints the
 # files and lets the reader decide, which is better than inventing a command that does not run.
-def command_for(lang, files, classes):
+def command_for(lang, files, classes, db=None):
+    if lang in ('java', 'csharp') and db:
+        # a class to select by name: the test's owner, else its file's basename (a Java or C# test class is its file)
+        names = classes or [os.path.splitext(os.path.basename(f))[0] for f in files]
+        classes, files = concrete_test_classes(db, names)[0], []
+        if not classes: return None                    # only abstract classes, and nothing extends them: nothing runs
     if lang == 'java' and classes:
         return "mvn test -Dtest=" + ",".join(sorted({c.split('.')[-1] for c in classes})[:40])
     if lang == 'java' and files:
@@ -421,7 +477,14 @@ def main(argv):
     ownerless = [r for r in tests.values() if not r.get('owner') and r.get('at')]
     run_files = sorted(set(files) | set(edited))
     lang = (changed.get('lang') or '').lower() or _guess_lang(run_files or changed_files)
-    cmd_all = command_for(lang, run_files, classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []))
+    # the graph `impact` answered from, asked again for which selected classes are abstract (command_for)
+    db = os.path.join(os.environ.get('AXIOMCODE_GRAPH') or ax_fresh.graph_dir(repo_), 'out', 'graph.sqlite')
+    # the classes the command names: every owner, and a test that has none by its file (a class that inherits a
+    # reached test is one), as the note below promises; each abstract one stands for the classes that extend it
+    run_classes = classes + sorted({os.path.splitext(os.path.basename(r['at'].split(':')[0]))[0] for r in ownerless}) \
+        if classes and lang in ('java', 'csharp') else classes
+    replaced = concrete_test_classes(db, run_classes)[1] if lang in ('java', 'csharp') else {}
+    cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db)
 
     if as_json:
         print(json.dumps({'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
@@ -430,6 +493,7 @@ def main(argv):
                           'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in tests.items()],
                           'edited_test_files': edited,
                           'command': cmd_all,
+                          'abstract_replaced': replaced,
                           'not_reached_from': unseen,
                           'unreadable_answers': [t for t, _ in unreadable],
                           'same_package_only': pkg_hits,
@@ -462,7 +526,7 @@ def main(argv):
                 print(f"    {f}")
             # `lang` is guessed from the files the graph named, and here it named none — so guess it from
             # the tier's own files, or the one runnable sentence this block exists to produce is empty.
-            cmd = command_for(lang or _guess_lang(nf), nf[:limit], [])
+            cmd = command_for(lang or _guess_lang(nf), nf[:limit], [], db)
             if cmd:
                 print(f"\n  {cmd}")
         if pkg_hits:
@@ -487,6 +551,12 @@ def main(argv):
             for i, r in sorted(tests.items(), key=lambda kv: (kv[1].get('hops') or 99, kv[1].get('display', '')))[:limit]:
                 chain = " -> ".join(r.get('chain') or []) or "reaches it directly"
                 print(f"    {r.get('display')}  [{r.get('certainty')}]  {chain}")
+        if replaced:
+            # one line however many: an abstract class runs nothing by name, so the command names what extends it
+            each = [f"{a} -> " + (', '.join(subs[:3]) + (f" +{len(subs) - 3}" if len(subs) > 3 else '') if subs else 'none in the graph')
+                    for a, subs in sorted(replaced.items())]
+            print(f"\n  {len(each)} abstract test class(es) run nothing by name, so the command runs the classes that extend them: "
+                  + '; '.join(each[:4]) + (f"; +{len(each) - 4} more (--json: abstract_replaced)" if len(each) > 4 else ''))
         if cmd_all:
             print(f"\n  {cmd_all}")
     elif edited and cmd_all:
@@ -501,7 +571,7 @@ def main(argv):
             for f, (n, ts) in sorted(loaded.items()):
                 print(f"    {f}   named as '{n}' by: " + ", ".join(ts[:6]) + (f" … +{len(ts) - 6}" if len(ts) > 6 else ""))
             both = sorted(set(run_files) | set(loaded_files))
-            cmd = command_for(_guess_lang(both) or lang, both[:limit], classes + [os.path.splitext(os.path.basename(f))[0] for f in loaded_files] if classes else [])
+            cmd = command_for(_guess_lang(both) or lang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in loaded_files] if classes else [], db)
             if cmd: print(f"\n  with the tests above: {cmd}")
         missed = [f for f in outside if f not in loaded]
         if missed:

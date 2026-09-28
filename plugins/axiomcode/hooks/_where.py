@@ -30,6 +30,34 @@ BY_EXT = {'.py': ('python',), '.pyi': ('python',), '.java': ('java',), '.cs': ('
           '.ts': ('typescript',), '.tsx': ('typescript',), '.mts': ('typescript',), '.cts': ('typescript',),
           '.js': ('javascript', 'typescript'), '.jsx': ('javascript', 'typescript'),
           '.mjs': ('javascript', 'typescript'), '.cjs': ('javascript', 'typescript')}
+# THE ONE TABLE OF WHAT A HOOK CALLS SOURCE. Each hook kept its own regex or tuple of extensions, and each drifted:
+# the edit hooks had no `.cs`, so a C# edit got no graph line while a C# read did. Every hook asks these instead.
+SOURCE_EXT = tuple(BY_EXT)
+SOURCE_ALT = '|'.join(sorted((e[1:] for e in BY_EXT), key=len, reverse=True))   # for a regex: (?:py|java|cs|...)
+# test code, in each language's convention: a tests/ or src/test/ directory, a *Test / *Tests class file, a C# test
+# project (App.Tests/), a test_*.py module, a *.spec.ts / *.test.js file
+TEST = re.compile(r'(^|/)(tests?|__tests__)/|/src/test/|(^|/)[\w.]+\.Tests?/|Tests?\.(java|cs)$|\.(spec|test)\.[jt]sx?$|(^|/)test_')
+
+
+def is_source(path):
+    """a file some language's graph is built from: a known extension, or an extensionless script with a Python
+    shebang (the index reads those as modules)"""
+    path = str(path or '')
+    ext = os.path.splitext(path)[1].lower()
+    if ext: return ext in BY_EXT
+    try:
+        with open(path, 'rb') as f: first = f.readline(200)
+        return first.startswith(b'#!') and b'python' in first
+    except OSError: return False
+
+
+def is_test(rel):
+    return bool(TEST.search(str(rel or '').replace(os.sep, '/')))
+
+
+def lang_of(path):
+    """the language a file's tests are run in, '' when none"""
+    return (BY_EXT.get(os.path.splitext(str(path or ''))[1].lower()) or ('',))[0]
 
 _session = 'x'
 _cache = None
