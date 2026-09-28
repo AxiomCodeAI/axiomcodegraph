@@ -13,7 +13,7 @@ per language, `call_edges` carries 11 distinct tiers and 30 distinct kinds:
                   FUNCTION_CALL_APPLY FUNCTION_CALL_CALL FUNCTION_CALL_BIND
     python      SIMPLE_CALL METHOD_CALL SELF_CALL SUPER_CALL CHAINED_CALL SUBSCRIPT_CALL CONTEXT_MANAGER
                 PROPERTY_READ METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
-    csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped
+    csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped event_dispatch
                   runtime_observed (only with a runtime trace) · new property_read property_write
 
 Two rules hold here, and they are the reason this module exists rather than a dict at the top of

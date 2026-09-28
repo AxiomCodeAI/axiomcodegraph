@@ -1,0 +1,157 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · DISPATCH  (the in-process hop no call site expresses)
+//
+// A mediator hands a request to its handler inside the same process:
+//
+//     await mediator.Send(new GetOrder(id));          // the sender
+//     class GetOrderHandler : IRequestHandler<GetOrder, OrderVm>
+//     { public Task<OrderVm> Handle(GetOrder r, CancellationToken ct) ... }
+//
+// The container picks the handler by the request's TYPE, so no call site names it and
+// every rule in call-edge-generation is silent: `path` called the two independent and
+// `impact` on the handler said the change was local.
+//
+// WHY A CALL EDGE HERE, AND NOT remote_edge. destinations.dl joins the same shape for a
+// message bus, where the two ends are in different processes, and emits remote_edge.
+// This hop is on the sender's call stack: Handle runs before Send returns. So it is a
+// call_chain_edge, labelled `event_dispatch` (the tier the JavaScript engine gives an
+// emit reaching its handler), which consumers already rank below a resolved call and
+// print as `registered` rather than `resolved`. It is ADDED beside the site's own row
+// (the call to the library's Send); nothing the resolution phases derived changes.
+//
+// Every framework name is a knob (knobs.dl: cs_med_dispatch, over the cs_framework_callback
+// table that makes a handler an entry point). The request's type name is read by the
+// rules that already read a bus message's (destinations.dl, msg_arg_type_name).
+// ============================================================================
+
+// A handler: a type that implements <Base><TRequest> or <Base><TRequest, TResponse> for a
+// Base in cs_med_dispatch, and its method that cs_framework_callback names for that Base
+// (the table that already makes it an entry point), whose first parameter is written as
+// that request type. The parameter check keeps a class that handles two requests from
+// answering both with each Handle.
+med_handler(m, bn, tn, ar) :- heritage_slot("client", t, _, bn0, ba, href), (ba = "1" ; ba = "2"),
+    last_segment(bn0, bn), cs_med_dispatch(_, bn, _), cs_framework_callback(bn, mn, _),
+    type_ref_arg("client", href, "0", ar), type_ref_name("client", ar, tn0), last_segment(tn0, tn),
+    method_owner("client", t, m), method_name("client", m, mn),
+    param_decl("client", m, "0", _, p), param_type_name("client", p, pn0, _), last_segment(pn0, tn).
+
+// A send: a dispatching method on a mediator receiver, with the request as its first
+// argument. The method decides which handler base answers it (Send: IRequestHandler,
+// Publish: INotificationHandler), so a notification Sent reaches no notification handler.
+med_send_site(e, from, bn, fan) :- msg_recv_name(e, rn), cs_med_sender_type(rn),
+    call_callee_name("client", e, sn), cs_med_dispatch(sn, bn, fan), call_from("client", e, from).
+med_send_arg(e, a) :- med_send_site(e, _, _, _), http_arg(e, 0, a).
+msg_typed_arg(a) :- med_send_arg(_, a).
+
+// A name is a BASE when some handled request type derives from it. A request declared
+// as the base (a parameter, a local) is any of them at run time: it is not matched by
+// name here, and med_declared_handler below fans it over the family instead.
+med_base_name(n) :- med_handler(_, _, _, ar), type_ref_resolves("client", ar, hgk), type_ancestor("client", hgk, bgk),
+    type_group("client", t, bgk), type_decl("client", n, _, _, _, t).
+med_send(e, from, n) :- med_send_site(e, from, _, _), med_send_arg(e, a), msg_arg_type_name(a, n), !med_base_name(n).
+// ...but a request CONSTRUCTED at the send has exactly the type written after `new`.
+med_send(e, from, n) :- med_send_site(e, from, _, _), med_send_arg(e, a), expr_kind("client", a, "OBJECT_CREATION"),
+    msg_creation_name(a, n).
+
+// THE NAME IS THE KEY, AND THE TYPE DECIDES WHEN BOTH ENDS HAVE ONE. A simple name is
+// not unique: two test classes each declaring a nested `Ping` and `PingHandler` is the
+// ordinary shape of a mediator's own tests, and matching by name linked every Send(new
+// Ping()) to every PingHandler. So where the handler's type argument resolves and the
+// request resolves to a type OF THAT NAME, the two types must be the same one. The name
+// alone decides only where one end has no resolved type: the request comes from a
+// package, or the send's value is typed by nothing the engine can see.
+med_send_type(e, gk) :- med_send_arg(e, a), expr_type("client", a, gk).
+med_send_type(e, gk) :- med_send_arg(e, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    msg_local_assigned(v, c), expr_type("client", c, gk).
+med_send_type(e, gk) :- med_send_arg(e, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    var_value_initializer("client", v, c), expr_type("client", c, gk).
+med_send_named_type(e, n, gk) :- med_send_type(e, gk), type_group("client", t, gk), type_decl("client", n, _, _, _, t).
+med_send_has_named_type(e, n) :- med_send_named_type(e, n, _).
+med_handler_type(ar, gk) :- med_handler(_, _, _, ar), type_ref_resolves("client", ar, gk).
+med_handler_typed(ar) :- med_handler_type(ar, _).
+
+med_match(e, m, ar) :- med_send(e, _, n), med_send_site(e, _, bn, _), med_handler(m, bn, n, ar),
+    med_handler_type(ar, gk), med_send_named_type(e, n, gk).
+med_match(e, m, ar) :- med_send(e, _, n), med_send_site(e, _, bn, _), med_handler(m, bn, n, ar),
+    !med_handler_typed(ar), med_written_agrees(e, n, ar).
+med_match(e, m, ar) :- med_send(e, _, n), med_send_site(e, _, bn, _), med_handler(m, bn, n, ar),
+    !med_send_has_named_type(e, n), med_typed_agrees(e, n, ar).
+
+// A handler's argument that does not resolve may still be written QUALIFIED,
+// `IRequestHandler<Legacy.GetOrder, R>`: the simple name is then not the evidence, the
+// written tail is, and a request resolved to Shop.GetOrder is not Shop.Legacy.GetOrder.
+med_written_agrees(e, n, ar) :- med_send(e, _, n), med_handler(_, _, n, ar), type_ref_name("client", ar, w), !contains(".", w).
+med_written_agrees(e, n, ar) :- med_send(e, _, n), med_handler(_, _, n, ar), !med_send_has_named_type(e, n).
+med_written_agrees(e, n, ar) :- med_handler(_, _, n, ar), type_ref_name("client", ar, w), contains(".", w),
+    med_send_named_type(e, n, gk), type_group("client", t, gk), type_decl("client", _, qn, _, _, t),
+    lq = strlen(qn), lw = strlen(w), lq > lw, substr(qn, lq - lw - 1, lw + 1) = cat(".", w).
+// …and the same at the send: `Send(new Legacy.GetOrder(id))` names Shop.Legacy.GetOrder
+// even where the engine does not resolve it, and a handler of Shop.GetOrder is not it.
+med_send_written(e, w) :- med_send_arg(e, a), expr_new_type_ref("client", a, tr), type_ref_name("client", tr, w).
+med_send_written(e, w) :- med_send_arg(e, a), ref_denotes("client", a, "LOCAL_VARIABLE", v), var_type_name("client", v, w, _), w != "".
+med_send_written(e, w) :- med_send_arg(e, a), ref_denotes("client", a, "PARAMETER", p), param_type_name("client", p, w, _), w != "".
+med_send_written(e, w) :- med_send_arg(e, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    msg_local_assigned(v, c), expr_new_type_ref("client", c, tr), type_ref_name("client", tr, w).
+med_send_written(e, w) :- med_send_arg(e, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    var_value_initializer("client", v, c), expr_new_type_ref("client", c, tr), type_ref_name("client", tr, w).
+med_send_qualified(e, n) :- med_send_written(e, w), contains(".", w), last_segment(w, n).
+med_typed_agrees(e, n, ar) :- med_send(e, _, n), med_handler(_, _, n, ar), !med_send_qualified(e, n).
+med_typed_agrees(e, n, ar) :- med_send_written(e, w), contains(".", w), last_segment(w, n), med_handler(_, _, n, ar),
+    med_handler_type(ar, gk), type_group("client", t, gk), type_decl("client", _, qn, _, _, t),
+    lq = strlen(qn), lw = strlen(w), lq > lw, substr(qn, lq - lw - 1, lw + 1) = cat(".", w).
+
+// A GENERIC request is one type to the resolver, `GetById<T>`, and the handler is
+// chosen with its arguments: `IRequestHandler<GetById<Order>, Order>` does not answer
+// `Send(new GetById<Widget>(id))`. Where both ends write an argument at the same position
+// and the handler's is not its own type parameter (an open generic handler,
+// `ListAllHandler<T> : IRequestHandler<ListAll<T>, List<T>>`, serves any), the names must agree.
+med_send_new_ref(e, tr) :- med_send_arg(e, a), expr_new_type_ref("client", a, tr).
+med_send_new_ref(e, tr) :- med_send_arg(e, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    msg_local_assigned(v, c), expr_new_type_ref("client", c, tr).
+med_send_new_ref(e, tr) :- med_send_arg(e, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+    var_value_initializer("client", v, c), expr_new_type_ref("client", c, tr).
+med_arg_clash(e, ar) :- med_match(e, _, ar), med_send_new_ref(e, tr),
+    type_ref_arg("client", ar, i, ha), type_ref_arg("client", tr, i, sa), !type_ref_type_param("client", ha, _),
+    type_ref_name("client", ha, hn0), last_segment(hn0, hn), type_ref_name("client", sa, sn0), last_segment(sn0, sn),
+    hn != sn.
+med_exact(e, m) :- med_match(e, m, ar), !med_arg_clash(e, ar).
+
+// Publish runs every handler whose type the notification CONVERTS to: INotificationHandler
+// is contravariant, and a handler of OrderEvent runs for an OrderPlaced. Only where the
+// notification's type is resolved, since a base is a resolved ancestor.
+med_send_concrete(e, gk) :- med_send(e, _, n), med_send_named_type(e, n, gk).
+med_base_handler(e, m) :- med_send_site(e, _, bn, "all"), med_send_concrete(e, gk), type_ancestor("client", gk, agk),
+    med_handler(m, bn, _, ar), med_handler_type(ar, agk).
+
+// A request DECLARED as a base, `Task<string> Any(ShapeQuery q) => sender.Send(q)`, holds
+// the base or any type derived from it, and the container picks the handler for that
+// runtime type: the fan is the handler of each type in the family (and, for a Publish,
+// of each base as well). Only where no construction is visible to name the value, and
+// never for an interface, which would be every request of the project.
+med_send_sees_new(e) :- med_send_arg(e, a), expr_kind("client", a, "OBJECT_CREATION").
+med_send_sees_new(e) :- med_send_new_ref(e, _).
+med_send_declared(e, bgk) :- med_send_site(e, _, _, _), !med_send_sees_new(e), med_send_arg(e, a),
+    msg_arg_type_name(a, n), med_base_name(n), expr_type("client", a, bgk),
+    type_group("client", t, bgk), type_decl("client", n, _, _, kd, t), kd != "INTERFACE".
+med_declared_handler(e, m) :- med_send_declared(e, bgk), med_send_site(e, _, bn, _),
+    med_handler(m, bn, _, ar), med_handler_type(ar, bgk).
+med_declared_handler(e, m) :- med_send_declared(e, bgk), med_send_site(e, _, bn, _),
+    med_handler(m, bn, _, ar), med_handler_type(ar, hgk), type_ancestor("client", hgk, bgk).
+med_declared_handler(e, m) :- med_send_declared(e, bgk), med_send_site(e, _, bn, "all"),
+    med_handler(m, bn, _, ar), med_handler_type(ar, agk), type_ancestor("client", bgk, agk).
+
+// A pipeline step written open over the request, `TimingBehavior<TReq, TRes> :
+// IPipelineBehavior<TReq, TRes>`, is registered for every request and runs on every Send.
+// Only for a "wrap" base: an open request HANDLER is not how a request is answered.
+med_open_step(m, bn) :- cs_med_dispatch(_, bn, "wrap"), med_handler(m, bn, _, ar), type_ref_type_param("client", ar, _).
+med_open_dispatch(e, m) :- med_send_site(e, _, bn, "wrap"), med_open_step(m, bn).
+
+med_dispatch(e, m) :- med_exact(e, m).
+med_dispatch(e, m) :- med_open_dispatch(e, m).
+med_dispatch(e, m) :- med_base_handler(e, m).
+med_dispatch(e, m) :- med_declared_handler(e, m).
+// A send whose request is an argument MATCHER is a mock's stub or verification, not a
+// dispatch (knobs.dl, cs_mock_arg_matcher).
+med_send_matcher(e) :- med_send_arg(e, a), call_callee_name("client", a, n0), last_segment(n0, n), cs_mock_arg_matcher(n).
+call_chain_edge(e, from, "-", m, "client", "event_dispatch", kind) :- med_send_site(e, from, _, _), med_dispatch(e, m),
+    !med_send_matcher(e), from != m, invocation_site("client", e, kind).

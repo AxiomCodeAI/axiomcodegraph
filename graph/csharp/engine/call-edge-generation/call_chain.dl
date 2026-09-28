@@ -34,6 +34,10 @@
 //   ambiguous_dynamic a call through `dynamic`. Unresolvable BY DESIGN: the DLR
 //                     decides at runtime. Separated from ambiguous_unknown so a
 //                     known-undecidable site is never counted as an engine failure.
+//   event_dispatch    NOT the site's own target: a framework runs this method for the
+//                     site in process (a mediator's Send reaching the handler for the
+//                     request type). Added beside the site's row, by
+//                     framework-behavior/dispatch.dl.
 // ============================================================================
 
 // ── THE SITE UNIVERSE ───────────────────────────────────────────────────────
