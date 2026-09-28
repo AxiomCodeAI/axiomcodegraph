@@ -287,6 +287,10 @@ def engine_checks():
               ax_fresh.engine_change(repo).startswith('graph built by an older axiomcode (one that did not record its engine -> 1.0.0 '), ax_fresh.engine_change(repo))
         json.dump(table, open(tp, 'w'))
         check("engine: control: put back, it is fresh again", ax_fresh.status(repo).get('state') == 'fresh', ax_fresh.status(repo))
+        c = [[], [], []]; st = dict(failed_table=ax_fresh.change_key(c), failed_engine='graph built by an older axiomcode (engine a -> b)')
+        check("engine: a rebuild that failed on a difference is not retried for it, but is for another one, or for another edit",
+              ax_fresh.failed_on(st, c, st['failed_engine']) and not ax_fresh.failed_on(st, c, 'graph built by an older axiomcode (engine a -> c)')
+              and not ax_fresh.failed_on(st, [['x.py'], [], []], st['failed_engine']))
         e = dict(os.environ, AXIOMCODE_ENGINE=e2, AXIOMCODE_NO_ENGINE_CHECK='1'); os.environ.update(e)
         check("engine: AXIOMCODE_NO_ENGINE_CHECK=1 turns the check off", ax_fresh.engine_change(repo) == '')
     finally:

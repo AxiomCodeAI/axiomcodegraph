@@ -550,13 +550,19 @@ def status(repo):
     d = dict(state='building' if busy else 'stale', changed=changed, added=added, removed=removed)
     if eng: d['engine'] = eng
     if busy and not (changed or added or removed): d.update(pending(repo))
-    if not busy and st.get('failed_table') == change_key(c, eng): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
+    if not busy and failed_on(st, c, eng): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
     return d
 
-def change_key(c, engine=''):
-    """identifies a change set (and what built the graph, when that differs), so a build that failed on it is not
-    retried until the files move again or another axiomcode is installed"""
-    return hashlib.sha1(json.dumps([c, engine] if engine else c).encode()).hexdigest()
+def change_key(c):
+    """identifies a change set, so a build that failed on it is not retried until the files move again"""
+    return hashlib.sha1(json.dumps(c).encode()).hexdigest()
+
+def failed_on(st, c, engine=''):
+    """the last rebuild failed on exactly this change set and, when the graph is behind the installed axiomcode, on
+    the same difference: it is not retried until the files move or another axiomcode is installed. The difference is
+    compared only when there is one: a failed rebuild seen by a caller whose engine matches the graph (a shell without
+    the AXIOMCODE_ENGINE the refresher ran with) is still the failed rebuild of these files"""
+    return st.get('failed_table') == change_key(c) and (not engine or st.get('failed_engine', '') == engine)
 
 def behind(s):
     """the graph is behind: files edited since it was built, or built by another axiomcode"""
@@ -625,8 +631,8 @@ def worker(repo):
                 c = c or [[], [], []]
             st = read_state(repo)
             # a build that FAILED on exactly this tree is not retried on every trigger: the next edit retries it
-            fp = change_key(c, eng)
-            if st.get('failed_table') == fp: return 0
+            fp = change_key(c)
+            if failed_on(st, c, eng): return 0
             n = sum(len(x) for x in c)
             why = (f"{n} file(s) changed" if n else eng if eng else f"HEAD moved to {(head(repo) or '')[:10]}") + \
                   (f"; {eng}" if n and eng else '') + f", found by {os.environ.get('AXIOMCODE_REFRESH_TRIGGER') or 'an edit'}"
@@ -642,7 +648,7 @@ def worker(repo):
                                **(dict(creationflags=0x08000000) if os.name == 'nt' else {}))
             took = round(time.time() - t0, 1)
             if r.returncode != 0:
-                write_state(repo, state='failed', finished=time.time(), seconds=took, failed_table=fp,
+                write_state(repo, state='failed', finished=time.time(), seconds=took, failed_table=fp, failed_engine=eng,
                             failed_log=os.path.join(repo, '.axiomcode', 'refresh.log'), failed_reason=failure_reason(r.stdout))
                 print(f"refresh: build failed after {took}s; the previous graph is kept\n{r.stdout[-800:]}", flush=True)
                 return 1
