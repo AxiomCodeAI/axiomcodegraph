@@ -1,0 +1,16 @@
+class Orders:
+    def __init__(self):
+        self.items = []
+
+    def totals(self, xs):
+        keep = filter(lambda x: x > 0, xs)
+        double = map(lambda y: y * 2, keep)
+        return list(double)
+
+    def names(self):
+        return [i.name for i in self.items]
+
+
+HANDLERS = {
+    "sum": lambda xs: sum(xs),
+}

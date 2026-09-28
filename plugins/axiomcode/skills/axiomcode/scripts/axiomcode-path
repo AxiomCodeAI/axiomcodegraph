@@ -65,6 +65,9 @@ def chain_json(g, chain):
 # declarations that describe a callable and have no body (score.py's bodiless_kinds)
 BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE',
                   'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE'}
+# the one name a front end gives every lambda it declares (Python and C#; Java declares none): a name that says nothing
+# about WHICH lambda, so it is never a target on its own (G.lambda_label, G.lambda_target)
+LAMBDA_NAMES = {'<lambda>'}
 
 # ONE SPELLING FOR EVERY LANGUAGE. Each front end writes a qualified name its own way: Java and C# `pkg.Owner.m`,
 # Python `pkg.module.f`, TypeScript `src/util#square`, JavaScript `src/util.square`. canon() maps all of them onto the
@@ -198,6 +201,61 @@ class G:
     def disp(self, i):
         r = self.sym.get(i) or self.all_sym.get(i); return r['display'] if r else i
 
+    # ── a lambda is named by where it is written ─────────────────────────────────────────────────────────────
+    # Every lambda of a language is declared under ONE name (`<lambda>`), so the name alone matches every lambda in the
+    # graph: an edit next to one was handed to impact as `<lambda>`, which answered for hundreds of declarations, and
+    # the lambdas of one class were one symbol `Owner.<lambda>`. A lambda is identified by the member that encloses it
+    # and its line, `Owner.method.<lambda@L42>`, and targeted by `file:line`, which names that one declaration.
+    def is_lambda(self, i):
+        r = self.all_sym.get(i) or self.sym.get(i)
+        return bool(r) and r.get('name') in LAMBDA_NAMES and r.get('method_id') is not None
+    def enclosing(self, i):
+        """the narrowest declaration other than a lambda or a module body whose span holds lambda `i`: a method, a
+        field whose initializer it is, or a type. None at the top level of a file."""
+        r = self.all_sym.get(i) or self.sym.get(i)
+        if not r or not r.get('file') or not r.get('line'): return None
+        a, b = r['line'], r.get('end_line') or r['line']
+        rows = self.q("""SELECT id, rowid, display, kind, name, line, end_line FROM symbols WHERE file = ? AND line <= ? AND COALESCE(end_line, line) >= ?
+                          AND id IS NOT ? AND kind NOT IN ('module', 'library', 'written') AND name NOT IN (%s)
+                          ORDER BY COALESCE(end_line, line) - line, CASE WHEN method_id IS NOT NULL THEN 0 WHEN type_id IS NULL THEN 1 ELSE 2 END""" % ','.join('?' * len(LAMBDA_NAMES)),
+                      r['file'], a, b, i, *sorted(LAMBDA_NAMES))
+        return dict(rows[0]) if rows else None
+    def lambda_label(self, i):
+        """`Owner.method.<lambda@L42>`: the enclosing member's name and the lambda's line"""
+        r = self.all_sym.get(i) or self.sym.get(i)
+        if not r: return str(i)
+        e = self.enclosing(i)
+        if e: pre = e['display']
+        else:
+            q = (r.get('qualified_name') or '').replace('.<locals>', '')
+            pre = q.rsplit('.', 1)[0] if '.' in q and not q.rsplit('.', 1)[0].endswith('>') else (r.get('owner') or os.path.splitext(os.path.basename(r.get('file') or ''))[0])
+        return f"{pre}.{r['name'][:-1]}@L{r.get('line')}>"
+    def decl_at_line(self, f, ln, spanning=None):
+        """('field', row) or ('type', row) when `f:ln` is the declaration line of a field, a constant, a property or a
+        type and no callable of its own is written there; None otherwise. A file:line names "the declaration at that
+        line", and the resolver took callables only, so a field line answered `no callable spans` in every language
+        and a C# class line too (#1426). What a front end synthesises ON such a line is not a callable of its own: a
+        lambda in a field's initializer is part of the field, and an implicit constructor on a type's header line is
+        the type's (a Python class body is a module node and is never a candidate here)."""
+        if spanning is None:
+            spanning = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
+        fields = [dict(x) for x in self.q("SELECT rowid, * FROM symbols WHERE file = ? AND line = ? AND method_id IS NULL AND type_id IS NULL AND kind IN ('field','const','enum_member','variable')", f, ln)]
+        types = [dict(x) for x in self.q("SELECT * FROM symbols WHERE file = ? AND line = ? AND type_id IS NOT NULL AND method_id IS NULL", f, ln)]
+        if not fields and not types: return None
+        fend = max([x.get('end_line') or x['line'] for x in fields], default=ln)
+        for x in spanning:
+            s = self.sym.get(x['id']) or self.all_sym.get(x['id']) or {}
+            if fields and self.is_lambda(x['id']) and ln <= (s.get('line') or 0) and (s.get('end_line') or 0) <= fend: continue
+            if types and s.get('kind') == 'constructor' and s.get('line') == ln and (s.get('end_line') or ln) == ln: continue
+            return None                                                   # a callable of its own is written on this line
+        return ('field', fields[0]) if fields else ('type', types[0])
+    def name(self, i):
+        """the name a reader is shown for a declaration: its display, and a lambda's place (lambda_label)"""
+        return self.lambda_label(i) if self.is_lambda(i) else self.disp(i)
+    def lambda_target(self, i):
+        r = self.all_sym.get(i) or self.sym.get(i)
+        return f"{r['file']}:{r['line']}" if r and r.get('file') and r.get('line') else None
+
     # ── endpoints: exact, or a short list of what is close ───────────────────────────────────────────────────
     IN = None
     def resolve(self, sel, fragment=False):
@@ -268,6 +326,18 @@ class G:
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
             r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
+            d = self.decl_at_line(f, ln, r)
+            if d and d[0] == 'type':                                      # a type's header line: the type, as its name answers
+                t = d[1]
+                ids = [x['id'] for x in self.q("SELECT id FROM symbols WHERE owner = ? AND file = ? AND method_id IS NOT NULL", t['display'], f)]
+                if t['id'] in self.callers_ids: ids.append(t['id'])
+                if ids: return f"{t['display']} (type at {s}: {len(ids)} methods)", ids
+            if d and d[0] == 'field':                                     # a field's line: what its name answers
+                fr = d[1]; nm = f"{fr['owner']}.{fr['name']}" if fr.get('owner') else fr['name']
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()): label, ids = self._resolve(nm)
+                    return f"{label} (field at {s})", ids
+                except SystemExit: pass
             if r:
                 ids = [x['id'] for x in r if x['span'] == r[0]['span']]
                 # AN ANNOTATION IS NOT THE FUNCTION. `export const f: (a: A) => B = (a) => …` puts a one-line call
@@ -277,8 +347,11 @@ class G:
                 if self.has('methods') and all(self.method_kind(i) in BODILESS_KINDS for i in ids):
                     start = {self.sym[i].get('line') for i in ids if i in self.sym}
                     ids += [x['id'] for x in r if x['id'] not in ids and self.sym.get(x['id'], {}).get('line') in start and self.method_kind(x['id']) not in BODILESS_KINDS]
-                return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
-            r = self.q("SELECT id FROM symbols WHERE file = ? AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f)
+                return (f"{self.name(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
+            # top-level code: the module body that holds the line. A Python file has two (the file's and each class
+            # body's), and the first row came back whatever the line, so a module-level constant below a class was
+            # answered as that class's body
+            r = self.q("SELECT id FROM symbols WHERE file = ? AND kind = 'module' AND method_id IS NOT NULL ORDER BY (line <= ? AND COALESCE(end_line, line) >= ?) DESC, COALESCE(end_line, line) - line LIMIT 1", f, ln, ln)
             if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
             if outside: die(f"{m.group(1)} is outside the indexed repository {self.repo}: give the file relative to that root, or ask the graph of the repository it belongs to")
             die(f"no callable spans {s}")
@@ -312,6 +385,15 @@ class G:
         # printed the near miss `Router.#handleError`, which is what had just been asked for: a private method could not
         # be asked about at all, in the language where private methods are written that way. So the spelling as
         # written is tried against the index BEFORE any separator is rewritten.
+        # `Owner.method.<lambda@L42>`, the name changed and test-impact print for a lambda: the lambda at that line
+        # whose enclosing member is the prefix written
+        ml = re.match(r'^(?:(.*)\.)?<(\w+)@L(\d+)>$', s)
+        if ml:
+            want = canon(ml.group(1) or '')
+            ids = [x['id'] for x in self.q("SELECT id FROM symbols WHERE name = ? AND line = ? AND method_id IS NOT NULL", f"<{ml.group(2)}>", int(ml.group(3)))
+                   if not want or canon_is(self.lambda_label(x['id']).rsplit('.<', 1)[0], want)]
+            if ids: return (s if len(ids) == 1 else f"{s} ({len(ids)} declarations)"), ids
+            die(f"no <{ml.group(2)}> starts on line {ml.group(3)}" + (f" inside {ml.group(1)}" if ml.group(1) else '') + ": ask by file:line")
         verbatim = re.sub(r'\(.*\)$', '', s).strip()
         if '#' in verbatim:
             hit = self.q("SELECT id FROM symbols WHERE (display = ? OR qualified_name = ?) AND method_id IS NOT NULL", verbatim, verbatim)

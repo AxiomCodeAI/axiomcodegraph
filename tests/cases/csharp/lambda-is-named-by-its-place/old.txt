@@ -1,0 +1,25 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace App;
+
+public class Orders
+{
+    private int _count = 0;
+    private readonly Func<int, int> _twice = x => x * 2;
+
+    public List<int> Totals(List<int> xs)
+    {
+        return xs.Where(x => x > 0)
+                 .Select(y => y * 2)
+                 .ToList();
+    }
+
+    public int Names()
+    {
+        return _count;
+    }
+
+    public int Positive(List<int> xs) => xs.Count(x => x > 0);
+}
