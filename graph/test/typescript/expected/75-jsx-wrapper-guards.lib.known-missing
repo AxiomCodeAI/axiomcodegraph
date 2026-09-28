@@ -1,0 +1,18 @@
+# Accepted client->client gaps for 75-jsx-wrapper-guards (library pass) — each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# A name bound by a DESTRUCTURED parameter carries no declared type the engine reads, so
+# the call through it stays unresolved. The compiler names the prop's type signature.
+# Before this case these sites resolved to the same-named IMPORT (a wrong edge); unresolved
+# is the honest answer until destructured parameters are typed.
+app#<arrow@57>(?) -> parts#<arrow@15>(T)
+app#RenameTag({ icon: Fc }) -> parts#<arrow@15>(T)
+app#ShorthandTag({ Button: Fc }) -> parts#<arrow@15>(T)
+app#RenameCall({ run: () =) -> app#<arrow@66>()
+app#ShorthandCall({ Button: () =) -> app#<arrow@63>()
+# `useMemoLike(() => function MadeInner…)` returns what its argument RETURNS, through a
+# generic T. Argument 0 is not a component wrapper, so the tag no longer lands on the
+# argument arrow; following the generic return to MadeInner is value flow the engine
+# does not do here.
+app#Page() -> app#MadeInner()

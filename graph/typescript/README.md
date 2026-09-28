@@ -137,9 +137,12 @@ demonstrable false positive.
 Stated because a graph you cannot trust the boundaries of is not useful.
 
 * **A JSX member tag is only as good as its receiver.** `<Badge/>` is a
-  `JSX_COMPONENT_CALL` resolved by tag name, including through `memo()` / `forwardRef()`
-  wrappers and `lazy(() => import(...))`; `<ui.Card/>` is a `METHOD_CALL` and resolves
-  only where `ui.Card(...)` would. `<div>` produces no site.
+  `JSX_COMPONENT_CALL` resolved by tag name, including through the component wrappers
+  (`memo`, `forwardRef`, `observer`, a `withX` HOC) and a `lazy` / `dynamic` loader;
+  `<ui.Card/>` is a `METHOD_CALL` and resolves only where `ui.Card(...)` would. `<div>`
+  produces no site. A tag bound by a destructured prop (`({ icon: Icon }) => <Icon/>`)
+  is the prop, not a same-named import, and stays unresolved; so does a loader whose
+  `.then` projects a named export through a concise arrow body.
 * **Generic inference through a callback** — `map<U>(f: (t: T) => U): U[]` — is not
   substituted. `U` is bound by the argument's return type, which is inference rather
   than substitution, and guessing it would fabricate. Those sites stay unresolved and
