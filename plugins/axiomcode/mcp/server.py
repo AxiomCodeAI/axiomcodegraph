@@ -81,7 +81,35 @@ class Server(MCPServer):
         if bad: raise ToolError(bad)
         return await super().call_tool(name, arguments, *a, **k)
 
-srv = Server('axiomcode')
+# WHICH BUILD IS ANSWERING. Every build on a release branch has the same version, and a server keeps the code it started
+# with until the session reconnects, so the build is named where a client and an agent can see it: the start line on
+# stderr, serverInfo.version, and a note on any answer given after the installed build has changed under this server.
+sys.path.insert(0, os.path.dirname(AX))
+try:
+    import ax_version
+    BUILD = ax_version.build(ROOT)
+except Exception:
+    ax_version, BUILD = None, None
+BUILD_LABEL = ax_version.label(BUILD) if BUILD else 'unknown build'
+
+def stale_note():
+    """One line when the build installed now is not the one this server started on, else ''."""
+    if not BUILD: return ''
+    try: now = ax_version.build(ROOT)
+    except Exception: return ''
+    if (now['commit'], now['now']) == (BUILD['commit'], BUILD['now']): return ''
+    return (f"note: this MCP server started on axiomcode {BUILD_LABEL}; the installed build is now {ax_version.label(now)}. "
+            "The answer above came from the installed build's CLI, but the server's own code is the old one until the "
+            "MCP server is reconnected (/mcp in Claude Code).")
+
+try:
+    srv = Server('axiomcode', version=BUILD_LABEL)  # the fallback takes it; so may an SDK
+except Exception:
+    srv = Server('axiomcode')
+try:                                                # the SDK reports its low-level server's version in serverInfo
+    if hasattr(getattr(srv, '_mcp_server', None), 'version'): srv._mcp_server.version = BUILD_LABEL
+except Exception:
+    pass
 
 # launch.js hands over the bash it chose, because on Windows a bare `bash` is WSL's or nothing (#1233).
 BASH = os.environ.get('AXIOMCODE_BASH') or 'bash'
@@ -130,7 +158,8 @@ def run(args, cwd=None, timeout=900):
     out = (r.stdout or '') + (('\n' + r.stderr.strip()) if r.returncode and r.stderr.strip() else '')
     # an answer given from a graph that predates some edit says so, and names the files (#1305)
     if not r.returncode: out += ''.join('\n' + l for l in (r.stderr or '').splitlines() if l.startswith('graph refresh:'))
-    return mcp_words(out.strip()) or f"(no output, exit {r.returncode})"
+    note = stale_note()
+    return (mcp_words(out.strip()) or f"(no output, exit {r.returncode})") + ('\n' + note if note else '')
 
 @srv.tool()
 def axiomcode_index(repo: str = ".", lang: str = '', src: str = '', library: str = '') -> str:
@@ -146,7 +175,7 @@ def axiomcode_context(task: str, repo: str = ".", in_path: str = '', budget: int
 
 @srv.tool()
 def axiomcode_path(from_: str, to: str, repo: str = ".", every: bool = False, in_path: str = '', depth: int = 0, limit: int = 0, page: int = 1, fresh: bool = False) -> str:
-    """[resolved]/[sound] rows are verified against the graph, so a change need not re-derive them by reading (to explain how something works, read each hop's body); the answer ends with `next:`, the one step to take. A chain of calls from A to B in the graph, each hop verified, or why there is none. When you have ONE concept word you can name, a bare fragment resolves to every declaration containing it, so path('decrypt', '*') answers "what is the decryption code and what does it touch". For a whole task in words, with no name at all, use axiomcode_context first. Endpoints otherwise as written in the code: Owner.method, method, Type, Outer$Inner.m, file.java:123, file.py, @Decoration, a library call as written (new File, Files.readAllBytes). '*' on one side = everything that reaches B / everything A reaches. every=True lists every route; in_path restricts to files containing it; depth bounds a closure. A long answer comes in pages, nearest routes first, with the whole answer's counts on every page; ask for page=2 only if page 1 is not enough. fresh=True: after an edit, wait for the rebuild instead of answering from the last graph with rows in edited files marked (may be out of date)."""
+    """[resolved]/[sound] rows are verified against the graph, so a change need not re-derive them by reading (to explain how something works, read each hop's body); the answer ends with `next:`, the one step to take. A chain of calls from A to B in the graph, each hop verified, or why there is none. When you have ONE concept word you can name, a bare fragment resolves to every declaration containing it, so path('decrypt', '*') answers "what is the decryption code and what does it touch". For a whole task in words, with no name at all, use axiomcode_context first. Endpoints otherwise as written in the code: Owner.method, method, Type, Outer$Inner.m, file.java:123, file.py, @Decoration, a library call as written (new File, Files.readAllBytes). * on one side = everything that reaches B / everything A reaches: pass from_="*" or to="*" (quotes as a shell needs them, '*', are accepted too). every=True lists every route; in_path restricts to files containing it; depth bounds a closure. A long answer comes in pages, nearest routes first, with the whole answer's counts on every page; ask for page=2 only if page 1 is not enough. fresh=True: after an edit, wait for the rebuild instead of answering from the last graph with rows in edited files marked (may be out of date)."""
     a = ['path', from_, to, repo] + (['--fresh'] if fresh else []) + (['--every'] if every else []) + (['--in', in_path] if in_path else []) + (['--depth', str(depth)] if depth else []) + (['--limit', str(limit)] if limit else []) + (['--page', str(page)] if page and page != 1 else [])
     return run(a)
 
@@ -174,6 +203,7 @@ def axiomcode_graph(repo: str = ".", out: str = '') -> str:
     return run(['graph', repo] + (['--out', out] if out else []))
 
 if __name__ == '__main__':
+    sys.stderr.write(f"axiomcode mcp: serving axiomcode {BUILD_LABEL} from {ROOT}\n")
     # catch up on whatever changed while no session was running (#1305): started, never waited on
     try:
         sys.path.insert(0, os.path.dirname(AX)); import ax_fresh; ax_fresh.kick(os.getcwd(), trigger='the MCP server starting')

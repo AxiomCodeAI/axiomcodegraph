@@ -1427,6 +1427,10 @@ if __name__ == '__main__':
     if '--limit' in args: i = args.index('--limit'); limit = int(args[i + 1]); del args[i:i + 2]
     if '--in' in args: i = args.index('--in'); IN = args[i + 1].replace('\\', '/'); del args[i:i + 2]
     if len(args) < 2: die("usage: axiomcode path <from> <to> [<repo>] [--all] [--limit N] [--in <path fragment>]")
+    # AN ENDPOINT WITH THE SHELL'S QUOTES STILL ON IT. The docs write `path '*' X` for a shell, which takes the quotes
+    # off; an MCP call or a subprocess argv passes them through, and "'*'" was not '*', so "everything that reaches X"
+    # answered "nothing named '*'". One matching pair around the whole endpoint is taken off, as the shell would.
+    args[:2] = [a[1:-1].strip() if len(a) >= 2 and a[0] == a[-1] and a[0] in "'\"`" else a for a in args[:2]]
     if args[0] == '*' and args[1] == '*': die("one endpoint must be named: path '*' X (everything that reaches X) or path X '*' (everything X reaches)")
 
     def answer():

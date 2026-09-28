@@ -117,7 +117,9 @@ need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSE
 cmd="${1:-}"
 # Alone, --version asks which release this is. With other arguments it stays the build option that stamps the
 # source version, which a build takes after <src-dir>, so the two never meet.
+# It names the build (commit and date) through the Node launcher, which reads the stamp; without node, the version alone.
 if [ "$cmd" = --version ] && [ $# -eq 1 ]; then
+  command -v node >/dev/null 2>&1 && exec node "$ROOT/bin/axiomcode.js" --version
   sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json"; exit 0
 fi
 # A query verb goes to the frontend before anything else. `help <verb>` too, so one `help` covers

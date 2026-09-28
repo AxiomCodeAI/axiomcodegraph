@@ -30,10 +30,12 @@ function fail(msg) {
 }
 
 // `axiomcode --version` is answered here, before bash is looked for: it is what a user runs to check an install,
-// including one whose bash cannot be found. bin/axiomcode answers it the same way when run from a checkout.
+// including one whose bash cannot be found. It names the BUILD, not only the release: every build on a release branch
+// has the same version, so "0.1.6" could not tell an agent which build answered it (build-info.js).
+// bin/axiomcode answers it through this file when run from a checkout.
 const args = process.argv.slice(2);
 if (args.length === 1 && args[0] === '--version') {
-  process.stdout.write(`${require('../package.json').version}\n`);
+  process.stdout.write(`${require('../plugins/axiomcode/mcp/build-info.js').label()}\n`);
   process.exit(0);
 }
 

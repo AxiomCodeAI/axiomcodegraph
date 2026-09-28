@@ -148,7 +148,9 @@ case "$cmd" in
   test-impact|tests) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" ${ARGS[@]+"${ARGS[@]}"} ;;
   install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
-  --verbs) verbs ;;                      # what this dispatcher answers to; bin/axiomcode asks, so the two cannot drift
+  --verbs) verbs ;;
+  # which build this is, "0.1.6 (<commit>, <date>)" (ax_version.py); not written as an exec, so it is not listed as a verb
+  --version) python3 "$H/ax_version.py"; exit $? ;;                      # what this dispatcher answers to; bin/axiomcode asks, so the two cannot drift
   ""|-h|--help|help) if [ ${#ARGS[@]} -gt 0 ]; then verbhelp "${ARGS[0]}"; else helptext; fi ;;
   *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: $(verbs | tr '\n' ' ')" >&2
      echo "           \`axiomcode help\` for what each one does, \`axiomcode help <verb>\` for one of them" >&2; exit 2 ;;

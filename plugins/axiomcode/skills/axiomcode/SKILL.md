@@ -9,7 +9,8 @@ description: >-
 Prefer the MCP tools (`axiomcode_<verb>`; in Claude Code, `mcp__plugin_axiomcode_axiomcode__axiomcode_<verb>`) when they
 are in your tool list; otherwise run `<this dir>/scripts/axiomcode <verb> …` from the repository root. Same code, same
 verified output. `<repo>` defaults to the current directory. In Claude Code, a hook adds the graph's edges to your own
-Read / Grep results as `graph: …` lines.
+Read / Grep results as `graph: …` lines. `axiomcode --version` names the build, `<version> (<commit>, <date>)`; an MCP answer
+ending `note: this MCP server started on …` came through a server older than the install: reconnect it (`/mcp`).
 
 **Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
 
@@ -93,7 +94,8 @@ and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 
 `axiomcode path <from> <to> [--every] [--in <path>]`: one shortest verified chain per target, or why there is none
 (with the unresolved sites that might connect them). Endpoints as written: `Owner.method`, `Type`, `file.ts:123`,
-`'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. Detail: `reference/path.md`.
+`'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. The quotes are the
+shell's: on MCP pass the endpoint bare, `from_="*"` or `to="new File"` (a quoted `'*'` is taken the same). Detail: `reference/path.md`.
 
 A fact no verb prints (decorations, bases, entry points by reason, field writers): `reference/schema.md` names the table per language.
 

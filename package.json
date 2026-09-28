@@ -11,7 +11,7 @@
   "scripts": {
     "reason": "node dist/index.js",
     "clean": "rm -rf dist",
-    "prebuild": "npm run clean",
+    "prebuild": "npm run clean && node plugins/axiomcode/mcp/build-info.js --write",
     "build": "npm --prefix parser run build && tsc && tsc-alias",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",

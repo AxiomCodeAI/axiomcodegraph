@@ -28,6 +28,9 @@ web_modules/
 # so it is never a source of truth. .tsbuildinfo lands in dist/ per tsconfig,
 # but the loose pattern catches stray locations too.
 dist/
+# the build stamp (plugins/axiomcode/mcp/build-info.js --write): which commit a build was made from; npm ships it
+# through package.json's `files`, as it ships dist/
+plugins/axiomcode/build-info.json
 
 # ...EXCEPT inside a fixture's vendored packages. A fixture vendors a dependency whose
 # PUBLISHED surface is its `dist/index.d.ts` — that copy is hand-written source, never
