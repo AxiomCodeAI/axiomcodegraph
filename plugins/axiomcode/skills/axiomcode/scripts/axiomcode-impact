@@ -79,7 +79,7 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 # `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
 # not, for EVERY target kind. What is left is the layer only a field or type target can reach.
 _REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
-              'base_name', 'field_type', 'reexport', 'switch_over'}
+              'base_name', 'field_type', 'reexport', 'reexport_from', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
 # `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
 # that names it, and the `export *` that re-exports the whole module it is declared in. Skipping it handed Soufflé
@@ -91,9 +91,9 @@ _CONFIG = {'config', 'config_key_known', 'config_site'}
 # silently — the one failure mode this table can have.
 _KEY_LAYER = {'literal', 'dec_literal'}
 KIND_SKIPS = {                                     # relations a query of this kind can never reach
- 'method':    (_REF_LAYER - {'reexport'} - _KEY_LAYER) | _CONFIG,
- 'param':     (_REF_LAYER - {'reexport'} - _KEY_LAYER) | _CONFIG,
- 'var':       (_REF_LAYER - {'reexport'} - _KEY_LAYER) | _CONFIG,
+ 'method':    (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER) | _CONFIG,
+ 'param':     (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER) | _CONFIG,
+ 'var':       (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER) | _CONFIG,
  'decoration': (_REF_LAYER - _KEY_LAYER) | _CONFIG,
  'config':    _REF_LAYER - _KEY_LAYER,
  'newconst':  (_REF_LAYER - {'switch_over'} - _KEY_LAYER) | _CONFIG,
@@ -680,7 +680,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '27'          # 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '28'          # 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -970,18 +970,12 @@ class Impact:
                 sites.append((ckey(k), c, d, f, l))
         W('config_site', sorted(set(sites)))
         # a barrel: `export { alpha } from './core.js'`. The parser records no reference for that line, so the file
-        # that has to change in the same commit as a rename was invisible. Read from the source, per module
-        rex = []
-        for f, mid in sorted(mod_of.items()):
-            if not re.search(r'\.(ts|tsx|js|jsx|mjs|cjs)$', f): continue
-            for i, line in enumerate(self.code(f), 1):
-                m = re.match(r'\s*export\s*(type\s*)?\{([^}]*)\}\s*from\s', line)
-                if m:
-                    for part in m.group(2).split(','):
-                        w = re.findall(r'[A-Za-z_$][\w$]*', part)
-                        if w: rex.append((mid, w[0], f, i))
-                elif re.match(r'\s*export\s*\*\s*from\s', line): rex.append((mid, '*', f, i))
-        W('reexport', sorted(set(rex)))
+        # that has to change in the same commit as a rename was invisible. Read from the source, per module, by the
+        # scanner the SQL port shares; `reexport_from` is the file each `export *` line names, when it is one here
+        import graph_sql
+        rex, star = graph_sql.barrel_lines(mod_of, self.code, self.lines, {s['file'] for s in g.sym.values() if s.get('file')})
+        W('reexport', rex)
+        W('reexport_from', star)
         decs = collections.defaultdict(set)
         for r in (g.q("SELECT owner_id, name FROM decorations") if g.has('decorations') else []): decs[r[0]].add(r[1].split('.')[-1])
         def named_test(i, s):
