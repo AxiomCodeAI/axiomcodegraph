@@ -18,6 +18,8 @@ One throwaway repository in TypeScript (the main language: most files), Python a
   upgrade        a graph built before this (one language, a file table without `lang_auto`) is stale in a repository
                  with other languages, so the first refresh indexes them
   control        a repository in one language gets no .axiomcode/lang and no fan-out
+  build output   a Maven repository's target/ and a generated javadoc are not a JavaScript project (#1545); the same
+                 repository with JavaScript of its own, one file in a directory named target, still gets that graph
 
     python3 tests/multi_language.py [-v]
 """
@@ -37,6 +39,24 @@ FILES = {
     'tools/pkg/calc.py': 'def add(a, b):\n    return a + b\n\n\ndef total(xs):\n    t = 0\n    for x in xs:\n        t = add(t, x)\n    return t\n',
     'jslib/package.json': '{ "name": "jslib", "version": "1.0.0", "main": "index.js" }\n',
     'jslib/index.js': 'function helper(a) {\n  return a + 1\n}\n\nfunction api(a) {\n  return helper(a) * 2\n}\n\nmodule.exports = { api }\n',
+}
+
+# a Maven project whose build wrote javadoc: target/ beside the pom.xml, and a copy committed for a docs site
+JAVADOC_JS = 'function loadScripts(doc, tag) {\n  createElem(doc, tag, \'search.js\')\n}\n\nfunction createElem(doc, tag, path) {\n  return doc.createElement(tag)\n}\n'
+MAVEN = {
+    'pom.xml': '<project xmlns="http://maven.apache.org/POM/4.0.0">\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>example</groupId>\n  <artifactId>widgets</artifactId>\n  <version>1.0</version>\n</project>\n',
+    'src/main/java/app/WidgetValidator.java': 'package app;\n\npublic class WidgetValidator {\n    public boolean check(String name) {\n        return name != null && !name.isEmpty();\n    }\n}\n',
+    'target/site/apidocs/script.js': JAVADOC_JS,
+    'docs/apidocs/index.html': '<!DOCTYPE html>\n<html><head><script src="script.js"></script></head></html>\n',
+    'docs/apidocs/element-list': 'app\n',
+    'docs/apidocs/script.js': JAVADOC_JS,
+}
+# ...and its own JavaScript, one module of it in a directory named target that no pom.xml owns
+MAVEN_WEB = {
+    'package.json': '{ "name": "widgets-web", "version": "1.0.0", "main": "src/main/js/app.js" }\n',
+    'webpack.config.js': "module.exports = { entry: './src/main/js/app.js' }\n",
+    'src/main/js/app.js': "const aim = require('./target/aim')\n\nfunction start(order) {\n  return aim.point(order)\n}\n\nmodule.exports = { start }\n",
+    'src/main/js/target/aim.js': 'function point(order) {\n  return order\n}\n\nmodule.exports = { point }\n',
 }
 
 
@@ -167,6 +187,28 @@ def main(argv):
         check(tab.get('lang') == 'typescript', 'control: its file table names the one language', json.dumps({k: tab.get(k) for k in ('lang', 'lang_auto')}))
         st = json.loads(sh(one, sys.executable, FRESH, 'status', '.', '--json', env=quiet).stdout or '{}')
         check(st.get('state') == 'fresh', 'control: and it is fresh', json.dumps(st))
+
+        # ── build output ──────────────────────────────────────────────────────────────────────────────────────
+        mvn = os.path.join(work, 'maven'); make(mvn, MAVEN)
+        b = sh(mvn, AX, 'index', '.', env=quiet)
+        check(b.returncode == 0 and 'building java graph for' in b.stdout and 'javascript 0 ' in b.stdout
+              and not os.path.exists(os.path.join(mvn, '.axiomcode', 'lang')),
+              'build output: javadoc under target/ and a committed javadoc do not make a Maven repository a JavaScript one', b.stdout + b.stderr)
+        n = sh(mvn, AX, 'impact', 'createElem', '.', env=quiet)
+        check(n.returncode != 0 and 'nothing named' in n.stdout, 'build output: and no graph answers for javadoc\'s own functions', n.stdout + n.stderr)
+        st = json.loads(sh(mvn, sys.executable, FRESH, 'status', '.', '--json', env=quiet).stdout or '{}')
+        check(st.get('state') == 'fresh', 'build output: and the graph is fresh, not waiting on a language it will never build', json.dumps(st))
+        web = os.path.join(work, 'maven-web'); make(web, dict(MAVEN, **MAVEN_WEB))
+        b = sh(web, AX, 'index', '.', env=quiet)
+        # three JavaScript files to one Java file, so JavaScript is the main language and Java the other one
+        check(b.returncode == 0 and 'javascript + java' in b.stdout and 'javascript 3 ' in b.stdout
+              and os.path.exists(os.path.join(web, '.axiomcode', 'lang', 'java', 'out', 'graph.sqlite')),
+              'build output (control): the same repository with JavaScript of its own gets its graph, all three files', b.stdout + b.stderr)
+        j = sh(web, AX, 'path', 'start', 'point', '.', env=quiet)
+        check(j.returncode == 0 and 'verified' in j.stdout and 'src/main/js/target/aim.js' in j.stdout,
+              'build output (control): a directory named target that no pom.xml owns is source', j.stdout + j.stderr)
+        n = sh(web, AX, 'impact', 'createElem', '.', env=quiet)
+        check(n.returncode != 0 and 'nothing named' in n.stdout, 'build output (control): and javadoc\'s functions are still not in it', n.stdout + n.stderr)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     print(f"\n{'FAILED: ' + str(len(fails)) if fails else 'all passed'}")

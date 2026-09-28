@@ -97,6 +97,21 @@ def prunes(lang, name, parent=''):
     if lang == 'python': return name.endswith('.egg-info') or (parent == 'build' and bool(PY_BUILD_ARTIFACT.match(name)))
     return False
 
+# A BUILD'S OUTPUT (#1545). The JavaScript and TypeScript parsers also skip a directory a build wrote, recognised by what
+# owns it and never by its name: Maven's `target` beside a pom.xml, a javadoc output directory (index.html with
+# element-list or package-list) and a Dokka one (index.html with navigation.html and scripts/sourceset_dependencies.js),
+# wherever they sit (parser/src/utils/generated-output.ts). Their SKIP sets above carry no `target`, as the parser's
+# lists carry none, so a directory merely named target stays watched (#531); this adds the anchored ones.
+WEB = frozenset({'javascript', 'typescript'})
+
+def generated_output(parent, name):
+    """True when `parent`/`name` is a directory a build wrote, whose JavaScript and TypeScript are not the project's"""
+    if name == 'target' and os.path.isfile(os.path.join(parent, 'pom.xml')): return True
+    d = os.path.join(parent, name)
+    if not os.path.isfile(os.path.join(d, 'index.html')): return False
+    return os.path.isfile(os.path.join(d, 'element-list')) or os.path.isfile(os.path.join(d, 'package-list')) or \
+        (os.path.isfile(os.path.join(d, 'navigation.html')) and os.path.isfile(os.path.join(d, 'scripts', 'sourceset_dependencies.js')))
+
 def out_dir(repo): return os.path.join(repo, '.axiomcode', 'out')
 def table_path(repo): return os.path.join(out_dir(repo), 'files.json')
 def state_path(repo): return os.path.join(repo, '.axiomcode', 'refresh.json')
@@ -146,6 +161,7 @@ def watched(root, lang):
     spec = [(l, EXT.get(l, ()), NAMES.get(l, ())) for l in langs]
     hidden = {root: frozenset()}                                   # the languages that pruned each directory walked
     ignored = git_ignored_dirs(root); real = os.path.realpath(root)   # a .gitignore'd directory is pruned for every language
+    web = WEB.intersection(langs)                                   # the languages that skip a build's output (#1545)
     for d, subdirs, files in os.walk(root):
         off = hidden.pop(d, frozenset())
         rd = os.path.join(real, os.path.relpath(d, root)) if ignored else d
@@ -153,6 +169,7 @@ def watched(root, lang):
         for s in subdirs:
             if ignored and os.path.normpath(os.path.join(rd, s)) in ignored: continue
             o = off | {l for l in langs if prunes(l, s, parent)}
+            if web and not web <= o and generated_output(d, s): o = o | web     # a build's output (#1545)
             if all(l in o for l in langs): continue
             keep.append(s); hidden[os.path.join(d, s)] = o
         subdirs[:] = keep

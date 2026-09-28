@@ -437,6 +437,47 @@ for dir in "$HERE"/cases/*/; do
     cfg_summary="$cfg_summary  [remote: ${rem_rows}]"
   fi
 
+  # ── OTHER-LANGUAGES golden (#1545) ────────────────────────────────────────
+  # The same parse runs the JavaScript and TypeScript analyzers over the case, and no Java golden reads what they
+  # took: a Maven build's target/ and a generated javadoc were extracted as a JavaScript project, a second graph was
+  # built from javadoc's own script.js, and every golden here stayed green. One line per module and per pruned
+  # directory, written only when a case has any, so the cases with no other language are unaffected.
+  # expected/<case>.other-languages-assert names the rows that matter (`+ <row>` must be present, `- <row>` must
+  # not), checked even under --bless, because a golden pins a file that must NOT be source only by its absence.
+  python3 "$HERE/tools/normalize_other_languages.py" "$w/ir" > "$w/actual.other-languages" 2>"$w/other-languages.log" || {
+    echo "FAIL (other-languages report — see $w/other-languages.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
+  ol_rows=$(grep -c . "$w/actual.other-languages" || true)
+  oexp2="$HERE/expected/$name.other-languages"
+  if [ "$BLESS" = "1" ]; then
+    if [ "${ol_rows:-0}" -gt 0 ]; then cp "$w/actual.other-languages" "$oexp2"; else rm -f "$oexp2"; fi
+  elif [ -f "$oexp2" ] || [ "${ol_rows:-0}" -gt 0 ]; then
+    if [ ! -f "$oexp2" ]; then
+      echo "FAIL (other-language rows but no golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+    if ! diff -q "$oexp2" "$w/actual.other-languages" >/dev/null; then
+      echo "FAIL (other languages changed)"; diff -u "$oexp2" "$w/actual.other-languages" | sed 's/^/    /' | head -30
+      fail=$((fail+1)); failed+=("$name"); continue; fi
+    cfg_summary="$cfg_summary  [other languages: ${ol_rows}]"
+  fi
+  olassert="$HERE/expected/$name.other-languages-assert"
+  if [ -f "$olassert" ]; then
+    olbad=$(python3 - "$olassert" "$w/actual.other-languages" <<'PYEOF'
+import sys
+have = set(l.rstrip('\n') for l in open(sys.argv[2]))
+n = 0
+for l in open(sys.argv[1]):
+    l = l.rstrip('\n')
+    if not l.strip() or l.startswith('#'): continue
+    n += 1
+    sign, row = l[:1], l[2:]
+    if sign == '+' and row not in have: print('    missing  ' + row)
+    if sign == '-' and row in have:     print('    present  ' + row)
+if n == 0: print('    the assert file names no row')
+PYEOF
+)
+    if [ -n "$olbad" ]; then
+      echo "FAIL (other-languages assertion)"; echo "$olbad"; fail=$((fail+1)); failed+=("$name"); continue; fi
+  fi
+
 
   # ── FIELD-ACCESS golden (#663) ────────────────────────────────────────────
   # The edge golden says nothing about who reads or writes a field. This records every

@@ -1,0 +1,2 @@
+boundary_lib	method	app.Widget#label(String) -> external:String.trim
+known_edge	method	app.Widget#name() -> app.Widget#label(String)
