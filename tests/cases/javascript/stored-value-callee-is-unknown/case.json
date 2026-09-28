@@ -29,7 +29,7 @@
    "expect_error": true,
    "want": [
     "connection is UNKNOWN, not absent",
-    "at src/stored.js:9 — the callee is a function stored on this",
+    "at src/stored.js:9 — the callee is a function stored in a field",
     "not shown to be independent"
    ],
    "avoid": [

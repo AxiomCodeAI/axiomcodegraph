@@ -1492,7 +1492,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
              else ": the two are independent in this graph"))
     WHY = {'parameter': 'a parameter', 'loop_variable': 'a loop variable', 'local': 'a local', 'computed': 'a computed member',
            'dynamic_code': 'code built at run time', 'module_variable': 'a module-level variable',
-           'field': 'a function stored on this', 'parameter_member': 'a member of a parameter',
+           'field': 'a function stored in a field', 'parameter_member': 'a member of a parameter',
            'expression': 'computed by an expression'}
     for lx, rows in opaque:
         print(f"  {lx} reaches {len(rows)} call(s) through a value:")

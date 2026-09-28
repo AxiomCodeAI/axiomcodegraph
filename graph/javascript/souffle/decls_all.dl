@@ -77,7 +77,15 @@
 .decl callee_platform_function(c0:symbol)
 .decl param_member_tested(c0:symbol, c1:symbol)
 .decl param_member_read(c0:symbol, c1:symbol, c2:symbol)
-.decl this_field_named(c0:symbol, c1:symbol)
+.decl this_field_named(c0:symbol, c1:symbol, c2:symbol)
+.decl field_call(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl instance_or_class_value(c0:symbol, c1:symbol, c2:symbol)
+.decl callee_holds_function(c0:symbol)
+.decl field_assignment(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl field_open_fallback(c0:symbol, c1:symbol, c2:symbol)
+.decl module_variable_from_call(c0:symbol)
+.decl variable_reassigned(c0:symbol)
+.decl call_passes_function(c0:symbol)
 
 // ── containment/ownership.dl ──
 .decl call_caller_method(c0:symbol, c1:symbol)
