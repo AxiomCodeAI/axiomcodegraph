@@ -40,6 +40,35 @@ export class OrdersView {
   refresh(): void {}
 }
 
+// Dependency injection. The container, not the code, hands AuditService its
+// OrderService and OrderController its OrderService: both slots are keyed by the class.
+// The Clock slot is keyed by a TOKEN, so its declared type (an interface nobody
+// provides) says nothing about what arrives, and it must not be reported as a slot.
+function Inject(_token: string) { return (_t: object, _k: string | symbol | undefined, _i: number): void => {}; }
+interface Clock { now(): number; }
+
+@Injectable()
+export class AuditService {
+  constructor(private readonly orders: OrderService, @Inject("CLOCK") private readonly clock: Clock) {}
+  record(id: string): string { return this.orders.find(id) + this.clock.now(); }
+}
+
+// A slot on a container-owned class that no provider answers: reported, never dropped.
+export class Unprovided { ping(): void {} }
+@Controller("/audit")
+export class AuditController {
+  constructor(private readonly audit: AuditService, private readonly extra: Unprovided) {}
+  @Get(":id")
+  one(id: string): string { this.extra.ping(); return this.audit.record(id); }
+}
+
+// The DI control: the same constructor parameter on a class no decorator marks. Its
+// caller is in the code (`new HandBuilt(svc)`), so it is NOT an injection point.
+export class HandBuilt {
+  constructor(private readonly svc: OrderService) {}
+  run(): string { return this.svc.find("x"); }
+}
+
 // A PLAIN class, the negative control. It carries no framework decorator, so its
 // constructor must NOT be a root and its ngOnInit must NOT be a lifecycle hook even
 // though the name matches exactly.

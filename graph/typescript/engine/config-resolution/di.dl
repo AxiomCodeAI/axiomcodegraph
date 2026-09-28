@@ -1,0 +1,52 @@
+// ============================================================================
+// Config-resolution · DEPENDENCY INJECTION  (Nest, Angular)
+//
+// entry-points.dl makes the constructor of a container-owned class a root. What it
+// cannot say is WHERE the container sends the objects it builds: in
+// `@Controller() class C { constructor(private svc: OrderService) {} }` nothing in the
+// repository passes an OrderService to C, the container does, and so a change to
+// OrderService looked as if no class received it.
+//
+// Both containers wire by CLASS TOKEN: a constructor parameter's declared type is the
+// key the container looks up, and the object it hands over is the provider registered
+// under exactly that class. So a slot is satisfied by a provider whose type IS the
+// declared type, never by a subtype. An abstract class used as a key is bound to its
+// implementation in a module's providers array (`{ provide: A, useClass: B }`), which
+// the parser delivers as unsplit text (see decorator_arg_class_ref), so that slot is
+// reported unsatisfied rather than guessed.
+//
+// The exports are Java's relation names and column orders, deliberately: the query
+// layer reads ext_inject_point for every language, so a TypeScript slot shows up in
+// impact as "receives it by dependency injection" with no change there. bean_def is
+// NOT exported. The query layer reads it as a proxying container (a Spring bean call
+// crosses a proxy), which neither of these containers is.
+// ============================================================================
+
+// ── bean_def(Name, Type, Kind, Site) — a class the container hands out ───────
+// Name is the class's own name: both containers key a class provider by the class.
+bean_def(name, t, "injectable", h) :- annotation_on(_, dn, _, "CLASS_DECLARATION", t, h),
+    ts_provider_class_decorator(dn), type_decl(_, name, _, _, _, _, t).
+
+// ── inject_point(SiteKind, Site, DeclaredType, OwnerType, Method) ────────────
+// A constructor parameter of a container-owned class. The class decorator is what
+// makes the container emit the parameter types it reads at runtime; the same
+// constructor on a plain class is an ordinary constructor whose caller is in the code.
+ts_di_ctor(m, t) :- annotation_on(_, cn, _, "CLASS_DECLARATION", t, _),
+    ts_framework_class_decorator(cn),
+    method_owner(_, t, m), method_kind(_, "CONSTRUCTOR", _, m).
+ts_di_token_param(p) :- annotation_on(_, dn, _, "PARAMETER_DECLARATION", p, _),
+    ts_token_param_decorator(dn).
+ts_di_token_param(p) :- annotation_on(_, dn, _, "PARAMETER_DECLARATION", p, _),
+    match("Inject[A-Z].*", dn).
+inject_point("ctor_param", p, dt, t, m) :- ts_di_ctor(m, t),
+    param_decl(_, _, _, _, m, p), param_type(p, _, dt), !ts_di_token_param(p).
+
+// ── di_edge(Site, SiteKind, DeclaredType, BeanName, BeanType, Status) ────────
+// Status ∈ { known_bean, unsatisfied }. There is no multi_bean: the key is exact, so
+// at most one provider type answers it.
+ts_di_fits(site, name, dt) :- inject_point(_, site, dt, _, _), bean_def(name, dt, _, _).
+ts_di_satisfied(site) :- ts_di_fits(site, _, _).
+di_edge(site, kind, dt, name, dt, "known_bean") :- inject_point(kind, site, dt, _, _),
+    ts_di_fits(site, name, dt).
+di_edge(site, kind, dt, "-", "-", "unsatisfied") :- inject_point(kind, site, dt, _, _),
+    !ts_di_satisfied(site).
