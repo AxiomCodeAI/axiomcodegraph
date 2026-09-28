@@ -189,6 +189,9 @@ call_signature_in_scope(scope, m) :- lookup_scope(scope),
     method_owner(prov, asib, m),
     method_kind(prov, k, _, m),
     method_kind_is_call_signature(k).
+// An indexed access that names a METHOD — `{ _(p: P): void }['_']`, `Api['run']` — is called
+// with that method's signatures. The reference is its own shape (type-resolution.dl, #838).
+call_signature_in_scope(ref, m) :- ref_member_method(ref, m).
 method_kind_is_call_signature("CALL_SIGNATURE").
 method_kind_is_call_signature("TYPE_LITERAL_CALL_SIGNATURE").
 method_kind_is_call_signature("FUNCTION_TYPE_SIGNATURE").

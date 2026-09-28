@@ -323,6 +323,16 @@ tvar_under(p, n) :- type_ref(rp, "INDEXED_ACCESS", _, _, _, _, _, p),
     type_ref_parent(rp, p, "0", c),
     tvar_under(c, n).
 
+// A CONDITIONAL alias yields its BRANCHES (#838), the same over-approximation
+// ref_conditional_branch makes for a conditional written in place: `type Mutate<S, Ms> = Ms
+// extends [] ? S : …` read at `Mutate<StoreApi<T>, Mis>` is StoreApi, so `api.getState()` on a
+// middleware's `api` parameter has a receiver. A branch that is an INDEXED ACCESS is not
+// descended: `K extends keyof T ? T[K] : F` denotes a MEMBER of T, never T itself, and
+// ref_member answers it.
+tvar_under(p, n) :- ref_conditional_branch(p, c),
+    !type_ref(_, "INDEXED_ACCESS", _, _, _, _, _, c),
+    tvar_under(c, n).
+
 ref_type_target(ref, prov, t) :- alias_rhs(ref, _, rhs),
     tvar_under(rhs, pname),
     type_arg_binding(ref, pname, argRef),
@@ -377,6 +387,91 @@ ref_type_target(ia, prov, t) :- type_ref(_, "INDEXED_ACCESS", _, _, _, _, _, ia)
     declared_field(obj, n, _, f),
     field_type_ref(_, fr, f),
     ref_type_target(fr, prov, t).
+
+// ── …AND WHAT THE MEMBER IS WHEN IT IS A FUNCTION  (#838) ───────────────────
+// The rule above names a member's type only when that type is a DECLARATION. The commonest
+// member an indexed access picks out is a FUNCTION: `const setState: StoreApi<T>['setState']
+// = …`, a middleware parameter declared `StoreApi<T>['getState']`. Its type is a FUNCTION_TYPE
+// (a shape), or a METHOD of the object, and neither is anything ref_type_target can name, so
+// every call through such a value resolved to nothing. On a state-management library 43 of 115
+// executed production call sites were this shape, each reaching exactly one function at run
+// time.
+//
+// ref_member(Ref, Obj, Name): the reference denotes member Name of Obj. Written in place
+// (`Obj["name"]`), or under an ALIAS whose arguments supply the object, the key, or both:
+// `type Get<T, K, F> = K extends keyof T ? T[K] : F` read at `Get<StoreApi<S>, 'setState',
+// never>`. The key is always ONE string literal — written, or bound to a type argument that is
+// one. A union key or a `keyof` names several members and stays unresolved, as the rule above
+// already decides for its own case.
+ia_literal_key(ia, n) :- type_ref(_, "INDEXED_ACCESS", _, _, _, _, _, ia),
+    type_ref_parent(_, ia, "1", iref),
+    ref_string_literal(iref, n).
+ref_string_literal(r, n) :- type_ref(_, "LITERAL", _, _, lit, _, _, r),
+    strlen(lit) > 2,
+    q = substr(lit, 0, 1),
+    string_quote(q),
+    substr(lit, strlen(lit) - 1, 1) = q,
+    n = substr(lit, 1, strlen(lit) - 2).
+string_quote("'").
+string_quote("\"").
+
+ia_object(ia, obj) :- type_ref(_, "INDEXED_ACCESS", _, _, _, _, _, ia),
+    type_ref_parent(_, ia, "0", oref),
+    ref_type_target(oref, _, obj).
+ia_object(ia, obj) :- type_ref(_, "INDEXED_ACCESS", _, _, _, _, _, ia),
+    type_ref_parent(_, ia, "0", oref),
+    ref_shape_target(oref, obj).
+
+ref_member(ia, obj, n) :- ia_literal_key(ia, n), ia_object(ia, obj).
+
+// Under an alias: the indexed access sits in the alias's right-hand side, directly, inside a
+// parenthesis, or as a branch of a conditional (the branches only, as ref_conditional_branch
+// decides). A child that is one of the ALIAS's type variables is read at the reference.
+ia_under(rhs, rhs) :- type_alias_target(_, rhs, _).
+ia_under(rhs, c) :- ia_under(rhs, p), ref_conditional_branch(p, c).
+ia_under(rhs, c) :- ia_under(rhs, p),
+    type_ref(rp, k, _, _, _, _, _, p),
+    ref_kind_is_transparent(k),
+    type_ref_parent(rp, p, _, c).
+alias_ia(ref, ia) :- alias_rhs(ref, _, rhs),
+    ia_under(rhs, ia),
+    type_ref(_, "INDEXED_ACCESS", _, _, _, _, _, ia).
+alias_ia_key(ref, ia, n) :- alias_ia(ref, ia),
+    type_ref_parent(_, ia, "1", iref),
+    type_ref(_, "TYPE_VARIABLE", _, kn, _, _, _, iref),
+    type_arg_binding(ref, kn, arg),
+    ref_string_literal(arg, n).
+alias_ia_object(ref, ia, obj) :- alias_ia(ref, ia),
+    type_ref_parent(_, ia, "0", oref),
+    type_ref(_, "TYPE_VARIABLE", _, tn, _, _, _, oref),
+    type_arg_binding(ref, tn, arg),
+    ref_type_target(arg, _, obj).
+alias_ia_object(ref, ia, obj) :- alias_ia(ref, ia),
+    type_ref_parent(_, ia, "0", oref),
+    type_ref(_, "TYPE_VARIABLE", _, tn, _, _, _, oref),
+    type_arg_binding(ref, tn, arg),
+    ref_shape_target(arg, obj).
+// the key bound at the reference, the object written or bound
+ref_member(ref, obj, n) :- alias_ia_key(ref, ia, n), ia_object(ia, obj).
+ref_member(ref, obj, n) :- alias_ia_key(ref, ia, n), alias_ia_object(ref, ia, obj).
+// the key written, the object bound at the reference
+ref_member(ref, obj, n) :- alias_ia(ref, ia), ia_literal_key(ia, n), alias_ia_object(ref, ia, obj).
+
+// What the member is. A FIELD contributes its declared type (named or a shape); a METHOD makes
+// the reference callable with that method's signatures, so the reference is its own shape and
+// call_signature_in_scope (member-lookup.dl) reads ref_member_method for it. Same positive-only
+// route as the rule above: declared_field / declared_method, never the lookup relations.
+ref_type_target(ref, prov, t) :- ref_member(ref, obj, n),
+    declared_field(obj, n, _, f),
+    field_type_ref(_, fr, f),
+    ref_type_target(fr, prov, t).
+ref_shape_target(ref, s) :- ref_member(ref, obj, n),
+    declared_field(obj, n, _, f),
+    field_type_ref(_, fr, f),
+    ref_shape_target(fr, s).
+ref_member_method(ref, m) :- ref_member(ref, obj, n),
+    declared_method(obj, n, _, m).
+ref_shape_target(ref, ref) :- ref_member_method(ref, _).
 
 // BY NAME, and only where the exact link is absent. Keeping both unguarded would put
 // the shadowed declaration's constraint alongside the right one at every such site,

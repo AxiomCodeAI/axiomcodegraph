@@ -532,6 +532,31 @@ fn_written_as_fnref(lm, fref) :- var_initializer("client", _, e, v),
     var_type_ref(_, r, v),
     ref_shape_target(r, fref).
 
+// …and an arrow RETURNED by a function whose return type is a function type: the middleware
+// shape, `const logger: Impl = (fn) => (set, get, api) => { … }` or `function logger(fn):
+// StateCreator<T> { return (set, get, api) => … }` (#838). The inner arrow is written where
+// the outer function's RETURN type is expected, so it takes its parameter types from there,
+// as the compiler does. The return is the FUNCTION_TYPE's METHOD_RETURN child, or the
+// function's own declared return type.
+fn_returns_fn(outer, inner) :- method_returns_expr(outer, e),
+    expr_kind("client", _, "ROOT", e),
+    expr_anon_decl("client", inner, e).
+fn_returns_fn(outer, inner) :- expr_root_context("client", "ARROW_BODY_EXPRESSION", e),
+    expr_kind("client", _, "ROOT", e),
+    expr_anon_decl("client", inner, e),
+    method_enclosing_member(inner, outer).
+fn_type_return_ref(fref, rr) :- type_ref_parent(_, fref, _, rr),
+    type_ref(_, _, "METHOD_RETURN", _, _, _, _, rr).
+fn_written_as_fnref(inner, fref2) :- fn_written_as_fnref(outer, fref1),
+    fn_returns_fn(outer, inner),
+    fn_type_return_ref(fref1, rr),
+    ref_shape_target(rr, fref2),
+    type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, fref2).
+fn_written_as_fnref(inner, fref) :- fn_returns_fn(outer, inner),
+    method_return_ref("client", r, outer),
+    ref_shape_target(r, fref),
+    type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, fref).
+
 // an unannotated parameter only; one the author annotated keeps its own type
 lambda_param_type(lp, prov, t) :- fn_written_as_fnref(lm, fref),
     fn_param_type(fref, k, prov, t),

@@ -1,0 +1,7 @@
+79-function-typed-parameter-dispatch [types]
+  precision 1.0000   (12 correct, 0 wrong)
+  recall    1.0000   (12 of 12 the compiler resolved)
+  sites 32   resolved 27 (84.4%)
+  tiers ambiguous_unknown=5  known_edge=27
+  contexts AS_TARGET=1  CONDITIONAL_TRUE=1  FIELD_TYPE=1  METHOD_PARAM=6  METHOD_RETURN=2  TYPE_ARGUMENT=8  TYPE_ELEMENT=11  VARIABLE_TYPE=2
+  not scored: 5 rows whose target is not a client declaration
