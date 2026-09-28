@@ -1107,11 +1107,14 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
     # the lowest. Leaving the order to the table printed a different site (254 against 257) for the same caller.
     # a site inside a mock's stub or verification carries the tier "stub", exactly as the rules' `calls` fact does
     stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
-    raw = [(c, m, ax_edges.STUB_TIER if sid in stubs else t, f, l) for sid, c, m, t, f, l in q(
+    # a chained route link's edge sits on the line of its own verb and path, as in the `calls` fact
+    link_line = ax_registration.route_site_lines(q, rel)
+    raw = [(c, m, ax_edges.STUB_TIER if sid in stubs else t, f, link_line.get(sid, l)) for sid, c, m, t, f, l in q(
                   f"""SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line
                   FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
                   WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
                   ORDER BY s.start_line""", *ids)]
+    if link_line: raw.sort(key=lambda r: r[4] or 0)
     sites = [(c, t, f, l) for c, _m, t, f, l in raw]
     bean_callers, why_of = _bean_call(q, ids, sites)
     # a call written against a base this declaration is override-equivalent to (#1542): its row replaces the plain one
