@@ -442,7 +442,8 @@ direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q
 
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
-fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll).
+fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll),
+    !fa_line(q, f, l).
 // an enum member is written like a type, so the parser labels the genuine reference TYPE: keep those, but only in a
 // file that can see the enum — its own directory, or a file that names the enum type somewhere
 .decl enum_member_target(q:symbol, fl:symbol)
@@ -509,6 +510,13 @@ direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl
 // a caller the engine bound — to this field, or to a DIFFERENT field of the same name. Either way its
 // name matches say nothing further: the first is already reported above with its direction, and the
 // second touches another declaration entirely and was previously printed as touching this one.
+// A LINE the engine bound, to this field or to another field of the same name: a name match on that line says nothing
+// more, whichever callable the line is attributed to. fa_known works per caller, and a lambda written on the same line
+// as the access (`m.GetOrAdd(T.Culture + k, x => ...)`) is a different callable, so its name match on T.Culture came
+// back as a second, [in scope] reader that reads nothing (#1445).
+.decl fa_line(q:symbol, f:symbol, l:number)
+fa_line(q, f, l) :- target(q, "field", fl, _), fa_bound(_, fl, _, f, l).
+fa_line(q, f, l) :- target(q, "field", fl, _), field(fl, _, n, _, _), fa_bound(_, fl2, _, f, l), fl2 != fl, field(fl2, _, n, _, _).
 .decl fa_known(q:symbol, c:symbol)
 fa_known(q, c) :- target(q, "field", fl, _), fa_bound(c, fl, _, _, _).
 fa_known(q, c) :- target(q, "field", fl, _), field(fl, _, n, _, _), fa_bound(c, fl2, _, _, _), fl2 != fl, field(fl2, _, n, _, _).

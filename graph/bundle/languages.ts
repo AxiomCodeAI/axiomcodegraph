@@ -376,6 +376,9 @@ const CSHARP: LanguageAdapter = {
     dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
     // (prov, type) — no "how"; every row is a construction
     typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [1], constant: 'new' },
+    // site, caller, field, fieldProvenance, tier, access: the Java shape (#1445). Only resolved
+    // sites have a row; a property is a call and stays in call edges through its accessor.
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
   },
   ir: {
     // A C# method row carries BOTH its module and its type, and the type is empty for a
