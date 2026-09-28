@@ -63,6 +63,16 @@ _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFile
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die, BODILESS_KINDS = P.G, P.run_dl, P.die, P.BODILESS_KINDS
 
+
+def script_run(repo, rel):
+    """the command a script test (graph_sql.script_test_file) is run by: the one test-impact gives for the file — its
+    package's script, its own usage line, the interpreter — so impact and test-impact name the same command"""
+    global _TI
+    if '_TI' not in globals():
+        spec = importlib.util.spec_from_loader('axtestimpact', importlib.machinery.SourceFileLoader('axtestimpact', os.path.join(HERE, 'axiomcode-test-impact')))
+        _TI = importlib.util.module_from_spec(spec); spec.loader.exec_module(_TI)
+    return _TI.script_command(repo, rel)
+
 # written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
 # export re-ran on EVERY query — the cache never hit once.
@@ -736,7 +746,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '39'          # 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '40'          # 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1106,7 +1116,13 @@ class Impact:
             L = self.lines(sy['file'])
             if sy['line'] - 1 < len(L) and REGISTRAR.search(L[sy['line'] - 1]): tm.append(i)
             elif any(f == sy['file'] and a <= sy['line'] <= b for f, a, b in tables): tm.append(i)
-        fx = [i for i, s in g.sym.items() if s['is_test'] and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
+        # …and a SCRIPT TEST, a test-tree file run as a program with no framework: its module is the test (graph_sql,
+        # the one rule the hooks' fast path reads too)
+        import graph_sql
+        scripts = graph_sql.script_tests([(i, s['kind'], s.get('file')) for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s.get('file')],
+                                         lambda f: '\n'.join(self.lines(f)), set(tm))
+        tm += sorted(scripts)
+        fx = [i for i, s in g.sym.items() if s['is_test'] and i not in scripts and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
         # ── which fixture runs before which test, when nothing calls it ────────────────────────────────────────
         # pytest hands a fixture to a test BY THE NAME OF A PARAMETER, and the fixture that serves a whole directory
@@ -1957,6 +1973,12 @@ def main(argv):
             at_d = [x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d)]
             _vias = sorted(v for v in at_d if v)
             tests[m] = (int(d), None if any(not v for v in at_d) else (_vias[0] if _vias else None))
+    # A SCRIPT TEST (a module counted as a test) runs its own functions: `runCase` / `main` beside it is its body, not a
+    # fixture run before it, so its own route is the one to report even when it is a hop longer than the carrier's
+    for m, (d, via) in list(tests.items()):
+        if via and g.sym[m]['kind'] == 'module' and (g.sym.get(via) or {}).get('file') == g.sym[m]['file']:
+            own = [int(x[1]) for x in res['test_hit'] if x[0] == m and not x[2] and int(x[1]) <= depth]
+            if own: tests[m] = (min(own), None)
     # the same test, inherited: the subclass runs the base's test method, in its own file
     inh = {}
     for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
@@ -1990,6 +2012,13 @@ def main(argv):
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
     chains = {m: I.chain(m, parent) for m in tests}
+    # a MODULE counted as a test is a script test (graph_sql.script_tests): it is labelled with the command it runs by
+    script_ids = {m for m in tests if g.sym[m]['kind'] == 'module'}
+    _runs = {}
+    def script_cmd(m):
+        f = g.sym[m]['file']
+        if f not in _runs: _runs[f] = script_run(g.repo, f)
+        return _runs[f]
     # A TEST THAT HOLDS A MOCK OF A TYPE ON ITS ROUTE never runs that type's methods (ax_edges.mocked_types): a web test
     # with `@MockBean OrderService` reaches the controller over HTTP and stops at the mock, so a route through
     # OrderService is not a route, whatever its rung. Read off the route the answer prints (the nearest one); the test
@@ -2187,7 +2216,8 @@ def main(argv):
                           # whatever the solver happened to emit — which is not the same between backends.
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0]))],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])],
+                                     **({'script': True, 'run': script_cmd(m)} if m in script_ids else {})} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'framework_entries': [{'id': m, 'display': g.disp(m), 'signal': sig, 'at': g.loc(m)} for m, sig in fw_ent],
                           'framework_grep': fw_grep,
                           'stub_tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'at': g.loc(m), 'certainty': 'stubs it',
@@ -2525,6 +2555,9 @@ def main(argv):
     test_rows = sorted(({m for m, _ in ent if _is_t(m)} | {c for c, role, why, cert, loc, n in D if _is_t(c) and cert not in ('alongside', 'stubs it')
                                                           and not why.startswith('stubs a method of this name')}) - set(tests) - set(stubbed),
                        key=lambda m: (g.disp(m), g.loc(m)))
+    # a callable in a file whose test is counted runs when that file does (`main` under a script's main guard, the
+    # describe block around a counted `it`): the count already credits it
+    test_rows = [m for m in test_rows if g.sym[m]['file'] not in tfiles]
     if test_rows:
         print(f"    {'and ' if tests else 'but '}{len(test_rows)} callable(s) in test code listed above reach it by a route this count does not credit "
               "(a runner entry it does not collect, a remote or framework hop) — treat them as tests to run: "
@@ -2594,13 +2627,16 @@ def main(argv):
                 # when the file's tests share it, a count when they do not (each one's own is under --why)
                 fxs = {g.disp(tests[m][1]) for m in ms if tests[m][1]}
                 via = (f" via {next(iter(fxs))}" if len(fxs) == 1 else f" via {len(fxs)} fixtures" if fxs else '')
+                # a script test is a whole file run as a program: the command it runs by, never a framework's
+                sc = next((m for m in ms if m in script_ids), None)
+                head = f"{f} (script: {script_cmd(sc) or 'no command found: run the file as its project does'})" if sc else f"{f} ({len(ms)}){via}"
                 if want_why:
-                    print(f"      {f} ({len(ms)}){via}:")
+                    print(f"      {head}:")
                     for m in shown:
                         r = route(m); print(f"        {tname(m)}  {tests[m][0]} hop(s)" + (f"   {r}" if r else ''))
                     if len(ms) > limit: print(f"        … +{len(ms) - limit} more (--limit N)")
                 else:
-                    print(f"      {f} ({len(ms)}){via}: " + ', '.join(tname(m) for m in shown) + (f" … +{len(ms) - limit} more (--limit N)" if len(ms) > limit else ''))
+                    print(f"      {head}: " + ', '.join(tname(m) for m in shown) + (f" … +{len(ms) - limit} more (--limit N)" if len(ms) > limit else ''))
         if not want_why: print("    --why adds each test's route (with --tests-in <file> to keep it short)")
     if want_tests and stubbed:
         sfiles = collections.defaultdict(list)

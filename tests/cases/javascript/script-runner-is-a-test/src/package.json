@@ -1,0 +1,2 @@
+{"name": "script-runner", "version": "1.0.0", "scripts": {"test": "node test/run.js", "test:unit": "vitest run"},
+ "devDependencies": {"vitest": "^1.6.0"}}
