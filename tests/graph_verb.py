@@ -106,6 +106,19 @@ def main(argv):
         check(not os.path.exists(os.path.join(ax, 'lang')) and 'building python graph' in g.stdout and 'javascript graph' not in g.stdout and '+ javascript' not in g.stdout,
               'stale: the rebuild solves Python alone; no JavaScript graph appears', g.stdout)
         check('outside_src' not in html, 'stale: the rebuild keeps --src (a file outside it is not drawn)', '')
+        # the rebuild is a refresh: the baseline stays HEAD's tree, so the edit is still an edit to `changed`/`test-impact`
+        c = sh(repo, 'bash', AX, 'changed', repo, env=env); ti = sh(repo, 'bash', AX, 'test-impact', repo, env=env)
+        check('refund_order' in c.stdout and 'baseline moved' not in c.stdout + ti.stdout,
+              'stale: the rebuild keeps the baseline: `changed` still names the edit, and nothing says the baseline moved',
+              c.stdout + c.stderr + ti.stdout)
+        # control: an explicit index of the edited tree DOES move the baseline (#1222), and now says so where the edit vanished
+        with open(os.path.join(repo, 'app', 'shop', 'orders.py'), 'a') as f: f.write('\n\ndef void_order(n):\n    return 0\n')
+        b = sh(repo, 'bash', AX, 'index', repo, '--lang', 'python', '--src', 'app', env=env)
+        c = sh(repo, 'bash', AX, 'changed', repo, env=env); ti = sh(repo, 'bash', AX, 'test-impact', repo, env=env)
+        check(b.returncode == 0 and 'refund_order' not in c.stdout and 'void_order' not in c.stdout
+              and 'baseline moved' in c.stdout and 'shop/orders.py' in c.stdout and 'axiomcode index' in c.stdout and 'baseline moved' in ti.stdout,
+              'control: an explicit index of an edited tree moves the baseline, and `changed` and `test-impact` say so, naming the file',
+              b.stdout[-300:] + c.stdout + c.stderr + ti.stdout)
 
         # ── control: indexed with no --lang, every language present ──────────────────────────────────────────
         mixed = os.path.join(work, 'mixed'); make(mixed, MIXED)
