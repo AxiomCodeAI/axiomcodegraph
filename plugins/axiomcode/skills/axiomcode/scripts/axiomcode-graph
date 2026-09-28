@@ -256,6 +256,7 @@ def build(repo, page, library=None):
     db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
     asked = [f"{k}={os.environ[v]}" for k, v in (('--lang', 'AXIOMCODE_LANG'), ('--src', 'AXIOMCODE_SRC'), ('--library', 'AXIOMCODE_LIBRARY')) if os.environ.get(v)]
     if os.environ.get('AXIOMCODE_GRAPH'): return export(repo, page)        # a graph someone else built and placed: drawn as it is
+    ax_fresh.relink(repo)                                                  # never another checkout's graph (#1605)
     if not os.path.lexists(db):
         # no graph yet: the first index, with what was asked for (every language present, when nothing was)
         t0 = time.time(); run_build(repo)

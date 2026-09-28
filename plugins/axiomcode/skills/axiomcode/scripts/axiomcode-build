@@ -135,6 +135,7 @@ if ! python3 "$H/ax_fresh.py" lock 9 --try; then
   [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO; waiting for it …"
   python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
 fi
+python3 "$H/ax_fresh.py" relink "$REPO" --locked || true   # a pointer copied from another checkout is this one's again (#1605)
 BUILD_T0=$SECONDS                        # how long a build takes to a usable graph: a query decides from it whether to wait (#1595)
 # THE QUERY RULES COMPILE BESIDE THE ENGINE, NOT AFTER THE GRAPH (#1606). They do not depend on the graph, only on this
 # plugin's dl/*.dl, and impact.dl alone takes 45-140 s. Started once the graph was published, the compile raced the first
@@ -224,6 +225,7 @@ build_head_graph(){
     if env -u AXIOMCODE_BACKGROUND -u AXIOMCODE_KEEP_BASE AXIOMCODE_NO_REFRESH=1 AXIOMCODE_LIBRARY="$LIBS" bash "$H/axiomcode-build" "$T" > "$REPO/.axiomcode/base-build.log" 2>&1; then
       # graph.sqlite is a symlink, or (Windows without the symlink privilege) the copy Git Bash made instead of one
       D="$(readlink "$T/.axiomcode/out/graph.sqlite" 2>/dev/null || true)"; [ -n "$D" ] || D="$T/.axiomcode/out/graph.sqlite"
+      case "$D" in /*|[A-Za-z]:*) ;; *) D="$T/.axiomcode/out/$D" ;; esac   # the pointer is relative to its directory
       if [ -f "$D" ]; then
         local NB="$REPO/.axiomcode/base.new"; rm -rf "$NB"; mkdir -p "$NB/out"; mv "$D" "$NB/out/graph.sqlite"
         for D in "$T"/.axiomcode/lang/*/out/graph.sqlite; do          # and every other language's, beside it
@@ -295,7 +297,10 @@ rm -rf "$PREV"
 # is seconds); only then does the build fail, and says why.
 swap(){ local i=0; until mv -f "$1" "$2" 2>/dev/null; do i=$((i+1)); [ $i -ge 120 ] && { echo "could not replace $2: another process holds it open" >&2; return 1; }; sleep 0.5; done; }
 keep_live(){ ln -f "$1" "$OUT/.live.sqlite" 2>/dev/null || cp -p "$1" "$OUT/.live.sqlite"; }   # a hard link, or a copy where the file system has none
-point(){ ln -sfn "$1" "$OUT/.graph.sqlite.new" && swap "$OUT/.graph.sqlite.new" "$OUT/graph.sqlite"; }
+# THE POINTER IS RELATIVE TO ITS DIRECTORY (#1605). An absolute one survived a copy of the repository: the copy answered
+# from the original's graph, and once the original moved it rebuilt itself as "interrupted". Made from inside $OUT, so
+# Git Bash's copy in place of a link resolves the same relative name.
+point(){ local t="${1#"$OUT"/}"; (cd "$OUT" && ln -sfn "$t" .graph.sqlite.new) && swap "$OUT/.graph.sqlite.new" "$OUT/graph.sqlite"; }
 real(){ python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
 if [ -d "$OUT/$LANG_ARG" ]; then
   if [ -f "$OUT/$LANG_ARG/graph.sqlite" ]; then

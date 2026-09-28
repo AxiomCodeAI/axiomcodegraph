@@ -261,6 +261,37 @@ def has_graph(repo):
 def graph_broken(repo):
     return has_graph(repo) and not os.path.exists(os.path.join(out_dir(repo), 'graph.sqlite'))
 
+def relink(repo, locked=False, say=True):
+    """graph.sqlite points into THIS repository's .axiomcode/out, by a name relative to it (#1605). A build before this
+    wrote an absolute pointer, which a copy of the repository kept: the copy answered from the original's graph and never
+    saw its own edits, and once the original moved it found its pointer dangling and rebuilt itself as "a build was
+    interrupted". A pointer that leaves this .axiomcode/out is re-pointed at the same graph here (the copy's own), and
+    says which case it was; one with no graph here to take is removed, so the query builds one. Returns what it did."""
+    out = out_dir(repo); p = os.path.join(out, 'graph.sqlite')
+    if not os.path.islink(p) or (not locked and building(repo)): return ''   # a running build owns the pointer
+    try: t = os.readlink(p)
+    except OSError: return ''
+    if not os.path.isabs(t): return ''          # relative: this out/'s own; dangling, it is an interrupted build to repair
+    parts = t.replace('\\', '/').rsplit('/.axiomcode/out/', 1)
+    tail = parts[1] if len(parts) == 2 and not os.path.normpath(parts[1]).startswith('..') else ''
+    own = os.path.join(out, tail) if tail else ''
+    there = parts[0] + '/.axiomcode/out' if tail else ''
+    # an older build's pointer into this very out/ stays this graph, dangling or not (a dangling one is a repair)
+    ours = bool(there) and os.path.isdir(there) and os.path.samefile(there, out)
+    try:
+        if ours or own and os.path.exists(own):
+            tmp = os.path.join(out, '.graph.sqlite.relink')
+            if os.path.lexists(tmp): os.remove(tmp)
+            os.symlink(tail, tmp); os.replace(tmp, p)
+        else: os.remove(p)
+    except OSError: return ''
+    if ours: return 'relative'
+    msg = (f"graph.sqlite pointed at another checkout's graph ({t})" + (" — this repository was copied from it" if os.path.exists(t)
+           else ", which is gone — this repository was moved or copied from it") +
+           (f"; re-pointed at its own graph (.axiomcode/out/{tail})" if own and os.path.exists(own) else "; this checkout has no graph of its own there, so one is built"))
+    if say: print(msg, file=sys.stderr)
+    return msg
+
 def graph_lang():
     """the language whose graph a verb reads when it is not the main one (AXIOMCODE_GRAPH_LANG, set by the dispatcher
     as it asks each language's graph in turn), else ''"""
@@ -837,6 +868,8 @@ def main(argv):
     if cmd == 'lock':
         return 0 if _flock(int(argv[2]), '--try' not in argv) else 75
     repo = os.path.realpath(argv[2]) if len(argv) > 2 else os.getcwd()
+    if cmd in ('query', 'baseline', 'relink'): relink(repo, locked='--locked' in argv[3:4])   # every query verb passes here
+    if cmd == 'relink': return 0
     if cmd == 'snapshot':
         lang, src_arg = argv[3], (argv[4] if len(argv) > 4 else '')
         lib = os.environ.get('AXIOMCODE_LIBRARY', '')
