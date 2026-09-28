@@ -301,3 +301,41 @@ cfg_repository_base_suffix("Dao").
 // An annotation that marks a repository base as NOT itself a bean. A house base over
 // a framework base carries it, and the framework does not register a proxy for it.
 cfg_no_repository_ann("NoRepositoryBean").
+
+// ── (17) REGISTRIES THAT NAME CONFIGURATION CLASSES ─────────────────────────
+// Spring Boot registers a starter's classes from a FILE, not from a scan:
+// META-INF/spring/<service>.imports (every entry is a configuration class) and, in the
+// older form, META-INF/spring.factories. In spring.factories only these keys name
+// configuration classes, which the container registers as beans named by their
+// fully-qualified name; every other key (ApplicationContextInitializer,
+// EnvironmentPostProcessor, …) names a class SpringFactoriesLoader instantiates and
+// calls, which is a registered type and not a bean.
+cfg_config_registry_key("org.springframework.boot.autoconfigure.EnableAutoConfiguration").
+cfg_config_registry_key("org.springframework.boot.actuate.autoconfigure.web.ManagementContextConfiguration").
+cfg_config_registry_key("org.springframework.cloud.bootstrap.BootstrapConfiguration").
+
+// ── (18) CLASSES AN ANNOTATION ARGUMENT REGISTERS AS BEANS ──────────────────
+// @EnableConfigurationProperties({A.class, B.class}) registers each listed class as a
+// bean named "<prefix>-<fully.qualified.Name>" (the fully-qualified name alone when the
+// class names no prefix), the name Boot's registrar gives it.
+cfg_enable_props_ann("EnableConfigurationProperties").
+
+// ── (19) PACKAGE SCANS THAT REGISTER BEANS WITHOUT A STEREOTYPE ─────────────
+// cfg_pkg_scan_ann(Annotation, Kind). The annotation names base packages (value /
+// basePackages, Ant-style `*` and `**` allowed) or classes whose packages are scanned
+// (basePackageClasses); with none of the three, the annotated class's own package.
+//   mapper      every INTERFACE in a scanned package becomes a MyBatis mapper proxy bean
+//               (mybatis-spring's ClassPathMapperScanner)
+//   properties  every @ConfigurationProperties class that is not also a @Component
+cfg_pkg_scan_ann("MapperScan", "mapper").
+cfg_pkg_scan_ann("ConfigurationPropertiesScan", "properties").
+cfg_pkg_scan_arg("value").  cfg_pkg_scan_arg("basePackages").
+
+// An annotation that makes the INTERFACE it sits on a proxy bean, as a Spring Data
+// repository base does for its children: MyBatis @Mapper (registered by the Boot
+// starter's scan of the application package).
+cfg_mapper_ann("Mapper").
+// The same simple name imported from this package is a different annotation. MapStruct's
+// @Mapper marks an interface it GENERATES an implementation of, and whether that is a
+// bean depends on its componentModel, so it is not a proxy bean.
+cfg_foreign_ann("Mapper", "org.mapstruct").

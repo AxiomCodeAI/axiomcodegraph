@@ -682,6 +682,8 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'entry_points', column: 'reason', value: 'lifecycle_factory', languages: J, meaning: 'The method an XML bean definition names as `factory-method`; the container calls it to build the bean.' },
   { table: 'entry_points', column: 'reason', value: 'config_handler', languages: J, meaning: 'A callback of a class a configuration file names under a key that expects a class (not an annotation); the container instantiates it and calls it.' },
   { table: 'entry_points', column: 'reason', value: 'service_loader', languages: J, meaning: 'A callback of a provider listed in `META-INF/services`; `ServiceLoader` instantiates it and the caller reaches it through the service interface.' },
+  { table: 'entry_points', column: 'reason', value: 'auto_configuration', languages: J, meaning: 'The constructor or a container callback of a configuration class named in `META-INF/spring/*.imports` or under a configuration key of `META-INF/spring.factories` (`EnableAutoConfiguration`); Spring Boot registers it as a bean.' },
+  { table: 'entry_points', column: 'reason', value: 'spring_factories', languages: J, meaning: 'The constructor or callback of a class named under any other key of `META-INF/spring.factories` (`ApplicationContextInitializer`, `EnvironmentPostProcessor`, …); `SpringFactoriesLoader` instantiates it and calls it. Not a bean.' },
   { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: ['typescript', 'javascript'], meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },
   { table: 'entry_points', column: 'reason', value: 'exported_from_entry_module', languages: T, meaning: 'A named function exported from a module nothing in the project imports. Its caller is the package\'s consumer, which is not in the repository. Placeholder names (`<arrow>`) are not roots.' },
   { table: 'entry_points', column: 'reason', value: 'package_export', languages: T, meaning: 'A named function exported from a module the project\'s `package.json` publishes (`main`, `module`, `exports`, `types`, `source`), mapped from build output back to its source. Its caller is the package\'s consumer. Covers the entry a project\'s own tests import, which `exported_from_entry_module` cannot see.' },
@@ -705,6 +707,8 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'type_instantiated', column: 'how', value: 'anonymous', languages: J, meaning: 'An anonymous class exists only by being instantiated.' },
   { table: 'type_instantiated', column: 'how', value: 'enum_constant', languages: J, meaning: 'An enum\'s constants are its instances.' },
   { table: 'type_instantiated', column: 'how', value: 'service_loader', languages: J, meaning: 'A provider listed in `META-INF/services`: `ServiceLoader` constructs it reflectively, with no `new` in the source.' },
+  { table: 'type_instantiated', column: 'how', value: 'auto_configuration', languages: J, meaning: 'A configuration class named in `META-INF/spring/*.imports` or `spring.factories` (`EnableAutoConfiguration`): Spring Boot constructs it reflectively.' },
+  { table: 'type_instantiated', column: 'how', value: 'spring_factories', languages: J, meaning: 'A class named under another key of `META-INF/spring.factories`: `SpringFactoriesLoader` constructs it reflectively.' },
 
   // skipped.reason — parser/src/enums/SkippedFileReason.ts. The sets differ per front end
   // because they decline for different things; a value listed for no language is one no

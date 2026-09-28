@@ -981,6 +981,43 @@ def _injected(q):
     return _INJECTED[key]
 
 
+
+_REGISTERS = {}
+def _registers(q):
+    """`registers(t,by,kind)`: a bean of type t whose definition site is an annotation declared on ANOTHER type `by`.
+
+    The engine records where each bean comes from (`ext_bean_def.c3`): for @EnableConfigurationProperties({T.class})
+    and for a package scan (@MapperScan, @ConfigurationPropertiesScan) that is the annotation on the configuration class,
+    and `type_use` names the type that annotation sits on. A stereotype's site is on the bean's own type, so it is not a
+    registration by someone else and is left out. One query, read by the exporter (the rules) and by the fast path.
+    """
+    key = id(q)
+    if key not in _REGISTERS:
+        idx = {}
+        if _has(q, 'ext_bean_def') and _has(q, 'type_use'):
+            for t, by, kind in q("""SELECT DISTINCT b.c1, s.id, b.c2 FROM ext_bean_def b
+                                         JOIN type_use u ON u.owner_id = b.c3 AND u.owner_kind = 'ANNOTATION'
+                                                        AND u.context = 'ANNOTATION_TYPE'
+                                         JOIN symbols s ON s.id = u.owner_type_id AND s.method_id IS NULL
+                                    WHERE b.c1 IS NOT NULL AND u.owner_type_id <> b.c1"""):
+                idx.setdefault(t, set()).add((by, kind or 'bean'))
+        _REGISTERS[key] = idx
+    return _REGISTERS[key]
+
+
+_FACTORIES = {}
+def _factories(q):
+    """`bean_factory(m,t)`: the method an @Bean factory is declared on, and the type it produces."""
+    key = id(q)
+    if key not in _FACTORIES:
+        idx = {}
+        if _has(q, 'ext_bean_def'):
+            for mid, t in q("SELECT c3, c1 FROM ext_bean_def WHERE c2 = 'factory_method' AND c3 IS NOT NULL AND c3 <> ''"):
+                idx.setdefault(mid, set()).add(t)
+        _FACTORIES[key] = idx
+    return _FACTORIES[key]
+
+
 def _bean_definition_consumers(q, ids):
     """A method that DEFINES a bean (@Bean): whoever the container injects that type into.
 
@@ -1592,6 +1629,27 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
             if c in inside: continue
             rows.append((c, 'uses', f'receives it by dependency injection ({kind}) — the container hands it '
                                     f'over, no call site', 'resolved', '', 0))
+
+    # ── a type another class REGISTERS as a bean ───────────────────────────────────────────────────────────
+    #   direct(q,c,"uses",cat("registers it as a bean (",kind,"): …"),"resolved","",0)
+    #     :- target(q,"type",t,_), registers(t,c,kind), !inside_target(q,c)
+    # ── a type that DEFINES beans: who is injected with one of them ────────────────────────────────────────
+    #   direct(q,c,"uses",cat("is injected with a bean this class defines (",kind,")"),"resolved","",0)
+    #     :- target(q,"type",_,_), inside_target(q,m), bean_factory(m,bt), injected(bt,c,kind), !inside_target(q,c)
+    bean_rows = set()
+    regs = _registers(q)
+    for t in tids:
+        for c, kind in regs.get(t, ()):
+            if c not in inside:
+                bean_rows.add((c, 'uses', f'registers it as a bean ({kind}): the container creates it, no call site',
+                               'resolved', '', 0))
+    fac = _factories(q)
+    for m in inside:
+        for bt in fac.get(m, ()):
+            for c, kind in inj.get(bt, ()):
+                if c not in inside:
+                    bean_rows.add((c, 'uses', f'is injected with a bean this class defines ({kind})', 'resolved', '', 0))
+    rows += sorted(bean_rows)
 
     # ── the GENERATED accessors of the type's own fields: 276-277 ─────────────────────────────────────────
     #   gen(t,"get"|"set"), field(fl,t,…), accessor(fl,an,…), unresolved(c,an,k,f,l), !ctor_kind(k),

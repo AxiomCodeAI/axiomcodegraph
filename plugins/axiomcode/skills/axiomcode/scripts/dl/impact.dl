@@ -112,6 +112,8 @@
 //   bean(name, t, kind)               a type registered as a bean (a stereotype, an @Bean factory)
 //   bean_factory(m, t)                the METHOD an @Bean factory is declared on, and the type it produces
 //   injected(t, into, kind)           a value of type t is handed to `into` by the container, not by a call the graph can see
+//   registers(t, by, kind)            the bean of type t exists because an annotation on the type `by` names it
+//                                     (@EnableConfigurationProperties({T.class}), a mapper or properties package scan)
 .decl config_site(k:symbol, c:symbol, d:symbol, f:symbol, l:number) .input config_site
 //   nonsource(n, f, l)                the name n written in a file the index does NOT read as source
 //   qual_name(s, n)                   a qualified spelling of symbol s, for a binding written in full
@@ -122,6 +124,7 @@
 .decl bean(n:symbol, t:symbol, kind:symbol)                       .input bean
 .decl bean_factory(m:symbol, t:symbol)                            .input bean_factory
 .decl injected(t:symbol, into:symbol, kind:symbol)                .input injected
+.decl registers(t:symbol, by:symbol, kind:symbol)                .input registers
 
 // ── vocabulary ─────────────────────────────────────────────────────────────────────────────────────────────────
 .decl local_kind(k:symbol)
@@ -299,6 +302,14 @@ direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — t
 // which names the METHOD. Keying on `bean(_, owner(m), _)` instead only says the method's OWNER is a bean, so
 // it fired for every method of every injected @Service and never for a factory whose @Configuration is not injected.
 direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"), "resolved", "", 0) :- target(q, "method", m, _), bean_factory(m, bt), injected(bt, c, kind), c != m.
+// a TYPE that another class registers as a bean: that class, which a rename, a move or a delete of the type breaks.
+// Without it the registering annotation was one [by name] row among the text matches, and a type registered only
+// that way read as a class nothing depends on.
+direct(q, c, "uses", cat("registers it as a bean (", kind, "): the container creates it, no call site"), "resolved", "", 0) :- target(q, "type", t, _), registers(t, c, kind), !inside_target(q, c).
+// a TYPE that DEFINES beans (a @Configuration class, an auto-configuration): whoever is injected with a bean one of its
+// @Bean methods defines. The factory methods are inside the target, so the method rule above never runs for them
+// and a change to the class said nothing resolved depended on it.
+direct(q, c, "uses", cat("is injected with a bean this class defines (", kind, ")"), "resolved", "", 0) :- target(q, "type", _, _), inside_target(q, m), bean_factory(m, bt), injected(bt, c, kind), !inside_target(q, c).
 
 // a METHOD: its callers, and the unresolved sites written with its name
 // A RESOLVED call at a route registration says what the code does and not what it means: on JavaScript the engine

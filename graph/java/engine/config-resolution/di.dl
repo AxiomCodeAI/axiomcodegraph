@@ -200,6 +200,110 @@ cfg_decap_demand(sn) :- cfg_repo_iface(t), type_decl(_, sn, _, _, _, _, t).
 bean_def(name, t, "repository_proxy", t) :- cfg_repo_iface(t), !cfg_repo_excluded(t),
     type_decl(_, sn, _, _, _, _, t), cfg_decap(sn, name).
 
+// (b'') REGISTRY-NAMED CONFIGURATION: a class META-INF/spring/*.imports names, or a
+// configuration key of META-INF/spring.factories (services.dl). Boot registers each one
+// as a bean named by its fully-qualified name. Not a stereotype on @AutoConfiguration:
+// component scanning EXCLUDES an auto-configuration, so the file is what makes it a
+// bean, and a stereotype rule would give it the decapitalized name Boot never uses.
+cfg_registry_config(p, t) :- svc_provider_resolves(p, d, t), svc_registration(d, "auto_configuration").
+cfg_registry_config(p, t) :- svc_provider_resolves_lib(p, d, t), svc_registration(d, "auto_configuration").
+bean_def(qname, t, "auto_configuration", p) :- cfg_registry_config(p, t),
+    type_decl(_, _, qname, _, _, _, t).
+
+// ── class arguments of an annotation, resolved in the annotation's own file ──
+// config_class_ref resolves a simple name through ANY file that names it; a bean is a
+// claim about one class, so this resolves it through the imports, package and file
+// of the annotation that wrote it, or as a fully-qualified name.
+cfg_ann_class_arg(prov, a, an, t) :- ann_arg(prov, a, an, v, "CLASS_REFERENCE", _),
+    ann_file(prov, a, f), type_resolves_in_file(_, v, f, t).
+cfg_ann_class_arg(prov, a, an, t) :- ann_arg(prov, a, an, v, "CLASS_REFERENCE", _),
+    type_decl(_, _, v, _, _, _, t).
+
+// (d) PROPERTIES CLASSES registered by @EnableConfigurationProperties({A.class}) or by a
+// @ConfigurationPropertiesScan over their package. The bean is named
+// "<prefix>-<fully.qualified.Name>", or the fully-qualified name when the class names no
+// prefix. Not container-CONSTRUCTED in the injection sense: a constructor of a
+// properties class is BOUND from configuration keys (impact.dl), so its parameters are
+// not bean injection points.
+cfg_props_bean_type(a, t) :- ann_on_type(prov, a, n, _), cfg_enable_props_ann(n),
+    cfg_ann_class_arg(prov, a, "value", t).
+cfg_props_bean_type(a, t) :- cfg_scan_hit(a, "properties", t).
+cfg_props_type_prefix(t, pre) :- cfg_props_bean_type(_, t), cfg_props_prefix(t, pre), pre != "".
+cfg_props_type_has_prefix(t) :- cfg_props_type_prefix(t, _).
+bean_def(cat(pre, cat("-", qname)), t, "enabled_properties", a) :- cfg_props_bean_type(a, t),
+    cfg_props_type_prefix(t, pre), type_decl(_, _, qname, _, _, _, t).
+bean_def(qname, t, "enabled_properties", a) :- cfg_props_bean_type(a, t),
+    !cfg_props_type_has_prefix(t), type_decl(_, _, qname, _, _, _, t).
+
+// (e) MYBATIS MAPPER PROXIES: an interface carrying @Mapper, or any interface in a
+// package a @MapperScan covers. mybatis-spring registers a MapperFactoryBean per
+// interface, which injects a JDK proxy of it; the interface has no implementation in any
+// source tree, so without this every injection of a mapper reads `unsatisfied`.
+cfg_foreign_ann_file(n, fp) :- cfg_foreign_ann(n, pkg), import_single(_, n, cat(pkg, cat(".", n)), fp, _).
+cfg_foreign_ann_file(n, fp) :- cfg_foreign_ann(n, pkg), import_wildcard(_, pkg, fp, _).
+cfg_mapper_site(a, t) :- ann_on_type(prov, a, n, t), cfg_mapper_ann(n),
+    type_decl(prov, _, _, fp, "INTERFACE_TYPE", _, t), !cfg_foreign_ann_file(n, fp).
+cfg_mapper_site(a, t) :- cfg_scan_hit(a, "mapper", t).
+cfg_decap_demand(sn) :- cfg_mapper_site(_, t), type_decl(_, sn, _, _, _, _, t).
+bean_def(name, t, "mapper_proxy", a) :- cfg_mapper_site(a, t),
+    type_decl(_, sn, _, _, _, _, t), cfg_decap(sn, name).
+
+// ── PACKAGE SCANS (knobs.dl §19) ─────────────────────────────────────────────
+// cfg_scan_pattern(Ann, Pattern): a base package as written, or the package of a
+// basePackageClasses class, or with none of the three arguments the annotated class's own.
+// A placeholder ("${…}") is left out: its value is not known here, and guessing a package
+// would register beans the container never sees.
+cfg_scan(kind, prov, a, owner) :- ann_on_type(prov, a, n, owner), cfg_pkg_scan_ann(n, kind).
+cfg_scan_names_base(a) :- cfg_scan(_, prov, a, _), ann_arg(prov, a, an, _, _, _), cfg_pkg_scan_arg(an).
+cfg_scan_names_base(a) :- cfg_scan(_, prov, a, _), ann_arg(prov, a, "basePackageClasses", _, _, _).
+cfg_scan_pattern(a, pat) :- cfg_scan(_, prov, a, _), ann_arg(prov, a, an, pat, "STRING_LITERAL", _),
+    cfg_pkg_scan_arg(an), pat != "", !contains("$", pat), !contains("{", pat).
+cfg_scan_pattern(a, pkg) :- cfg_scan(_, prov, a, _), cfg_ann_class_arg(prov, a, "basePackageClasses", c),
+    cfg_scan_type_pkg(c, pkg), pkg != "".
+cfg_scan_pattern(a, pkg) :- cfg_scan(_, _, a, owner), !cfg_scan_names_base(a),
+    cfg_scan_type_pkg(owner, pkg), pkg != "".
+// type_pkg / lib_type_pkg keep the trailing dot ("a.b."), which is how the import
+// resolution joins on them; a scan pattern is written without it.
+cfg_scan_type_pkg(t, pkg) :- type_pkg(t, d), strlen(d) > 1, pkg = substr(d, 0, strlen(d) - 1).
+cfg_scan_type_pkg(t, pkg) :- lib_type_pkg(t, d), strlen(d) > 1, pkg = substr(d, 0, strlen(d) - 1).
+
+// Pattern -> regex, one character at a time: `.` is literal, `*` is any run within one
+// package segment, `.**` any number of further segments. The package itself and every
+// subpackage below it are covered, as a classpath scan of `pkg/**/*.class` covers them.
+cfg_scan_rx_step(p, 0, "") :- cfg_scan_pattern(_, p).
+cfg_scan_rx_step(p, i + 3, cat(r, "([.][^.]+)*")) :- cfg_scan_rx_step(p, i, r), i < strlen(p),
+    substr(p, i, min(3, strlen(p) - i)) = ".**".
+cfg_scan_rx_step(p, i + 1, cat(r, "[.]")) :- cfg_scan_rx_step(p, i, r), i < strlen(p),
+    substr(p, i, 1) = ".", substr(p, i, min(3, strlen(p) - i)) != ".**".
+cfg_scan_rx_step(p, i + 1, cat(r, "[^.]*")) :- cfg_scan_rx_step(p, i, r), i < strlen(p),
+    substr(p, i, 1) = "*".
+cfg_scan_rx_step(p, i + 1, cat(r, c)) :- cfg_scan_rx_step(p, i, r), i < strlen(p),
+    c = substr(p, i, 1), c != ".", c != "*".
+cfg_scan_rx(p, cat(r, "([.].+)?")) :- cfg_scan_rx_step(p, strlen(p), r).
+
+// What each kind of scan picks up: an interface (mapper), or a @ConfigurationProperties
+// class that is not already a @Component (properties).
+cfg_scan_candidate("mapper", t, pkg) :- type_decl(_, _, _, _, "INTERFACE_TYPE", _, t), cfg_scan_type_pkg(t, pkg).
+cfg_scan_candidate("properties", t, pkg) :- ann_on_type(_, _, n, t), cfg_props_ann(n),
+    !cfg_stereotype(_, _, t), cfg_scan_type_pkg(t, pkg).
+cfg_scan_match(a, kind, t) :- cfg_scan(kind, _, a, _), cfg_scan_pattern(a, pat), cfg_scan_rx(pat, rx),
+    cfg_scan_candidate(kind, t, pkg), match(rx, pkg).
+
+// @MapperScan(annotationClass = X.class) / (markerInterface = Y.class) narrow the scan to
+// interfaces carrying X or extending Y (either one, when both are given); the marker
+// itself is not a mapper.
+cfg_scan_filter_ann(a, v) :- cfg_scan("mapper", prov, a, _), ann_arg(prov, a, "annotationClass", v, _, _), v != "".
+cfg_scan_filter_marker(a, m) :- cfg_scan("mapper", prov, a, _), cfg_ann_class_arg(prov, a, "markerInterface", m).
+cfg_scan_filtered(a) :- cfg_scan("mapper", prov, a, _), ann_arg(prov, a, "annotationClass", _, _, _).
+cfg_scan_filtered(a) :- cfg_scan("mapper", prov, a, _), ann_arg(prov, a, "markerInterface", _, _, _).
+cfg_scan_hit(a, kind, t) :- cfg_scan_match(a, kind, t), !cfg_scan_filtered(a).
+cfg_scan_hit(a, "mapper", t) :- cfg_scan_match(a, "mapper", t), cfg_scan_filter_ann(a, v),
+    ann_on_type(_, _, n, t), n = v.
+cfg_scan_hit(a, "mapper", t) :- cfg_scan_match(a, "mapper", t), cfg_scan_filter_ann(a, v),
+    ann_on_type(_, _, n, t), match(cat(".*[.]", n), v).
+cfg_scan_hit(a, "mapper", t) :- cfg_scan_match(a, "mapper", t), cfg_scan_filter_marker(a, m),
+    type_ancestor(t, m).
+
 // (c) XML <bean class="…"/>  (xml-wiring.dl)
 bean_def(id, t, "xml", elem) :- xml_bean(elem, id, t, _).
 
@@ -251,6 +355,7 @@ cfg_inject_ctor(m, owner) :- ann_on_method(prov, _, n, m, owner), cfg_inject_ann
 // constructor-injected and Spring disagreed — ctor_inject precision 0.500 -> 1.000.
 cfg_container_constructed(t) :- bean_def(_, t, "stereotype", _).
 cfg_container_constructed(t) :- bean_def(_, t, "xml", _).
+cfg_container_constructed(t) :- bean_def(_, t, "auto_configuration", _).
 cfg_type_ctor(t, m) :- method_kind(prov, "CONSTRUCTOR", _, m), method_owner(prov, t, m).
 cfg_type_ctor_count(t, n) :- cfg_container_constructed(t), n = count : { cfg_type_ctor(t, _) }.
 cfg_inject_ctor(m, t) :- cfg_type_ctor_count(t, 1), cfg_type_ctor(t, m),

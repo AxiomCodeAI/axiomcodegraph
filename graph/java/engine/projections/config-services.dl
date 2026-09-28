@@ -34,3 +34,10 @@ svc_provider_class(p, d, qname) :- java_service_provider(qname, _, _, _, _, _, "
 svc_descriptor_lib(d, svc, wf) :- lib_service_descriptor(svc, _, _, _, _, wf, _, _, _, _, _, _, _, d).
 svc_provider_lib(p, d, pkg, simple) :- lib_service_provider(_, _, simple, pkg, _, _, "true", _, _, _, _, _, _, _, d, _, _, _, p).
 svc_provider_class_lib(p, d, qname) :- lib_service_provider(qname, _, _, _, _, _, "true", _, _, _, _, _, _, _, d, _, _, _, p).
+
+// svc_descriptor_path(Descriptor, RelativePath): the file that configured it. Spring's two
+// registries, META-INF/spring/<service>.imports and META-INF/spring.factories (one descriptor
+// per key), arrive in these same relations; the path is what tells them apart
+// (config-resolution/services.dl).
+svc_descriptor_path(d, rel) :- java_service_descriptor(_, _, _, _, _, _, _, _, _, rel, _, _, _, d).
+svc_descriptor_path(d, rel) :- lib_service_descriptor(_, _, _, _, _, _, _, _, _, rel, _, _, _, d).

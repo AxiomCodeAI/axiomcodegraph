@@ -84,15 +84,19 @@ export class ServicesParser {
    * @param filePath Absolute path to the file
    * @param baseMservPath Project root path
    * @param serviceVersionLinkHash Service version hash
+   * @param serviceName The service being configured, when the file name is not
+   *   it verbatim: Spring's `META-INF/spring/<name>.imports` has the same
+   *   one-class-per-line, `#`-comment format and names its service `<name>`
    * @returns Tuple of [ServiceDescriptor, ServiceProvider[]]
    */
   parse(
     content: string,
     filePath: string,
     baseMservPath: string,
-    serviceVersionLinkHash: string
+    serviceVersionLinkHash: string,
+    serviceName?: string
   ): [ServiceDescriptor, ServiceProvider[]] {
-    const fileName = path.basename(filePath);
+    const fileName = serviceName ?? path.basename(filePath);
     const service = this.resolveBinaryName(fileName);
     const lines = this.split(content);
     const parsedLines = this.parseProviderLines(lines);
@@ -113,6 +117,130 @@ export class ServicesParser {
       .withRelativePath(this.toPosix(path.relative(baseMservPath, filePath)) || fileName)
       .build();
 
+    const providers = this.buildProviders(parsedLines, descriptor, filePath, baseMservPath, serviceVersionLinkHash);
+    descriptor.setProviderCounts(
+      providers.length,
+      providers.filter((p) => p.getIsWellFormedName()).length
+    );
+
+    return [descriptor, providers];
+  }
+
+  /**
+   * Parses `META-INF/spring.factories`: one descriptor per KEY, one provider per
+   * comma-separated class in its value.
+   *
+   * The file is a `java.util.Properties` file, which `SpringFactoriesLoader`
+   * reads as such, so its clauses are the Properties ones and not the
+   * ServiceLoader ones: a comment is a LINE whose first non-blank character is
+   * `#` or `!` (a `#` inside a value is text); a line ending in an odd number of
+   * backslashes continues on the next, whose leading blanks are dropped; the key
+   * ends at the first unescaped `=`, `:` or blank. Each provider keeps the
+   * physical line and columns it was written on, so a continued value still
+   * points at the line that names the class.
+   */
+  parseSpringFactories(
+    content: string,
+    filePath: string,
+    baseMservPath: string,
+    serviceVersionLinkHash: string
+  ): Array<[ServiceDescriptor, ServiceProvider[]]> {
+    const lines = this.split(content);
+    const relativePath = this.toPosix(path.relative(baseMservPath, filePath)) || path.basename(filePath);
+    const byKey = new Map<string, ParsedProviderLine[]>();
+
+    for (const logical of this.logicalLines(lines)) {
+      const { text, at } = logical;
+      let i = 0;
+      while (i < text.length && (text[i] === ' ' || text[i] === '\t' || text[i] === '\f')) i++;
+      if (i >= text.length || text[i] === '#' || text[i] === '!') continue;
+      const keyStart = i;
+      while (i < text.length && !'=: \t\f'.includes(text[i]!)) {
+        i += text[i] === '\\' ? 2 : 1;
+      }
+      const key = text.slice(keyStart, i);
+      while (i < text.length && (text[i] === ' ' || text[i] === '\t' || text[i] === '\f')) i++;
+      if (i < text.length && (text[i] === '=' || text[i] === ':')) i++;
+
+      const parsed = byKey.get(key) ?? [];
+      let start = i;
+      for (let j = i; j <= text.length; j++) {
+        if (j < text.length && text[j] !== ',') continue;
+        const raw = text.slice(start, j);
+        const lead = raw.length - raw.trimStart().length;
+        const name = raw.trim();
+        if (name.length > 0) {
+          const [line, col] = at[start + lead]!;
+          parsed.push({ binaryName: name, line, startCol: col, endCol: col + name.length, hasInlineComment: false });
+        }
+        start = j + 1;
+      }
+      byKey.set(key, parsed);
+    }
+
+    const out: Array<[ServiceDescriptor, ServiceProvider[]]> = [];
+    for (const [key, parsedLines] of byKey) {
+      const service = this.resolveBinaryName(key);
+      const descriptor = ServiceDescriptor.builder(key, filePath, baseMservPath, serviceVersionLinkHash)
+        .withServiceInterface(service.qualifiedName)
+        .withSimpleName(service.simpleName)
+        .withPackageName(service.packageName)
+        .withIsNestedServiceName(service.isNested)
+        .withIsWellFormedServiceName(service.isWellFormed)
+        .withLineCount(lines.length)
+        .withRelativePath(relativePath)
+        .withEntryKey(key)
+        .build();
+      const providers = this.buildProviders(parsedLines, descriptor, filePath, baseMservPath, serviceVersionLinkHash);
+      descriptor.setProviderCounts(
+        providers.length,
+        providers.filter((p) => p.getIsWellFormedName()).length
+      );
+      out.push([descriptor, providers]);
+    }
+    return out;
+  }
+
+  /**
+   * Joins backslash-continued physical lines into logical ones, keeping for each
+   * character the 1-based line and 0-based column it came from.
+   */
+  private logicalLines(lines: string[]): Array<{ text: string; at: Array<[number, number]> }> {
+    const out: Array<{ text: string; at: Array<[number, number]> }> = [];
+    let text = '';
+    let at: Array<[number, number]> = [];
+    let continuing = false;
+    lines.forEach((raw, index) => {
+      let from = 0;
+      if (continuing) {
+        while (from < raw.length && (raw[from] === ' ' || raw[from] === '\t' || raw[from] === '\f')) from++;
+      }
+      let trailing = 0;
+      for (let k = raw.length - 1; k >= from && raw[k] === '\\'; k--) trailing++;
+      const continues = trailing % 2 === 1;
+      const to = continues ? raw.length - 1 : raw.length;
+      for (let k = from; k < to; k++) {
+        text += raw[k];
+        at.push([index + 1, k]);
+      }
+      continuing = continues;
+      if (!continues) {
+        out.push({ text, at });
+        text = '';
+        at = [];
+      }
+    });
+    if (continuing) out.push({ text, at });
+    return out;
+  }
+
+  private buildProviders(
+    parsedLines: ParsedProviderLine[],
+    descriptor: ServiceDescriptor,
+    filePath: string,
+    baseMservPath: string,
+    serviceVersionLinkHash: string
+  ): ServiceProvider[] {
     const seen = new Set<string>();
     const providers: ServiceProvider[] = [];
 
@@ -145,12 +273,7 @@ export class ServicesParser {
       );
     });
 
-    descriptor.setProviderCounts(
-      providers.length,
-      providers.filter((p) => p.getIsWellFormedName()).length
-    );
-
-    return [descriptor, providers];
+    return providers;
   }
 
   /**
