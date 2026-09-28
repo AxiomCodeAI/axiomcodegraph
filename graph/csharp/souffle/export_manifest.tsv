@@ -39,3 +39,4 @@ entry_reachable	entry-reachable.csv
 type_ancestor_type	resolution-type-ancestor-type.csv
 override_pair	resolution-virtual-override.csv
 framework_edge	framework-edge.csv
+field_access	field-access.csv
