@@ -148,13 +148,16 @@ A = {
     # still the decoration, and a wrong `args` mapping would be silently empty in the same way
     decorations=dict(file='all-csharp-attributes.csv', name='attributeName', owner='ownerHash', line='startLine',
                      fileVia=('modules', 'csModuleLinkHash'), id='csAttributeUniqueHash'),
-    # fields carry no ownerQualifiedName (potentialQualifiedName is the field's TYPE), so the owner comes
-    # from the file the way javascript's does; a property is a member that reads as a field at its sites
+    # fields carry no ownerQualifiedName (potentialQualifiedName is the field's TYPE), but every member row links its
+    # declaring type by csTypeLinkHash: that type is the owner, so `Type.Field`, `Type.Prop` and `Type.CONST` name it
+    # and qualified_name is `<type qualified name>.<name>`, as Java's is (#1445). Without it the owner was empty and
+    # qualified_name `file#name`, so impact on Owner.Member fell back to a type-name match and called the change local.
+    # A property is a member that reads as a field at its sites
     decls=[dict(file='all-csharp-fields.csv', id='csFieldUniqueHash', kind=lambda r: 'const' if r.get('isConst') == 'true' else 'field',
-                name='name', owner=None, fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine'),
+                name='name', ownerVia='csTypeLinkHash', fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine'),
            dict(file='all-csharp-properties.csv', id='csPropertyUniqueHash', kind=lambda r: 'field',
-                name='name', owner=None, fileVia=('types', 'csTypeLinkHash'), line='startLine', end='endLine'),
-           dict(file='all-csharp-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner=None, fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine')],
+                name='name', ownerVia='csTypeLinkHash', fileVia=('types', 'csTypeLinkHash'), line='startLine', end='endLine'),
+           dict(file='all-csharp-enum-members.csv', kind=lambda r: 'enum_member', name='name', ownerVia='csTypeLinkHash', fileVia=('modules', 'csModuleLinkHash'), line='startLine', end='endLine')],
     boundNames=None, skipped='skipped-csharp-files.csv'),
 }[LANG]
 
@@ -373,9 +376,15 @@ for d in A['decls']:
         name = r.get(d['name'], '');
         if not name: continue
         fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else None
+        # the owner as a link to the declaring type's row (C#): its display and qualified name come from that row, so a
+        # nested type's member is `Outer.Inner.Member` and two types' same-named members stay two symbols
+        ot = types.get(r.get(d['ownerVia'], '')) if d.get('ownerVia') else None
+        if ot: od = tdisplay(ot['id']) or None
         ln = int(r.get(d['line']) or 0); en = int(r.get(d['end']) or ln)
         if (fp, ln, name) in bound_at: continue     # `const foo = () => …` is already the function foo
-        sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), (r.get('qualifiedName') or ((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name), None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
+        qn = ((ot['qualified_name'] + '.' + name) if ot and ot.get('qualified_name') else None) or r.get('qualifiedName') or \
+             (((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name)
+        sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), qn, None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
 c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 
 # ── references, literals, comments ───────────────────────────────────────────────────────────────
