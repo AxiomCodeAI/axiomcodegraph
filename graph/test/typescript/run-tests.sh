@@ -32,6 +32,7 @@
 #
 # Environment:
 #   AXIOM_PARSER   path to the parser entrypoint  (default parser/dist/index.js — the parser in this repository)
+#   AXIOM_SUITE_JOBS  cases run at once (default: the CPU count; 1 = one at a time, output uncaptured)
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"

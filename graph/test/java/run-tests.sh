@@ -39,6 +39,7 @@
 #
 # Environment:
 #   AXIOM_PARSER   path to the parser entrypoint   (default parser/dist/index.js — the parser in this repository)
+#   AXIOM_SUITE_JOBS  cases run at once (default: the CPU count; 1 = one at a time, output uncaptured)
 #
 # NO EXTERNAL LIBRARY IR IS USED OR REQUIRED — see the note above the EMPTY_LIB line. A case
 # may however ship its own lib-src/ STUB library (kilobytes, in the repo), which is extracted

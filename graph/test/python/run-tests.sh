@@ -36,6 +36,7 @@
 #
 # Environment:
 #   AXIOM_PARSER      parser entrypoint        (default parser/dist/index.js — the parser in this repository)
+#   AXIOM_SUITE_JOBS  cases run at once (default: the CPU count; 1 = one at a time, output uncaptured)
 #   AXIOM_PY_ORACLE   harness checkout         (--oracle only; default ../../../callchain-oracle/python)
 #   AXIOM_PY_PYTHON   pinned interpreter       (default python3.10; also used by the
 #                     tier-1 attribution preflight, which is version-sensitive)
