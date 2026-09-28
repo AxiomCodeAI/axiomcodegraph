@@ -699,7 +699,18 @@ while [ "$iter" -lt 50 ]; do
     echo "▶ solving with profiling -> $AXIOM_SOUFFLE_PROFILE"
     "$PBIN" -F "$FACTS" -D "$RAW" -p "$AXIOM_SOUFFLE_PROFILE"
   else
-    "$BIN" -F "$FACTS" -D "$RAW"
+    # A cached binary is compiled with -march=native. Restored onto a CPU without one of
+    # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
+    # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
+    # later run the same way: drop the cache entry, so the next run recompiles, and say so.
+    rc=0; "$BIN" -F "$FACTS" -D "$RAW" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      if [ "$rc" -eq 132 ] && [ -z "$PACKAGED" ]; then
+        rm -f "$BIN"
+        echo "❌ the cached engine $BIN died with an illegal instruction: it was compiled for a different CPU. Removed it; the next run recompiles." >&2
+      fi
+      exit "$rc"
+    fi
   fi
   # No frontier declared for this language: the solve above is the whole answer. Break
   # BEFORE the count, because the count is what misreported it. See issue #475.
