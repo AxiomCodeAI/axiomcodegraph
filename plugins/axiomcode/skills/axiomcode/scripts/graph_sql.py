@@ -821,6 +821,213 @@ def via_base_rows(q, lines=None, stubs=frozenset(), only=None):
     return rows, sites
 
 
+def callers_via_base(q, mids, lines=None):
+    """{method id: {caller symbol id}}: the callers `via_base_rows` finds for each of `mids`, the ones that reach it
+    through a base declaration it is override-equivalent to (an interface-typed field, a base-class call). call_edges
+    alone does not hold them for a base the engine narrowed to its one bean, so a count read from call_edges said
+    `← 0` for an interface method `impact` listed three callers of (#1542). Every surface that counts callers adds
+    these, so the count and the impact rows agree."""
+    out = collections.defaultdict(set)
+    if not mids: return out
+    try: rows, _ = via_base_rows(q, lines, frozenset(), set(mids))
+    except Exception: return out
+    want = set(mids)
+    for c, m, *_ in rows:
+        # a method calling its own base (`super().solve()`) is not a caller of itself
+        if m in want and c and c != m: out[m].add(c)
+    return out
+
+
+# ── why nothing in the graph calls it: ONE reader for every surface ─────────────────────────────────────────────
+# The Read/Grep hooks, impact's `next:` and --delete verdict, and path's empty-upstream note each used to work out
+# on their own why a method has no caller, and they disagreed on the same method: the hook said
+# `? framework (@cache.memoize)` where impact counted 4 callers by name, impact named a library base where the hook
+# named the annotation. Each surface now words what this reader returns, and nothing else.
+#
+# A DECORATION THAT WRAPS IS NOT A REASON. The name a caller writes still reaches a wrapped function: a cache, a
+# permission check, a property, a decorator this repository defines around its own functions. Only a decoration a
+# framework READS (an annotation, a registration, a hook) says something outside the code calls it. The list below is
+# the decorations that change nothing about who calls the declaration, compiler checks included.
+INERT_DECORATIONS = frozenset({
+    # compiler checks and documentation
+    'Override', 'SuppressWarnings', 'Deprecated', 'Serial', 'FunctionalInterface', 'SafeVarargs', 'Documented',
+    'Retention', 'Target', 'Inherited', 'Obsolete', 'Serializable', 'Flags', 'Pure', 'MethodImpl', 'AttributeUsage',
+    'Generated', 'GeneratedCode', 'CompilerGenerated', 'ExcludeFromCodeCoverage', 'DebuggerStepThrough',
+    'DebuggerNonUserCode', 'DebuggerDisplay', 'DebuggerHidden', 'CallerMemberName', 'CallerFilePath', 'CallerLineNumber',
+    'override', 'overload', 'final', 'abstractmethod', 'deprecated', 'CheckReturnValue', 'VisibleForTesting',
+    # nullness
+    'Nullable', 'NonNull', 'Nonnull', 'NotNull', 'CheckForNull', 'NotNullWhen', 'MaybeNullWhen', 'AllowNull', 'DisallowNull',
+    # members the compiler writes, and wrappers the caller still calls by name
+    'staticmethod', 'classmethod', 'property', 'cached_property', 'hybrid_property', 'wraps', 'lru_cache', 'cache',
+    'cached', 'memoize', 'dataclass', 'setter', 'getter', 'deleter',
+    'total_ordering', 'contextmanager', 'asynccontextmanager',
+    'Getter', 'Setter', 'Data', 'Builder', 'ToString', 'EqualsAndHashCode', 'AllArgsConstructor', 'NoArgsConstructor',
+    'RequiredArgsConstructor', 'Slf4j', 'Log4j2', 'Value',
+})
+BASE_CONTEXTS = ('BASE_LIST', 'BASE_CLASS', 'SUPER_TYPE', 'IMPLEMENTS_INTERFACE')
+_NOT_A_BASE = {'object', 'Object', 'string', 'String', 'int', 'bool', 'long', 'double', 'float', 'decimal', 'byte', 'char', 'short'}
+
+
+def decoration_name(n):
+    """`@app.route("/x")` -> `route`, `HttpGetAttribute` -> `HttpGet`: the simple name a decoration is known by"""
+    n = (n or '').lstrip('@').split('(')[0].split('.')[-1]
+    return n[:-len('Attribute')] if n.endswith('Attribute') and len(n) > len('Attribute') else n
+
+
+def library_bases(q, s):
+    """the base types written on type symbol `s` (a dict with type_id, file, line, end_line) that the graph does not
+    declare: a library ancestor the engine resolved (types.provenance <> 'client'), a base the Python engine could not
+    resolve (ext_type_base_unresolved), or a base written in the header that no client type carries (C#'s BASE_LIST,
+    which the parser could not resolve). Only the type's OWN header: a base written on a nested type is the nested one's."""
+    if not s: return []
+    out = []
+    if s.get('type_id') and _has(q, 'type_ancestors') and _has(q, 'types'):
+        out += [r[0] for r in q("""SELECT DISTINCT x.name FROM type_ancestors a JOIN types x ON x.id = a.ancestor_type_id
+                                   WHERE a.type_id = ? AND x.provenance <> 'client' ORDER BY x.name""", s['type_id'])]
+    if s.get('type_id') and _has(q, 'ext_type_base_unresolved'):
+        out += [r[0] for r in q("SELECT DISTINCT c3 FROM ext_type_base_unresolved WHERE c1 = ? AND c3 <> '' ORDER BY c3", s['type_id']) if r[0]]
+    if s.get('file') and s.get('line') and _has(q, 'type_refs'):
+        end = s.get('end_line') or s['line']
+        nested = [(r[0], r[1] or r[0]) for r in q("""SELECT line, end_line FROM symbols WHERE file = ? AND method_id IS NULL
+                     AND type_id IS NOT NULL AND line > ? AND line <= ?""", s['file'], s['line'], end)]
+        ph = ','.join('?' * len(BASE_CONTEXTS))
+        for name, line in q(f"SELECT name, line FROM type_refs WHERE file = ? AND line BETWEEN ? AND ? AND context IN ({ph})",
+                            s['file'], s['line'], end, *BASE_CONTEXTS):
+            if any(a <= line <= b for a, b in nested): continue
+            simple = re.split(r'[<(\[]', name or '')[0].split('.')[-1]
+            if not simple or simple in _NOT_A_BASE: continue
+            if _has(q, 'types') and q("SELECT 1 FROM types WHERE name = ? AND provenance = 'client' LIMIT 1", simple): continue
+            out.append(name)
+    simple = lambda b: re.split(r'[<(\[]', b or '')[0].split('.')[-1]
+    return [b for b in dict.fromkeys(out) if simple(b) and simple(b) not in MARKER_BASES and simple(b) not in _NOT_A_BASE]
+
+
+# a marker interface declares no method, so nothing calls a method THROUGH it
+MARKER_BASES = ('Serializable', 'Cloneable', 'RandomAccess', 'Remote', 'EventListener')
+
+# the order the reasons come in, strongest first. A surface that prints one prints the first. The call sites that write
+# the name come BEFORE the two type-level reasons: those say only that a framework MAY enter the type (a `@Service` class,
+# a class deriving from a library base whose methods the graph does not hold), and a `@Service` method its callers
+# reach by name on an untyped receiver is called by them, not by the container.
+NO_CALLER_KINDS = ('entry', 'test', 'registered', 'framework', 'overrides', 'by name', 'base', 'type decoration')
+
+
+def _sym_row(q, i):
+    r = q("SELECT id, name, display, kind, file, line, end_line, owner, is_test, method_id, type_id FROM symbols WHERE id = ?", i)
+    if not r: return None
+    k = ('id', 'name', 'display', 'kind', 'file', 'line', 'end_line', 'owner', 'is_test', 'method_id', 'type_id')
+    return dict(zip(k, tuple(r[0])))
+
+
+def no_caller_reasons(q, mids):
+    """{method id: [(kind, label, evidence)]}: why nothing in the graph calls each of `mids`, strongest first, in the
+    order of NO_CALLER_KINDS. `evidence` is `file:line` where there is a line to read, else ''.
+
+        entry            the engine's entry_points reason (http, scheduled, framework_hook …)   label: the reason
+        test             a test method a runner calls                                             label: 'test'
+        registered       its own decoration registers it under a string (`@router.post("/x")`)   label: '@X "key"'
+        framework        a decoration on it that a framework reads, not a wrapper                 label: '@X'
+        overrides        it overrides a method the graph does not contain (an override row to a
+                         library method, or @Override with no base in the repository)              label: the base method, or ''
+        by name          call sites write its name on a receiver the engine could not type        label: the count
+        base             its type derives from a base the graph does not contain; whether it
+                         overrides one of that base's methods cannot be told                     label: the base as written
+        type decoration  a decoration a framework reads on its type                              label: '@X on Owner'
+
+    A wrapper (INERT_DECORATIONS, or a decorator this repository declares) is never a reason and never hides the
+    by-name count. The type-level reasons (base, type decoration) are skipped for a private, static or constructor
+    member, which is never entered through its type. A method with no reason gets []."""
+    out = {}
+    has = {t: _has(q, t) for t in ('entry_points', 'decorations', 'methods', 'overrides', 'unresolved_sites', 'call_sites')}
+    client_fn = {}
+    def in_repo_decorator(name):
+        """a decorator this repository declares as a function: it wraps, and the caller's name still reaches the body"""
+        if name not in client_fn:
+            client_fn[name] = bool(q("""SELECT 1 FROM symbols s JOIN methods m ON m.id = s.method_id
+                                        WHERE s.name = ? AND m.provenance = 'client' LIMIT 1""", name)) if has['methods'] else False
+        return client_fn[name]
+    for mid in dict.fromkeys(mids):
+        s = _sym_row(q, mid)
+        if not s: out[mid] = []; continue
+        rs = []
+        if has['entry_points']:
+            rs += [('entry', r[0], '') for r in q("SELECT reason FROM entry_points WHERE method_id = ? ORDER BY reason", mid)]
+        if s.get('is_test') and not any(k == 'entry' and l == 'test' for k, l, _ in rs): rs.append(('test', 'test', ''))
+        loc = lambda f, l: f"{f}:{l}" if f and l else ''
+        decs = [(n, t, f, l) for n, t, f, l in q("SELECT name, text, file, line FROM decorations WHERE owner_id = ? ORDER BY line", mid)] \
+            if has['decorations'] else []
+        for n, t, f, l in decs:
+            sn = decoration_name(n)
+            if not sn or sn in INERT_DECORATIONS: continue
+            shown = '@' + ((t or '').split('(')[0].strip().lstrip('@[') or (n or '')).rstrip(']')
+            # the key a decoration registers it under, by the convention decoration_keys applies (none on a test)
+            keys = [] if s.get('is_test') else ax_registration.decoration_key_strings(t)
+            if keys: rs.append(('registered', f'{shown} "{keys[0]}"', loc(f, l)))
+            elif not in_repo_decorator(sn): rs.append(('framework', shown, loc(f, l)))
+        row = q("SELECT kind, visibility, owner_type_id FROM methods WHERE id = ?", mid) if has['methods'] else []
+        mkind, vis, owner_tid = (tuple(row[0]) if row else ('', '', None))
+        member_only = any(k in (mkind or '').upper() for k in ('STATIC', 'CONSTRUCTOR', 'INITIALIZER')) \
+            or (vis or '').upper() == 'PRIVATE' or s.get('kind') == 'constructor' \
+            or (not vis and re.match(r'_(?!_\w*__$)', s.get('name') or '') is not None)
+        if not member_only:
+            lib = [r[0] for r in q("""SELECT COALESCE(sb.display, b.qualified_name) FROM overrides o JOIN methods b ON b.id = o.method_id
+                                      LEFT JOIN symbols sb ON sb.method_id = b.id
+                                      WHERE o.overriding_method_id = ? AND b.provenance <> 'client'""", mid)] if has['overrides'] else []
+            if lib: rs.append(('overrides', sorted(lib)[0], ''))
+            elif any(decoration_name(n) == 'Override' for n, *_ in decs) and not (has['overrides'] and q(
+                    """SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id
+                       WHERE o.overriding_method_id = ? AND b.provenance = 'client' LIMIT 1""", mid)):
+                rs.append(('overrides', '', ''))
+            own = None
+            if s.get('owner'):
+                r = q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL LIMIT 1", s['owner'])
+                own = _sym_row(q, r[0][0]) if r else None
+            if own is None and owner_tid:
+                r = q("SELECT id FROM symbols WHERE type_id = ? AND method_id IS NULL LIMIT 1", owner_tid)
+                own = _sym_row(q, r[0][0]) if r else None
+            if own:
+                if not any(k == 'overrides' for k, *_ in rs):
+                    for b in library_bases(q, own)[:2]: rs.append(('base', b, loc(own.get('file'), own.get('line'))))
+                if has['decorations']:
+                    for n, t, f, l in q("SELECT name, text, file, line FROM decorations WHERE owner_id = ? ORDER BY line", own['id']):
+                        sn = decoration_name(n)
+                        if not sn or sn in INERT_DECORATIONS or in_repo_decorator(sn): continue
+                        shown = '@' + ((t or '').split('(')[0].strip().lstrip('@[') or (n or '')).rstrip(']')
+                        rs.append(('type decoration', f"{shown} on {own['display']}", loc(f, l)))
+        if s.get('name') and has['unresolved_sites'] and has['call_sites']:
+            # joined on the caller too: unresolved_sites is keyed (caller_id, call_site_id), and on the site alone the join
+            # scanned the whole table for every method (3.5 s for 10 methods on a 200 MB graph)
+            n = q("""SELECT count(*) FROM call_sites cs JOIN unresolved_sites u ON u.caller_id = cs.caller_id AND u.call_site_id = cs.id
+                     WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""", s['name'])[0][0]
+            if n: rs.append(('by name', str(n), ''))
+        order = {k: i for i, k in enumerate(NO_CALLER_KINDS)}
+        out[mid] = sorted(dict.fromkeys(rs), key=lambda r: order[r[0]])     # stable within a kind: source order
+    return out
+
+
+def no_caller_label(kind, label):
+    """one reason as the hooks print it after `←`: `entry (http)`, `? framework (@Scheduled)`, `0 resolved, 3 by name`"""
+    if kind in ('entry', 'test'): return f"entry ({label})"
+    if kind == 'by name': return f"0 resolved, {label} by name"
+    if kind == 'registered': return f"? framework ({label})"
+    if kind == 'overrides': return f"? framework (overrides {label or 'a library method'})"
+    if kind == 'base': return f"? framework (extends {label})"
+    return f"? framework ({label})"
+
+
+def no_caller_phrase(kind, label):
+    """one reason as a sentence fragment, for impact's `next:` and --delete and path's note"""
+    if kind == 'entry': return ax_edges.entry_phrase(label) + (' (a framework or runner calls it)' if label != 'test' else '')
+    if kind == 'test': return 'a test (a runner calls it)'
+    if kind == 'registered': return f'registered by {label}: whoever writes that key reaches it, no call site does'
+    if kind == 'framework': return f'decorated {label}, which a framework reads: it may call it with no call site here'
+    if kind == 'overrides': return (f'it overrides {label}' if label else 'it overrides a library method') + ', so that library calls it'
+    if kind == 'base': return f'its type extends {label}, which the graph does not contain: if it overrides one of its methods, that library calls it'
+    if kind == 'type decoration': return f'{label}: a framework may enter it through its type'
+    if kind == 'by name': return f'{label} call site(s) write its name on a receiver the engine could not type (0 resolved)'
+    return label
+
+
 def _bean_call(q, ids, sites):
     """The container-bean layer on `calls it`, and the only rules in `direct` that a bundle without a container
     never exercises — which is why jackson (0 rows in ext_bean_def) was clean on it and keycloak (213) was not.

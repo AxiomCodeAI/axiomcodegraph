@@ -1083,6 +1083,38 @@ def framework_note(g, ids, writers=()):
     return out
 
 
+def why_no_caller(g, ids, shown=2, decls=3):
+    """`  why nothing in the graph calls X: <reason>; <reason>` for up to `decls` of the methods in `ids`: the first
+    `shown` reasons graph_sql.no_caller_reasons gives, with the line that says so. A method with no reason prints nothing."""
+    allsym = g.all_sym if hasattr(g, 'all_sym') else g.sym
+    mids = [i for i in ids if (allsym.get(i) or {}).get('method_id')]
+    src = {}
+    def lines(f):
+        if f not in src:
+            try: src[f] = open(os.path.join(g.repo, f), errors='replace').read().split('\n')
+            except OSError: src[f] = []
+        return src[f]
+    try:
+        via = graph_sql.callers_via_base(g.q, mids[:decls], lines) if mids else {}
+        why = graph_sql.no_caller_reasons(g.q, [m for m in mids[:decls] if not via.get(m)])
+    except Exception: return []
+    out = []
+    for i in mids[:decls]:
+        rs = why.get(i) or []
+        if via.get(i):
+            # a caller through an interface or base method the engine narrowed to one implementation: `impact` lists it
+            # as `calls it (via the interface)`, and the closure, which walks call edges, has no edge to start from
+            cs = sorted(via[i], key=lambda c: (allsym.get(c) or {}).get('display') or c)
+            out.append(f"  {g.disp(i)} has {len(cs)} caller(s) through the interface or base method it is declared on, which the "
+                       "closure does not walk: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in cs[:4]) + (' …' if len(cs) > 4 else '')
+                       + f"; `impact {g.disp(i)}` lists them")
+        elif rs:
+            out.append(f"  why nothing in the graph calls {g.disp(i)}: " + '; '.join(
+                graph_sql.no_caller_phrase(k, l) + (f" ({at})" if at else '') for k, l, at in rs[:shown])
+                + (f" (+{len(rs) - shown} more: `impact {g.disp(i)}`)" if len(rs) > shown else ''))
+    return out
+
+
 def closure(g, sel, upstream, limit=40, depth=40):
     g.export(); label, ids = g.resolve(sel, fragment=True)
     res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
@@ -1145,6 +1177,10 @@ def closure(g, sel, upstream, limit=40, depth=40):
         # a signal receiver or a CLI command the answer "0 methods reach it" is true of calls and false of the
         # program: the framework reaches it. Name the registration rather than leave the reader at a dead end.
         for line in (framework_note(g, ids) if upstream else []): print(line)
+        # and WHY, from the reader the hooks' `← ?` label and impact's `next:` read (graph_sql.no_caller_reasons): the
+        # first two reasons of each declaration, so `path '*' X` never says less than a Read of X does
+        if upstream:
+            for line in why_no_caller(g, ids): print(line)
         # A word that resolves to a TYPE has no outbound calls by construction — a type declares members, it does
         # not call anything — so `path <type> '*'` is empty for every type, declared or not. That is the form the
         # guide gives someone who has no name yet, and a large share of the words they will try are type-valued
@@ -1287,81 +1323,47 @@ def entered_in_process(g, ids):
 # into "local", "tests: 0" or "independent" was false on exactly these declarations. The rule is one rule, with no
 # framework's names in it: every decoration counts except the short list below, which change nothing about who calls
 # the declaration (a compiler check, a nullness mark, a generated accessor, a wrapper around the same call).
-INERT_DECORATIONS = {
-    # compiler checks and documentation
-    'Override', 'SuppressWarnings', 'Deprecated', 'Serial', 'FunctionalInterface', 'SafeVarargs', 'Documented',
-    'Retention', 'Target', 'Inherited', 'Obsolete', 'Serializable', 'Flags', 'Pure', 'MethodImpl', 'AttributeUsage',
-    'Generated', 'GeneratedCode', 'CompilerGenerated', 'ExcludeFromCodeCoverage', 'DebuggerStepThrough',
-    'DebuggerNonUserCode', 'DebuggerDisplay', 'DebuggerHidden', 'CallerMemberName', 'CallerFilePath', 'CallerLineNumber',
-    'override', 'overload', 'final', 'abstractmethod', 'deprecated',
-    # nullness
-    'Nullable', 'NonNull', 'Nonnull', 'NotNull', 'CheckForNull', 'NotNullWhen', 'MaybeNullWhen', 'AllowNull', 'DisallowNull',
-    # members the compiler writes, and wrappers the caller still calls by name
-    'staticmethod', 'classmethod', 'property', 'cached_property', 'hybrid_property', 'wraps', 'lru_cache', 'cache',
-    'cached', 'memoize', 'dataclass',
-    'total_ordering', 'contextmanager', 'asynccontextmanager',
-    'Getter', 'Setter', 'Data', 'Builder', 'ToString', 'EqualsAndHashCode', 'AllArgsConstructor', 'NoArgsConstructor',
-    'RequiredArgsConstructor', 'Slf4j', 'Log4j2',
-}
-BASE_CONTEXTS = ('BASE_LIST', 'BASE_CLASS', 'SUPER_TYPE', 'IMPLEMENTS_INTERFACE')
-_NOT_A_BASE = {'object', 'Object', 'string', 'String', 'int', 'bool', 'long', 'double', 'float', 'decimal', 'byte', 'char', 'short'}
-
-def _dec_name(n):
-    n = (n or '').lstrip('@').split('(')[0].split('.')[-1]
-    return n[:-len('Attribute')] if n.endswith('Attribute') and len(n) > len('Attribute') else n
+INERT_DECORATIONS = graph_sql.INERT_DECORATIONS          # one list, read by the hooks and impact too
+BASE_CONTEXTS = graph_sql.BASE_CONTEXTS
+_dec_name = graph_sql.decoration_name
 
 def _library_bases(g, tid):
-    """the base types written on type symbol `tid` that are not declared in the graph: a library ancestor the engine
-    resolved (types.provenance <> 'client'), or a written base name no client type carries (the parser could not
-    resolve it). Only the type's OWN header: a base written on a nested type belongs to the nested type."""
-    s = g.all_sym.get(tid) if hasattr(g, 'all_sym') else g.sym.get(tid)
-    if not s: return []
-    out = []
-    if s.get('type_id') and g.has('type_ancestors') and g.has('types'):
-        out += [r[0] for r in g.q("""SELECT DISTINCT x.name FROM type_ancestors a JOIN types x ON x.id = a.ancestor_type_id
-                                     WHERE a.type_id = ? AND x.provenance <> 'client' ORDER BY x.name""", s['type_id'])]
-    if s.get('file') and s.get('line') and g.has('type_refs'):
-        end = s.get('end_line') or s['line']
-        nested = [(r[0], r[1] or r[0]) for r in g.q("""SELECT line, end_line FROM symbols WHERE file = ? AND method_id IS NULL
-                     AND type_id IS NOT NULL AND line > ? AND line <= ?""", s['file'], s['line'], end)]
-        ph = ','.join('?' * len(BASE_CONTEXTS))
-        for name, line in g.q(f"SELECT name, line FROM type_refs WHERE file = ? AND line BETWEEN ? AND ? AND context IN ({ph})",
-                              s['file'], s['line'], end, *BASE_CONTEXTS):
-            if any(a <= line <= b for a, b in nested): continue
-            simple = re.split(r'[<(\[]', name or '')[0].split('.')[-1]
-            if not simple or simple in _NOT_A_BASE: continue
-            if g.has('types') and g.q("SELECT 1 FROM types WHERE name = ? AND provenance = 'client' LIMIT 1", simple): continue
-            out.append(name)
-    return list(dict.fromkeys(out))
+    """the base types written on type symbol `tid` that are not declared in the graph (graph_sql.library_bases)"""
+    return graph_sql.library_bases(g.q, g.all_sym.get(tid) if hasattr(g, 'all_sym') else g.sym.get(tid))
 
 def unmodelled_entry(g, ids):
     """[(symbol id, signal)]: for each declaration in `ids` (a method, a field or a type) that is not a test, what says
-    something outside the code may call it with no edge in this graph -- a decoration outside INERT_DECORATIONS on it
-    or on its owner type, or a base type of its owner (of itself, for a type) the graph does not contain. A private or
-    static member is never entered through its owner's decoration or base, so only its own decorations count."""
+    something outside the code may call it with no edge in this graph -- a decoration a framework reads on it or on its
+    owner type, or a base type of its owner (of itself, for a type) the graph does not contain. For a method the signals
+    are graph_sql.no_caller_reasons, the reader the hooks' `← ?` label and path's empty-upstream note read, so the three
+    name the same thing; a wrapper (a cache, a permission check, a decorator the repository declares) is not one. A
+    private or static member is never entered through its owner's decoration or base, so only its own decorations count."""
     allsym = g.all_sym if hasattr(g, 'all_sym') else g.sym
     decs = lambda i: [n for n in dict.fromkeys(_dec_name(r[0]) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", i))
                       if n and n not in INERT_DECORATIONS] if g.has('decorations') else []
     out = []
+    mids = [i for i in ids if (allsym.get(i) or {}).get('method_id') and not allsym[i].get('is_test')]
+    why = graph_sql.no_caller_reasons(g.q, mids) if mids else {}
     for i in ids:
         s = allsym.get(i)
         if not s or s.get('is_test'): continue
+        if i in why:
+            own = s.get('owner') or ''
+            for kind, label, _at in why[i]:
+                # the decoration by its simple name here, as this signal always said it (`@on_boot`, not `@hooks.on_boot`)
+                if kind in ('registered', 'framework'): out.append((i, f"@{_dec_name(label.split(' ')[0])} on {s['display']}"))
+                elif kind == 'type decoration': out.append((i, f"@{_dec_name(label.rsplit(' on ', 1)[0])} on its type {own}"))
+                elif kind == 'base': out.append((i, f"{own} extends {label}, which the graph does not contain"))
+            continue
         for n in decs(i): out.append((i, f"@{n} on {s['display']}"))
         is_type = s.get('type_id') and not s.get('method_id')
         if is_type:
             for b in _library_bases(g, i): out.append((i, f"{s['display']} extends {b}, which the graph does not contain"))
             continue
-        if s.get('method_id') and g.has('methods'):
-            row = g.q("SELECT kind, visibility FROM methods WHERE id = ?", s['method_id'])
-            if row and (any(k in (row[0][0] or '').upper() for k in ('STATIC', 'INITIALIZER')) or (row[0][1] or '').upper() == 'PRIVATE'): continue
-            # where the language records no visibility, a leading underscore is how private is written
-            if row and not row[0][1] and re.match(r'_(?!_\w*__$)', s.get('name') or ''): continue
         own = s.get('owner')
         if not own: continue
         for r in g.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL", own):
             for n in decs(r[0]): out.append((i, f"@{n} on its type {own}"))
-            if s.get('method_id') and s.get('kind') != 'constructor':
-                for b in _library_bases(g, r[0]): out.append((i, f"{own} extends {b}, which the graph does not contain"))
     return list(dict.fromkeys(out))
 
 def grep_roots(g):

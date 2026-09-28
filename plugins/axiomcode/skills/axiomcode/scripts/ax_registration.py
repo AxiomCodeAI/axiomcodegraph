@@ -360,6 +360,18 @@ def _has(q, t):
 # Every one of those is "the framework will dispatch to this declaration when someone writes this string", which is
 # exactly what the join needs. The kind is read from the key rather than from a list of decoration names: a key that
 # begins with `/` is a route, anything else is a key, and no framework is named anywhere in this function.
+def decoration_key_strings(text):
+    """the strings a decoration's text registers its declaration under, sorted: every quoted string in it but prose.
+    A STRING WITH A SPACE IN IT IS PROSE, NOT A KEY: `@widgets.doc("Endpoint to list the widgets")`, `@Operation(summary = "List
+    the orders")`, a cron expression, a query. No route, command, signal or table name is written with one, and read as
+    a key the description was printed as what the framework dispatches on."""
+    out = set()
+    for a, b in re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''):
+        key = a or b
+        if key and not re.search(r'\s', key): out.add(key)
+    return sorted(out)
+
+
 def decoration_keys(q, site_file=None):
     """[(decl, file, line, kind, key, why)] — a declaration registered under a string by its own decoration."""
     if not _has(q, 'decorations'):
@@ -378,10 +390,7 @@ def decoration_keys(q, site_file=None):
         if owner in tests:
             continue
         short = (name or '').split('.')[-1]
-        for key in sorted(set(re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''))):
-            key = key[0] or key[1]
-            if not key:
-                continue
+        for key in decoration_key_strings(text):
             kind = 'route' if key.startswith('/') else 'key'
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')

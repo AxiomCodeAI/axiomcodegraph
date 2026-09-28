@@ -4,75 +4,55 @@
                sessions, 209 were `← 0`, and most of those were methods a framework calls: a route handler, an
                `@app.before_request`, a scheduled job, a library override. The graph stores why for most of them,
                so the line says it: `entry (http)`, `0 resolved, 3 by name`, `? framework (@Scheduled)`. A method
-               with no signal at all still reads `0`.
+               with no signal at all still reads `0`. The reason is graph_sql.no_caller_reasons, which impact and
+               path read too.
+  callers_via_base  the callers through an interface or base method, which impact lists and call_edges lacks.
   body_line    an edit that changed only bodies breaks no caller; the one thing worth saying is which tests reach
                it and how to run them. The block it replaces listed 10-42 readers, and 28 of 30 went unused.
 
 Every lookup is one indexed query per declaration (these run on every Read, Grep and Edit)."""
 import importlib.machinery, importlib.util, os, sqlite3
 
-# decorations that say nothing about who calls the method: compiler hints, language plumbing, nullness
-INERT = {'Override', 'SuppressWarnings', 'Deprecated', 'Serial', 'SafeVarargs', 'FunctionalInterface', 'Nullable',
-         'NonNull', 'NotNull', 'Nonnull', 'CheckReturnValue', 'VisibleForTesting', 'Generated', 'staticmethod',
-         'classmethod', 'property', 'abstractmethod', 'cached_property', 'functools.wraps', 'wraps', 'override',
-         'overload', 'typing.override', 'typing.overload', 'CallerMemberName', 'Obsolete', 'MethodImpl',
-         'DebuggerStepThrough', 'Pure', 'Data', 'Getter', 'Setter', 'Value', 'Builder', 'ToString',
-         'EqualsAndHashCode', 'NoArgsConstructor', 'AllArgsConstructor', 'RequiredArgsConstructor', 'Slf4j'}
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
+import graph_sql
 
 
-def _has(con, t):
-    return con.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (t,)).fetchone() is not None
+def _q(con):
+    return lambda sql, *p: con.execute(sql, p).fetchall()
 
 
-def _deco(con, owner_id):
-    """the first decoration on a declaration that could mean a framework calls it, as written (`@app.before_request`)"""
-    for name, text in con.execute("SELECT name, text FROM decorations WHERE owner_id = ? ORDER BY line", (owner_id,)):
-        if (name or '') in INERT or (name or '').rsplit('.', 1)[-1] in INERT: continue
-        t = (text or '').split('(')[0].strip() or '@' + (name or '')
-        if t.startswith('[') and not t.endswith(']'): t += ']'              # a C# attribute, `[HttpGet("x")]`
-        return t[:48]
-    return None
-
-
-def zero_label(con, mid, name, is_test=0):
-    """what `← 0` means for method `mid`, from the strongest signal the graph holds:
+def zero_label(con, mid, name=None, is_test=0):
+    """what `← 0` means for method `mid`: the FIRST reason graph_sql.no_caller_reasons gives, the one reader impact's
+    `next:` and path's empty-upstream note word too, so the three never give different reasons for one method:
         entry (<reason>)            the runtime invokes it: a route, a test, main, a scheduled job, a listener
-        ? framework (@X)            a decoration on it that is not a compiler hint
+        ? framework (@X)            a decoration a framework reads (a wrapper such as a cache or a permission check is not one)
+        ? framework (overrides B)   it overrides a method the graph does not contain
+        ? framework (extends B)     its type derives from a base outside the graph
+        ? framework (@X on Owner)   a decoration on its type
         0 resolved, N by name       N call sites write its name on a receiver the engine could not type
-        ? framework (overrides a library method)   @Override with no base in this repository
-        ? framework (extends B)     its class derives from a base outside the graph (Python)
-        ? framework (@X on Owner)   a decoration on its class
-        0                           none of these: nothing in this graph calls it"""
+        0                           none of these: nothing in this graph calls it
+    `name` and `is_test` are read from the graph; the parameters stay for callers that pass them."""
     try:
-        if _has(con, 'entry_points'):
-            r = con.execute("SELECT reason FROM entry_points WHERE method_id = ? LIMIT 1", (mid,)).fetchone()
-            if r: return f"entry ({r[0]})"
-        if is_test: return "entry (test)"
-        deco = _deco(con, mid) if _has(con, 'decorations') else None
-        if deco: return f"? framework ({deco})"
-        if name and _has(con, 'unresolved_sites'):
-            n = con.execute("""SELECT count(*) FROM call_sites cs JOIN unresolved_sites u ON u.call_site_id = cs.id
-                               WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""",
-                            (name,)).fetchone()[0]
-            if n: return f"0 resolved, {n} by name"
-        owner = con.execute("SELECT owner_type_id FROM methods WHERE id = ?", (mid,)).fetchone() if _has(con, 'methods') else None
-        owner = owner[0] if owner else None
-        if _has(con, 'decorations') and con.execute(
-                "SELECT 1 FROM decorations WHERE owner_id = ? AND name = 'Override' LIMIT 1", (mid,)).fetchone() \
-                and not con.execute("""SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id
-                                       WHERE o.overriding_method_id = ? AND b.provenance = 'client' LIMIT 1""", (mid,)).fetchone():
-            return "? framework (overrides a library method)"
-        if owner and _has(con, 'ext_type_base_unresolved'):
-            r = con.execute("SELECT c3 FROM ext_type_base_unresolved WHERE c1 = ? LIMIT 1", (owner,)).fetchone()
-            if r and r[0]: return f"? framework (extends {r[0]})"
-        if owner and _has(con, 'decorations'):
-            d = _deco(con, owner)
-            if d:
-                on = con.execute("SELECT name FROM types WHERE id = ?", (owner,)).fetchone() if _has(con, 'types') else None
-                return f"? framework ({d}" + (f" on {on[0]}" if on else '') + ")"
+        rs = graph_sql.no_caller_reasons(_q(con), [mid]).get(mid) or []
+        if not rs and is_test: return "entry (test)"
+        if rs: return graph_sql.no_caller_label(rs[0][0], rs[0][1])
     except sqlite3.Error:
         pass
     return "0"
+
+
+def callers_via_base(con, mids, repo='.'):
+    """{method id: {caller id}}: the callers through an interface or base method that impact lists and call_edges does
+    not hold (graph_sql.callers_via_base), read with the repository's lines so a narrowed interface-typed field counts"""
+    cache = {}
+    def lines(f):
+        if f not in cache:
+            try: cache[f] = open(os.path.join(repo, f), encoding='utf-8', errors='replace').read().splitlines()
+            except OSError: cache[f] = []
+        return cache[f]
+    try: return graph_sql.callers_via_base(_q(con), list(mids), lines)
+    except sqlite3.Error: return {}
 
 
 def distinct_paths(files):
