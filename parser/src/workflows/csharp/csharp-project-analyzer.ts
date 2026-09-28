@@ -34,6 +34,7 @@ import { implicitFrameworkSymbols } from '@/parsers/csharp/extractors/preproc-co
 import { EntityUtils } from '@/utils/entity-utils';
 import { CsRelationWriter } from '@/workflows/csharp/cs-relation-writer';
 import { governingProject, readProjectConfig } from '@/workflows/csharp/cs-project-config';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 /**
  * Runs the C# front end over one root and writes the fact base.
@@ -488,7 +489,7 @@ async function discoverCsFiles(
     for (const entry of entries) {
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (!excludes.has(entry.name)) {
+        if (!excludes.has(entry.name) && !isGitIgnoredDir(full)) {
           stack.push(full);
         }
         continue;

@@ -25,6 +25,7 @@ import { CodeExtractor } from '@/parsers/code-extractor';
 import { TypeRegistryExtractor, ImportExtractor } from '@/parsers/java/extractors';
 import { ProjectInfo, ProjectLanguage } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 export class JavaProjectAnalyzer {
   private codeExtractor: CodeExtractor;
@@ -320,7 +321,8 @@ export class JavaProjectAnalyzer {
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const isTestDir = isJavaTestDir(entry.name);
-          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !(excludeTests && isTestDir)) {
+          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !(excludeTests && isTestDir)
+              && !isGitIgnoredDir(path.join(dirPath, entry.name))) {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForJavaFiles(subPath, files, excludeTests);
           }

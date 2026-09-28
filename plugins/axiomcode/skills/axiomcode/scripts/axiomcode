@@ -112,7 +112,8 @@ case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; the
 # `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they do
 # not wait for the graph; they wait only when HEAD moved and the baseline has to follow it.
 FR=.; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ -d "$a" ] && FR="$a"; done
-if [ -f "$FR/.axiomcode/out/graph.sqlite" ]; then
+# (-L too: a pointer whose target is gone is a graph to repair — the refresher does it — not a repository without one)
+if [ -f "$FR/.axiomcode/out/graph.sqlite" ] || [ -L "$FR/.axiomcode/out/graph.sqlite" ]; then
   case "$cmd" in
     context|path|impact|graph) python3 "$H/ax_fresh.py" wait "$FR" "${AXIOMCODE_FRESH_WAIT:-10}" || true ;;
     changed|test-impact|tests) python3 "$H/ax_fresh.py" baseline "$FR" "${AXIOMCODE_BASELINE_WAIT:-30}" || true ;;

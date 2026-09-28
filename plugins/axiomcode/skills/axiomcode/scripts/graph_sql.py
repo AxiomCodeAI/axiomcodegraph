@@ -496,7 +496,7 @@ def _edges(q):
                                          AND (dc.basis = 'value' OR m.owner_type_id IS NULL
                                               OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)
                                               OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
-    if q("SELECT 1 FROM sqlite_master WHERE name='ext_fn_value_call'").fetchone():
+    if q("SELECT 1 FROM sqlite_master WHERE name='ext_fn_value_call'"):                 # g.q returns the rows (a list)
         disp |= {(r[0], r[1]) for r in q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call")}      # the route through a named holder (#1206)
     e = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in e] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]
     return e

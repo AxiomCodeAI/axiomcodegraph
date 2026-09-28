@@ -381,11 +381,28 @@ def ensure_graph(repo, db):
 
     AXIOMCODE_GRAPH points at a graph someone else built and placed; nothing is built into it."""
     if os.path.exists(db): return True
-    if not os.environ.get('AXIOMCODE_AUTOBUILD') or os.environ.get('AXIOMCODE_GRAPH'): return False
+    # A BUILD IS RUNNING: wait for it, never start a second one (#1305). The graph (or the baseline graph `changed` reads,
+    # or another language's) can be missing for a moment while a build swaps it; a query that took that for "no graph"
+    # started a full build of its own, which queued behind the running one and then rebuilt everything again as an
+    # explicit index. The hooks, which run under timeouts of seconds, do not wait.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
+    rr = os.path.realpath(repo); auto = os.environ.get('AXIOMCODE_AUTOBUILD')
+    if ax_fresh.building(rr):
+        ax_fresh.wait_build(rr, float(os.environ.get('AXIOMCODE_BUILD_WAIT') or 900) if auto else 0)
+        if os.path.exists(db): return True
+    if not auto or os.environ.get('AXIOMCODE_GRAPH'): return False
     build = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-build')
     if not os.path.exists(build): return False
-    print(f"no graph for {repo} yet — building one (this is the only slow call; later ones read it) …", file=sys.stderr)
-    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', build, repo])
+    env = None
+    if ax_fresh.has_graph(rr):
+        # a graph WAS built here and its pointer is broken: a repair, which keeps the baseline `changed` and test-impact
+        # measure edits against, as the background refresh does. Built as a first index it moved the baseline to the
+        # edited tree, and every edit made before it dropped out of `changed`
+        print(f"the graph of {repo} is missing (a build was interrupted) — rebuilding it; the baseline edits are measured against is kept …", file=sys.stderr)
+        env = dict(os.environ, AXIOMCODE_KEEP_BASE='1')
+    else:
+        print(f"no graph for {repo} yet — building one (this is the only slow call; later ones read it) …", file=sys.stderr)
+    r = subprocess.run([os.environ.get('AXIOMCODE_BASH') or 'bash', build, repo], env=env)
     return r.returncode == 0 and os.path.exists(db)
 
 

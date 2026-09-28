@@ -35,7 +35,15 @@ One check needs no graph and is its own script:
     python3 tests/enrich_budget.py       what a Read or a Grep adds to a session is capped: a declaration annotated once,
                                          the budget said spent once, its second half kept for edges into unopened files
                                          (#1199; indexes a small project, so it needs the engine)
-    python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in
+    python3 tests/engine_choice.py       axiomcode-build picks a built engine over an unbuilt clone it sits in, finds the
+                                         engine the last build used before PATH (the refresh runs from a hook, with the
+                                         hook's PATH), follows a Windows npm shim, and names every place it looked when
+                                         it finds none
+    python3 tests/refresh_races.py       what a refresh after an edit can leave behind, each with a control: a broken
+                                         graph pointer is repaired and keeps the baseline; a query mid-build waits for it
+                                         and starts no build; a failed build never leaves the pointer dangling; a failed
+                                         refresh says why; git-ignored directories are neither parsed nor watched; with
+                                         no rules and no soufflé impact answers from SQL (builds real graphs, needs the engine)
     python3 tests/no_symlink.py          impact and the Datalog path answer where os.symlink is refused, as it is for an
                                          unelevated Windows user (WinError 1314); indexes a case, so it needs the engine
     python3 tests/multi_language.py      a repository in several languages is indexed in all of them and every query asks

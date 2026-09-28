@@ -20,6 +20,7 @@ import {
   PythonResolutionLinker,
 } from '@/parsers/python/extractors/python-resolution-linker';
 import { Python2Finding } from '@/parsers/python/types';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 /** One rejected or unanalysable file. */
 interface SkippedPythonFile {
@@ -580,7 +581,7 @@ export class PythonProjectAnalyzer {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (excludes.has(entry.name) || entry.name.endsWith('.egg-info')) {
+        if (excludes.has(entry.name) || entry.name.endsWith('.egg-info') || isGitIgnoredDir(full)) {
           continue;
         }
         if (isRoot && entry.name === 'build') {
