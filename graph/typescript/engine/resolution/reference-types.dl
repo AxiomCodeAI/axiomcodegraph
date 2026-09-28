@@ -382,6 +382,11 @@ method_returns_expr(m, e) :- expr_root_context(prov, rc, e),
     return_context(rc),
     expr_owner(prov, "BLOCK", b, _, e),
     block_owner(prov, m, _, b).
+// …and a concise arrow body, which has no block: the parser gives it to the arrow's
+// own method row, so `(m) => m.Named` and `(m) => ({ default: m.Named })` return
+// their body just as the `{ return …; }` spelling does.
+method_returns_expr(m, e) :- expr_root_context(prov, "ARROW_BODY_EXPRESSION", e),
+    expr_owner(prov, "METHOD", m, _, e).
 // Guarded so a declaration always wins: an annotation is what the function PROMISES,
 // and inferring past it would let one branch of a widened return narrow the answer.
 method_declares_return(m) :- method_return_ref(_, _, m).

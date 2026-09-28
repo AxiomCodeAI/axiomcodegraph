@@ -1,0 +1,4 @@
+ambiguous_unknown	METHOD_RETURN	1	parts [METHOD_PARAM] -> -
+known_edge	FIELD_TYPE	3	parts [METHOD_PARAM] -> Fc
+known_edge	METHOD_PARAM	0	parts [METHOD_PARAM] -> Fc
+known_edge	METHOD_RETURN	0	parts [METHOD] -> Fc
