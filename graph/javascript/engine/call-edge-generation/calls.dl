@@ -71,3 +71,20 @@ unresolved_covered(ce) :- call_site("client", ck, _, rp, _, _, ce, _, _), rp != 
 unresolved_covered(ce) :- call_site("client", ck, _, _, _, _, ce, _, _), call_kind_is_dynamic(ck).
 unresolved_receiver(ce, cn, ck, "other_form") :- call_site("client", ck, cn, _, _, _, ce, _, _),
     !call_resolved(ce), !unresolved_covered(ce).
+
+// ── unresolved_value_callee(CallExpr, Binding) ──────────────────────────────
+// An unresolved call whose callee is a VALUE, not a name: `cb()` on a parameter,
+// `f()` on a loop variable or a local, `table[k]()`, `eval(s)`. Nothing about its
+// name narrows what it calls, so any function that escapes as a value may be the
+// callee, and a question that finds no chain from its caller must answer "unknown",
+// never "independent" (#1649). Binding: parameter | loop_variable | local |
+// computed | dynamic_code. An imported binding is not one: it names a module
+// member, and a module-level binding is left to the by-name leads.
+value_callee_open(ce, c) :- call_site("client", ck, _, _, _, _, ce, _, _), !call_kind_is_dynamic(ck),
+    !call_resolved(ce), !callee_value_known(ce), expr_child(_, ce, "CALLEE", _, c).
+unresolved_value_callee(ce, "parameter") :- value_callee_open(ce, c), expr_param(_, _, c).
+unresolved_value_callee(ce, "loop_variable") :- value_callee_open(ce, c), expr_binding(_, v, c), loop_head(v, _).
+unresolved_value_callee(ce, "local") :- value_callee_open(ce, c), expr_binding(_, v, c), !loop_head(v, _),
+    var_owner_method("client", _, v), !var_import(_, _, v), !expr_param(_, _, c).
+unresolved_value_callee(ce, "computed") :- call_site("client", "COMPUTED_CALL", _, _, _, _, ce, _, _), !call_resolved(ce).
+unresolved_value_callee(ce, "dynamic_code") :- call_site("client", "DYNAMIC_CODE_CALL", _, _, _, _, ce, _, _), !call_resolved(ce).

@@ -1,0 +1,10 @@
+handlers.js:11:27 METHOD_CALL path.join  ->  ambient_terminal  -
+handlers.js:12:28 FUNCTION_CALL alpha  ->  known_edge  handlers.js:3:1 alpha
+handlers.js:4:29 METHOD_CALL handlers.forEach  ->  ambiguous_unknown  -
+handlers.js:4:29 METHOD_CALL handlers.forEach  ->  callback_registered  handlers.js:4:46 <arrow>
+handlers.js:4:51 FUNCTION_CALL h  ->  ambiguous_unknown  -
+handlers.js:5:38 COMPUTED_CALL table[k]  ->  dynamic_terminal  -
+handlers.js:6:30 FUNCTION_CALL cb  ->  ambiguous_unknown  -
+handlers.js:7:51 FUNCTION_CALL f  ->  ambiguous_unknown  -
+handlers.js:8:50 FUNCTION_CALL fn  ->  ambiguous_unknown  -
+handlers.js:9:31 FUNCTION_CALL_CALL cb.call  ->  ambient_terminal  -

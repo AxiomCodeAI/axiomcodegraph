@@ -1353,6 +1353,24 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             print(f"  {ly} is entered from outside the graph in the same process, as such a call can do: "
                   + ', '.join(f"{g.disp(m)} ({why}) {g.loc(m)}" for m, why in entered[:3])
                   + (f" … +{len(entered) - 3}" if len(entered) > 3 else ''))
+    # A CALL WHOSE CALLEE IS A VALUE CAN LAND ANYWHERE (#1649). `cb()` on a parameter, `f()` on a loop variable,
+    # `table[k]()`: nothing about the name narrows the target, so the by-name search above finds no lead and
+    # "independent" was printed for a start that hands control to whatever it was given. The engine marks such a
+    # site (`unresolved_value_callee`); one in either side's closure makes the connection unknown, not absent.
+    opaque = []
+    if not (remote_found or lib_side) and g.has('ext_unresolved_value_callee'):
+        for xs, lx in ((A_, la), (B_, lb)):
+            seen = {i for i in xs if i in g.sym and g.sym[i]['kind'] not in ('library', 'written')}; fr = list(seen)
+            while fr:
+                fr = [y for y in dict.fromkeys(y for x in fr for y in adj.get(x, ())) if y not in seen and y in g.sym
+                      and g.sym[y]['kind'] not in ('library', 'written')]
+                seen.update(fr)
+            ids = sorted(seen); rows = []
+            for i in range(0, len(ids), 900):
+                part = ids[i:i + 900]
+                rows += g.q("SELECT s.caller_id c, s.callee_name n, s.file_path f, s.start_line ln, v.c1 why FROM ext_unresolved_value_callee v"
+                            " JOIN call_sites s ON s.id = v.c0 WHERE s.caller_id IN (%s)" % ','.join('?' * len(part)), *part)
+            if rows: opaque.append((lx, sorted(rows, key=lambda r: (g.site_file(r['f']), r['ln'] or 0))))
     # …but a framework may still connect them, and the graph holds the evidence for it: the target is registered
     # under a key, and the source writes that key. That is not a chain of calls, so it is reported and not walked.
     # Computed BEFORE the verdict line, which used to say "independent" one line above the note that joined them.
@@ -1363,7 +1381,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     # a claim about the model and not the code. An endpoint the engine already made an entry point is modelled, and
     # the library-call rule above decides it.
     unmod = []
-    if not (remote_found or keyed or lib_side):
+    if not (remote_found or keyed or lib_side or opaque):
         called = {y for ys in adj.values() for y in ys}
         eps = set()
         ends = [i for i in list(B_) + list(A_) if i in g.sym and g.sym[i]['kind'] not in ('library', 'written') and i not in called]
@@ -1378,10 +1396,20 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   " does: NOT independent" if keyed
              else " — but a library called above can reach the other at run time (an event, a callback, a hook) with no"
                   " call edge to record it: NOT shown to be independent" if lib_side
+             else f" — but {' and '.join(lx for lx, _ in opaque)} make{'s' if len(opaque) == 1 else ''} a call whose callee is a"
+                  f" value, not a name (below): any function passed, stored or exported may be what it calls, so the"
+                  f" connection is UNKNOWN, not absent" if opaque
              else f" — but NOT CHECKED: {'; '.join(s_ for _i, s_ in unmod[:3])} — a framework calls it and the graph does not"
                   f" model how, so the other may reach it through that framework. Before treating them as independent run: "
                   f"{grep_for(g, g.sym[unmod[0][0]]['name'])}" if unmod
              else ": the two are independent in this graph"))
+    WHY = {'parameter': 'a parameter', 'loop_variable': 'a loop variable', 'local': 'a local', 'computed': 'a computed member',
+           'dynamic_code': 'code built at run time'}
+    for lx, rows in opaque:
+        print(f"  {lx} reaches {len(rows)} call(s) through a value:")
+        for r in rows[:4]:
+            print(f"    `{r['n'] or '[…]'}()` in {g.disp(r['c'])} at {g.site_file(r['f'])}:{r['ln']} — the callee is {WHY.get(r['why'], r['why'])}")
+        if len(rows) > 4: print(f"    … +{len(rows) - 4} more")
     for line in fw: print(line)
     return 1
 

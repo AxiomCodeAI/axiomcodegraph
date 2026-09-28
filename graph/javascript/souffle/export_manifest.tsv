@@ -5,6 +5,7 @@ client_calls_lib	client-to-lib-calls.csv
 client_calls_lib_detail	client-to-lib-navigation.csv
 unresolved_receiver	unresolved-receiver.csv
 method_has_unknown_call	method-has-unknown-call.csv
+unresolved_value_callee	unresolved-value-callee.csv
 entry_point	entry-point.csv
 entry_reachable	entry-reachable.csv
 method_call_edge	method-call-edge.csv
