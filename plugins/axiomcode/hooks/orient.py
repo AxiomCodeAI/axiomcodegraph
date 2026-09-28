@@ -19,7 +19,7 @@ Rules it holds itself to:
 """
 import json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _host
+import _host, _where
 
 MARK = '.axiomcode/.oriented-{}'       # once per session: keyed by session id (one stamp per repo never fired again)
 MAX_LINES = 14
@@ -56,8 +56,22 @@ def repo_root(start):
     return os.path.realpath(start)
 
 
-cwd = repo_root(ev.get('cwd') or os.getcwd())
 prompt = (ev.get('prompt') or '').strip()
+
+def prompt_root(prompt):
+    """the graph above a path the prompt names. A task given from a directory with no graph ("fix X in
+    /work/app/src/Y.java", "the repo is /work/app") is about that tree, and the working directory says nothing about it."""
+    for m in re.finditer(r'(?:^|[\s\'"`(=])((?:/|~/)[^\s\'"`),;]+)', prompt):
+        p = os.path.expanduser(m.group(1).rstrip('.:'))
+        p = re.sub(r':\d+(?::\d+)?$', '', p)                  # file:line
+        if os.path.exists(p):
+            r = _where.root_of(p)
+            if r:
+                return r
+    return None
+
+_where.session(ev.get('session_id'))
+cwd = prompt_root(prompt) or repo_root(ev.get('cwd') or os.getcwd())
 if len(prompt) < 25:                                   # too short to carry a task
     sys.exit(0)
 # a harness event delivered as a prompt (a background task finishing, a monitor line) is not the task, and
@@ -74,8 +88,8 @@ if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
     # It is the only moment where saying nothing guarantees the skill is never used, so it says one thing and
     # takes the same once-per-repo stamp. Still bounded, still never repeated, and still silent where it would
     # be noise: a tree with no source in a supported language has nothing to offer and says nothing.
-    EXT = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs')
-    SKIP = {'node_modules', '.git', 'dist', 'build', 'target', 'venv', '.venv', '__pycache__'}
+    EXT = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs', '.cs')
+    SKIP = {'node_modules', '.git', 'dist', 'build', 'target', 'venv', '.venv', '__pycache__', 'obj'}
     found = 0
     for root, dirs, files in os.walk(cwd):
         dirs[:] = [d for d in dirs if d not in SKIP and not d.startswith('.')]
@@ -83,6 +97,14 @@ if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
         if found >= 25:                                    # enough to be a codebase rather than a script
             break
     if found < 25:
+        sys.exit(0)
+    # a directory ABOVE an indexed tree (a workspace holding the project, its worktrees, its copies) is not a repository
+    # without a graph: saying so would send the agent to rebuild what it already has. Two levels down is where they sit.
+    def _below(d, depth):
+        try: subs = [e.path for e in os.scandir(d) if e.is_dir() and e.name not in SKIP and not e.name.startswith('.')]
+        except OSError: return False
+        return any(_where.has_graph(x) or (depth > 1 and _below(x, depth - 1)) for x in subs)
+    if _below(cwd, 2):
         sys.exit(0)
     try:
         os.makedirs(os.path.dirname(stamp), exist_ok=True)

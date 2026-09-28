@@ -13,9 +13,17 @@ import collections, json, os, re, sqlite3, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
 import graph_sql, ax_contract as _ax
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _host, _graphline
+import _host, _graphline, _where
 
-ev = _host.read(); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
+ev = _host.read(); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; scwd = ev.get('cwd') or os.getcwd()
+# THE GRAPH IS FOUND FROM WHAT THE TOOL TOUCHED, not from the session's working directory: an agent reads and greps
+# indexed trees by absolute path from a directory that has no graph (308 of 309 measured sessions), and a hook that
+# looked only in the working directory never spoke. `cwd` below is the repository ROOT whose graph answers; `scwd` is
+# where the session is, which a relative path in the tool's input is relative to.
+cwd = _where.locate(tool, inp, scwd, ev.get('session_id'))
+if not cwd: sys.exit(0)
+_file = next((p for p in _where.touched(tool, inp, scwd) if os.path.isfile(p)), None)
+os.environ.update(_where.lang_env(cwd, _file))          # a file in a language with its own graph is answered from it
 def rel_of(fp):
     """the graph stores repo-relative paths; the tool's file_path may reach the tree through a symlink while cwd is resolved (or the
     reverse) — compare real paths, and if the file still is not under the tree, fall back to the graph's own suffix match"""
@@ -25,7 +33,7 @@ def rel_of(fp):
         except ValueError: continue                                 # Windows: a file on another drive is not under the tree
         if not r.startswith('..'): return r.replace(os.sep, '/')   # the index stores '/' on every platform
     return fp
-db = os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')
+db = _where.graph_db(cwd, _file)
 if not os.path.exists(db): sys.exit(0)
 con = sqlite3.connect(db); con.row_factory = sqlite3.Row
 q = lambda s, *p: con.execute(s, p).fetchall()
@@ -88,15 +96,14 @@ if tool == 'Bash':
     # The tree searched is where the shell is (a `cd` before the grep) and the paths given after the pattern.
     if m:
         import shlex
+        base, _ = _where.bash_where(c[:m.start()], scwd)          # where the shell is when the grep runs (a `cd` first)
         def outside(p):
-            p = os.path.expanduser(p)
-            r = os.path.relpath(os.path.realpath(p if os.path.isabs(p) else os.path.join(cwd, p)), os.path.realpath(cwd))
+            r = os.path.relpath(os.path.realpath(_where._abs(p, base)), os.path.realpath(cwd))
             return r == '..' or r.startswith('..' + os.sep)
-        cds = re.findall(r'(?:^|[;&|]\s*)cd\s+([^\s;&|]+)', c[:m.start()])
         try: rest = shlex.split(c[m.end():].split('|')[0].split('&&')[0].split(';')[0])
         except ValueError: rest = []
         where = [a for a in rest if not a.startswith('-') and ('/' in a or a.startswith(('~', '.')))]
-        if (cds and outside(cds[-1])) or any(outside(a) for a in where): sys.exit(0)
+        if outside(base) or any(outside(a) for a in where): sys.exit(0)
         # A GREP THAT IS NOT A CODE SEARCH SAYS NOTHING ABOUT THIS GRAPH (#1604). After a `|` it filters another command's
         # output (`npm test | grep -E 'FAIL|ok'` named `Result.fail` and a test helper `fail`); over files no graph
         # indexes (a log, a shell script, YAML) it names whatever shares a word with the pattern.
@@ -106,10 +113,13 @@ if tool == 'Bash':
         if files and all(os.path.splitext(a)[1] and os.path.splitext(a)[1].lower() not in _graphline.LANG for a in files): sys.exit(0)
     if m: tool = 'Grep'; inp = {'pattern': m.group(3)}; _from_shell = True
     else:
-        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py))', c)
-        if m and m.re.groups == 3: tool = 'Read'; inp = {'file_path': os.path.join(cwd, m.group(3)) if not m.group(3).startswith('/') else m.group(3), 'offset': int(m.group(1)), 'limit': int(m.group(2)) - int(m.group(1)) + 1}
-        elif m: tool = 'Read'; inp = {'file_path': os.path.join(cwd, m.group(1)) if not m.group(1).startswith('/') else m.group(1)}
+        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py|cs))\b', c)
+        # a relative file is relative to where the shell is when it runs: the session's directory, or a `cd` before it
+        if m: base, _ = _where.bash_where(c[:m.start()], scwd)
+        if m and m.re.groups == 3: tool = 'Read'; inp = {'file_path': _where._abs(m.group(3), base), 'offset': int(m.group(1)), 'limit': int(m.group(2)) - int(m.group(1)) + 1}
+        elif m: tool = 'Read'; inp = {'file_path': _where._abs(m.group(1), base)}
         else: sys.exit(0)
+        if _where.root_of(inp['file_path']) != cwd: sys.exit(0)  # the file read is another tree's, or none's
 
 # names are looked up by prefix on every grep: an index on symbols.name keeps that under 0.1 s (created once, harmless if present)
 try: con.execute("CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name)"); con.commit()
@@ -149,7 +159,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     # file against the commit the graph was built from — then the blast radius of each from `axiomcode impact`: what must change
     # with it, who produces or writes it, who reads it, what reaches those, the tests. The moment this is useful is now.
     import concurrent.futures
-    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
+    fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     if not re.search(r'\.(java|ts|tsx|js|mjs|cjs|py)$', rel) or re.search(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_', rel): sys.exit(0)
     SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
     try: ch = json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), cwd, rel, '--json'], capture_output=True, text=True, timeout=10).stdout or '{}')
@@ -223,7 +233,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         lines.append(_graphline.body_line(os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(cwd, '.axiomcode'), 'out', 'graph.sqlite'),
                                           bodies + [(d, {}) for d in body[3:]]))
 elif tool == 'Read':
-    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
+    fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
     # a member the language synthesises (an enum's values() / valueOf(), a default constructor) is not declared on any line: not listed as one
     rows = q("SELECT s.id, s.method_id, s.display, s.line, s.end_line FROM symbols s JOIN methods m ON m.id = s.method_id WHERE (s.file = ? OR s.file LIKE ?) AND s.method_id IS NOT NULL AND s.kind <> 'module' AND m.kind NOT IN ('ENUM_VALUES', 'ENUM_VALUE_OF', 'DEFAULT_CONSTRUCTOR') AND s.line <= ? AND s.end_line >= ? ORDER BY s.line", rel, '%/' + rel.lstrip('/'), b, a)
@@ -320,7 +330,7 @@ elif tool == 'Read':
         for x in shown: lines.append(line(x))
         left = [x for x in info if x not in shown] if rows else []
         if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{ups(x)}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: (-len(x.get('hits') or ()), -(len(x['up']) + x['un'])))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
-elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(os.path.join(cwd, os.path.expanduser(str(inp['path'])))), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
+elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpath(_where._abs(inp['path'], scwd)), os.path.realpath(cwd)).split(os.sep)[0] == '..'):
     # (a Grep of a path outside this tree is about another codebase — nothing here to add)
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
     # Split the alternation, strip the regex around each branch, keep the identifiers, look each one up — in parallel, one
