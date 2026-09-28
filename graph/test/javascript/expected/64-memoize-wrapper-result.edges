@@ -35,6 +35,92 @@ app.js:7:18 FUNCTION_CALL memoize  ->  callback_registered  app.js:7:26 <arrow>
 app.js:7:18 FUNCTION_CALL memoize  ->  known_edge  memoize.js:2:17 <arrow>
 app.js:8:17 FUNCTION_CALL memoize  ->  callback_registered  app.js:8:25 <arrow>
 app.js:8:17 FUNCTION_CALL memoize  ->  known_edge  memoize.js:2:17 <arrow>
+declared.js:15:22 FUNCTION_CALL g  ->  known_edge  declared.js:26:28 <arrow>
+declared.js:15:34 CONSTRUCTOR_CALL Mark  ->  implicit_constructor  -
+declared.js:19:28 CONSTRUCTOR_CALL Mark  ->  implicit_constructor  -
+declared.js:20:27 FUNCTION_CALL fn  ->  known_edge  declared.js:27:27 <arrow>
+declared.js:22:19 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:22:28 <arrow>
+declared.js:22:19 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:22:34 CONSTRUCTOR_CALL AlphaPlugin  ->  implicit_constructor  -
+declared.js:23:18 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:23:27 <arrow>
+declared.js:23:18 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:23:33 CONSTRUCTOR_CALL BetaPlugin  ->  implicit_constructor  -
+declared.js:24:18 FUNCTION_CALL memoize  ->  callback_registered  declared.js:24:26 <arrow>
+declared.js:24:18 FUNCTION_CALL memoize  ->  known_edge  memoize.js:2:17 <arrow>
+declared.js:24:32 CONSTRUCTOR_CALL AlphaPlugin  ->  implicit_constructor  -
+declared.js:25:22 FUNCTION_CALL onceDecl  ->  callback_registered  memoize.js:5:10 <arrow>
+declared.js:25:22 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:26:20 FUNCTION_CALL tapDecl  ->  callback_registered  declared.js:26:28 <arrow>
+declared.js:26:20 FUNCTION_CALL tapDecl  ->  known_edge  declared.js:14:1 tapDecl
+declared.js:26:34 CONSTRUCTOR_CALL AlphaPlugin  ->  implicit_constructor  -
+declared.js:27:16 FUNCTION_CALL pickShared  ->  callback_registered  declared.js:27:27 <arrow>
+declared.js:27:16 FUNCTION_CALL pickShared  ->  known_edge  declared.js:20:1 pickShared
+declared.js:27:33 CONSTRUCTOR_CALL BetaPlugin  ->  implicit_constructor  -
+declared.js:30:3 FUNCTION_CALL declAlpha  ->  known_edge  declared.js:9:3 inner
+declared.js:30:3 METHOD_CALL declAlpha().run  ->  known_edge  alpha.js:3:3 run
+declared.js:31:3 FUNCTION_CALL declBeta  ->  known_edge  declared.js:9:3 inner
+declared.js:31:3 METHOD_CALL declBeta().run  ->  known_edge  beta.js:3:3 run
+declared.js:32:3 FUNCTION_CALL declOfGetter  ->  known_edge  declared.js:9:3 inner
+declared.js:32:3 METHOD_CALL declOfGetter().run  ->  known_edge  alpha.js:3:3 run
+declared.js:33:3 FUNCTION_CALL tappedDecl  ->  known_edge  declared.js:15:3 inner
+declared.js:33:3 METHOD_CALL tappedDecl().markOnly  ->  known_edge  declared.js:13:14 markOnly
+declared.js:34:3 FUNCTION_CALL picked  ->  known_edge  declared.js:19:1 shared
+declared.js:34:3 METHOD_CALL picked().markOnly  ->  known_edge  declared.js:13:14 markOnly
+declared.js:37:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:37:22 <arrow>
+declared.js:37:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:37:44 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:37:53 <arrow>
+declared.js:37:44 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:37:75 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:37:84 <arrow>
+declared.js:37:75 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:38:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:38:22 <arrow>
+declared.js:38:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:38:44 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:38:53 <arrow>
+declared.js:38:44 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:38:75 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:38:84 <arrow>
+declared.js:38:75 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:39:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:39:22 <arrow>
+declared.js:39:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:39:44 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:39:53 <arrow>
+declared.js:39:44 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:39:75 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:39:84 <arrow>
+declared.js:39:75 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:40:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:40:22 <arrow>
+declared.js:40:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:40:45 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:40:54 <arrow>
+declared.js:40:45 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:40:77 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:40:86 <arrow>
+declared.js:40:77 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:41:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:41:22 <arrow>
+declared.js:41:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:41:45 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:41:54 <arrow>
+declared.js:41:45 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:41:77 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:41:86 <arrow>
+declared.js:41:77 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:42:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:42:22 <arrow>
+declared.js:42:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:42:45 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:42:54 <arrow>
+declared.js:42:45 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:42:77 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:42:86 <arrow>
+declared.js:42:77 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:43:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:43:22 <arrow>
+declared.js:43:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:43:45 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:43:54 <arrow>
+declared.js:43:45 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:43:77 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:43:86 <arrow>
+declared.js:43:77 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:44:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:44:22 <arrow>
+declared.js:44:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:44:45 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:44:54 <arrow>
+declared.js:44:45 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:44:77 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:44:86 <arrow>
+declared.js:44:77 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:45:13 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:45:22 <arrow>
+declared.js:45:13 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:45:45 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:45:54 <arrow>
+declared.js:45:45 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:45:77 FUNCTION_CALL onceDecl  ->  callback_registered  declared.js:45:86 <arrow>
+declared.js:45:77 FUNCTION_CALL onceDecl  ->  known_edge  declared.js:7:1 onceDecl
+declared.js:9:34 FUNCTION_CALL fn  ->  ambiguous_unknown  -
 many.js:3:13 FUNCTION_CALL memoize  ->  callback_registered  many.js:3:21 <arrow>
 many.js:3:13 FUNCTION_CALL memoize  ->  known_edge  memoize.js:2:17 <arrow>
 many.js:3:43 FUNCTION_CALL memoize  ->  callback_registered  many.js:3:51 <arrow>

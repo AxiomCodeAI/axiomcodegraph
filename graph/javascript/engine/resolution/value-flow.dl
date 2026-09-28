@@ -400,6 +400,9 @@ return_value(m, "inst", t) :- method_return_type(_, _, tr, m), type_ref_type(tr,
 wrapper_closure(h, c) :- expr_root(_, "RETURN", e), expr_owner(_, h, _, e), expr_introduces(_, c, e).
 wrapper_closure(h, c) :- expr_root(_, "RETURN", e), expr_owner(_, h, _, e), expr_binding(_, v, e),
     var_init(_, _, init, v), expr_introduces(_, c, init).
+// ... or names a function declared inside the wrapper: `function inner() { ... } return inner`.
+wrapper_closure(h, c) :- expr_root(_, "RETURN", e), expr_owner(_, h, _, e), expr_binding(_, v, e),
+    function_binding_method(v, c), method_enclosing(c, h).
 param_call_kind("FUNCTION_CALL").
 param_call_kind("FUNCTION_CALL_CALL").
 param_call_kind("FUNCTION_CALL_APPLY").

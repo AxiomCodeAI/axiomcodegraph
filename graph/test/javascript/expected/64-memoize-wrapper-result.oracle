@@ -13,6 +13,48 @@ app.js:30:26 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK
 app.js:34:3 METHOD_CALL render  EXACT  once.js:25:15
 app.js:7:18 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 app.js:8:17 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+declared.js:15:34 CONSTRUCTOR_CALL Mark  SYNTHESIZED_OK  
+declared.js:19:28 CONSTRUCTOR_CALL Mark  SYNTHESIZED_OK  
+declared.js:22:19 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:22:34 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+declared.js:23:18 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:23:33 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+declared.js:24:18 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+declared.js:24:32 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+declared.js:25:22 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:26:20 FUNCTION_CALL tapDecl  EXACT  declared.js:14:1
+declared.js:26:34 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+declared.js:27:16 FUNCTION_CALL pickShared  EXACT  declared.js:20:1
+declared.js:27:33 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+declared.js:33:3 METHOD_CALL markOnly  EXACT  declared.js:13:14
+declared.js:34:3 METHOD_CALL markOnly  EXACT  declared.js:13:14
+declared.js:37:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:37:44 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:37:75 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:38:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:38:44 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:38:75 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:39:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:39:44 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:39:75 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:40:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:40:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:40:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:41:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:41:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:41:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:42:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:42:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:42:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:43:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:43:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:43:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:44:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:44:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:44:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:45:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:45:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:45:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
 many.js:3:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 many.js:3:43 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 many.js:3:73 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
