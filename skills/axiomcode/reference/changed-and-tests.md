@@ -23,6 +23,14 @@ What to pass, and what the answer says when the question cannot be answered the 
 | a file the base does not have | (any) | one line, `added <file> — new file, N declaration(s)`, plus each new declaration something outside the file already calls, with its impact target. Never its parameters or docstring words |
 | fixtures, case data, a schema | (any) | named as `outside every indexed language`, never "no change"; test-impact lists the test files whose text names them (the path, the file name, or a quoted directory), as a `[text]` tier, and says when no test names them |
 
+**A lambda is part of what encloses it.** Every lambda a front end declares carries one name (`<lambda>`), so it is never
+the declaration an edit is charged to: an edit inside a lambda in a method is that method's `body` change, and one inside a
+field's initializer is that field's. A lambda nothing encloses (an entry in a module-level table) is its own `body`
+change, named by where it is, `module.<lambda@L15>` or `Owner.method.<lambda@L42>`, and its target is `file:line`; that
+name is also a target `impact` and `path` accept. Its parameter list is read from the lambda's own header, so an unchanged
+header is never reported as a parameter change. `impact <file>:<line>` on a field, a property, a constant or a type
+header line answers for that declaration; a callable written on the line still wins.
+
 `test-impact` also lists an edited or new **test file** as one to run, and adds it to the command. Code that is also run as a
 program (`if __name__ == '__main__'`, `static void main`, `Main`) is looked for by name in the tests, since a test that starts
 it as a subprocess or drives it from case data has no call edge to it; when no test names it the answer says the selection is

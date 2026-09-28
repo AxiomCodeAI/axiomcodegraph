@@ -294,6 +294,8 @@ class Impact:
         resolver already matched that path against the index, so there is no prefix left to check."""
         m = re.match(r'^(.+?):(\d+)$', typed.strip().strip('`"\''))
         if m and ('/' in m.group(1) or '.' in m.group(1)): return ''
+        # `Owner.m.<lambda@L42>`: the resolver matched the enclosing member it names, so its prefix is checked
+        if re.search(r'<\w+@L\d+>$', typed.strip()): return ''
         typed = re.sub(r'\(.*\)$', '', typed).replace('#', '.').strip('.')
         if typed.count('.') < 2: return ''          # Owner.member carries no prefix to validate
         names = []
@@ -376,6 +378,21 @@ class Impact:
                                     f"  properties file, a YAML, an XML). Do not read this as 'nothing uses it'.")
             return [('string', f"the string {raw} ({n} literal site(s), {d} decoration site(s))", v)]
         s = raw.strip('`"\'')
+        # FILE:LINE ON A FIELD, A PROPERTY OR A TYPE HEADER is that declaration. The line resolver takes callables, so
+        # such a line answered `no callable spans` in every language (a class line in C#, #1426); the declaration at
+        # the line is asked about as its name would be, and a callable written on the line still wins (G.decl_at_line)
+        mfl = re.match(r'^(.+?):(\d+)(?::\d+)?$', s)
+        if mfl and ('/' in mfl.group(1) or '.' in mfl.group(1)) and kind in (None, 'field', 'type'):
+            f, ln = self.g.repo_file(mfl.group(1))[0], int(mfl.group(2))
+            files = sorted({x['file'] for x in self.g.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
+                            if x['file'] == f or (x['file'] or '').endswith('/' + f)})
+            if f in files: files = [f]
+            d = self.g.decl_at_line(files[0], ln) if len(files) == 1 else None
+            if d and d[0] == 'field' and kind in (None, 'field'):
+                row = self.fields.get(d[1]['rowid']) or d[1]
+                return [('field', f"{row['kind']} {row['display']} (at {s})", [row])]
+            if d and d[0] == 'type' and kind in (None, 'type'):
+                return [('type', f"{d[1]['kind']} {d[1]['display']} (at {s})", [d[1]['id']])]
         # a lowercase dotted name is read as a configuration key when the graph has configuration facts, or when its last
         # segment names nothing the code declares; `util.square` ending in a real function is a declaration that missed
         if (kind == 'config' or (not kind and self.CONFIG_RE.match(s) and (self.has_config() or not self.declared_name(s.rsplit('.', 1)[-1]))
@@ -469,7 +486,9 @@ class Impact:
             # a bodiless signature beside the function it annotates (file:line on `const f: T = …`) is ONE declaration
             bodied = [i for i in mids if self.g.method_kind(i) not in BODILESS_KINDS] if mids else []
             one = len(mids) == 1 or (len(bodied) == 1 and ':' in s)
-            if mids: out.append(('method', (self.g.disp((bodied or mids)[0]) + (f" (at {s})" if ':' in s else '') if one else f"{s} ({len(mids)} declarations)"), mids))
+            # a lambda is named by where it is (G.lambda_label), not by the one name every lambda carries
+            if mids: nm0 = (bodied or mids)[0]; shown = self.g.name(nm0)
+            if mids: out.append(('method', (shown + (f" (at {s})" if ':' in s else '') if one else f"{s} ({len(mids)} declarations)"), mids))
         if not out:
             # an inherited member is written under the name the code uses: Sub.member, declared in a base. Answer for the
             # declaration and say where it is, instead of falling through to a name match that no rule can act on
@@ -512,7 +531,8 @@ class Impact:
             if soft: return []
             print(buf.getvalue(), end=''); raise
         last = re.sub(r'\(.*\)$', '', s).replace('#', '.').replace('$', '.').rstrip('.').split('.')[-1]
-        ids = [i for i in ids if self.g.sym.get(i, {}).get('method_id') and self.g.sym[i]['kind'] not in ('library', 'written') and (self.g.sym[i]['name'] == last or ':' in s)]
+        lam = bool(re.search(r'<\w+@L\d+>$', s))                                       # Owner.m.<lambda@L42>: the lambda at that line
+        ids = [i for i in ids if self.g.sym.get(i, {}).get('method_id') and self.g.sym[i]['kind'] not in ('library', 'written') and (self.g.sym[i]['name'] == last or ':' in s or lam)]
         if not ids and not soft: die(f"{s} is not a method in the graph")
         return ids
     def types(self, s, soft=False):
