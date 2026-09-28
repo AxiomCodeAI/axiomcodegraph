@@ -50,3 +50,7 @@ type_use	type-use.csv
 field_site_excluded	field-site-excluded.csv
 inject_point	config-inject-point.csv
 di_edge	config-di-edge.csv
+remote_edge	remote-edge.csv
+remote_unserved	remote-unserved.csv
+remote_unsent	remote-unsent.csv
+remote_undetermined	remote-undetermined.csv

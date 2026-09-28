@@ -669,3 +669,7 @@
 .decl program_module_count(c0:symbol,c1:number)
 .decl program_is_wide(c0:symbol)
 .decl global_decl_wide(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl remote_edge(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl remote_undetermined(c0:symbol,c1:symbol,c2:symbol)
+.decl remote_unsent(c0:symbol,c1:symbol,c2:symbol)
+.decl remote_unserved(c0:symbol,c1:symbol,c2:symbol)

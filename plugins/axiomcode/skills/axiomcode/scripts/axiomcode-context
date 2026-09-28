@@ -519,6 +519,7 @@ def unseen(g, text, scopes=()):
 NONSOURCE_ASK = re.compile(r'\b(sql|quer(y|ies)|statements?|mapper|mappings?|xml|ya?ml|propert(y|ies)|config(uration|ured)?|'
                            r'settings?|templates?|views?|html|json|migrations?|schema|scripts?|toml|ini|env|bindings?)\b', re.I)
 BINDINGS_SHOWN = 6
+REMOTE_SHOWN = 8           # cross-process hops listed beside "where the work is" (#1293)
 _NS = {}
 
 
@@ -1173,6 +1174,35 @@ def main(argv):
                     print(f"    {'':22}   {k:5} | {ln.rstrip()[:110]}")
                 if b > a + SOURCE_LINES: print(f"    {'':22}   {'':5} | … +{b - a - SOURCE_LINES} more line(s)")
     if foot and budget > 0: print(foot + ", tests and benchmarks not listed")
+
+    # THE OTHER END OF A ROUTE IS NO CALL HOP AWAY, HOWEVER CLOSE IT IS (#1293). A client and the handler it reaches
+    # through an HTTP route, a topic or a gRPC service are joined by ext_remote_edge, which `impact` and `path` read and
+    # this did not, so the service on the other side never appeared. Its own tier, with the transport and destination,
+    # and never merged into the hops above: it crosses a process and may be asynchronous.
+    RESULT['remote'] = []
+    if g.has('ext_remote_edge') and depth:
+        rows = []
+        for r in g.q("SELECT c0, c1, c2, c3, c4 FROM ext_remote_edge"):
+            fr, to = r[0], r[1]
+            if not fr or not to or fr == to or fr not in g.sym or to not in g.sym: continue
+            d = min(depth.get(fr, 99), depth.get(to, 99))
+            if d == 99: continue
+            near_is_sender = depth.get(fr, 99) <= depth.get(to, 99)
+            rows.append((d, g.disp(fr), g.disp(to), fr, to, r[2], r[3], r[4], near_is_sender))
+        rows.sort(key=lambda x: (x[0], x[1], x[2], x[6]))
+        if scopes and not scope_offered:
+            rows = [x for x in rows if in_scope(g.sym[x[3]].get('file')) or in_scope(g.sym[x[4]].get('file'))]
+        if rows:
+            print(f"\nacross a process boundary ({len(rows)} remote hop(s) from what is above; not calls — joined by the "
+                  "destination both ends name):")
+            for d, _a, _b, fr, to, tr, dest, conf, near_is_sender in rows[:REMOTE_SHOWN]:
+                far = to if near_is_sender else fr
+                print(f"    [remote] {tr} {dest}  ({conf})  {g.disp(fr)} → {g.disp(to)}   "
+                      f"{'handled in' if near_is_sender else 'sent from'} {g.loc(far)}")
+            if len(rows) > REMOTE_SHOWN: print(f"    … +{len(rows) - REMOTE_SHOWN} more")
+            RESULT['remote'] = [{'from': g.disp(fr), 'from_at': g.loc(fr), 'to': g.disp(to), 'to_at': g.loc(to),
+                                 'transport': tr, 'destination': dest, 'confidence': conf, 'hop': d}
+                                for d, _a, _b, fr, to, tr, dest, conf, _n in rows]
 
     # the text files bound to what was found (#1382): only when the question is about them (SQL, config, a template, a
     # file or directory the graph does not hold), because finding them walks the tree
