@@ -57,7 +57,13 @@ if [ -L "$self" ]; then
   fi
   self="$r"
 fi
-ROOT="$(d="$(cd "$(dirname "$self")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
+# NO PROGRAM IS STARTED TO FIND IT: the parent of a path is taken by parameter expansion, not `dirname`. Every query goes
+# through here, and under Git Bash on Windows each program started is a fork emulation that costs tens of milliseconds
+# idle and far more on a busy machine; the walk used to start one per level, the verb check below four more.
+case "$self" in */*) d="${self%/*}";; *) d=.;; esac
+d="$(cd "${d:-/}" && pwd)"
+while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="${d%/*}"; d="${d:-/}"; done
+ROOT="$d"
 # No marker found means every path built from ROOT is nonsense; say so here rather than fail
 # later on a path the user cannot interpret.
 [ -d "$ROOT/graph" ] || { echo "axiomcode: cannot locate the package root from $0 (resolved to $self)" >&2; exit 2; }
@@ -76,8 +82,20 @@ QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
 # `tests` is the frontend's alias for test-impact; `test` is THIS command's engine suite. One letter
 # apart, entirely different jobs, and putting both on one command is a trap — so the alias is not
 # routed here, and the name is refused below with both readings spelled out.
-query_verbs(){ [ -f "$QUERY" ] && bash "$QUERY" --verbs 2>/dev/null | grep -vx tests || true; }
-is_query_verb(){ query_verbs | grep -qx -- "$1"; }
+# The list is read from the frontend's own dispatch table, the lines `  <verb>[|<alias>]) exec …` that its `--verbs`
+# prints, so the two entry points still cannot drift -- but read here, in this shell, instead of by a second bash, a
+# sed, a tr and two greps on every query.
+QVERBS=()
+load_verbs(){
+  [ ${#QVERBS[@]} -gt 0 ] && return 0; [ -f "$QUERY" ] || return 0
+  local l v x re='^  ([a-z|-]*)\) *exec '
+  while IFS= read -r l || [ -n "$l" ]; do
+    [[ $l =~ $re ]] || continue; v="${BASH_REMATCH[1]}"
+    for x in ${v//|/ }; do [ "$x" = tests ] || QVERBS+=("$x"); done
+  done < "$QUERY"
+}
+query_verbs(){ load_verbs; [ ${#QVERBS[@]} -gt 0 ] && printf '%s\n' "${QVERBS[@]}"; return 0; }
+is_query_verb(){ load_verbs; local x; for x in ${QVERBS[@]+"${QVERBS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
 usage(){
   awk 'NR > 2 && /^# ─/ {exit} NR > 2' "$0" | sed 's/^# \{0,1\}//'
   if [ -f "$QUERY" ]; then
