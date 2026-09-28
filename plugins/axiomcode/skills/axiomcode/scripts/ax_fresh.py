@@ -66,7 +66,8 @@ PRUNE_ALL = {'.git', '.hg', '.svn', '.axiomcode', 'node_modules', 'bower_compone
 # reads: a directory pruned here that the parser DOES read is an edit no refresh ever sees and that `index` calls up to
 # date, which is what one shared list did to `out`, `build`, `target` and `coverage` in Python and C# (and `coverage`
 # in Java). A directory watched here that the parser skips costs only a needless rebuild. Each set is the parser's own:
-#   java        parser/src/constants/consts.ts EXCLUDED_DIRS, and every directory whose name starts with a dot
+#   java        parser/src/constants/consts.ts EXCLUDED_DIRS except `build`, and every directory whose name starts with
+#               a dot; a `build` directory is skipped only as a Gradle project's output (gradle_output below)
 #   typescript  parser/src/constants/typescript-constants.ts TS_SKIP_DIRECTORIES, and dot directories
 #   javascript  parser/src/constants/javascript-constants.ts JS_SKIP_DIRECTORIES
 #   python      parser/src/workflows/python/python-project-analyzer.ts DEFAULT_EXCLUDES, `*.egg-info`, and under a
@@ -75,7 +76,7 @@ PRUNE_ALL = {'.git', '.hg', '.svn', '.axiomcode', 'node_modules', 'bower_compone
 # .axiomcode (the graph's own directory) and .git are pruned for every language: the build puts .axiomcode in
 # .git/info/exclude, so the parser skips it too. Directories git ignores are pruned for every language (git_ignored_dirs).
 SKIP = {
-    'java': frozenset({'node_modules', '.git', '.idea', '.vscode', 'dist', 'build', 'target', 'out', '__pycache__',
+    'java': frozenset({'node_modules', '.git', '.idea', '.vscode', 'dist', 'target', 'out', '__pycache__',
                        '.pytest_cache', 'venv', 'env'}),
     'typescript': frozenset({'node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.turbo',
                              '.cache', '.yarn', 'bower_components'}),
@@ -111,6 +112,15 @@ def generated_output(parent, name):
     if not os.path.isfile(os.path.join(d, 'index.html')): return False
     return os.path.isfile(os.path.join(d, 'element-list')) or os.path.isfile(os.path.join(d, 'package-list')) or \
         (os.path.isfile(os.path.join(d, 'navigation.html')) and os.path.isfile(os.path.join(d, 'scripts', 'sourceset_dependencies.js')))
+
+# A GRADLE PROJECT'S OUTPUT. The Java parser skips a directory named `build` only when a Gradle build or settings
+# script sits beside it (parser/src/utils/generated-output.ts isGradleBuildOutput): `build` is also a Java package name,
+# and one inside a source tree is read, so an edit there must be watched and its files counted.
+GRADLE_BUILD_FILES = ('build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts')
+
+def gradle_output(parent, name):
+    """True when `parent`/`name` is the `build` directory a Gradle project or module writes its output into"""
+    return name == 'build' and any(os.path.isfile(os.path.join(parent, f)) for f in GRADLE_BUILD_FILES)
 
 def out_dir(repo): return os.path.join(repo, '.axiomcode', 'out')
 def table_path(repo): return os.path.join(out_dir(repo), 'files.json')
@@ -170,6 +180,7 @@ def watched(root, lang):
             if ignored and os.path.normpath(os.path.join(rd, s)) in ignored: continue
             o = off | {l for l in langs if prunes(l, s, parent)}
             if web and not web <= o and generated_output(d, s): o = o | web     # a build's output (#1545)
+            if 'java' in langs and 'java' not in o and gradle_output(d, s): o = o | {'java'}   # Gradle's output
             if all(l in o for l in langs): continue
             keep.append(s); hidden[os.path.join(d, s)] = o
         subdirs[:] = keep

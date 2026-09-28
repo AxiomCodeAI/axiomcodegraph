@@ -1,0 +1,9 @@
+ambiguous_unknown	LOCAL_VARIABLE	0	app.Pipeline#run(String) [LOCAL_VARIABLE] -> -
+ambiguous_unknown	METHOD_PARAM	0	app.Pipeline#run(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	app.build.StageBuilder#stage(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	app.lib.build.LibStep#apply(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	app.Pipeline#run(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	app.build.StageBuilder#stage(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	app.lib.build.LibStep#apply(String) [METHOD] -> -
+known_edge	OBJECT_CREATION_TYPE	0	app.Pipeline#run(String) [EXPRESSION] -> app.build.StageBuilder
+known_edge	OBJECT_CREATION_TYPE	0	app.Pipeline#run(String) [EXPRESSION] -> app.lib.build.LibStep
