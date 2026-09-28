@@ -17,10 +17,16 @@ import concurrent.futures, json, os, re, subprocess, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
 import graph_sql
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _host, _graphline
+import _host, _graphline, _where
 
-ev = _host.read(); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
-if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')): sys.exit(0)
+ev = _host.read(); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; scwd = ev.get('cwd') or os.getcwd()
+# the repository the edit or command is in, found from the file or directory it touched (_where.py); a prompt names
+# no path, so it is the working directory's graph, else the one this session last worked in
+cwd = _where.locate(tool if event != 'UserPromptSubmit' else '', inp, scwd, ev.get('session_id')) \
+      or (next(iter(_where.recent()), None) if event == 'UserPromptSubmit' else None)
+if not cwd or not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')): sys.exit(0)
+if tool in ('Edit', 'Write', 'MultiEdit') and inp.get('file_path'):
+    os.environ.update(_where.lang_env(cwd, inp['file_path']))
 SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
 SRC = re.compile(r'\.(java|ts|tsx|js|mjs|cjs|py)$'); TEST = re.compile(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_')
 STATE = os.path.join(cwd, '.axiomcode', f"hooks-state-{ev.get('session_id', 'x')}.json")
@@ -119,7 +125,7 @@ def key(d): return f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}
 
 lines = []
 if event == 'PreToolUse' and tool in ('Edit', 'Write', 'MultiEdit'):
-    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
+    fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     if not SRC.search(rel) or TEST.search(rel) or not os.path.exists(fp): sys.exit(0)
     cur = open(fp, errors='replace').read(); new = cur
     if tool == 'Write': new = str(inp.get('content', ''))

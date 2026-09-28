@@ -24,7 +24,7 @@ Rules it holds itself to, in the spirit of orient.py:
 """
 import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _host
+import _host, _where
 
 MARK = '.axiomcode/.directed-{}'               # once per session: keyed by session id, not once per repo forever
 SRC = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs', '.cs')
@@ -50,9 +50,10 @@ def main():
     ev = _host.read()
     tool = ev.get('tool_name') or ''
     inp = ev.get('tool_input') or {}
-    cwd = ev.get('cwd') or os.getcwd()
-
-    if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
+    # the repository whose graph would answer: the one above the file or directory this tool is about to touch, not
+    # the session's working directory, which in 308 of 309 measured sessions held no graph (_where.py)
+    cwd = _where.locate(tool, inp, ev.get('cwd') or os.getcwd(), ev.get('session_id'))
+    if not cwd:
         sys.exit(0)
 
     stamp = os.path.join(cwd, MARK.format(ev.get('session_id') or 'x'))
@@ -75,6 +76,14 @@ def main():
 
     if tool == 'Bash' and not SEARCH.search(inp.get('command') or ''):
         sys.exit(0)
+    # the same rule as a Read: a shell read or search whose every file is not source (`cat NOTES.md`, `tail run.log`)
+    # is not the decision this is about. Of the 3 times this hook spoke in 190 measured agents, one was a `cat` of a
+    # Markdown file. A search with no file argument (a directory, or none) still searches source.
+    if tool == 'Bash':
+        _, paths = _where.bash_where(inp.get('command'), ev.get('cwd') or os.getcwd())
+        files = [p for p in paths if os.path.isfile(p)]
+        if files and not any(p.endswith(SRC) for p in files):
+            sys.exit(0)
 
     if os.path.exists(stamp):
         sys.exit(0)
