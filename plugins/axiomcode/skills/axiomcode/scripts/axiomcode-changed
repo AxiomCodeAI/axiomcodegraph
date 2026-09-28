@@ -820,12 +820,26 @@ def main(argv):
             k = 'method' if e.get('target_kind') == 'param' and '(' not in e['target'] else e.get('target_kind', 'method')
             groups.setdefault('' if '(' in e['target'] else k, []).append(e['target'])
     if want_impact and groups:
+        ask = lambda ts, k: subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-impact'), *dict.fromkeys(ts), C.repo, '--page', 'all'] + (['--kind', k] if k else []),
+                                           capture_output=True, text=True)
         for k, ts in groups.items():                                                                    # one impact run per kind (a field named like a method needs to be told apart)
             # captured and printed here, so it lands AFTER the list above: written straight to the terminal it came out
             # before this process's own (paged, buffered) lines, and a range note or the list itself sank to page 2
-            r = subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-impact'), *dict.fromkeys(ts), C.repo, '--page', 'all'] + (['--kind', k] if k else []),
-                               capture_output=True, text=True)
-            print(); print(r.stdout.rstrip('\n')); sys.stderr.write(r.stderr)
+            r = ask(ts, k)
+            if r.returncode == 0 or not r.stderr.strip():
+                print(); print(r.stdout.rstrip('\n')); sys.stderr.write(r.stderr); continue
+            # A TARGET THIS VERB PRINTED IS ONE IMPACT MUST ANSWER. The group is one process, so a single refused target
+            # used to cost every other target in it their answer, and the reader got only impact's refusal of a name
+            # read from the graph a moment before. Ask each one alone; one that is still refused is asked as the
+            # declaration it belongs to (`Owner.m(p)` as `Owner.m`), and the line says so.
+            for t in dict.fromkeys(ts):
+                r1 = ask([t], k) if len(ts) > 1 else r
+                if r1.returncode != 0 and '(' in t:
+                    bare = re.sub(r'\(.*\)$', '', t)
+                    why = (r1.stderr.strip().splitlines() or [''])[0]
+                    r1 = ask([bare], 'method')
+                    print(f"\nnote: impact did not resolve {t} ({why.strip()[:160]}); asked for the declaration {bare} instead")
+                print(); print(r1.stdout.rstrip('\n')); sys.stderr.write(r1.stderr)
     return 0
 
 if __name__ == '__main__':
