@@ -533,7 +533,10 @@ class Impact:
         except SystemExit:
             if soft: return []
             print(buf.getvalue(), end=''); raise
-        last = re.sub(r'\(.*\)$', '', s).replace('#', '.').replace('$', '.').rstrip('.').split('.')[-1]
+        written = re.sub(r'\(.*\)$', '', s)
+        # a computed key (`Tagged.[Symbol.hasInstance]`) is one segment, dots and all
+        key = re.search(r'\.(\[[^\[\]]+\])$', written)
+        last = key.group(1) if key else written.replace('#', '.').replace('$', '.').rstrip('.').split('.')[-1]
         lam = bool(re.search(r'<\w+@L\d+>$', s))                                       # Owner.m.<lambda@L42>: the lambda at that line
         ids = [i for i in ids if self.g.sym.get(i, {}).get('method_id') and self.g.sym[i]['kind'] not in ('library', 'written') and (self.g.sym[i]['name'] == last or ':' in s or lam)]
         if not ids and not soft: die(f"{s} is not a method in the graph")
