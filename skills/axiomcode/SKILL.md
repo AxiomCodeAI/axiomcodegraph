@@ -81,9 +81,11 @@ keys, injected beans and handlers registered as values — none has a call site.
 
 ## changed · test-impact — from an edit
 
-`axiomcode changed [--impact] [--staged | --range a..b]` says how each declaration changed (`signature`, `body`,
-`field`, `type`, `removed`, `added`). `axiomcode test-impact [--why]` lists the tests the edit reaches and the
-command to run them. It is a **lower bound**: skipping what it does not name is your risk decision, since reflection
+`axiomcode changed [--impact] [--staged | --range a..b] [<file>…]` says how each declaration changed (`signature`, `body`,
+`field`, `type`, `removed`, `added`). `axiomcode test-impact [--why] [<file>…]` lists the tests the edit reaches and the
+command to run them. For your branch's commits ask `--range <base>..HEAD`: it reads from the merge-base, so a base
+that moved on is not counted as yours. On a copy without git, name the files you edited. Changed fixtures and other
+files no graph reads are named, with the tests whose text names them. It is a **lower bound**: skipping what it does not name is your risk decision, since reflection
 and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 
 ## path — asking the graph

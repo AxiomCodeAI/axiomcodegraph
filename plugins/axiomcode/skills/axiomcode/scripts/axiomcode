@@ -32,8 +32,9 @@
 #   axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact] [--json]
 #       which declarations an edit changed and HOW (signature: params added / removed / retyped, return type; field: its type,
 #       name, initializer; type header; body only; removed; added) — the working tree against the commit the graph was built
-#       from, or two commits — each with the target `impact` takes; --impact runs impact on all of them as one change set.
-#   axiomcode test-impact [<repo>] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why]
+#       from, or a branch's commits (--range a..b reads from `git merge-base a b`) — each with the target `impact` takes;
+#       --impact runs impact on all of them as one change set. Without git, name the files.
+#   axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why]
 #       which tests actually have to run for this edit: the test files that reach any changed declaration, with the
 #       chain, so a selection can be checked rather than trusted. Conservative by design — a test reached only
 #       through an edge the graph does not encode (reflection, a service loader) will NOT appear.
