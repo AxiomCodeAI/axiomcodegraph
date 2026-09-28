@@ -68,6 +68,14 @@ BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIG
 # the one name a front end gives every lambda it declares (Python and C#; Java declares none): a name that says nothing
 # about WHICH lambda, so it is never a target on its own (G.lambda_label, G.lambda_target)
 LAMBDA_NAMES = {'<lambda>'}
+# a reference the parser binds to a VALUE (refs.entity_kind, as each front end spells it): the name there is a variable,
+# a parameter, a member or a function, never a type, so it is not evidence of a type the code uses without declaring
+VALUE_BINDINGS = {'VARIABLE', 'LOCAL_VARIABLE', 'GLOBAL_VARIABLE', 'FREE_VARIABLE', 'NONLOCAL_VARIABLE', 'PARAMETER',
+                  'LAMBDA_PARAMETER', 'PATTERN_BINDING', 'PATTERN_BINDING_VARIABLE', 'COMPREHENSION_VARIABLE', 'EXCEPT_VARIABLE',
+                  'QUERY_RANGE_VARIABLE', 'FIELD', 'PROPERTY', 'EVENT', 'METHOD', 'TYPE_PARAMETER', 'THIS', 'SUPER'}
+# a reference to the name as a MEMBER of something (refs.kind): `a.b.Name` names a property, not a type in scope
+MEMBER_REFS = {'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS', 'FIELD_ACCESS', 'MEMBER_ACCESS'}
+VALUE_KINDS_SHOWN ={k.lower().replace('_', ' ') for k in VALUE_BINDINGS}
 
 # ONE SPELLING FOR EVERY LANGUAGE. Each front end writes a qualified name its own way: Java and C# `pkg.Owner.m`,
 # Python `pkg.module.f`, TypeScript `src/util#square`, JavaScript `src/util.square`. canon() maps all of them onto the
@@ -482,16 +490,19 @@ class G:
         near = self.q("SELECT DISTINCT display FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL) AND (lower(display) = lower(?) OR lower(name) = lower(?) OR display LIKE ?) LIMIT 6", s, s.split('.')[-1], f"%{s.split('.')[-1]}%")
         # with candidates the advice is "pick one"; with none it has to be something else, or the line reads
         # "use one of them" pointing at an empty list
+        # a word the code WRITES but nothing declares (a local, a parameter, a property) is not a target: the methods that
+        # write it are named as leads, so the reader is not left at "nothing" when the word is right there in the code
+        leads = self.mentions(s)
         if near:
-            die(f"nothing named '{s}' in the graph. Exact names that are close: "
-                + ', '.join(r['display'] for r in near) + "\n  use one of them as written, or file:line")
+            die(f"nothing named '{s}' is declared in this graph. Exact names that are close: "
+                + ', '.join(r['display'] for r in near) + "\n  use one of them as written, or file:line" + leads)
         # the advice has to differ once the fragment form has ALREADY been tried, or it names the command just run
         if fragment:
-            die(f"no declaration in the graph contains '{s}'.\n"
+            die(f"no declaration in the graph contains '{s}'." + leads + "\n"
                 f"  a SHORTER fragment is the way in — `path {s[:max(3, len(s) - 2)]} '*'` — or a file:line from a\n"
                 f"  stack trace or an issue; and `axiomcode index` prints how many declarations the graph has at all.\n"
                 )
-        die(f"nothing named '{s}' in the graph, and nothing close to it.\n"
+        die(f"nothing named '{s}' is declared in this graph, and nothing close to it." + leads + "\n"
             f"  a SHORTER fragment is the way in — `path {s.split('.')[-1][:6] or 'name'} '*'` matches every\n"
             f"  declaration containing it — or a file:line from a stack trace or an issue.")
 
@@ -591,15 +602,29 @@ class G:
         if w: ids += w[1]; parts.append(f"new {name} at {len(self.SITES[w[1][0]])} site(s)")
         lib = self.library(s + '.*') if '.' in s else self.library(name + '.*')
         if lib: ids += lib[1]; parts.append(f"{len(lib[1])} library method(s) of {s}")
-        callers = set()
+        callers = set(); typed = bool(ids)
         if self.has('type_refs'):
             for r in self.q("SELECT file, line FROM type_refs WHERE name = ? AND line > 0", name):
-                e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", r['file'], r['line'], r['line'])
-                if e: callers.add(e[0]['id'])
+                e = self.enclosing(r['file'], r['line'])
+                if e: callers.add(e); typed = True
+        # A NAME IS NOT A TYPE BECAUSE IT IS WRITTEN. An identifier reference says only that the word occurs: a local
+        # `const labelOf = new Map()`, a parameter, a field. Those uses were each counted as "a use of type labelOf",
+        # so a name no declaration carries came back as a type with exact callers and a passing `verified:` line. A
+        # reference whose binding the parser names as a value is dropped. What is left makes a type only when it is bound
+        # to one, or when the parser could not say what it is bound to and the name is spelt as every one of these
+        # languages spells a type (`Path.Combine(…)` in C#, where a library class is an unbound name): a member
+        # (`process.env.Path`) or a lower-case word (`jsx`) is not. Without that evidence (no `new X`, no library
+        # method, no type position either) the resolver goes on and says nothing is declared, listing the mentions as
+        # leads (`mentions`).
         if self.has('refs'):
-            for r in self.q("SELECT file, line FROM refs WHERE name = ? AND line > 0", name):
-                e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", r['file'], r['line'], r['line'])
-                if e: callers.add(e[0]['id'])
+            for r in self.q("SELECT file, line, kind, entity_kind FROM refs WHERE name = ? AND line > 0", name):
+                if (r['entity_kind'] or '') in VALUE_BINDINGS: continue
+                e = self.enclosing(r['file'], r['line'])
+                if not e: continue
+                callers.add(e)
+                typed = typed or r['entity_kind'] == 'TYPE' or (name[:1].isupper() and (r['kind'] or '') not in MEMBER_REFS
+                                                                 and self.unqualified_on(r['file'], r['line'], name))
+        if not typed: return None
         if callers:
             node = f"t:{s}"
             self.sym[node] = {'id': node, 'display': f"uses of type {s}", 'file': '<written>', 'line': None, 'end_line': None, 'kind': 'written', 'owner': '', 'is_test': 0, 'name': name, 'method_id': node}
@@ -607,6 +632,32 @@ class G:
             ids.append(node); parts.append(f"referenced by name in {len(callers)} method(s)")
         if not ids: return None
         return f"type {s} (not declared here; matched: " + ', '.join(parts) + ")", ids
+    def enclosing(self, f, ln):
+        """the narrowest callable whose span holds file:line"""
+        e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", f, ln, ln)
+        return e[0]['id'] if e else None
+    def unqualified_on(self, f, ln, name):
+        """the name is written on that line NOT as a member: `Path.join(…)`, not `HttpStatus.OK` / `process.env.PORT`
+        after a dot, nor `{ Bucket: … }` as an object key (a front end that records every identifier the same way does
+        not say which one is a member)"""
+        cache = self.__dict__.setdefault('_lines', {}); f = self.site_file(f)
+        if f not in cache:
+            try: cache[f] = open(os.path.join(self.repo, f), errors='replace').read().split('\n')
+            except OSError: cache[f] = None
+        L = cache[f]
+        if L is None or not 0 < ln <= len(L): return True                                   # no source to read: as before
+        return re.search(rf'(?<![.\w$]){re.escape(name)}\b(?!\s*\??:(?!:))', L[ln - 1]) is not None
+    def mentions(self, s, cap=6):
+        """the methods whose body writes the name, for a name nothing declares: leads, printed `[by name]`, never an endpoint"""
+        if not self.has('refs'): return ''
+        name = s.split('.')[-1]; seen = {}
+        for r in self.q("SELECT file, line, entity_kind FROM refs WHERE name = ? AND line > 0 ORDER BY file, line", name):
+            e = self.enclosing(r['file'], r['line'])
+            if e and e not in seen: seen[e] = (r['entity_kind'] or '').lower().replace('_', ' ')
+        if not seen: return ''
+        rows = [f"    [by name] {self.disp(e)}   {self.loc(e)}" + (f"   — a {k} named {name}" if k in VALUE_KINDS_SHOWN else '') for e, k in list(seen.items())[:cap]]
+        return (f"\n  the word is written in {len(seen)} method(s) — leads, not calls (no edge reaches a declaration of it):\n"
+                + '\n'.join(rows) + (f"\n    … +{len(seen) - cap}" if len(seen) > cap else ''))
     def nested_miss(self, outer, inner, mem, s):
         """why Outer$Inner.m did not resolve: which of the three parts is wrong, with the exact alternatives"""
         outers = self.q("SELECT type_id, display FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR display LIKE ? OR name = ?)", outer, f"%.{outer}", outer)
