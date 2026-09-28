@@ -1,0 +1,415 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · DESTINATIONS  (the cross-process edge)
+//
+// The TypeScript counterpart of java/, python/ and csharp/engine/framework-behavior/
+// destinations.dl, under the same contract:
+//   - a rule here models a LIBRARY's run-time behaviour, and every framework name it
+//     keys on lives in config-resolution/knobs.dl;
+//   - a rule here may only ADD relations. It never changes call_chain_edge or anything
+//     the resolution phases own: a framework model is weaker knowledge than a resolved
+//     call;
+//   - no compiler can adjudicate it. Its oracle is a running system.
+//
+// A client and the server that answers it are in different processes. Neither calls
+// the other, so every rule in call-edge-generation is silent across that boundary and
+// an impact question stops at the send. What ties the two ends together is a ROUTE both
+// ends spell. The result is `remote_edge`, deliberately NOT a call_chain_edge:
+//
+//   remote_edge(FromMethod, ToMethod, Transport, Destination, Confidence)
+//
+// and the halves that could not be joined, reported rather than dropped:
+//   remote_unserved(Method, Transport, Destination)   a send nothing here serves
+//   remote_unsent(Method, Transport, Destination)     a handler nothing here sends to
+//   remote_undetermined(Method, Transport, Reason)    a send whose destination cannot be read
+//
+// COVERED: HTTP. The server as a router call (`app.get('/x', h)`, `router.post(...)`)
+// or a decorated controller (`@Controller('x')` over `@Get(':id')`); the client as
+// `fetch` or an HTTP client package called `<client>.<verb>(url)`, directly or through
+// an instance its factory made with a base URL. A route or a URL is read from a string
+// literal, a template, a `+` concatenation, a constant (in this module or imported),
+// and a property of a const object literal (a config module).
+//
+// NOT COVERED YET, stated rather than left to be discovered:
+//   - a router mounted under a prefix (`app.use('/api', router)`): the routes of the
+//     router are compared without it;
+//   - an object-form registration (`fastify.route({ method, url, handler })`);
+//   - a URL built by a wrapper the client calls with the path (the C# rules bind one
+//     hop of that; here the wrapper's own send is reported undetermined);
+//   - messaging (a topic, a queue) and gRPC.
+// ============================================================================
+
+// remote_edge, remote_unserved, remote_unsent and remote_undetermined are declared in
+// souffle/decls_all.dl: they are exported, and the bundle reads an export's arity there.
+.decl remote_edge_via(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol)
+.decl remote_send_at(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl remote_serves(c0:symbol, c1:symbol, c2:symbol)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. THE STRING AN EXPRESSION HOLDS
+// ─────────────────────────────────────────────────────────────────────────────
+// Read on demand: only a route's path argument and a send's URL argument, and what
+// those are built from, are ever evaluated. Anything computed at run time (a
+// parameter, a call's result) becomes the placeholder `{}`, which matches one segment
+// of anything on the other end.
+
+// the specifier an import names (`axios`, `../shared/paths`)
+.decl rd_import_path(c0:symbol, c1:symbol)
+rd_import_path(h, p) :- ts_import(_, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// the const an identifier denotes, in this module or through an import
+.decl rd_denotes_var(c0:symbol, c1:symbol)
+rd_denotes_var(e, v) :- expr_referenced("client", "VARIABLE", v, e).
+rd_denotes_var(e, v) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, "client", "VARIABLE", v).
+
+// a property of an object literal: the key and the value share a position
+.decl rd_obj_prop(c0:symbol, c1:symbol, c2:symbol)
+rd_obj_prop(o, key, val) :- expr_kind("client", "OBJECT_LITERAL", _, o),
+    expr_child("client", o, "OBJECT_PROPERTY_KEY", pos, k), expr_literal_value("client", key, k),
+    expr_child("client", o, "OBJECT_PROPERTY_VALUE", pos, val).
+
+.decl rd_demand(c0:symbol)
+.decl rd_prop_value(c0:symbol, c1:symbol)
+rd_demand(c) :- rd_demand(e), expr_kind("client", "BINARY_EXPRESSION", _, e), expr_operator("client", "+", e),
+    expr_child("client", e, "LEFT_OPERAND", _, c).
+rd_demand(c) :- rd_demand(e), expr_kind("client", "BINARY_EXPRESSION", _, e), expr_operator("client", "+", e),
+    expr_child("client", e, "RIGHT_OPERAND", _, c).
+rd_demand(c) :- rd_demand(e), expr_literal_type("client", "TEMPLATE", e),
+    expr_child("client", e, "TEMPLATE_SPAN", _, c).
+rd_demand(i) :- rd_demand(e), rd_denotes_var(e, v), var_initializer("client", _, i, v), i != "".
+rd_demand(val) :- rd_prop_value(_, val).
+rd_demand(c) :- rd_demand(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k),
+    expr_child("client", e, _, _, c).
+
+// `config.reportsUrl`, where `config` is a const initialised with an object literal
+rd_prop_value(e, val) :- rd_demand(e), expr_kind("client", "PROPERTY_ACCESS", _, e),
+    expr_child("client", e, "RECEIVER", _, r), expr_child("client", e, "PROPERTY_NAME", _, pn),
+    expr_literal_value("client", key, pn),
+    rd_denotes_var(r, v), var_initializer("client", _, o, v), rd_obj_prop(o, key, val).
+
+.decl rd_is_str(c0:symbol)
+.decl rd_is_tmpl(c0:symbol)
+.decl rd_is_plus(c0:symbol)
+.decl rd_is_ref(c0:symbol)
+.decl rd_is_prop(c0:symbol)
+.decl rd_is_transparent(c0:symbol)
+rd_is_str(e) :- rd_demand(e), expr_kind("client", "LITERAL", _, e), expr_literal_type("client", "STRING", e).
+rd_is_tmpl(e) :- rd_demand(e), expr_literal_type("client", "TEMPLATE", e).
+rd_is_plus(e) :- rd_demand(e), expr_kind("client", "BINARY_EXPRESSION", _, e), expr_operator("client", "+", e).
+rd_is_ref(e) :- rd_demand(e), rd_denotes_var(e, v), var_initializer("client", _, i, v), i != "".
+rd_is_prop(e) :- rd_prop_value(e, _).
+rd_is_transparent(e) :- rd_demand(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k),
+    expr_child("client", e, _, _, _).
+
+.decl rd_val(c0:symbol, c1:symbol)
+// literalValue is the text between the quotes; an empty string has no row at all
+rd_val(e, v) :- rd_is_str(e), expr_literal_value("client", v, e).
+rd_val(e, "") :- rd_is_str(e), !expr_literal_value("client", _, e).
+rd_val(e, cat(l, r)) :- rd_is_plus(e),
+    expr_child("client", e, "LEFT_OPERAND", _, lc), expr_child("client", e, "RIGHT_OPERAND", _, rc),
+    rd_val(lc, l), rd_val(rc, r), strlen(l) + strlen(r) < 400.
+rd_val(e, v) :- rd_demand(e), rd_denotes_var(e, x), var_initializer("client", _, i, x), i != "", rd_val(i, v).
+rd_val(e, v) :- rd_prop_value(e, val), rd_val(val, v).
+rd_val(e, v) :- rd_is_transparent(e), expr_child("client", e, _, _, c), rd_val(c, v).
+rd_val(e, "{}") :- rd_demand(e), !rd_is_str(e), !rd_is_tmpl(e), !rd_is_plus(e), !rd_is_ref(e),
+    !rd_is_prop(e), !rd_is_transparent(e).
+
+// ── a template: its raw text, split at each `${…}` ──────────────────────────
+// The parser keeps the template as written, backticks included, and gives each hole
+// its own TEMPLATE_SPAN child in order. So hole k of the text is span k, and the value
+// is the text between the holes with each span's value put back.
+.decl rd_tmpl_raw(c0:symbol, c1:symbol)
+rd_tmpl_raw(e, raw) :- rd_is_tmpl(e), expr_literal_value("client", raw, e), strlen(raw) >= 2.
+.decl rd_raw(c0:symbol)
+rd_raw(raw) :- rd_tmpl_raw(_, raw).
+.decl rd_open(c0:symbol, c1:number)
+rd_open(raw, i) :- rd_raw(raw), i = range(0, strlen(raw) - 1), substr(raw, i, 2) = "${".
+.decl rd_brace(c0:symbol, c1:number)
+rd_brace(raw, i) :- rd_raw(raw), i = range(0, strlen(raw)), substr(raw, i, 1) = "}".
+.decl rd_hole(c0:symbol, c1:number, c2:number, c3:number)
+rd_hole(raw, k, a, b) :- rd_open(raw, a), k = count : { rd_open(raw, j), j < a },
+    b = min x : { rd_brace(raw, x), x > a }.
+.decl rd_holes(c0:symbol, c1:number)
+rd_holes(raw, n) :- rd_raw(raw), n = count : { rd_open(raw, _) }.
+// piece k is the text before hole k, and piece n (n holes) the text after the last one
+.decl rd_piece(c0:symbol, c1:number, c2:symbol)
+rd_piece(raw, 0, t) :- rd_hole(raw, 0, a, _), t = substr(raw, 1, a - 1).
+rd_piece(raw, k, t) :- rd_hole(raw, k, a, _), k > 0, rd_hole(raw, k - 1, _, b), t = substr(raw, b + 1, a - b - 1).
+rd_piece(raw, n, t) :- rd_holes(raw, n), n > 0, rd_hole(raw, n - 1, _, b), t = substr(raw, b + 1, strlen(raw) - b - 2).
+rd_piece(raw, 0, t) :- rd_holes(raw, 0), t = substr(raw, 1, strlen(raw) - 2).
+.decl rd_tstep(c0:symbol, c1:number, c2:symbol)
+rd_tstep(e, 0, p) :- rd_tmpl_raw(e, raw), rd_piece(raw, 0, p).
+rd_tstep(e, k + 1, s) :- rd_tstep(e, k, acc), rd_tmpl_raw(e, raw), rd_holes(raw, n), k < n,
+    expr_child("client", e, "TEMPLATE_SPAN", pos, c), to_number(pos) = k, rd_val(c, sv),
+    rd_piece(raw, k + 1, p), strlen(acc) + strlen(sv) < 400, s = cat(acc, cat(sv, p)).
+rd_val(e, v) :- rd_tmpl_raw(e, raw), rd_holes(raw, n), rd_tstep(e, n, v).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. THE SERVER: a route and the handler it runs
+// ─────────────────────────────────────────────────────────────────────────────
+// (method, path as written, verb)
+.decl rd_route_raw(c0:symbol, c1:symbol, c2:symbol)
+
+// ── a router call: `app.get(path, …handlers)` ───────────────────────────────
+// The verb name is never matched alone (config-resolution/knobs.dl says why): the
+// first argument must read as a path, and a later one must be a function. The call
+// is not a route when its receiver is an HTTP client: `axios.get('/x', config)`.
+.decl rd_route_call(c0:symbol, c1:symbol)
+rd_route_call(ce, verb) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), ts_http_verb_name(cn, verb),
+    !rd_client_root(r).
+rd_demand(a) :- rd_route_call(ce, _), expr_child("client", ce, "ARGUMENT", "0", a).
+// Express runs every function argument in turn, the route's own handler last
+.decl rd_route_fn_arg(c0:symbol, c1:number, c2:symbol)
+rd_route_fn_arg(ce, p, m) :- rd_route_call(ce, _), callback_arg(ce, pos, m), p = to_number(pos), p > 0.
+rd_route_fn_arg(ce, p, m) :- rd_route_call(ce, _), cfg_named_fn_arg(ce, pos, m), p = to_number(pos), p > 0.
+.decl rd_route_last(c0:symbol, c1:number)
+rd_route_last(ce, p) :- rd_route_fn_arg(ce, _, _), p = max q : { rd_route_fn_arg(ce, q, _) }.
+rd_route_raw(m, p, verb) :- rd_route_call(ce, verb), rd_route_last(ce, k), rd_route_fn_arg(ce, k, m),
+    expr_child("client", ce, "ARGUMENT", "0", a), rd_val(a, p), strlen(p) >= 1, substr(p, 0, 1) = "/".
+
+// A handler registered under a path read from a constant is as much a root as one
+// under a literal: config-resolution/entry-points.dl reads the literal only.
+entry_point(m, "http") :- rd_route_call(ce, _), rd_route_last(ce, k), rd_route_fn_arg(ce, k, m),
+    expr_child("client", ce, "ARGUMENT", "0", a), rd_val(a, p), strlen(p) >= 1, substr(p, 0, 1) = "/".
+
+// ── a decorated controller: `@Controller('orders')` over `@Get(':id')` ─────
+// A decorator argument keeps its quotes.
+.decl rd_unquote(c0:symbol, c1:symbol)
+rd_unquote(raw, v) :- annotation_arg("client", _, raw, "STRING", _, _, _, _), strlen(raw) >= 2,
+    q = substr(raw, 0, 1), (q = "'" ; q = "\"" ; q = "`"), v = substr(raw, 1, strlen(raw) - 2).
+.decl rd_dec_path(c0:symbol, c1:symbol)
+rd_dec_path(d, v) :- annotation_arg("client", _, raw, "STRING", "0", _, d, _), rd_unquote(raw, v).
+.decl rd_has_dec_path(c0:symbol)
+rd_has_dec_path(d) :- rd_dec_path(d, _).
+.decl rd_ctl_prefix(c0:symbol, c1:symbol)
+rd_ctl_prefix(t, v) :- annotation_on("client", n, _, "CLASS_DECLARATION", t, d), ts_route_prefix_decorator(n),
+    rd_dec_path(d, v).
+rd_ctl_prefix(t, "") :- annotation_on("client", n, _, "CLASS_DECLARATION", t, d), ts_route_prefix_decorator(n),
+    !rd_has_dec_path(d).
+.decl rd_ctl_action(c0:symbol, c1:symbol, c2:symbol)
+rd_ctl_action(m, verb, v) :- annotation_on("client", n, _, "METHOD_DECLARATION", m, d), ts_route_decorator_verb(n, verb),
+    rd_dec_path(d, v).
+rd_ctl_action(m, verb, "") :- annotation_on("client", n, _, "METHOD_DECLARATION", m, d), ts_route_decorator_verb(n, verb),
+    !rd_has_dec_path(d).
+// joined with a slash each side; the segment split below skips the empty ones
+rd_route_raw(m, p, verb) :- rd_ctl_action(m, verb, v), method_owner("client", t, m), rd_ctl_prefix(t, pre),
+    p = cat("/", cat(pre, cat("/", v))).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE CLIENT: a send and the URL it is given
+// ─────────────────────────────────────────────────────────────────────────────
+// (call expression, sending method, verb, URL as built)
+.decl rd_send(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl rd_send_site(c0:symbol, c1:symbol)
+
+// ── fetch(url, { method }) ──────────────────────────────────────────────────
+// The platform's global, or the same function imported from a package that
+// provides it. A project's own function called `fetch` is neither.
+.decl rd_fetch_call(c0:symbol)
+rd_fetch_call(ce) :- call_site("client", "FUNCTION_CALL", cn, _, _, ce, _), ts_http_fetch_function(cn),
+    expr_child("client", ce, "METHOD_NAME", _, f), expr_referenced("client", "AMBIENT_GLOBAL", _, f).
+rd_fetch_call(ce) :- call_site("client", "FUNCTION_CALL", _, _, _, ce, _),
+    expr_child("client", ce, "METHOD_NAME", _, f), expr_referenced("client", "IMPORT_BINDING", ih, f),
+    rd_import_path(ih, p), ts_http_fetch_module(p).
+// the verb: the init's `method` when it is a literal, GET when there is no init or it
+// names no method, and any verb when the method is computed or the init is not
+// written in place
+.decl rd_fetch_init(c0:symbol, c1:symbol)
+rd_fetch_init(ce, o) :- rd_fetch_call(ce), expr_child("client", ce, "ARGUMENT", "1", o).
+.decl rd_fetch_method_val(c0:symbol, c1:symbol)
+rd_fetch_method_val(ce, val) :- rd_fetch_init(ce, o), rd_obj_prop(o, key, val), ts_http_init_method_key(key).
+.decl rd_fetch_verb_lit(c0:symbol, c1:symbol)
+rd_fetch_verb_lit(ce, verb) :- rd_fetch_method_val(ce, val), expr_literal_value("client", w, val), ts_http_verb_name(w, verb).
+.decl rd_fetch_has_method(c0:symbol)
+rd_fetch_has_method(ce) :- rd_fetch_method_val(ce, _).
+.decl rd_fetch_has_verb(c0:symbol)
+rd_fetch_has_verb(ce) :- rd_fetch_verb_lit(ce, _).
+.decl rd_fetch_verb(c0:symbol, c1:symbol)
+rd_fetch_verb(ce, v) :- rd_fetch_verb_lit(ce, v).
+rd_fetch_verb(ce, v) :- rd_fetch_has_method(ce), !rd_fetch_has_verb(ce), ts_http_verb_any(v).
+rd_fetch_verb(ce, "GET") :- rd_fetch_call(ce), !rd_fetch_init(ce, _).
+rd_fetch_verb(ce, "GET") :- rd_fetch_init(ce, o), expr_kind("client", "OBJECT_LITERAL", _, o), !rd_fetch_has_method(ce).
+rd_fetch_verb(ce, v) :- rd_fetch_init(ce, o), !expr_kind("client", "OBJECT_LITERAL", _, o), ts_http_verb_any(v).
+rd_demand(a) :- rd_fetch_call(ce), expr_child("client", ce, "ARGUMENT", "0", a).
+rd_send(ce, from, verb, u) :- rd_fetch_verb(ce, verb), expr_child("client", ce, "ARGUMENT", "0", a), rd_val(a, u),
+    expr_enclosing_method(ce, from).
+rd_send_site(ce, from) :- rd_fetch_call(ce), expr_enclosing_method(ce, from).
+
+// ── <client>.<verb>(url, …) ─────────────────────────────────────────────────
+// The receiver is the package's import itself, or a const its factory made:
+// `const api = axios.create({ baseURL })`, whose every URL is relative to the base.
+.decl rd_client_import(c0:symbol)
+rd_client_import(r) :- expr_referenced("client", "IMPORT_BINDING", ih, r), rd_import_path(ih, p), ts_http_client_module(p).
+.decl rd_factory(c0:symbol)
+rd_factory(i) :- call_site("client", "METHOD_CALL", f, _, fr, i, _), ts_http_client_factory(f), rd_client_import(fr).
+// (receiver, the factory call that made it, or "" for the import)
+.decl rd_client_recv(c0:symbol, c1:symbol)
+rd_client_recv(r, "") :- rd_client_import(r).
+rd_client_recv(r, i) :- rd_denotes_var(r, v), var_initializer("client", _, i, v), rd_factory(i).
+.decl rd_client_root(c0:symbol)
+rd_client_root(r) :- rd_client_recv(r, _).
+.decl rd_base_val(c0:symbol)
+rd_base_val(bv) :- rd_factory(i), expr_child("client", i, "ARGUMENT", "0", o), rd_obj_prop(o, key, bv),
+    ts_http_base_url_key(key).
+rd_demand(bv) :- rd_base_val(bv).
+.decl rd_has_base(c0:symbol)
+rd_has_base(i) :- rd_factory(i), expr_child("client", i, "ARGUMENT", "0", o), rd_obj_prop(o, key, _),
+    ts_http_base_url_key(key).
+.decl rd_base(c0:symbol, c1:symbol)
+rd_base("", "").
+rd_base(i, b) :- rd_factory(i), expr_child("client", i, "ARGUMENT", "0", o), rd_obj_prop(o, key, bv),
+    ts_http_base_url_key(key), rd_val(bv, b).
+rd_base(i, "") :- rd_factory(i), !rd_has_base(i).
+.decl rd_client_call(c0:symbol, c1:symbol, c2:symbol)
+rd_client_call(ce, verb, i) :- call_site("client", "METHOD_CALL", cn, _, r, ce, _), ts_http_verb_name(cn, verb),
+    rd_client_recv(r, i).
+rd_demand(a) :- rd_client_call(ce, _, _), expr_child("client", ce, "ARGUMENT", "0", a).
+rd_send(ce, from, verb, u) :- rd_client_call(ce, verb, i), rd_base(i, b), expr_child("client", ce, "ARGUMENT", "0", a),
+    rd_val(a, x), u = cat(b, x), expr_enclosing_method(ce, from).
+rd_send_site(ce, from) :- rd_client_call(ce, _, _), expr_enclosing_method(ce, from).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. ONE SHAPE FOR BOTH ENDS: a path, split into segments
+// ─────────────────────────────────────────────────────────────────────────────
+// Scheme and host are dropped, a client's query string and fragment are dropped, and
+// a segment that is a parameter (`:id`, `{…}`, `*`) or holds a computed part becomes
+// the placeholder `{}`.
+.decl rd_path_raw(c0:symbol)
+rd_path_raw(p) :- rd_route_raw(_, p, _).
+rd_path_raw(p) :- rd_send(_, _, _, p).
+.decl rd_client_path(c0:symbol)
+rd_client_path(p) :- rd_send(_, _, _, p).
+
+.decl rd_scheme_at(c0:symbol, c1:number)
+rd_scheme_at(s, i) :- rd_path_raw(s), strlen(s) >= 3, i = range(0, strlen(s) - 2), substr(s, i, 3) = "://".
+.decl rd_scheme_first(c0:symbol, c1:number)
+rd_scheme_first(s, i) :- rd_scheme_at(s, _), i = min j : rd_scheme_at(s, j).
+.decl rd_after_scheme(c0:symbol, c1:symbol)
+rd_after_scheme(s, r) :- rd_scheme_first(s, i), r = substr(s, i + 3, strlen(s) - i - 3).
+.decl rd_slash_in(c0:symbol, c1:number)
+rd_slash_in(r, i) :- rd_after_scheme(_, r), i = range(0, strlen(r)), substr(r, i, 1) = "/".
+.decl rd_no_scheme(c0:symbol, c1:symbol)
+rd_no_scheme(s, s) :- rd_path_raw(s), !rd_scheme_at(s, _).
+rd_no_scheme(s, p) :- rd_after_scheme(s, r), m = min i : rd_slash_in(r, i), p = substr(r, m, strlen(r) - m).
+rd_no_scheme(s, "/") :- rd_after_scheme(s, r), !rd_slash_in(r, _).
+// a client's `?` and `#` end the path; a server's `?` marks an optional parameter
+.decl rd_cut(c0:symbol, c1:number)
+rd_cut(p, i) :- rd_no_scheme(s, p), rd_client_path(s), i = range(0, strlen(p)), (substr(p, i, 1) = "?" ; substr(p, i, 1) = "#").
+.decl rd_norm(c0:symbol, c1:symbol)
+rd_norm(s, p) :- rd_no_scheme(s, p), !rd_cut(p, _).
+rd_norm(s, q) :- rd_no_scheme(s, p), m = min i : rd_cut(p, i), q = substr(p, 0, m).
+
+// segments: the text after each slash up to the next one, empty ones skipped
+.decl rd_pn(c0:symbol)
+rd_pn(n) :- rd_norm(_, n).
+.decl rd_pn_slash(c0:symbol, c1:number)
+rd_pn_slash(n, -1) :- rd_pn(n), strlen(n) >= 1, substr(n, 0, 1) != "/".
+rd_pn_slash(n, i) :- rd_pn(n), i = range(0, strlen(n)), substr(n, i, 1) = "/".
+.decl rd_pn_next(c0:symbol, c1:number, c2:number)
+rd_pn_next(n, i, j) :- rd_pn_slash(n, i), j = min k : { rd_pn_slash(n, k), k > i }.
+.decl rd_pn_has_next(c0:symbol, c1:number)
+rd_pn_has_next(n, i) :- rd_pn_next(n, i, _).
+.decl rd_pn_seg_at(c0:symbol, c1:number, c2:symbol)
+rd_pn_seg_at(n, i, t) :- rd_pn_next(n, i, j), t = substr(n, i + 1, j - i - 1).
+rd_pn_seg_at(n, i, t) :- rd_pn_slash(n, i), !rd_pn_has_next(n, i), t = substr(n, i + 1, strlen(n) - i - 1).
+.decl rd_pn_nonempty_at(c0:symbol, c1:number)
+rd_pn_nonempty_at(n, i) :- rd_pn_seg_at(n, i, t), t != "".
+.decl rd_pn_seg_raw(c0:symbol, c1:number, c2:symbol)
+rd_pn_seg_raw(n, k, t) :- rd_pn_seg_at(n, i, t), t != "", k = count : { rd_pn_nonempty_at(n, x), x < i }.
+.decl rd_seg_ph(c0:symbol)
+rd_seg_ph(t) :- rd_pn_seg_raw(_, _, t), substr(t, 0, 1) = ":".
+rd_seg_ph(t) :- rd_pn_seg_raw(_, _, t), contains("{", t).
+rd_seg_ph("*") :- rd_pn_seg_raw(_, _, "*").
+.decl rd_pn_seg(c0:symbol, c1:number, c2:symbol)
+rd_pn_seg(n, k, "{}") :- rd_pn_seg_raw(n, k, t), rd_seg_ph(t).
+rd_pn_seg(n, k, t) :- rd_pn_seg_raw(n, k, t), !rd_seg_ph(t).
+.decl rd_pn_count(c0:symbol, c1:number)
+rd_pn_count(n, c) :- rd_pn(n), c = count : { rd_pn_seg(n, _, _) }.
+
+// A client's leading placeholder is a BASE ADDRESS (`${API}/orders`) and is dropped
+// when a literal segment follows it. A server's is a route parameter and stays.
+.decl rd_client_drops_base(c0:symbol)
+rd_client_drops_base(s) :- rd_client_path(s), rd_norm(s, n), rd_pn_seg(n, 0, "{}"), rd_pn_count(n, c), c > 1,
+    rd_pn_seg(n, k, t), k >= 1, t != "{}".
+.decl rd_client_shift(c0:symbol, c1:symbol, c2:number)
+rd_client_shift(s, n, 1) :- rd_client_path(s), rd_norm(s, n), rd_client_drops_base(s).
+rd_client_shift(s, n, 0) :- rd_client_path(s), rd_norm(s, n), !rd_client_drops_base(s).
+.decl rd_cseg(c0:symbol, c1:number, c2:symbol)
+rd_cseg(s, k - d, t) :- rd_client_shift(s, n, d), rd_pn_seg(n, k, t), k >= d.
+.decl rd_ccount(c0:symbol, c1:number)
+rd_ccount(s, c - d) :- rd_client_shift(s, n, d), rd_pn_count(n, c).
+.decl rd_chas_literal(c0:symbol)
+rd_chas_literal(s) :- rd_cseg(s, _, t), t != "{}".
+.decl rd_server_path(c0:symbol)
+rd_server_path(p) :- rd_route_raw(_, p, _).
+.decl rd_sseg(c0:symbol, c1:number, c2:symbol)
+rd_sseg(p, k, t) :- rd_server_path(p), rd_norm(p, n), rd_pn_seg(n, k, t).
+.decl rd_scount(c0:symbol, c1:number)
+rd_scount(p, c) :- rd_server_path(p), rd_norm(p, n), rd_pn_count(n, c).
+// `/:id?` in Express: the last parameter may be left off by the caller
+.decl rd_server_last_optional(c0:symbol)
+rd_server_last_optional(p) :- rd_server_path(p), rd_norm(p, n), rd_pn_count(n, c), rd_pn_seg_raw(n, c - 1, t),
+    rd_seg_ph(t), strlen(t) >= 2, substr(t, strlen(t) - 1, 1) = "?".
+
+// the destination a path is reported under: its segments joined back, placeholders as `{}`
+.decl rd_dest_step(c0:symbol, c1:number, c2:symbol)
+rd_dest_step(s, 0, "") :- rd_client_path(s).
+rd_dest_step(s, k + 1, cat(acc, cat("/", t))) :- rd_dest_step(s, k, acc), rd_client_path(s), rd_cseg(s, k, t).
+rd_dest_step(p, 0, "") :- rd_server_path(p).
+rd_dest_step(p, k + 1, cat(acc, cat("/", t))) :- rd_dest_step(p, k, acc), rd_server_path(p), rd_sseg(p, k, t).
+.decl rd_dest(c0:symbol, c1:symbol)
+rd_dest(s, d) :- rd_client_path(s), rd_ccount(s, c), c > 0, rd_dest_step(s, c, d).
+rd_dest(p, d) :- rd_server_path(p), rd_scount(p, c), c > 0, rd_dest_step(p, c, d).
+rd_dest(p, "/") :- rd_server_path(p), rd_scount(p, 0).
+
+// ── the join ────────────────────────────────────────────────────────────────
+.decl rd_route_pair(c0:symbol, c1:symbol)
+rd_route_pair(s, p) :- rd_ccount(s, c), rd_scount(p, c), rd_chas_literal(s).
+rd_route_pair(s, p) :- rd_ccount(s, c), rd_scount(p, c + 1), rd_server_last_optional(p), rd_chas_literal(s).
+.decl rd_seg_conflict(c0:symbol, c1:symbol)
+rd_seg_conflict(s, p) :- rd_route_pair(s, p), rd_cseg(s, k, a), rd_sseg(p, k, b), a != b, a != "{}", b != "{}".
+.decl rd_seg_literal_eq(c0:symbol, c1:symbol)
+rd_seg_literal_eq(s, p) :- rd_route_pair(s, p), rd_cseg(s, k, a), rd_sseg(p, k, a), a != "{}".
+.decl rd_seg_differs(c0:symbol, c1:symbol)
+rd_seg_differs(s, p) :- rd_route_pair(s, p), rd_cseg(s, k, a), rd_sseg(p, k, b), a != b.
+.decl rd_route_match(c0:symbol, c1:symbol, c2:symbol)
+rd_route_match(s, p, conf) :- rd_route_pair(s, p), !rd_seg_conflict(s, p), rd_seg_literal_eq(s, p),
+    !rd_seg_differs(s, p), ts_remote_confidence_exact(conf).
+rd_route_match(s, p, conf) :- rd_route_pair(s, p), !rd_seg_conflict(s, p), rd_seg_literal_eq(s, p),
+    rd_seg_differs(s, p), ts_remote_confidence_route_shape(conf).
+
+.decl rd_verb_ok(c0:symbol, c1:symbol)
+rd_verb_ok(a, a) :- rd_send(_, _, a, _).
+rd_verb_ok(a, b) :- rd_send(_, _, a, _), rd_route_raw(_, _, b), ts_http_verb_any(a).
+rd_verb_ok(a, b) :- rd_send(_, _, a, _), rd_route_raw(_, _, b), ts_http_verb_any(b).
+
+// ROUTE PRECEDENCE: of the verb-compatible routes a send fits, only those with the
+// FEWEST differing segments are kept, so `/orders/{}` does not also land on
+// `/orders/export` when `/orders/:id` is there.
+.decl rd_seg_diff_n(c0:symbol, c1:symbol, c2:number)
+rd_seg_diff_n(s, p, n) :- rd_route_match(s, p, _), n = count : { rd_cseg(s, k, a), rd_sseg(p, k, b), a != b }.
+.decl rd_candidate(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:number)
+rd_candidate(e, from, to, p, conf, n) :- rd_send(e, from, sv, s), rd_route_match(s, p, conf),
+    rd_route_raw(to, p, rv), rd_verb_ok(sv, rv), rd_seg_diff_n(s, p, n), from != to.
+.decl rd_candidate_best(c0:symbol, c1:number)
+rd_candidate_best(e, b) :- rd_candidate(e, _, _, _, _, _), b = min n : rd_candidate(e, _, _, _, _, n).
+
+remote_edge_via(e, from, to, tr, d, conf) :- ts_remote_transport_http(tr),
+    rd_candidate(e, from, to, p, conf, n), rd_candidate_best(e, n), rd_dest(p, d).
+remote_serves(m, tr, d) :- ts_remote_transport_http(tr), rd_route_raw(m, p, _), rd_dest(p, d).
+remote_send_at(e, from, tr, d) :- ts_remote_transport_http(tr), rd_send(e, from, _, s), rd_chas_literal(s), rd_dest(s, d).
+.decl rd_send_has_literal(c0:symbol)
+rd_send_has_literal(e) :- rd_send(e, _, _, s), rd_chas_literal(s).
+// a URL with no literal segment at all, `fetch(url)`: nothing can be said about where
+// it goes, and saying so beats silence
+remote_undetermined(from, tr, "unresolved_destination") :- ts_remote_transport_http(tr),
+    rd_send_site(e, from), !rd_send_has_literal(e).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. THE EDGE, AND THE HALVES IT CANNOT JOIN
+// ─────────────────────────────────────────────────────────────────────────────
+remote_edge(from, to, tr, d, conf) :- remote_edge_via(_, from, to, tr, d, conf).
+// judged per SEND SITE: a site that linked is not also reported under another spelling
+remote_unserved(m, tr, d) :- remote_send_at(e, m, tr, d), !remote_edge_via(e, _, _, _, _, _).
+// a handler nothing here sends to: its client is in another repository
+remote_unsent(m, tr, d) :- remote_serves(m, tr, d), !remote_edge(_, m, tr, d, _).

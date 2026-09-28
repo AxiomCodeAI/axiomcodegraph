@@ -1,0 +1,11 @@
+# Accepted gaps for 78-cross-process-destinations — each line is an edge the TypeScript
+# compiler resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# All three are #233, the gap case 68 records: the function a decorator factory
+# returns is applied to the decorated declaration, and that hop has no call site.
+# The routes this case tests are read from the decorator's NAME and ARGUMENT through
+# annotation_on / annotation_arg, never from the application edge.
+ReportsController#daily() -> server/reports.controller#<arrow@3>(object,string,PropertyDescriptor)
+ReportsController#rebuild() -> server/reports.controller#<arrow@4>(object,string,PropertyDescriptor)
+server/reports.controller#<module-init>() -> server/reports.controller#<arrow@2>(Function)

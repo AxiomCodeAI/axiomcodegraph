@@ -1975,7 +1975,10 @@ def main(argv):
                'ambient_terminal': 'registered', 'dynamic_terminal': 'registered',
                'boundary_generated': 'sound', 'implicit_constructor': 'sound',
                # the candidate set was too large to enumerate, so what is here is a SAMPLE of it
-               'fan_capped': 'by name'}
+               'fan_capped': 'by name',
+               # a client across a process to the handler it reaches (#1293): joined by the destination both ends
+               # name, not by a call
+               'remote': 'remote'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -2013,7 +2016,10 @@ def main(argv):
     # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
     # the word that means one.
     CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'registered': 5,
-                 'by key': 6, 'decorator by name': 7, 'protocol': 8, 'fixture': 9, 'by name': 10}
+                 'remote': 6, 'by key': 7, 'decorator by name': 8, 'protocol': 9, 'fixture': 10, 'by name': 11}
+    # `remote` (#1293) sits just above `by key`: both join two ends on a string, but the engine matched a remote
+    # hop's whole route and verb on both ends, where a key join is this file's own rules matching one literal. Not
+    # measured, like every rung below `one of a set`.
     # `registered` is inserted, and nothing above or below it is re-ordered: every rung the precisions were
     # measured for keeps the neighbours it had. It sits below `one of a set` because it is not a resolved
     # call, and above `by key` because the ENGINE recorded the hand-off, where a key join is this file's own
@@ -2074,7 +2080,7 @@ def main(argv):
             # `decorator by name` is the rules' own hop from a decorated def to the decorator it names
             # (dl/impact.dl fw_edge), asserted exactly as `decorator` is; leaving it out printed "✗ not found" on
             # every answer whose test route passes through a project decorator
-            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator', 'decorator by name') for x, t in parent.get(a, [])): bad += 1
+            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator', 'decorator by name', 'remote') for x, t in parent.get(a, [])): bad += 1
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
@@ -2518,7 +2524,7 @@ def main(argv):
         print(f"\ndepends on (what it calls, so what may have to change with it): {len(seen_d)} callable(s)")
         if not seen_d and not libs:
             print("    nothing resolved" + (f" — but its body has {unres} unresolved call(s), so what it depends on is unknown, not nothing" if unres else ""))
-        for m, (cert, f, l) in sorted(seen_d.items(), key=lambda x: (CERT_RANK.get(x[1][0], 9), g.sym[x[0]]['display']))[:limit]:
+        for m, (cert, f, l) in sorted(seen_d.items(), key=lambda x: (CERT_RANK.get(x[1][0], 10), g.sym[x[0]]['display']))[:limit]:
             print(f"    [{cert}] {g.disp(m)}   {g.loc(m)}")
         if len(seen_d) > limit: print(f"    … +{len(seen_d) - limit} (--limit N)")
         if libs: print("    into libraries (not traversed): " + ', '.join(str(x['lab']).split('(')[0] for x in libs[:6]) + (f" … +{len(libs) - 6}" if len(libs) > 6 else ''))

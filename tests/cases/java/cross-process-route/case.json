@@ -1,0 +1,22 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "REGRESSION GUARD (#1293): a handler served under a route is depended on by the client that sends to it, as a remote hop naming its transport and destination",
+   "run": ["impact", "ItemController.replace"],
+   "want": ["[remote] ItemClient.update", "(http) at /api/items/{id}"]},
+  {"why": "CONTROL: the GET handler on the same route is reached by no POST client",
+   "run": ["impact", "ItemController.get"],
+   "avoid": ["ItemClient.update", "[remote]"]},
+  {"why": "path says the two ends are connected across a process, and by what",
+   "run": ["path", "ItemClient.update", "ItemController.replace"],
+   "want": ["connected across a process: ItemClient.update → ItemController.replace", "[http] at /api/items/{id} (exact)"],
+   "expect_error": true},
+  {"why": "changed --impact on the handler's body names the client on the other side of the route",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/app/ItemController.java", "--impact"],
+   "want": ["body       ItemController.replace", "[remote] ItemClient.update"]},
+  {"why": "test-impact crosses the route: the test that drives the client is selected on the remote rung",
+   "run": ["test-impact", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/app/ItemController.java", "--why"],
+   "want": ["ItemClientTest", "[remote]"]},
+  {"why": "context lists the other end of a route as its own tier, never as a call hop",
+   "run": ["context", "what handles replacing an item"],
+   "want": ["across a process boundary", "[remote] http"]}
+ ]}
