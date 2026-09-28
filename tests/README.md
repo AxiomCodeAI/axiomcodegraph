@@ -27,6 +27,9 @@ One check needs no graph and is its own script:
     python3 tests/manifests.py           every agent's manifest (Claude, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
                                          them, and Gemini's skill and Cursor's rule are current copies
+    python3 tests/mcp_first.py           the description, the install block and the orient and directive hooks name the
+                                         MCP tool before the shell verb, and still carry the shell verb for a host
+                                         without the server (#1425; indexes one case, so it needs the engine)
     python3 tests/hosts.py               each hook tells Cursor and Gemini CLI what it tells the original host,
                                          in their own event names and output shape (indexes one case, so it needs the engine)
     python3 tests/enrich_budget.py       what a Read or a Grep adds to a session is capped: a declaration annotated once,

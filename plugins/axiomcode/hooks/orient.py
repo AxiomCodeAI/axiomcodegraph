@@ -174,19 +174,23 @@ if refused:
         # rather than restating that there was a match, which told the reader nothing about WHICH match
         _, _, hits = rest.partition('<- ')
         print(f"  {path}" + (f"   <- {hits.strip()}" if hits.strip() else ''))
-    print('  `axiomcode context "<the task>" --in <one of these>` (the axiomcode_context tool) ranks the files and '
-          'declarations inside it; call it directly, no skill needs loading first.')
+    print('  the axiomcode_context tool with in_path=<one of these> ranks the files and declarations inside it; call it '
+          'directly, no skill needs loading first (without that tool: `axiomcode context "<the task>" --in <one of these>`).')
 else:
     print("graph: where this task's own words land in the index —")
     for l in lines[:MAX_LINES]:
         print("  " + l[:150])
     # the first call, named: an agent that only has the plugin otherwise spends two turns loading the skill and then
-    # the tool schemas before it asks anything (#1202)
+    # the tool schemas before it asks anything (#1202). The MCP tool comes first and the shell form second (#1425):
+    # `axiomcode install` pre-approves only the tools, so a first call spelled as a shell command is the one call the
+    # install left behind a permission prompt, and headless it is simply denied.
     if 'how it runs —' in out:
         # a how-question: the flow is the answer's spine, and the call that returns it with each step's code is the
         # one to make — named here so no turn goes to loading the skill or the tool schemas first
-        print('  next: `axiomcode context "<the question>" --source --from <where it starts>` returns the call flow with '
-              "each step's code; call it directly, no skill needs loading first.")
+        print("  next: the axiomcode_context tool with source=True, from_=<where it starts> returns the call flow with each "
+              "step's code; call it directly, no skill needs loading first (without that tool: "
+              '`axiomcode context "<the question>" --source --from <where it starts>`).')
     else:
-        print('  a starting point, not a conclusion: next, `axiomcode impact <name> --in <path>` (the axiomcode_impact tool) '
-              'for what a change reaches; call it directly, no skill needs loading first.')
+        print('  a starting point, not a conclusion: next, the axiomcode_impact tool with targets=[<name>], in_path=<path> '
+              'for what a change reaches; call it directly, no skill needs loading first (without that tool: '
+              '`axiomcode impact <name> --in <path>`).')
