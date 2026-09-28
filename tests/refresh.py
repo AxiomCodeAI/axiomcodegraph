@@ -109,6 +109,34 @@ def main(argv):
             t0 = time.time(); again = sh(repo, AX, 'index', '.', '--lang', lang, env=env); took = time.time() - t0
             check('graph up to date' in again.stdout, f'{lang}: `index` with nothing changed does not rebuild ({took:.1f}s)', again.stdout + again.stderr)
 
+            # ── built by an older axiomcode ────────────────────────────────────────────────────────────────────
+            # no file changed, but the table says another engine and another IMPACT_VERSION built the graph (what a plugin
+            # update leaves behind): not up to date. A query answers from it at once and says so, the refresher rebuilds
+            # it, and `index` rebuilds it saying why. The control is the check above: same engine, no edit, "graph up to
+            # date" and no rebuild
+            tp = os.path.join(out, 'files.json')
+            def older():
+                t = json.load(open(tp)); by = t.get('built_by') or {}
+                check(by.get('engine_hash') and by.get('rules') and by.get('impact'), f'{lang}: the file table records the engine, rules and IMPACT_VERSION that built the graph', json.dumps(by))
+                by.update(engine_hash='0' * 40, engine_stat='0' * 40, engine_version='0.0.1', impact='1'); t['built_by'] = by
+                json.dump(t, open(tp, 'w'))
+            older()
+            q = sh(repo, AX, 'impact', helper, '.', env=quiet)
+            check(q.returncode == 0 and helper in q.stdout and 'graph built by an older axiomcode (engine 0.0.1 00000000 ->' in q.stderr
+                  and 'IMPACT_VERSION 1 ->' in q.stderr and 'nothing rebuilds it' in q.stderr,
+                  f'{lang}: a query over a graph an older axiomcode built answers from it and says so', q.stdout[-300:] + q.stderr)
+            fr = sh(repo, AX, 'impact', helper, '.', '--fresh', env=env)
+            m = meta()
+            check(fr.returncode == 0 and 'graph built by an older axiomcode' in fr.stderr and 'graph refresh:' not in fr.stderr
+                  and 'graph built by an older axiomcode' in m.get('refresh_reason', '') and 'found by a query' in m.get('refresh_reason', ''),
+                  f'{lang}: the refresher rebuilds it with no file changed, and --fresh answers from the new graph', fr.stderr + json.dumps(m))
+            older()
+            ix = sh(repo, AX, 'index', '.', '--lang', lang, env=env)
+            check(ix.returncode == 0 and 'graph built by an older axiomcode' in ix.stdout and '; rebuilding' in ix.stdout and 'graph up to date' not in ix.stdout,
+                  f'{lang}: `index` over it rebuilds, and says why', ix.stdout + ix.stderr)
+            again = sh(repo, AX, 'index', '.', '--lang', lang, env=env)
+            check('graph up to date' in again.stdout and 'older axiomcode' not in again.stdout, f'{lang}: control: then `index` finds it up to date', again.stdout + again.stderr)
+
             # ── an added function ─────────────────────────────────────────────────────────────────────────────
             f = os.path.join(repo, L['edit']); text = open(f).read()
             if isinstance(L['add'], tuple): text = text[:text.rindex(L['add'][0])] + L['add'][1]

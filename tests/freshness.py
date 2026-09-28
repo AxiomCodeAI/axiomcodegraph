@@ -18,6 +18,9 @@ budget. And the refresher watches every file the parser reads, so no edit leaves
             answered with no mark and no note
   named     "nothing named X" for an X an edit newer than the graph wrote says so, names the file and whether a refresh
             runs, also with AXIOMCODE_NO_REFRESH; a name no edit writes, or one the answer found, is not blamed
+  engine    a graph built by another engine, other rules or another IMPACT_VERSION is stale with no file changed: the
+            answer comes from it at once with a note, and `index` rebuilds it saying why; the same engine, even reinstalled
+            elsewhere, with no edit, is current
   mcp       the MCP tools take fresh=true and pass --fresh, and the CLI's --fresh is written fresh=True in an answer
 
 No engine: the wait checks drive `ax_fresh.py query` with a stand-in verb, and a stand-in refresh that brings the file
@@ -153,7 +156,7 @@ def fake_repo(work, name, build_seconds='3 0', log=''):
     write(repo, 'shop/report.py', 'def report(items):\n    return total(items)\n')
     write(repo, '.axiomcode/out/graph.sqlite', '')
     table = dict(lang='python', lang_auto=False, src='', src_arg='', library='', built=time.time(),
-                 files=ax_fresh.snapshot(repo, 'python', repo))
+                 files=ax_fresh.snapshot(repo, 'python', repo), built_by=ax_fresh.built_by(ax_fresh.current_engine(repo)))
     json.dump(table, open(os.path.join(repo, '.axiomcode/out/files.json'), 'w'))
     if build_seconds: write(repo, '.axiomcode/out/build-seconds', build_seconds + '\n')
     json.dump(dict(state='building', started=time.time()), open(os.path.join(repo, '.axiomcode/refresh.json'), 'w'))
@@ -222,6 +225,78 @@ def wait_checks():
         check("fresh: a graph that matches the files answers with no mark and no note",
               r.stdout.strip() == ROWS.strip() and not r.stderr.strip(), (r.stdout, r.stderr))
     finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# ── engine ────────────────────────────────────────────────────────────────────────────────────────────────────────
+def fake_engine(d, rules='rel(1).\n', version='1.0.0'):
+    for rel, text in (('bin/axiomcode', '#!/bin/sh\n'), ('graph/python/rules.dl', rules), ('package.json', json.dumps(dict(version=version))),
+                      ('parser/dist/index.js', '// parser\n'), ('parser/dist/index.js.map', '{}'), ('graph/test/case.dl', 'x.\n')):
+        write(d, rel, text)
+    return d
+
+
+def engine_checks():
+    """a graph built by another engine, other rules or another IMPACT_VERSION is stale with no file changed, and says so;
+    the same engine, moved or not, with no edit, is current (the near-miss)"""
+    work = tempfile.mkdtemp(prefix='axiomcode-engine-'); saved = os.environ.get('AXIOMCODE_ENGINE')
+    try:
+        e1 = fake_engine(os.path.join(work, 'e1'))
+        os.environ['AXIOMCODE_ENGINE'] = e1
+        repo = fake_repo(work, 'repo'); os.remove(os.path.join(repo, '.axiomcode/refresh.json'))
+        tp = os.path.join(repo, '.axiomcode/out/files.json'); table = json.load(open(tp))
+        uptodate = lambda: subprocess.run([sys.executable, os.path.join(SCRIPTS, 'ax_fresh.py'), 'uptodate', repo, 'python', '', ''],
+                                          capture_output=True, text=True, env=dict(os.environ))
+        by = table['built_by']
+        check("engine: the file table records the engine (its version and content hash), the rules and IMPACT_VERSION",
+              by.get('engine_version') == '1.0.0' and len(by.get('engine_hash', '')) == 40 and len(by.get('rules', '')) == 40
+              and by.get('impact') == ax_fresh.plugin_id()[1] and by['impact'] not in ('', '?'), by)
+        u = uptodate()
+        check("engine: control: the same engine and no edit is fresh, and `index` finds it up to date",
+              ax_fresh.status(repo).get('state') == 'fresh' and u.returncode == 0 and not u.stdout.strip(), (ax_fresh.status(repo), u.stdout))
+        # the same bytes in another directory, every mtime new: a reinstall that changed nothing
+        e2 = os.path.join(work, 'e2'); time.sleep(0.01); fake_engine(e2); os.environ['AXIOMCODE_ENGINE'] = e2
+        check("engine: control: the same engine reinstalled elsewhere (new paths and mtimes, same bytes) is fresh",
+              ax_fresh.engine_change(repo) == '' and ax_fresh.status(repo).get('state') == 'fresh', ax_fresh.engine_change(repo))
+        check("engine: its test and source-map files are not part of the engine",
+              not any(p.endswith(('.map', os.path.join('test', 'case.dl'))) for p in ax_fresh._engine_files(e2)), list(ax_fresh._engine_files(e2)))
+        fake_engine(e2, rules='rel(2).\n', version='1.0.1')
+        s = ax_fresh.status(repo); n = ax_fresh.note(s); u = uptodate()
+        old, new = by['engine_hash'][:8], ax_fresh.engine_id(e2)[1]()[:8]
+        check("engine: another engine makes the graph stale with no file changed, and names both",
+              s.get('state') == 'stale' and not ax_fresh.edited(s) and s.get('engine') == f"graph built by an older axiomcode (engine 1.0.0 {old} -> 1.0.1 {new})", s)
+        check("engine: the answer's note says it comes from that graph while it is rebuilt",
+              n.startswith(f"graph refresh: graph built by an older axiomcode (engine 1.0.0 {old} -> 1.0.1 {new}); rebuilding in the background"), n)
+        check("engine: `index` rebuilds it and says why", u.returncode == 1 and u.stdout.strip() == f"graph built by an older axiomcode (engine 1.0.0 {old} -> 1.0.1 {new}); rebuilding", u.stdout)
+        # the query: an answer at once from the graph it has, unmarked, with the note; the refresh is kicked, not waited for
+        driver = os.path.join(work, 'driver.py'); open(driver, 'w').write(DRIVER)
+        t0 = time.time()
+        r = subprocess.run([sys.executable, driver, SCRIPTS, repo, 'impact', '--', sys.executable, '-c', f"print({ROWS!r})"],
+                           capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k not in ('AXIOMCODE_NO_REFRESH', 'AXIOMCODE_FRESH')})
+        check(f"engine: a query answers from the old graph at once ({time.time() - t0:.1f}s), rows unmarked, and says it is rebuilding",
+              r.stdout.strip() == ROWS.strip() and 'graph built by an older axiomcode (engine' in r.stderr and 'rebuilding in the background' in r.stderr
+              and time.time() - t0 < 10, (r.stdout, r.stderr))
+        os.environ['AXIOMCODE_ENGINE'] = e1
+        t = dict(table, built_by=dict(by, impact='1')); json.dump(t, open(tp, 'w'))
+        check("engine: another IMPACT_VERSION makes it stale, named as such",
+              ax_fresh.engine_change(repo) == f"graph built by an older axiomcode (IMPACT_VERSION 1 -> {by['impact']})", ax_fresh.engine_change(repo))
+        t = dict(table, built_by=dict(by, rules='f' * 40)); json.dump(t, open(tp, 'w'))
+        check("engine: other query rules make it stale", ax_fresh.engine_change(repo).startswith('graph built by an older axiomcode (rules ffffffff -> '), ax_fresh.engine_change(repo))
+        t = dict(table); t.pop('built_by'); json.dump(t, open(tp, 'w'))
+        check("engine: a table that does not say what built it (every graph from before this) is stale",
+              ax_fresh.engine_change(repo).startswith('graph built by an older axiomcode (one that did not record its engine -> 1.0.0 '), ax_fresh.engine_change(repo))
+        json.dump(table, open(tp, 'w'))
+        check("engine: control: put back, it is fresh again", ax_fresh.status(repo).get('state') == 'fresh', ax_fresh.status(repo))
+        c = [[], [], []]; st = dict(failed_table=ax_fresh.change_key(c), failed_engine='graph built by an older axiomcode (engine a -> b)')
+        check("engine: a rebuild that failed on a difference is not retried for it, but is for another one, or for another edit",
+              ax_fresh.failed_on(st, c, st['failed_engine']) and not ax_fresh.failed_on(st, c, 'graph built by an older axiomcode (engine a -> c)')
+              and not ax_fresh.failed_on(st, [['x.py'], [], []], st['failed_engine']))
+        e = dict(os.environ, AXIOMCODE_ENGINE=e2, AXIOMCODE_NO_ENGINE_CHECK='1'); os.environ.update(e)
+        check("engine: AXIOMCODE_NO_ENGINE_CHECK=1 turns the check off", ax_fresh.engine_change(repo) == '')
+    finally:
+        os.environ.pop('AXIOMCODE_NO_ENGINE_CHECK', None)
+        if saved is None: os.environ.pop('AXIOMCODE_ENGINE', None)
+        else: os.environ['AXIOMCODE_ENGINE'] = saved
         shutil.rmtree(work, ignore_errors=True)
 
 
@@ -296,7 +371,7 @@ def mcp_checks():
 
 
 if __name__ == '__main__':
-    prune_checks(); marks_checks(); wait_checks(); named_checks(); mcp_checks()
+    prune_checks(); marks_checks(); wait_checks(); engine_checks(); named_checks(); mcp_checks()
     bad = [n for n, ok in RESULTS if not ok]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed" + (f"; FAILED: {len(bad)}" if bad else ''))
     sys.exit(1 if bad or not RESULTS else 0)
