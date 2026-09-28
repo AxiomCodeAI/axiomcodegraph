@@ -1,0 +1,8 @@
+callback_registered	METHOD_CALL	app#labels(Item[]) @L10 -> app#<arrow@10>(?)
+callback_registered	METHOD_CALL	fixture/use#keys(Row[]) @L11 -> fixture/use#<arrow@11>(?)
+known_edge	METHOD_CALL	app#<arrow@10>(?) @L10 -> Item#label()
+known_edge	METHOD_CALL	app#describe(Item) @L14 -> Object#toString()
+known_edge	METHOD_CALL	app#labels(Item[]) @L10 -> Array#map((v: T) =)
+known_edge	METHOD_CALL	fixture/use#<arrow@11>(?) @L11 -> Row#key()
+multi_inferred	METHOD_CALL	fixture/use#keys(Row[]) @L11 -> Array#map((item: T) =)
+multi_inferred	METHOD_CALL	fixture/use#keys(Row[]) @L11 -> Array#map((v: T) =)

@@ -1,0 +1,5 @@
+known_edge	METHOD_PARAM	0	app [METHOD_PARAM] -> Item
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	TYPE_ELEMENT	1	app [METHOD_PARAM] -> Item
+known_edge	TYPE_ELEMENT	1	fixture/use [METHOD_PARAM] -> Row
