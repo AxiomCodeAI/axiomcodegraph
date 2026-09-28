@@ -176,6 +176,27 @@ def verbs_checks():
               not before_verb, before_verb)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    # On Windows bin/axiomcode.js hands bash a backslash path. Here the same string names a file (a backslash is an
+    # ordinary character on POSIX), run from a directory that looks like a package root, as a CI checkout does: the
+    # root must be the package the path names, never the current directory.
+    work = os.path.realpath(tempfile.mkdtemp(prefix='axiomcode-root-'))
+    try:
+        for d in ('pkg/bin', 'pkg/graph', 'graph', 'src'): os.makedirs(os.path.join(work, d))
+        for d in ('pkg', ''): write(work, os.path.join(d, 'package.json'), '{}')
+        launcher = 'pkg\\bin\\axiomcode'
+        shutil.copy(os.path.join(ROOT, 'bin', 'axiomcode'), os.path.join(work, launcher))
+        shutil.copy(os.path.join(ROOT, 'bin', 'axiomcode'), os.path.join(work, 'pkg', 'bin', 'axiomcode'))
+        env = {k: v for k, v in os.environ.items() if k != 'AXIOM_PARSER'}
+        said = {}
+        for how, argv0 in (('backslash', launcher), ('slash', 'pkg/bin/axiomcode')):
+            r = subprocess.run(['bash', argv0, 'src', 'out'], cwd=work, capture_output=True, text=True, env=env)
+            said[how] = next((l.split(' at ', 1)[1].split(' ')[0] for l in r.stderr.splitlines() if 'parser not built at' in l), r.stderr)
+        want = os.path.join(work, 'pkg', 'parser', 'dist', 'index.js')
+        check("root: a backslash path to bin/axiomcode (Windows' node launcher) finds the package it names, not the "
+              "current directory", said['backslash'] == want, said)
+        check("root: a slash path still finds the package it names (control)", said['slash'] == want, said)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 # ── python ────────────────────────────────────────────────────────────────────────────────────────────────────────
