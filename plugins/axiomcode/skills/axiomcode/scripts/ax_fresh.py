@@ -13,20 +13,25 @@ the previous graph. Three pieces:
                    waits out a burst of edits, rebuilds with the language / --src / --library of the graph
                    it replaces, and checks again: an edit made DURING the build is caught by the next pass.
   the triggers     hooks (after an edit, a shell command, a turn, at session start, on a prompt) only START
-                   the worker and return. Query verbs start it and wait a bounded time (`wait`), then answer
-                   from the previous graph and name the files that changed since.
+                   the worker and return. Query verbs start it and answer from the previous graph at once, with
+                   every row that lies in a file changed since marked (`query`); they wait only when the answer
+                   touches such a file and the refresh is expected within a small budget, or when asked (--fresh).
 
   ax_fresh.py snapshot <repo> <lang> <src>     print the file table (JSON) — axiomcode-build stores it
   ax_fresh.py status <repo> [--json]           fresh | stale (+ the changed files) | building | no graph
   ax_fresh.py kick <repo>                      start the worker if the graph is stale; never waits
   ax_fresh.py wait <repo> [<seconds>]          kick, then wait up to <seconds> for a fresh graph
+  ax_fresh.py query <repo> <verb> -- <argv>    run a query verb stale-while-revalidate: marked rows, a wait only when
+                                               it matters (#1595)
   ax_fresh.py baseline <repo> [<seconds>]      when HEAD moved, wait for the baseline to follow it (changed, test-impact)
   ax_fresh.py worker <repo>                    the worker itself (what kick detaches)
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
   ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
-is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 10) is how long a query verb waits; AXIOMCODE_BUILD_WAIT
+is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
+waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) makes it wait for the refresh whatever it
+takes, up to AXIOMCODE_FRESH_MAX (default 600); AXIOMCODE_BUILD_WAIT
 (seconds, default 900) is how long a query that finds no graph waits for a build that is running rather than starting
 its own; AXIOMCODE_NO_GITIGNORE=1 watches (and indexes) directories git ignores."""
 import re, errno, hashlib, json, os, subprocess, sys, time
@@ -52,14 +57,45 @@ NAMES = {
     'python': ('pyproject.toml', 'setup.cfg', 'setup.py'),
     'csharp': ('global.json', 'Directory.Build.props'),
 }
-# the directories the parser skips (extract.ts's per-language excludeDirs), plus tool output nobody parses.
-# A directory pruned here that the parser DOES read only costs a missed trigger; one read here that the
-# parser skips costs a rebuild on every compile. `packages` is skipped for C# only: in a JavaScript
-# monorepo it is where the source is.
+# TOOL OUTPUT NOBODY PARSES: what the non-source scan of `impact` (axiomcode-impact) leaves out. NOT what the file table
+# prunes: that is SKIP below, per language.
 PRUNE_ALL = {'.git', '.hg', '.svn', '.axiomcode', 'node_modules', 'bower_components', 'dist', 'build', 'out',
              'coverage', '.next', '.nuxt', '.turbo', '.cache', '.yarn', '.venv', 'venv', 'site-packages',
              '__pycache__', '.tox', '.mypy_cache', '.pytest_cache', 'target', '.gradle', '.idea', '.vs'}
-PRUNE = {'csharp': PRUNE_ALL | {'obj', 'bin', 'packages'}}
+# WHAT EACH LANGUAGE'S PARSER SKIPS, and nothing more (#1594). The file table watches exactly the files the parser
+# reads: a directory pruned here that the parser DOES read is an edit no refresh ever sees and that `index` calls up to
+# date, which is what one shared list did to `out`, `build`, `target` and `coverage` in Python and C# (and `coverage`
+# in Java). A directory watched here that the parser skips costs only a needless rebuild. Each set is the parser's own:
+#   java        parser/src/constants/consts.ts EXCLUDED_DIRS, and every directory whose name starts with a dot
+#   typescript  parser/src/constants/typescript-constants.ts TS_SKIP_DIRECTORIES, and dot directories
+#   javascript  parser/src/constants/javascript-constants.ts JS_SKIP_DIRECTORIES
+#   python      parser/src/workflows/python/python-project-analyzer.ts DEFAULT_EXCLUDES, `*.egg-info`, and under a
+#               `build` directory the setuptools output shapes (BUILD_ARTIFACT_SHAPE); a `build` package itself is read
+#   csharp      parser/src/workflows/csharp/csharp-project-analyzer.ts DEFAULT_EXCLUDES
+# .axiomcode (the graph's own directory) and .git are pruned for every language: the build puts .axiomcode in
+# .git/info/exclude, so the parser skips it too. Directories git ignores are pruned for every language (git_ignored_dirs).
+SKIP = {
+    'java': frozenset({'node_modules', '.git', '.idea', '.vscode', 'dist', 'build', 'target', 'out', '__pycache__',
+                       '.pytest_cache', 'venv', 'env'}),
+    'typescript': frozenset({'node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.turbo',
+                             '.cache', '.yarn', 'bower_components'}),
+    'javascript': frozenset({'node_modules', 'bower_components', '.git', 'dist', 'build', 'out', 'coverage', '.next',
+                             '.nuxt', '.turbo', '.cache', '.yarn'}),
+    'python': frozenset({'__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox', 'dist', '.eggs', '.mypy_cache',
+                         '.pytest_cache', '_build', 'site-packages'}),
+    'csharp': frozenset({'obj', 'bin', '.git', 'node_modules', 'packages', '.vs'}),
+}
+SKIP_HIDDEN = {'java', 'typescript'}                     # the parsers that skip every directory named .<something>
+ALWAYS = frozenset({'.axiomcode', '.git'})
+PY_BUILD_ARTIFACT = re.compile(r'^(lib(\.|$)|temp\.|scripts-|bdist\.)')
+
+def prunes(lang, name, parent=''):
+    """True when the parser of `lang` never enters a directory called `name` (whose parent directory is `parent`)"""
+    if name in ALWAYS: return True
+    if lang not in SKIP: return name in PRUNE_ALL
+    if name in SKIP[lang] or (lang in SKIP_HIDDEN and name.startswith('.')): return True
+    if lang == 'python': return name.endswith('.egg-info') or (parent == 'build' and bool(PY_BUILD_ARTIFACT.match(name)))
+    return False
 
 def out_dir(repo): return os.path.join(repo, '.axiomcode', 'out')
 def table_path(repo): return os.path.join(out_dir(repo), 'files.json')
@@ -107,17 +143,19 @@ def watched(root, lang):
     # before every query; the tree is walked once now, a directory only one language prunes (C#'s obj/bin/packages)
     # entered for the others and its files kept from that one. The files yielded are the same set.
     langs = [l for l in lang.split(',') if l] if lang else ['']
-    common = set.intersection(*[set(PRUNE.get(l, PRUNE_ALL)) for l in langs])
-    extra = {l: set(PRUNE.get(l, PRUNE_ALL)) - common for l in langs}
     spec = [(l, EXT.get(l, ()), NAMES.get(l, ())) for l in langs]
     hidden = {root: frozenset()}                                   # the languages that pruned each directory walked
     ignored = git_ignored_dirs(root); real = os.path.realpath(root)   # a .gitignore'd directory is pruned for every language
     for d, subdirs, files in os.walk(root):
         off = hidden.pop(d, frozenset())
         rd = os.path.join(real, os.path.relpath(d, root)) if ignored else d
-        subdirs[:] = [s for s in subdirs if s not in common and not all(l in off or s in extra[l] for l in langs)
-                      and not (ignored and os.path.normpath(os.path.join(rd, s)) in ignored)]
-        for s in subdirs: hidden[os.path.join(d, s)] = off | {l for l in langs if s in extra[l]}
+        parent, keep = os.path.basename(d), []
+        for s in subdirs:
+            if ignored and os.path.normpath(os.path.join(rd, s)) in ignored: continue
+            o = off | {l for l in langs if prunes(l, s, parent)}
+            if all(l in o for l in langs): continue
+            keep.append(s); hidden[os.path.join(d, s)] = o
+        subdirs[:] = keep
         for f in files:
             for l, exts, names in spec:
                 if l in off: continue
@@ -442,17 +480,213 @@ def refreshed(repo):
     if st.get('checked'): d['checked_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(st['checked'])); d['checked_by'] = st.get('checked_by') or st.get('reason', '')
     return d
 
-def note(s):
-    """one line for an answer given from a graph that is behind the files, or '' when it is not"""
+def edited(s):
+    """the files a stale graph predates: changed, added and removed since it was built"""
+    return list(s.get('changed', [])) + list(s.get('added', [])) + list(s.get('removed', []))
+
+def note(s, marked=None):
+    """one line for an answer given from a graph that is behind the files, or '' when it is not. `marked` is how many
+    of the answer's rows lie in those files (and carry the mark), None when the answer was not looked at"""
     if s.get('state') not in ('stale', 'building'): return ''
-    files = s.get('changed', []) + s.get('added', []) + s.get('removed', [])
+    files = edited(s)
+    if not files: return ''
     head = ', '.join(files[:5]) + (f" … +{len(files) - 5}" if len(files) > 5 else '')
+    rows = ('' if marked is None else
+            f"; {marked} row(s) lie in those files and are marked {MARK.strip()}: read them for their current text" if marked else
+            "; no row of this answer lies in those files")
     if s.get('failed'):
         why = s.get('failed_reason') or ''
         return (f"graph refresh: the last rebuild FAILED" + (f" — {why}" if why else '') + f" (see {s['failed']}); this answer is from the "
-                f"previous graph, which predates edits to {head}")
+                f"previous graph, which predates edits to {head}" + rows)
     return (f"graph refresh: {'rebuilding' if s['state'] == 'building' else 'queued'} — this answer is from the previous graph, "
-            f"which predates edits to {head}; read those files for their current text")
+            f"which predates edits to {head}" + (rows if marked is not None else '; read those files for their current text') +
+            "; --fresh waits for the rebuild")
+
+# ── STALE-WHILE-REVALIDATE (#1595) ──────────────────────────────────────────────────────────────────────────────────
+# A query never blocks on a refresh by default: it answers from the last good graph and says precisely what is stale.
+# Every row whose declaration or call site lies in a file edited, added or removed since the graph was built is marked;
+# rows from untouched files are exactly as current as the graph and carry nothing. It WAITS only when that matters and
+# will pay off: the answer (a row, or the name asked about) touches an edited file, the rebuild is not compiling the
+# engine's rules, and the last build of this repository says it will be done within AXIOMCODE_FRESH_WAIT seconds
+# (default 30). A fixed wait (10 s) was shorter than every rebuild measured, so it was spent and the answer came from
+# the old graph anyway. --fresh (MCP fresh=true) waits for the rebuild whatever it costs, saying so as it goes.
+MARK = '  (may be out of date)'
+_CODE_LINE = re.compile(r'^\s*(\d+ )?\| ')             # a line of quoted source (context --source): never marked
+_TOKEN = re.compile(r'[\w.$+@/-]+')
+_LOC_KEYS = ('at', 'declared_at', 'call_at', 'file', 'path', 'site', 'location')
+
+class Stale:
+    """the set of edited files, and whether a path printed in an answer is one of them. Answers print paths relative to
+    the repository (or to --src), so a path matches when one ends with the other at a '/'"""
+    def __init__(self, files):
+        self.files = [f.replace(os.sep, '/') for f in files]
+        self.base = {f.rsplit('/', 1)[-1] for f in self.files}
+
+    def hit(self, token):
+        t = token.strip('./').split(':', 1)[0] if token else ''
+        if not t or t.rsplit('/', 1)[-1] not in self.base: return False
+        return any(t == f or f.endswith('/' + t) or t.endswith('/' + f) for f in self.files)
+
+    def line(self, text):
+        return any(self.hit(t) for t in _TOKEN.findall(text))
+
+def mark_text(text, stale):
+    """(text with every row that names an edited file marked, rows marked, lines naming one at all)"""
+    out, n, seen = [], 0, 0
+    for l in text.split('\n'):
+        if l.strip() and not _CODE_LINE.match(l) and stale.line(l):
+            seen += 1
+            if not l.lstrip().startswith(('next:', 'verified:', 'bound:')) and MARK not in l: l += MARK; n += 1
+        out.append(l)
+    return '\n'.join(out), n, seen
+
+def mark_json(obj, stale):
+    """the same for a --json answer: a row (an object with a location) in an edited file gets "stale": true, and prose
+    lines are marked as the text is. Returns rows marked"""
+    n = 0
+    if isinstance(obj, dict):
+        if any(isinstance(obj.get(k), str) and stale.hit(obj[k]) for k in _LOC_KEYS):
+            obj['stale'] = True; n += 1
+        for k, v in obj.items():
+            if k == 'prose' and isinstance(v, list):
+                obj[k] = [mark_text(x, stale)[0] if isinstance(x, str) else x for x in v]
+            elif isinstance(v, (dict, list)): n += mark_json(v, stale)
+    elif isinstance(obj, list):
+        for v in obj: n += mark_json(v, stale)
+    return n
+
+def mark_answer(out, stale, as_json):
+    """(the answer with its stale rows marked, rows marked, whether it touches an edited file at all)"""
+    if as_json:
+        try: obj = json.loads(out)
+        except ValueError: obj = None
+        if isinstance(obj, dict):
+            n = mark_json(obj, stale)
+            return json.dumps(obj, indent=1, ensure_ascii=False) + '\n', n, n > 0 or stale.line(out)
+    text, n, seen = mark_text(out, stale)
+    return text, n, seen > 0
+
+_FLAG_VALUE = {'--depth', '--in', '--limit', '--kind', '--page', '--budget', '--tests-in', '--range', '--paths', '--from', '--out'}
+
+def query_names(verb, args, repo):
+    """the names a query asks about (impact's targets, path's endpoints, context's --from), as written"""
+    names, i, pos = [], 0, []
+    while i < len(args):
+        a = args[i]
+        if a in _FLAG_VALUE:
+            if a == '--from' and i + 1 < len(args): names.append(args[i + 1])
+            i += 2; continue
+        if not a.startswith('-') and not (os.path.isdir(a) and os.path.realpath(a) == repo): pos.append(a)
+        i += 1
+    if verb in ('impact', 'path'): names += [p for p in pos if p != '*']
+    return names
+
+def names_in_edits(repo, names, stale):
+    """True when a name asked about is declared or written in an edited file: a target given as file:line in one, or a
+    name whose last part appears as a word in one (a declaration just added is in no graph yet)"""
+    words = set()
+    for n in names:
+        if stale.hit(n): return True
+        w = re.split(r'[.#:/$()<>,\s]+', n.strip('()'))
+        w = [x for x in w if re.match(r'^\w+$', x)]
+        if w: words.add(w[-1])
+    if not words: return False
+    pat = re.compile(r'\b(' + '|'.join(re.escape(w) for w in sorted(words)) + r')\b')
+    for f in stale.files:
+        try:
+            with open(os.path.join(repo, f), 'rb') as fh: text = fh.read(4 << 20).decode('utf-8', 'replace')
+        except OSError: continue
+        if pat.search(text): return True
+    return False
+
+def build_seconds(repo):
+    """(seconds the last build of this repository took to a usable graph, whether it compiled the engine's rules), from
+    what axiomcode-build records, or (None, False)"""
+    try:
+        f = open(os.path.join(out_dir(repo), 'build-seconds')).read().split()
+        return float(f[0]), len(f) > 1 and f[1] == '1'
+    except (OSError, ValueError, IndexError): return None, False
+
+def compiling(repo):
+    """True when the build running now is compiling the engine's rules: minutes, never waited for by default"""
+    st = read_state(repo); log = os.path.join(repo, '.axiomcode', 'build.log')
+    try:
+        if os.path.getmtime(log) + 1 < (st.get('started') or 0): return False       # the log of an earlier build
+        with open(log, errors='replace') as fh: return 'compiling souffle program' in fh.read(1 << 16)
+    except OSError: return False
+
+def expected_left(repo):
+    """seconds until the refresh in flight is expected to swap in its graph, from the last build's duration; None when
+    there is nothing to estimate from (no build recorded, or the last one compiled rules, which a refresh does not)"""
+    secs, compiled = build_seconds(repo)
+    if secs is None or compiled: return None
+    st = read_state(repo)
+    if st.get('state') == 'building' and st.get('started'): return secs - (time.time() - st['started'])
+    return secs + float(os.environ.get('AXIOMCODE_REFRESH_DEBOUNCE') or 2)
+
+def wait_fresh(repo, seconds, say=False):
+    """wait until the graph matches the files again (the refresh swapped in its graph), a rebuild fails, or `seconds`
+    pass. With `say`, a progress line on stderr every 10 s: a wait is never silent. True when the graph is current"""
+    end = t0 = time.time(); end += seconds; last = t0
+    while True:
+        s = status(repo)
+        if s['state'] in ('fresh', 'no graph', 'unknown') or not edited(s): return True
+        if s.get('failed'): return False
+        if s['state'] == 'stale': kick(repo, 'a query')
+        now = time.time()
+        if now >= end: return False
+        if say and now - last >= 10:
+            left = expected_left(repo)
+            print(f"waiting for the graph to refresh: {int(now - t0)} s so far" + (f", about {max(1, int(left))} s to go" if left and left > 0 else '') +
+                  (" (compiling the engine's rules first)" if compiling(repo) else '') + " …", file=sys.stderr, flush=True)
+            last = now
+        time.sleep(0.3)
+
+def query(repo, verb, argv, fresh=False):
+    """run a query verb (argv) against the last good graph, the stale-while-revalidate way (above). Returns its exit code"""
+    def run():
+        return subprocess.run(argv, stdout=subprocess.PIPE)
+    def passthrough(): os.execvp(argv[0], argv)
+    if not enabled(repo): passthrough()
+    s = status(repo)
+    if s['state'] == 'unknown': kick(repo, 'a query'); passthrough()
+    if s['state'] in ('fresh', 'no graph') or not edited(s): passthrough()
+    if not s.get('failed'): kick(repo, 'a query')
+    as_json = '--json' in argv
+    if fresh and not s.get('failed'):
+        left = expected_left(repo)
+        print(f"waiting for the graph to refresh (--fresh): {len(edited(s))} file(s) changed since the graph was built" +
+              (f", the last build took {int(build_seconds(repo)[0])} s" if left is not None else '') + " …", file=sys.stderr, flush=True)
+        if wait_fresh(repo, float(os.environ.get('AXIOMCODE_FRESH_MAX') or 600), say=True): passthrough()
+        s = status(repo)
+    stale = Stale(edited(s)); r = run()
+    out = r.stdout.decode('utf-8', 'replace')
+    marked, n, touched = mark_answer(out, stale, as_json)
+    touched = touched or names_in_edits(repo, query_names(verb, argv, repo), stale)
+    if touched and not fresh and not s.get('failed'):
+        budget = float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 30)
+        left = expected_left(repo)
+        if budget > 0 and not compiling(repo) and (left is None or left <= budget):
+            print(f"waiting for the graph to refresh: this answer touches {', '.join(stale.files[:3])}" + (' …' if len(stale.files) > 3 else '') +
+                  f", edited since the graph was built; up to {int(budget)} s" + (f" (the last build took {int(build_seconds(repo)[0])} s)" if left is not None else '') + " …",
+                  file=sys.stderr, flush=True)
+            if wait_fresh(repo, budget, say=True): passthrough()
+            s = status(repo); stale = Stale(edited(s))
+            if edited(s):
+                r = run(); out = r.stdout.decode('utf-8', 'replace')
+                marked, n, _ = mark_answer(out, stale, as_json)
+            else: passthrough()
+    if as_json:
+        try:
+            obj = json.loads(marked)
+            if isinstance(obj, dict):
+                obj['freshness'] = dict(state=s['state'], edited=edited(s), rows_marked=n, **({'failed': s['failed']} if s.get('failed') else {}))
+                marked = json.dumps(obj, indent=1, ensure_ascii=False) + '\n'
+        except ValueError: pass
+    sys.stdout.write(marked); sys.stdout.flush()
+    msg = note(s, n)
+    if msg: print(msg, file=sys.stderr)
+    return r.returncode
 
 def main(argv):
     if len(argv) < 2: print(__doc__); return 2
@@ -478,7 +712,7 @@ def main(argv):
         # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language
         n = 0
         for d, subdirs, files in os.walk(repo):
-            subdirs[:] = [x for x in subdirs if x not in PRUNE_ALL]
+            subdirs[:] = [x for x in subdirs if not prunes('python', x, os.path.basename(d))]
             n += sum(1 for f in files if python_script(os.path.join(d, f), f))
         print(n); return 0
     if cmd == 'uptodate':
@@ -502,6 +736,10 @@ def main(argv):
         if n: print(n, file=sys.stderr)
         return 0
     if cmd == 'worker': return worker(repo)
+    if cmd == 'query':
+        # ax_fresh.py query <repo> <verb> -- <the verb's command line>: what the dispatcher runs a query verb through
+        rest = argv[argv.index('--') + 1:]
+        return query(repo, argv[3], rest, fresh=bool(os.environ.get('AXIOMCODE_FRESH')))
     if cmd == 'wait':
         s = wait(repo, float(argv[3]) if len(argv) > 3 else float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 10))
         n = note(s)

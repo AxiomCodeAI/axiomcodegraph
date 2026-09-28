@@ -107,6 +107,7 @@ if ! python3 "$H/ax_fresh.py" lock 9 --try; then
   [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "a graph build is already running for $REPO (the background refresh); waiting for it …"
   python3 "$H/ax_fresh.py" lock 9 || { echo "could not take the build lock ($REPO/.axiomcode/build.lock)"; exit 75; }
 fi
+BUILD_T0=$SECONDS                        # how long a build takes to a usable graph: a query decides from it whether to wait (#1595)
 GD="$(cd "$REPO" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 [ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
 STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANGS-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
@@ -331,6 +332,9 @@ if [ -n "$INDEXED_TREE" ]; then echo "$INDEXED_TREE" > "$OUT/indexed-tree"; else
 set_base "$INDEXED_TREE"
 point "$DB" || { restore; exit 1; }; rm -f "$OUT/.live.sqlite"
 if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
+# the graph now matches the files: record how long that took, and whether it included compiling the engine's rules (a
+# one-time cost a refresh does not pay, so such a duration predicts nothing)
+printf '%s %s\n' "$((SECONDS - BUILD_T0))" "$(grep -q 'compiling souffle program' "$REPO/.axiomcode/build.log" 2>/dev/null && echo 1 || echo 0)" > "$OUT/build-seconds" 2>/dev/null || true
 keep_base_graph
 for l in ${READY[@]+"${READY[@]}"}; do
   mkdir -p "$LANGDIR/$l/out"; swap "$OUT/$l/graph.sqlite" "$LANGDIR/$l/out/graph.sqlite" || true   # a rename: atomic
