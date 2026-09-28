@@ -280,6 +280,26 @@ expr_type(e, prov, t) :- expr_kind("client", "TERNARY_EXPRESSION", _, e),
 edge_role_is_ternary_branch("TERNARY_THEN").
 edge_role_is_ternary_branch("TERNARY_ELSE").
 
+// ── a `||` / `??` / `&&` DEFAULT — the call signature of the operand the compiler names ──
+// `const onError = options.onError || defaultOnError; onError(m)` is how a TypeScript API
+// takes an optional callback. The compiler types the call by the LEFT operand's function
+// type (the property's), and by the RIGHT one for `flag && handler`; the other operand is a
+// value that may RUN, which is value-flow.dl's question (value_branch), not the call site's.
+// So only that operand's SHAPE flows, and nothing else:
+//   - not expr_type: typing `opts.tags || []` as the empty array literal too sends `.map`
+//     to ReadonlyArray's declaration where the compiler names Array's;
+//   - not the other operand: when both carry a call signature (a property holding a
+//     function, defaulted to an object with its own call signature) the compiler still
+//     resolves to the left one, and a second candidate is committed to wrongly downstream.
+expr_shape(e, s) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    binary_op_names_operand(op, r),
+    expr_child("client", e, r, _, side),
+    expr_shape(side, s).
+binary_op_names_operand("||", "LEFT_OPERAND").
+binary_op_names_operand("??", "LEFT_OPERAND").
+binary_op_names_operand("&&", "RIGHT_OPERAND").
+
 // ── an ARROW / FUNCTION expression — the value IS the function ──────────────
 // `anonymousDeclarationHash` gives the ts_method the expression introduces. Java
 // matches lambdas to their bodies by source POSITION; here it is a column, so an

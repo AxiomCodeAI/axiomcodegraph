@@ -196,6 +196,7 @@
 .decl compound_op_keeps_value(c0:symbol)
 .decl value_branch(c0:symbol,c1:symbol)
 .decl binary_op_yields_operand(c0:symbol,c1:symbol)
+.decl binary_op_names_operand(c0:symbol,c1:symbol)
 .decl holder_holds_function(c0:symbol,c1:symbol)
 .decl call_runs_client_body(c0:symbol)
 .decl hof_boundary_site(c0:symbol)
