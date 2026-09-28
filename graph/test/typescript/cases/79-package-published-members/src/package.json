@@ -1,0 +1,11 @@
+{
+  "name": "published-members",
+  "private": false,
+  "exports": {
+    "./cls": "./dist/cls.js",
+    "./anon": "./dist/anon.js",
+    "./bound": "./dist/bound.js",
+    "./ns": "./dist/ns.js",
+    "./api": "./dist/api.js"
+  }
+}
