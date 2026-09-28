@@ -29,6 +29,9 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 - **what the container injects** — a type registered as a bean, or a method that defines one, lists the callables the
   container hands it to (`ctor_param`, a field injection): `receives it by dependency injection — the container hands it
   over, no call site`. Swapping a `@Bean` implementation reaches its consumers this way.
+  A class that registers the type from another class (`@EnableConfigurationProperties({T.class})`, a `@MapperScan`
+  or properties package scan) is listed as `registers it as a bean`, and a configuration class lists who is injected
+  with the beans its own `@Bean` methods define (`is injected with a bean this class defines`).
 - **what a framework hands over (Python)**: the engine's `framework_edge` joins a task body to its `.delay()` /
   `.apply_async()` producer, a `@receiver` to the `send` of the same signal object, a view to its route table, a
   `Depends()` provider to the handler declaring it, and a fixture to the test naming it. The end that hands over is listed

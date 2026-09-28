@@ -46,6 +46,7 @@ export class ServiceDescriptor implements EntityIdentifiable {
   private filePath: string;
   private baseMservPath: string;
   private serviceVersionLinkHash: string;
+  private entryKey: string;
   private serviceDescriptorUniqueHash: string = '';
 
   private constructor(builder: ServiceDescriptorBuilder) {
@@ -62,6 +63,7 @@ export class ServiceDescriptor implements EntityIdentifiable {
     this.filePath = builder.filePath;
     this.baseMservPath = builder.baseMservPath;
     this.serviceVersionLinkHash = builder.serviceVersionLinkHash;
+    this.entryKey = builder.entryKey;
 
     this.generateHash();
   }
@@ -110,7 +112,11 @@ export class ServiceDescriptor implements EntityIdentifiable {
     const content =
       this.filePath +
       '||' + this.baseMservPath +
-      '||' + this.serviceVersionLinkHash;
+      '||' + this.serviceVersionLinkHash +
+      // One file, several descriptors: `spring.factories` configures one service
+      // per KEY. Appended only when set, so a one-descriptor file keeps the key
+      // it always had.
+      (this.entryKey ? '||' + this.entryKey : '');
 
     this.serviceDescriptorUniqueHash = EntityUtils.generateEntityHash(
       ENTITY_IDENTIFIERS.SERVICE_DESCRIPTOR,
@@ -192,6 +198,7 @@ class ServiceDescriptorBuilder {
   filePath: string;
   baseMservPath: string;
   serviceVersionLinkHash: string;
+  entryKey: string = '';
 
   constructor(
     serviceInterfaceBinaryName: string,
@@ -248,6 +255,12 @@ class ServiceDescriptorBuilder {
 
   withRelativePath(relativePath: string): ServiceDescriptorBuilder {
     this.relativePath = relativePath;
+    return this;
+  }
+
+  /** The key inside a file that configures several services (`spring.factories`). */
+  withEntryKey(entryKey: string): ServiceDescriptorBuilder {
+    this.entryKey = entryKey;
     return this;
   }
 

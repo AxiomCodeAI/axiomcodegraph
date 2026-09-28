@@ -35,6 +35,11 @@ cfg_container_callback_name("sessionCreated").    cfg_container_callback_name("s
 cfg_container_callback_name("onMessage").         cfg_container_callback_name("onEvent").
 cfg_container_callback_name("run").               cfg_container_callback_name("call").
 cfg_container_callback_name("handle").            cfg_container_callback_name("execute").
+// The methods SpringFactoriesLoader's documented extension points are called through,
+// for a class a spring.factories key names (services.dl). Kept apart from the list above:
+// `initialize` and `analyze` are ordinary names on a servlet or a ServiceLoader provider.
+cfg_factories_callback_name("initialize").        cfg_factories_callback_name("onApplicationEvent").
+cfg_factories_callback_name("postProcessEnvironment"). cfg_factories_callback_name("analyze").
 
 // cfg_registered_type(TypeHash, Kind): a type the container instantiates because
 // config named it. Everything below fans out from here.
@@ -46,6 +51,9 @@ cfg_registered_type(t, "config_handler") :- config_class_ref(fmt, k, _, t, "clie
 config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
     java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
     cfg_container_callback_name(name).
+config_entry_point(m, "spring_factories", t) :- cfg_registered_type(t, "spring_factories"),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    cfg_factories_callback_name(name).
 // … and by "overrides something declared in a library supertype", which is what a
 // servlet/filter/listener actually is. Independent of the name list, so a container
 // API that IS in the library set is covered exactly rather than approximately.
@@ -79,6 +87,10 @@ config_entry_point(m, "factory", m) :- cfg_factory(_, _, m, _).
 config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "stereotype", _),
     method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
 config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "xml", _),
+    method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
+// A properties class registered by @EnableConfigurationProperties / a properties scan is
+// constructed by the binder (di.dl (d)).
+config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "enabled_properties", _),
     method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
 
 // (6) GENERATED-STUB OVERRIDES — the gRPC shape. A method that OVERRIDES one declared

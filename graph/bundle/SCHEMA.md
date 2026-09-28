@@ -653,6 +653,8 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `lifecycle_factory` | java | The method an XML bean definition names as `factory-method`; the container calls it to build the bean. |
 | `config_handler` | java | A callback of a class a configuration file names under a key that expects a class (not an annotation); the container instantiates it and calls it. |
 | `service_loader` | java | A callback of a provider listed in `META-INF/services`; `ServiceLoader` instantiates it and the caller reaches it through the service interface. |
+| `auto_configuration` | java | The constructor or a container callback of a configuration class named in `META-INF/spring/*.imports` or under a configuration key of `META-INF/spring.factories` (`EnableAutoConfiguration`); Spring Boot registers it as a bean. |
+| `spring_factories` | java | The constructor or callback of a class named under any other key of `META-INF/spring.factories` (`ApplicationContextInitializer`, `EnvironmentPostProcessor`, …); `SpringFactoriesLoader` instantiates it and calls it. Not a bean. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
 | `exported_from_entry_module` | typescript | A named function exported from a module nothing in the project imports. Its caller is the package's consumer, which is not in the repository. Placeholder names (`<arrow>`) are not roots. |
 | `package_export` | typescript | A named function exported from a module the project's `package.json` publishes (`main`, `module`, `exports`, `types`, `source`), mapped from build output back to its source. Its caller is the package's consumer. Covers the entry a project's own tests import, which `exported_from_entry_module` cannot see. |
@@ -940,6 +942,8 @@ Types this run creates an instance of — the rapid-type-analysis set that bound
 | `anonymous` | java | An anonymous class exists only by being instantiated. |
 | `enum_constant` | java | An enum's constants are its instances. |
 | `service_loader` | java | A provider listed in `META-INF/services`: `ServiceLoader` constructs it reflectively, with no `new` in the source. |
+| `auto_configuration` | java | A configuration class named in `META-INF/spring/*.imports` or `spring.factories` (`EnableAutoConfiguration`): Spring Boot constructs it reflectively. |
+| `spring_factories` | java | A class named under another key of `META-INF/spring.factories`: `SpringFactoriesLoader` constructs it reflectively. |
 
 **Notes**
 
