@@ -258,6 +258,11 @@ class G:
 
     # ── endpoints: exact, or a short list of what is close ───────────────────────────────────────────────────
     IN = None
+    def under_in(self, f):
+        """is file `f` under --in: by prefix when the scope names a path of the repository, else anywhere (#1584)"""
+        if not self.IN: return True
+        if getattr(self, '_in_spec', (None,))[0] != self.IN: self._in_spec = (self.IN, ax_contract.scope_spec(self.IN, self.repo))
+        return ax_contract.under_scope(f, self._in_spec[1])
     def resolve(self, sel, fragment=False):
         """-> (label, [method symbol ids]) or dies with the near misses. Same rules for every language.
 
@@ -267,7 +272,7 @@ class G:
         """
         label, ids = self._resolve(sel, fragment)
         if self.IN and not all(self.sym[i]['kind'] in ('library', 'written') for i in ids):        # a library endpoint has no file; --in applies to the other end
-            kept = [i for i in ids if self.IN in (self.sym[i]['file'] or '')]
+            kept = [i for i in ids if self.under_in(self.sym[i]['file'])]
             if not kept: die(f"{label}: none of its {len(ids)} declaration(s) is under *{self.IN}*")
             if len(kept) < len(ids): label += f" [{len(kept)} under *{self.IN}*]"
             ids = kept
@@ -1028,7 +1033,7 @@ def closure(g, sel, upstream, limit=40, depth=40):
     g.export(); label, ids = g.resolve(sel, fragment=True)
     res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
     rows = [(m, int(d)) for m, d in (res['dist_up'] if upstream else res['dist'])['c'] if 0 < int(d) <= depth and m in g.sym]
-    if g.IN: rows = [(m, d) for m, d in rows if g.IN in (g.sym[m]['file'] or '')]        # --in: only the part of the closure under that path
+    if g.IN: rows = [(m, d) for m, d in rows if g.under_in(g.sym[m]['file'])]        # --in: only the part of the closure under that path
     if not upstream: rows = [(m, d) for m, d in rows if g.sym[m]['kind'] not in ('library', 'written')]    # downstream: library ends are listed separately, not counted as reached methods
     # second implementation: a plain BFS over the same facts, in the same direction, must give the same set and depths
     adj = collections.defaultdict(set)
@@ -1040,7 +1045,7 @@ def closure(g, sel, upstream, limit=40, depth=40):
             for y in adj.get(x, ()):
                 if y not in seen: seen[y] = d; nxt.append(y)
         fr = nxt
-    bfs = {m: dd for m, dd in seen.items() if 0 < dd <= depth and m in g.sym and (not g.IN or g.IN in (g.sym[m]['file'] or '')) and (upstream or g.sym[m]['kind'] not in ('library', 'written'))}
+    bfs = {m: dd for m, dd in seen.items() if 0 < dd <= depth and m in g.sym and g.under_in(g.sym[m]['file']) and (upstream or g.sym[m]['kind'] not in ('library', 'written'))}
     agree = bfs == dict(rows)
     word = 'can reach' if upstream else 'is reached from'
     print(f"{'everything that ' + word + ' ' if upstream else 'everything reached from '}{label}: {len(rows)} method(s) in {len({g.sym[m]['file'] for m, _ in rows})} file(s)" + (f" within {depth} hop(s)" if depth < 40 else ''))
