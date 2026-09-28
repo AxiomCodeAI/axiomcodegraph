@@ -99,17 +99,21 @@ def main(argv):
 
         # ── query mid-build ───────────────────────────────────────────────────────────────────────────────────
         lock = os.path.join(repo, '.axiomcode', 'build.lock')
+        # the repair above answered as soon as its graph was published (#1555) and may still be solving: it ends first,
+        # or it re-points graph.sqlite under the lock this check holds
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644); fcntl.flock(fd, fcntl.LOCK_EX); fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
         good = os.path.realpath(ptr); os.remove(ptr)
         held = threading.Event()
 
         def hold():
             fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644); fcntl.flock(fd, fcntl.LOCK_EX); held.set()
-            time.sleep(3); os.symlink(good, ptr); fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
+            try: time.sleep(3); os.symlink(good, ptr)
+            finally: fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)      # never left held: every later build would wait on it
         t = threading.Thread(target=hold); t.start(); held.wait()
         logm = os.path.getmtime(os.path.join(repo, '.axiomcode', 'build.log'))
         t0 = time.time(); r = sh(repo, AX, 'impact', 'helper', '.', env=dict(env, AXIOMCODE_NO_REFRESH='1')); took = time.time() - t0
         t.join()
-        check(r.returncode == 0 and 'caller' in r.stdout and 'a graph build is running' in r.stderr,
+        check(r.returncode == 0 and 'caller' in r.stdout and ('a graph build is running' in r.stderr or 'a graph build is already running' in r.stderr),
               f'query mid-build: a query that finds no graph while a build runs waits for it, says so, and answers ({took:.1f}s)',
               r.stdout[-600:] + r.stderr[-600:])
         check(os.path.getmtime(os.path.join(repo, '.axiomcode', 'build.log')) == logm, 'query mid-build: and starts no build of its own')

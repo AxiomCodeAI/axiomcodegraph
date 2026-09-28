@@ -308,7 +308,7 @@ about one change had to read 95 of 43,793 methods, and every true direct caller 
 | `axiomcode test-impact` | which tests have to run for the current edit, with the chain that reaches each |
 | `axiomcode changed` | which declarations an edit changed, and how (signature, type, body, added, removed). `--impact` adds what that reaches |
 | `axiomcode context "<task>"` | where a task's words land in the code, when you have a problem statement and not yet a name |
-| `axiomcode graph` | the whole graph as one self-contained HTML page, at `.axiomcode/graph/graph.html` |
+| `axiomcode graph` | the whole graph as one self-contained HTML page, at `.axiomcode/graph/graph.html`, drawn from the existing graph (rebuilt first only when stale, with the flags it was indexed with) |
 | `axiomcode index` | build or rebuild the graph explicitly; `--lang`, `--src` and `--library` narrow it |
 | `axiomcode mcp` | serve the graph to an agent as MCP tools over stdio |
 

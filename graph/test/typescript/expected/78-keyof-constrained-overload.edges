@@ -1,0 +1,7 @@
+ambiguous_unknown	METHOD_CALL	app#viaKey(Bus) @L10 -> -
+ambiguous_unknown	METHOD_CALL	app#viaMethodKey(Bus) @L14 -> -
+ambiguous_unknown	METHOD_CALL	app#viaNonKey(Bus) @L19 -> -
+ambiguous_unknown	METHOD_CALL	app#viaString(Bus,string) @L24 -> -
+ambiguous_unknown	METHOD_CALL	app#viaWideningFirst(Bus) @L29 -> -
+known_edge	METHOD_CALL	app#viaClassKey(Registry) @L42 -> Registry#get(T)
+known_edge	METHOD_CALL	app#viaClassNonKey(Registry) @L47 -> Registry#get(string)

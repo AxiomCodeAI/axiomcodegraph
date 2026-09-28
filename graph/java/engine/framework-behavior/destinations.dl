@@ -17,9 +17,11 @@
 //     restate every existing consumer in terms of it;
 //   - it is included AFTER call-edge-generation because it CONSUMES the resolved graph.
 //
-// Other framework-mediated hops belong here as they are built: an event published to
-// an @EventListener, an @Async or @Scheduled handoff, a gRPC stub to its service
-// implementation. Each is a hop no call site expresses.
+// Other framework-mediated hops belong here as they are built: an @Async or @Scheduled
+// handoff, a gRPC stub to its service implementation. Each is a hop no call site
+// expresses. An application event published to an @EventListener is NOT one of them:
+// it stays in one JVM and is keyed on a type rather than a string, so it is a call edge
+// with tier event_dispatch (call-edge-generation/event_dispatch.dl).
 //
 // A producer and the consumer that serves it live in different deployables. Neither
 // calls the other — there is no call site to resolve — so every rule in

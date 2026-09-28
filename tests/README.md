@@ -14,10 +14,17 @@ One check needs no graph and is its own script:
     python3 tests/surfaces.py            every dispatched verb is documented on --help, SKILL.md and MCP
     python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape
     python3 tests/directive.py           the PreToolUse directive hook keeps its promises (never blocks,
-                                         never raises, silent without a graph)
+                                         never raises, silent without a graph, once per session across
+                                         repositories, and names the verb for a declared name it is searched for)
+    python3 tests/hook_languages.py      the edit hooks speak for C# as for Java and Python, from one extension table,
+                                         and a body edit's command runs the classes that extend an abstract test base
+                                         (indexes a small C# project, so it needs the engine)
     python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
                                          edit, `changed` answers the same before and after, a burst costs one rebuild
                                          and queries during it answer (#1305; builds real graphs, needs the engine)
+    python3 tests/graph_verb.py          `axiomcode graph` draws the existing graph and rebuilds a stale one with the flags it
+                                         was indexed with; no rebuild path (refresh, repair, bare index) solves a language an
+                                         explicit --lang left out (builds real graphs, needs the engine)
     python3 tests/indexed_tree.py        changed compares against the tree the graph was indexed from, so an
                                          index taken with uncommitted edits reports only later edits (#1222)
     python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,
@@ -61,7 +68,8 @@ One check needs no graph and is its own script:
                                          ax_exec.py (#1640; indexes a case, so it needs the engine)
     python3 tests/multi_language.py      a repository in several languages is indexed in all of them and every query asks
                                          each graph: nothing dropped, a one-graph answer unchanged, an edit reported once,
-                                         refreshed, upgraded from a one-language graph (builds real graphs, needs the engine)
+                                         refreshed, upgraded from a one-language graph; a first query or an index stopped
+                                         mid-build still leaves the main graph published (builds real graphs, needs the engine)
     python3 tests/latency.py             what a query repeats on every call is done once, with the same answer: the non-source
                                          scan cached per graph, a repeated impact solve read back, one tree walk for every language,
                                          the verb and the Python found without starting programs, a first build that reports its
@@ -73,6 +81,10 @@ One check needs no graph and is its own script:
                                          when the last one is: the others are held back, a query answers and names what it
                                          cannot see, a first query does not wait for them, one language alone is unchanged
                                          (#1555; builds real graphs, needs the engine)
+    python3 tests/query_rules.py         the query rules compile once per machine, never while a query waits: a first query
+                                         answers from the interpreter and starts one background compile into the user
+                                         cache, a second plugin copy reuses it, rules one line apart do not, an older
+                                         plugin's dl/.cache binary is still used (#1606; needs soufflé and c++, no engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

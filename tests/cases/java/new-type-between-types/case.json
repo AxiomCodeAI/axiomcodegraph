@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a type added between two others is its own, with its own members: the diff put it before the upper type's closing brace, which named its field and method as members of that type",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/A.java"],
+   "want": ["added      C ", "C.MAX", "C.file"],
+   "avoid": ["A.MAX", "A.file", "D.MAX"]}]}

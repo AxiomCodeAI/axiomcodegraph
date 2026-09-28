@@ -54,6 +54,7 @@ cfg_props_ann("ConfigurationProperties").
 cfg_lifecycle_ann("PostConstruct").  cfg_lifecycle_ann("PreDestroy").
 cfg_scheduled_ann("Scheduled").
 cfg_listener_ann("EventListener").   cfg_listener_ann("KafkaListener").
+cfg_listener_ann("TransactionalEventListener").
 cfg_listener_ann("RabbitListener").  cfg_listener_ann("JmsListener").
 cfg_listener_ann("SqsListener").     cfg_listener_ann("StreamListener").
 cfg_listener_ann("RabbitHandler").   cfg_listener_ann("SqsHandler").
@@ -301,3 +302,76 @@ cfg_repository_base_suffix("Dao").
 // An annotation that marks a repository base as NOT itself a bean. A house base over
 // a framework base carries it, and the framework does not register a proxy for it.
 cfg_no_repository_ann("NoRepositoryBean").
+
+// ── (17) REGISTRIES THAT NAME CONFIGURATION CLASSES ─────────────────────────
+// Spring Boot registers a starter's classes from a FILE, not from a scan:
+// META-INF/spring/<service>.imports (every entry is a configuration class) and, in the
+// older form, META-INF/spring.factories. In spring.factories only these keys name
+// configuration classes, which the container registers as beans named by their
+// fully-qualified name; every other key (ApplicationContextInitializer,
+// EnvironmentPostProcessor, …) names a class SpringFactoriesLoader instantiates and
+// calls, which is a registered type and not a bean.
+cfg_config_registry_key("org.springframework.boot.autoconfigure.EnableAutoConfiguration").
+cfg_config_registry_key("org.springframework.boot.actuate.autoconfigure.web.ManagementContextConfiguration").
+cfg_config_registry_key("org.springframework.cloud.bootstrap.BootstrapConfiguration").
+
+// ── (18) CLASSES AN ANNOTATION ARGUMENT REGISTERS AS BEANS ──────────────────
+// @EnableConfigurationProperties({A.class, B.class}) registers each listed class as a
+// bean named "<prefix>-<fully.qualified.Name>" (the fully-qualified name alone when the
+// class names no prefix), the name Boot's registrar gives it.
+cfg_enable_props_ann("EnableConfigurationProperties").
+
+// ── (19) PACKAGE SCANS THAT REGISTER BEANS WITHOUT A STEREOTYPE ─────────────
+// cfg_pkg_scan_ann(Annotation, Kind). The annotation names base packages (value /
+// basePackages, Ant-style `*` and `**` allowed) or classes whose packages are scanned
+// (basePackageClasses); with none of the three, the annotated class's own package.
+//   mapper      every INTERFACE in a scanned package becomes a MyBatis mapper proxy bean
+//               (mybatis-spring's ClassPathMapperScanner)
+//   properties  every @ConfigurationProperties class that is not also a @Component
+cfg_pkg_scan_ann("MapperScan", "mapper").
+cfg_pkg_scan_ann("ConfigurationPropertiesScan", "properties").
+cfg_pkg_scan_arg("value").  cfg_pkg_scan_arg("basePackages").
+
+// An annotation that makes the INTERFACE it sits on a proxy bean, as a Spring Data
+// repository base does for its children: MyBatis @Mapper (registered by the Boot
+// starter's scan of the application package).
+cfg_mapper_ann("Mapper").
+// The same simple name imported from this package is a different annotation. MapStruct's
+// @Mapper marks an interface it GENERATES an implementation of, and whether that is a
+// bean depends on its componentModel, so it is not a proxy bean.
+cfg_foreign_ann("Mapper", "org.mapstruct").
+
+// ── (20) APPLICATION EVENTS: publishEvent(e) runs every listener e's type fits ──
+// Spring hands a published event to each listener whose declared event type the
+// event's type is assignable to. No call site names the listener, so without a model
+// the publisher and the listener are independent in the graph
+// (call-edge-generation/event_dispatch.dl).
+//
+// cfg_event_publisher(TypeSimpleName, Method): a call to Method on a receiver declared
+// as this type publishes its first argument. Simple names, matched against an
+// external node (`external:<qualified name>`) or a staged library type. A project
+// class that happens to declare its own publishEvent is neither, so a call on it stays
+// the ordinary call it is.
+cfg_event_publisher("ApplicationEventPublisher", "publishEvent").
+cfg_event_publisher("ApplicationContext", "publishEvent").
+cfg_event_publisher("ConfigurableApplicationContext", "publishEvent").
+cfg_event_publisher("AbstractApplicationContext", "publishEvent").
+cfg_event_publisher("GenericApplicationContext", "publishEvent").
+cfg_event_publisher("AnnotationConfigApplicationContext", "publishEvent").
+cfg_event_publisher("WebApplicationContext", "publishEvent").
+cfg_event_publisher("ConfigurableWebApplicationContext", "publishEvent").
+cfg_event_publisher("ApplicationEventMulticaster", "multicastEvent").
+cfg_event_publisher("SimpleApplicationEventMulticaster", "multicastEvent").
+// A method annotation that makes the method a listener. Its event type is the one
+// parameter's type, or the types named in cfg_event_listener_arg when given.
+cfg_event_listener_ann("EventListener").
+cfg_event_listener_ann("TransactionalEventListener").
+cfg_event_listener_arg("classes").   cfg_event_listener_arg("value").
+// cfg_event_listener_type(TypeSimpleName, Method): implementing this type makes
+// Method a listener, for the type of its one parameter (ApplicationListener<E> is
+// implemented by onApplicationEvent(E)).
+cfg_event_listener_type("ApplicationListener", "onApplicationEvent").
+// A listener declared for one of these receives every published event: a plain object
+// is wrapped in a PayloadApplicationEvent, which is an ApplicationEvent.
+cfg_event_catch_all("ApplicationEvent").
+cfg_event_catch_all("Object").

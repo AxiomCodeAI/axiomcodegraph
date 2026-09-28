@@ -13,7 +13,7 @@ per language, `call_edges` carries 11 distinct tiers and 30 distinct kinds:
                   FUNCTION_CALL_APPLY FUNCTION_CALL_CALL FUNCTION_CALL_BIND
     python      SIMPLE_CALL METHOD_CALL SELF_CALL SUPER_CALL CHAINED_CALL SUBSCRIPT_CALL CONTEXT_MANAGER
                 PROPERTY_READ METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
-    csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped
+    csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped event_dispatch
                   runtime_observed (only with a runtime trace) · new property_read property_write
 
 Two rules hold here, and they are the reason this module exists rather than a dict at the top of
@@ -168,6 +168,57 @@ DIRECT_WHY = {
     'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
     'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
 }
+# …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
+# value (a JavaScript callback's wording): the dependent sends it, and a framework runs the handler for what is sent.
+TIER_WHY = {
+    'event_dispatch': 'sends the request or event this handles — a framework runs it for what is sent here, no call site names it',
+}
+
+
+def direct_why(tier):
+    """what a DIRECT dependent row says for an edge of this tier."""
+    return TIER_WHY.get(tier) or DIRECT_WHY.get(direct_cert(tier), 'calls it')
+
+
+# ── entry points: what the reason token means, said in words ───────────────────────────────────────────────
+# `entry_points.reason` is an engine token (`orm_hook`, `bean_ctor`, `framework_hook`). Printed raw inside a fixed
+# sentence it read "is a orm_hook entry point … Changing it changes what the outside world can call" for a model
+# configuration callback the ORM runs at startup, which no outside caller ever reaches. Two kinds, one table:
+#   OUTSIDE  a request, a process start, a remote client, a command line or a message reaches it: changing it
+#            changes what the outside world can call, and the sentence says so (unchanged).
+#   CALLBACK the framework calls it back (a hook, a lifecycle method, a constructor it runs, a factory, a fixture, a
+#            provider): a change breaks that framework contract, not an outside caller.
+# Every surface that words an entry point (impact's entry line and `next:`, path) reads this table. A token it has not
+# seen is worded "framework-called (<token>)", never printed bare, and is a callback: the weaker claim.
+ENTRY = {
+    'http': ('an HTTP route handler', 'outside'), 'url': ('a URL route handler', 'outside'),
+    'main': ('a program entry point', 'outside'), 'grpc_service': ('a gRPC service method', 'outside'),
+    'hub': ('a real-time hub method', 'outside'), 'cli': ('a command-line command', 'outside'),
+    'queue': ('a message consumer', 'outside'), 'task': ('a background task a queue runs', 'outside'),
+    'web_filter': ('a web request filter', 'outside'),
+    'package_export': ('an export of the package', 'outside'),
+    'exported_from_entry_module': ('an export of the entry module', 'outside'),
+    'unimported_module': ('a module run directly, which nothing imports', 'outside'),
+    'framework_hook': ('a framework hook', 'callback'), 'orm_hook': ('a model hook the ORM or validation library runs', 'callback'),
+    'lifecycle': ('a lifecycle callback', 'callback'), 'bean_ctor': ('a constructor the container runs to build a bean', 'callback'),
+    'factory': ('a factory method the container calls', 'callback'), 'fixture': ('a test fixture', 'callback'),
+    'service_loader': ('a provider a service loader instantiates', 'callback'),
+    'spring_factories': ('an auto-configuration class the container loads', 'callback'),
+    'di_provider': ('a dependency-injection provider', 'callback'), 'signal_receiver': ('a signal receiver', 'callback'),
+    'web_listener': ('a web container listener', 'callback'), 'scheduled': ('a scheduled job', 'callback'),
+    'event_listener': ('an event listener', 'callback'),
+    'test': ('a test', 'test'),
+}
+
+
+def entry_phrase(reason):
+    """'an ORM model hook' for `orm_hook`; an unknown token is 'a framework-called (<token>) method'"""
+    return ENTRY[reason][0] if reason in ENTRY else f"a framework-called ({reason}) method"
+
+
+def entry_outside(reason):
+    """does the outside world (a request, a process start, a client, a message) call an entry point of this reason?"""
+    return ENTRY.get(reason, ('', 'callback'))[1] == 'outside'
 
 # certainties that are backed by an edge the ENGINE asserted, as opposed to a name or a text match.
 # Consumers that used to test `cert == 'resolved'` to mean "this row claims an edge" test this
@@ -201,6 +252,11 @@ DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set')
 #     whose sites (the `new Runnable() {…}` itself, or the call a lambda is passed to) spans a site of the anon's own.
 #     The narrowest such site wins, so an anon inside an anon nests under the inner method, not the outer one. An anon
 #     that makes no call has no site to place it by and keeps the stack's answer.
+#   · a front end whose qualified names follow the source's own nesting (JavaScript: `keys.outer.<function-expression>`
+#     is written inside `keys.outer`, `keys.<arrow>` beside it) says outright which callable on a line holds an
+#     anonymous one, with or without a call site: on an equal span it nests only under a callable whose qualified name
+#     its own extends. `function first() {…} const xs = [1].map(function (v) {…});` are siblings (#1598). Java, C# and
+#     TypeScript name a lambda or an anonymous class after its type, not its method, so there the name says nothing.
 # Only these scopes are anonymous. A named constructor or initializer (`<constructor>`, `<primary-constructor>`,
 # `<static-init>`, `<clinit>`, `<classbody>`, `<module>`) is a sibling of the methods written beside it.
 _ANON_SCOPE = re.compile(r'(?:^|\.)<(?:anon[ >]|lambda>|arrow>|function-expression>|locals>)')
@@ -227,14 +283,21 @@ def sites_of(q):
     return sites
 
 
+_LEXICAL_IDS = ('JS_METHOD_',)     # front ends whose qualified name of a callable extends the one it is written in
+
+
 def defines_edges(callables, sites=None):
-    """(definer, defined, 'defines') for callables given as (file, line, end_line, id, display, method_id).
+    """(definer, defined, 'defines') for callables given as (file, line, end_line, id, display, method_id[, qualified_name]).
     `sites(method_ids)` returns (caller_id, line, col, end_line, end_col) for the call sites of those callables; it is
     asked only about lines where more than one callable could have defined an anonymous one."""
-    byfile = {}; mid_of = {}
-    for f, ln, en, i, disp, mid in callables:
+    byfile = {}; mid_of = {}; lex = {}
+    for f, ln, en, i, disp, mid, *qn in callables:
         if not (ln and en) or str(mid or i).startswith('generated:'): continue
         byfile.setdefault(f, []).append((ln, -en, anon_depth(disp), i)); mid_of[i] = mid or i
+        if qn and qn[0] and str(mid or i).startswith(_LEXICAL_IDS): lex[i] = qn[0]
+    def may_hold(c, x):
+        """on an equal span: c may be x's definer unless both names follow the nesting and x's does not extend c's"""
+        return c not in lex or x not in lex or lex[x].startswith(lex[c] + '.')
     parent = {}; groups = []
     for f, rows in byfile.items():
         rows.sort(); st = []
@@ -242,7 +305,10 @@ def defines_edges(callables, sites=None):
             # pop what ends before this one ends (END against END, not against this one's start: the two agree on nested
             # spans and not on overlapping ones), and a sibling: the same span at the same depth
             while st and (st[-1][1] < -neg or (st[-1][0] == ln and st[-1][1] == -neg and st[-1][2] >= d)): st.pop()
-            if st and st[-1][3] != i: parent[f, i] = st[-1][3]
+            # past an equal span the name says it is not written in (kept on the stack: a later one may be)
+            j = len(st) - 1
+            while j >= 0 and st[j][0] == ln and st[j][1] == -neg and not may_hold(st[j][3], i): j -= 1
+            if j >= 0 and st[j][3] != i: parent[f, i] = st[j][3]
             st.append((ln, -neg, d, i))
         # equal spans holding an anonymous callable and more than one other candidate to have written it
         span = {}

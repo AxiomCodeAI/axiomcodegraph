@@ -1,0 +1,20 @@
+── framework_edge (15) ──
+  fixture_injection  by_name     other.test_other.test_service_here (other/test_other.py) -> testsupport.plugin.service (testsupport/plugin.py)   [service]
+  fixture_injection  by_name     other.test_other.test_widget (other/test_other.py) -> other.more_fixtures.widget (other/more_fixtures.py)   [widget]
+  fixture_injection  by_name     tests.test_accounts.TestOverride.test_in_class (tests/test_accounts.py) -> tests.test_accounts.TestOverride.account (tests/test_accounts.py)   [account]
+  fixture_injection  by_name     tests.test_accounts.TestOverrideChild.test_in_subclass (tests/test_accounts.py) -> tests.test_accounts.TestOverride.account (tests/test_accounts.py)   [account]
+  fixture_injection  by_name     tests.test_accounts.TestPlain.test_no_override (tests/test_accounts.py) -> tests.test_accounts.account (tests/test_accounts.py)   [account]
+  fixture_injection  by_name     tests.test_accounts.test_module_level (tests/test_accounts.py) -> tests.test_accounts.account (tests/test_accounts.py)   [account]
+  fixture_injection  by_name     tests.test_explicit.test_helper (tests/test_explicit.py) -> tests.helpers.helper_fx (tests/helpers.py)   [helper_fx]
+  fixture_injection  by_name     tests.test_explicit.test_repo_here (tests/test_explicit.py) -> tests.fixtures.repo (tests/fixtures.py)   [repo]
+  fixture_injection  by_name     tests.test_params.test_indirect (tests/test_params.py) -> tests.conftest.user (tests/conftest.py)   [user]
+  fixture_injection  by_name     tests.test_params.test_other_argname (tests/test_params.py) -> tests.conftest.user (tests/conftest.py)   [user]
+  fixture_injection  by_name     tests.test_params.test_plain (tests/test_params.py) -> tests.conftest.user (tests/conftest.py)   [user]
+  fixture_injection  by_name     tests.test_svc.test_cache (tests/test_svc.py) -> tests.conftest.cache (tests/conftest.py)   [cache]
+  fixture_injection  by_name     tests.test_svc.test_client (tests/test_svc.py) -> tests.conftest.client_fixture (tests/conftest.py)   [client]
+  fixture_injection  by_name     tests.test_svc.test_repo (tests/test_svc.py) -> tests.fixtures.repo (tests/fixtures.py)   [repo]
+  fixture_injection  by_name     tests.test_svc.test_service (tests/test_svc.py) -> testsupport.plugin.service (testsupport/plugin.py)   [service]
+── framework_unjoined (0) ──
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──

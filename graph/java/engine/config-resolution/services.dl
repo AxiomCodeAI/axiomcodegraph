@@ -40,16 +40,42 @@ svc_provider_resolves_lib(p, d, t) :- svc_provider_lib(p, d, pkg, simple),
 svc_provider_resolves(p, d, t) :- svc_provider_class_lib(p, d, qname),
     java_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
 
+// ── WHICH REGISTRY the descriptor is ───────────────────────────────────────────────
+// Spring's two registration files have the provider-configuration shape and arrive in the
+// same relations, told apart by path:
+//   META-INF/spring/<service>.imports  one class per line; every entry is a configuration
+//                                      class Boot registers (auto_configuration)
+//   META-INF/spring.factories          one descriptor per key; a key cfg_config_registry_key
+//                                      lists names configuration classes (auto_configuration),
+//                                      any other key a class SpringFactoriesLoader
+//                                      instantiates and calls (spring_factories)
+//   anything else                      META-INF/services (service_loader)
+svc_spring_file(d, "imports") :- svc_descriptor_path(d, rel),
+    match("(.*/)?META-INF/spring/[^/]+[.]imports", rel).
+svc_spring_file(d, "factories") :- svc_descriptor_path(d, rel),
+    match("(.*/)?META-INF/spring[.]factories", rel).
+svc_is_spring_file(d) :- svc_spring_file(d, _).
+svc_descriptor_any(d, svc) :- svc_descriptor(d, svc, _).
+svc_descriptor_any(d, svc) :- svc_descriptor_lib(d, svc, _).
+
+svc_registration(d, "service_loader") :- svc_descriptor_path(d, _), !svc_is_spring_file(d).
+svc_registration(d, "auto_configuration") :- svc_spring_file(d, "imports").
+svc_registration(d, "auto_configuration") :- svc_spring_file(d, "factories"),
+    svc_descriptor_any(d, svc), cfg_config_registry_key(svc).
+svc_registration(d, "spring_factories") :- svc_spring_file(d, "factories"),
+    svc_descriptor_any(d, svc), !cfg_config_registry_key(svc).
+
 // ── The type is REGISTERED: the container instantiates it and calls back into it ─────
 // cfg_registered_type already drives all three entry-point shapes in entry-points.dl —
 // callbacks by name, "overrides a library supertype" (which is what implementing a service
 // interface IS, so no name list is needed), and the constructor.
-cfg_registered_type(t, "service_loader") :- svc_provider_resolves(_, _, t).
+cfg_registered_type(t, kind) :- svc_provider_resolves(_, d, t), svc_registration(d, kind).
 
 // ── The type is INSTANTIATED, with provenance ───────────────────────────────────────
 // Reported, never used to NARROW dispatch: the instantiation set can only ever be a lower
 // bound (containers, factories and reflection instantiate types this cannot see), so
 // filtering virtual dispatch on it would delete must-have edges. A consumer that wants
 // precision may subtract; the graph itself stays sound.
-type_instantiated(t, "service_loader") :- svc_provider_resolves(_, _, t).
-type_instantiated(t, "service_loader_lib") :- svc_provider_resolves_lib(_, _, t).
+type_instantiated(t, kind) :- svc_provider_resolves(_, d, t), svc_registration(d, kind).
+type_instantiated(t, cat(kind, "_lib")) :- svc_provider_resolves_lib(_, d, t),
+    svc_registration(d, kind).

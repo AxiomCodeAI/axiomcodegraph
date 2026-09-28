@@ -471,11 +471,11 @@ def _edges(q):
     # second keeps it, which is not the same set. The id is a hash of the display, so an anonymous class collides
     # across files (`Database.Vendor.<anon TriFunction>.apply` has rows in six), which is why this matters at all.
     one = {}
-    for i, f, ln, en, mid, kind, disp in q("""SELECT id, file, line, end_line, method_id, kind, display FROM symbols
-                                        WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
-        one[i] = (f, ln, en, mid, kind, disp)
-    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399)
-    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid) for i, (f, ln, en, mid, kind, disp) in one.items()
+    for i, f, ln, en, mid, kind, disp, qn in q("""SELECT id, file, line, end_line, method_id, kind, display, qualified_name
+                                        FROM symbols WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
+        one[i] = (f, ln, en, mid, kind, disp, qn)
+    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399, #1598)
+    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid, qn) for i, (f, ln, en, mid, kind, disp, qn) in one.items()
                                 if mid and kind != 'module'), ax_edges.sites_of(lambda s, p: q(s, *p)))
     have = {(a, b) for a, b, _ in e}
     # the same narrowing the path tool applies: a candidate whose owner type is never instantiated anywhere is not a
@@ -562,7 +562,9 @@ def _test_sets(q, lines=None, rel=None):
     tm, fx = set(), set()
     for sid, name, kind, mid, tid in q("SELECT id, name, kind, method_id, type_id FROM symbols WHERE is_test=1"):
         d = dec.get(sid, ())
-        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))):
+        # a pytest fixture named test_* is built for the tests that request it and never collected (#1531)
+        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))) \
+                and not any((x or '').split('.')[-1] == 'fixture' for x in d):
             tm.add(sid)
         if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):
             fx.add(sid)
@@ -722,7 +724,9 @@ def _bean_call(q, ids, sites):
                        WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL"""):
         if t != ot: continue
         recv.add(tgt if tgt in istype else type_of(tgt))
-    callers = {c for c, tier, _f, _l in sites if tier != 'multi_inferred'}   # a bean call site, any tier but the set
+    # a bean call site, any tier but the set and an event: the event system invokes a listener on the container's
+    # bean, so the proxy IS on that path and "an instance it obtained itself" would be false (#1391)
+    callers = {c for c, tier, _f, _l in sites if tier not in ('multi_inferred', 'event_dispatch')}
     why = {}
     for c in callers:
         cot = type_of(c)
@@ -769,7 +773,7 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None):
             # edge is the engine's, the sentence is the registration's. A registration the ROUTE rules named keeps
             # their sentence whatever the tier — it is a more specific true thing than either default.
             why = routes.get((rel(f) if rel and f else f, l))
-            if why is None: why = ax_edges.DIRECT_WHY.get(cert, 'calls it')
+            if why is None: why = ax_edges.direct_why(tier)
             rows.append((c, 'uses', why, cert, f or '', l or 0))
     # …and for a caller into a container-managed bean, EVERY site of it — the three bean rules end in a bare
     # `calls(c, m, _, f, l)` with no tier test, so a multi_inferred site of a bean caller is a row here too.
@@ -977,6 +981,43 @@ def _injected(q):
                 idx.setdefault(t, set()).add((into, kind or 'injected'))
         _INJECTED[key] = idx
     return _INJECTED[key]
+
+
+
+_REGISTERS = {}
+def _registers(q):
+    """`registers(t,by,kind)`: a bean of type t whose definition site is an annotation declared on ANOTHER type `by`.
+
+    The engine records where each bean comes from (`ext_bean_def.c3`): for @EnableConfigurationProperties({T.class})
+    and for a package scan (@MapperScan, @ConfigurationPropertiesScan) that is the annotation on the configuration class,
+    and `type_use` names the type that annotation sits on. A stereotype's site is on the bean's own type, so it is not a
+    registration by someone else and is left out. One query, read by the exporter (the rules) and by the fast path.
+    """
+    key = id(q)
+    if key not in _REGISTERS:
+        idx = {}
+        if _has(q, 'ext_bean_def') and _has(q, 'type_use'):
+            for t, by, kind in q("""SELECT DISTINCT b.c1, s.id, b.c2 FROM ext_bean_def b
+                                         JOIN type_use u ON u.owner_id = b.c3 AND u.owner_kind = 'ANNOTATION'
+                                                        AND u.context = 'ANNOTATION_TYPE'
+                                         JOIN symbols s ON s.id = u.owner_type_id AND s.method_id IS NULL
+                                    WHERE b.c1 IS NOT NULL AND u.owner_type_id <> b.c1"""):
+                idx.setdefault(t, set()).add((by, kind or 'bean'))
+        _REGISTERS[key] = idx
+    return _REGISTERS[key]
+
+
+_FACTORIES = {}
+def _factories(q):
+    """`bean_factory(m,t)`: the method an @Bean factory is declared on, and the type it produces."""
+    key = id(q)
+    if key not in _FACTORIES:
+        idx = {}
+        if _has(q, 'ext_bean_def'):
+            for mid, t in q("SELECT c3, c1 FROM ext_bean_def WHERE c2 = 'factory_method' AND c3 IS NOT NULL AND c3 <> ''"):
+                idx.setdefault(mid, set()).add(t)
+        _FACTORIES[key] = idx
+    return _FACTORIES[key]
 
 
 def _bean_definition_consumers(q, ids):
@@ -1590,6 +1631,27 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
             if c in inside: continue
             rows.append((c, 'uses', f'receives it by dependency injection ({kind}) — the container hands it '
                                     f'over, no call site', 'resolved', '', 0))
+
+    # ── a type another class REGISTERS as a bean ───────────────────────────────────────────────────────────
+    #   direct(q,c,"uses",cat("registers it as a bean (",kind,"): …"),"resolved","",0)
+    #     :- target(q,"type",t,_), registers(t,c,kind), !inside_target(q,c)
+    # ── a type that DEFINES beans: who is injected with one of them ────────────────────────────────────────
+    #   direct(q,c,"uses",cat("is injected with a bean this class defines (",kind,")"),"resolved","",0)
+    #     :- target(q,"type",_,_), inside_target(q,m), bean_factory(m,bt), injected(bt,c,kind), !inside_target(q,c)
+    bean_rows = set()
+    regs = _registers(q)
+    for t in tids:
+        for c, kind in regs.get(t, ()):
+            if c not in inside:
+                bean_rows.add((c, 'uses', f'registers it as a bean ({kind}): the container creates it, no call site',
+                               'resolved', '', 0))
+    fac = _factories(q)
+    for m in inside:
+        for bt in fac.get(m, ()):
+            for c, kind in inj.get(bt, ()):
+                if c not in inside:
+                    bean_rows.add((c, 'uses', f'is injected with a bean this class defines ({kind})', 'resolved', '', 0))
+    rows += sorted(bean_rows)
 
     # ── the GENERATED accessors of the type's own fields: 276-277 ─────────────────────────────────────────
     #   gen(t,"get"|"set"), field(fl,t,…), accessor(fl,an,…), unresolved(c,an,k,f,l), !ctor_kind(k),
@@ -2430,6 +2492,10 @@ def _has_framework_hops(q, at=None, site_file=None):
         if _has(q, 'ext_decorated_name_target') and q("SELECT 1 FROM ext_decorated_name_target WHERE c0 <> c1 LIMIT 1"):
             return True
         if _has(q, 'symbols') and q("SELECT 1 FROM symbols WHERE file LIKE '%conftest.py' AND method_id IS NOT NULL LIMIT 1"):
+            return True
+        # a fixture injected by name anywhere, conftest or not: the rules credit it only to the tests that request
+        # it (`injects` / `injected_fixture`), where this port's file-wide rule credits every test in its file (#1527)
+        if _has(q, 'decorations') and q("SELECT 1 FROM decorations WHERE name = 'fixture' AND (file LIKE '%.py' OR file LIKE '%.pyi') LIMIT 1"):
             return True
     except Exception:
         return True

@@ -97,6 +97,23 @@ ts_framework_class_decorator("Pipe").        ts_framework_class_decorator("NgMod
 ts_framework_class_decorator("Module").      ts_framework_class_decorator("Catch").
 ts_framework_class_decorator("Resolver").
 
+// ── ts_provider_class_decorator(Name) — the container HANDS this class out ──
+// A narrower set than the one above. A controller or a component is constructed by
+// the container but never injected into anything; a provider is what a constructor
+// parameter receives. Both containers spell it the same way.
+.decl ts_provider_class_decorator(c0:symbol)
+ts_provider_class_decorator("Injectable").
+
+// ── ts_token_param_decorator(Name) — the slot is wired by TOKEN, not by type ──
+// `@Inject(TOKEN) x: Foo` asks the container for whatever TOKEN names, and Foo is
+// only the static type of the result, often an interface. Matching the declared type
+// there would invent a wiring, so a parameter carrying one is not an injection point.
+// The integrations spell their tokens the same way (`@InjectRepository(User)`,
+// `@InjectModel(Cat.name)`, `@InjectQueue('mail')`), so di.dl also treats any
+// `Inject<Upper>…` name as a token decorator rather than listing each package.
+.decl ts_token_param_decorator(c0:symbol)
+ts_token_param_decorator("Inject").
+
 // ── ts_framework_lifecycle_method(Name) — the container CALLS this by name ──
 // A hook is invoked by the framework through an interface it checks for at runtime,
 // so no call site exists anywhere in the repository. The name is the whole contract,

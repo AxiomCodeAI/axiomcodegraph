@@ -113,7 +113,7 @@ if tool == 'Bash':
         if files and all(os.path.splitext(a)[1] and os.path.splitext(a)[1].lower() not in _graphline.LANG for a in files): sys.exit(0)
     if m: tool = 'Grep'; inp = {'pattern': m.group(3)}; _from_shell = True
     else:
-        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:java|ts|tsx|js|py|cs))\b', c)
+        m = re.search(r"sed -n '?(\d+),(\d+)p'? (\S+)", c) or re.search(r'\bcat\s+(\S+\.(?:' + _where.SOURCE_ALT + r'))\b', c)
         # a relative file is relative to where the shell is when it runs: the session's directory, or a `cd` before it
         if m: base, _ = _where.bash_where(c[:m.start()], scwd)
         if m and m.re.groups == 3: tool = 'Read'; inp = {'file_path': _where._abs(m.group(3), base), 'offset': int(m.group(1)), 'limit': int(m.group(2)) - int(m.group(1)) + 1}
@@ -160,7 +160,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     # with it, who produces or writes it, who reads it, what reaches those, the tests. The moment this is useful is now.
     import concurrent.futures
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
-    if not re.search(r'\.(java|ts|tsx|js|mjs|cjs|py)$', rel) or re.search(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_', rel): sys.exit(0)
+    if not _where.is_source(fp) or _where.is_test(rel): sys.exit(0)
     SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
     try: ch = json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), cwd, rel, '--json'], capture_output=True, text=True, timeout=10).stdout or '{}')
     except Exception: ch = {}
@@ -387,6 +387,11 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
                 if e: rel_[r['id']] = (e['how'], ctx_names.get(e['who'], '?'))
             rows = sorted(rows, key=lambda r: r['id'] not in rel_)                   # stable: the order above within each group
         if plain and not rel_ and not unres: return n, [], []
+        # OVERLOADS IN ONE FILE ARE ONE NAME TO THE READER: `ISender.Send` declared twice in one interface printed as the
+        # same line twice. Each (display, file) is one line, saying how many declarations it stands for.
+        grp = {}
+        for r in rows: grp.setdefault((r['display'], r['file']), []).append(r)
+        rows = [v[0] for v in grp.values()]; n_ol = {v[0]['id']: len(v) for v in grp.values()}
         total = len(rows); rows = rows[:2]
         out = []
         paths = _graphline.distinct_paths([r['file'] or '' for r in rows])
@@ -404,7 +409,8 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
                        + (f"; {nt} in tests" if nt and 2 < len(up) < 40 and nt < len(up) else '') + ")") if up \
                       else _graphline.zero_label(c, r['method_id'], r['display'].rsplit('.', 1)[-1], r['is_test'])
             out.append(f"  {r['display']}  {path}:{r['line']}  ← {callers}  → {dn}" + (f"  ? {un}" if un else '')
-                       + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '') + tag)
+                       + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '')
+                       + (f"  ({n_ol[r['id']]} overloads)" if n_ol.get(r['id'], 1) > 1 else '') + tag)
         if total > len(rows) and out: out[-1] += f"  (+{total - len(rows)} more declaration(s){'' if total < 40 else ' or more'})"
         if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out

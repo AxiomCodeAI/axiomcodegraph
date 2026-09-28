@@ -515,6 +515,20 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       }
     }
   }
+  if (A.ir.localSites) {
+    const L = A.ir.localSites;
+    const src = await clientSource(inp.clientIrDir, L.file);
+    if (src) {
+      const h = src.header;
+      const ci = h.col(L.id), cl = h.col(L.startLine), cel = h.col(L.endLine);
+      for await (const r of rowsOf(src)) {
+        const row = sites.get(r[ci] ?? '');
+        if (!row) continue;
+        fill(row, 4, fileOf(L.fileVia, h, r));
+        fill(row, 5, int(r[cl])); fill(row, 7, int(r[cel]));
+      }
+    }
+  }
   // a site keyed on a type (Python METACLASS_CREATION) is positioned at the class declaration
   for (const row of sites.values()) {
     if (row[5] !== null) continue;

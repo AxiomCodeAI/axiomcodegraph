@@ -159,10 +159,10 @@
    ]
   },
   {
-   "why": "a publisher and a listener joined only through a library call are not called independent, and the call is named",
+   "why": "a publisher and a listener joined only through a library call are not called independent, and the call is named (an event typed Object matches no listener's declared type, so the event hop is not drawn)",
    "run": [
     "path",
-    "OrderService.place",
+    "OrderService.relay",
     "Audit.on"
    ],
    "expect_error": true,
@@ -182,7 +182,7 @@
    "run": [
     "path",
     "Audit.on",
-    "OrderService.place"
+    "OrderService.relay"
    ],
    "expect_error": true,
    "want": [

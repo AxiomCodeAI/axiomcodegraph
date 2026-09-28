@@ -88,7 +88,7 @@ if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
     # It is the only moment where saying nothing guarantees the skill is never used, so it says one thing and
     # takes the same once-per-repo stamp. Still bounded, still never repeated, and still silent where it would
     # be noise: a tree with no source in a supported language has nothing to offer and says nothing.
-    EXT = ('.java', '.ts', '.tsx', '.py', '.js', '.jsx', '.mjs', '.cjs', '.cs')
+    EXT = _where.SOURCE_EXT
     SKIP = {'node_modules', '.git', 'dist', 'build', 'target', 'venv', '.venv', '__pycache__', 'obj'}
     found = 0
     for root, dirs, files in os.walk(cwd):
@@ -135,7 +135,7 @@ if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')):
 # Plain English words are not enough however rare: a large codebase declares functions named `when`, `used`, `safe`,
 # `main`, `loop` and `parser`, so any sentence about anything matched two of them.
 IDENT = re.compile(r'`([^`]+)`|\b([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\b|\b([a-z]+[A-Z]\w*|[A-Za-z]+_\w+)\b|\b(\w+)\(\)|(?<![.!?]\s)(?<!^)\b([A-Z][a-z]\w+)\b')
-PATHISH = re.compile(r'\b[\w./-]+\.(?:java|ts|tsx|js|jsx|mjs|py|cs)(?::\d+)?\b')
+PATHISH = re.compile(r'\b[\w./-]+\.(?:' + _where.SOURCE_ALT + r')(?::\d+)?\b')
 
 def names_code(prompt, db):
     import sqlite3

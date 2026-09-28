@@ -69,6 +69,33 @@ def main():
     print(f"── entry_point ({len(seen)}) ──")
     for reason, who in sorted(seen):
         print(f"  {reason:10s} {who}")
+
+    # di_edge is the other half of a container-owned class: WHO the container hands
+    # each object to. Like an entry point it has no call site, so no other golden sees
+    # it. Printed only when the case has a slot, so a case without DI keeps its golden.
+    tname = {}
+    for t in rows(os.path.join(ir, 'all-typescript-types.csv')):
+        h = t.get('tsTypeUniqueHash')
+        if h:
+            tname[h] = t.get('name') or h
+    pname = {}
+    for p in rows(os.path.join(ir, 'all-typescript-method-parameters.csv')):
+        h = p.get('tsMethodParameterUniqueHash')
+        if h:
+            pname[h] = (p.get('paramName') or h, p.get('tsMethodLinkHash') or '')
+    di = set()
+    p = os.path.join(out, 'config-di-edge.csv')
+    if os.path.exists(p):
+        with open(p, newline='') as fh:
+            for r in csv.reader(fh, delimiter='\t'):
+                if len(r) >= 6:
+                    pn, m = pname.get(r[0], (r[0], ''))
+                    who = name.get(m, m).split('   ')[0]
+                    di.add((r[5], f"{who}({pn}: {tname.get(r[2], r[2])})", tname.get(r[4], r[4])))
+    if di:
+        print(f"── di_edge ({len(di)}) ──")
+        for status, slot, bean in sorted(di):
+            print(f"  {status:11s} {slot} <- {bean}")
     return 0
 
 

@@ -1,7 +1,18 @@
 """dl_program.py — a Datalog program compiled to a native binary once, cached by the program's hash.
 
-Every query program goes through here: `dl/impact.dl` (axiomcode-impact), and `dl/path*.dl` (axiomcode-path). The cache is keyed by the RULES alone and lives next to them in
-`dl/.cache/`, so it is shared by every repository on the machine and survives until the program itself changes.
+Every query program goes through here: `dl/impact.dl` (axiomcode-impact), and `dl/path*.dl` (axiomcode-path). The cache
+is keyed by the RULES alone (and the machine's platform) and lives in the user's cache,
+`${XDG_CACHE_HOME:-~/.cache}/axiomcode/queries/` (AXIOMCODE_QUERY_CACHE overrides it), beside the engine's own Soufflé
+cache. It used to live next to the rules in `dl/.cache/`, inside the plugin: every plugin copy (an update installs a new
+versioned directory; a second checkout, a worktree) then recompiled byte-identical rules, 45-140 s for impact.dl alone,
+and that was paid by whichever came first, the index or a query (#1606). A binary an older plugin left in `dl/.cache/`
+is still used.
+
+A QUERY NEVER WAITS FOR A COMPILE. When the rules are not compiled yet, `program()` starts the compile in the
+background (one per program per machine, under a lock) and answers this query with the Soufflé interpreter, which
+derives the same relations from the same rules. The interpreter is at most ~2x slower per solve on the graphs measured;
+the compile it replaces cost 45 s and more on the first question. `axiomcode index` starts the compiles when the build
+starts, in parallel with the engine, so normally they are done before the graph is published.
 
 What this buys is the COMPILE STEP, not query speed: on a 5 MB fact set the binary ran the same program in 1.3 s
 against the interpreter's 2.5 s, but on apache/rocketmq (2,265 files, 184k edges) a query took 22.5 s compiled and
@@ -15,11 +26,11 @@ jackson-databind (1,373 files), 24 of 28 Edit hooks burned the full 14 s and ret
 which was the whole of that benchmark's wall-clock regression. A killed compile leaves no `.nocompile` marker
 either (it did not fail, it was killed), so it cannot even record its own defeat.
 """
-import hashlib, os, platform, shutil, subprocess, sys
+import hashlib, os, platform, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DL_DIR = os.path.join(HERE, 'dl')
-CACHE = os.path.join(DL_DIR, '.cache')
+LEGACY_CACHE = os.path.join(DL_DIR, '.cache')     # where a plugin before #1606 compiled to: read, never written when the user cache works
 HOOKS_DIR = os.path.abspath(os.path.join(HERE, '..', '..', '..', 'hooks'))
 SCOPE = '@axiomcode'   # graph/pipeline/engine.conf's ENGINE_PACKAGE_SCOPE
 EXE = '.exe' if os.name == 'nt' else ''
@@ -169,46 +180,159 @@ def packaged(stem, key):
     return None
 
 
-def program(dl, verbose=True):
-    """the argv prefix to run this program: [<the engine package's binary>] when it was built from these rules (no
-    soufflé, no compiler — what an npm install gets), else [<cached binary>], or ['souffle', <dl>] when there is no compiler, when a
-    compile has already failed here (the failure is recorded, so a broken toolchain costs one attempt rather than one
-    per query — the visible half of #816), or under AXIOMCODE_INTERPRET."""
-    dl = resolve(dl)
-    # keyed by the RULES alone. The soufflé runtime is compiled INTO the binary, so the version that generated it does
-    # not matter at run time; and keying on it meant a cached (or shipped) binary was unusable without soufflé present.
-    key = rules_id(dl)
-    stem = os.path.splitext(os.path.basename(dl))[0]
-    if not os.environ.get('AXIOMCODE_INTERPRET'):
-        shipped = packaged(stem, key)
-        if shipped: return [shipped]
-    binp = os.path.join(CACHE, f'{stem}-{key}'); nope = binp + '.nocompile'
-    if os.path.exists(binp): return [binp]
-    if os.path.exists(nope) or not shutil.which('c++') or not shutil.which('souffle') or os.environ.get('AXIOMCODE_INTERPRET'):
-        return ['souffle', dl]
+def cache_dir():
+    """where compiled query programs are kept: AXIOMCODE_QUERY_CACHE, else the user's cache (the engine's Soufflé cache
+    sits beside it, see graph/pipeline/run-souffle.sh), else, with no writable HOME, the plugin's own dl/.cache"""
+    ov = os.environ.get('AXIOMCODE_QUERY_CACHE')
+    cands = [ov] if ov else []
+    base = os.environ.get('XDG_CACHE_HOME') or (os.path.join(os.path.expanduser('~'), '.cache') if os.path.expanduser('~') != '~' else '')
+    if base and not ov: cands.append(os.path.join(base, 'axiomcode', 'queries'))
+    cands.append(LEGACY_CACHE)
+    for d in cands:
+        try:
+            os.makedirs(d, exist_ok=True)
+            if os.access(d, os.W_OK): return d
+        except OSError: pass
+    return LEGACY_CACHE
+
+
+def cached_name(stem, key):
+    """the file a compile of these rules is kept as. The platform is in the name because the binary is built with
+    -march=native: a cache on a home directory shared by two kinds of machine must not hand one the other's binary."""
+    return f"{stem}-{key}-{npm_platform() or sys.platform}{EXE}"
+
+
+def _alive(pid):
+    # on Windows signal 0 is CTRL_C_EVENT, not a probe: there the lock's age alone decides (LOCK_STALE_S)
+    if os.name == 'nt': return True
+    try: os.kill(pid, 0); return True
+    except ProcessLookupError: return False
+    except (PermissionError, OSError): return True
+
+
+LOCK_STALE_S = 1800     # a compile that has held its lock this long is dead, whatever its pid says (pids are reused)
+
+def _lock_holder(lock):
+    """the pid compiling behind `lock`, or None when nobody is (a missing lock, or one whose holder died)"""
+    try:
+        pid = int(open(os.path.join(lock, 'pid')).read().strip() or 0)
+        age = time.time() - os.path.getmtime(lock)
+    except (OSError, ValueError):
+        try: age = time.time() - os.path.getmtime(lock)
+        except OSError: return None
+        return -1 if age < 30 else None       # just created, pid not written yet
+    return pid if pid and _alive(pid) and age < LOCK_STALE_S else None
+
+
+def _take_lock(lock):
+    """one compile per program per machine: mkdir is atomic. A lock left by a dead compile is taken over."""
+    for _ in range(2):
+        try:
+            os.mkdir(lock)
+            with open(os.path.join(lock, 'pid'), 'w') as fh: fh.write(str(os.getpid()))
+            return True
+        except FileExistsError:
+            if _lock_holder(lock) is not None: return False
+            shutil.rmtree(lock, ignore_errors=True)
+        except OSError: return False
+    return False
+
+
+def compiled(dl):
+    """the compiled binary for these rules when one exists (the engine package's, the user cache's, or a legacy
+    dl/.cache one), else None. Does no work."""
+    dl = resolve(dl); key = rules_id(dl); stem = os.path.splitext(os.path.basename(dl))[0]
+    shipped = packaged(stem, key)
+    if shipped: return shipped
+    for p in (os.path.join(cache_dir(), cached_name(stem, key)), os.path.join(LEGACY_CACHE, f'{stem}-{key}')):
+        if os.path.isfile(p) and os.access(p, os.X_OK): return p
+    return None
+
+
+def _compile(dl, binp, nope, verbose):
+    """soufflé -g, then c++; the binary lands at binp by one atomic rename. Returns True on success. A failure is
+    recorded in `nope`, so a broken toolchain costs one attempt rather than one per query (the visible half of #816)."""
     inc = souffle_include()
     if not inc:
         try: open(nope, 'w').write("no souffle/CompiledSouffle.h found; set AXIOM_SOUFFLE_INCLUDE to the directory CONTAINING souffle/\n")
         except OSError: pass
-        print("  soufflé's headers were not found (set AXIOM_SOUFFLE_INCLUDE to the directory CONTAINING souffle/) — using the interpreter", file=sys.stderr)
-        return ['souffle', dl]
-    # two runs compiling the same program at once used to share one .cpp and one .tmp: the first to finish removed
-    # the file under the second, which then died with "no such file". Per process names, one atomic rename.
-    os.makedirs(CACHE, exist_ok=True); cpp = f"{binp}.{os.getpid()}.cpp"; out = f"{binp}.{os.getpid()}.tmp"
-    if verbose: print(f"compiling {os.path.basename(dl)} to a native binary once (~20 s) …", file=sys.stderr)
+        if verbose: print("  soufflé's headers were not found (set AXIOM_SOUFFLE_INCLUDE to the directory CONTAINING souffle/) — using the interpreter", file=sys.stderr)
+        return False
+    # per-process names and one atomic rename: two compiles of one program never share a .cpp or a .tmp
+    cpp = f"{binp}.{os.getpid()}.cpp"; out = f"{binp}.{os.getpid()}.tmp"
+    if verbose: print(f"compiling {os.path.basename(dl)} to a native binary once (45-140 s) …", file=sys.stderr)
     g1 = subprocess.run(['souffle', '-g', cpp, dl], capture_output=True, text=True)
     g2 = subprocess.run(['c++', '-std=c++17', '-O3', '-march=native', '-w', '-I', inc, cpp, '-o', out], capture_output=True, text=True) if g1.returncode == 0 else g1
     try: os.remove(cpp)
     except OSError: pass
-    if g2.returncode == 0: os.replace(out, binp); return [binp]
+    if g2.returncode == 0: os.replace(out, binp); return True
     try: os.remove(out)
     except OSError: pass
     why = (g2.stderr or '').strip().split(chr(10))[-1][:200]
-    # record it: without this the next query repeats the whole failed attempt, which is what made a broken probe cost
-    # ~20 s on EVERY invocation instead of once (#816)
     try: open(nope, 'w').write(f"-I {inc}\n{why}\nremove this file to try again\n")
     except OSError: pass
-    print(f"  could not compile ({why}) — using the interpreter; recorded in {os.path.basename(nope)}, remove it to retry", file=sys.stderr)
+    if verbose: print(f"  could not compile {os.path.basename(dl)} ({why}) — using the interpreter; recorded in {nope}, remove it to retry", file=sys.stderr)
+    return False
+
+
+def _can_compile():
+    return bool(shutil.which('c++') and shutil.which('souffle') and not os.environ.get('AXIOMCODE_INTERPRET'))
+
+
+def start_compile(dls):
+    """compile these programs in a detached process (its own session, so a caller's timeout or Ctrl-C does not kill
+    it half-way, which would cache nothing and repeat on every call). Programs already compiled, failed or being
+    compiled are skipped by the child. Returns at once."""
+    dls = [resolve(d) for d in dls]
+    if not dls or not _can_compile(): return False
+    try:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), '--compile'] + dls, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+        return True
+    except OSError:
+        return False
+
+
+def ensure(dl, wait=True, verbose=True):
+    """compile one program unless it is compiled, failed before, or being compiled by another process. With wait,
+    a compile in another process is waited for. Returns the binary, or None."""
+    dl = resolve(dl); key = rules_id(dl); stem = os.path.splitext(os.path.basename(dl))[0]
+    have = compiled(dl)
+    if have: return have
+    if not _can_compile(): return None
+    d = cache_dir(); binp = os.path.join(d, cached_name(stem, key)); nope = binp + '.nocompile'; lock = binp + '.lock'
+    while True:
+        if os.path.isfile(binp): return binp
+        if os.path.exists(nope): return None
+        if _take_lock(lock):
+            try:
+                if os.path.isfile(binp): return binp
+                return binp if _compile(dl, binp, nope, verbose) else None
+            finally: shutil.rmtree(lock, ignore_errors=True)
+        if not wait: return None
+        time.sleep(1)
+
+
+_SAID = set(); _STARTED = set()     # per process: say it once, start it once
+
+def program(dl, verbose=True):
+    """the argv prefix to run this program: [<the engine package's binary>] when it was built from these rules (no
+    soufflé, no compiler: what an npm install gets), else [<cached binary>], else ['souffle', <dl>]: the interpreter,
+    with a compile started in the background so the next query gets the binary. A query never waits for a compile
+    (see the module docstring); AXIOMCODE_INTERPRET forces the interpreter."""
+    dl = resolve(dl)
+    if not os.environ.get('AXIOMCODE_INTERPRET'):
+        have = compiled(dl)
+        if have: return [have]
+        key = rules_id(dl); stem = os.path.splitext(os.path.basename(dl))[0]
+        binp = os.path.join(cache_dir(), cached_name(stem, key))
+        if _can_compile() and not os.path.exists(binp + '.nocompile'):
+            if stem not in _STARTED and _lock_holder(binp + '.lock') is None: start_compile([dl])
+            _STARTED.add(stem)
+            if verbose and stem not in _SAID:
+                _SAID.add(stem)
+                print(f"  {stem} rules: compiling to a native binary in the background (once per machine); this answer "
+                      f"uses the interpreter, same rules", file=sys.stderr)
     return ['souffle', dl]
 
 
@@ -217,17 +341,32 @@ def all_programs():
     return out
 
 
-def warm(verbose=True):
-    """compile every query program that is not cached yet. Called at the end of `axiomcode index`, where ~20 s each is
-    noise against the build, so that no later query — least of all one under a hook's timeout — ever pays it."""
-    done = []
-    for dl in all_programs():
-        pre = program(dl, verbose=False)
-        how = 'interpreter' if not pre or pre[0] == 'souffle' else 'cached' if pre[0].startswith(CACHE) else 'packaged'
-        done.append((os.path.basename(dl), how))
+def status(dl):
+    """how a query would run this program now: packaged, cached, compiling, or interpreter"""
+    have = compiled(dl)
+    if have: return 'packaged' if os.path.basename(os.path.dirname(have)) == 'queries' and os.sep + 'node_modules' + os.sep in have else 'cached'
+    dl = resolve(dl); stem = os.path.splitext(os.path.basename(dl))[0]
+    binp = os.path.join(cache_dir(), cached_name(stem, rules_id(dl)))
+    if _can_compile() and _lock_holder(binp + '.lock') is not None: return 'compiling'
+    return 'interpreter'
+
+
+def warm(verbose=True, wait=True):
+    """compile every query program that is not cached yet. `axiomcode index` calls it twice: with --background when the
+    build starts, so the compiles run beside the engine, and at the end to report (waiting only with wait=True).
+    No query ever pays the compile: until it is done they are answered by the interpreter."""
+    missing = [dl for dl in all_programs() if not compiled(dl)]
+    if missing:
+        if wait:
+            for dl in missing: ensure(dl, wait=True, verbose=False)
+        else:
+            start_compile([dl for dl in missing if status(dl) != 'compiling'])
+    done = [(os.path.basename(dl), status(dl)) for dl in all_programs()]
     if verbose:
-        ok = sum(1 for _, s in done if s != 'interpreter')
+        ok = sum(1 for _, s in done if s in ('cached', 'packaged'))
         print(f"datalog rules ready: {ok}/{len(done)} compiled (" + ', '.join(f'{n}={s}' for n, s in done) + ")")
+        if any(s == 'compiling' for _, s in done):
+            print("  the rest are compiling in the background; until they finish, queries use the interpreter (same answers)")
         # THE INTERPRETER WITHOUT SOUFFLÉ IS NOT A MODE, IT IS A FAILURE, and it has to be said here, where the index is,
         # not by the first `impact` after it: "0/4 compiled (…=interpreter)" read as a slower setting, and impact then
         # failed with advice for another operating system
@@ -240,5 +379,11 @@ def warm(verbose=True):
 if __name__ == '__main__':
     if sys.argv[1:2] == ['--print-id']:
         for a in sys.argv[2:]: print(rules_id(a if os.path.exists(a) else resolve(a)))
+    elif sys.argv[1:2] == ['--compile']:          # the detached child start_compile() runs
+        for a in sys.argv[2:] or all_programs(): ensure(a, wait=False, verbose=False)
+    elif sys.argv[1:2] == ['--background']:       # start every missing compile and return at once
+        start_compile([dl for dl in all_programs() if not compiled(dl)])
+    elif sys.argv[1:2] == ['--no-wait']:          # report; start what is missing; never wait
+        warm(wait=False)
     else:
         warm()

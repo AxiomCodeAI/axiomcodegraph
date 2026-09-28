@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a type written below another type's closing brace is its own, with its own fields; an added import line declares nothing. Control: a field added inside the class is still that class's",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/A.java"],
+   "want": ["added      B ", "B.LIMIT", "A.y"],
+   "avoid": ["A.B", "A.LIMIT", "Map", "util"]}]}

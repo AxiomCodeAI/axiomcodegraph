@@ -686,6 +686,62 @@ arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
     param_decl(_, _, pos, tn, m, _),
     tn = cat("\"", cat(v, "\"")).
 
+// A STRING LITERAL THAT IS A KEY OF THE CONSTRAINT — `<K extends keyof Map>(kind: K)`.
+// The typed-registry shape: `create<K extends keyof WidgetMap>(kind: K)` declared before
+// `create(kind: string)`, as `document.createElement` and every typed event map declare
+// it. The compiler picks the generic for `create('video')`, because the literal IS a
+// `keyof WidgetMap`, and the widening one for `create(k)` with `k: string`, because a
+// general string is not.
+//
+// Without this the parameter's type is `K`, which matches nothing concretely, while
+// `string` matches the literal — so specificity removed the generic at BOTH sites. That
+// stayed hidden while an interface's overloads carried no declarationGroupKey and no
+// group rule could fire; once the parser grouped them it became a missing edge (#334).
+// Evaluating the constraint against the literal separates the two sites on evidence:
+// at `create('video')` both signatures now match concretely and declaration order
+// decides, as the compiler does; at `create(k)` and at a literal that is NOT a key the
+// generic still does not match and `string` wins, exactly as before.
+//
+// Keyed on the exact variable link first and on the name in the method's own scope
+// where the link is absent. The key set is the constraint object's DECLARED members,
+// fields and methods both: a literal naming neither never matches, so an unresolved
+// `keyof` object leaves the generic as unmatched as it always was.
+param_keyof_object(m, pos, obj) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "TYPE_VARIABLE", _, _, _, _, _, r),
+    type_ref_type_param(_, tp, r),
+    type_param_constraint(_, cref, tp),
+    keyof_operand_target(cref, obj).
+param_keyof_object(m, pos, obj) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "TYPE_VARIABLE", _, tn, _, _, _, r),
+    !type_ref_type_param(_, _, r),
+    type_param(_, tn, _, _, m, tp),
+    type_param_constraint(_, cref, tp),
+    keyof_operand_target(cref, obj).
+// `keyof X` is a TYPE_OPERATOR whose written text starts with the operator; `readonly`
+// and `unique` share the kind and are told apart by that text, not assumed away.
+keyof_operand_target(cref, obj) :- type_ref(_, "TYPE_OPERATOR", _, _, ctn, _, _, cref),
+    strlen(ctn) > 6,
+    substr(ctn, 0, 6) = "keyof ",
+    type_ref_parent(_, cref, _, oref),
+    ref_type_target(oref, _, obj).
+
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", "STRING", a),
+    expr_literal_value("client", v, a),
+    param_keyof_object(m, pos, obj),
+    declared_field(obj, v, _, _).
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", "STRING", a),
+    expr_literal_value("client", v, a),
+    param_keyof_object(m, pos, obj),
+    declared_method(obj, v, _, _).
+
 // BETTER SOMEWHERE AND WORSE NOWHERE — both halves, which is the discipline
 // java/overload.dl states as `win_strictly_better` AND `!win_worse_anywhere`. Firing on a
 // single position alone is not domination: a candidate matching at argument 0 would beat

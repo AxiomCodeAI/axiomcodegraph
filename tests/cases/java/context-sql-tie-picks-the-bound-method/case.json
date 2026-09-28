@@ -1,0 +1,15 @@
+{"lang": "java",
+ "checks": [
+  {"why": "entry points that match the task's words equally are ordered by what the question asks for, not by symbol ids: a SQL question puts the mapper method its XML binds first, and lists that XML, though four other declarations match the same two words and sort before it by name",
+   "run": ["context", "which SQL runs when an order is loaded by number"],
+   "want": ["entry points", "    OrderMapper.findByNumber ", "text files that name these declarations",
+            "src/main/resources/mapper/OrderMapper.xml:3", "names findByNumber (OrderMapper.findByNumber)"],
+   "avoid": ["WidgetMapper.xml"]},
+  {"why": "near miss: the same words without asking about SQL get no text-file section, so the XML is not listed and no tree walk is paid for",
+   "run": ["context", "where is an order loaded by number"],
+   "want": ["entry points", "Order.toNumber"],
+   "avoid": ["text files that name", "OrderMapper.xml", "WidgetMapper.xml"]},
+  {"why": "--source with a SQL question prints the code and still lists the XML (the printed code once replaced the question text, and the text-file check crashed on it)",
+   "run": ["context", "which SQL runs when an order is loaded by number", "--source"],
+   "want": ["src/main/resources/mapper/OrderMapper.xml:3"],
+   "avoid": ["Traceback", "WidgetMapper.xml"]}]}

@@ -13,10 +13,11 @@ first uses the type). Several targets in one call are one change set. A name dec
 Every judgement is a rule in `dl/impact.dl`: the Python side exports facts from graph.sqlite once per graph (members, owners,
 extends, nesting, decorations, overrides, resolved and unresolved call sites, references with the qualifier written on the
 line, type references, string literals, tests and fixtures), writes the target and the few text-level facts for the query, and
-runs one Soufflé program — compiled to a native binary by `axiomcode index` (~20 s once for all of them, cached by the
-program's hash under `dl/.cache/` and shared by every repository on the machine; on first use if the index did not warm it,
-the interpreter when there is no `c++`). Warming it at index time is what keeps a caller with a timeout — `hooks/changes.py`
-runs impact with `timeout=14` on every edit — from killing the compile before it can finish and caching nothing.
+runs one Soufflé program, compiled to a native binary once per machine (45-140 s for impact.dl), cached by the program's
+hash under `~/.cache/axiomcode/queries/` and shared by every repository and every plugin copy with the same rules. `axiomcode
+index` starts that compile in the background when the build starts; a query never waits for it: until it is done, and when
+there is no `c++`, the same program runs in the Soufflé interpreter, with the same answer. The compile runs detached, so a
+caller with a timeout (`hooks/changes.py` runs impact with `timeout=14` on every edit) cannot kill it half-way.
 Direct dependents, the contract, the seeds, the closure, the chains (`parent_up`) and
 the tests are all derived in the same run; nothing is recomputed a second way. What is verified afterwards is the export:
 every printed chain hop and every `[resolved]` entry is looked up again in `graph.sqlite` (the `verified:` line).
@@ -29,6 +30,9 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 - **what the container injects** — a type registered as a bean, or a method that defines one, lists the callables the
   container hands it to (`ctor_param`, a field injection): `receives it by dependency injection — the container hands it
   over, no call site`. Swapping a `@Bean` implementation reaches its consumers this way.
+  A class that registers the type from another class (`@EnableConfigurationProperties({T.class})`, a `@MapperScan`
+  or properties package scan) is listed as `registers it as a bean`, and a configuration class lists who is injected
+  with the beans its own `@Bean` methods define (`is injected with a bean this class defines`).
 - **what a framework hands over (Python)**: the engine's `framework_edge` joins a task body to its `.delay()` /
   `.apply_async()` producer, a `@receiver` to the `send` of the same signal object, a view to its route table, a
   `Depends()` provider to the handler declaring it, and a fixture to the test naming it. The end that hands over is listed

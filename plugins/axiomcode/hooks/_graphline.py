@@ -88,23 +88,34 @@ def distinct_paths(files):
 
 
 _TI = None
-def _command_for(lang, files, classes):
-    """the runnable command `axiomcode test-impact` prints, from the same function"""
+def _ti():
+    """axiomcode-test-impact as a module, loaded once; None when it cannot be"""
     global _TI
     if _TI is None:
         p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts', 'axiomcode-test-impact')
         try:
             ld = importlib.machinery.SourceFileLoader('ax_test_impact', p)
             m = importlib.util.module_from_spec(importlib.util.spec_from_loader('ax_test_impact', ld)); ld.exec_module(m)
-            _TI = m.command_for
+            _TI = m
         except Exception:
-            _TI = lambda *a: None
-    try: return _TI(lang, files, classes)
+            _TI = False
+    return _TI or None
+
+
+def _command_for(lang, files, classes, db=None):
+    """the runnable command `axiomcode test-impact` prints, from the same function"""
+    try: return _ti().command_for(lang, files, classes, db)
     except Exception: return None
 
 
-LANG = {'.java': 'java', '.py': 'python', '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript',
-        '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript', '.cs': 'csharp'}
+def _concrete(db, classes):
+    """the classes a runner can run: each abstract test class replaced by the classes that extend it (test-impact)"""
+    try: return _ti().concrete_test_classes(db, classes)[0]
+    except Exception: return classes
+
+
+import _where
+LANG = {e: ls[0] for e, ls in _where.BY_EXT.items()}          # one table for every hook (_where.py)
 SHOWN = 6
 
 
@@ -136,6 +147,8 @@ def body_line(db, results):
         return f"graph: body edit of {what}: no test reaches it through the graph (a lower bound)"
     lang = LANG.get(os.path.splitext(results[0][0].get('file', ''))[1], '')
     fl, cl = sorted(files), sorted(owners)
+    if lang in ('java', 'csharp') and cl:
+        cl = sorted(_concrete(db, cl))      # before the cut, so the command and the "+N more" count the same classes
     cmd = _command_for(lang, fl[:SHOWN], cl[:SHOWN])
     more = (len({c.split('.')[-1] for c in cl}) if lang in ('java', 'csharp') and cl else len(fl)) - SHOWN
     tail = (f"; run: {cmd}" + (f" (+{more} more: axiomcode test-impact)" if more > 0 else '')) if cmd else "; axiomcode test-impact gives the command"

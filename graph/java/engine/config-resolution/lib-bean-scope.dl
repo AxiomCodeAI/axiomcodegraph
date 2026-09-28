@@ -73,6 +73,10 @@ cfg_factory_type(m, t) :- cfg_factory("lib", _, m, _), lib_method_return_type(m,
 // makes client the default, which is where XML <bean> elements come from.
 cfg_lib_bean_site(a) :- cfg_stereotype("lib", a, _).
 cfg_lib_bean_site(m) :- cfg_factory("lib", _, m, _).
+// A bean a library's own annotation registers (@EnableConfigurationProperties, @Mapper,
+// a package scan), or a library class a registration file names.
+cfg_lib_bean_site(a) :- ann_on_type("lib", a, _, _).
+cfg_lib_bean_site(p) :- svc_provider_resolves_lib(p, _, _).
 bean_origin(name, t, "lib") :- bean_def(name, t, _, site), cfg_lib_bean_site(site).
 bean_origin(name, t, "client") :- bean_def(name, t, _, site), !cfg_lib_bean_site(site).
 

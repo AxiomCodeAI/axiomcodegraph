@@ -1,0 +1,4 @@
+# probe.boot.CommentedInitializer is named in a comment only
+org.springframework.context.ApplicationContextInitializer=probe.boot.WidgetInitializer
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  probe.boot.LegacyAutoConfiguration

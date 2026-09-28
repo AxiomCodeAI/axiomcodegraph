@@ -33,6 +33,7 @@ TIERS = {
     "known_edge", "multi_inferred", "fan_capped", "boundary_lib",
     "boundary_generated", "ambiguous_unknown", "ambiguous_dynamic",
     "known_implicit_ctor", "known_builtin_operator", "runtime_observed",
+    "event_dispatch",
 }
 
 # A predefined alias that denotes NO TYPE. Every other name in the engine's alias

@@ -1,2 +1,7 @@
+known_edge	read	AuditController#one(string) -> AuditController#audit
+known_edge	read	AuditController#one(string) -> AuditController#extra
+known_edge	read	AuditService#record(string) -> AuditService#clock
+known_edge	read	AuditService#record(string) -> AuditService#orders
+known_edge	read	HandBuilt#run() -> HandBuilt#svc
 known_edge	read	OrderController#add(string) -> OrderController#svc
 known_edge	read	OrderController#getOne(string) -> OrderController#svc

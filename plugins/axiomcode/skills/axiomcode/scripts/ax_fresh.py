@@ -27,6 +27,7 @@ the previous graph. Three pieces:
   ax_fresh.py worker <repo>                    the worker itself (what kick detaches)
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
   ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
+  ax_fresh.py chosen <repo>                    the --lang and --src an explicit index chose, which a rebuild keeps
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
@@ -309,6 +310,18 @@ def legacy_params(repo):
     src = os.path.relpath(os.path.realpath(run.get('source_dir') or repo), os.path.realpath(repo))
     return dict(lang=run.get('language', ''), src_arg='' if src == '.' or src.startswith('..') else src, library=run.get('library_roots') or '')
 
+def rebuild_env(t, **extra):
+    """the environment that rebuilds the graph a file table `t` describes, with the language, --src and --library it
+    was built with: what the background refresh runs, and what `axiomcode graph` runs when the graph is stale. Languages
+    DETECTED are detected again (a language the repository gained since gets its graph); only a --lang the user gave is
+    kept. A table from before this was recorded counts as detected: it was built with one language even where the
+    repository had several, and keeping that would keep the others out for good."""
+    env = dict(os.environ, AXIOMCODE_LANG='' if t.get('lang_auto', True) else t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''), **extra)
+    env.pop('AXIOMCODE_LIBRARY', None)
+    env.pop('AXIOMCODE_LANG_AUTO', None); env.pop('AXIOMCODE_GRAPH_LANG', None)
+    if t.get('library'): env['AXIOMCODE_LIBRARY'] = t['library']
+    return env
+
 def _flock(fd, block):
     """an advisory lock on fd; the OS releases it when the last holder of the file description exits, so a
     killed build never leaves a lock behind (no stale-lock timeout to guess)"""
@@ -365,6 +378,15 @@ def pending(repo):
     old = [l for l in langs if os.path.isfile(os.path.join(repo, '.axiomcode', 'lang', l, 'out', 'graph.sqlite'))]
     return dict(pending=langs, pending_old=old, first=all(len(r) > 1 and r[1] == 'first' for r in rows))
 
+def unbuilt(repo):
+    """the languages a build that was stopped after publishing the main graph left unbuilt (axiomcode-build writes them
+    to out/partial), [] when none"""
+    try: return open(os.path.join(out_dir(repo), 'partial')).read().split()
+    except OSError: return []
+
+def unbuilt_row(repo):
+    return f".axiomcode/out/partial (the {', '.join(unbuilt(repo))} graph was not built: its build was stopped)"
+
 def status(repo):
     if not has_graph(repo): return dict(state='no graph')
     if graph_broken(repo): return dict(state='building' if building(repo) else 'stale', changed=['.axiomcode/out/graph.sqlite (the pointer to the graph is broken)'], added=[], removed=[])
@@ -376,7 +398,8 @@ def status(repo):
     if not (changed or added or removed):
         # a build that already published this tree's main graph and is still solving other languages: the graph a query
         # reads is current, and waiting would be waiting for other languages' compiles
-        return dict(state='building', **pending(repo)) if busy else dict(state='fresh')
+        if busy: return dict(state='building', **pending(repo))
+        return dict(state='stale', changed=[unbuilt_row(repo)], added=[], removed=[]) if unbuilt(repo) else dict(state='fresh')
     d = dict(state='building' if busy else 'stale', changed=changed, added=added, removed=removed)
     if not busy and st.get('failed_table') == change_key(c): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
     return d
@@ -438,6 +461,7 @@ def worker(repo):
             else:
                 c = changes(repo, t)
                 if graph_broken(repo) and not (c and any(c)): c = [['.axiomcode/out/graph.sqlite (broken pointer)'], [], []]
+                elif unbuilt(repo) and not (c and any(c)): c = [[unbuilt_row(repo)], [], []]
                 if (c is None or not any(c)) and not base_moved(repo):
                     write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', '')); return 0
                 c = c or [[], [], []]
@@ -447,14 +471,7 @@ def worker(repo):
             if st.get('failed_table') == fp: return 0
             n = sum(len(x) for x in c)
             why = (f"{n} file(s) changed" if n else f"HEAD moved to {(head(repo) or '')[:10]}") + f", found by {os.environ.get('AXIOMCODE_REFRESH_TRIGGER') or 'an edit'}"
-            # languages DETECTED are detected again (a language the repository gained since gets its graph); only a
-            # --lang the user gave is kept. A table from before this was recorded counts as detected: it was built with
-            # one language even where the repository had several, and keeping that would keep the others out for good
-            env = dict(os.environ, AXIOMCODE_LANG='' if t.get('lang_auto', True) else t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''),
-                       AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
-            env.pop('AXIOMCODE_LIBRARY', None)
-            env.pop('AXIOMCODE_LANG_AUTO', None); env.pop('AXIOMCODE_GRAPH_LANG', None)
-            if t.get('library'): env['AXIOMCODE_LIBRARY'] = t['library']
+            env = rebuild_env(t, AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
             t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
             else: print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
@@ -712,13 +729,26 @@ def expected_left(repo):
     if st.get('state') == 'building' and st.get('started'): return secs - (time.time() - st['started'])
     return secs + float(os.environ.get('AXIOMCODE_REFRESH_DEBOUNCE') or 2)
 
-def wait_fresh(repo, seconds, say=False):
+def _waits_on(s, files):
+    """the refresh has published the main graph and is still solving languages (#1555) of which one holds an edited file
+    the wait is for (`files`; True: any language at all): the graph that answers for that edit is not out yet"""
+    langs = set(s.get('pending') or ())
+    if not langs or not files: return False
+    if files is True: return True
+    import ax_langs
+    return any(l in langs for f in files for l in ax_langs.BY_EXT.get(os.path.splitext(f)[1].lower(), ()))
+
+def wait_fresh(repo, seconds, say=False, files=()):
     """wait until the graph matches the files again (the refresh swapped in its graph), a rebuild fails, or `seconds`
-    pass. With `say`, a progress line on stderr every 10 s: a wait is never silent. True when the graph is current"""
+    pass. With `say`, a progress line on stderr every 10 s: a wait is never silent. True when the graph is current.
+    THE GRAPH OF THE EDIT, NOT THE MAIN ONE. A refresh publishes the main language's graph first and goes on with the
+    others (#1555); from then on the file table matches, and a wait that ended there answered a question about a Python
+    edit in a TypeScript repository from the previous Python graph: `nothing named` for the function just added. So a
+    wait for `files` goes on while a language that holds one of them is still being solved (files=True: any language)."""
     end = t0 = time.time(); end += seconds; last = t0
     while True:
         s = status(repo)
-        if s['state'] in ('fresh', 'no graph', 'unknown') or not edited(s): return True
+        if (s['state'] in ('fresh', 'no graph', 'unknown') or not edited(s)) and not _waits_on(s, files): return True
         if s.get('failed'): return False
         if s['state'] == 'stale': kick(repo, 'a query')
         now = time.time()
@@ -764,7 +794,7 @@ def query(repo, verb, argv, fresh=False):
         left = expected_left(repo)
         print(f"waiting for the graph to refresh (--fresh): {len(edited(s))} file(s) changed since the graph was built" +
               (f", the last build took {int(build_seconds(repo)[0])} s" if left is not None else '') + " …", file=sys.stderr, flush=True)
-        if wait_fresh(repo, float(os.environ.get('AXIOMCODE_FRESH_MAX') or 600), say=True): passthrough()
+        if wait_fresh(repo, float(os.environ.get('AXIOMCODE_FRESH_MAX') or 600), say=True, files=True): passthrough()
         s = status(repo)
     stale = Stale(edited(s)); r = run()
     out = r.stdout.decode('utf-8', 'replace')
@@ -778,7 +808,7 @@ def query(repo, verb, argv, fresh=False):
             print(f"waiting for the graph to refresh: this answer touches {', '.join(stale.files[:3])}" + (' …' if len(stale.files) > 3 else '') +
                   f", edited since the graph was built; up to {int(budget)} s" + (f" (the last build took {int(build_seconds(repo)[0])} s)" if left is not None else '') + " …",
                   file=sys.stderr, flush=True)
-            if wait_fresh(repo, budget, say=True): passthrough()
+            if wait_fresh(repo, budget, say=True, files=stale.files): passthrough()
             s = status(repo); stale = Stale(edited(s))
             if edited(s):
                 r = run(); out = r.stdout.decode('utf-8', 'replace')
@@ -828,6 +858,13 @@ def main(argv):
             subdirs[:] = [x for x in subdirs if not prunes('python', x, os.path.basename(d))]
             n += sum(1 for f in files if python_script(os.path.join(d, f), f))
         print(n); return 0
+    if cmd == 'chosen':
+        # the --lang (and --src) the graph here was indexed with, as "<langs>\t<src>", when they were CHOSEN (an explicit
+        # --lang); nothing when its languages were detected, or there is no graph. axiomcode-build keeps them for a rebuild
+        # that names no language, so no rebuild path solves a language the index left out
+        t = load_table(repo)
+        if has_graph(repo) and t and t.get('lang_auto') is False and t.get('lang'): print(f"{t['lang']}\t{t.get('src_arg', '')}")
+        return 0
     if cmd == 'uptodate':
         # exit 0 when the recorded table was built with this language / --src / --library and no file differs
         lang, src_arg, lib = argv[3], argv[4] if len(argv) > 4 else '', argv[5] if len(argv) > 5 else ''

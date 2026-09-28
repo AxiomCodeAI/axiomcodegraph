@@ -1,0 +1,5 @@
+name: note checks
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest

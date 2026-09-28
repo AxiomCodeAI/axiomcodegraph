@@ -544,6 +544,14 @@ export class TsLocalResolver {
       if (binding.kind !== TsBoundKind.VariableDeclaration) {
         return;
       }
+      // An annotation this pass cannot read -- an indexed access such as
+      // `StoreApi<S>['setState']`, a named interface, an alias to an alias --
+      // still decides the call for tsc, and it may declare an overload set. The
+      // initialiser is not what `getResolvedSignature` names, and `1` would be a
+      // count nobody measured (#536). Left unresolved for the engine.
+      if (declared.length === 0 && (binding.node as { type?: ts.TypeNode }).type) {
+        return;
+      }
       const variableHash = this.input.variableHashByNode.get(nodeId(binding.node, this.sf));
       const variable = variableHash ? this.variableByHash.get(variableHash) : undefined;
       // THE arrow-function path, for an UNANNOTATED binding: `const f = () => {};

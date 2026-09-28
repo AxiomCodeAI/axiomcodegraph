@@ -397,12 +397,15 @@ jobs:
       # Two things decide the binary that ENGINE_ID does not cover, so they are in the
       # key too: the driver that compiles it (run-souffle.sh holds the compiler flags),
       # and the runner's CPU, because the driver compiles with -march=native and a
-      # binary built on one CPU model can die with an illegal instruction on another.
+      # binary built on one CPU can die with an illegal instruction on another.
+      # The CPU part hashes the FEATURE FLAGS, not only the model name: hosted runners
+      # that report the same model name do not all expose the same instruction set, so
+      # a model-name key restored a binary that died with SIGILL on every case.
       - name: this language's engine id
         id: eid
         run: |
           echo "id=$(bash graph/pipeline/run-souffle.sh --language ${{ matrix.lang }} --print-engine-id)" >> "$GITHUB_OUTPUT"
-          echo "cpu=$(grep -m1 'model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+          echo "cpu=$(grep -E '^(model name|flags)[[:space:]]*:' /proc/cpuinfo | sort -u | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
       - name: cache the compiled Soufflé engine
         if: ${{ !inputs.fresh }}

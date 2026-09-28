@@ -1,8 +1,16 @@
-── entry_point (7) ──
+── entry_point (10) ──
+  bean_ctor  container#AuditController.<constructor>   container.ts:60
+  bean_ctor  container#AuditService.<constructor>   container.ts:52
   bean_ctor  container#OrderController.<constructor>   container.ts:24
   bean_ctor  container#OrderService.<constructor>   container.ts:15
   bean_ctor  container#OrdersView.<constructor>   container.ts:36
+  http       container#AuditController.one   container.ts:61
   http       container#OrderController.add   container.ts:29
   http       container#OrderController.getOne   container.ts:26
   lifecycle  container#OrdersView.ngOnInit   container.ts:39
   unimported_module container#<module>   container.ts:1
+── di_edge (4) ──
+  known_bean  container#AuditController.<constructor>(audit: AuditService) <- AuditService
+  known_bean  container#AuditService.<constructor>(orders: OrderService) <- OrderService
+  known_bean  container#OrderController.<constructor>(svc: OrderService) <- OrderService
+  unsatisfied container#AuditController.<constructor>(extra: Unprovided) <- -

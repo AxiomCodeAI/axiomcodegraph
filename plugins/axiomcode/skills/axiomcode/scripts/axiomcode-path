@@ -231,11 +231,25 @@ class G:
         if not hasattr(self, '_mkind'):
             self._mkind = {r[0]: r[1] for r in self.q("SELECT id, kind FROM methods")} if self.has('methods') else {}
         return self._mkind.get((self.sym.get(i) or {}).get('method_id') or i)
+    def repo_file(self, f):
+        """-> (the file as the index stores it, whether it lies outside the repository). A file:line is written the way
+        editors, stack traces and test runners print it: `./src/a.js`, or absolute under the repository root. The index
+        stores it relative to that root, so both are read as the relative path; an absolute path elsewhere is kept, with
+        its leading `/` dropped as before, so a root-relative `/src/a.js` still matches — and is named as outside when not."""
+        while f.startswith('./'): f = f[2:]
+        if not os.path.isabs(f): return f, False
+        real = os.path.realpath(f)
+        for root in {self.repo, os.path.abspath(self.repo)}:
+            for p in (real, os.path.abspath(f)):
+                if p == root or p.startswith(root.rstrip('/') + '/'):
+                    return os.path.relpath(p, root).replace(os.sep, '/'), False
+        return f.lstrip('/'), True
     def _resolve(self, sel, fragment=False):
         s = sel.strip().strip('`"\'')
-        m = re.match(r'^(.+?):(\d+)$', s)
+        # file:line, or file:line:col as a stack trace prints it — the column never changes which callable spans the line
+        m = re.match(r'^(.+?):(\d+)(?::\d+)?$', s)
         if m and ('/' in m.group(1) or '.' in m.group(1)):                            # file:line → the method containing it
-            f, ln = m.group(1).lstrip('/'), int(m.group(2))
+            (f, outside), ln = self.repo_file(m.group(1)), int(m.group(2))
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
             r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, f"%/{f}", ln, ln)
@@ -251,6 +265,7 @@ class G:
                 return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
             r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f, f"%/{f}")
             if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
+            if outside: die(f"{m.group(1)} is outside the indexed repository {self.repo}: give the file relative to that root, or ask the graph of the repository it belongs to")
             die(f"no callable spans {s}")
         if s.startswith('@') and self.has('decorations'):                                # @GetMapping / @*Mapping / @Test → every method carrying it
             pat = s[1:].replace('*', '%')
@@ -553,9 +568,9 @@ class G:
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
-    # is up to date and nothing rebuilds). 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the
-    # bare mtime.
-    EXPORT_VERSION = '2'
+    # is up to date and nothing rebuilds). 3: on one line a JavaScript anonymous callable nests only where its name
+    # does (#1598); 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
+    EXPORT_VERSION = '3'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return
@@ -569,7 +584,7 @@ class G:
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
         # a callable defined inside another one's body: nobody calls it by name, but it runs only after its definer did.
         # One builder for this and the fast path (graph_sql._edges), so the two cannot disagree on what contains what.
-        edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'])
+        edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'], r.get('qualified_name'))
                                          for r in self.sym.values() if r['method_id'] and r['kind'] != 'module'),
                                         ax_edges.sites_of(lambda s, p: self.q(s, *p)) if self.has('call_sites') else None)
         # a call resolved to a base may run any instantiated override: the engine's own dispatch table
@@ -867,9 +882,11 @@ def framework_note(g, ids, writers=()):
         return []
     out = []
     try:
-        regs = [r for r in ax_registration.all_registrations(g.q, g.site_file) if r[0] in ids]
+        every = ax_registration.all_registrations(g.q, g.site_file)
     except Exception:
         return []
+    regs = [r for r in every if r[0] in ids]
+    registered = {r[4] for r in every if r[4]}                 # a key registered verbatim elsewhere wins over a pattern
     keys = {}
     for decl, f, l, kind, key, why in regs[:4]:
         out.append(f"  {g.disp(decl)} is {why} ({f}:{l})")
@@ -887,10 +904,10 @@ def framework_note(g, ids, writers=()):
         hit = []
         for v, f, l in g.q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
             if not isinstance(v, str): continue
-            for key, decl in keys.items():
-                if v == key or ax_registration.route_matches(v, key):
-                    c = at(f, l)
-                    if c in writers: hit.append((g.disp(c), v, key, g.site_file(f) if f else f, l))
+            for key in ax_registration.route_candidates(v, registered):
+                if key not in keys: continue
+                c = at(f, l)
+                if c in writers: hit.append((g.disp(c), v, key, g.site_file(f) if f else f, l))
         for c, v, key, f, l in sorted(set(hit))[:3]:
             out.append(f"  {c} writes \"{v}\" at {f}:{l}, which is the key it is registered under" + (f' ("{key}")' if v != key else '')
                        + " — the framework connects them, no call does")
@@ -924,24 +941,33 @@ def closure(g, sel, upstream, limit=40, depth=40):
     # turned 3 exact callers into 342 methods. Both numbers are true -- the first is what must run it, the second what may --
     # and a count that does not say which it is reads as the first. Walk the same direction again over exact calls only.
     if rows:
-        exact_adj = collections.defaultdict(set)
-        for a, b, t in g.edges():
-            if t != 'dispatch' and ax_edges.direct_cert(t) == 'resolved': (exact_adj[b].add(a) if upstream else exact_adj[a].add(b))
-        ex, fr = set(ids), list(ids)
-        for _ in range(depth):
-            nxt = []
-            for x in fr:
-                for y in exact_adj.get(x, ()):
-                    if y not in ex: ex.add(y); nxt.append(y)
-            fr = nxt
-            if not fr: break
+        # A REQUEST OR EVENT SENT TO ITS HANDLER (`event_dispatch`) is not a dispatch choice: the framework runs the
+        # handler for what is sent, so what reaches the sender reaches the handler. It is walked as its own layer on top
+        # of the exact calls and counted apart, rather than filed with the interface fan-out as "MAY run it".
+        def _walk(ok):
+            adj_ = collections.defaultdict(set)
+            for a, b, t in g.edges():
+                if ok(t): (adj_[b].add(a) if upstream else adj_[a].add(b))
+            ex_, fr_ = set(ids), list(ids)
+            for _ in range(depth):
+                nxt = []
+                for x in fr_:
+                    for y in adj_.get(x, ()):
+                        if y not in ex_: ex_.add(y); nxt.append(y)
+                fr_ = nxt
+                if not fr_: break
+            return ex_
+        _exact_t = lambda t: t != 'dispatch' and ax_edges.direct_cert(t) == 'resolved'
+        ex = _walk(_exact_t)
         in_rows = {m for m, _ in rows}
         exact = (ex - set(ids)) & in_rows
+        sent = ((_walk(lambda t: _exact_t(t) or t in ax_edges.TIER_WHY) - set(ids)) & in_rows) - exact
         prod = lambda ms: sum(1 for m in ms if not g.sym[m]['is_test'])
         n_prod, n_test = prod(in_rows), len(in_rows) - prod(in_rows)
         e_prod, e_test = prod(exact), len(exact) - prod(exact)
-        print(f"  {n_prod} production, {n_test} test. Through exact calls only: {e_prod} production, {e_test} test; the other "
-              f"{len(in_rows) - len(exact)} only through a dispatch choice (an interface or override with several implementations, "
+        print(f"  {n_prod} production, {n_test} test. Through exact calls only: {e_prod} production, {e_test} test"
+              + (f"; {len(sent)} more through a request or event sent to a handler, which the framework runs for what is sent" if sent else '')
+              + f"; the other {len(in_rows) - len(exact) - len(sent)} only through a dispatch choice (an interface or override with several implementations, "
               "a call with several candidates) — they MAY run it, not must")
     if not upstream:
         print_boundary(g, ids, "it calls into libraries directly", "it also makes")
@@ -1078,7 +1104,8 @@ def entered_in_process(g, ids):
         part = keys[k:k + 900]; q = ','.join('?' * len(part))
         if g.has('entry_points'):
             for r in g.q(f"SELECT method_id, reason FROM entry_points WHERE method_id IN ({q})", *part):
-                if r['reason'] not in NOT_FROM_A_LIBRARY_CALL: out.setdefault(mid[r['method_id']], f"{r['reason']} entry point")
+                if r['reason'] not in NOT_FROM_A_LIBRARY_CALL: out.setdefault(mid[r['method_id']], f"{r['reason']} entry point" if ax_edges.entry_outside(r['reason'])
+                                                                         else ax_edges.entry_phrase(r['reason']))
         if g.has('overrides'):
             for r in g.q(f"""SELECT o.overriding_method_id m, b.qualified_name b FROM overrides o JOIN methods b ON b.id = o.method_id
                              WHERE o.overriding_method_id IN ({q}) AND b.provenance <> 'client'""", *part):

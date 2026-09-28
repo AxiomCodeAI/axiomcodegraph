@@ -1,0 +1,20 @@
+# Accepted call-site gaps for 78-callable-collections. Each line is an edge the TypeScript
+# compiler resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# Every site here calls a function held as an ELEMENT of a collection (#967). The compiler
+# answers each with ONE declaration: the element type of `[widen, narrow]` is the union of
+# their types, reduced to one arbitrary member, so it names widen and never narrow. A
+# call-site answer cannot match that without being wrong at every other element. These
+# sites are answered in the ENVELOPE instead (expected/78-callable-collections.envelope,
+# `value_call`): every element the collection holds, at the dispatch rung.
+pipeline#<arrow@43>(?) -> steps#widen(Node)
+pipeline#<arrow@46>(?,?) -> steps#square(Node)
+pipeline#runByKey(Node,'grow' | 'shrink') -> steps#widen(Node)
+pipeline#runByName(Node) -> steps#narrow(Node)
+pipeline#runFrozen(Node) -> steps#square(Node)
+pipeline#runImported(Node) -> steps#halve(Node)
+pipeline#runIndexed(Node,number) -> steps#widen(Node)
+pipeline#runIterated(Node) -> steps#widen(Node)
+pipeline#runRegistry(Node) -> steps#widen(Node)
+pipeline#runValues(Node) -> steps#widen(Node)

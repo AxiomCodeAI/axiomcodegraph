@@ -73,6 +73,10 @@ def paginate(text, page, budget, budget_flag='--budget'):
                 if i > 0: cur.append(title + '  (continued)'); used += len(title) + 13
             cur.append(l); used += len(l) + 1
     if cur: pages.append(cur)
+    # AN ANSWER WITH NO ROWS BEYOND ITS FIRST PAGE IS NOT PAGED: a refusal or a note list longer than a page came back as
+    # "page 1 of 2 ... 1 more page, 0 rows", a footer promising more of an answer that had none
+    if len(pages) > 1 and page == 1 and not any(l.startswith('    ') for pg in pages[1:] for l in pg):
+        return text
     n = len(pages)
     if page < 1 or page > n:
         return f"page {page} does not exist: this answer has {n} page(s) at {budget_flag} {budget}\n"
@@ -108,7 +112,14 @@ def next_path(text):
     rows = re.findall(r'^\s+(\d+) hop\(s\)\s+(\S+).*?\s' + LOC, text, re.M)
     if rows:
         near = min(int(h) for h, _, _ in rows)
-        first = [(n, loc) for h, n, loc in rows if int(h) == near][:5]
+        # each caller ONCE (#1389): the same caller is printed under "nearest callers" (at its call line) and again under
+        # "entry points" (at its declaration), so the rows are keyed on the name and its FILE, not the line. Two callers
+        # of one display name in two files are two callers, and stay two.
+        seen_, first = set(), []
+        for h, n, loc in rows:
+            if int(h) == near and (n, loc.rsplit(':', 1)[0]) not in seen_:
+                seen_.add((n, loc.rsplit(':', 1)[0])); first.append((n, loc))
+        first = first[:5]
         total = re.search(r'(\d+) (?:method|callable)s?\b', text)
         return (f"next: the nearest {'caller is' if len(first) == 1 else 'callers are'} at {near} hop(s): "
                 + ', '.join(f"{n} {loc}" for n, loc in first)
@@ -180,12 +191,15 @@ def next_context(text):
             "to it reaches. The other files are ranked context, not a reading list")
 
 def next_changed(text):
-    if re.search(r'^no change', text, re.M): return ''
+    if re.search(r'^(no change|no git base)', text, re.M): return ''
     return "next: `test-impact` names the tests this edit reaches and the command that runs exactly those; `impact <target>` for a signature or field change above"
 
 def next_test_impact(text):
-    m = re.search(r'^\s*((?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pytest|python -m pytest|dotnet|go) [^\n]+)$', text, re.M)
-    return f"next: run {m.group(1).strip()} — only the tests above; a test reached through reflection or a service loader is not among them" if m else ''
+    # the LAST command printed: when a text tier adds the tests that load a changed fixture, it prints the command for
+    # both, and the first one alone left those tests out of the step an agent takes
+    ms = list(re.finditer(r'^\s*(?:with the tests above: )?((?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pytest|python -m pytest|dotnet|go) [^\n]+)$', text, re.M))
+    m = ms[-1] if ms else None
+    return f"next: run {m.group(1).strip()} — only the tests above; a test reached through reflection, a service loader or a subprocess is not among them" if m else ''
 
 NEXT = {'path': next_path, 'context': next_context, 'changed': next_changed, 'test-impact': next_test_impact}
 

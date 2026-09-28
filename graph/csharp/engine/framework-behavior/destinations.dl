@@ -45,6 +45,12 @@ call_recv_written_name(e, n) :-
     ref_denotes("client", r, "LOCAL_VARIABLE", v), var_is_implicit("client", v),
     var_value_initializer("client", v, init), expr_new_type_ref("client", init, tr),
     type_ref_name("client", tr, n).
+// …and a property read off another value, `services.Mediator.Send(..)`: a minimal-API
+// endpoint takes its services as one parameter object, and the receiver is that
+// object's property, whose declared type name is what the project wrote.
+call_recv_written_name(e, n) :-
+    call_receiver_expr("client", e, r), property_access("client", r, p, _),
+    property_type_name("client", p, n, _), n != "".
 // …and a `var` from the service locator, which holds its type argument
 call_recv_written_name(e, n) :-
     call_receiver_expr("client", e, r),
@@ -706,24 +712,26 @@ msg_bus_arg(e, a) :- msg_bus_send_site(e, _, _), http_arg(e, 0, a), !msg_first_i
 msg_bus_arg(e, a) :- msg_bus_send_site(e, _, _), msg_first_is_address(e), http_arg(e, 1, a).
 msg_first_is_address(e) :- msg_bus_send_site(e, _, _), http_arg(e, 0, a0), http_arg(e, 1, _),
     expr_literal("client", a0, k, _), k != "NULL".
-// the message's type NAME, however it is written
-msg_arg_type_name(a, n) :- msg_bus_arg(_, a), expr_new_type_ref("client", a, tr), type_ref_name("client", tr, n0), last_segment(n0, n).
-msg_arg_type_name(a, n) :- msg_bus_arg(_, a), expr_kind("client", a, "OBJECT_CREATION"),
+// the message's type NAME, however it is written. Read for a bus send here and for an
+// in-process mediator send (dispatch.dl), which carries its request the same way.
+msg_typed_arg(a) :- msg_bus_arg(_, a).
+msg_arg_type_name(a, n) :- msg_typed_arg(a), expr_new_type_ref("client", a, tr), type_ref_name("client", tr, n0), last_segment(n0, n).
+msg_arg_type_name(a, n) :- msg_typed_arg(a), expr_kind("client", a, "OBJECT_CREATION"),
     call_callee_name("client", a, n0), last_segment(n0, n).
-msg_arg_type_name(a, n) :- msg_bus_arg(_, a), expr_type("client", a, gk), type_group("client", t, gk),
+msg_arg_type_name(a, n) :- msg_typed_arg(a), expr_type("client", a, gk), type_group("client", t, gk),
     type_decl("client", n, _, _, _, t).
-msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+msg_arg_type_name(a, n) :- msg_typed_arg(a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
     var_type_name("client", v, n0, _), n0 != "", last_segment(n0, n).
-msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "PARAMETER", p),
+msg_arg_type_name(a, n) :- msg_typed_arg(a), ref_denotes("client", a, "PARAMETER", p),
     param_type_name("client", p, n0, _), n0 != "", last_segment(n0, n).
 // A local declared as a BASE is usually assigned a concrete message on each branch,
 //     Notice evt;  if (ok) evt = new Accepted(..); else evt = new Rejected(..);
 // and those constructions, in the same method, are what it can hold.
-msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+msg_arg_type_name(a, n) :- msg_typed_arg(a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
     msg_local_assigned(v, c), msg_creation_name(c, n).
-msg_arg_type_name(a, n) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+msg_arg_type_name(a, n) :- msg_typed_arg(a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
     var_value_initializer("client", v, c), msg_creation_name(c, n).
-msg_local_assigned(v, c) :- msg_bus_arg(_, a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
+msg_local_assigned(v, c) :- msg_typed_arg(a), ref_denotes("client", a, "LOCAL_VARIABLE", v),
     expr_kind("client", asg, "ASSIGNMENT"), expr_child("client", asg, "ASSIGNMENT_TARGET", _, t),
     ref_denotes("client", t, "LOCAL_VARIABLE", v), expr_child("client", asg, "ASSIGNMENT_VALUE", _, c).
 msg_creation_name(c, n) :- expr_kind("client", c, "OBJECT_CREATION"), expr_new_type_ref("client", c, tr),

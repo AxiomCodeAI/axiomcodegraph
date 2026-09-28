@@ -209,7 +209,7 @@ def rank_dirs(g, terms, depth=3, topk=DIR_EVIDENCE):
     return ranked
 
 
-def pick_seeds(g, scored, terms, want, named=()):
+def pick_seeds(g, scored, terms, want, named=(), prefer=frozenset()):
     """The entry points, in four passes, each only filling what the one before left:
 
       1. what the question NAMES: a declaration it spells out (`IRouter.RouteAsync`), a route it quotes
@@ -221,6 +221,13 @@ def pick_seeds(g, scored, terms, want, named=()):
       3. the best symbol for each term still uncovered, as before, so a task naming unrelated concepts still enters the
          graph at each of them;
       4. the best overall.
+
+    Equal scores are common: `findByCode` on a mapper, a repository, a service and a query class all match the same
+    two words the same way. A tie used to fall to the graph's symbol ids, which are hashes that change with the
+    directory a project is indexed in, so the same question on the same code picked a different four of nine from one
+    copy to the next. A tie now goes first to `prefer` (a declaration bound by a text file of the kind the question
+    asks about: the mapper method whose XML holds the SQL, when the question asks which SQL runs), then to the one
+    whose own name holds more of the matched words, then to its name and place, which do not move.
     """
     seeds, seen, covered = [], set(), set()
     def take(sid, why, sc):
@@ -228,10 +235,14 @@ def pick_seeds(g, scored, terms, want, named=()):
         seen.add(sid); seeds.append((sid, why, sc)); covered.update(scored.get(sid, (0, []))[1]); return True
     for sid, why in named:
         take(sid, why, scored.get(sid, (0, []))[0])
-    ranked = sorted(scored.items(), key=lambda kv: -kv[1][0])
+    # the task's words in the declaration's OWN name beat the same words reached through its owner or its path:
+    # `OrderCreatedEvent` says more about "where is an order created" than `Order.getCreatedAt` does
+    own = lambda sid: sum(t in ((g.sym.get(sid) or {}).get('name') or '').lower() for t in scored.get(sid, (0, []))[1])
+    tie = lambda sid: (sid not in prefer, -own(sid), g.disp(sid) or '', g.loc(sid) or '', sid)
+    ranked = sorted(scored.items(), key=lambda kv: (-kv[1][0],) + tie(kv[0]))
     floor = 0.05 * ranked[0][1][0] if ranked else 0
     multi = [(sid, sc, m) for sid, (sc, m) in ranked if len(m) >= 2 and sc >= floor]
-    multi.sort(key=lambda r: (-len(r[2]), -r[1]))
+    multi.sort(key=lambda r: (-len(r[2]), -r[1]) + tie(r[0]))
     for i, (sid, sc, m) in enumerate(multi):
         if len(seeds) >= want: break
         if not set(m) - covered: continue
@@ -241,7 +252,7 @@ def pick_seeds(g, scored, terms, want, named=()):
             if sib >= FLOW_FAN: break
             if m2 == m and sc2 >= 0.5 * sc and take(sid2, "matches '" + "' + '".join(m2) + "'", sc2): sib += 1
     best = {}
-    for sid, (sc, matched) in scored.items():
+    for sid, (sc, matched) in ranked:
         for t in matched:
             cur = best.get(t)
             if cur is None or sc > cur[0]: best[t] = (sc, sid)
@@ -292,14 +303,15 @@ def named_declarations(g, text):
     return out
 
 
-ROUTE = re.compile(r'(?<![\w.])(/?[A-Za-z0-9_{}:*-]+(?:/[A-Za-z0-9_{}:*.-]+)+/?|/[A-Za-z0-9_{}:-]{2,})(?![\w/])')
+ROUTE = re.compile(r'(?<![\w.])(/?[A-Za-z0-9_{}:*-]+(?:/[A-Za-z0-9_{}:*.-]+)+/?|/[A-Za-z0-9_{}:-]{2,}/?)(?![\w/])')
 FILE_EXT = re.compile(r'\.[A-Za-z0-9]{1,6}$')
 
 
 def _route_parts(r):
     r = (r or '').strip().strip('"\'`').lower()
     r = re.sub(r'^[a-z]+://[^/]+', '', r).split('?')[0]
-    return [('*' if (p.startswith('{') or p.startswith(':') or p == '*') else p) for p in r.strip('/').split('/') if p]
+    # a parameter in any spelling a route table uses: `{id}`, `:id`, `*`, and `<int:pk>` (a Python route converter)
+    return [('*' if (p.startswith('{') or p.startswith(':') or p.startswith('<') or p == '*') else p) for p in r.strip('/').split('/') if p]
 
 
 def _route_eq(a, b):
@@ -321,7 +333,19 @@ def route_seeds(g, text):
     hits = []                                   # (symbol id, route as written)
     def serve(mid, route):
         if mid in g.sym: hits.append((mid, route))
-    for tbl in ('ext_remote_unserved', 'ext_remote_unsent'):
+    # the path a url_dispatch edge says its view is served at: the engine composed it through every include() that
+    # mounts the table, so it is the one source that names the handler of `/api/v1/status/` when no line spells it
+    tables = set()                              # route files whose every literal path the engine already composed
+    if g.has('ext_framework_edge') and g.has('symbols'):
+        for r in g.q("""SELECT s.id AS sid, e.c3 AS path, t.file AS tf FROM ext_framework_edge e
+                        JOIN symbols s ON s.method_id = e.c1 JOIN symbols t ON t.method_id = e.c0
+                        WHERE e.c2 = 'url_dispatch' AND e.c3 LIKE '/%'"""):
+            tables.add(r['tf'])
+            if any(_route_eq(_route_parts(r['path']), a) for a in asked): serve(r['sid'], r['path'])
+    # a route the engine answered is not searched again as text: the literal scan below is the fallback for a route
+    # no edge carries, and on an answered one it only adds the table's module and every literal that spells a suffix
+    asked = [a for a in asked if not any(_route_eq(_route_parts(r), a) for _s, r in hits)]
+    for tbl in ('ext_remote_unserved', 'ext_remote_unsent') if asked else ():
         if g.has(tbl):
             for r in g.q(f"SELECT c0, c2 FROM {tbl}"):
                 if any(_route_eq(_route_parts(r['c2']), a) for a in asked): serve(r['c0'], r['c2'])
@@ -329,10 +353,10 @@ def route_seeds(g, text):
     # A class-level prefix (@RequestMapping("/api") over @GetMapping("/widgets")) is met by accepting a suffix match
     # when the rest of the asked route is itself a literal in the same file.
     lits = []
-    if g.has('decorations'):
+    if asked and g.has('decorations'):
         for r in g.q("SELECT owner_id, text, file, line FROM decorations WHERE text LIKE '%/%' OR text LIKE '%\"%'"):
             for v in re.findall(r'"([^"]*)"', r['text'] or ''): lits.append((v, r['file'], r['line'], r['owner_id']))
-    if g.has('literals'):
+    if asked and g.has('literals'):
         for r in g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40"):
             lits.append(((r['value'] or '').strip('"'), r['file'], r['line'], None))
     by_file = collections.defaultdict(set)
@@ -342,6 +366,9 @@ def route_seeds(g, text):
         if s.get('method_id') and s.get('line') and not (s.get('file') or '').startswith('<'):
             spans[s['file']].append((s['line'], s.get('end_line') or s['line'], sid))
     for v, f, l, owner in lits:
+        # a pattern in a route table the engine read is one segment of a longer served path, not the path itself:
+        # `path("status/", ...)` under `include()` at `api/v1/` is not served at `/status/`
+        if f in tables: continue
         vp = _route_parts(v)
         if not vp or ('/' not in v and not owner): continue       # a bare word in a string is not a route
         ok = any(_route_eq(vp, a) for a in asked) or any(
@@ -349,7 +376,9 @@ def route_seeds(g, text):
         if not ok: continue
         if owner and owner in g.sym: serve(owner, v); continue
         inner = sorted((e - b, sid) for b, e, sid in spans.get(f, ()) if b <= (l or 0) <= e)
-        if inner: serve(inner[0][1], v)
+        # A TEST REQUESTS A ROUTE, IT DOES NOT SERVE ONE. `self.client.get("/api/v1/status/")` puts the literal inside
+        # a test method, and labelling that method "serves the route" sent a reader to the caller instead of the view.
+        if inner and not g.sym[inner[0][1]].get('is_test') and not TESTY.search(f or ''): serve(inner[0][1], v)
     out, seen = [], set()
     for sid, route in hits:
         if sid not in seen: seen.add(sid); out.append((sid, f"serves the route {route.strip()}"))
@@ -542,7 +571,9 @@ def text_bindings(g, sids, under=(), want_ext=()):
     except Exception: return []
     ns_of = {}
     out, seen = [], set()
+    prose = getattr(nonsource(g), 'prose', set())     # a common word written as a word is not a binding (ax_nonsource.py)
     for nm, f, line in hits:
+        if (nm, f, line) in prose: continue
         if under and not any(f.startswith(d.rstrip('/') + '/') for d in under): continue
         if f.endswith('.xml'):
             if f not in ns_of:
@@ -565,6 +596,19 @@ def text_bindings(g, sids, under=(), want_ext=()):
         rank = (0 if f.endswith('.xml') and ns_of.get(f) else 1, 0 if f.endswith(tuple(want_ext) or ('\0',)) else 1, f, line)
         out.append((rank, (f, line, g.disp(sid), nm)))
     return [r for _k, r in sorted(out)]
+
+
+def asked_bound(g, scored, text, under=(), cap=300):
+    """{symbol id} among the multi-term matches that a text file of the kind the question asks about binds by name.
+    Empty unless the question asks about such a file (SQL, configuration, a template): only then is the tree walked,
+    and only then does it break a tie between equally scored entry points (pick_seeds)."""
+    kinds = asked_exts(text)
+    if not kinds or not NONSOURCE_ASK.search(text or ''): return frozenset()
+    cands = sorted((sid for sid, (_sc, m) in scored.items() if len(m) >= 2), key=lambda s: -scored[s][0])[:cap]
+    by_disp = collections.defaultdict(set)
+    for sid in cands: by_disp[g.disp(sid)].add(sid)
+    return frozenset(sid for f, _l, d, _n in text_bindings(g, cands, under=under, want_ext=kinds)
+                     if f.endswith(kinds) for sid in by_disp.get(d, ()))
 
 
 _SRC = {}
@@ -972,7 +1016,7 @@ def main(argv):
     # themselves, and on Python every class has one, so they can be a third of this list while
     # naming nowhere to go.
     scored = {sid: v for sid, v in scored.items() if not is_synthetic(g.sym.get(sid, {}).get('name'))}
-    seeds = pick_seeds(g, scored, terms, seeds_wanted, named)
+    seeds = pick_seeds(g, scored, terms, seeds_wanted, named, prefer=asked_bound(g, scored, body, text_dirs))
 
     RESULT['terms'] = list(terms)
     RESULT['scope'], RESULT['scope_offered'] = (scopes[0] if scopes else None), bool(scope_offered)
@@ -1105,10 +1149,10 @@ def main(argv):
                 sp = span_of.get((f, nm))
                 if not sp: continue
                 a, b = sp
-                body = source_lines(g.repo, f)[a - 1:min(b, a + SOURCE_LINES)]
-                if not body: continue
+                code = source_lines(g.repo, f)[a - 1:min(b, a + SOURCE_LINES)]   # not `body`: that is the question
+                if not code: continue
                 print(f"    {'':22}   {nm}  ({f}:{a})")
-                for k, ln in enumerate(body, a):
+                for k, ln in enumerate(code, a):
                     print(f"    {'':22}   {k:5} | {ln.rstrip()[:110]}")
                 if b > a + SOURCE_LINES: print(f"    {'':22}   {'':5} | … +{b - a - SOURCE_LINES} more line(s)")
     if foot and budget > 0: print(foot + ", tests and benchmarks not listed")
@@ -1126,9 +1170,13 @@ def main(argv):
         if g.has('overrides') and seed_ids:
             ph = ','.join('?' * len(seed_ids))
             impls = {r[0] for r in g.q(f"SELECT overriding_method_id FROM overrides WHERE method_id IN ({ph})", *seed_ids)} - seed_ids
+            # nearer through the implementation than through the seeds' own closure counts as nearer: the mapper call
+            # in the impl is one hop from it however far the closure walk happened to place it (hop 3 is outside the ring)
             for x, d in neighbourhood(g, [i for i in impls if i in g.sym], cap=1).items():
-                if x not in seed_ids and x in g.sym and x not in depth: depth[x] = d + 1; ring.append(x)
-        near = list(seed_ids) + sorted(ring, key=lambda x: (not bodiless(g, x), depth[x], x))[:300]
+                if x in seed_ids or x not in g.sym or depth.get(x, d + 2) <= d + 1: continue
+                if depth.get(x, 3) > 2: ring.append(x)
+                depth[x] = d + 1
+        near = list(seed_ids) + sorted(ring, key=lambda x: (not bodiless(g, x), depth[x], g.disp(x) or '', x))[:300]
         kinds = asked_exts(body)
         binds = text_bindings(g, near, under=text_dirs, want_ext=kinds)
         # the question named a kind of file (SQL: mapper XML or .sql): when some binding is of that kind, the others

@@ -1,0 +1,16 @@
+known_edge	read	probe.Audit#direct(OrderPlaced) -> probe.OrderPlaced#id
+known_edge	read	probe.Audit#on(OrderPlaced) -> probe.OrderPlaced#id
+known_edge	read	probe.Audit#onExpress(ExpressOrderPlaced) -> probe.OrderPlaced#id
+known_edge	read	probe.OrderService#place() -> probe.OrderService#publisher
+known_edge	read	probe.OrderService#placeAll(List) -> probe.OrderService#publisher
+known_edge	read	probe.OrderService#placeDirect() -> probe.OrderService#audit
+known_edge	read	probe.OrderService#placeExpress() -> probe.OrderService#publisher
+known_edge	read	probe.OrderService#placeLocal() -> probe.OrderService#bus
+known_edge	read	probe.OrderService#ship() -> probe.OrderService#ctx
+known_edge	read	probe.Refunds#refund() -> probe.Refunds#events
+known_edge	write	probe.OrderPlaced#<init>(String) -> probe.OrderPlaced#id
+known_edge	write	probe.OrderService#<init>(ApplicationEventPublisher,ApplicationContext,Audit,LocalBus) -> probe.OrderService#audit
+known_edge	write	probe.OrderService#<init>(ApplicationEventPublisher,ApplicationContext,Audit,LocalBus) -> probe.OrderService#bus
+known_edge	write	probe.OrderService#<init>(ApplicationEventPublisher,ApplicationContext,Audit,LocalBus) -> probe.OrderService#ctx
+known_edge	write	probe.OrderService#<init>(ApplicationEventPublisher,ApplicationContext,Audit,LocalBus) -> probe.OrderService#publisher
+known_edge	write	probe.Refunds#setApplicationEventPublisher(ApplicationEventPublisher) -> probe.Refunds#events
