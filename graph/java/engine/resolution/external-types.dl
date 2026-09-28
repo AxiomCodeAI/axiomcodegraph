@@ -73,10 +73,16 @@ simple_name_declared(n) :- lib_type(n, _, _, _, _, _, _, _, _, _, _, _, _, _).
 name_resolves_in_file(tn, fp) :- type_resolves_in_file(_, tn, fp, _).
 name_resolves_in_file(tn, fp) :- ref_file(_, tn, fp), type_resolves_java_lang(_, tn, _).
 
+// `var` is not a type name (JLS 3.9, 14.4). The parser records `var h = r.lookup(k)` as a
+// LOCAL_VARIABLE reference written `var` that nothing resolves, so without this guard every call
+// on an inferred local got an `external:var.<m>` boundary beside its real target (3,842 of 85,025
+// edges on a 1,360-file project). Its type is the initializer's: local-flow.dl carries a client
+// one, and the `var` clause of expr_type below an external one. #1401.
 candidate_ref(ref, tn, ctn, fp) :- java_type_reference(kind, ctx, _, _, _, _, _, "0", tn, ctn, _, _, _, _, _, _, _, ref),
     ext_ref_kind(kind),
     ext_ref_context(ctx),
     tn != "",
+    tn != "var",
     ref_file(ref, tn, fp),
     !name_resolves_in_file(tn, fp),
     !simple_name_declared(tn).
@@ -149,6 +155,16 @@ expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, nam
     java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
     !local_creation_pinned(local),
     local_var_type_external(local, x).
+// A `var` local's static type IS its initializer's (JLS 14.4.1), fixed at the declaration, so a
+// reassignment does not widen it. When that initializer is typed external (`var f = source()`
+// with `Format source()` unstaged), the local is that external type exactly as `Format f` would
+// be. Without it the receiver has no external type at all and the call is a declared unknown.
+// java_local_variable (19): 11 isVarInferred 13 method 18 hash
+expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, "true", _, m, _, _, _, _, local),
+    local_init_expr(local, init),
+    expr_type("external", init, x).
 expr_type("external", e, x) :- java_expression("CAST_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     cast_type_external(e, x).
 // A chained receiver whose callee is a client method declared to return the external type.
