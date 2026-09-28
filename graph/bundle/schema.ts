@@ -640,6 +640,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'TAGGED_TEMPLATE_CALL', languages: S, meaning: 'tag`…`.' },
   { table: 'call_edges', column: 'kind', value: 'DYNAMIC_CODE_CALL', languages: S, meaning: '`eval(…)` / `new Function(…)` — unknowable by construction.' },
   { table: 'call_edges', column: 'kind', value: 'DYNAMIC_IMPORT_CALL', languages: S, meaning: '`import(…)` — a module load that is also a site.' },
+  { table: 'call_edges', column: 'kind', value: 'JSX_ELEMENT', languages: S, meaning: '`<Component …/>` — the renderer runs the component (a function component, or a class component\'s constructor and `render`) with the element\'s attributes as its props. Engine-authored: no written call; the site is the JSX element expression. An intrinsic tag (`<div/>`) is no site.' },
   // — Python (the parser's callKind, plus engine-authored decorator/metaclass forms)
   { table: 'call_edges', column: 'kind', value: 'SIMPLE_CALL', languages: P, meaning: '`f(…)` — a bare name.' },
   { table: 'call_edges', column: 'kind', value: 'METHOD_CALL', languages: P, meaning: '`obj.m(…)`.' },
