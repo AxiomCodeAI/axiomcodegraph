@@ -331,7 +331,10 @@ command keeps reading the previous graph until the new one is indexed and swappe
 naming the files it predates. The MCP server also checks every repository it has answered for once 15 minutes have
 passed since its last update (`AXIOMCODE_REFRESH_INTERVAL`, seconds; 0 turns it off), which catches edits made while
 a session sits idle. The graph records when and why it was built in `index_meta` (`refreshed_at`, `refresh_reason`).
-`AXIOMCODE_NO_REFRESH=1` turns all of this off; the log is `.axiomcode/refresh.log`.
+`AXIOMCODE_NO_REFRESH=1` turns the rebuilds off, not the check: an answer from a graph older than an edit still
+ends with a `graph refresh: OFF` line naming the files it predates. When a name asked about finds nothing and an
+edit since the graph was built writes that name, the line says so, since the declaration may simply be too new
+for the graph. The log is `.axiomcode/refresh.log`.
 
 ## Graph output
 
