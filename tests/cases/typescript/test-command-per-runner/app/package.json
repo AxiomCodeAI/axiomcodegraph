@@ -1,0 +1,5 @@
+{
+  "name": "app",
+  "scripts": { "test": "vitest" },
+  "devDependencies": { "vitest": "^1.0.4", "tsx": "^4.7.0" }
+}

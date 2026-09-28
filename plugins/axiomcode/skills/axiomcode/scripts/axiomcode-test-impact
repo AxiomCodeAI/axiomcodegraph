@@ -121,7 +121,7 @@ def concrete_test_classes(db, names):
 
 # How a suite is invoked, per language. Only the shapes this graph is built for; anything else prints the
 # files and lets the reader decide, which is better than inventing a command that does not run.
-def command_for(lang, files, classes, db=None):
+def command_for(lang, files, classes, db=None, repo='.'):
     if lang in ('java', 'csharp') and db:
         # a class to select by name: the test's owner, else its file's basename (a Java or C# test class is its file)
         names = classes or [os.path.splitext(os.path.basename(f))[0] for f in files]
@@ -147,8 +147,182 @@ def command_for(lang, files, classes, db=None):
     if lang == 'python':
         return "pytest " + " ".join(sorted(files)[:40])
     if lang in ('typescript', 'javascript'):
-        return "npx vitest run " + " ".join(sorted(files)[:40])
+        return "\n".join(js_plan(repo, files)[0]) or None
     return None
+
+
+# A TypeScript or JavaScript test file is run by whatever its PACKAGE runs it with, and nothing about the
+# language says which: vitest collects `*.test.ts` and ignores `services-tests.ts`, a script suite is run as
+# `npx tsx src/test/x.ts` from its package, and `npx vitest run <file>` on a file vitest does not collect
+# exits 1 with "No test files found" (#1570). So each file is placed with the runner that would collect it —
+# read off the package's config and dependencies, with that runner's own include globs — and failing that
+# with the command its package scripts or its own header give for it. A file nothing collects is said so,
+# never handed to a runner that will not run it.
+_RUNNERS = (
+    # runner, config files, package.json key, default include (relative to the package), command
+    ('vitest', ('vitest.config.ts', 'vitest.config.mts', 'vitest.config.js', 'vitest.config.mjs',
+                'vitest.config.cjs', 'vitest.config.cts', 'vitest.workspace.ts', 'vitest.workspace.js'),
+     None, ('**/*.{test,spec}.?(c|m)[jt]s?(x)',), 'npx vitest run'),
+    ('jest', ('jest.config.ts', 'jest.config.js', 'jest.config.mjs', 'jest.config.cjs', 'jest.config.json'),
+     'jest', ('**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)'), 'npx jest'),
+    ('mocha', ('.mocharc.js', '.mocharc.cjs', '.mocharc.json', '.mocharc.jsonc', '.mocharc.yml', '.mocharc.yaml'),
+     'mocha', ('test/*.{js,cjs,mjs}',), 'npx mocha'),
+)
+_INCLUDE_KEY = {'vitest': r'\binclude', 'jest': r'\btestMatch', 'mocha': r'\bspec'}
+
+
+def _glob_re(g):
+    """A runner's include glob as a regex over a /-separated path: **, *, ?, [..], {a,b}, ?(..) and +(..)."""
+    out, i = '', 0
+    g = g[2:] if g.startswith('./') else g
+    while i < len(g):
+        c = g[i]
+        if g.startswith('**/', i):
+            out += '(?:.*/)?'; i += 3; continue
+        if g.startswith('**', i):
+            out += '.*'; i += 2; continue
+        if c in '?+*@!' and g.startswith('(', i + 1):
+            j = g.index(')', i + 2)
+            alts = '|'.join(_glob_re(a) for a in g[i + 2:j].split('|'))
+            out += f"(?:{alts})" + {'?': '?', '+': '+', '*': '*', '@': '', '!': ''}[c]; i = j + 1; continue
+        if c == '*':
+            out += '[^/]*'
+        elif c == '?':
+            out += '[^/]'
+        elif c == '[':
+            j = g.index(']', i + 1); out += g[i:j + 1]; i = j + 1; continue
+        elif c == '{':
+            j = g.index('}', i + 1)
+            out += '(?:' + '|'.join(_glob_re(a) for a in g[i + 1:j].split(',')) + ')'; i = j + 1; continue
+        else:
+            out += re.escape(c)
+        i += 1
+    return out
+
+
+def _globs_match(globs, rel):
+    for g in globs:
+        try:
+            if re.fullmatch(_glob_re(g), rel): return True
+        except (ValueError, re.error):
+            return True         # a glob this cannot read is not evidence the file is left out
+    return False
+
+
+def _read(p, n=None):
+    try:
+        with open(p, encoding='utf-8', errors='replace') as fh:
+            return fh.read() if n is None else fh.read(n)
+    except OSError:
+        return ''
+
+
+def _package_of_file(repo, rel):
+    """The directory (relative to repo, '' for the root) of the nearest package.json above a file."""
+    d = os.path.dirname(rel)
+    while True:
+        if os.path.isfile(os.path.join(repo, d, 'package.json')): return d
+        if not d: return ''
+        d = os.path.dirname(d)
+
+
+def _runners_of(repo, pkg):
+    """[(runner, include globs, command)] the package at `pkg` runs its tests with, most specific first."""
+    pj_text = _read(os.path.join(repo, pkg, 'package.json'))
+    try:
+        pj = json.loads(pj_text) if pj_text else {}
+    except ValueError:
+        pj = {}
+    deps = {**(pj.get('dependencies') or {}), **(pj.get('devDependencies') or {})}
+    scripts = ' '.join(str(v) for v in (pj.get('scripts') or {}).values())
+    out = []
+    for name, configs, key, default, cmd in _RUNNERS:
+        conf = next((c for c in configs if os.path.isfile(os.path.join(repo, pkg, c))), None)
+        if not (conf or (key and key in pj) or name in deps or re.search(rf'\b{name}\b', scripts)):
+            continue
+        text = _read(os.path.join(repo, pkg, conf)) if conf else json.dumps(pj.get(key) or {}) if key else ''
+        globs = default
+        m = re.search(_INCLUDE_KEY[name] + r'["\']?\s*[:=]\s*(\[[^\]]*\]|["\'][^"\']+["\'])', text)
+        if m:
+            found = re.findall(r'["\']([^"\']+)["\']', m.group(1))
+            globs = tuple(found) if found else ('**',)
+        elif re.search(_INCLUDE_KEY[name] + r'\b', text):
+            globs = ('**',)     # an include this cannot read: assume the file is in it rather than out
+        out.append((name, globs, cmd))
+    return out
+
+
+def _script_for(repo, pkg, prel):
+    """The command a package script, or the file's own usage line, gives for running this one file."""
+    pj_text = _read(os.path.join(repo, pkg, 'package.json'))
+    try:
+        scripts = (json.loads(pj_text).get('scripts') or {}) if pj_text else {}
+    except ValueError:
+        scripts = {}
+    for k, v in scripts.items():
+        if re.search(r'(^|[\s/"\'])' + re.escape(prel) + r'($|[\s"\'])', str(v)):
+            return f"npm run {k}"
+    runner = r'(?:(?:npx|pnpm(?: exec)?|yarn|bunx)\s+)?(?:tsx|ts-node(?:-esm)?|node(?:\s+--[\w-]+(?:=\S+)?)*|bun(?: run)?|deno run(?:\s+-\S+)*)'
+    lead = r'(?:^|[\s*/#`$])('
+    # the file's own usage line first, then the package's README: where a script suite says how it is run
+    head = _read(os.path.join(repo, pkg, prel), 4000)
+    for text, exact_only in ((head, False), (_read(os.path.join(repo, pkg, 'README.md')), True)):
+        m = re.search(lead + runner + r')\s+(?:\./)?' + re.escape(prel) + r'(?=$|[\s`\'"])', text, re.M)
+        if m:
+            return f"{m.group(1)} {prel}"
+        if exact_only: continue
+        # a header written from another directory (`npx tsx x-tests.ts` from beside it) names the file by basename
+        base = os.path.basename(prel)
+        m = re.search(lead + runner + r')\s+(\S*' + re.escape(base) + r')(?=$|[\s`\'"])', text, re.M)
+        if m and os.path.isfile(os.path.join(repo, pkg, m.group(2))):
+            return f"{m.group(1)} {m.group(2)}"
+    return None
+
+
+def js_plan(repo, files):
+    """(commands, files no runner collects): each file with the runner its own package would run it with."""
+    by_runner = collections.OrderedDict()
+    singles, unrun = [], []
+    for f in sorted(files)[:40]:
+        pkg = _package_of_file(repo, f)
+        prel = f[len(pkg) + 1:] if pkg else f
+        runners = _runners_of(repo, pkg)
+        if not runners and pkg:
+            # a workspace member with no runner of its own is run by the root's, with paths from the root
+            root = _runners_of(repo, '')
+            if root: pkg, prel, runners = '', f, root
+        if not runners:
+            # nothing configured anywhere: a file named the way vitest and jest both collect keeps the command
+            # this always printed; any other file has no runner to be handed to
+            runners = [('vitest', _RUNNERS[0][3], _RUNNERS[0][4])]
+        runner = next(((n, c) for n, globs, c in runners if _globs_match(globs, prel)), None)
+        if runner:
+            by_runner.setdefault((pkg, runner[1]), []).append(prel); continue
+        cmd = _script_for(repo, pkg, prel)
+        if cmd:
+            singles.append((pkg, cmd))
+        else:
+            unrun.append(f)
+    def cd(pkg, cmd):
+        return f"(cd {pkg} && {cmd})" if pkg else cmd
+    cmds = [cd(pkg, f"{c} " + " ".join(fs)) for (pkg, c), fs in by_runner.items()]
+    seen = set()
+    for pkg, c in singles:
+        if (pkg, c) not in seen:
+            seen.add((pkg, c)); cmds.append(cd(pkg, c))
+    return cmds, unrun
+
+
+def print_unrun(lang, repo, files):
+    """Say which selected files no runner collects, so a reader does not take the command as the whole run."""
+    if lang not in ('typescript', 'javascript'): return
+    unrun = js_plan(repo, files)[1]
+    if unrun:
+        print(f"\n  {len(unrun)} selected file(s) are collected by no test runner their package configures (no"
+              f" include glob matches, and no package script or usage line in the file runs it) — no command"
+              f" is given for them; read how each is run before trusting it ran:")
+        for f in unrun[:6]:
+            print(f"     {f}")
 
 
 
@@ -503,7 +677,7 @@ def main(argv):
     run_classes = classes + sorted({os.path.splitext(os.path.basename(r['at'].split(':')[0]))[0] for r in ownerless}) \
         if classes and lang in ('java', 'csharp') else classes
     replaced = concrete_test_classes(db, run_classes)[1] if lang in ('java', 'csharp') else {}
-    cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db)
+    cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db, repo)
 
     if as_json:
         print(json.dumps({'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
@@ -513,6 +687,7 @@ def main(argv):
                           'edited_test_files': edited,
                           'command': cmd_all,
                           'abstract_replaced': replaced,
+                          'not_collected': js_plan(repo, run_files)[1] if lang in ('typescript', 'javascript') else [],
                           'not_reached_from': unseen,
                           'framework_entries': list(fw_entries.values()), 'framework_grep': fw_greps,
                           'stub_only_not_selected': [dict(r, stubs=sorted(stub_by[i])) for i, r in stub_only.items() if i not in tests],
@@ -547,9 +722,11 @@ def main(argv):
                 print(f"    {f}")
             # `lang` is guessed from the files the graph named, and here it named none — so guess it from
             # the tier's own files, or the one runnable sentence this block exists to produce is empty.
-            cmd = command_for(lang or _guess_lang(nf), nf[:limit], [], db)
+            nlang = lang or _guess_lang(nf)
+            cmd = command_for(nlang, nf[:limit], [], db, repo)
             if cmd:
-                print(f"\n  {cmd}")
+                print("\n  " + cmd.replace("\n", "\n  "))
+            print_unrun(nlang, repo, nf[:limit])
         if pkg_hits:
             n = sum(len(v) for v in pkg_hits.values())
             print(f"\n  BY PACKAGE ONLY — {n} test file(s) live under the same package as a changed file")
@@ -559,7 +736,8 @@ def main(argv):
                 for f in sorted(fs)[:limit]:
                     print(f"    {f}")
         if edited and cmd_all:
-            print(f"\n  {cmd_all}")
+            print("\n  " + cmd_all.replace("\n", "\n  "))
+            print_unrun(lang, repo, run_files)
     elif tests:
         print(f"\ntests to run: {len(tests)} test(s) in {len(files)} file(s)")
         for f in files[:limit]:
@@ -579,9 +757,11 @@ def main(argv):
             print(f"\n  {len(each)} abstract test class(es) run nothing by name, so the command runs the classes that extend them: "
                   + '; '.join(each[:4]) + (f"; +{len(each) - 4} more (--json: abstract_replaced)" if len(each) > 4 else ''))
         if cmd_all:
-            print(f"\n  {cmd_all}")
+            print("\n  " + cmd_all.replace("\n", "\n  "))
+        print_unrun(lang, repo, run_files)
     elif edited and cmd_all:
-        print(f"\n  {cmd_all}")
+        print("\n  " + cmd_all.replace("\n", "\n  "))
+        print_unrun(lang, repo, run_files)
     if outside or loaded:
         # NOT A CALL: a file no graph reads, or a program a test starts by name. The tests that name it are the lead
         if outside:
@@ -592,8 +772,8 @@ def main(argv):
             for f, (n, ts) in sorted(loaded.items()):
                 print(f"    {f}   named as '{n}' by: " + ", ".join(ts[:6]) + (f" … +{len(ts) - 6}" if len(ts) > 6 else ""))
             both = sorted(set(run_files) | set(loaded_files))
-            cmd = command_for(_guess_lang(both) or lang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in loaded_files] if classes else [], db)
-            if cmd: print(f"\n  with the tests above: {cmd}")
+            cmd = command_for(_guess_lang(both) or lang, both[:limit], run_classes + [os.path.splitext(os.path.basename(f))[0] for f in loaded_files] if classes else [], db, repo)
+            if cmd: print("\n  with the tests above: " + cmd.replace("\n", "\n  "))
         missed = [f for f in outside if f not in loaded]
         if missed:
             print(f"  no test names {', '.join(missed[:6])}{' …' if len(missed) > 6 else ''} in its text: which suite reads "

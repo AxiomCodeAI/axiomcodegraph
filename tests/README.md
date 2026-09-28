@@ -85,6 +85,9 @@ One check needs no graph and is its own script:
                                          answers from the interpreter and starts one background compile into the user
                                          cache, a second plugin copy reuses it, rules one line apart do not, an older
                                          plugin's dl/.cache binary is still used (#1606; needs soufflé and c++, no engine)
+    python3 tests/test_command.py        the command test-impact prints for TypeScript/JavaScript runs those files: each with
+                                         the runner whose include globs collect it, else its package script, header or
+                                         package README, else named as collected by nothing (#1570; no engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 
