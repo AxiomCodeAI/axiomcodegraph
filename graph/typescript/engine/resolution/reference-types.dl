@@ -120,7 +120,7 @@ typeof_query_member(v, qual, member) :- var_type_ref(_, r, v),
 // carries the `!callee_expr_bound` negation. These two sit below that fixpoint, which
 // is the same reason `member_declared_anywhere` is built from them.
 var_is_function(v, m) :- typeof_query_member(v, qual, member),
-    global_decl(qual, "VARIABLE", _, gv),
+    global_decl_wide(qual, "VARIABLE", _, gv),
     var_type_ref(_, qr, gv),
     ref_type_target(qr, _, qt),
     scope_sibling(qt, sib),

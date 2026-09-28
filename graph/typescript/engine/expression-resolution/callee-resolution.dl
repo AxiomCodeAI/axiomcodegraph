@@ -743,7 +743,7 @@ expr_call_candidate(ce, m) :- call_site("client", ck, cn, "IDENTIFIER", recv, ce
     cn != "",
     expr_name("client", nsname, recv),
     nsname != "",
-    global_decl(nsname, "TYPE", prov, ns),
+    global_decl_wide(nsname, "TYPE", prov, ns),
     type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns),
     namespace_member(prov, ns, cn, "METHOD", m).
 call_kind_is_member_call("METHOD_CALL").
