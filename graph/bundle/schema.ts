@@ -616,6 +616,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'anon_new', languages: J, meaning: '`new X() { … }` — an anonymous class creation.' },
   { table: 'call_edges', column: 'kind', value: 'event', languages: J, meaning: 'Synthesised: the publishEvent call site to a listener it runs (tier event_dispatch). Not a written call to that method.' },
   { table: 'call_edges', column: 'kind', value: 'record_accessor', languages: J, meaning: 'Synthesised: a record pattern `case Pair(var l, var r)` calls each accessor. Not a written call; the site is the pattern expression.' },
+  { table: 'call_edges', column: 'kind', value: 'resource_close', languages: J, meaning: 'Synthesised: a try-with-resources resource `try (var w = open())` is closed when the block exits, so its close() is called. Not a written call; the site is the resource local.' },
   // — TypeScript (the parser's callKind)
   { table: 'call_edges', column: 'kind', value: 'FUNCTION_CALL', languages: T, meaning: '`f(…)` — a bare callee.' },
   { table: 'call_edges', column: 'kind', value: 'METHOD_CALL', languages: T, meaning: '`obj.m(…)`.' },
@@ -733,6 +734,7 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'typescript', table: 'call_sites', note: 'caller_id is normally the parser\'s caller method, or the module initializer for top-level code; when neither exists it is the TS_MODULE_ hash itself, kept as a greppable marker rather than a blank.' },
   { language: 'java', table: 'call_sites', note: 'callee_name for `new X()` and for `new X() { … }` (anon_new) is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`) and record_accessor, which write no name. A by-name lookup must therefore exclude kind IN (new, anon_new) to avoid counting a construction as a call to a same-named method.' },
   { language: 'java', table: 'call_sites', note: 'A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.' },
+  { language: 'java', table: 'call_sites', note: 'A resource_close site is the resource LOCAL of a try-with-resources, positioned at its declaration (line only, no column); callee_name is NULL.' },
   { language: 'python', table: 'call_sites', note: 'A DECORATOR_APPLICATION edge targets the callable the decorator factory RETURNS, not the name written at the `@` — `@deco(X)` applies the inner callable that `deco` returned. The written name is carried by the separate DECORATOR_CALL row, so a by-name lookup must exclude DECORATOR_APPLICATION or it will read the wrapper as a mismatch.' },
   { language: 'typescript', table: 'call_sites', note: 'end_line / end_column come from the expression row; the call-site row itself records only the start.' },
   { language: 'javascript', table: 'methods', note: 'signature is empty and owner_qualified_name is NULL: JavaScript declares neither. owner_type_id is set for class members, including members declared by assignment.' },

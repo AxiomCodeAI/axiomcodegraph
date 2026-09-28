@@ -1,0 +1,2 @@
+ambiguous_unknown	read	probe.VarLocals#fromResourceUnknown() -> -
+ambiguous_unknown	read	probe.VarLocals#lambdaSecondArgument() -> -

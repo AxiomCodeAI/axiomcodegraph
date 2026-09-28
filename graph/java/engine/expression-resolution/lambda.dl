@@ -266,6 +266,78 @@ lambda_param_binding(lam, name, argT) :-
     java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
     recv_tvar_type(call, classTv, argT).
 
+// ── (3d) A PLATFORM functional interface that is NOT staged ──────────────────
+// Every clause above needs the target interface's SAM, so with the JDK not staged a lambda whose
+// target is `BiConsumer<Widget, Widget>` typed neither parameter: `(a, b) -> a.paint()` and
+// `(var a, var b) -> a.paint()` both left `a` a declared unknown. Which type argument a platform
+// interface's SAM takes at each parameter is fixed by the JDK, so it is a table: platform_fi_param
+// (interface, lambda parameter position, type argument position). Supplier, Runnable and Callable
+// take no parameter and so have no row. An interface not listed stays untyped. #1401.
+//
+// Keyed on the target's WRITTEN reference and on ref_external_name, which is empty when the
+// reference resolves (the JDK staged, or a client type of the same name), so a resolved target is
+// left to the SAM clauses above and the two never both answer. A client-declared interface is
+// typed there from its own single abstract method.
+platform_fi_param("java.util.function", "Function", "0", "0").
+platform_fi_param("java.util.function", "BiFunction", "0", "0").
+platform_fi_param("java.util.function", "BiFunction", "1", "1").
+platform_fi_param("java.util.function", "Consumer", "0", "0").
+platform_fi_param("java.util.function", "BiConsumer", "0", "0").
+platform_fi_param("java.util.function", "BiConsumer", "1", "1").
+platform_fi_param("java.util.function", "Predicate", "0", "0").
+platform_fi_param("java.util.function", "BiPredicate", "0", "0").
+platform_fi_param("java.util.function", "BiPredicate", "1", "1").
+platform_fi_param("java.util.function", "UnaryOperator", "0", "0").
+platform_fi_param("java.util.function", "BinaryOperator", "0", "0").
+platform_fi_param("java.util.function", "BinaryOperator", "1", "0").
+platform_fi_param("java.util", "Comparator", "0", "0").
+platform_fi_param("java.util", "Comparator", "1", "0").
+
+platform_fi_ref(ref, n) :- ref_external_name(ref, q),
+    platform_fi_param(pkg, n, _, _),
+    q = cat(pkg, ".", n).
+platform_fi_ref(ref, n) :- ref_external_name(ref, n),
+    platform_fi_param(pkg, n, _, _),
+    ref_file(ref, n, fp),
+    import_wildcard("client", pkg, fp, _).
+
+// The written target reference, resolved or not: the declared type of the local, field, method
+// return or assigned local the lambda initializes, or the declared type of the client method
+// parameter it is passed to. Same five shapes as lambda_target_fi_ref above.
+lambda_target_written_ref(lam, ref) :-
+    java_expression("LAMBDA_EXPRESSION", "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref).
+lambda_target_written_ref(lam, ref) :-
+    java_expression("LAMBDA_EXPRESSION", "ROOT", "FIELD_INITIALIZER", "FIELD", _, field, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_type_reference(_, "FIELD_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, field, "FIELD", ref).
+lambda_target_written_ref(lam, ref) :-
+    java_expression("LAMBDA_EXPRESSION", "ROOT", "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, m, "METHOD", ref).
+lambda_target_written_ref(lam, ref) :-
+    java_expression("LAMBDA_EXPRESSION", "ASSIGNMENT_VALUE", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, asgn, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, tgt),
+    expr_ultimate_method("client", tgt, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref).
+lambda_target_written_ref(lam, ref) :-
+    java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, argpos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    applicable_candidate(call, callee),
+    param_decl("client", _, argpos, _, callee, ph),
+    java_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", _, _, _, _, _, _, _, ph, "METHOD_PARAM", ref).
+
+// The parameter type is the type argument as written, or a wildcard's bound: the function type of
+// `Consumer<? super W>` takes a W (JLS 9.9), and so does that of `Function<? extends W, R>`.
+fi_written_arg(ref, pos, argRef) :- written_type_arg(ref, pos, argRef).
+fi_written_arg(ref, pos, argRef) :- wildcard_type_arg(ref, pos, _, argRef).
+
+lambda_param_binding(lam, name, t) :-
+    java_expression("IDENTIFIER_REFERENCE", "LAMBDA_PARAMETER", _, _, _, _, lam, k, _, _, name, _, _, _, "LAMBDA_PARAMETER", _, _, _, _, _, _, _, _, _, _),
+    lambda_target_written_ref(lam, ref),
+    platform_fi_ref(ref, n),
+    platform_fi_param(_, n, k, j),
+    fi_written_arg(ref, j, argRef),
+    type_ref_resolves(_, argRef, t).
+
 // Type every LAMBDA_PARAMETER use (receiver/argument) to its bound type, scoped to the same
 // enclosing method as the lambda and matched by name. Feeds the normal typed-receiver dispatch,
 // so `s.open(x)` resolves on the bound type. (Name+method scope; nested same-name lambda params

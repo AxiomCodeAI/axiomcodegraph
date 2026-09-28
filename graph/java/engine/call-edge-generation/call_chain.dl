@@ -221,6 +221,48 @@ call_chain_edge(patternExpr, caller, "-", accessor, "lib", "boundary_lib", "reco
     record_pattern_accessor(patternExpr, accessor, "lib"),
     expr_ultimate_method("client", patternExpr, caller).
 
+// ── TRY-WITH-RESOURCES: the implicit close() ─────────────────────────────────────────────────
+// `try (var w = Widget.create()) { … }` closes w when the block exits, and javac writes that call
+// (`invokevirtual Widget.close()`) into the method. No source line spells it, so there was no site
+// and no edge, and a close() that only ever runs this way had no caller at all. A real edge, not
+// lowering: close() is the resource's own method, often client code with a body of its own. The
+// suppressed-exception plumbing beside it (`addSuppressed`) IS lowering, and both oracles drop it.
+//
+// Exactly one close() per resource, declared or `var`: the resource's type is its declared type,
+// or for `var` its initializer's (JLS 14.4.1). The target is the close() with no parameter that
+// lookup finds on that type, plus, as for a written call, the overrides below an abstract or
+// interface declaration unless the dispatch cap refuses that fan.
+//
+// The site is the resource LOCAL: it has no expression row, and the initializer's expression is a
+// written call site of its own. The `kind` column says resource_close, so a synthesised edge is
+// never mistaken for a written call; like record_accessor it is not an invocation_site.
+// Java 9's `try (existing)` names a variable declared elsewhere and has no resource local, so it
+// is not covered here.
+// java_local_variable (19): 8 scopeKind 11 isVarInferred 13 method 18 hash
+twr_resource(local, m) :- java_local_variable(_, _, _, _, _, _, _, _, "TRY_WITH_RESOURCES", _, _, _, _, m, _, _, _, _, local),
+    m != "".
+twr_resource_type(local, t) :- twr_resource(local, _), local_var_type_resolves(_, local, _, t).
+twr_resource_type(local, t) :- twr_resource(local, _),
+    java_local_variable(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, local),
+    local_init_expr(local, e),
+    expr_type(p, e, t), p != "external".
+// java_method / lib_method (22): 0 name 17 parameterCount 21 hash
+close_no_arg(m) :- java_method("close", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "0", _, _, _, m).
+close_no_arg(m) :- lib_method("close", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "0", _, _, _, m).
+twr_close_decl(local, d) :- twr_resource_type(local, t), method_name_in_type("close", t, d), close_no_arg(d).
+twr_close(local, d) :- twr_close_decl(local, d).
+twr_close(local, c) :- twr_close_decl(local, d), method_override(c, d), !cha_wide_base(d).
+twr_close_count(local, n) :- twr_close(local, _), n = count : { twr_close(local, _) }.
+
+call_chain_edge(local, caller, "-", c, "client", "known_edge", "resource_close") :-
+    twr_close(local, c), method_owner("client", _, c),
+    twr_close_count(local, 1), twr_resource(local, caller).
+call_chain_edge(local, caller, "-", c, "client", "multi_inferred", "resource_close") :-
+    twr_close(local, c), method_owner("client", _, c),
+    twr_close_count(local, n), n >= 2, twr_resource(local, caller).
+call_chain_edge(local, caller, "-", c, "lib", "boundary_lib", "resource_close") :-
+    twr_close(local, c), method_owner("lib", _, c), twr_resource(local, caller).
+
 call_chain_edge(call, caller, "-", "-", "-", "ambiguous_anon", kind) :-
     call_class(call, "ambiguous_anon"), call_from(call, caller),
     invocation_site(call, kind).
