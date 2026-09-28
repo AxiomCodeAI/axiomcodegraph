@@ -1630,6 +1630,31 @@ def route_per_file(g, reached, hop0, files):
         res[f] = ' '.join(chain)
     return res
 
+def scope_targets(g, rs):
+    """(the resolved targets, whether any was narrowed to --in) — the scope applied to the DECLARATIONS (#1584).
+
+    `--in` bounded only the transitive layer, so `impact run --in plugins/x` answered for every `run` in the graph, all
+    of them outside the scope. A name with declarations under the scope now answers for those alone, as `path` always
+    did. A name with none there keeps all of them: the scope then asks who under it USES a declaration made elsewhere,
+    which is the question it always answered."""
+    def file_of(x):
+        if isinstance(x, str):
+            r = g.sym.get(x) or g.all_sym.get(x)
+            return r.get('file') if r else None
+        try: return x['file']
+        except (TypeError, KeyError, IndexError): return None
+    out, narrowed = [], False
+    for k, lab, pay in rs:
+        if isinstance(pay, list) and pay:
+            kept = [x for x in pay if file_of(x) and g.under_in(file_of(x))]
+            if kept and len(kept) < len(pay):
+                lab = re.sub(r' \(\+?\d+(?: declarations?(?: of that name)?)?\)$', '', lab) + f" [{len(kept)} of {len(pay)} declarations under {g.IN}]"
+                pay = kept
+            narrowed = narrowed or bool(kept)
+        out.append((k, lab, pay))
+    return out, narrowed
+
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
     # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
@@ -1686,9 +1711,18 @@ def main(argv):
                      "       axiomcode impact --from-text <file|-> [<repo>] [--top N]   — an issue report in, the candidate declarations out\n"
                      "       axiomcode impact --warm [<repo>]                            — export the graph's facts now so the first query need not")
     g = G(repo); g.IN = IN; I = Impact(g); prof('graph loaded, path facts exported')
-    targets = []
+    if IN:
+        cond, params = P.ax_contract.scope_sql(P.ax_contract.scope_spec(IN, g.repo))
+        if not g.q(f"SELECT 1 FROM symbols WHERE {cond} LIMIT 1", *params):
+            # a scope this graph holds no file of: in a repository in several languages it is another language's
+            # (#1584), and the dispatcher leaves a graph that says this out when any other graph holds the scope
+            die(f"no indexed file has '{IN}' in its path.")
+    targets = []; scoped_in = False
     for a in args:
         rs = I.resolve(a, kind)
+        if IN:
+            rs, narrowed = scope_targets(g, rs)
+            scoped_in = scoped_in or narrowed
         kinds = {k for k, _, _ in rs}
         if kinds == {'field', 'method'} and not kind:
             # a fluent accessor, a record component, a Python @property: one concept written one way. Answering for
@@ -1712,7 +1746,10 @@ def main(argv):
                 print(f"note: {a} names {len(ids)} declarations in {len(files)} files ({where}) — this answer is for all of them; "
                       f"target one by file:line (e.g. `impact {g.loc(ids[0])}`)", file=sys.stderr if as_json else sys.stdout)
         targets += rs
-    targets_files = [t for k, _, pay in targets for t in (pay if isinstance(pay, list) else []) if isinstance(t, str) and t in g.sym]
+    if IN and os.environ.get('AXIOMCODE_FANOUT') == '1':
+        # for ax_langs: a graph whose declarations of the name lie under --in outranks one whose lie elsewhere (#1584)
+        print(f"axiomcode-scope-declared: {int(scoped_in)}", file=sys.stderr)
+    targets_files =[t for k, _, pay in targets for t in (pay if isinstance(pay, list) else []) if isinstance(t, str) and t in g.sym]
     prof('targets resolved'); res = I.run(targets); prof('souffle done')
     LAB = res['_targets']; multi = len(LAB) > 1
     contract_of = collections.defaultdict(set)
@@ -1814,7 +1851,7 @@ def main(argv):
     for m, d, q_ in res['reach']:
         if 0 < int(d) <= depth and m in g.sym:
             reached[m] = min(int(d), reached.get(m, 10 ** 9)); reach_from[m].add(LAB[q_])
-    if IN: reached = {m: d for m, d in reached.items() if IN in (g.sym[m]['file'] or '')}
+    if IN: reached = {m: d for m, d in reached.items() if g.under_in(g.sym[m]['file'])}
     parent = collections.defaultdict(list)
     for a, b, t, q_ in res['parent_up']: parent[a].append((b, t))
     callers_of = collections.defaultdict(set)

@@ -338,6 +338,33 @@ def best_scope(ranked):
     return (top[0], len(rows)) if score > 0 else None
 
 
+def scope_spec(scope, repo='.'):
+    """(the scope as the index writes paths, whether it is a PATH) — how `--in` is matched (#1584).
+
+    A scope used to match any file whose path CONTAINED it, so `--in tests` in a repository with a top-level tests/
+    also took `parser/src/tests-util/…` and `graph/contests/…`: a directory name is a substring of many paths that
+    are not under it. A scope that names a file or directory of the repository is that path, and matches by prefix;
+    one that names nothing there (`pkg`, a fragment of a package name) is still matched anywhere, as it always was.
+    The test is the working tree, not a graph, so every language's graph reads one scope the same way."""
+    s = (scope or '').strip().replace('\\', '/')
+    while s.startswith('./'): s = s[2:]
+    s = s.rstrip('/')
+    return s, bool(s) and os.path.exists(os.path.join(repo or '.', s))
+
+
+def under_scope(f, spec):
+    """is file `f` (repo-relative, as the index stores it) inside `spec` (a scope_spec)"""
+    s, is_path = spec; f = f or ''
+    return (f == s or f.startswith(s + '/')) if is_path else s in f
+
+
+def scope_sql(spec, col='file'):
+    """(the SQL condition, its parameters) that keeps the rows of `col` inside `spec`"""
+    s, is_path = spec
+    if is_path: return f"({col} = ? OR substr({col}, 1, ?) = ?)", (s, len(s) + 1, s + '/')
+    return f"{col} LIKE ?", (f'%{s}%',)
+
+
 def require_scope(g, scope, terms=(), rank=None, flag=''):
     """Rule 1. Returns None when the scope is usable, or an exit code after printing the correction.
 
@@ -361,7 +388,10 @@ def require_scope(g, scope, terms=(), rank=None, flag=''):
         # when no ranking was supplied.
         return offer("this needs to know WHERE to look: --in <path> is required.",
                      rank or sorted(dirs.items(), key=by_terms), terms, flag=flag)
-    missing = [x for x in scopes if not g.q("SELECT COUNT(*) n FROM symbols WHERE file LIKE ?", f'%{x}%')[0]['n']]
+    def held(x):
+        cond, params = scope_sql(scope_spec(x, getattr(g, 'repo', '.')))
+        return g.q(f"SELECT COUNT(*) n FROM symbols WHERE {cond}", *params)[0]['n']
+    missing = [x for x in scopes if not held(x)]
     for scope in missing[:1]:
         # A path that is not in the graph is usually a TYPO, and a typo is a character-level miss, not a
         # token-level one: `complier-core` shares exactly the same two tokens with `compiler-core` as with

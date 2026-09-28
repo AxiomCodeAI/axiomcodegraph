@@ -35,6 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ax_edges
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, best_scope, budgeted, BOUND,
+                         scope_spec, under_scope, scope_sql,
                          dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic, code_terms,
                          stem)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
@@ -152,7 +153,7 @@ def from_starts(g, ids, landed, scopes=()):
     declaration stays.
     """
     if scopes:
-        ids = [x for x in ids if any(sc in (g.sym[x].get('file') or '') for sc in scopes)]
+        ids = [x for x in ids if any(under_scope(g.sym[x].get('file'), scope_spec(sc, g.repo)) for sc in scopes)]
     if len(ids) < 2: return ids
     reach = flow_words(g, ids, landed)
     hit = sorted((x for x in ids if reach[x]), key=lambda x: (-len(reach[x]), bool(g.sym[x].get('is_test'))))
@@ -917,7 +918,10 @@ def main(argv):
     if not terms: die("nothing to search for in that task description")
     # what the question names that no graph here holds is said FIRST (#1571), and a scope that exists on disk but holds
     # no indexed file is a text scope, not a typo (#1382). Only a scope the index does not know is checked on disk.
-    unknown_scopes = [x for x in scopes if not g.q("SELECT 1 FROM symbols WHERE file LIKE ? LIMIT 1", f'%{x}%')]
+    def holds(x):
+        cond, params = scope_sql(scope_spec(x, g.repo))
+        return g.q(f"SELECT 1 FROM symbols WHERE {cond} LIMIT 1", *params)
+    unknown_scopes = [x for x in scopes if not holds(x)]
     notice, named_langs, text_dirs, langs, mine = unseen(g, body, unknown_scopes)
     main_lang = next(iter(langs))
     fan = os.environ.get('AXIOMCODE_FANOUT') == '1' and len(langs) > 1
@@ -944,7 +948,7 @@ def main(argv):
     # one that does not declare the name refuses, so the answer comes from the language that does.
     fixed = [x.strip().replace('\\', '/') for x in scopes] if not scope_offered else []
     from_ids = {sel: [x for x in g.resolve(sel)[1] if x in g.sym] for sel in starts}
-    held = {sel: [x for x in ids if not fixed or any(sc in (g.sym[x].get('file') or '') for sc in fixed)]
+    held = {sel: [x for x in ids if not fixed or any(under_scope(g.sym[x].get('file'), scope_spec(sc, g.repo)) for sc in fixed)]
             for sel, ids in from_ids.items()}
     if starts and os.environ.get('AXIOMCODE_FANOUT') and not any(held.values()):
         print(f"nothing named {', '.join(repr(s) for s in starts)} in this graph"
@@ -1006,7 +1010,8 @@ def main(argv):
 
     # a symbol is kept when it is under ANY of the scopes -- the union, because the caller naming two roots
     # is naming a change that spans them, and intersecting those two paths answers nothing (#1029)
-    in_scope = lambda f: any(sc in (f or '') for sc in scopes)
+    specs = [scope_spec(sc, g.repo) for sc in scopes]
+    in_scope = lambda f: any(under_scope(f, sp) for sp in specs)
     if scopes and not scope_offered:
         scored = {sid: v for sid, v in scored.items() if in_scope(g.sym.get(sid, {}).get('file'))}
     # what the question NAMES comes before what its words match: a declaration spelled out, a route quoted

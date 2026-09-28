@@ -89,6 +89,7 @@ def main(argv):
     if all(n[2] == 3 for n in named):                   # no graph has anything to say: the main one says so
         sys.stdout.write(named[0][3]); sys.stderr.write(named[0][4]); return 0
     named = [n for n in named if n[2] != 3]
+    named, outside = by_scope(named)
     named, others = by_landing(named)
     answered = [n for n in named if n[2] == 0]
     if not answered:
@@ -123,11 +124,35 @@ def main(argv):
     if answered and others:
         print(f"\nthe --from name is also declared in the {', '.join(others)} graph(s), where its flow reaches "
               "half as many of the task's words or fewer; --lang <language> asks one of them")
+    if answered and outside:
+        print(f"\nthe name is also declared in the {', '.join(outside)} graph(s), none of it under the --in scope; "
+              "drop --in, or --lang <language>, to ask about those")
     return 0 if answered else named[0][2]
 
 
 LANDING = 'axiomcode-from-landing: '
 NOT_HELD = 'no indexed file has '          # ax_contract.require_scope: the --in path is not in this graph at all
+
+
+SCOPED = 'axiomcode-scope-declared: '       # axiomcode-impact: whether the target's declarations lie under --in
+
+
+def by_scope(named):
+    """(the answers, the languages left out) — `impact <name> --in <path>` in every graph (#1584).
+
+    Every graph that declares the name answered, each for its own declarations, so a scope meant to pick the one
+    under it came back with other languages' declarations from elsewhere first. A graph with a declaration under the
+    scope answers; one whose declarations all lie outside it is left out and named — when some graph has one inside.
+    """
+    flag = {}
+    for i, n in enumerate(named):
+        err = n[4].splitlines(keepends=True)
+        for l in err:
+            if l.startswith(SCOPED): flag[i] = l[len(SCOPED):].strip() == '1'
+        named[i] = (*n[:4], ''.join(l for l in err if not l.startswith(SCOPED)))
+    if not any(flag.get(i) and n[2] == 0 for i, n in enumerate(named)): return named, []
+    drop = {i for i, n in enumerate(named) if n[2] == 0 and flag.get(i) is False}
+    return [n for i, n in enumerate(named) if i not in drop], [named[i][0] for i in sorted(drop)]
 
 
 def by_landing(named):
