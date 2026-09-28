@@ -1,0 +1,18 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a caller holding the interface in a constructor-injected field is a direct caller of the implementation, via the interface, resolved when it is the only one (#1542)",
+   "run": ["impact", "SqlStore.Save"],
+   "want": ["[resolved] OrderService.Place", "— calls it (via the interface)"]},
+  {"why": "control: a caller that builds the concrete class keeps its plain row",
+   "run": ["impact", "SqlStore.Save"],
+   "want": ["[resolved] SelfMade.Place"]},
+  {"why": "with two implementations, a call through the interface is one of a set for each, worded as via the interface",
+   "run": ["impact", "Circle.Area"],
+   "want": ["[one of a set] ShapeUser.Total", "calls it (via the interface)"]},
+  {"why": "near-miss control: a caller whose receiver is typed on the other implementation is not a caller of this one",
+   "run": ["impact", "Circle.Area"],
+   "avoid": ["ShapeUser.SquareOnly"]},
+  {"why": "the interface method itself: the call through the interface names it, resolved",
+   "run": ["impact", "IShape.Area"],
+   "want": ["[resolved] ShapeUser.Total"],
+   "avoid": ["[one of a set] ShapeUser.Total"]}]}
