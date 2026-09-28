@@ -13,6 +13,48 @@ app.js:30:26 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK
 app.js:34:3 METHOD_CALL render  EXACT  once.js:25:15
 app.js:7:18 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 app.js:8:17 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+declared.js:15:34 CONSTRUCTOR_CALL Mark  SYNTHESIZED_OK  
+declared.js:19:28 CONSTRUCTOR_CALL Mark  SYNTHESIZED_OK  
+declared.js:22:19 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:22:34 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+declared.js:23:18 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:23:33 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+declared.js:24:18 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+declared.js:24:32 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+declared.js:25:22 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:26:20 FUNCTION_CALL tapDecl  EXACT  declared.js:14:1
+declared.js:26:34 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+declared.js:27:16 FUNCTION_CALL pickShared  EXACT  declared.js:20:1
+declared.js:27:33 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+declared.js:33:3 METHOD_CALL markOnly  EXACT  declared.js:13:14
+declared.js:34:3 METHOD_CALL markOnly  EXACT  declared.js:13:14
+declared.js:37:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:37:44 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:37:75 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:38:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:38:44 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:38:75 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:39:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:39:44 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:39:75 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:40:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:40:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:40:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:41:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:41:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:41:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:42:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:42:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:42:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:43:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:43:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:43:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:44:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:44:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:44:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:45:13 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:45:45 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
+declared.js:45:77 FUNCTION_CALL onceDecl  EXACT  declared.js:7:1
 many.js:3:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 many.js:3:43 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 many.js:3:73 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
@@ -35,4 +77,26 @@ many.js:9:13 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 many.js:9:44 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 many.js:9:75 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
 once.js:23:30 CONSTRUCTOR_CALL Gamma  SYNTHESIZED_OK  
+shapes.js:13:18 CONSTRUCTOR_CALL Fallback  SYNTHESIZED_OK  
+shapes.js:32:27 CONSTRUCTOR_CALL Defaulted  SYNTHESIZED_OK  
+shapes.js:33:50 FUNCTION_CALL make  EXACT  shapes.js:32:21
+shapes.js:34:44 FUNCTION_CALL c  EXACT  shapes.js:34:32
+shapes.js:36:15 FUNCTION_CALL withFallback  EXACT  shapes.js:14:1
+shapes.js:36:34 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+shapes.js:37:1 FUNCTION_CALL setOverride  EXACT  shapes.js:19:1
+shapes.js:37:13 CONSTRUCTOR_CALL Mock  SYNTHESIZED_OK  
+shapes.js:38:15 FUNCTION_CALL lazyOr  EXACT  shapes.js:20:1
+shapes.js:38:28 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+shapes.js:39:14 FUNCTION_CALL memoDefault  EXACT  shapes.js:26:1
+shapes.js:39:32 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+shapes.js:40:20 FUNCTION_CALL lazy  EXACT  shapes.js:33:1
+shapes.js:41:21 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+shapes.js:42:19 FUNCTION_CALL lazy  EXACT  shapes.js:33:1
+shapes.js:43:14 FUNCTION_CALL eager  EXACT  shapes.js:34:1
+shapes.js:43:26 CONSTRUCTOR_CALL AlphaPlugin  SYNTHESIZED_OK  
+shapes.js:45:19 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+shapes.js:45:27 FUNCTION_CALL memoize  EXACT  memoize.js:2:17
+shapes.js:45:41 CONSTRUCTOR_CALL BetaPlugin  SYNTHESIZED_OK  
+shapes.js:53:3 METHOD_CALL defaultsOnly  EXACT  shapes.js:25:20
+shapes.js:54:3 METHOD_CALL defaultOnly  EXACT  shapes.js:10:19
 # defects: 0
