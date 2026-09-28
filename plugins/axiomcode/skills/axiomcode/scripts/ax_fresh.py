@@ -388,6 +388,12 @@ def change_key(c):
 def enabled(repo):
     return not os.environ.get('AXIOMCODE_NO_REFRESH') and not os.environ.get('AXIOMCODE_GRAPH') and has_graph(repo)
 
+def refresh_off(repo):
+    """the refresher is switched off (AXIOMCODE_NO_REFRESH) over a graph of this repository's own: nothing rebuilds it,
+    but an answer from it can still say which files it predates. A graph placed by AXIOMCODE_GRAPH has no file table
+    of this tree to compare with"""
+    return bool(os.environ.get('AXIOMCODE_NO_REFRESH')) and not os.environ.get('AXIOMCODE_GRAPH') and has_graph(repo)
+
 def kick(repo, trigger='an edit'):
     """start the worker and return at once; a no-op without a graph (the FIRST build takes minutes and is
     the caller's decision, see ax_contract.ensure_graph) or when one is already running"""
@@ -541,9 +547,11 @@ def pending_note(s):
     return (f"graph refresh: the {', '.join(s['pending'])} graph{'s are' if len(s['pending']) > 1 else ' is'} still being built; "
             + '; '.join(says) + "; ask again when `axiomcode index` finishes")
 
-def note(s, marked=None):
+def note(s, marked=None, named=None, off=False):
     """one line for an answer given from a graph that is behind the files, or '' when it is not. `marked` is how many
-    of the answer's rows lie in those files (and carry the mark), None when the answer was not looked at"""
+    of the answer's rows lie in those files (and carry the mark), None when the answer was not looked at. `named` is
+    [(name, file)]: a name the query asked about that is written in one of those files, so a "nothing named X" is the
+    graph predating the edit that wrote X, not X being absent. `off`: the refresher is switched off, nothing rebuilds"""
     # the languages a running build has still to publish (#1555) get a line of their own, before any line about edits
     first = pending_note(s)
     if s.get('state') not in ('stale', 'building'): return first
@@ -554,6 +562,13 @@ def note(s, marked=None):
     rows = ('' if marked is None else
             f"; {marked} row(s) lie in those files and are marked {MARK.strip()}: read them for their current text" if marked else
             "; no row of this answer lies in those files")
+    if named:
+        rows += '; ' + ', '.join(f"'{n}' is written in {f}" for n, f in named[:3]) + \
+                ", edited since the graph was built: a declaration added there is not in this graph yet, so finding nothing by that name does not mean it is absent"
+    if off:
+        return first + (f"graph refresh: OFF (AXIOMCODE_NO_REFRESH is set), no refresh is running — this answer is from a graph that "
+                f"predates edits to {head}" + (rows if marked is not None else '; read those files for their current text') +
+                "; `axiomcode index` rebuilds it")
     if s.get('failed'):
         why = s.get('failed_reason') or ''
         return first + (f"graph refresh: the last rebuild FAILED" + (f" — {why}" if why else '') + f" (see {s['failed']}); this answer is from the "
@@ -574,6 +589,16 @@ MARK = '  (may be out of date)'
 _CODE_LINE = re.compile(r'^\s*(\d+ )?\| ')             # a line of quoted source (context --source): never marked
 _TOKEN = re.compile(r'[\w.$+@/-]+')
 _LOC_KEYS = ('at', 'declared_at', 'call_at', 'file', 'path', 'site', 'location')
+# how impact and path say a name matched nothing (axiomcode-impact, axiomcode-path), and the name they say it of
+NOT_FOUND = re.compile(r"(?:nothing named|nothing of kind \w+ named|no type named|no declaration in the graph contains|no declaration named)"
+                       r" '?([^\s',]+?)'?(?=[\s,.]|$)", re.M)
+
+def not_found(named, out, code):
+    """the (name, file) of `named` the answer found nothing by: those its refusal line names, or, for a refusal that
+    names none, all of them. `path A B` with only A missing blames A, not B"""
+    said = {re.split(r'[.#:/$()<>,\s]+', m.strip('()'))[-1] for m in NOT_FOUND.findall(out)} - {''}
+    if said: return [(n, f) for n, f in named if re.split(r'[.#:/$()<>,\s]+', n.strip('()'))[-1] in said]
+    return list(named) if code != 0 else []
 
 class Stale:
     """the set of edited files, and whether a path printed in an answer is one of them. Answers print paths relative to
@@ -642,22 +667,25 @@ def query_names(verb, args, repo):
     return names
 
 def names_in_edits(repo, names, stale):
-    """True when a name asked about is declared or written in an edited file: a target given as file:line in one, or a
-    name whose last part appears as a word in one (a declaration just added is in no graph yet)"""
-    words = set()
+    """[(name, file)] for each name asked about that is declared or written in an edited file: a target given as
+    file:line in one, or a name whose last part appears as a word in one (a declaration just added is in no graph yet).
+    Empty when none is"""
+    words, found = {}, []
     for n in names:
-        if stale.hit(n): return True
+        if stale.hit(n): found.append((n, n.split(':', 1)[0])); continue
         w = re.split(r'[.#:/$()<>,\s]+', n.strip('()'))
         w = [x for x in w if re.match(r'^\w+$', x)]
-        if w: words.add(w[-1])
-    if not words: return False
+        if w: words.setdefault(w[-1], n)
+    if not words: return found
     pat = re.compile(r'\b(' + '|'.join(re.escape(w) for w in sorted(words)) + r')\b')
     for f in stale.files:
         try:
             with open(os.path.join(repo, f), 'rb') as fh: text = fh.read(4 << 20).decode('utf-8', 'replace')
         except OSError: continue
-        if pat.search(text): return True
-    return False
+        for w in sorted(set(pat.findall(text))):
+            if words.pop(w, None) is not None: found.append((w, f))
+        if not words: break
+    return found
 
 def build_seconds(repo):
     """(seconds the last build of this repository took to a usable graph, whether it compiled the engine's rules), from
@@ -709,22 +737,28 @@ def query(repo, verb, argv, fresh=False):
     def passthrough(): os.execvp(argv[0], argv)
     def with_note(n):                                   # the answer as it is, then one line about it on stderr
         r = subprocess.run(argv); print(n, file=sys.stderr); return r.returncode
-    if not enabled(repo):
+    # REFRESH SWITCHED OFF IS NOT "UP TO DATE". With AXIOMCODE_NO_REFRESH nothing rebuilds the graph, which is exactly when
+    # an answer from it most needs to say which edits it predates: a "nothing named X" for an X an edit just added read
+    # as X not existing. It is checked, marked and noted as below; it only never kicks a refresh or waits for one.
+    off = not enabled(repo) and refresh_off(repo)
+    if not enabled(repo) and not off:
         # the refresh switched off still leaves a build that is solving the repository's other languages (#1555); a
         # graph placed by AXIOMCODE_GRAPH is not this build's, and says nothing
         n = '' if os.environ.get('AXIOMCODE_GRAPH') or not has_graph(repo) else pending_note(pending(repo))
         if not n: passthrough()
         return with_note(n)
     s = status(repo)
-    if s['state'] == 'unknown': kick(repo, 'a query'); passthrough()
+    if s['state'] == 'unknown':
+        if not off: kick(repo, 'a query')
+        passthrough()
     if s['state'] in ('fresh', 'no graph') or not edited(s):
         # a build that published this tree's main graph and is solving the others (#1555): the answer is current and is
         # given now, and says which languages it cannot see yet
         if not pending_note(s): passthrough()
         return with_note(pending_note(s))
-    if not s.get('failed'): kick(repo, 'a query')
+    if not s.get('failed') and not off: kick(repo, 'a query')
     as_json = '--json' in argv
-    if fresh and not s.get('failed'):
+    if fresh and not s.get('failed') and not off:
         left = expected_left(repo)
         print(f"waiting for the graph to refresh (--fresh): {len(edited(s))} file(s) changed since the graph was built" +
               (f", the last build took {int(build_seconds(repo)[0])} s" if left is not None else '') + " …", file=sys.stderr, flush=True)
@@ -733,8 +767,9 @@ def query(repo, verb, argv, fresh=False):
     stale = Stale(edited(s)); r = run()
     out = r.stdout.decode('utf-8', 'replace')
     marked, n, touched = mark_answer(out, stale, as_json)
-    touched = touched or names_in_edits(repo, query_names(verb, argv, repo), stale)
-    if touched and not fresh and not s.get('failed'):
+    named = names_in_edits(repo, query_names(verb, argv, repo), stale)
+    touched = touched or bool(named)
+    if touched and not fresh and not s.get('failed') and not off:
         budget = float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 30)
         left = expected_left(repo)
         if budget > 0 and not compiling(repo) and (left is None or left <= budget):
@@ -747,15 +782,20 @@ def query(repo, verb, argv, fresh=False):
                 r = run(); out = r.stdout.decode('utf-8', 'replace')
                 marked, n, _ = mark_answer(out, stale, as_json)
             else: passthrough()
+    # a name asked about that an edit wrote is worth a word only when the answer found nothing by it: a refusal (the
+    # verb's non-zero exit) or, in a repository in several languages whose other graph did answer, that graph's line
+    missed = not_found(named, out, r.returncode) if named else []
     if as_json:
         try:
             obj = json.loads(marked)
             if isinstance(obj, dict):
-                obj['freshness'] = dict(state=s['state'], edited=edited(s), rows_marked=n, **({'failed': s['failed']} if s.get('failed') else {}))
+                obj['freshness'] = dict(state='off' if off else s['state'], edited=edited(s), rows_marked=n,
+                                        **({'failed': s['failed']} if s.get('failed') else {}),
+                                        **({'named_in_edits': [dict(name=a, file=b) for a, b in missed]} if missed else {}))
                 marked = json.dumps(obj, indent=1, ensure_ascii=False) + '\n'
         except ValueError: pass
     sys.stdout.write(marked); sys.stdout.flush()
-    msg = note(s, n)
+    msg = note(s, n, named=missed, off=off)
     if msg: print(msg, file=sys.stderr)
     return r.returncode
 

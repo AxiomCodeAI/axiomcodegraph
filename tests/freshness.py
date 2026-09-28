@@ -16,6 +16,8 @@ budget. And the refresher watches every file the parser reads, so no edit leaves
             when the running build is compiling rules, or when the answer touches no edited file
   fresh     --fresh waits whatever the estimate, with progress on stderr, and answers unmarked; a current graph is
             answered with no mark and no note
+  named     "nothing named X" for an X an edit newer than the graph wrote says so, names the file and whether a refresh
+            runs, also with AXIOMCODE_NO_REFRESH; a name no edit writes, or one the answer found, is not blamed
   mcp       the MCP tools take fresh=true and pass --fresh, and the CLI's --fresh is written fresh=True in an answer
 
 No engine: the wait checks drive `ax_fresh.py query` with a stand-in verb, and a stand-in refresh that brings the file
@@ -172,9 +174,12 @@ def ask(repo, verb_out, after=None, env=None, verb='impact', args=('OrderService
         open(os.path.join(repo, 'swapped'), 'w').write('new graph\n')
     th = threading.Thread(target=refresh) if after is not None else None
     if th: th.start()
-    verb_cmd = [sys.executable, '-c', "import os,sys; print(open('swapped').read().strip() if os.path.exists('swapped') else sys.argv[1])", verb_out]
-    e = dict(os.environ, AXIOMCODE_FRESH_WAIT='30', **(env or {}))
-    for k in ('AXIOMCODE_NO_REFRESH', 'AXIOMCODE_GRAPH'): e.pop(k, None)
+    # the stand-in verb exits VERB_EXIT (a refusal such as "nothing named X" exits 2) until the refresh swaps its graph in
+    verb_cmd = [sys.executable, '-c', "import os,sys; s=os.path.exists('swapped'); print(open('swapped').read().strip() if s else sys.argv[1]); "
+                "sys.exit(0 if s else int(os.environ.get('VERB_EXIT') or 0))", verb_out]
+    e = dict(os.environ, AXIOMCODE_FRESH_WAIT='30')
+    for k in ('AXIOMCODE_NO_REFRESH', 'AXIOMCODE_GRAPH', 'VERB_EXIT'): e.pop(k, None)
+    e.update(env or {})
     if 'AXIOMCODE_FRESH' not in (env or {}): e.pop('AXIOMCODE_FRESH', None)
     t0 = time.time()
     r = subprocess.run([sys.executable, driver, SCRIPTS, repo, verb, '--', *verb_cmd, *args, repo], cwd=repo,
@@ -220,6 +225,54 @@ def wait_checks():
         shutil.rmtree(work, ignore_errors=True)
 
 
+# ── named ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+NOT_FOUND = "nothing named 'audit' in the graph, and nothing close to it."
+
+
+def named_checks():
+    """a "nothing named X" for an X an edit newer than the graph wrote says the graph is stale, names the file, and says
+    whether a refresh is running — including when the refresher is switched off. Each with a control that stays quiet"""
+    work = tempfile.mkdtemp(prefix='axiomcode-named-')
+    try:
+        # the gap as it was met: AXIOMCODE_NO_REFRESH set, the answer came back bare, as if audit did not exist
+        out, err, took = ask(fake_repo(work, 'off'), NOT_FOUND, env=dict(AXIOMCODE_NO_REFRESH='1', VERB_EXIT='2'), args=('audit',))
+        check(f"named: refresh OFF — a name an edit added says the graph predates that edit and that no refresh runs ({took:.1f}s)",
+              out.strip() == NOT_FOUND and took < 1.5 and 'graph refresh: OFF' in err and 'predates edits to shop/api.py' in err
+              and "'audit' is written in shop/api.py" in err and '`axiomcode index` rebuilds it' in err, (out, err))
+        # a refresh too long to wait for: the note already said "queued"; it now also says why nothing was found
+        out, err, took = ask(fake_repo(work, 'queued', build_seconds='300 0'), NOT_FOUND, env=dict(VERB_EXIT='2'), args=('audit',))
+        check(f"named: refresh queued — the note names the edited file that writes the name ({took:.1f}s)",
+              took < 1.5 and 'graph refresh: queued' in err and "'audit' is written in shop/api.py" in err, (out, err))
+        # --json carries it as data
+        out, err, took = ask(fake_repo(work, 'json', build_seconds='300 0'), json.dumps(dict(error=NOT_FOUND)),
+                             env=dict(VERB_EXIT='2'), args=('audit', '--json'))
+        fr = (json.loads(out) if out.strip().startswith('{') else {}).get('freshness', {})
+        check("named: --json says named_in_edits",
+              fr.get('named_in_edits') == [dict(name='audit', file='shop/api.py')] and fr.get('state') == 'stale', (out, err))
+        # CONTROL: a name that no edit writes, refresh off — the graph is still said to be stale, but no name is blamed
+        out, err, took = ask(fake_repo(work, 'ghost'), "nothing named 'ghost' in the graph, and nothing close to it.",
+                             env=dict(AXIOMCODE_NO_REFRESH='1', VERB_EXIT='2'), args=('ghost',))
+        check("named: control — a name no edit writes gets the stale note but no 'is written in'",
+              'graph refresh: OFF' in err and 'is written in' not in err, (out, err))
+        # CONTROL: `path audit total` with only audit missing blames audit, not total (which the edited file also writes)
+        out, err, took = ask(fake_repo(work, 'path', build_seconds='300 0'), NOT_FOUND, env=dict(VERB_EXIT='2'), verb='path',
+                             args=('audit', 'total'))
+        check("named: control — path with one endpoint missing names only that one",
+              "'audit' is written in shop/api.py" in err and "'total' is written" not in err, (out, err))
+        # CONTROL: a name found in the graph that the edited file also writes: the answer found it, nothing to explain
+        out, err, took = ask(fake_repo(work, 'found', build_seconds='300 0'), ROWS, args=('run',))
+        check("named: control — a name the answer found says nothing about where it is written",
+              'graph refresh: queued' in err and 'is written in' not in err, (out, err))
+        # CONTROL: refresh off over a graph that matches the files: no mark, no note, as before
+        repo = fake_repo(work, 'offcurrent'); driver = os.path.join(work, 'driver.py')
+        r = subprocess.run([sys.executable, driver, SCRIPTS, repo, 'impact', '--', sys.executable, '-c', f"print({ROWS!r})"],
+                           capture_output=True, text=True, env=dict(os.environ, AXIOMCODE_NO_REFRESH='1'))
+        check("named: control — refresh off over a current graph answers with no mark and no note",
+              r.stdout.strip() == ROWS.strip() and not r.stderr.strip(), (r.stdout, r.stderr))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 # ── mcp ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 def mcp_checks():
     spec = importlib.util.spec_from_file_location('axiomcode_mcp_server', os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py'))
@@ -243,7 +296,7 @@ def mcp_checks():
 
 
 if __name__ == '__main__':
-    prune_checks(); marks_checks(); wait_checks(); mcp_checks()
+    prune_checks(); marks_checks(); wait_checks(); named_checks(); mcp_checks()
     bad = [n for n, ok in RESULTS if not ok]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed" + (f"; FAILED: {len(bad)}" if bad else ''))
     sys.exit(1 if bad or not RESULTS else 0)
