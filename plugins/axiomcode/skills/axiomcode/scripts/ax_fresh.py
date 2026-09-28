@@ -732,9 +732,11 @@ def wait_fresh(repo, seconds, say=False):
 
 def query(repo, verb, argv, fresh=False):
     """run a query verb (argv) against the last good graph, the stale-while-revalidate way (above). Returns its exit code"""
+    import ax_exec
+    argv = ax_exec.program(argv)                        # `python3` may be a shell shim no native process can start (#1331)
     def run():
         return subprocess.run(argv, stdout=subprocess.PIPE)
-    def passthrough(): os.execvp(argv[0], argv)
+    def passthrough(): ax_exec.become(argv)             # never os.execvp: on Windows it returns 0 before the answer (#1640)
     def with_note(n):                                   # the answer as it is, then one line about it on stderr
         r = subprocess.run(argv); print(n, file=sys.stderr); return r.returncode
     # REFRESH SWITCHED OFF IS NOT "UP TO DATE". With AXIOMCODE_NO_REFRESH nothing rebuilds the graph, which is exactly when
