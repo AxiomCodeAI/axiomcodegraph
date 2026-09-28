@@ -1,0 +1,6 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a props type reached through a tag name: <form> and <h1> map to FormElementProps in the project's IntrinsicElements, and the file that renders them never writes the name", "run": ["impact", "FormElementProps"], "want": ["Page   src/page.tsx:3   — renders <form>, whose attributes are checked against it", "also: renders <h1>, whose attributes are checked against it"], "avoid": ["Picture", "Compare"]},
+  {"why": "a base of the props types reaches every tag whose props type extends it", "run": ["impact", "HtmlGlobalProps"], "want": ["renders <form>, whose attributes are checked against FormElementProps, which extends it", "Picture   src/page.tsx:11   — renders <img>, whose attributes are checked against ImageProps, which extends it"], "avoid": ["Compare"]},
+  {"why": "control: a tag after `return` is an element; a comparison, a string and a comment are not, and a tag mapped to another props type is not listed", "run": ["impact", "ImageProps"], "want": ["Picture   src/page.tsx:11   — renders <img>"], "avoid": ["Page ", "Compare", "renders <form>", "renders <h1>"]},
+  {"why": "the answer for an interface says the structurally checked sites are not in it", "run": ["impact", "ImageProps"], "want": ["is checked against it structurally and is not in this answer", "tsc --noEmit"]}]}

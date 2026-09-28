@@ -18,6 +18,11 @@
 //   qualifier(f, l, n, Q)             on line f:l the name n is written qualified as Q.n
 //   typeref(c, n, ctx, f, l)          a type reference to n in context ctx (field type, method param …) inside c, at f:l
 //   typeref_file(f, n, ctx)           the same when the parser gives no line (Java): the file only
+//   type_alias(t)                     t is a TypeScript type alias: a reference on its own lines is held by it, not the module
+//   jsx_props(tag, n)                 an IntrinsicElements member: the attributes of <tag> are checked against type n
+//   jsx_tag(c, tag, f, l)             an intrinsic element <tag …> rendered inside c, at f:l
+//   discriminant(t, k, v)             type t declares property k typed as the one string literal v
+//   keyed_literal(c, k, v, f, l)      an object literal inside c writes the property k: 'v', at f:l
 //   type_in_file(T, f)                type T is declared in file f
 //   literal(c, v, f, l)               a string literal v inside c
 //   field(F, T, n, f, l)              field F named n declared in type T at f:l
@@ -52,6 +57,11 @@
 .decl qualifier(f:symbol, l:number, n:symbol, q:symbol)           .input qualifier
 .decl typeref(c:symbol, n:symbol, ctx:symbol, f:symbol, l:number) .input typeref
 .decl typeref_file(f:symbol, n:symbol, ctx:symbol)                .input typeref_file
+.decl type_alias(t:symbol)                                         .input type_alias
+.decl jsx_props(tag:symbol, n:symbol)                              .input jsx_props
+.decl jsx_tag(c:symbol, tag:symbol, f:symbol, l:number)            .input jsx_tag
+.decl discriminant(t:symbol, k:symbol, v:symbol)                   .input discriminant
+.decl keyed_literal(c:symbol, k:symbol, v:symbol, f:symbol, l:number) .input keyed_literal
 .decl type_in_file(t:symbol, f:symbol)                            .input type_in_file
 .decl literal(c:symbol, v:symbol, f:symbol, l:number)             .input literal
 .decl dec_literal(c:symbol, d:symbol, v:symbol, f:symbol, l:number) .input dec_literal
@@ -507,6 +517,19 @@ direct(q, c, "produces", "instantiates it (unresolved site)", "by name", f, l) :
 direct(q, c, "produces", "reflects on its .class — deserialization or a framework produces it here", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, "CLASS_LITERAL", f, l), !inside_target(q, c).
 direct(q, c, "uses", "references it", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, ek, f, l), ek != "CLASS_LITERAL", !local_kind(ek), !member_kind(ek), !inside_target(q, c).
 direct(q, c, "uses", cat("names it (", ctx, ")"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, f, l), !inside_target(q, c).
+// the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such alias,
+// and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes and never writes MapState.
+.decl alias_over(q:symbol, a:symbol)
+alias_over(q, a) :- target(q, "type", t, _), typ(t, n, _), typeref(a, n, _, _, _), type_alias(a), !inside_target(q, a).
+alias_over(q, a) :- alias_over(q, b), typ(b, n, _), typeref(a, n, _, _, _), type_alias(a), !inside_target(q, a).
+direct(q, c, "uses", cat("names ", an, ", a type alias over it (", ctx, ")"), "by name", f, l) :- alias_over(q, a), typ(a, an, _), typeref(c, an, ctx, f, l), c != a, !inside_target(q, c).
+// an INTRINSIC ELEMENT whose attributes are checked against it (#784): `<h1 class="x">` never writes FormElementProps
+direct(q, c, "uses", cat("renders <", tag, ">, whose attributes are checked against it"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), jsx_props(tag, n), jsx_tag(c, tag, f, l), !inside_target(q, c).
+direct(q, c, "uses", cat("renders <", tag, ">, whose attributes are checked against ", sn, ", which extends it"), "by name", f, l) :- target(q, "type", t, _), extends(s, t), typ(s, sn, _), jsx_props(tag, sn), jsx_tag(c, tag, f, l), !inside_target(q, c).
+// an OBJECT LITERAL that carries its discriminant (#784): `freeze({ kind: 'LiteralNode', fragments })` is checked against
+// LiteralNode and never writes the name, so an added required property breaks it
+direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "'"), "by name", f, l) :- target(q, "type", t, _), discriminant(t, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
+direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "' of ", sn, ", which extends it"), "by name", f, l) :- target(q, "type", t, _), extends(s, t), typ(s, sn, _), discriminant(s, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
 direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c).
 direct(q, c, "uses", cat("uses ", n, ", imported from it"), "by name", f, l) :- target(q, "type", _, _), importuse(c, n, f, l), !inside_target(q, c).
 direct(q, c, "reads", cat("calls the generated getter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "get"), field(fl, t, _, _, _), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).

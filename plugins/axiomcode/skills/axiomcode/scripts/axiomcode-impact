@@ -78,7 +78,7 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 # it obtained itself, so an added proxied annotation does not apply") — the differential test caught that immediately.
 # `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
 # not, for EVERY target kind. What is left is the layer only a field or type target can reach.
-_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
+_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'type_alias', 'jsx_props', 'jsx_tag', 'discriminant', 'keyed_literal', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
               'base_name', 'field_type', 'reexport', 'reexport_from', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
 # `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
@@ -903,10 +903,24 @@ class Impact:
         W('ref', refs); W('qualifier', sorted(set(quals)))
         W('registration', ax_registration.registrations(g.q, g.site_file))
         trs = []; trf = set()
+        # a reference on a module-level type alias's own lines belongs to the alias, not the module (#784)
+        import graph_sql
+        aspans, anames = graph_sql.type_aliases(g.q)
+        W('type_alias', sorted((a,) for a in anames))
+        # an intrinsic element and the props type its tag maps to: `<h1>` is checked against FormElementProps (#784)
+        props = graph_sql.jsx_props(g.q)
+        W('jsx_props', sorted(props))
+        W('jsx_tag', graph_sql.jsx_tags({s['file'] for s in g.sym.values() if s.get('file')}, self.code, self.at,
+                                        {tag for tag, _n in props}))
+        # a discriminated type's tag, and the object literals that write it: `{ kind: 'LiteralNode', … }` (#784)
+        disc = graph_sql.discriminants(g.q)
+        W('discriminant', sorted(disc))
+        W('keyed_literal', graph_sql.keyed_literals(g.q, self.code, self.at, {v for _t, _k, v in disc}))
+        holder = graph_sql.typeref_holder(self.at, aspans, mods)
         if g.has('type_refs'):
             for r in g.q("SELECT name, file, line, context FROM type_refs"):
                 if r['line'] and r['line'] > 0:
-                    c = self.at(r['file'], r['line'])
+                    c = holder(r['file'], r['line'])
                     if c: trs.append((c, r['name'], r['context'], r['file'], r['line']))
                 else: trf.add((r['file'], r['name'], r['context']))
         W('typeref', trs); W('typeref_file', sorted(trf))
@@ -1805,7 +1819,11 @@ def main(argv):
     direct_ids = {c for c, role, why, cert, loc, n in D if cert != 'alongside' and cert != 'stubs it'
                   and not why.startswith('stubs a method of this name')} | {c for c, _ in contract}
     direct_ids = {c for c in direct_ids if c in g.sym}
-    ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
+    # a type alias holds the hop to its users (#784) but is nothing a framework or a runner invokes
+    import graph_sql
+    aliases = graph_sql.type_aliases(g.q)[1]
+    ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items()
+           if (not callers_of.get(m) or g.sym[m]['is_test']) and m not in aliases]
     inside = list({*reached, *seeds, *direct_ids})               # the direct rows are not in seed for a method target
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
@@ -2607,6 +2625,16 @@ def main(argv):
             print("bound: the closure could not start — no dependent above is an edge it can walk back from, so what "
                   "reaches THEM is not in this answer")
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
+    # A STRUCTURAL TYPE IS SATISFIED WITHOUT BEING NAMED (#784). `return { kind: 'LiteralNode', fragments }` checks
+    # against the interface and never writes it, so an added required property or a narrowed one breaks sites no row
+    # above can name. Assignability is the compiler's job; the answer says so rather than looking complete.
+    shapes = sorted({g.sym[t]['name'] for k, _, pay in targets if k == 'type' for t in (pay if isinstance(pay, list) else [])
+                     if isinstance(t, str) and t in g.sym and g.sym[t].get('kind') in ('interface', 'type')
+                     and (g.sym[t].get('file') or '').endswith(('.ts', '.tsx', '.mts', '.cts'))})
+    if shapes:
+        print(f"bound: an object literal, a spread or a JSX element that builds a {' / '.join(shapes[:3])} without "
+              "writing the name is checked against it structurally and is not in this answer — after adding a required "
+              "property or narrowing one, `tsc --noEmit` lists those sites")
     if dunder and not reached: print(f"outside the graph: {', '.join(dunder)} is a protocol method — the language runtime calls it (an operator, a conversion, a lifecycle hook), which is no call site, so nothing reaching it here does NOT mean nothing does")
     if outside and lone: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so "
                                + ("what reaches it above is not all that does" if reached else "nothing reaching it here does NOT mean nothing does"))
