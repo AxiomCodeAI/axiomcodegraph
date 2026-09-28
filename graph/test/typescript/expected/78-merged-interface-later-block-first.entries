@@ -1,0 +1,7 @@
+── entry_point (6) ──
+  exported_from_entry_module repro#strict   repro.ts:13
+  exported_from_entry_module repro#typed   repro.ts:9
+  exported_from_entry_module repro#use   repro.ts:3
+  exported_from_entry_module twice#run   twice.ts:9
+  unimported_module repro#<module>   repro.ts:1
+  unimported_module twice#<module>   twice.ts:1

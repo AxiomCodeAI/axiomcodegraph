@@ -49,12 +49,40 @@ name_binds_any(mod, name, prov, k, ent) :- type_module("client", mod, ns),
     namespace_member("client", ns, name, k, ent),
     prov = "client".
 
+// (2c) inside an AUGMENTATION block — `declare module "./text" { … }` or `declare
+// global { … }` — the names of the FILE around it. The block is its own module row, so
+// a reference written in it is keyed to that row, while the file's imports and
+// top-level declarations belong to the file's row. The compiler nests the block's scope
+// inside the file's: `import type { Matcher } from "./text"` above the block is what
+// `find(m: Matcher)` inside it means. Without this every such annotation resolved to
+// nothing, and the augmented member lost its parameter types (#422).
+augmentation_host(aug, host) :- module_decl("client", _, _, fp, k, aug),
+    module_kind_is_augmentation(k),
+    module_decl("client", _, _, fp, hk, host),
+    host != aug,
+    module_kind_is_file(hk).
+module_kind_is_file("SOURCE_MODULE").
+module_kind_is_file("DECLARATION_FILE").
+module_kind_is_file("SCRIPT_GLOBAL").
+name_binds_any(aug, name, prov, k, ent) :- augmentation_host(aug, host),
+    import_binding("client", _, name, _, host, ih),
+    name != "",
+    !module_local_decl(_, aug, name, _, _),
+    import_binds_any(ih, prov, k, ent).
+name_binds_any(aug, name, prov, k, ent) :- augmentation_host(aug, host),
+    module_local_decl(prov, host, name, k, ent),
+    !module_local_decl(_, aug, name, _, _).
+
 // (3) the global scope, ONLY when the name is not bound in the module itself. This
 // is the one precedence rule the language needs: a module that declares its own
 // `Buffer` means its own, and admitting the global as a second answer would leave
 // every call on it multi_inferred across two unrelated declarations.
 name_bound_locally(mod, name) :- import_binding("client", _, name, _, mod, _), name != "".
 name_bound_locally(mod, name) :- module_local_decl(_, mod, name, _, _).
+name_bound_locally(aug, name) :- augmentation_host(aug, host),
+    import_binding("client", _, name, _, host, _), name != "".
+name_bound_locally(aug, name) :- augmentation_host(aug, host),
+    module_local_decl(_, host, name, _, _).
 // DEMAND-GATED. Ungated, this rule is |client modules| x |global declarations| —
 // measured on this corpus, 418 modules against 5,268 globals produced 2.1 MILLION
 // name_binds_any rows, almost none of which any rule reads. Gating on the names the

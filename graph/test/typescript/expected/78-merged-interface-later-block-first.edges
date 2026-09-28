@@ -1,0 +1,8 @@
+ambiguous_unknown	METHOD_CALL	repro#use(Text,string,Plain) @L5 -> -
+known_edge	METHOD_CALL	repro#strict(Strict,Bare) @L14 -> Strict#hold(Bare)
+known_edge	METHOD_CALL	repro#typed(Typed,Rx) @L10 -> Typed#take(Matcher)
+known_edge	METHOD_CALL	repro#use(Text,string,Plain) @L6 -> Plain#pick(RegExp)
+known_edge	METHOD_CALL	twice#run(Twice,Once,Rx,Bare) @L10 -> Twice#go(Matcher)
+known_edge	METHOD_CALL	twice#run(Twice,Once,Rx,Bare) @L11 -> Once#keep(Bare)
+multi_inferred	METHOD_CALL	repro#use(Text,string,Plain) @L4 -> Text#find(Matcher)
+multi_inferred	METHOD_CALL	repro#use(Text,string,Plain) @L4 -> Text#find(RegExp)
