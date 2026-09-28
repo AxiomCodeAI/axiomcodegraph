@@ -479,11 +479,11 @@ def _edges(q):
     # second keeps it, which is not the same set. The id is a hash of the display, so an anonymous class collides
     # across files (`Database.Vendor.<anon TriFunction>.apply` has rows in six), which is why this matters at all.
     one = {}
-    for i, f, ln, en, mid, kind, disp in q("""SELECT id, file, line, end_line, method_id, kind, display FROM symbols
-                                        WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
-        one[i] = (f, ln, en, mid, kind, disp)
-    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399)
-    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid) for i, (f, ln, en, mid, kind, disp) in one.items()
+    for i, f, ln, en, mid, kind, disp, qn in q("""SELECT id, file, line, end_line, method_id, kind, display, qualified_name
+                                        FROM symbols WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
+        one[i] = (f, ln, en, mid, kind, disp, qn)
+    # the same builder the path tool exports with (ax_edges.defines_edges): generated members and equal spans (#1402, #1399, #1598)
+    e += ax_edges.defines_edges(((f, ln, en, i, disp, mid, qn) for i, (f, ln, en, mid, kind, disp, qn) in one.items()
                                 if mid and kind != 'module'), ax_edges.sites_of(lambda s, p: q(s, *p)))
     have = {(a, b) for a, b, _ in e}
     # the same narrowing the path tool applies: a candidate whose owner type is never instantiated anywhere is not a
