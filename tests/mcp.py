@@ -152,6 +152,11 @@ def check_words():
              ("    --tests-only lists all 22 by rung and file; --why adds each one's route",
               "    tests=True lists all 22 by rung and file; why=True adds each one's route"),
              ("ask for --page 2", "ask for page=2"),
+             # `--page all` is the string "all" here, and the footer names one spelling per surface, never both
+             ("ask for the next with --page 2, or all of it with --page all; --budget N changes the page size",
+              'ask for the next with page=2, or all of it with page="all"; budget=N changes the page size'),
+             ("narrow instead with --in <path>, --depth N or --tests-only", "narrow instead with in_path=<path>, depth=N or tests=True"),
+             ("--page N|all", 'page=N or page="all"'),
              ("narrow with `impact <name> --in <path>` or `path '*' <name> --in parser/src`.",
               "narrow with `impact <name> in_path=<path>` or `path '*' <name> in_path=parser/src`."),
              ("start at --from <start>", "start at from_=<start>"),
@@ -163,6 +168,7 @@ def check_words():
              ("           49 |   args = ['--in', path, '--tests-only']", "           49 |   args = ['--in', path, '--tests-only']"),
              ("              | … +23 more line(s) --limit", "              | … +23 more line(s) --limit"),
              ("a pre-built --lang java graph", "a pre-built --lang java graph"),
+             ('grep -rnw "all" . lists them', 'grep -rnw "all" . lists them'),
              # a site of a grep-shaped answer is the file's own text: a flag written in that code stays as written
              ("tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]",
               "tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]"),
@@ -185,6 +191,7 @@ def check_grep_default():
                 lambda: server.axiomcode_impact(['A.f'], tests=True, limit=5)]
         prose = [lambda: server.axiomcode_impact(['A.f'], full=True), lambda: server.axiomcode_impact(['A.f'], delete=True),
                  lambda: server.axiomcode_impact(['A.f'], why=True, tests=True), lambda: server.axiomcode_impact(['A.f'], page=2),
+                 lambda: server.axiomcode_impact(['A.f'], page='all'), lambda: server.axiomcode_impact(['A.f'], page='2'),
                  lambda: server.axiomcode_path('a', 'b', full=True), lambda: server.axiomcode_context('how', source=True),
                  lambda: server.axiomcode_context('how', from_='main'), lambda: server.axiomcode_test_impact(why=True),
                  lambda: server.axiomcode_changed()]
@@ -198,6 +205,16 @@ def check_grep_default():
         for f in prose:
             seen.clear(); f()
             if any(a.startswith('--grep') for a in seen[0]): bad.append(f"prose asked for, got --grep: {seen[0]}")
+        # page="all" is what an answer's footer tells an MCP caller to send: it reaches the CLI as --page all, and the
+        # SDK-free server's schema takes it as it takes a number (the control: a boolean is still refused)
+        seen.clear(); server.axiomcode_impact(['A.f'], page='all')
+        if '--page all' not in ' '.join(seen[0]): bad.append(f"page='all' did not ask for --page all: {seen[0]}")
+        seen.clear(); server.axiomcode_impact(['A.f'], page=1)
+        if '--page' in seen[0]: bad.append(f"page=1 passed --page: {seen[0]}")
+        import _fallback
+        sch = _fallback._schema_for(server.Page, 1)
+        for v, ok in (('all', True), (2, True), (True, False)):
+            if _fallback._conforms(v, sch) != ok: bad.append(f"fallback schema {sch} {'refused' if ok else 'took'} page={v!r}")
         return bad
     finally:
         server.run = real

@@ -1724,7 +1724,15 @@ def main(argv):
     tests_only = '--tests-only' in args; want_tests = '--tests' in args or tests_only; want_why = '--why' in args
     want_delete = '--delete' in args; want_warm = '--warm' in args; want_depends = '--depends' in args
     # the default view collapses a flood of [by name] rows; an explicit --limit or --page all asks for every row
-    list_all = '--limit' in args or getattr(sys.modules.get('ax_pages'), 'PAGE', None) == 'all'
+    # A LATER PAGE CONTINUES THE ROWS (ax_pages.paginate). Page 1 is the default view; page 2 on holds the rows that
+    # view left out. So whenever the pager captures the answer every row is printed, the ones the default view hides
+    # marked as hidden and its summary lines ("… +54 more", "+9 [by name]") marked as summaries: the pager builds
+    # page 1 from the one, pages the rest from the other, and counts what is left from the rows themselves.
+    # `--page all` prints every row, unmarked.
+    _pg = sys.modules.get('ax_pages'); _page = getattr(_pg, 'PAGE', 1)
+    every_row = _page == 'all'; later = isinstance(_page, int) and bool(getattr(_pg, 'CAPTURING', False))
+    HIDE, SUMM = (getattr(_pg, 'HIDE', ''), getattr(_pg, 'SUMM', '')) if later else ('', '')
+    list_all = '--limit' in args or every_row
     args = [a for a in args if a not in ('--tests', '--tests-only', '--why', '--json', '--delete', '--warm', '--depends')]
     tests_in = None
     if '--tests-in' in args:
@@ -2335,6 +2343,31 @@ def main(argv):
         if dropped_alongside: print(f"({dropped_alongside} further `alongside` row(s) not shown — AXIOMCODE_ALONGSIDE_CAP={ALONG_CAP}; those kept share a field with the target or sit in its file)")
         print("(`alongside` = no call, no reference, no contract — only that a fix touching one of these often touches the other;\n"
               " it is never a seed, so the transitive layer below is unaffected by it)")
+    def byname_search(collapsed, seeds):
+        # THE SEARCH NAMES WHAT THE ROWS CALL, OR THE TARGET'S OWN NAME. It used to name the seeds' method names, and a
+        # type or a field has none a person can grep for: `impact User` said grep "<init>", a Python class
+        # "<classbody>", a C# type "<constructor>", and a C# property the names of unrelated methods in its closure.
+        # So: the names each row's reason says it calls; else the target's name as written (the type, the field, the
+        # method); a compiler-made name (<init>, __init__, constructor) is never one.
+        called = collections.Counter()
+        for r in collapsed:
+            for part in re.findall(r'\bcalls (?:the generated \w+ )?([^;(]*(?:\(\))?(?:, [^;,]+)*)', re.sub(r'calls a method of this name[^;]*', '', r[2])):
+                for x in re.findall(r'[A-Za-z_$][\w$]*', part):
+                    if x not in ('the', 'generated', 'getter', 'setter', 'and', 'it', 'sites'): called[x] += 1
+        made = re.compile(r'__\w+__|constructor|<[^>]*>')
+        nm = list(dict.fromkeys(x for x, _ in called.most_common() if not made.fullmatch(x)))[:4]
+        if nm:
+            return (f'grep -rn "\\.{nm[0]}(" {P.grep_roots(g)}' if len(nm) == 1 else
+                    'grep -rnw ' + ' '.join(f'-e "{n}"' for n in nm) + f' {P.grep_roots(g)}')
+        own = []                                   # "class User", "field BasketItem.UnitPrice", "Basket.Add", "f (at a.py:3)"
+        for k_, lab, _p in targets:
+            w = [x for x in re.findall(r'[A-Za-z_$][\w$]*', re.sub(r'<[^>]*>', '', lab.split(' (')[0])) if not made.fullmatch(x)]
+            if w: own.append((k_ if not lab.startswith('construction of') else 'type', w[-1]))
+        own = list(dict.fromkeys(own))[:4]
+        if not own: return ''
+        if len(own) == 1 and own[0][0] == 'method':
+            return f'grep -rn "\\.{own[0][1]}(" {P.grep_roots(g)}'
+        return 'grep -rnw ' + ' '.join(f'-e "{n}"' for _, n in own) + f' {P.grep_roots(g)}'
     for title, rows in groups:
         if not rows: continue
         # PRODUCTION BEFORE TESTS. A test that reaches the target is a CONSEQUENCE of the change, not a place that
@@ -2371,19 +2404,26 @@ def main(argv):
         cap = max(3, limit // 5); per = collections.Counter(); shown = []; hidden = []
         for r in body:
             f = (r[4] or '').rsplit(':', 1)[0]
-            if len(shown) < limit and per[f] < cap: per[f] += 1; shown.append(r)
+            if every_row or (len(shown) < limit and per[f] < cap): per[f] += 1; shown.append(r)
             else: hidden.append(r)
-        for c, role, why, cert, loc, n in shown:
+        def row(r, mark=''):
+            c, role, why, cert, loc, n = r
             why, oth = merge_reasons(why, direct_also.get((c, _grp(role))) or [])
-            print(f"    [{cert}] {g.disp(c)}   {loc}   — {why}" + (f" ({n} sites)" if n > 1 else '') + also_text(oth) + (f"   [for {', '.join(sorted(direct_for[(c, _grp(role))]))}]" if multi else ''))
+            print(f"{mark}    [{cert}] {g.disp(c)}   {loc}   — {why}" + (f" ({n} sites)" if n > 1 else '') + also_text(oth) + (f"   [for {', '.join(sorted(direct_for[(c, _grp(role))]))}]" if multi else ''))
+        for r in shown: row(r)
         if hidden:
             byf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in hidden)
-            print(f"    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--limit N for all of them)")
+            print(f"{SUMM}    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--page 2 for the next rows, --limit N for all of them)")
+            if later:
+                for r in hidden: row(r, HIDE)
         if collapsed:
-            nm = sorted({g.sym[t]['name'] for t in seeds if t in g.sym and g.sym[t].get('method_id') and g.sym[t].get('name')})
-            srch = (f'grep -rn "\\.{nm[0]}(" {P.grep_roots(g)}' if len(nm) == 1 else P.grep_for(g, nm[0]) if nm else '')
-            print(f"    +{len({c for c, *_ in collapsed})} [by name] (the same method name on an untyped receiver; may be another method)"
+            srch = byname_search(collapsed, seeds)
+            calls_ = any(re.search(r'\bcalls\b', r[2]) for r in collapsed)
+            print(f"{SUMM}    +{len({c for c, *_ in collapsed})} [by name] " + ("(the same method name on an untyped receiver; may be another method)" if calls_ else
+                  "(the name written where the engine could not bind it to this declaration; may be another one)")
                   + (f" — {srch} lists them" if srch else '') + "; --page all or --limit N prints each row")
+            if later:
+                for r in collapsed: row(r, HIDE)
         # a test callable that only STUBS it on a mock names it and runs none of it: said apart, never as "reach it"
         tstub = [r for r in tst if r[3] == 'stubs it' or r[2].startswith('stubs a method of this name')]
         tst = [r for r in tst if r not in tstub]

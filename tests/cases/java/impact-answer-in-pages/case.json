@@ -28,7 +28,7 @@
    "want": [
     "page 1 of",
     "more page(s) left",
-    "page=2 (MCP) or --page 2 (CLI)",
+    "ask for the next with --page 2",
     "--page all"
    ]
   },
