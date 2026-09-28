@@ -1,0 +1,18 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a file:line in a NestJS/Angular-style file (user.service.ts) is the declaration at that line, not package 'user' + 'service.ts'",
+   "run": ["impact", "src/user.service.ts:3"],
+   "want": ["change: UserService.find (at src/user.service.ts:3)", "UserController.get"],
+   "avoid": ["matches no package"]},
+  {"why": "the same for user.controller.ts",
+   "run": ["impact", "src/user.controller.ts:7"],
+   "want": ["change: UserController.get (at src/user.controller.ts:7)"],
+   "avoid": ["matches no package"]},
+  {"why": "control: an undotted basename answers as before",
+   "run": ["impact", "src/userHelper.ts:2"],
+   "want": ["change: helper (at src/userHelper.ts:2)"],
+   "avoid": ["matches no package"]},
+  {"why": "control: a dotted NAME with a fabricated prefix is still refused by the prefix check",
+   "run": ["impact", "zzz.qqq.UserService.find"],
+   "expect_error": true,
+   "want": ["'zzz.qqq' matches no package"]}]}

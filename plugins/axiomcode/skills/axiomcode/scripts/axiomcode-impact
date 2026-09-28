@@ -270,7 +270,12 @@ class Impact:
         Resolution matches a declaration by its TRAILING segments, so `zzzz.qqqq.Owner.member`
         and the true fully-qualified spelling are indistinguishable once matched: both come back
         as `Owner.member`. Comparing the typed string against every qualified_name and display a
-        candidate carries is what tells a real package apart from one that is not in the graph."""
+        candidate carries is what tells a real package apart from one that is not in the graph.
+
+        A file:line is not a dotted name: its dots are the file's (`user.controller.js:7`), and the
+        resolver already matched that path against the index, so there is no prefix left to check."""
+        m = re.match(r'^(.+?):(\d+)$', typed.strip().strip('`"\''))
+        if m and ('/' in m.group(1) or '.' in m.group(1)): return ''
         typed = re.sub(r'\(.*\)$', '', typed).replace('#', '.').strip('.')
         if typed.count('.') < 2: return ''          # Owner.member carries no prefix to validate
         names = []
