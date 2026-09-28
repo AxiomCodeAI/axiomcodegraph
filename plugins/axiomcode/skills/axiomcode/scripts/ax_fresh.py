@@ -23,9 +23,12 @@ the previous graph. Three pieces:
   ax_fresh.py baseline <repo> [<seconds>]      when HEAD moved, wait for the baseline to follow it (changed, test-impact)
   ax_fresh.py worker <repo>                    the worker itself (what kick detaches)
   ax_fresh.py lock <fd>                        take the build lock on an fd the calling shell holds open
+  ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
-is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 10) is how long a query verb waits."""
+is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 10) is how long a query verb waits; AXIOMCODE_BUILD_WAIT
+(seconds, default 900) is how long a query that finds no graph waits for a build that is running rather than starting
+its own; AXIOMCODE_NO_GITIGNORE=1 watches (and indexes) directories git ignores."""
 import re, errno, hashlib, json, os, subprocess, sys, time
 
 H = os.path.dirname(os.path.abspath(__file__))
@@ -73,6 +76,30 @@ def python_script(p, name=None):
     except OSError: return False
     return bool(PY_SHEBANG.match(head.decode('utf-8', 'replace')))
 
+_IGNORED = {}
+
+def git_ignored_dirs(root):
+    """the directories under root that git ignores (.gitignore, .git/info/exclude, the global excludes file), as
+    absolute paths. The parser skips them too (parser/src/utils/git-ignored.ts, the same git command), so a generated
+    tree that only .gitignore names — a framework's build cache, a vendored bundle — is neither parsed nor watched:
+    a whole-repository index read 15,108 files of a 431-file project, and every write into such a tree cost a rebuild.
+    A directory holding a tracked file is not listed (git lists it only when all of it is ignored), so a file
+    committed on purpose under an ignored name is still read. Empty outside a work tree, or with
+    AXIOMCODE_NO_GITIGNORE=1."""
+    root = os.path.realpath(root)
+    if root in _IGNORED: return _IGNORED[root]
+    out = set()
+    if not os.environ.get('AXIOMCODE_NO_GITIGNORE'):
+        try:
+            r = subprocess.run(['git', '-C', root, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z', '--', '.'],
+                               capture_output=True, timeout=60)
+            if r.returncode == 0:
+                for e in r.stdout.decode('utf-8', 'replace').split('\0'):
+                    if e.endswith('/'): out.add(os.path.normpath(os.path.join(root, e)))
+        except (OSError, subprocess.SubprocessError): pass
+    _IGNORED[root] = out
+    return out
+
 def watched(root, lang):
     """every file the parser of `lang` reads under root; `lang` may be a comma list (a repository in several
     languages, each with its own graph), and a file two of them read is yielded once"""
@@ -83,8 +110,10 @@ def watched(root, lang):
                 if p not in seen: seen.add(p); yield p
         return
     exts, names, prune = EXT.get(lang, ()), NAMES.get(lang, ()), PRUNE.get(lang, PRUNE_ALL)
+    ignored = git_ignored_dirs(root); real = os.path.realpath(root)
     for d, subdirs, files in os.walk(root):
-        subdirs[:] = [s for s in subdirs if s not in prune]
+        rd = os.path.join(real, os.path.relpath(d, root)) if ignored else d
+        subdirs[:] = [s for s in subdirs if s not in prune and not (ignored and os.path.normpath(os.path.join(rd, s)) in ignored)]
         for f in files:
             if f.endswith(exts) or f in names or (lang == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
                     or (lang == 'python' and python_script(os.path.join(d, f), f)):
@@ -150,7 +179,14 @@ def write_state(repo, **kv):
         json.dump(st, open(tmp, 'w')); os.replace(tmp, state_path(repo))
     except OSError: pass
 
-def has_graph(repo): return os.path.exists(os.path.join(out_dir(repo), 'graph.sqlite'))
+def has_graph(repo):
+    """a graph was built here: graph.sqlite exists, or is a pointer whose target is gone. A broken pointer is a graph to
+    REPAIR, not a repository without one: taken for the latter, the refresher stopped for good and the next query
+    started a full, explicit build that also moved the baseline `changed` measures against"""
+    return os.path.lexists(os.path.join(out_dir(repo), 'graph.sqlite'))
+
+def graph_broken(repo):
+    return has_graph(repo) and not os.path.exists(os.path.join(out_dir(repo), 'graph.sqlite'))
 
 def graph_lang():
     """the language whose graph a verb reads when it is not the main one (AXIOMCODE_GRAPH_LANG, set by the dispatcher
@@ -230,8 +266,24 @@ def building(repo):
         return True
     finally: os.close(fd)                                     # closing drops a lock this probe took
 
+def wait_build(repo, seconds, say=True):
+    """wait while a build holds the build lock, up to `seconds`, with one progress line on stderr every 15 s. A query
+    that arrives mid-build waits for it this way instead of starting another build (which queued behind the lock and
+    then rebuilt everything again) or reading a graph that is being swapped. True when no build is running any more."""
+    end = time.time() + seconds; t0 = time.time(); last = 0
+    while building(repo):
+        if time.time() >= end: return False
+        if say and time.time() - last >= 15:
+            st = read_state(repo); since = st.get('started')
+            print(f"a graph build is running for {repo}" + (f" ({int(time.time() - since)} s so far)" if since else '') +
+                  f" — waiting for it (up to {int(seconds)} s, AXIOMCODE_BUILD_WAIT)", file=sys.stderr, flush=True)
+            last = time.time()
+        time.sleep(0.5)
+    return True
+
 def status(repo):
     if not has_graph(repo): return dict(state='no graph')
+    if graph_broken(repo): return dict(state='building' if building(repo) else 'stale', changed=['.axiomcode/out/graph.sqlite (the pointer to the graph is broken)'], added=[], removed=[])
     c = changes(repo)
     st = read_state(repo)
     if c is None: return dict(state='unknown', note='the graph predates the file table; the next `axiomcode index` records it')
@@ -239,7 +291,7 @@ def status(repo):
     busy = building(repo)
     if not (changed or added or removed): return dict(state='building' if busy else 'fresh')
     d = dict(state='building' if busy else 'stale', changed=changed, added=added, removed=removed)
-    if not busy and st.get('failed_table') == change_key(c): d['failed'] = st.get('failed_log', '')
+    if not busy and st.get('failed_table') == change_key(c): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
     return d
 
 def change_key(c):
@@ -259,10 +311,20 @@ def kick(repo, trigger='an edit'):
         if not _flock(fd, False): return False                # a worker is running; it re-checks before it exits
     finally: os.close(fd)
     log = open(os.path.join(repo, '.axiomcode', 'refresh.log'), 'a')
-    kw = dict(start_new_session=True) if os.name != 'nt' else dict(creationflags=0x00000008 | 0x00000200)   # DETACHED | NEW_GROUP
     env = dict(os.environ, AXIOMCODE_REFRESH_TRIGGER=trigger)
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), 'worker', repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, **kw)
-    return True
+    argv = [sys.executable, os.path.abspath(__file__), 'worker', repo]
+    if os.name != 'nt':
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, start_new_session=True)
+        return True
+    # A HOOK ON WINDOWS MAY RUN IN A JOB OBJECT that is closed, with every process in it, when the hook returns: a worker
+    # merely DETACHED died with it, and the rebuild it had started was lost. CREATE_BREAKAWAY_FROM_JOB leaves the job; a
+    # job that forbids it refuses the flag, and the worker is started without it, as before.
+    for flags in (0x00000008 | 0x00000200 | 0x01000000, 0x00000008 | 0x00000200):   # DETACHED | NEW_GROUP (| BREAKAWAY)
+        try:
+            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, creationflags=flags)
+            return True
+        except OSError: continue
+    return False
 
 def worker(repo):
     lock = os.path.join(repo, '.axiomcode', 'refresh.lock')
@@ -282,6 +344,7 @@ def worker(repo):
                 legacy_done = True; c = [['(no file table yet)'], [], []]
             else:
                 c = changes(repo, t)
+                if graph_broken(repo) and not (c and any(c)): c = [['.axiomcode/out/graph.sqlite (broken pointer)'], [], []]
                 if (c is None or not any(c)) and not base_moved(repo):
                     write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', '')); return 0
                 c = c or [[], [], []]
@@ -309,7 +372,7 @@ def worker(repo):
             took = round(time.time() - t0, 1)
             if r.returncode != 0:
                 write_state(repo, state='failed', finished=time.time(), seconds=took, failed_table=fp,
-                            failed_log=os.path.join(repo, '.axiomcode', 'build.log'))
+                            failed_log=os.path.join(repo, '.axiomcode', 'refresh.log'), failed_reason=failure_reason(r.stdout))
                 print(f"refresh: build failed after {took}s; the previous graph is kept\n{r.stdout[-800:]}", flush=True)
                 return 1
             write_state(repo, state='fresh', finished=time.time(), checked=time.time(), seconds=took, failed_table=None, reason=why)
@@ -321,6 +384,13 @@ def worker(repo):
     c = changes(repo)
     if (c and any(c) and read_state(repo).get('failed_table') != change_key(c)) or base_moved(repo): kick(repo)
     return 0
+
+def failure_reason(out):
+    """the line of a failed build's output that says why: "no engine found", "build failed", the engine's own ❌ line"""
+    lines = [l.strip() for l in (out or '').splitlines() if l.strip()]
+    for l in lines:
+        if 'no engine found' in l or l.startswith(('❌', 'build failed', 'could not')): return l[:300]
+    return lines[-1][:300] if lines else 'no output'
 
 def wait(repo, seconds):
     """kick, then wait until the graph is fresh or `seconds` have passed. Returns the status at the end."""
@@ -371,7 +441,10 @@ def note(s):
     if s.get('state') not in ('stale', 'building'): return ''
     files = s.get('changed', []) + s.get('added', []) + s.get('removed', [])
     head = ', '.join(files[:5]) + (f" … +{len(files) - 5}" if len(files) > 5 else '')
-    if s.get('failed'): return f"graph refresh: the last rebuild FAILED (see {s['failed']}); this answer is from the previous graph, which predates edits to {head}"
+    if s.get('failed'):
+        why = s.get('failed_reason') or ''
+        return (f"graph refresh: the last rebuild FAILED" + (f" — {why}" if why else '') + f" (see {s['failed']}); this answer is from the "
+                f"previous graph, which predates edits to {head}")
     return (f"graph refresh: {'rebuilding' if s['state'] == 'building' else 'queued'} — this answer is from the previous graph, "
             f"which predates edits to {head}; read those files for their current text")
 
@@ -386,6 +459,15 @@ def main(argv):
         lib = os.environ.get('AXIOMCODE_LIBRARY', '')
         json.dump(dict(lang=lang, lang_auto=bool(os.environ.get('AXIOMCODE_LANG_AUTO')), src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
                        files=snapshot(repo, lang, os.path.join(repo, src_arg))), sys.stdout); return 0
+    if cmd == 'count':
+        # the SOURCE files of each language under repo, walked as the refresher walks (the parser's skip list and git's
+        # ignore rules): java typescript python javascript csharp. axiomcode-build picks the main language from these, and
+        # a `find` that saw a generated tree the parser skips could pick a different main language than the last build did
+        n = {l: 0 for l in SOURCE}
+        for l in SOURCE:
+            for p in watched(repo, l):
+                if p.endswith(SOURCE[l]) or (l == 'python' and python_script(p)): n[l] += 1
+        print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp']); return 0
     if cmd == 'pyscripts':
         # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language
         n = 0

@@ -698,7 +698,7 @@ class Impact:
     #  — bump this whenever a fact this writes changes shape, or an already-indexed repository reuses the old file
     #    against the new program and every query dies with "cannot parse fact file <name>.facts".
     def export(self):
-        g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
+        g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{g.db_mtime}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
         # "Cannot open fact file X.facts": accept it only when it holds every relation the program reads
         need = set(re.findall(r'\.decl (\w+)\([^)]*\)\s+\.input', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dl', 'impact.dl')).read())) - PER_QUERY
@@ -1151,7 +1151,7 @@ class Impact:
                          g.q("SELECT c0, c1, c2, c3, c4 FROM ext_framework_edge")
                          if r[0] and r[1] and r[0] != r[1]})
         W('framework', fw)
-        open(stamp, 'w').write(want); return D
+        t = f'{stamp}.{os.getpid()}.tmp'; open(t, 'w').write(want); P.replace_file(t, stamp); return D
 
     # ── one query: the target facts, the text-level facts, one Soufflé run ──────────────────────────────────────
     def run(self, targets, q='q'):
@@ -1251,7 +1251,14 @@ class Impact:
         # stamped, and the program is a native binary compiled once — while this side rebuilds members,
         # edges, test sets and the symbol view in Python on every invocation, and a CLI call is a fresh
         # process. Until that setup is cached per graph the rules win. AXIOMCODE_SQL=1 selects this path.
-        if os.environ.get('AXIOMCODE_SQL'):
+        # NO RULES TO RUN (no shipped binary for this machine, no soufflé): the SQL port answers instead, and says so once.
+        # It agrees with the rules on every target kind it takes; only a kind it does not take still fails, with advice
+        # for THIS operating system (dl_program.rules_unavailable), not a Homebrew command on Windows.
+        no_rules = not os.environ.get('AXIOMCODE_SQL') and self.program()[0] == 'souffle' and not shutil.which('souffle')
+        if no_rules and not getattr(Impact, '_said_sql', False):
+            print("impact: no compiled rules for this machine and no soufflé — answering from the SQL port "
+                  "(same answers; `axiomcode index` says how to install the rules)", file=sys.stderr); Impact._said_sql = True
+        if os.environ.get('AXIOMCODE_SQL') or no_rules:
             import graph_sql
             _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource, self.code, self.at,
                                                 inside, textuse, importuse, self.lines)
@@ -1272,9 +1279,7 @@ class Impact:
         if os.environ.get('AXIOMCODE_BACKEND'): print('backend=datalog', file=sys.stderr)
         prog = self.program()                                                        # the compiled rules, or the interpreter
         if prog[0] == 'souffle' and not shutil.which('souffle'):
-            die(f"no compiled impact.dl for these rules on this machine: the {dl_program.SCOPE}/engine-{dl_program.npm_platform()} package\n"
-                "  ships one for each release (reinstall @axiomcode/code-graph so it is fetched), or install soufflé\n"
-                "  (brew install souffle-lang/souffle/souffle) to compile or interpret the rules here")
+            die(dl_program.rules_unavailable('impact'))
         prof('query facts written'); r = subprocess.run(prog + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}

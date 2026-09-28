@@ -10,6 +10,7 @@ import { YamlParser } from '@/parsers/yaml/yaml-parser';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
 import { groupOwnedFiles, resolveFileOwners } from '@/utils/file-ownership';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 /**
  * Analyzes YAML files (.yml / .yaml) within Java projects and extracts
@@ -166,7 +167,7 @@ export class YamlProjectAnalyzer {
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(path.join(dirPath, entry.name))) {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForYamlFiles(subPath, files);
           }

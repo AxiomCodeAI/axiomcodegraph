@@ -126,7 +126,7 @@ def value_ref_rows(q, names, ids, site_file=None, at=None, lines=None):
         # only where the parser says the identifier binds to a callable. A site-evidence leg for the languages that
         # carry no entity kind was tried and measured: eleven rows on a real application, all eleven wrong. See the
         # note in dl/impact.dl next to `valueref`.
-        hits = set(q(f"SELECT file, line FROM refs WHERE name = ? AND line > 0 AND entity_kind IN ({ek})", n, *CALLABLE_EK))
+        hits = {tuple(r) for r in q(f"SELECT file, line FROM refs WHERE name = ? AND line > 0 AND entity_kind IN ({ek})", n, *CALLABLE_EK)}   # rows, as tuples: a sqlite3.Row does not sort
         for f, l in sorted(hits):
             if (n, f, l) in called:
                 continue

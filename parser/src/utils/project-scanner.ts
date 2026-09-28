@@ -4,6 +4,7 @@ import * as path from 'path';
 import { EXCLUDED_DIRS, isJavaTestDir } from '@/constants/consts';
 import { ProjectInfo, ProjectLanguage } from '@/types/ProjectInfo';
 import { ProjectDetector } from '@/utils/project-detector';
+import { isGitIgnoredDir } from '@/utils/git-ignored';
 
 export class ProjectScanner {
   private detector: ProjectDetector;
@@ -90,6 +91,9 @@ export class ProjectScanner {
         }
 
         const subPath = path.join(dirPath, entry.name);
+        if (isGitIgnoredDir(subPath)) {
+          continue;
+        }
         await this.scanDirectory(subPath, projects, currentDepth + 1, maxDepth, claimedBelow, excludeTests);
       }
     } catch (error) {

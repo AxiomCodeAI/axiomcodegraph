@@ -15,6 +15,7 @@ import { JavaScriptProjectAnalyzer } from '@/workflows/javascript/javascript-pro
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
 import { XmlProjectAnalyzer } from '@/workflows/xml/xml-project-analyzer';
 import { YamlProjectAnalyzer } from '@/workflows/yaml/yaml-project-analyzer';
+import { clearGitIgnored, loadGitIgnored } from '@/utils/git-ignored';
 
 export interface ExtractOptions {
   /** Path to the project/codebase to scan. */
@@ -227,6 +228,15 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const startedAt = Date.now();
   const absolutePath = path.resolve(opts.projectPath);
   const scanner = new ProjectScanner();
+
+  // The directories git ignores are not the project (utils/git-ignored.ts). A library tree keeps them: a
+  // dependency's .gitignore names its build output, and for a dependency that output is the source.
+  if (opts.library === true) {
+    clearGitIgnored();
+  } else {
+    const skipped = loadGitIgnored(absolutePath);
+    if (skipped > 0) console.log(`🙈 ${skipped} director${skipped === 1 ? 'y' : 'ies'} ignored by git will not be read (AXIOMCODE_NO_GITIGNORE=1 reads them)\n`);
+  }
 
   console.log('⏳ Scanning for projects...');
   // Discovery itself honours the flag: a test directory is never a root (#613).
