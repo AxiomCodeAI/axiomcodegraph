@@ -1,0 +1,269 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "fire calls a module-level variable a setter assigns: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "fire",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:6 — the callee is a module-level variable",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "Emitter.emit calls a function stored on this in the constructor: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "Emitter.emit",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:9 — the callee is a function stored on this",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "optsTypeof calls an options-object member it tests with typeof: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "optsTypeof",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:13 — the callee is a member of a parameter",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "optsAnd calls an options-object member guarded by &&: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "optsAnd",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:14 — the callee is a member of a parameter",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "optsIf calls an options-object member guarded by if: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "optsIf",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:15 — the callee is a member of a parameter",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "optsOptional calls an options-object member with ?.(): the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "optsOptional",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:16 — the callee is a member of a parameter",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "condInvoke calls a conditional expression: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "condInvoke",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:17 — the callee is computed by an expression",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "seqInvoke calls a sequence expression: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "seqInvoke",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:18 — the callee is computed by an expression",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "newFn calls a function built from a string: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "newFn",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/stored.js:19 — the callee is code built at run time",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: this.own() resolves to a method of the class, not a stored function",
+   "run": [
+    "path",
+    "Emitter.callsOwn",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a member call on a core-module import is a platform call",
+   "run": [
+    "path",
+    "joins",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a member call on a string literal is a platform call",
+   "run": [
+    "path",
+    "literalTrim",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a function that calls nothing",
+   "run": [
+    "path",
+    "pure",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a bare member call on an untyped parameter reads the same as a library method (res.send, s.trim) and is not counted",
+   "run": [
+    "path",
+    "optsPlain",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: res.status().send() on a handler's parameters is a library call, not a stored function",
+   "run": [
+    "path",
+    "respond",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a module-level variable holding a function resolves, so the chain is found",
+   "run": [
+    "path",
+    "viaHelper",
+    "alpha"
+   ],
+   "want": [
+    "viaHelper → alpha: 1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent"
+   ]
+  }
+ ]
+}

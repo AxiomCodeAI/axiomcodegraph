@@ -72,6 +72,12 @@
 .decl unresolved_covered(c0:symbol)
 .decl value_callee_open(c0:symbol, c1:symbol)
 .decl unresolved_value_callee(c0:symbol, c1:symbol)
+.decl callee_builds_code(c0:symbol)
+.decl value_callee_unresolved(c0:symbol, c1:symbol)
+.decl callee_platform_function(c0:symbol)
+.decl param_member_tested(c0:symbol, c1:symbol)
+.decl param_member_read(c0:symbol, c1:symbol, c2:symbol)
+.decl this_field_named(c0:symbol, c1:symbol)
 
 // ── containment/ownership.dl ──
 .decl call_caller_method(c0:symbol, c1:symbol)
