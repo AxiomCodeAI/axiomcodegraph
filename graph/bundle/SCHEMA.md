@@ -481,6 +481,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `lambda_body` | java | An edge from the method that INVOKES a lambda to something the lambda body calls. The body is not a method of its own, so its calls are attributed to the invoker rather than lost (call-edge-generation/lambda_dispatch.dl). |
 | `ctor_delegate` | java | `this(…)` / `super(…)` inside a constructor. |
 | `anon_new` | java | `new X() { … }` — an anonymous class creation. |
+| `event` | java | Synthesised: the publishEvent call site to a listener it runs (tier event_dispatch). Not a written call to that method. |
 | `record_accessor` | java | Synthesised: a record pattern `case Pair(var l, var r)` calls each accessor. Not a written call; the site is the pattern expression. |
 | `FUNCTION_CALL` | typescript | `f(…)` — a bare callee. |
 | `METHOD_CALL` | typescript | `obj.m(…)`. |
@@ -550,6 +551,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `fan_capped` | javascript, java, csharp | More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java and C#: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count. |
 | `callback_registered` | javascript | The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`), which may invoke it. Not the site's own callee; a reachability edge, labelled so it is never read as a resolved call. |
 | `event_dispatch` | javascript | `x.emit('name')` reaching a handler registered by `x.on('name', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one. |
+| `event_dispatch` | java | A Spring application event: `publishEvent(e)` reaching each listener (`@EventListener`, `@TransactionalEventListener`, `ApplicationListener<E>.onApplicationEvent`) whose declared event type e's static type is, or is a subtype of. Added beside the publishEvent boundary row, never in place of it (call-edge-generation/event_dispatch.dl). |
 | `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
 
 **`call_edges.callee_provenance` values**
@@ -642,7 +644,7 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `bean_ctor` | java, typescript | Constructor of a container-managed class. TypeScript: the class carries a framework decorator (`@Injectable`, `@Component`, `@Module`), so the container constructs it and nothing in the repository does. |
 | `factory` | java | A `@Bean` factory method. |
 | `lifecycle` | java, typescript, csharp | Java: `@PostConstruct` / `@PreDestroy` and similar hooks. TypeScript: a hook the container calls by name on a decorated class (`ngOnInit`, `onModuleInit`), which has no call site anywhere. C#: a method the host calls on a hosted service (`ExecuteAsync`, `StartAsync`, `StopAsync`, and the `IHostedLifecycleService` hooks), including one that derives from the host's base through the project's own base class. |
-| `queue` | java, csharp | A message-listener method. C#: a broker consumer or a bus message handler. |
+| `queue` | java, csharp | A message-listener method. Java: also a Spring application event listener (`@EventListener`, `@TransactionalEventListener`, an `ApplicationListener` implementation). C#: a broker consumer or a bus message handler. |
 | `scheduled` | java | A `@Scheduled` method. |
 | `grpc_service` | java, python, csharp | A gRPC service implementation the server invokes on a request, with no call site reaching it: a generated `ImplBase` override (Java); a class deriving from a generated `*Servicer` base in a `_pb2_grpc` module, overriding a method that base declares (Python). |
 | `web_servlet` | java | A servlet class named in `web.xml` (`<servlet-class>`): its container callbacks (`doGet`, `service`, …) and the library methods it overrides are invoked by the container. |

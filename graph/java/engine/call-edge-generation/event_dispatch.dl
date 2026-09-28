@@ -1,0 +1,114 @@
+// ============================================================================
+// Call-edge generation · APPLICATION EVENTS  (publishEvent -> the listeners it runs)
+//
+//     publisher.publishEvent(new OrderPlaced(id));          // written here
+//     @EventListener void on(OrderPlaced e) { … }            // run from there
+//     class Ship implements ApplicationListener<OrderShipped> { void onApplicationEvent(OrderShipped e) }
+//
+// Spring's multicaster hands the event to every listener whose declared event type the
+// event is assignable to, synchronously and in the publishing thread unless @Async is
+// on the listener. No call site names the listener, so without this file the publisher
+// ended at `external:…ApplicationEventPublisher.publishEvent`, `path` from publisher to
+// listener said the two were independent, and `impact` on a listener said the change
+// was local (#1391).
+//
+// WHY A CALL EDGE AND NOT A remote_edge. framework-behavior/destinations.dl joins two
+// ends that live in different processes on a written STRING, and emits remote_edge so a
+// reader can tell that from an invocation. An application event crosses no process and
+// has no string: it is a dispatch inside one JVM, keyed on a TYPE, and the listener runs
+// before publishEvent returns. That is the JavaScript `emit` -> `on` shape, so it uses
+// the tier the JavaScript front end already emits for it, `event_dispatch`, and every
+// tool that walks call_chain_edge (path, impact, entry_reachable) sees through it with
+// no change. The boundary row for the publishEvent call itself is kept: the edge is
+// ADDED beside it, never in place of it.
+//
+// THE KEY IS THE EVENT'S TYPE, with a subtype rule, exactly as Spring matches it:
+//   an event of static type E reaches a listener for L when E is L or a subtype of L.
+// So a listener for OrderPlaced receives an ExpressOrderPlaced, a listener for
+// ExpressOrderPlaced does NOT receive a plain OrderPlaced, and a listener for an
+// unrelated type receives neither. A listener for the event's SUPERTYPE (ApplicationEvent,
+// or a project base event) receives it too, which is what Spring does.
+//
+// WHAT IS NOT MODELLED, and stays unlinked rather than guessed:
+//   - a publisher wrapped in a project helper (`Events.publish(e)` whose body calls
+//     publishEvent on an Object parameter): the static type there is Object, so only an
+//     Object listener would match, which is the honest static answer.
+//   - generic events (EntityCreated<Person>) are matched on the erased type, and a
+//     PayloadApplicationEvent<T> listener is not matched to a published T.
+//   - @EventListener(condition = …) is not evaluated; the listener is linked.
+//   - a listener's returned event is not re-published.
+// ============================================================================
+
+// ── the publish sites ───────────────────────────────────────────────────────
+// A type NAMED as a publisher or a listener interface: an external node (the library is
+// not staged, which is the usual case) or a staged library type. The external node's id
+// is `external:<qualified name>`, or `external:<simple name>` when the name came from an
+// on-demand import, so both spellings are matched. Demand-driven from the knob lists, so
+// this never walks the type table.
+event_knob_type(n) :- cfg_event_publisher(n, _).
+event_knob_type(n) :- cfg_event_listener_type(n, _).
+event_knob_type(n) :- cfg_event_catch_all(n).
+event_named_type(x, n) :- event_knob_type(n), external_type(x), x = cat("external:", n).
+event_named_type(x, n) :- event_knob_type(n), external_type(x),
+    strlen(x) > strlen(n) + 1,
+    substr(x, max(0, strlen(x) - strlen(n) - 1), strlen(n) + 1) = cat(".", n).
+event_named_type(t, n) :- event_knob_type(n), lib_type(n, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// a receiver declared as a publisher type, or as a staged subtype of one
+event_publisher_recv_type(t, name) :- event_named_type(t, n), cfg_event_publisher(n, name).
+event_publisher_recv_type(t, name) :- event_named_type(a, n), cfg_event_publisher(n, name),
+    type_ancestor(t, a).
+
+event_publish_site(call) :- call_site(call, name, recv), cfg_event_publisher(_, name),
+    expr_type(_, recv, t), event_publisher_recv_type(t, name).
+
+// what is published: the static type of the first argument
+event_published(call, caller, et) :- event_publish_site(call),
+    expr_child("client", call, "ARGUMENT", arg), expr_position("client", arg, "0"),
+    expr_type(_, arg, et), call_from(call, caller).
+
+// ── the listeners, and the event type each one declares ─────────────────────
+event_param_type(m, t) :- java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p),
+    method_param_type_resolves(_, p, _, t).
+event_param_type(m, x) :- java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p),
+    method_param_type_external(p, x).
+
+// (a) @EventListener / @TransactionalEventListener. The types named on the annotation
+//     win when present (Spring then ignores the parameter for matching); otherwise the
+//     one parameter's type.
+event_listener_ann_method(m, a) :- ann_on_method(_, a, n, m, _), cfg_event_listener_ann(n),
+    method_owner("client", _, m).
+event_listener_names_classes(m) :- event_listener_ann_method(m, a),
+    ann_arg(_, a, arg, _, "CLASS_REFERENCE", _), cfg_event_listener_arg(arg).
+event_listens(m, t) :- event_listener_ann_method(m, a),
+    ann_arg(_, a, arg, v, "CLASS_REFERENCE", _), cfg_event_listener_arg(arg),
+    config_class_ref("annotation", a, v, t, _).
+event_listens(m, t) :- event_listener_ann_method(m, _), !event_listener_names_classes(m),
+    method_paramc(m, 1), event_param_type(m, t).
+
+// (b) an ApplicationListener<E> implementation: its onApplicationEvent(E) override. The
+//     override's parameter IS the type argument, so it is read from there rather than
+//     from the implements clause.
+event_listener_class(t, mname) :- event_named_type(x, n), cfg_event_listener_type(n, mname),
+    type_ancestor(t, x), java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+event_listener_method(m) :- event_listener_class(t, mname),
+    java_method(mname, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", "1", _, _, _, m).
+event_listens(m, t) :- event_listener_method(m), event_param_type(m, t).
+
+// ── the edge ────────────────────────────────────────────────────────────────
+// Two clauses rather than one disjunction, so each joins on the type column: the exact
+// type, then every ancestor of it.
+event_dispatch_edge(call, caller, m) :- event_published(call, caller, et), event_listens(m, et).
+event_dispatch_edge(call, caller, m) :- event_published(call, caller, et), type_ancestor(et, lt),
+    event_listens(m, lt).
+
+// A listener declared for a type EVERY event is: Spring wraps an event that is not an
+// ApplicationEvent in a PayloadApplicationEvent before multicasting it, so a listener for
+// ApplicationEvent receives a published OrderPlaced as well as every ApplicationEvent
+// subtype, and a listener for Object receives everything. Neither is reached by the
+// subtype rule for a plain object event.
+event_catch_all_listener(m) :- event_named_type(x, n), cfg_event_catch_all(n), event_listens(m, x).
+event_dispatch_edge(call, caller, m) :- event_published(call, caller, _), event_catch_all_listener(m).
+
+call_chain_edge(call, caller, "-", m, "client", "event_dispatch", "event") :-
+    event_dispatch_edge(call, caller, m).

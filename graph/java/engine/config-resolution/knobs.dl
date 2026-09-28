@@ -54,6 +54,7 @@ cfg_props_ann("ConfigurationProperties").
 cfg_lifecycle_ann("PostConstruct").  cfg_lifecycle_ann("PreDestroy").
 cfg_scheduled_ann("Scheduled").
 cfg_listener_ann("EventListener").   cfg_listener_ann("KafkaListener").
+cfg_listener_ann("TransactionalEventListener").
 cfg_listener_ann("RabbitListener").  cfg_listener_ann("JmsListener").
 cfg_listener_ann("SqsListener").     cfg_listener_ann("StreamListener").
 cfg_listener_ann("RabbitHandler").   cfg_listener_ann("SqsHandler").
@@ -339,3 +340,38 @@ cfg_mapper_ann("Mapper").
 // @Mapper marks an interface it GENERATES an implementation of, and whether that is a
 // bean depends on its componentModel, so it is not a proxy bean.
 cfg_foreign_ann("Mapper", "org.mapstruct").
+
+// ── (20) APPLICATION EVENTS: publishEvent(e) runs every listener e's type fits ──
+// Spring hands a published event to each listener whose declared event type the
+// event's type is assignable to. No call site names the listener, so without a model
+// the publisher and the listener are independent in the graph
+// (call-edge-generation/event_dispatch.dl).
+//
+// cfg_event_publisher(TypeSimpleName, Method): a call to Method on a receiver declared
+// as this type publishes its first argument. Simple names, matched against an
+// external node (`external:<qualified name>`) or a staged library type. A project
+// class that happens to declare its own publishEvent is neither, so a call on it stays
+// the ordinary call it is.
+cfg_event_publisher("ApplicationEventPublisher", "publishEvent").
+cfg_event_publisher("ApplicationContext", "publishEvent").
+cfg_event_publisher("ConfigurableApplicationContext", "publishEvent").
+cfg_event_publisher("AbstractApplicationContext", "publishEvent").
+cfg_event_publisher("GenericApplicationContext", "publishEvent").
+cfg_event_publisher("AnnotationConfigApplicationContext", "publishEvent").
+cfg_event_publisher("WebApplicationContext", "publishEvent").
+cfg_event_publisher("ConfigurableWebApplicationContext", "publishEvent").
+cfg_event_publisher("ApplicationEventMulticaster", "multicastEvent").
+cfg_event_publisher("SimpleApplicationEventMulticaster", "multicastEvent").
+// A method annotation that makes the method a listener. Its event type is the one
+// parameter's type, or the types named in cfg_event_listener_arg when given.
+cfg_event_listener_ann("EventListener").
+cfg_event_listener_ann("TransactionalEventListener").
+cfg_event_listener_arg("classes").   cfg_event_listener_arg("value").
+// cfg_event_listener_type(TypeSimpleName, Method): implementing this type makes
+// Method a listener, for the type of its one parameter (ApplicationListener<E> is
+// implemented by onApplicationEvent(E)).
+cfg_event_listener_type("ApplicationListener", "onApplicationEvent").
+// A listener declared for one of these receives every published event: a plain object
+// is wrapped in a PayloadApplicationEvent, which is an ApplicationEvent.
+cfg_event_catch_all("ApplicationEvent").
+cfg_event_catch_all("Object").

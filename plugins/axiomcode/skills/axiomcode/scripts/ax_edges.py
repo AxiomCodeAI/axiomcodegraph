@@ -168,6 +168,16 @@ DIRECT_WHY = {
     'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
     'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
 }
+# …and where the TIER says something more specific than its certainty. An event is not handed over as a
+# value: the caller publishes or emits it, and the event system runs every handler whose event it is.
+TIER_WHY = {
+    'event_dispatch': 'publishes an event this handles: the event system runs it, no call site names it',
+}
+
+
+def direct_why(tier):
+    """what a DIRECT dependent row says for an edge of this tier."""
+    return TIER_WHY.get(tier) or DIRECT_WHY.get(direct_cert(tier), 'calls it')
 
 # certainties that are backed by an edge the ENGINE asserted, as opposed to a name or a text match.
 # Consumers that used to test `cert == 'resolved'` to mean "this row claims an edge" test this
