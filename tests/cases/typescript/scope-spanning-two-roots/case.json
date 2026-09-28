@@ -70,7 +70,7 @@
    ]
   },
   {
-   "why": "a misspelled root names ITSELF rather than failing the whole call behind a good one",
+   "why": "a misspelled root names ITSELF and the root it is close to, and the call is answered under the good one rather than failing behind it",
    "run": [
     "context",
     "stop formatting the amount on the subtotal",
@@ -80,9 +80,14 @@
     "packages/ordrs"
    ],
    "want": [
-    "no indexed file has 'packages/ordrs' in its path"
+    "no indexed file in any graph has 'packages/ordrs' in its path — answering under packages/core instead",
+    "close: packages/orders",
+    "packages/core/src/format.ts"
    ],
-   "expect_error": true
+   "avoid": [
+    "packages/orders/src/invoice.ts",
+    "re-run with one of these"
+   ]
   }
  ]
 }

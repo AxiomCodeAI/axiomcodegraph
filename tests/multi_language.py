@@ -181,7 +181,12 @@ def main(argv):
         check(s.returncode == 0 and '══' not in s.stdout and 'src/' in s.stdout,
               'scope (control): --in the main graph\'s directory answers as the main graph alone', s.stdout + s.stderr)
         s = sh(repo, AX, 'context', 'add up a total', '.', '--in', 'tools/nosuch', env=quiet)
-        check(s.returncode != 0 and 'no indexed file' in s.stdout, 'scope (control): a directory no graph holds is still refused', s.stdout + s.stderr)
+        # a directory no graph holds is a typo, not a question about nothing: answered at the root, said ONCE, never one
+        # refusal menu per language (the scope another graph holds, above, is still answered from that graph)
+        check(s.returncode == 0 and s.stdout.count("no indexed file in any graph has 'tools/nosuch'") == 1
+              and 'answering at the repository root' in s.stdout and 'tools/pkg/calc.py' in s.stdout
+              and 're-run with one of these' not in s.stdout,
+              'scope: a directory no graph holds is answered at the repository root, and said once', s.stdout + s.stderr)
         s = sh(repo, AX, 'context', 'compute the area of a shape', '.', '--in', 'tools/pkg', env=quiet)
         check(s.returncode != 0 and 'none of these words appear under it' in s.stdout and 'no indexed file' not in s.stdout,
               'scope (control): a scope one graph holds, with nothing under it matching, is refused by that graph alone', s.stdout + s.stderr)

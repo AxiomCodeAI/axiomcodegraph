@@ -1,0 +1,2 @@
+env:
+  WIDGET_SECRET_KEY: change-me

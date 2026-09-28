@@ -58,7 +58,7 @@ def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges
+sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges, ax_text
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die, BODILESS_KINDS = P.G, P.run_dl, P.die, P.BODILESS_KINDS
@@ -1711,6 +1711,9 @@ def tests_outside_src(g, cap=20000):
     return rel.replace(os.sep, '/'), sorted(out)
 
 
+STRING_TEXT = []                                    # (repo, target, --in, why): targets answered by text too (ax_text.py)
+
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
     # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
@@ -1766,7 +1769,15 @@ def main(argv):
     if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--json] [--kind k] [--delete]\n"
                      "       axiomcode impact --from-text <file|-> [<repo>] [--top N]   — an issue report in, the candidate declarations out\n"
                      "       axiomcode impact --warm [<repo>]                            — export the graph's facts now so the first query need not")
+    # AN --in NO GRAPH HOLDS narrowed the answer to nothing and said only "0 more callable(s) under it": a typo read as an
+    # answer. It is answered at the root and says so; a scope another language's graph holds is left alone (that graph
+    # answers under it); in a repository in several languages ax_langs.py prints the line once
+    if IN and not ax_text.held(repo, IN):
+        print(f"{ax_text.SCOPE_GONE}'{IN}' in its path — answering at the repository root instead",
+              file=sys.stderr if as_json else sys.stdout)
+        IN = None
     g = G(repo); g.IN = IN; I = Impact(g); prof('graph loaded, path facts exported')
+    I.kind_arg(kind)                                    # a bad --kind is a usage error, not a name to search the text for
     if IN:
         cond, params = P.ax_contract.scope_sql(P.ax_contract.scope_spec(IN, g.repo))
         if not g.q(f"SELECT 1 FROM symbols WHERE {cond} LIMIT 1", *params):
@@ -1775,10 +1786,20 @@ def main(argv):
             die(f"no indexed file has '{IN}' in its path.")
     targets = []; scoped_in = False
     for a in args:
-        rs = I.resolve(a, kind)
+        try: rs = I.resolve(a, kind)
+        except SystemExit as e:
+            # nothing in the graph answers for it: say what a search by hand would find, labelled [text] (ax_text.py)
+            if e.code and not as_json: sys.stdout.flush(); ax_text.emit(repo, [a], IN)
+            raise
         if IN:
             rs, narrowed = scope_targets(g, rs)
             scoped_in = scoped_in or narrowed
+        # a string is text before it is anything else: its literal sites below, and after them where it is WRITTEN
+        # and a name nothing declares, matched only where it is referenced by name (type_use), is answered by name
+        # alone: the lines that write it are what a search by hand was for. A library method is a resolved edge: not this
+        if not as_json and any(k == 'string' for k, _, _ in rs): STRING_TEXT.append((repo, a, IN, 'string'))
+        elif not as_json and any('not declared here' in lab and 'library method' not in lab for _, lab, _ in rs):
+            STRING_TEXT.append((repo, a, IN, 'undeclared'))
         kinds = {k for k, _, _ in rs}
         if kinds == {'field', 'method'} and not kind:
             # a fluent accessor, a record component, a Python @property: one concept written one way. Answering for
@@ -2915,4 +2936,6 @@ def main(argv):
 if __name__ == '__main__':
     if not sys.argv[1:] or sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
     import ax_pages; ax_pages.install('impact')       # --page / --budget, and the answer printed in pages (#1198)
-    sys.exit(main(sys.argv[1:]))
+    code = main(sys.argv[1:])
+    for repo, a, scope, why in STRING_TEXT: sys.stdout.flush(); ax_text.emit(repo, [a], scope, why=why)
+    sys.exit(code)
