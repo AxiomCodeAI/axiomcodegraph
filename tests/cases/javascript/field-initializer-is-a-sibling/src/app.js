@@ -26,4 +26,28 @@ class Host {
   go() { function helper() { return tick(); } return helper(); }
 }
 
-module.exports = { Registry, Panel, Mixed, Host };
+function make(o) { return o; }
+
+class ObjLit {
+  static cfg = make({ run() { return tick(); } });
+  other() { return 1; }
+}
+
+class ClsExpr {
+  static Inner = wrap(class { m() { return tick(); } });
+  other() { return 1; }
+}
+
+class PlainObj {
+  handlers = { onClick() { return tick(); } };
+  other() { return 1; }
+}
+
+class InstObj {
+  api = make({ fetch() { return tick(); } });
+  other() { return 1; }
+}
+
+class OneLine { static n = boot(); m() { return tick(); } } function after() { return tick(); }
+
+module.exports = { Registry, Panel, Mixed, Host, ObjLit, ClsExpr, PlainObj, InstObj, OneLine, after };

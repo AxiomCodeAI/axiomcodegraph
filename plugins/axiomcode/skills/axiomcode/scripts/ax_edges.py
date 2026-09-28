@@ -286,6 +286,17 @@ def _sibling_of_init(display, init_display):
     return bool(owner) and display.rsplit('.', 1)[0] == owner and '.' in display
 
 
+def init_holds(init_display, init_qname, display, qname):
+    """a named initializer holds a callable on its own line span: `static cfg = make({ run() {…} });` gives the
+    initializer and `run` the same one line, and line spans alone call them siblings. The qualified name says `run`
+    is written under the initializer's owner (`src/a.ObjLit.run`), and the display that it is not a member of it
+    (`run`, `ObjLit.<anonymous-class>.m`), so the initializer defines it. A function written after a one-line class
+    has no such qualified name, and a method of the class is the initializer's sibling."""
+    if not (init_display and _NAMED_INIT.search(init_display) and init_qname and qname and display): return False
+    if '.' not in init_qname or _sibling_of_init(display, init_display): return False
+    return qname.startswith(init_qname.rsplit('.', 1)[0] + '.') and qname != init_qname
+
+
 def _within(inner, outer):
     """a call site's (line, col, end_line, end_col) lies inside another's and is not the same one"""
     return inner != outer and outer[:2] <= inner[:2] and inner[2:] <= outer[2:]
@@ -308,21 +319,27 @@ def defines_edges(callables, sites=None):
     """(definer, defined, 'defines') for callables given as (file, line, end_line, id, display, method_id[, qualified_name]).
     `sites(method_ids)` returns (caller_id, line, col, end_line, end_col) for the call sites of those callables; it is
     asked only about lines where more than one callable could have defined an anonymous one."""
-    byfile = {}; mid_of = {}; lex = {}; disp_of = {}
+    byfile = {}; mid_of = {}; lex = {}; disp_of = {}; qn_of = {}
     for f, ln, en, i, disp, mid, *qn in callables:
         if not (ln and en) or str(mid or i).startswith('generated:'): continue
         byfile.setdefault(f, []).append((ln, -en, anon_depth(disp), i)); mid_of[i] = mid or i; disp_of[i] = disp
+        qn_of[i] = qn[0] if qn else None
         if qn and qn[0] and str(mid or i).startswith(_LEXICAL_IDS): lex[i] = qn[0]
+    holds = lambda c, x: init_holds(disp_of[c], qn_of[c], disp_of[x], qn_of[x])
     def may_hold(c, x):
-        """on an equal span: c may be x's definer unless both names follow the nesting and x's does not extend c's"""
-        return c not in lex or x not in lex or lex[x].startswith(lex[c] + '.')
+        """on an equal span: c may be x's definer unless both names follow the nesting and x's does not extend c's, or
+        c is a class's initializer holding x (a member of an object or class written in it: `src/a.C.run`)"""
+        return c not in lex or x not in lex or lex[x].startswith(lex[c] + '.') or holds(c, x)
     parent = {}; groups = []
     for f, rows in byfile.items():
-        rows.sort(); st = []
+        # at an equal span a named initializer comes first, so what it holds on its line finds it on the stack
+        rows.sort(key=lambda r: (r[0], r[1], r[2], not _NAMED_INIT.search(disp_of[r[3]] or ''), r[3])); st = []
         for ln, neg, d, i in rows:
             # pop what ends before this one ends (END against END, not against this one's start: the two agree on nested
-            # spans and not on overlapping ones), and a sibling: the same span at the same depth
-            while st and (st[-1][1] < -neg or (st[-1][0] == ln and st[-1][1] == -neg and st[-1][2] >= d)): st.pop()
+            # spans and not on overlapping ones), and a sibling: the same span at the same depth, unless it is an
+            # initializer holding this one on its line (init_holds)
+            while st and (st[-1][1] < -neg or (st[-1][0] == ln and st[-1][1] == -neg and st[-1][2] >= d
+                                               and not holds(st[-1][3], i))): st.pop()
             # past an equal span the name says it is not written in (kept on the stack: a later one may be), and past a
             # class's initializer when this is a member of that class beside it (#1663)
             j = len(st) - 1
