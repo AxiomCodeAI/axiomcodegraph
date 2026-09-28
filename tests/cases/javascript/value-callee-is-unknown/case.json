@@ -1,0 +1,170 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "invoke calls a parameter: the callee can be any function handed to it, so path says unknown and names the site (#1649)",
+   "run": [
+    "path",
+    "invoke",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`cb()` in invoke at src/handlers.js:6 — the callee is a parameter",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "dispatch calls a computed member (table[k]()): the callee can be any function handed to it, so path says unknown and names the site (#1649)",
+   "run": [
+    "path",
+    "dispatch",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/handlers.js:5 — the callee is a computed member",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "runList calls a for-of loop variable: the callee can be any function handed to it, so path says unknown and names the site (#1649)",
+   "run": [
+    "path",
+    "runList",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`f()` in runList at src/handlers.js:7 — the callee is a loop variable",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "runAll calls an arrow's parameter inside forEach: the callee can be any function handed to it, so path says unknown and names the site (#1649)",
+   "run": [
+    "path",
+    "runAll",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`h()` in <arrow> at src/handlers.js:4 — the callee is a parameter",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "viaLocal calls a local with no value: the callee can be any function handed to it, so path says unknown and names the site (#1649)",
+   "run": [
+    "path",
+    "viaLocal",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`fn()` in viaLocal at src/handlers.js:8 — the callee is a local",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "viaCall calls a parameter through .call: the callee can be any function handed to it, so path says unknown and names the site (#1649)",
+   "run": [
+    "path",
+    "viaCall",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/handlers.js:9 — the callee is a parameter",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "the reverse question is the same connection: the value call is on the other side (#1649)",
+   "run": [
+    "path",
+    "alpha",
+    "invoke"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`cb()` in invoke"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: a function that calls nothing stays independent",
+   "run": [
+    "path",
+    "pure",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a call through a required module binding names a module member, not a value",
+   "run": [
+    "path",
+    "joins",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a resolved call is still a chain",
+   "run": [
+    "path",
+    "direct",
+    "alpha"
+   ],
+   "want": [
+    "direct → alpha: 1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent"
+   ]
+  }
+ ]
+}

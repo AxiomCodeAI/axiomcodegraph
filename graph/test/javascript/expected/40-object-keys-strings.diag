@@ -20,3 +20,4 @@ unresolved       main.js:26:42  METHOD_CALL toLowerCase  no_target
 unresolved       main.js:34:26  METHOD_CALL padStart  no_target
 unresolved       main.js:35:34  COMPUTED_CALL   dynamic
 unresolved       main.js:9:21  METHOD_CALL keys  no_target
+value_callee     main.js:35:34  handlers[name]  computed

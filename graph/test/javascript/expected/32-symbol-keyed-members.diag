@@ -8,3 +8,5 @@ unresolved       queue.js:4:15  FUNCTION_CALL Symbol  no_target
 unresolved       queue.js:5:17  METHOD_CALL for  no_target
 unresolved       symbols.js:2:28  FUNCTION_CALL Symbol  no_target
 unresolved       symbols.js:2:53  FUNCTION_CALL Symbol  no_target
+value_callee     queue.js:33:54  q[Symbol]  computed
+value_callee     queue.js:33:76  q[anySymbol]  computed

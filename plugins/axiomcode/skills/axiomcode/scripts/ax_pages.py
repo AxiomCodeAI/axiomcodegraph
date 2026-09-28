@@ -141,6 +141,11 @@ def next_path(text):
         return ("next: no chain of calls; the library calls named above are where one could continue: read the body "
                 "that makes them — one that publishes, schedules or registers what the entered method handles connects "
                 "the two at run time")
+    if 'connection is UNKNOWN, not absent' in text:
+        m = re.search(r'^\s+`[^`]*` in \S+ at (\S+:\d+)', text, re.M)
+        return ("next: not shown to be independent — " + (f"read {m.group(1)} and " if m else "read the calls through a value named above and ")
+                + "find what its callee is given (the arguments its callers pass, what the loop runs over); a function handed "
+                  "there is the connection")
     if 'the hop above is the only connection' in text:
         return "next: the cross-process hop above is the only connection; `impact <its target>` lists it as a [remote] dependent"
     # an endpoint a framework enters in a way the graph does not model: the check is the grep the verdict printed
