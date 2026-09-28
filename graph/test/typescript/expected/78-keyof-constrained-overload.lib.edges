@@ -1,0 +1,7 @@
+boundary_lib	METHOD_CALL	app#viaKey(Bus) @L10 -> Bus#emit(T)
+boundary_lib	METHOD_CALL	app#viaMethodKey(Bus) @L14 -> Bus#run(T)
+boundary_lib	METHOD_CALL	app#viaNonKey(Bus) @L19 -> Bus#emit(string)
+boundary_lib	METHOD_CALL	app#viaString(Bus,string) @L24 -> Bus#emit(string)
+boundary_lib	METHOD_CALL	app#viaWideningFirst(Bus) @L29 -> Bus#pick(string)
+known_edge	METHOD_CALL	app#viaClassKey(Registry) @L42 -> Registry#get(T)
+known_edge	METHOD_CALL	app#viaClassNonKey(Registry) @L47 -> Registry#get(string)
