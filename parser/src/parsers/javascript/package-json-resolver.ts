@@ -87,6 +87,13 @@ export interface PackageJsonFacts {
   readonly main: string | undefined;
   readonly module: string | undefined;
   readonly exports: unknown;
+  /**
+   * `types` (or its older spelling `typings`) and `source`, when strings. Node reads
+   * neither; the TypeScript front end does, because they name the declaration entry
+   * and the un-built entry of a package written in TypeScript (#847).
+   */
+  readonly types?: string;
+  readonly source?: string;
 }
 
 export class PackageJsonResolver {
@@ -245,6 +252,7 @@ export class PackageJsonResolver {
       const raw = fs.readFileSync(packageJsonPath, 'utf-8');
       const json = JSON.parse(raw) as {
         type?: unknown; name?: unknown; main?: unknown; module?: unknown; exports?: unknown;
+        types?: unknown; typings?: unknown; source?: unknown;
       };
       const declared = json.type === 'module' || json.type === 'commonjs'
         ? json.type
@@ -256,6 +264,9 @@ export class PackageJsonResolver {
         main: typeof json.main === 'string' ? json.main : undefined,
         module: typeof json.module === 'string' ? json.module : undefined,
         exports: json.exports,
+        types: typeof json.types === 'string' ? json.types
+          : typeof json.typings === 'string' ? json.typings : undefined,
+        source: typeof json.source === 'string' ? json.source : undefined,
       };
     } catch {
       facts = undefined;

@@ -655,6 +655,7 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `service_loader` | java | A callback of a provider listed in `META-INF/services`; `ServiceLoader` instantiates it and the caller reaches it through the service interface. |
 | `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
 | `exported_from_entry_module` | typescript | A named function exported from a module nothing in the project imports. Its caller is the package's consumer, which is not in the repository. Placeholder names (`<arrow>`) are not roots. |
+| `package_export` | typescript | A named function exported from a module the project's `package.json` publishes (`main`, `module`, `exports`, `types`, `source`), mapped from build output back to its source. Its caller is the package's consumer. Covers the entry a project's own tests import, which `exported_from_entry_module` cannot see. |
 | `task` | python | A function registered as a queue task. A worker process runs the body; the producer only enqueues, so nothing in the client calls it. |
 | `fixture` | python | A declared fixture that some collected test requests by parameter name. The runner calls it to build the argument. |
 | `url` | python | A view named as a value in a module-level route table. The framework calls it on a request. |

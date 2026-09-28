@@ -353,6 +353,19 @@
     "tsModuleUniqueHash",
     "strictBindCallApply"
   ],
+  "all-typescript-package-entries.csv": [
+    "packageName",
+    "subpath",
+    "condition",
+    "entrySource",
+    "targetPath",
+    "targetModuleLinkHash",
+    "targetOutcome",
+    "packageJsonPath",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "tsPackageEntryUniqueHash"
+  ],
   "all-typescript-parse-gaps.csv": [
     "gapKind",
     "diagnosticCode",

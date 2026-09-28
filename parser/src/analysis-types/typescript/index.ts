@@ -13,6 +13,7 @@ export * from './TsImportRegistry';
 export * from './TsMethodParameterRegistry';
 export * from './TsMethodRegistry';
 export * from './TsModuleRegistry';
+export * from './TsPackageEntryRegistry';
 export * from './TsParseGapRegistry';
 export * from './TsTypeHeritageRegistry';
 export * from './TsTypeParameterRegistry';

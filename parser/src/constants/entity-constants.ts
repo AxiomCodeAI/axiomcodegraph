@@ -105,6 +105,7 @@ export const ENTITY_IDENTIFIERS = {
   TS_DECORATOR: 'TS_DECORATOR',
   TS_DECORATOR_ARGUMENT: 'TS_DECORATOR_ARGUMENT',
   TS_PARSE_GAP: 'TS_PARSE_GAP',
+  TS_PACKAGE_ENTRY: 'TS_PACKAGE_ENTRY',
   TS_TYPE_SATISFIES: 'TS_TYPE_SATISFIES',
   /**
    * Not a fact-relation prefix: the group key is deliberately NOT UNIQUE, so it

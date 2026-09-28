@@ -1,0 +1,7 @@
+── entry_point (6) ──
+  package_export index#useStore   index.ts:8
+  package_export plugins/logger#logger   logger.ts:6
+  package_export vanilla#<arrow>   vanilla.ts:12
+  package_export vanilla#<arrow>   vanilla.ts:18
+  package_export vanilla#createStore   vanilla.ts:3
+  unimported_module index.test#<module>   index.test.ts:1
