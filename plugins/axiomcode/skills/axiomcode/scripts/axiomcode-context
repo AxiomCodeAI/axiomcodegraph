@@ -1139,10 +1139,12 @@ def main(argv):
         if nm not in cur or sc > cur[nm][0]:
             cur[nm] = (sc, len(matched), nm)
             if sy.get('line'): span_of[(f, nm)] = (sy['line'], sy.get('end_line') or sy['line'])
+    def decls_of(f):
+        return [nm for _sc, _m, nm in sorted(best_in_file.get(f, {}).values(), key=lambda x: (-x[0], -x[1], x[2]))[:DECLS_PER_FILE]]
+    # `declared_at` beside the names: the line each one starts on, so a site list (ax_grep.py) can point at it
     RESULT['files'] = [{'file': f, 'how': ('name only, no call path' if d == 99 else f'hop {d}'),
-                        'symbols': n, 'task_terms_matched': hit,
-                        'declarations': [nm for _sc, _m, nm in
-                                         sorted(best_in_file.get(f, {}).values(), key=lambda x: (-x[0], -x[1], x[2]))[:DECLS_PER_FILE]]}
+                        'symbols': n, 'task_terms_matched': hit, 'declarations': decls_of(f),
+                        'declared_at': [f"{f}:{span_of[(f, nm)][0]}" if (f, nm) in span_of else None for nm in decls_of(f)]}
                        for f, (d, hit, n) in shown]
     for f, (d, hit, n) in shown:
         mark = f"  [{hit} task term(s)]" if hit else ""

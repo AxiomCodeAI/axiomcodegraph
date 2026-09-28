@@ -878,6 +878,7 @@ _FLAG_VALUE = {'--depth', '--in', '--limit', '--kind', '--page', '--budget', '--
 def query_names(verb, args, repo):
     """the names a query asks about (impact's targets, path's endpoints, context's --from), as written"""
     names, i, pos = [], 0, []
+    if '--' in args: args = args[args.index('--') + 1:]  # --grep runs the verb under ax_grep.py <verb> <repo> … --: not names
     while i < len(args):
         a = args[i]
         if a in _FLAG_VALUE:

@@ -13,6 +13,11 @@ Read / Grep results as `graph: …` lines.
 
 **Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
 
+**A list of sites comes the way grep prints it.** The MCP `impact`, `path`, `test_impact` and `context` (without
+`source` / `explain` / `from_`) answer one site per line: `path:line: <the code on that line>  [resolved · hop 2 · test …]`,
+surest first, capped with a count of the rest; `limit=N` lists more, `full=True` gives the sectioned answer with `next:`.
+From the shell the same shape is `--grep` (`--grep-limit N`); without it the answer is the prose.
+
 ## Start here
 
 | the question in front of you | the call |
