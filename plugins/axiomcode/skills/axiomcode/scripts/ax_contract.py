@@ -452,8 +452,7 @@ def ensure_graph(repo, db):
     if nowait:
         os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
         log = open(os.path.join(repo, '.axiomcode', 'first-build.log'), 'w')
-        kw = dict(start_new_session=True) if os.name != 'nt' else dict(creationflags=0x00000008 | 0x00000200)   # DETACHED | NEW_GROUP, as ax_fresh.kick
-        p = subprocess.Popen([bash, build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, **kw)
+        p = _start_build([bash, build, repo], log, env)
         # until the build holds its lock a second query would see no build and start another, so that much is always waited
         up = time.time() + 10
         while p.poll() is None and not ax_fresh.building(repo) and time.time() < up: time.sleep(0.05)
@@ -469,7 +468,7 @@ def ensure_graph(repo, db):
     os.makedirs(os.path.join(repo, '.axiomcode'), exist_ok=True)
     logp = os.path.join(repo, '.axiomcode', 'first-build.log')
     with open(logp, 'w') as log:
-        p = subprocess.Popen([bash, build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env)
+        p = _start_build([bash, build, repo], log, env)
     shown = [0]
     def relay():
         try:
@@ -480,6 +479,25 @@ def ensure_graph(repo, db):
     relay()
     if p.poll() is None: return os.path.exists(db) and _published(repo)
     return p.returncode == 0 and os.path.exists(db)
+
+
+def _start_build(argv, log, env):
+    """the build a query starts, in a session (a process group) of its own, as ax_fresh.kick starts the refresher.
+
+    THE BUILD IS NOT THE QUERY'S (#1555). It goes on solving the other languages after the query has its answer, and a
+    query is stopped all the time: a caller's timeout, Ctrl-C, an agent host that ends the command's process group when
+    it returns or times out. Started in the query's group, the build was stopped with it -- on a repository in several
+    languages, whose first build outlasts a two-minute timeout, before the main graph was published, or while it was
+    being indexed, which deleted the solved graph as a failure. No graph.sqlite was left, the next query built again
+    from nothing, was stopped again, and every query rebuilt forever. In its own session the build finishes whatever
+    becomes of the query; a later query finds it running and waits for it rather than starting another."""
+    if os.name != 'nt':
+        return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, start_new_session=True)
+    # DETACHED | NEW_GROUP, and out of the caller's job object where the job allows it (see ax_fresh.kick)
+    for flags in (0x00000008 | 0x00000200 | 0x01000000, 0x00000008 | 0x00000200):
+        try: return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, creationflags=flags)
+        except OSError: continue
+    return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env)
 
 
 def _published(repo):

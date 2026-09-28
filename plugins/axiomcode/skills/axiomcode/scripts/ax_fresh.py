@@ -378,6 +378,15 @@ def pending(repo):
     old = [l for l in langs if os.path.isfile(os.path.join(repo, '.axiomcode', 'lang', l, 'out', 'graph.sqlite'))]
     return dict(pending=langs, pending_old=old, first=all(len(r) > 1 and r[1] == 'first' for r in rows))
 
+def unbuilt(repo):
+    """the languages a build that was stopped after publishing the main graph left unbuilt (axiomcode-build writes them
+    to out/partial), [] when none"""
+    try: return open(os.path.join(out_dir(repo), 'partial')).read().split()
+    except OSError: return []
+
+def unbuilt_row(repo):
+    return f".axiomcode/out/partial (the {', '.join(unbuilt(repo))} graph was not built: its build was stopped)"
+
 def status(repo):
     if not has_graph(repo): return dict(state='no graph')
     if graph_broken(repo): return dict(state='building' if building(repo) else 'stale', changed=['.axiomcode/out/graph.sqlite (the pointer to the graph is broken)'], added=[], removed=[])
@@ -389,7 +398,8 @@ def status(repo):
     if not (changed or added or removed):
         # a build that already published this tree's main graph and is still solving other languages: the graph a query
         # reads is current, and waiting would be waiting for other languages' compiles
-        return dict(state='building', **pending(repo)) if busy else dict(state='fresh')
+        if busy: return dict(state='building', **pending(repo))
+        return dict(state='stale', changed=[unbuilt_row(repo)], added=[], removed=[]) if unbuilt(repo) else dict(state='fresh')
     d = dict(state='building' if busy else 'stale', changed=changed, added=added, removed=removed)
     if not busy and st.get('failed_table') == change_key(c): d['failed'] = st.get('failed_log', ''); d['failed_reason'] = st.get('failed_reason', '')
     return d
@@ -451,6 +461,7 @@ def worker(repo):
             else:
                 c = changes(repo, t)
                 if graph_broken(repo) and not (c and any(c)): c = [['.axiomcode/out/graph.sqlite (broken pointer)'], [], []]
+                elif unbuilt(repo) and not (c and any(c)): c = [[unbuilt_row(repo)], [], []]
                 if (c is None or not any(c)) and not base_moved(repo):
                     write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', '')); return 0
                 c = c or [[], [], []]
@@ -718,13 +729,26 @@ def expected_left(repo):
     if st.get('state') == 'building' and st.get('started'): return secs - (time.time() - st['started'])
     return secs + float(os.environ.get('AXIOMCODE_REFRESH_DEBOUNCE') or 2)
 
-def wait_fresh(repo, seconds, say=False):
+def _waits_on(s, files):
+    """the refresh has published the main graph and is still solving languages (#1555) of which one holds an edited file
+    the wait is for (`files`; True: any language at all): the graph that answers for that edit is not out yet"""
+    langs = set(s.get('pending') or ())
+    if not langs or not files: return False
+    if files is True: return True
+    import ax_langs
+    return any(l in langs for f in files for l in ax_langs.BY_EXT.get(os.path.splitext(f)[1].lower(), ()))
+
+def wait_fresh(repo, seconds, say=False, files=()):
     """wait until the graph matches the files again (the refresh swapped in its graph), a rebuild fails, or `seconds`
-    pass. With `say`, a progress line on stderr every 10 s: a wait is never silent. True when the graph is current"""
+    pass. With `say`, a progress line on stderr every 10 s: a wait is never silent. True when the graph is current.
+    THE GRAPH OF THE EDIT, NOT THE MAIN ONE. A refresh publishes the main language's graph first and goes on with the
+    others (#1555); from then on the file table matches, and a wait that ended there answered a question about a Python
+    edit in a TypeScript repository from the previous Python graph: `nothing named` for the function just added. So a
+    wait for `files` goes on while a language that holds one of them is still being solved (files=True: any language)."""
     end = t0 = time.time(); end += seconds; last = t0
     while True:
         s = status(repo)
-        if s['state'] in ('fresh', 'no graph', 'unknown') or not edited(s): return True
+        if (s['state'] in ('fresh', 'no graph', 'unknown') or not edited(s)) and not _waits_on(s, files): return True
         if s.get('failed'): return False
         if s['state'] == 'stale': kick(repo, 'a query')
         now = time.time()
@@ -768,7 +792,7 @@ def query(repo, verb, argv, fresh=False):
         left = expected_left(repo)
         print(f"waiting for the graph to refresh (--fresh): {len(edited(s))} file(s) changed since the graph was built" +
               (f", the last build took {int(build_seconds(repo)[0])} s" if left is not None else '') + " …", file=sys.stderr, flush=True)
-        if wait_fresh(repo, float(os.environ.get('AXIOMCODE_FRESH_MAX') or 600), say=True): passthrough()
+        if wait_fresh(repo, float(os.environ.get('AXIOMCODE_FRESH_MAX') or 600), say=True, files=True): passthrough()
         s = status(repo)
     stale = Stale(edited(s)); r = run()
     out = r.stdout.decode('utf-8', 'replace')
@@ -782,7 +806,7 @@ def query(repo, verb, argv, fresh=False):
             print(f"waiting for the graph to refresh: this answer touches {', '.join(stale.files[:3])}" + (' …' if len(stale.files) > 3 else '') +
                   f", edited since the graph was built; up to {int(budget)} s" + (f" (the last build took {int(build_seconds(repo)[0])} s)" if left is not None else '') + " …",
                   file=sys.stderr, flush=True)
-            if wait_fresh(repo, budget, say=True): passthrough()
+            if wait_fresh(repo, budget, say=True, files=stale.files): passthrough()
             s = status(repo); stale = Stale(edited(s))
             if edited(s):
                 r = run(); out = r.stdout.decode('utf-8', 'replace')
