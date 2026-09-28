@@ -238,14 +238,43 @@ def _take_lock(lock):
     return False
 
 
+_ELF_MACHINE = {62: 'x64', 183: 'arm64'}
+_MACHO_CPU = {0x01000007: 'x64', 0x0100000c: 'arm64'}
+
+
+def runs_here(p):
+    """whether the binary at p is an executable for this machine's OS and CPU, read from its header. A legacy dl/.cache
+    binary is named by its rules alone, so a plugin directory copied or synced from another machine (a Mac checkout
+    rsynced to a Linux VM) carries the other machine's binary under the right name, and running it was an
+    `OSError: Exec format error` in the middle of impact and path. Unknown formats and unreadable headers are trusted:
+    this rejects only a binary it can name as another machine's."""
+    try:
+        with open(p, 'rb') as fh: h = fh.read(20)
+    except OSError: return False
+    plat = npm_platform()
+    if not plat or len(h) < 8: return True
+    o, a = plat.split('-')
+    if h[:4] == b'\x7fELF':
+        if o != 'linux': return False
+        m = _ELF_MACHINE.get(int.from_bytes(h[18:20], 'little' if h[5] == 1 else 'big')) if len(h) >= 20 else None
+        return m is None or m == a
+    if h[:4] in (b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe'):         # Mach-O, thin, little-endian
+        if o != 'darwin': return False
+        m = _MACHO_CPU.get(int.from_bytes(h[4:8], 'little'))
+        return m is None or m == a
+    if h[:4] in (b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca'): return o == 'darwin'   # a universal Mach-O
+    if h[:2] == b'MZ': return o == 'win32'
+    return True
+
+
 def compiled(dl):
     """the compiled binary for these rules when one exists (the engine package's, the user cache's, or a legacy
-    dl/.cache one), else None. Does no work."""
+    dl/.cache one) and runs on this machine, else None. Does no work."""
     dl = resolve(dl); key = rules_id(dl); stem = os.path.splitext(os.path.basename(dl))[0]
     shipped = packaged(stem, key)
     if shipped: return shipped
     for p in (os.path.join(cache_dir(), cached_name(stem, key)), os.path.join(LEGACY_CACHE, f'{stem}-{key}')):
-        if os.path.isfile(p) and os.access(p, os.X_OK): return p
+        if os.path.isfile(p) and os.access(p, os.X_OK) and runs_here(p): return p
     return None
 
 
