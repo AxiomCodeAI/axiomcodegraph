@@ -103,7 +103,7 @@ shutil.rmtree(d)
 # control: nothing configured anywhere, a *.test.ts file still gets the command it always got
 d = tree({'src/a.test.ts': ''})
 check("nothing configured: a *.test.ts file keeps `npx vitest run` (control)",
-      ti.command_for('typescript', ['src/a.test.ts'], [], d), 'npx vitest run src/a.test.ts')
+      ti.command_for('typescript', ['src/a.test.ts'], [], repo=d), 'npx vitest run src/a.test.ts')
 shutil.rmtree(d)
 
 # a runner's collection is read the way the runner reads it. Each shape: (files, the file, expected plan)

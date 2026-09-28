@@ -231,7 +231,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         for n in ch.get('notes', [])[:2]: lines.append(f"  added: {n}")
     if bodies:
         lines.append(_graphline.body_line(os.path.join(os.environ.get('AXIOMCODE_GRAPH') or os.path.join(cwd, '.axiomcode'), 'out', 'graph.sqlite'),
-                                          bodies + [(d, {}) for d in body[3:]]))
+                                          bodies + [(d, {}) for d in body[3:]], cwd))
 elif tool == 'Read':
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
