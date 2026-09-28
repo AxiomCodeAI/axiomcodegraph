@@ -209,7 +209,7 @@ def rank_dirs(g, terms, depth=3, topk=DIR_EVIDENCE):
     return ranked
 
 
-def pick_seeds(g, scored, terms, want, named=()):
+def pick_seeds(g, scored, terms, want, named=(), prefer=frozenset()):
     """The entry points, in four passes, each only filling what the one before left:
 
       1. what the question NAMES: a declaration it spells out (`IRouter.RouteAsync`), a route it quotes
@@ -221,6 +221,13 @@ def pick_seeds(g, scored, terms, want, named=()):
       3. the best symbol for each term still uncovered, as before, so a task naming unrelated concepts still enters the
          graph at each of them;
       4. the best overall.
+
+    Equal scores are common: `findByCode` on a mapper, a repository, a service and a query class all match the same
+    two words the same way. A tie used to fall to the graph's symbol ids, which are hashes that change with the
+    directory a project is indexed in, so the same question on the same code picked a different four of nine from one
+    copy to the next. A tie now goes first to `prefer` (a declaration bound by a text file of the kind the question
+    asks about: the mapper method whose XML holds the SQL, when the question asks which SQL runs), then to the one
+    whose own name holds more of the matched words, then to its name and place, which do not move.
     """
     seeds, seen, covered = [], set(), set()
     def take(sid, why, sc):
@@ -228,10 +235,14 @@ def pick_seeds(g, scored, terms, want, named=()):
         seen.add(sid); seeds.append((sid, why, sc)); covered.update(scored.get(sid, (0, []))[1]); return True
     for sid, why in named:
         take(sid, why, scored.get(sid, (0, []))[0])
-    ranked = sorted(scored.items(), key=lambda kv: -kv[1][0])
+    # the task's words in the declaration's OWN name beat the same words reached through its owner or its path:
+    # `OrderCreatedEvent` says more about "where is an order created" than `Order.getCreatedAt` does
+    own = lambda sid: sum(t in ((g.sym.get(sid) or {}).get('name') or '').lower() for t in scored.get(sid, (0, []))[1])
+    tie = lambda sid: (sid not in prefer, -own(sid), g.disp(sid) or '', g.loc(sid) or '', sid)
+    ranked = sorted(scored.items(), key=lambda kv: (-kv[1][0],) + tie(kv[0]))
     floor = 0.05 * ranked[0][1][0] if ranked else 0
     multi = [(sid, sc, m) for sid, (sc, m) in ranked if len(m) >= 2 and sc >= floor]
-    multi.sort(key=lambda r: (-len(r[2]), -r[1]))
+    multi.sort(key=lambda r: (-len(r[2]), -r[1]) + tie(r[0]))
     for i, (sid, sc, m) in enumerate(multi):
         if len(seeds) >= want: break
         if not set(m) - covered: continue
@@ -241,7 +252,7 @@ def pick_seeds(g, scored, terms, want, named=()):
             if sib >= FLOW_FAN: break
             if m2 == m and sc2 >= 0.5 * sc and take(sid2, "matches '" + "' + '".join(m2) + "'", sc2): sib += 1
     best = {}
-    for sid, (sc, matched) in scored.items():
+    for sid, (sc, matched) in ranked:
         for t in matched:
             cur = best.get(t)
             if cur is None or sc > cur[0]: best[t] = (sc, sid)
@@ -565,6 +576,19 @@ def text_bindings(g, sids, under=(), want_ext=()):
         rank = (0 if f.endswith('.xml') and ns_of.get(f) else 1, 0 if f.endswith(tuple(want_ext) or ('\0',)) else 1, f, line)
         out.append((rank, (f, line, g.disp(sid), nm)))
     return [r for _k, r in sorted(out)]
+
+
+def asked_bound(g, scored, text, under=(), cap=300):
+    """{symbol id} among the multi-term matches that a text file of the kind the question asks about binds by name.
+    Empty unless the question asks about such a file (SQL, configuration, a template): only then is the tree walked,
+    and only then does it break a tie between equally scored entry points (pick_seeds)."""
+    kinds = asked_exts(text)
+    if not kinds or not NONSOURCE_ASK.search(text or ''): return frozenset()
+    cands = sorted((sid for sid, (_sc, m) in scored.items() if len(m) >= 2), key=lambda s: -scored[s][0])[:cap]
+    by_disp = collections.defaultdict(set)
+    for sid in cands: by_disp[g.disp(sid)].add(sid)
+    return frozenset(sid for f, _l, d, _n in text_bindings(g, cands, under=under, want_ext=kinds)
+                     if f.endswith(kinds) for sid in by_disp.get(d, ()))
 
 
 _SRC = {}
@@ -972,7 +996,7 @@ def main(argv):
     # themselves, and on Python every class has one, so they can be a third of this list while
     # naming nowhere to go.
     scored = {sid: v for sid, v in scored.items() if not is_synthetic(g.sym.get(sid, {}).get('name'))}
-    seeds = pick_seeds(g, scored, terms, seeds_wanted, named)
+    seeds = pick_seeds(g, scored, terms, seeds_wanted, named, prefer=asked_bound(g, scored, body, text_dirs))
 
     RESULT['terms'] = list(terms)
     RESULT['scope'], RESULT['scope_offered'] = (scopes[0] if scopes else None), bool(scope_offered)
@@ -1105,10 +1129,10 @@ def main(argv):
                 sp = span_of.get((f, nm))
                 if not sp: continue
                 a, b = sp
-                body = source_lines(g.repo, f)[a - 1:min(b, a + SOURCE_LINES)]
-                if not body: continue
+                code = source_lines(g.repo, f)[a - 1:min(b, a + SOURCE_LINES)]   # not `body`: that is the question
+                if not code: continue
                 print(f"    {'':22}   {nm}  ({f}:{a})")
-                for k, ln in enumerate(body, a):
+                for k, ln in enumerate(code, a):
                     print(f"    {'':22}   {k:5} | {ln.rstrip()[:110]}")
                 if b > a + SOURCE_LINES: print(f"    {'':22}   {'':5} | … +{b - a - SOURCE_LINES} more line(s)")
     if foot and budget > 0: print(foot + ", tests and benchmarks not listed")
@@ -1126,9 +1150,13 @@ def main(argv):
         if g.has('overrides') and seed_ids:
             ph = ','.join('?' * len(seed_ids))
             impls = {r[0] for r in g.q(f"SELECT overriding_method_id FROM overrides WHERE method_id IN ({ph})", *seed_ids)} - seed_ids
+            # nearer through the implementation than through the seeds' own closure counts as nearer: the mapper call
+            # in the impl is one hop from it however far the closure walk happened to place it (hop 3 is outside the ring)
             for x, d in neighbourhood(g, [i for i in impls if i in g.sym], cap=1).items():
-                if x not in seed_ids and x in g.sym and x not in depth: depth[x] = d + 1; ring.append(x)
-        near = list(seed_ids) + sorted(ring, key=lambda x: (not bodiless(g, x), depth[x], x))[:300]
+                if x in seed_ids or x not in g.sym or depth.get(x, d + 2) <= d + 1: continue
+                if depth.get(x, 3) > 2: ring.append(x)
+                depth[x] = d + 1
+        near = list(seed_ids) + sorted(ring, key=lambda x: (not bodiless(g, x), depth[x], g.disp(x) or '', x))[:300]
         kinds = asked_exts(body)
         binds = text_bindings(g, near, under=text_dirs, want_ext=kinds)
         # the question named a kind of file (SQL: mapper XML or .sql): when some binding is of that kind, the others
