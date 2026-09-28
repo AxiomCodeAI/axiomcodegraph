@@ -14,7 +14,11 @@ One check needs no graph and is its own script:
     python3 tests/surfaces.py            every dispatched verb is documented on --help, SKILL.md and MCP
     python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape
     python3 tests/directive.py           the PreToolUse directive hook keeps its promises (never blocks,
-                                         never raises, silent without a graph)
+                                         never raises, silent without a graph, once per session across
+                                         repositories, and names the verb for a declared name it is searched for)
+    python3 tests/hook_languages.py      the edit hooks speak for C# as for Java and Python, from one extension table,
+                                         and a body edit's command runs the classes that extend an abstract test base
+                                         (indexes a small C# project, so it needs the engine)
     python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
                                          edit, `changed` answers the same before and after, a burst costs one rebuild
                                          and queries during it answer (#1305; builds real graphs, needs the engine)

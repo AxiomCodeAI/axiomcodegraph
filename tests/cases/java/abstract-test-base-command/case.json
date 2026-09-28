@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a test declared in an abstract base runs only as part of the classes that extend it, so the command names those; mvn -Dtest=<the abstract base> runs nothing",
+   "run": ["test-impact", "{repo}", "--old", "{repo}/save-old.java", "--new", "{repo}/save-new.java", "--file", "src/pkg/Repo.java"],
+   "want": ["mvn test -Dtest=JdbcRepoTest,MemoryRepoTest", "AbstractRepoContractTest -> JdbcRepoTest, MemoryRepoTest"],
+   "avoid": ["-Dtest=AbstractRepoContractTest"]},
+  {"why": "control: a CONCRETE base keeps its place in the command (its tests run in it), and the class inheriting the reached test is named too, as the ownerless note says",
+   "run": ["test-impact", "{repo}", "--old", "{repo}/load-old.java", "--new", "{repo}/load-new.java", "--file", "src/pkg/Repo.java"],
+   "want": ["mvn test -Dtest=CachedLoadTest,LoadTest"],
+   "avoid": ["abstract test class"]}]}
