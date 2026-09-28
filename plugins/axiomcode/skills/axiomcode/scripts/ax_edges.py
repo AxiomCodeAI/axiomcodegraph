@@ -272,6 +272,20 @@ def anon_depth(display):
     return len(_ANON_SCOPE.findall(display or ''))
 
 
+# A class's synthesized initializer spans the fields it runs, and a method written between two of them lies inside
+# that span without being written inside any initializer (#1663): it is the initializer's sibling, and its display
+# says so, the same owner and no scope of the initializer's in between. What an initializer does define (an arrow or
+# a function expression handed to a call in it) has a display that is not the initializer's sibling.
+_NAMED_INIT = re.compile(r'(?:^|\.)<(?:static-init|instance-init|clinit|classbody)>$')
+
+
+def _sibling_of_init(display, init_display):
+    """`Type.m` beside `Type.<static-init>`: a member of the initializer's owner, not a callable written inside it"""
+    if not init_display or not _NAMED_INIT.search(init_display) or not display or anon_depth(display): return False
+    owner = init_display.rsplit('.', 1)[0] if '.' in init_display else ''
+    return bool(owner) and display.rsplit('.', 1)[0] == owner and '.' in display
+
+
 def _within(inner, outer):
     """a call site's (line, col, end_line, end_col) lies inside another's and is not the same one"""
     return inner != outer and outer[:2] <= inner[:2] and inner[2:] <= outer[2:]
@@ -294,10 +308,10 @@ def defines_edges(callables, sites=None):
     """(definer, defined, 'defines') for callables given as (file, line, end_line, id, display, method_id[, qualified_name]).
     `sites(method_ids)` returns (caller_id, line, col, end_line, end_col) for the call sites of those callables; it is
     asked only about lines where more than one callable could have defined an anonymous one."""
-    byfile = {}; mid_of = {}; lex = {}
+    byfile = {}; mid_of = {}; lex = {}; disp_of = {}
     for f, ln, en, i, disp, mid, *qn in callables:
         if not (ln and en) or str(mid or i).startswith('generated:'): continue
-        byfile.setdefault(f, []).append((ln, -en, anon_depth(disp), i)); mid_of[i] = mid or i
+        byfile.setdefault(f, []).append((ln, -en, anon_depth(disp), i)); mid_of[i] = mid or i; disp_of[i] = disp
         if qn and qn[0] and str(mid or i).startswith(_LEXICAL_IDS): lex[i] = qn[0]
     def may_hold(c, x):
         """on an equal span: c may be x's definer unless both names follow the nesting and x's does not extend c's"""
@@ -309,9 +323,11 @@ def defines_edges(callables, sites=None):
             # pop what ends before this one ends (END against END, not against this one's start: the two agree on nested
             # spans and not on overlapping ones), and a sibling: the same span at the same depth
             while st and (st[-1][1] < -neg or (st[-1][0] == ln and st[-1][1] == -neg and st[-1][2] >= d)): st.pop()
-            # past an equal span the name says it is not written in (kept on the stack: a later one may be)
+            # past an equal span the name says it is not written in (kept on the stack: a later one may be), and past a
+            # class's initializer when this is a member of that class beside it (#1663)
             j = len(st) - 1
-            while j >= 0 and st[j][0] == ln and st[j][1] == -neg and not may_hold(st[j][3], i): j -= 1
+            while j >= 0 and (_sibling_of_init(disp_of[i], disp_of[st[j][3]])
+                              or (st[j][0] == ln and st[j][1] == -neg and not may_hold(st[j][3], i))): j -= 1
             if j >= 0 and st[j][3] != i: parent[f, i] = st[j][3]
             st.append((ln, -neg, d, i))
         # equal spans holding an anonymous callable and more than one other candidate to have written it

@@ -800,8 +800,10 @@ export class JsDeclarationExtractor {
    * A declared constructor is NOT reused as the owner even though it is where the
    * initializer runs: a field written above the constructor would then be an expression
    * outside its owner's span, which is the containment invariant that catches context
-   * leaking down the traversal. The synthetic row spans the class, so it contains every
-   * initializer in it whatever the member order.
+   * leaking down the traversal. The synthetic row spans the fields it runs, from the first
+   * to the last, so it contains every initializer it owns whatever the member order. It
+   * does NOT span the class: a callable's span is what it defines, and the methods written
+   * beside the fields are its siblings (#1663).
    */
   private attributeFieldInitializers(node: ts.ClassLikeDeclaration, context: WalkContext): void {
     if (context.ownerType === undefined) {
@@ -812,27 +814,26 @@ export class JsDeclarationExtractor {
       if (first === undefined) {
         continue;
       }
+      const owned = node.members.filter((member): member is ts.PropertyDeclaration =>
+        ts.isPropertyDeclaration(member) && member.initializer !== undefined
+        && !isCallableExpression(member.initializer) && initializerRunsCode(member.initializer)
+        && hasModifier(member, ts.SyntaxKind.StaticKeyword) === isStatic);
       // One callable per class per staticness, hung off the same field the scope builder
       // opened the scope on, so the row's body scope is a scope that exists.
-      const owner = this.synthesizeInitializerOwner(node, first, context, isStatic);
-      for (const member of node.members) {
-        if (!ts.isPropertyDeclaration(member) || member.initializer === undefined
-          || isCallableExpression(member.initializer) || !initializerRunsCode(member.initializer)) {
-          continue;
-        }
-        if (hasModifier(member, ts.SyntaxKind.StaticKeyword) === isStatic) {
-          this.fieldInitOwnerByNode.set(nodeKey(member), owner);
-        }
+      const owner = this.synthesizeInitializerOwner(first, owned[owned.length - 1] ?? first, context, isStatic);
+      for (const member of owned) {
+        this.fieldInitOwnerByNode.set(nodeKey(member), owner);
       }
     }
   }
 
-  /** The synthetic callable a class's field initializers run inside. */
+  /** The synthetic callable a class's field initializers run inside, spanning `first` to `last`. */
   private synthesizeInitializerOwner(
-    node: ts.ClassLikeDeclaration, first: ts.PropertyDeclaration,
+    first: ts.PropertyDeclaration, last: ts.PropertyDeclaration,
     context: WalkContext, isStatic: boolean,
   ): string {
-    const at = this.positionOf(node);
+    const start = this.positionOf(first);
+    const at = { ...start, endLine: this.positionOf(last).endLine };
     const bodyScope = this.options.binder.scopeOpenedBy.get(nodeKey(first)) ?? context.scope;
     const ownerType = context.ownerType;
     const name = isStatic ? '<static-init>' : '<instance-init>';
