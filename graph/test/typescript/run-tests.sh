@@ -215,6 +215,9 @@ fi
 # A `.source-root` the reader cannot resolve keys every staged declaration under a path
 # nothing else names, and the empty join that follows is reported as a plausible rate
 # over the client's own files rather than as a failure (#342).
+# (The counters start here, before the first check that adds to them: they were initialised
+# after it, so a failure here was counted and then reset to zero.)
+pass=0; fail=0; failed=()
 if ! python3 "$HERE/tools/source_root_test.py"; then
   echo "source-root: FAILED"
   fail=$((fail+1)); failed+=("source-root")
@@ -244,6 +247,8 @@ if ! bash "$HERE/tools/envelope-merge-test.sh"; then
 fi
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 WORK="$HERE/.work"
+# shellcheck source=../tools/case-pool.sh
+. "$ROOT/graph/test/tools/case-pool.sh"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
 for a in "$@"; do case "$a" in
   --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;;
@@ -283,8 +288,6 @@ mkdir -p "$WORK"
 # library that declares nothing, so no client->lib edge can exist.
 EMPTY_LIB="$WORK/.empty-library"; mkdir -p "$EMPTY_LIB"
 
-pass=0; fail=0; failed=()
-
 # solve <ir> <library-ir> <workdir> ; leaves edges in <workdir>/out
 solve() {
   bash "$ROOT/graph/pipeline/run-souffle.sh" --debug --language typescript \
@@ -306,7 +309,11 @@ check_golden() {
   echo "FAIL ($label changed)"; diff -u "$exp" "$actual" | sed 's/^/    /' | head -40; return 1
 }
 
-for dir in "$HERE"/cases/*/; do
+# ── ONE CASE ────────────────────────────────────────────────────────────────
+# The body of what was the case loop, unchanged, inside a one-case `for` so its `continue`s
+# still mean "next case". pool_run (graph/test/tools/case-pool.sh) runs several at once.
+case_body() {
+for dir in "$@"; do
   name="$(basename "$dir")"
   if [ ${#FILTERS[@]} -gt 0 ]; then
     match=0; for f in "${FILTERS[@]}"; do [[ "$name" == *"$f"* ]] && match=1; done
@@ -478,94 +485,110 @@ for dir in "$HERE"/cases/*/; do
   n2=0; [ "$HAS_LIB" = "1" ] && n2=$(wc -l < "$w/actual.lib.edges" | tr -d ' ')
   echo "ok (${n1} edges, ${n2} with lib)${orc}"; pass=$((pass+1))
 done
+}
 
-# ── the LINKING gate ─────────────────────────────────────────────────────────
-# Run here rather than left to be remembered. The golden cases above parse a case's
-# own `lib/` directory; they never install a PACKAGE, so nothing in them exercises
-# module resolution, staging discovery, or a non-flat node_modules — the whole
-# client->library boundary. That gate lived in fixtures/linking/run.sh and was not
-# invoked by anything, so this suite could report 20/20 green while every linking
-# mechanism was broken. A gate nobody runs is not a gate.
-#
+# Asked once, up front, and passed explicitly. The fixture's own default used to be an
+# absolute path inside one developer's home directory and this call never passed the
+# argument, so anywhere else `typescript/lib` was never staged, the global scope was
+# empty, and the MANDATORY baseline failed with three assertions that read as engine
+# defects in native resolution rather than as a missing argument (#331).
+NODE_MODULES=""
+[ "$BLESS" = "1" ] || NODE_MODULES="$(bash "$HERE/tools/find-node-modules.sh" || true)"
+
+# ── ONE FIXTURE ─────────────────────────────────────────────────────────────
+# Each fixture is a job like a case: its own work directory ($WORK-<fixture>) and log, so
+# they run beside the cases and each other, and print in the order below.
+fixture_job() {
+  local fx="$1" rc
+  case "$fx" in
+    linking)
+      echo
+      [ -n "$NODE_MODULES" ] || echo "  ! no node_modules with a typescript found — fixtures will say so"
+      echo "── linking fixture ──"
+      if bash "$HERE/fixtures/linking/run.sh" "${WORK:-/tmp/ts-linking-fixture}-linking" "$NODE_MODULES" >"$WORK-linking.log" 2>&1; then
+        echo "linking fixture: ok"
+      else
+        echo "linking fixture: FAILED"
+        grep -E '^FAIL' "$WORK-linking.log" | sed 's/^/  /' || tail -5 "$WORK-linking.log" | sed 's/^/  /'
+        fail=$((fail+1)); failed+=("linking-fixture")
+      fi;;
+    dispatch|typeflow|overloads|specificity)
+      echo
+      echo "── $fx fixture ──"
+      bash "$HERE/fixtures/$fx/run.sh" "${WORK:-/tmp/ts-$fx}-$fx" "$NODE_MODULES"          >"$WORK-$fx.log" 2>&1
+      rc=$?
+      if [ "$rc" -eq 0 ]; then
+        echo "$fx fixture: ok"
+      elif [ "$rc" -eq 77 ]; then
+        echo "$fx fixture: SKIPPED ($(tail -1 "$WORK-$fx.log"))"
+      else
+        echo "$fx fixture: FAILED"
+        grep -E '^FAIL|^ *!' "$WORK-$fx.log" | sed 's/^/  /' || tail -5 "$WORK-$fx.log" | sed 's/^/  /'
+        fail=$((fail+1)); failed+=("$fx-fixture")
+      fi;;
+    tsconfig-chain|multi-program)
+      echo
+      echo "── $fx fixture ──"
+      bash "$HERE/fixtures/$fx/run.sh" "${WORK:-/tmp/ts-$fx}-$fx" "$PARSER" \
+           >"$WORK-$fx.log" 2>&1
+      rc=$?
+      if [ "$rc" -eq 0 ]; then
+        echo "$fx fixture: ok"
+      elif [ "$rc" -eq 77 ]; then
+        echo "$fx fixture: SKIPPED ($(tail -1 "$WORK-$fx.log"))"
+      else
+        echo "$fx fixture: FAILED"
+        grep -E '^FAIL' "$WORK-$fx.log" | sed 's/^/  /' || tail -5 "$WORK-$fx.log" | sed 's/^/  /'
+        fail=$((fail+1)); failed+=("$fx-fixture")
+      fi;;
+  esac
+}
+
+suite_job() { case "$1" in fixture:*) fixture_job "${1#fixture:}";; *) case_body "$1";; esac; }
+
+# ── THE FIXTURES ────────────────────────────────────────────────────────────
+# `linking`: the golden cases parse a case's own `lib/` directory; they never install a
+# PACKAGE, so nothing in them exercises module resolution, staging discovery, or a
+# non-flat node_modules — the whole client->library boundary. That gate lived in
+# fixtures/linking/run.sh and was not invoked by anything, so this suite could report
+# 20/20 green while every linking mechanism was broken. A gate nobody runs is not a gate.
 # Skipped, loudly, when the fixture cannot build (it needs a real `typescript` to
 # symlink); never silently passed.
+#
+# THE FOUR GATES NOTHING RAN. The same reasoning was acted on for `linking` and these four
+# were left, so the suite could report green while any of the four mechanisms was broken.
+# All four pass today and take about six seconds each — they are unrun, not rotten (#332).
+# Each isolates a question the per-case goldens cannot ask:
+#   dispatch     an interface-typed receiver, where the compiler names the SIGNATURE
+#                and the engine emits the reachable BODIES — two different right
+#                answers, deliberately kept apart
+#   typeflow     every way a receiver acquires a type other than being annotated,
+#                with member names shared on purpose so a lucky name match cannot pass
+#   overloads    one overload set reached through a barrel re-export and by direct
+#                import, so a difference between the two consumers is the module graph
+#                rather than the overload logic
+#   specificity  generic-first overload sets in both directions, built because the
+#                obvious fix for the largest corpus failure class is wrong
+# Their second argument is a node_modules to stage a `typescript` from, discovered rather
+# than defaulted to one developer's home directory (#331). Empty means the fixture falls
+# back to its own discovery and says so.
+#
+# tsconfig-chain and multi-program are harness gates that take a parser and assert a
+# property of the pipeline itself. Neither is expressible as a case: a case carries its own
+# src/tsconfig.json with nothing to extend (#240), and none installs a package with several
+# programs (#230). Exit 77 is a fixture declining for want of a parser — not a pass and not
+# a failure.
+#
+# Not under --bless: they have no goldens to regenerate.
+JOBS=("$HERE"/cases/*/)
 if [ "$BLESS" != "1" ]; then
-  echo
-  # Asked once, here, and passed explicitly. The fixture's own default used to be an
-  # absolute path inside one developer's home directory and this call never passed the
-  # argument, so anywhere else `typescript/lib` was never staged, the global scope was
-  # empty, and the MANDATORY baseline failed with three assertions that read as engine
-  # defects in native resolution rather than as a missing argument (#331).
-  NODE_MODULES="$(bash "$HERE/tools/find-node-modules.sh" || true)"
-  [ -n "$NODE_MODULES" ] || echo "  ! no node_modules with a typescript found — fixtures will say so"
-
-  echo "── linking fixture ──"
-  if bash "$HERE/fixtures/linking/run.sh" "${WORK:-/tmp/ts-linking-fixture}-linking" "$NODE_MODULES" >"$WORK-linking.log" 2>&1; then
-    echo "linking fixture: ok"
-  else
-    echo "linking fixture: FAILED"
-    grep -E '^FAIL' "$WORK-linking.log" | sed 's/^/  /' || tail -5 "$WORK-linking.log" | sed 's/^/  /'
-    fail=$((fail+1)); failed+=("linking-fixture")
-  fi
-
-  # ── THE FOUR GATES NOTHING RAN ──────────────────────────────────────────────
-  # The comment above says it for the fifth: a gate nobody runs is not a gate. That
-  # reasoning was acted on for `linking` and these four were left, so the suite could
-  # report green while any of the four mechanisms was broken. All four pass today and
-  # take about six seconds each — they are unrun, not rotten (#332).
-  #
-  # Each isolates a question the per-case goldens cannot ask:
-  #   dispatch     an interface-typed receiver, where the compiler names the SIGNATURE
-  #                and the engine emits the reachable BODIES — two different right
-  #                answers, deliberately kept apart
-  #   typeflow     every way a receiver acquires a type other than being annotated,
-  #                with member names shared on purpose so a lucky name match cannot pass
-  #   overloads    one overload set reached through a barrel re-export and by direct
-  #                import, so a difference between the two consumers is the module graph
-  #                rather than the overload logic
-  #   specificity  generic-first overload sets in both directions, built because the
-  #                obvious fix for the largest corpus failure class is wrong
-  #
-  # Second argument is a node_modules to stage a `typescript` from, discovered rather
-  # than defaulted to one developer's home directory (#331). Empty means the fixture
-  # falls back to its own discovery and says so.
-  for fx in dispatch typeflow overloads specificity; do
-    echo
-    echo "── $fx fixture ──"
-    bash "$HERE/fixtures/$fx/run.sh" "${WORK:-/tmp/ts-$fx}-$fx" "$NODE_MODULES"          >"$WORK-$fx.log" 2>&1
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-      echo "$fx fixture: ok"
-    elif [ "$rc" -eq 77 ]; then
-      echo "$fx fixture: SKIPPED ($(tail -1 "$WORK-$fx.log"))"
-    else
-      echo "$fx fixture: FAILED"
-      grep -E '^FAIL|^ *!' "$WORK-$fx.log" | sed 's/^/  /' || tail -5 "$WORK-$fx.log" | sed 's/^/  /'
-      fail=$((fail+1)); failed+=("$fx-fixture")
-    fi
-  done
-
-  # Harness gates that take a parser and assert a property of the pipeline itself.
-  # Neither is expressible as a case: a case carries its own src/tsconfig.json with
-  # nothing to extend (#240), and none installs a package with several programs (#230).
-  # Exit 77 is a fixture declining for want of a parser — not a pass and not a failure.
-  for fx in tsconfig-chain multi-program; do
-    echo
-    echo "── $fx fixture ──"
-    bash "$HERE/fixtures/$fx/run.sh" "${WORK:-/tmp/ts-$fx}-$fx" "$PARSER" \
-         >"$WORK-$fx.log" 2>&1
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-      echo "$fx fixture: ok"
-    elif [ "$rc" -eq 77 ]; then
-      echo "$fx fixture: SKIPPED ($(tail -1 "$WORK-$fx.log"))"
-    else
-      echo "$fx fixture: FAILED"
-      grep -E '^FAIL' "$WORK-$fx.log" | sed 's/^/  /' || tail -5 "$WORK-$fx.log" | sed 's/^/  /'
-      fail=$((fail+1)); failed+=("$fx-fixture")
-    fi
+  for fx in linking dispatch typeflow overloads specificity tsconfig-chain multi-program; do
+    JOBS+=("fixture:$fx")
   done
 fi
+echo "running with up to $(pool_jobs) job(s) at once (AXIOM_SUITE_JOBS; 1 = one at a time)"
+POOL_INTS="pass fail" POOL_ARRAYS="failed"
+pool_run suite_job "${JOBS[@]}"
 
 [ "$KEEP" = "1" ] || rm -rf "$WORK"
 echo

@@ -424,7 +424,12 @@ case "$LIBKEY" in
   *) echo "library cache key is not a digest (got '$LIBKEY') — refusing to reuse staged facts" >&2
      exit 1;;
 esac
-LIBDIR="$CACHE_ROOT/libfacts-$LIBKEY"
+# AXIOM_LIBFACTS_CACHE moves ONLY the staged library facts (the compiled engine stays in
+# CACHE_ROOT). The key is module names plus CSV size and mtime in whole seconds, which is
+# enough for one run at a time; a test harness running cases side by side gives each its own
+# directory, because two library IRs parsed in the same second into same-named directories
+# can share a key (graph/test/tools/case-pool.sh).
+LIBDIR="${AXIOM_LIBFACTS_CACHE:-$CACHE_ROOT}/libfacts-$LIBKEY"
 # How many IR modules the roots actually hold. Cheap (lib_modules is a marker test and a
 # one-level glob, never a find) and worth knowing before the message below: "this is the
 # 2GB read" was printed verbatim for a run whose --library directory was EMPTY, which is
