@@ -430,9 +430,10 @@ jobs:
         run: |
           echo "id=$(bash graph/pipeline/run-souffle.sh --language ${{ matrix.lang }} --print-engine-id)" >> "$GITHUB_OUTPUT"
 
-      - name: cache the compiled Soufflé engine
+      - name: restore the compiled Soufflé engine
+        id: engine-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .souffle-cache
           key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}-${{ hashFiles('graph/pipeline/run-souffle.sh') }}-march-${{ env.AXIOM_ENGINE_MARCH }}
@@ -446,6 +447,21 @@ jobs:
         # The cases run concurrently, up to one per CPU (graph/test/tools/case-pool.sh);
         # AXIOM_SUITE_JOBS=1 here would run them one at a time, as they used to.
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
+
+      # Saved whether or not the suite passed. The binary does not depend on the verdict:
+      # run-souffle.sh publishes it only whole and verified (a temp name, then a rename),
+      # so a red run's engine is as good as a green one's, and the run that most needs the
+      # next push to be fast is the red one. Not when cancelled, and not unless this
+      # language's engine is actually there: a key saved without it would stay taken, and
+      # every later run would restore the gap and could never save over it.
+      - name: save the compiled Soufflé engine
+        if: >-
+          ${{ !cancelled() && !inputs.fresh && steps.engine-cache.outputs.cache-hit != 'true'
+              && hashFiles(format('.souffle-cache/souffle-engine-{0}-{1}', matrix.lang, steps.eid.outputs.id)) != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .souffle-cache
+          key: souffle-engine-${{ matrix.lang }}-${{ steps.eid.outputs.id }}-${{ hashFiles('graph/pipeline/run-souffle.sh') }}-march-${{ env.AXIOM_ENGINE_MARCH }}
 
   # Every language's engine, every platform, built once per release: on the push that
   # lands a new version on main (and in the nightly). publish-npm ships these very
