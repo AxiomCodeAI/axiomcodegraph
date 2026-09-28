@@ -78,8 +78,9 @@ unresolved_receiver(ce, cn, ck, "other_form") :- call_site("client", ck, cn, _, 
 // name narrows what it calls, so any function that escapes as a value may be the
 // callee, and a question that finds no chain from its caller must answer "unknown",
 // never "independent" (#1649). Binding: parameter | loop_variable | local |
-// computed | dynamic_code | module_variable | field | parameter_member | expression.
-// An imported binding is not one: it names a module member.
+// computed | dynamic_code | module_variable | field | parameter_member | expression |
+// imported_variable. An imported binding is one only when it names a variable its
+// module reassigns (below); otherwise it names a module member.
 value_callee_open(ce, c) :- call_site("client", ck, _, _, _, _, ce, _, _), !call_kind_is_dynamic(ck),
     !call_resolved(ce), !callee_value_known(ce), expr_child(_, ce, "CALLEE", _, c).
 unresolved_value_callee(ce, "parameter") :- value_callee_open(ce, c), expr_param(_, _, c).
@@ -158,3 +159,22 @@ param_member_read(a, p, n) :- expr_kind(_, k, _, a), (k = "PROPERTY_ACCESS" ; k 
     expr_child(_, a, "ACCESS_TARGET", _, t), expr_param(_, p, t).
 unresolved_value_callee(ce, "computed") :- call_site("client", "COMPUTED_CALL", _, _, _, _, ce, _, _), !call_resolved(ce).
 unresolved_value_callee(ce, "dynamic_code") :- call_site("client", "DYNAMIC_CODE_CALL", _, _, _, _, ce, _, _), !call_resolved(ce).
+// `import { handler } from './hub'; handler()` or `hub.handler()` through a namespace,
+// where hub does `export let handler = null` and reassigns it in a setter (#1708): an
+// ES import is a LIVE binding, so the call runs whatever the setter stored last. The
+// callee's value may be known (`null`) and still not be the one the call runs. An
+// export the module never reassigns keeps its answer: its value is the one it holds.
+unresolved_value_callee(ce, "imported_variable") :- value_callee_unresolved(ce, c), expr_binding(_, v, c),
+    var_import("client", imp, v), import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
+    import_module(imp, mod), live_export_variable(mod, n).
+unresolved_value_callee(ce, "imported_variable") :- call_site("client", ck, n, _, _, _, ce, _, _),
+    call_kind_is_member_form(ck), !call_kind_is_dynamic(ck), !call_resolved(ce),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "module", mod), live_export_variable(mod, n).
+// live_export_variable(Module, Name): the module exports, under Name, a variable some
+// code assigns after its declaration — directly, or re-exported by name or by `export *`.
+live_export_variable(mod, n) :- export_decl(_, n, _, _, _, "VARIABLE", v, _, mod, x), n != "", !export_overwritten(_, x),
+    variable_reassigned(v).
+live_export_variable(mod, en) :- export_decl(_, en, ln, form, _, _, _, _, mod, x), form != "EXPORT_ALL", ln != "",
+    export_reexport(_, _, imp, x), import_module(imp, src), live_export_variable(src, ln).
+live_export_variable(mod, n) :- export_decl(_, en, _, "EXPORT_ALL", _, _, _, _, mod, x), export_all_is_spread(en),
+    export_reexport(_, _, imp, x), import_module(imp, src), live_export_variable(src, n), n != "default".

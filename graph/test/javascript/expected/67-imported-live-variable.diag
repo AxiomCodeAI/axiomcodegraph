@@ -1,0 +1,13 @@
+package_entry    imported-live-variable  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:11:38  FUNCTION_CALL fixed  no_target
+unresolved       main.js:13:40  METHOD_CALL fixed  no_target
+unresolved       main.js:5:41  FUNCTION_CALL handler  no_target
+unresolved       main.js:6:35  METHOD_CALL handler  no_target
+unresolved       main.js:7:42  FUNCTION_CALL hook  no_target
+unresolved       main.js:8:40  FUNCTION_CALL relayed  no_target
+unresolved       main.js:9:41  METHOD_CALL handler  no_target
+value_callee     main.js:5:41  handler  imported_variable
+value_callee     main.js:6:35  hub.handler  imported_variable
+value_callee     main.js:7:42  hook  imported_variable
+value_callee     main.js:8:40  relayed  imported_variable
+value_callee     main.js:9:41  barrel.handler  imported_variable
