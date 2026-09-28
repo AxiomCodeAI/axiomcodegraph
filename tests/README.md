@@ -39,6 +39,11 @@ One check needs no graph and is its own script:
                                          engine the last build used before PATH (the refresh runs from a hook, with the
                                          hook's PATH), follows a Windows npm shim, and names every place it looked when
                                          it finds none
+    python3 tests/freshness.py           an answer from a graph older than an edit marks the rows in edited files (text and
+                                         --json) and nothing else; it waits only when the answer touches an edited file
+                                         and the refresh is expected within the budget, never on a rules compile;
+                                         --fresh waits and MCP takes fresh=true; the file table prunes exactly what each
+                                         parser skips, so an edit under out/ or build/ is seen (#1594, #1595; no engine)
     python3 tests/refresh_races.py       what a refresh after an edit can leave behind, each with a control: a broken
                                          graph pointer is repaired and keeps the baseline; a query mid-build waits for it
                                          and starts no build; a failed build never leaves the pointer dangling; a failed

@@ -11,6 +11,8 @@ Each language gets a throwaway git repository with a real graph. Then, per langu
   signature      a second edit, a parameter added to the callee, is reported as a signature change, again both ways
   restored       the files put back as committed: a clean `git status` is NOT taken for fresh, the graph is rebuilt,
                  and the added function is gone from it
+  marks          an answer from the previous graph marks the rows in the edited file (text and --json), and
+                 --fresh waits for the rebuild and answers unmarked (#1595)
   single flight  a burst of triggers produces one rebuild, and queries issued while it runs all answer
   hooks          the refresh hook, fed an edit event, starts the refresher and prints nothing
 
@@ -114,6 +116,17 @@ def main(argv):
             open(f, 'w').write(text)
             before_tree = tree()
             X = ask_changed(repo, quiet)
+            # stale-while-revalidate (#1595): with no budget to wait, the answer comes from the previous graph at once and
+            # marks the rows that lie in the edited file, and only those; --json carries the same as "stale": true
+            nowait = dict(env, AXIOMCODE_FRESH_WAIT='0', AXIOMCODE_REFRESH_DEBOUNCE='10')   # the refresh it starts waits 10 s: both asks see the old graph
+            sw = sh(repo, AX, 'impact', helper, '.', env=nowait)
+            rows = [l for l in sw.stdout.splitlines() if L['edit'] in l and not l.lstrip().startswith(('next:', 'verified:'))]
+            check(rows and all(l.endswith('(may be out of date)') for l in rows) and 'row(s) lie in those files' in sw.stderr,
+                  f'{lang}: an answer from the previous graph marks every row in the edited file ({len(rows)})', sw.stdout + sw.stderr)
+            js = json.loads(sh(repo, AX, 'impact', helper, '.', '--json', env=nowait).stdout or '{}')
+            direct = [r for r in js.get('direct', []) if L['edit'] in r.get('at', '')]
+            check(direct and all(r.get('stale') is True for r in direct) and L['edit'] in js.get('freshness', {}).get('edited', []),
+                  f'{lang}: and --json says "stale": true on those rows', json.dumps(js)[:1500])
             p = sh(repo, AX, 'path', added, helper, '.', env=env)
             check(p.returncode == 0 and 'verified' in p.stdout and 'graph refresh:' not in p.stderr,
                   f'{lang}: after an edit, a query finds the added function and its call (the refresher ran, the query waited)', p.stdout + p.stderr)
@@ -133,7 +146,10 @@ def main(argv):
             if L.get('sig_call'): text = text.replace(*L['sig_call'])
             open(f, 'w').write(text)
             X2 = ask_changed(repo, quiet)
-            sh(repo, AX, 'impact', helper, '.', env=env)
+            # --fresh waits for the rebuild even with no budget to wait on its own, and answers unmarked from the new graph
+            fr = sh(repo, AX, 'impact', helper, '.', '--fresh', env=dict(env, AXIOMCODE_FRESH_WAIT='0'))
+            check(fr.returncode == 0 and added in fr.stdout and '(may be out of date)' not in fr.stdout and 'graph refresh:' not in fr.stderr
+                  and '(--fresh)' in fr.stderr, f'{lang}: impact --fresh waits for the rebuild and answers from the new graph', fr.stdout[-800:] + fr.stderr)
             Y2 = ask_changed(repo, quiet)
             # JavaScript also records a function declaration as a variable, and `changed` reports the edit as that
             # variable's (a gap of `changed`, the same with or without a refresh); the kind is not what is tested here

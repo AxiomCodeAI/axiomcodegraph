@@ -3,7 +3,7 @@
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
-#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json]
+#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh]
 #       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name
 #       to ask about yet. Deterministic: task terms scored against the graph's vocabulary by inverse document
 #       frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop.
@@ -14,7 +14,7 @@
 #       the graph as one page. Runs the pipeline only when the repo has no up-to-date graph (~1 s otherwise). <repo>
 #       defaults to the current directory; the page goes to <repo>/.axiomcode/graph/graph.html, or to --out: a folder
 #       gets <folder>/<repo>.html, a .html path is used as given. The page embeds the sources, so a node opens its code.
-#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json]
+#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json] [--fresh]
 #       the shortest chain of calls from A to B per reached target, and with --every all the routes; through what?
 #       '*' as one endpoint: path '*' X = everything that can reach X, with the entry points among them; path X '*' = everything X reaches. Endpoints exactly as written in the code: Owner.method,
 #       method (free function or any owner), Type (all its methods), file.ts:123, file.py. Datalog over the graph; every
@@ -22,7 +22,7 @@
 #       Every hop carries the LINE THE CALL IS WRITTEN ON, how certain the edge is, and what kind of call it is —
 #       an invocation, a construction, a constructor chain, a super call, a decorator, a property access, a method
 #       reference — in one vocabulary across all five languages. A hop that is not a call is marked and not counted.
-#   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k]
+#   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k] [--fresh]
 #       what has to be looked at again when a declaration changes: a method, a field / constant / enum member, a type, a
 #       parameter (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), Type.<init> / Type.<clinit>. Prints what
 #       must change with it (overrides, subtypes), what directly touches it with WHY and how sure ([resolved] / [in scope] /
@@ -45,7 +45,8 @@
 #
 # A repo in several languages is indexed in all of them, one graph each, and the query verbs ask every graph (the main
 # language's, the one with the most files, first). --lang restricts it to one language or a comma list, the first the main one;
-# --src limits the analysed tree (e.g. src); --library names dependency roots.
+# --src limits the analysed tree (e.g. src); --library names dependency roots. --fresh (context, path, impact) waits for
+# a refresh in flight and answers from the new graph; without it an answer from a graph older than an edit marks its rows.
 case "$0" in */*) H="${0%/*}";; *) H=.;; esac; H="$(cd "${H:-/}" && pwd)"   # no `dirname`: see bin/axiomcode
 
 # PYTHON UNDER ANOTHER NAME (#1331). Every verb runs `python3`, which a python.org install on Windows does not
@@ -96,6 +97,7 @@ while [ $# -gt 0 ]; do
     --lang) export AXIOMCODE_LANG="$2"; shift 2 ;;
     --src) export AXIOMCODE_SRC="$2"; shift 2 ;;
     --library) export AXIOMCODE_LIBRARY="$2"; shift 2 ;;
+    --fresh) export AXIOMCODE_FRESH=1; shift ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
@@ -104,25 +106,29 @@ done
 # build a repository called `--help`. One branch is cheaper than three, and a verb added tomorrow gets
 # it without anyone remembering to.
 case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; then verbhelp "$cmd"; exit $?; fi ;; esac
-# A QUERY READS A CURRENT GRAPH (#1305). Before a query verb runs, the graph is checked against the files it was built
-# from; when one differs, the background refresher is started and the answer waits for it up to AXIOMCODE_FRESH_WAIT
-# seconds (default 10, enough for a small repository's rebuild). Past that it is given from the previous graph, with
-# one line on stderr naming the files that graph predates. The repository is the last argument that is a directory,
-# as the verbs themselves take it, else the working directory. No graph: nothing here, the verb builds its first one.
+# A QUERY NEVER BLOCKS ON A REFRESH BY DEFAULT (#1305, #1595). Before a query verb answers, the graph is checked against
+# the files it was built from. When one differs the background refresher is started and the answer comes from the last
+# good graph at once, every row that lies in a changed file marked "(may be out of date)" and one line on stderr naming
+# the files. It waits (up to AXIOMCODE_FRESH_WAIT, default 30 s) only when the answer touches a changed file and the last
+# build says the refresh will finish within that; never on a compile of the engine's rules. --fresh waits for the
+# refresh, saying how it goes, and answers from the new graph. ax_fresh.py query does all of it; a fresh graph costs one
+# check and an exec. The repository is the last argument that is a directory, as the verbs themselves take it, else the
+# working directory. No graph: nothing here, the verb builds its first one.
 # `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they do
-# not wait for the graph; they wait only when HEAD moved and the baseline has to follow it.
+# not wait for the graph; they wait only when HEAD moved and the baseline has to follow it. `graph` builds (axiomcode-build)
+# before it draws, so it is current by construction.
 FR=.; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ -d "$a" ] && FR="$a"; done
-# (-L too: a pointer whose target is gone is a graph to repair — the refresher does it — not a repository without one)
-if [ -f "$FR/.axiomcode/out/graph.sqlite" ] || [ -L "$FR/.axiomcode/out/graph.sqlite" ]; then
-  case "$cmd" in
-    context|path|impact|graph) python3 "$H/ax_fresh.py" wait "$FR" "${AXIOMCODE_FRESH_WAIT:-10}" || true ;;
-    changed|test-impact|tests) python3 "$H/ax_fresh.py" baseline "$FR" "${AXIOMCODE_BASELINE_WAIT:-30}" || true ;;
-  esac
-fi
 # A REPOSITORY IN SEVERAL LANGUAGES has one graph per language (.axiomcode/lang/<lang> beside the main one): a query
 # asks every one of them (ax_langs.py), so no language's code is left out of an answer. A graph named in
 # AXIOMCODE_GRAPH was chosen by the caller and is asked alone.
 Q=""; [ -d "$FR/.axiomcode/lang" ] && [ -z "${AXIOMCODE_GRAPH:-}" ] && Q="$H/ax_langs.py"
+# (-L too: a pointer whose target is gone is a graph to repair — the refresher does it — not a repository without one)
+if [ -f "$FR/.axiomcode/out/graph.sqlite" ] || [ -L "$FR/.axiomcode/out/graph.sqlite" ]; then
+  case "$cmd" in
+    context|path|impact) exec python3 "$H/ax_fresh.py" query "$FR" "$cmd" -- python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-$cmd" ${ARGS[@]+"${ARGS[@]}"} ;;
+    changed|test-impact|tests) python3 "$H/ax_fresh.py" baseline "$FR" "${AXIOMCODE_BASELINE_WAIT:-30}" || true ;;
+  esac
+fi
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
   context) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
