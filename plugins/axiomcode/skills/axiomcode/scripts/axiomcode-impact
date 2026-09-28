@@ -129,8 +129,11 @@ TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|Fact|Theory|it|test)$')
 # `RFC2616PolicyTestMixin`, `StorageTestMixin`, `TestBase` -- declares real tests, collected
 # through a subclass named Test*. Anchoring the name dropped every one of them.
 TEST_OWNER = re.compile(r'(Test|Spec|ITCase)')
-# a decoration that says the method is a dependency the framework builds, not a test
-NON_TEST_DECOR = re.compile(r'^(Bean|Configuration|Component|Provides|Produces|TestConfiguration)$')
+# a decoration that says the method is a dependency the framework builds, not a test. A pytest `@fixture` is one
+# whatever its name: `def test_image()` under it is built for the tests that request it, never collected (#1531).
+NON_TEST_DECOR = re.compile(r'^(Bean|Configuration|Component|Provides|Produces|TestConfiguration|fixture)$')
+# a file the runner imports for its fixtures and hooks and never collects tests from
+NON_TEST_FILE = re.compile(r'(^|/)conftest\.py$')
 RET_TYPE = re.compile(r'\)\s*:\s*(.+)$')
 # a URL path as a router accepts it: path-absolute (RFC 3986 §3.3) with no whitespace and no quote in it. A path
 # parameter — `{id}`, `<int:id>`, `:id`, `*` — is left exactly as written: its spelling is per framework, and the
@@ -983,6 +986,7 @@ class Impact:
             # pytest function, a module-level `function testX()`), or a type that is a test class.
             if not s['name'].startswith(('test', 'it')): return False
             if any(NON_TEST_DECOR.match(d) for d in decs.get(i, ())): return False
+            if NON_TEST_FILE.search(s.get('file') or ''): return False
             own = (s.get('owner') or '').split('.')[-1]
             if own and not TEST_OWNER.search(own): return False
             # JUnit 3 reads the convention on `public void testX()`. A method that DECLARES a return
@@ -1024,24 +1028,133 @@ class Impact:
         # Three facts, so the JOIN stays a rule: the parameter names a callable takes, the name and path a fixture
         # serves under, and the prefixes a file lies under. A fixture in conftest.py serves its directory subtree
         # (pytest's own rule); any other fixture serves its own file.
+        #
+        # WHERE THE ENGINE RESOLVED THE INJECTION, ITS ANSWER IS THE ONE USED. The Python engine's fixture_injection
+        # edge applies the runner's own resolution: the fixture name the decorator registers (`name=`), the fixtures
+        # a conftest star-imports or a `pytest_plugins` list loads, the nearest conftest winning, and an argument the
+        # test's own parametrize supplies directly requesting nothing. The name join below knows none of that, so
+        # for a file the engine covered it is not written at all: on a Python graph it credited `make_repo`, reached
+        # through a star-imported fixture, to 0 tests, and a directly parametrized `user` to its fixture (#1537, #1529).
         fdir = lambda f: f.rsplit('/', 1)[0] + '/' if '/' in f else ''
+        dtext = collections.defaultdict(list)
+        for r in (g.q("SELECT owner_id, name, text FROM decorations") if g.has('decorations') else []): dtext[r[0]].append((r[1], r[2] or ''))
+        engine_fixtures = g.has('ext_framework_edge')
+        is_py = lambda i: re.search(r'\.pyi?$', (g.sym.get(i) or {}).get('file') or '') is not None
+        inj = []
+        if engine_fixtures:
+            for c0, c1 in g.q("SELECT c0, c1 FROM ext_framework_edge WHERE c2 = 'fixture_injection'"):
+                if c0 in g.sym and c1 in g.sym: inj.append((c0, c1))
+        W('injects', sorted(set(inj)))
         params = []
         for i, sy in g.sym.items():
             if not sy.get('method_id') or sy['kind'] == 'module': continue
+            if engine_fixtures and is_py(i): continue
             sig = sy.get('signature') or ''
             for n in re.findall(r'[A-Za-z_]\w*', sig[sig.find('(') + 1:sig.rfind(')')] if '(' in sig else ''):
                 if n != 'self' and n != 'cls': params.append((i, n))
         W('takes_param', sorted(set(params)))
+        # A fixture pytest INJECTS BY NAME runs for the tests that request it, and for no other test beside it.
+        # The rules that carry a fixture to every test of its file or its class are right for a setUp, a module
+        # setup or an autouse fixture, and wrong for this one: a module-level `@pytest.fixture def cart()` was
+        # credited to every test in its file, requested or not (#1527). Such a fixture reaches tests through
+        # uses_fixture only. An autouse fixture is not in this set: it does run for every test in its scope.
+        FIX_NAME = re.compile(r'\bname\s*=\s*[\'"]([^\'"]+)[\'"]')
+        named = []
+        for i, ds in dtext.items():
+            if i not in g.sym or not is_py(i): continue
+            fd = [t for n, t in ds if (n or '').split('.')[-1] == 'fixture']
+            if fd and not any(re.search(r'autouse\s*=\s*True', t) for t in fd): named.append((i,))
+        W('injected_fixture', sorted(set(named)))
+        # A fixture is ALSO visible where pytest registers the module holding it: a conftest's `from X import *` makes
+        # X's fixtures that conftest's (its directory), and a module named in `pytest_plugins` is loaded for the whole
+        # session (every path). The parameter join reads the engine's resolution; a usefixtures marker names the fixture
+        # as a string and joins here, so without these rows a marker naming a plugin's fixture reached nothing (#1537).
+        import ast
+        pyfiles = sorted({sy.get('file') for sy in g.sym.values() if (sy.get('file') or '').endswith('.py')})
+        def module_file(dotted, base=''):
+            tails = (dotted.replace('.', '/') + '.py', dotted.replace('.', '/') + '/__init__.py')
+            return [f for f in pyfiles if any(f == base + t or (not base and f.endswith('/' + t)) for t in tails)]
+        extra_scope = collections.defaultdict(set)
+        for f in pyfiles:
+            conf = f.rsplit('/', 1)[-1] == 'conftest.py'
+            src = '\n'.join(self.lines(f))
+            if not conf and 'pytest_plugins' not in src: continue
+            if conf and 'import' not in src and 'pytest_plugins' not in src: continue
+            try: tree = ast.parse(src)
+            except (SyntaxError, ValueError): continue
+            for st in tree.body:
+                if conf and isinstance(st, ast.ImportFrom) and any(a.name == '*' for a in st.names):
+                    base = fdir(f)
+                    if st.level:
+                        for _ in range(st.level - 1): base = fdir(base.rstrip('/'))
+                        tgt = module_file(st.module or '', base) if st.module else []
+                    else:
+                        tgt = module_file(st.module or '')
+                    for t in tgt: extra_scope[t].add(fdir(f))
+                tg = st.targets if isinstance(st, ast.Assign) else []
+                if any(isinstance(t, ast.Name) and t.id == 'pytest_plugins' for t in tg):
+                    for c in ast.walk(st.value):
+                        if isinstance(c, ast.Constant) and isinstance(c.value, str):
+                            for t in module_file(c.value): extra_scope[t].add('')
         scope = []; auto = []
-        dtext = collections.defaultdict(list)
-        for r in (g.q("SELECT owner_id, name, text FROM decorations") if g.has('decorations') else []): dtext[r[0]].append((r[1], r[2] or ''))
-        for i in fx:
+        # a pytest fixture outside a test file (a plugin module, a fixtures module a conftest star-imports) is still
+        # one a marker can name: `fx` holds only test-file declarations
+        for i in sorted(set(fx) | {i for (i,) in named} | {i for i, ds in dtext.items() if i in g.sym and is_py(i) and any((n or '').split('.')[-1] == 'fixture' for n, _ in ds)}):
             sy = g.sym.get(i) or {}
             f = sy.get('file') or ''
             if not sy.get('name'): continue
-            scope.append((i, sy['name'], fdir(f) if f.rsplit('/', 1)[-1] == 'conftest.py' else f))
+            # the name a marker or a parameter asks for is the one the decorator registers, when it gives one
+            reg = next((m.group(1) for n, t in dtext.get(i, ()) if (n or '').split('.')[-1] == 'fixture' for m in [FIX_NAME.search(t)] if m), sy['name'])
+            scope.append((i, reg, fdir(f) if f.rsplit('/', 1)[-1] == 'conftest.py' else f))
+            scope.extend((i, reg, p) for p in extra_scope.get(f, ()))
             if any(re.search(r'autouse\s*=\s*True', t) for _, t in dtext.get(i, ())): auto.append((i,))
         W('fixture_scope', sorted(set(scope))); W('autouse_fixture', sorted(set(auto)))
+        # A usefixtures marker that decorates NO declaration: a module's `pytestmark = pytest.mark.usefixtures("x")`
+        # (or a list of marks) applies to every test in that module, and the ini option `usefixtures = x y` (pytest.ini,
+        # tox.ini, setup.cfg, pyproject.toml) to every test under the directory holding that file. Neither is a
+        # decoration, so the marker rule never saw them and the fixture's callees reached no test (#1528). Written as
+        # (path prefix, fixture name): a file for pytestmark, a directory for the ini.
+        mark_scope = set()
+        py_test_files = sorted({(g.sym.get(m) or {}).get('file') or '' for m in tm} - {''})
+        py_test_files = [f for f in py_test_files if f.endswith('.py')]
+        def usefixture_names(node):
+            for c in ast.walk(node):
+                if isinstance(c, ast.Call) and (getattr(c.func, 'attr', None) or getattr(c.func, 'id', None)) == 'usefixtures':
+                    for a in c.args:
+                        if isinstance(a, ast.Constant) and isinstance(a.value, str): yield a.value
+        for f in py_test_files:
+            src = '\n'.join(self.lines(f))
+            if 'pytestmark' not in src: continue
+            try: tree = ast.parse(src)
+            except (SyntaxError, ValueError): continue
+            for st in tree.body:
+                tg = st.targets if isinstance(st, ast.Assign) else [st.target] if isinstance(st, ast.AnnAssign) and st.value else []
+                if any(isinstance(t, ast.Name) and t.id == 'pytestmark' for t in tg):
+                    mark_scope |= {(f, n) for n in usefixture_names(st.value)}
+        dirs = set()
+        for f in py_test_files:
+            parts = f.split('/')[:-1]
+            for k in range(len(parts) + 1): dirs.add('/'.join(parts[:k]))
+        import configparser
+        for d in sorted(dirs):
+            pre = d + '/' if d else ''
+            for name, sect in (('pytest.ini', 'pytest'), ('tox.ini', 'pytest'), ('setup.cfg', 'tool:pytest'), ('pyproject.toml', None)):
+                fp = os.path.join(g.repo, pre + name)
+                if not os.path.isfile(fp): continue
+                val = None
+                try:
+                    if sect:
+                        cp = configparser.RawConfigParser(); cp.read(fp)
+                        if cp.has_option(sect, 'usefixtures'): val = cp.get(sect, 'usefixtures')
+                    else:
+                        t = open(fp, errors='replace').read()
+                        blk = re.search(r'^\[tool\.pytest\.ini_options\]\s*$(.*?)(?=^\[|\Z)', t, re.M | re.S)
+                        mv = blk and re.search(r'^usefixtures\s*=\s*(\[[^\]]*\]|"[^"]*"|\'[^\']*\')', blk.group(1), re.M)
+                        if mv: val = ' '.join(re.findall(r'[\'"]([^\'"]*)[\'"]', mv.group(1)))
+                except (OSError, configparser.Error, UnicodeDecodeError):
+                    val = None
+                if val: mark_scope |= {(pre, n) for n in re.split(r'[\s,]+', val) if re.fullmatch(r'[A-Za-z_]\w*', n)}
+        W('usefixtures_scope', sorted(mark_scope))
         fsc = set()
         for i, sy in g.sym.items():
             f = sy.get('file') or ''

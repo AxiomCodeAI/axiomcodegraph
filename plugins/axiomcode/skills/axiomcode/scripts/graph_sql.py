@@ -562,7 +562,9 @@ def _test_sets(q, lines=None, rel=None):
     tm, fx = set(), set()
     for sid, name, kind, mid, tid in q("SELECT id, name, kind, method_id, type_id FROM symbols WHERE is_test=1"):
         d = dec.get(sid, ())
-        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))):
+        # a pytest fixture named test_* is built for the tests that request it and never collected (#1531)
+        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))) \
+                and not any((x or '').split('.')[-1] == 'fixture' for x in d):
             tm.add(sid)
         if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):
             fx.add(sid)
@@ -2430,6 +2432,10 @@ def _has_framework_hops(q, at=None, site_file=None):
         if _has(q, 'ext_decorated_name_target') and q("SELECT 1 FROM ext_decorated_name_target WHERE c0 <> c1 LIMIT 1"):
             return True
         if _has(q, 'symbols') and q("SELECT 1 FROM symbols WHERE file LIKE '%conftest.py' AND method_id IS NOT NULL LIMIT 1"):
+            return True
+        # a fixture injected by name anywhere, conftest or not: the rules credit it only to the tests that request
+        # it (`injects` / `injected_fixture`), where this port's file-wide rule credits every test in its file (#1527)
+        if _has(q, 'decorations') and q("SELECT 1 FROM decorations WHERE name = 'fixture' AND (file LIKE '%.py' OR file LIKE '%.pyi') LIMIT 1"):
             return True
     except Exception:
         return True

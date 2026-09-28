@@ -1,0 +1,208 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a fixture star-imported into conftest.py is that conftest's fixture, and reaches the tests that request it (#1537)",
+   "run": [
+    "impact",
+    "make_repo",
+    "--tests"
+   ],
+   "want": [
+    "test_svc.py::test_repo"
+   ]
+  },
+  {
+   "why": "a fixture of a module named in pytest_plugins reaches every test that requests it, in any directory (#1537)",
+   "run": [
+    "impact",
+    "make_service",
+    "--tests"
+   ],
+   "want": [
+    "test_svc.py::test_service"
+   ]
+  },
+  {
+   "why": "@pytest.fixture(name=...) is requested by the declared name, and the def name requests nothing (#1539)",
+   "run": [
+    "impact",
+    "make_client",
+    "--tests"
+   ],
+   "want": [
+    "test_svc.py::test_client"
+   ],
+   "avoid": [
+    "test_client_by_def_name"
+   ]
+  },
+  {
+   "why": "a module-level fixture reaches the tests in its file that request it, not every test in the file (#1527)",
+   "run": [
+    "impact",
+    "make_cart",
+    "--tests"
+   ],
+   "want": [
+    "test_forms.py::test_cart"
+   ],
+   "avoid": [
+    "test_unrelated"
+   ]
+  },
+  {
+   "why": "an argument the test parametrizes directly is not a request for the fixture of that name (#1529)",
+   "run": [
+    "impact",
+    "make_user",
+    "--tests"
+   ],
+   "want": [
+    "test_plain_user"
+   ],
+   "avoid": [
+    "test_direct"
+   ]
+  },
+  {
+   "why": "a usefixtures marker on a class reaches the tests the class holds, and not a sibling class's (#1528)",
+   "run": [
+    "impact",
+    "start_server",
+    "--tests"
+   ],
+   "want": [
+    "test_marker.py (1) via server: TestWithServer::test_uses_server"
+   ],
+   "avoid": [
+    "test_no_server"
+   ]
+  },
+  {
+   "why": "a sibling directory's conftest, star import and all, is not visible here",
+   "run": [
+    "impact",
+    "make_widget",
+    "--tests"
+   ],
+   "want": [
+    "test_other.py::test_widget"
+   ],
+   "avoid": [
+    "test_widget_here"
+   ]
+  },
+  {
+   "why": "an argument handed to the fixture with indirect=True still requests it (control for #1529)",
+   "run": [
+    "impact",
+    "make_user",
+    "--tests"
+   ],
+   "want": [
+    "test_indirect"
+   ]
+  },
+  {
+   "why": "a fixture a class declares wins over the module fixture it overrides for that class's tests (#1512)",
+   "run": [
+    "impact",
+    "module_account",
+    "--tests"
+   ],
+   "want": [
+    "TestPlain::test_no_override",
+    "test_accounts.py::test_module_level"
+   ],
+   "avoid": [
+    "test_in_class"
+   ]
+  },
+  {
+   "why": "the class fixture serves its own class's tests only (control for #1512)",
+   "run": [
+    "impact",
+    "class_account",
+    "--tests"
+   ],
+   "want": [
+    "TestOverride::test_in_class"
+   ],
+   "avoid": [
+    "test_no_override",
+    "test_module_level"
+   ]
+  },
+  {
+   "why": "a fixture named test_* is not a test, and conftest.py is never collected (#1531)",
+   "run": [
+    "impact",
+    "load_image",
+    "--tests"
+   ],
+   "want": [
+    "test_images.py::test_size"
+   ],
+   "avoid": [
+    "conftest.py::test_image"
+   ]
+  },
+  {
+   "why": "a module's pytestmark usefixtures reaches the tests of that module only (#1528)",
+   "run": [
+    "impact",
+    "make_clean_dir",
+    "--tests"
+   ],
+   "want": [
+    "test_pytestmark.py::test_module_marker"
+   ],
+   "avoid": [
+    "test_uses_server",
+    "test_repo"
+   ]
+  },
+  {
+   "why": "the ini usefixtures option reaches every test that can see the fixture, and not a sibling directory's (#1528)",
+   "run": [
+    "impact",
+    "load_config",
+    "--tests"
+   ],
+   "want": [
+    "test_pytestmark.py::test_module_marker",
+    "test_svc.py::test_repo"
+   ],
+   "avoid": [
+    "test_other.py::test_widget"
+   ]
+  },
+  {
+   "why": "a pytestmark marker naming a pytest_plugins module's fixture reaches the module's tests (#1528, #1537)",
+   "run": [
+    "impact",
+    "make_service",
+    "--tests"
+   ],
+   "want": [
+    "test_plugin_marker.py::test_marks_plugin_fixture"
+   ]
+  },
+  {
+   "why": "a marker naming a star-imported fixture reaches the tests below that conftest, not a sibling directory's (#1537)",
+   "run": [
+    "impact",
+    "make_widget",
+    "--tests"
+   ],
+   "want": [
+    "test_other.py::test_marks_widget"
+   ],
+   "avoid": [
+    "test_pytestmark.py"
+   ]
+  }
+ ]
+}
