@@ -236,10 +236,17 @@ def value_route_registrations(q, site_file=None):
     for n, f, l in q(f"SELECT name, file, line FROM refs WHERE line > 0 AND entity_kind IN ({ek})", *CALLABLE_EK):
         if n in once:
             ref_at.setdefault((f, l), once[n])
+    routed = _routed_views(q)
+    served = _served_paths(q)
+    names_at = {}
+    if routed:
+        for n, f, l in q("SELECT name, file, line FROM refs WHERE line > 0 AND name IS NOT NULL"):
+            if (f, n) in routed:
+                names_at.setdefault((f, l), set()).update(routed[(f, n)])
     import re
     out = []
     for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
-        if not (isinstance(v, str) and v.startswith('/') and len(v) < 160):
+        if not (isinstance(v, str) and 0 < len(v) < 160):
             continue
         # A RESOURCE IS NOT A ROUTE. Measured on the JVM parser: the pair fired on
         # `connect(url).onResponseProgress(progressListener)` — a path-shaped literal and a handed-over callable on
@@ -249,11 +256,80 @@ def value_route_registrations(q, site_file=None):
         last = v.split('?')[0].split('#')[0].rstrip('/').rsplit('/', 1)[-1]
         if '?' in v or re.search(r'\.[A-Za-z0-9]{1,6}$', last):
             continue
-        d = ref_at.get((f, l))
-        if d:
-            out.append((d, sf(f) if f else '', l or 0, 'route', v,
-                        f'registered at "{v}" here — the framework calls it, no call site does'))
+        # the views the engine's own url_dispatch rule says a route on this line dispatches to (#1483): a view named as
+        # a module attribute (`views.order_list`) is a reference the parser gives no callable entity kind, and a
+        # class-based view is named by its class, not by the handler the framework calls
+        routed_here = names_at.get((f, l), ())
+        if v.startswith('/'):
+            ds, key = ({ref_at[(f, l)]} if (f, l) in ref_at else set()) | set(routed_here), v
+        # A ROUTE TABLE WRITES ITS PATTERN WITHOUT THE LEADING SLASH (#1482): `path("orders/<int:pk>/", view)`
+        # serves `/orders/5/`. Such a string is not path-shaped on its own, since `name="order-list"` sits on the
+        # same line, so it is read only where the engine has already said the line routes to a view, only when it
+        # has a segment separator, and never as a regular expression. A view whose served path the engine wrote on
+        # the edge is keyed by that path below, prefix and all; this is the fallback for one it could not compose.
+        elif routed_here and '/' in v and not re.search(r'[\s^$\\]', v):
+            ds, key = set(routed_here) - set(served), '/' + v
+        else:
+            continue
+        for d in ds:
+            out.append((d, sf(f) if f else '', l or 0, 'route', key,
+                        f'registered at "{key}" here — the framework calls it, no call site does'))
+    # THE PATH THE ROUTE SERVES, AS THE ENGINE COMPOSED IT (#1511): `path("status/", views.api_status)` in a table that
+    # `path("api/v1/", include(api_patterns))` mounts is served at `/api/v1/status/`, which no single line spells. The
+    # registration sits on the line that names the view. A bare `/` is not a key: a table the engine could not see
+    # mounted (`include("app.urls")`) is served under a prefix it does not know, and its empty pattern would join
+    # every request for the site root.
+    for d, keys in served.items():
+        at = sorted(fl for fl, ds in names_at.items() if d in ds)
+        if not at:
+            continue
+        f, l = at[0]
+        for key in keys:
+            if key != '/':
+                out.append((d, sf(f) if f else '', l or 0, 'route', key,
+                            f'registered at "{key}" here — the framework calls it, no call site does'))
     return sorted(set(out))
+
+
+def _served_paths(q):
+    """{declaration: {path}} — the paths the engine's url_dispatch edges say each view is served at."""
+    if not all(_has(q, t) for t in ('ext_framework_edge', 'symbols')):
+        return {}
+    out = {}
+    for d, p in q("""SELECT s.id, e.c3 FROM ext_framework_edge e JOIN symbols s ON s.method_id = e.c1
+                     WHERE e.c2 = 'url_dispatch' AND e.c3 LIKE '/%'"""):
+        out.setdefault(d, set()).add(p)
+    return out
+
+
+def _routed_views(q):
+    """{(route_file, name): {declaration}} — the views the engine dispatches a route table in route_file to.
+
+    Keyed by every name a route entry spells the view with: a function view by its own name, a class-based view's
+    handler by its class or any subclass (`WidgetView.as_view()` dispatches to a `get` WidgetView inherits). A name
+    that means two different views from one route file identifies neither and is dropped.
+    """
+    if not all(_has(q, t) for t in ('ext_framework_edge', 'methods', 'symbols')):
+        return {}
+    rows = q("""SELECT fm.file_path, s.id, t.name, t.owner_type_id FROM ext_framework_edge e
+                JOIN methods fm ON fm.id = e.c0 JOIN methods t ON t.id = e.c1 JOIN symbols s ON s.method_id = e.c1
+                WHERE e.c2 = 'url_dispatch'""")
+    if not rows:
+        return {}
+    tname = {i: n for i, n in q("SELECT id, name FROM types")} if _has(q, 'types') else {}
+    subs = {}
+    if _has(q, 'type_ancestors'):
+        for t, a in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
+            subs.setdefault(a, set()).add(t)
+    by = {}                                              # (file, name) -> {(view identity, declaration)}
+    for f, d, n, owner in rows:
+        if owner:
+            for t in {owner} | subs.get(owner, set()):
+                if t in tname:
+                    by.setdefault((f, tname[t]), set()).add((t, d))
+        else:
+            by.setdefault((f, n), set()).add((d, d))
+    return {k: {d for _i, d in v} for k, v in by.items() if len({i for i, _d in v}) == 1}
 
 
 # ── the two spellings of one path ────────────────────────────────────────────────────────────────────────────
@@ -274,7 +350,32 @@ def route_matches(written, registered):
         return False
     segs = lambda p: p.split('?')[0].split('#')[0].rstrip('/').split('/')
     w, r = segs(written), segs(registered)
-    return len(w) == len(r) and all(a == b or _PATH_PARAM.fullmatch(b) for a, b in zip(w, r))
+    return len(w) == len(r) and all(_segment_matches(a, b) for a, b in zip(w, r))
+
+
+def _segment_matches(written, registered):
+    """One segment: equal, or a parameter that accepts what is written there.
+
+    A TYPED CONVERTER NARROWS WHAT IT ACCEPTS. `<int:pk>` serves `/orders/5/` and never `/orders/new/`: the router
+    tries the next pattern instead, so a test requesting `/orders/new/` does not reach the detail view. A written
+    segment that is itself a placeholder (`{}`, `%s`, `<pk>`) could be any value and still matches.
+    """
+    if written == registered:
+        return True
+    if not _PATH_PARAM.fullmatch(registered):
+        return False
+    if registered.startswith('<int:'):
+        return written.isdigit() or bool(_PATH_PARAM.fullmatch(written)) or '%' in written
+    return True
+
+
+def route_candidates(written, registered_keys):
+    """The registered keys a written URL can be served by. A key registered VERBATIM wins over every pattern with a
+    parameter: `/orders/settings/` is its own route even beside `/orders/<slug>/`, the way a router serves the
+    literal route rather than capturing `settings` as a value."""
+    if written in registered_keys:
+        return [written]
+    return [k for k in registered_keys if route_matches(written, k)]
 
 
 def all_registrations(q, site_file=None):
@@ -312,9 +413,9 @@ def key_edges(q, at, site_file=None, cap=None, use_cap=None):
     capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items() if len(cs) > use_cap}
     out = set()
     for v, callers in writes.items():
-        for key, decls in reg.items():
-            if key in capped or not (v == key or route_matches(v, key)): continue
+        for key in route_candidates(v, reg):
+            if key in capped: continue
             for c in callers:
-                for d in decls:
+                for d in reg[key]:
                     if c != d: out.add((c, d, key))
     return sorted(out)

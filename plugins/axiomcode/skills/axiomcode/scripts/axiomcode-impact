@@ -948,8 +948,8 @@ class Impact:
         # string contains the other, and no call site joins them — the router does, at run time, by matching the
         # path. The segments are matched here because Soufflé cannot split a string; WHAT the match means is a rule.
         # A path parameter is whatever the framework spells it (`{id}` FastAPI, `<int:id>` a Python web framework, `:id` Express),
-        # so a registered segment in any of those forms matches any written segment, and nothing is normalised.
-        PARAM = re.compile(r'\{.*\}|<.*>|:.+|\*.*')
+        # so a registered segment in any of those forms matches a written segment it accepts, and nothing is normalised.
+        # The segment rule and the precedence of a verbatim key are ax_registration's, shared with the SQL port.
         segs = lambda p: p.split('?')[0].split('#')[0].rstrip('/').split('/')
         written = collections.defaultdict(set); regd = collections.defaultdict(set)
         for c, v, f, l in lits:
@@ -959,10 +959,12 @@ class Impact:
         for _d, _k, v in regk:
             if v.startswith('/'): regd[len(segs(v))].add(v)
         alias = set()
+        verbatim = {v for _d, _k, v in regk}
         for n, ws in written.items():                      # bucketed by segment count: a mismatch there is no match
             for w in ws:
+                if w in verbatim: continue                  # a path registered verbatim is served by that route alone
                 for r in regd.get(n, ()):                   # and only a REGISTERED path is ever the right-hand side
-                    if w != r and all(a == b or PARAM.fullmatch(b) for a, b in zip(segs(w), segs(r))): alias.add((w, r))
+                    if w != r and ax_registration.route_matches(w, r): alias.add((w, r))
         W('route_alias', sorted(alias))
         # the BINDING SITE of a configuration key: the one line that connects the key to the code, written as a
         # placeholder inside a decoration (@Value("${app.server.prefix}"), @ConditionalOnProperty(name = "...")).
@@ -1860,7 +1862,10 @@ def main(argv):
             hops += 1
             # a `by key` hop is not in call_edges BY CONSTRUCTION — it is the hop the framework makes and the engine
             # never resolved — so it is verified the same way `dispatch` and `defines` are: the rules asserted it
-            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator') for x, t in parent.get(a, [])): bad += 1
+            # `decorator by name` is the rules' own hop from a decorated def to the decorator it names
+            # (dl/impact.dl fw_edge), asserted exactly as `decorator` is; leaving it out printed "✗ not found" on
+            # every answer whose test route passes through a project decorator
+            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator', 'decorator by name') for x, t in parent.get(a, [])): bad += 1
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:

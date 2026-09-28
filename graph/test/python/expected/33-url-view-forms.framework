@@ -1,0 +1,18 @@
+── framework_edge (13) ──
+  url_dispatch       registered  catalog.urls.<module> (catalog/urls.py) -> catalog.views.catalog_index (catalog/views.py)   [/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.BaseWidgetView.get (shop/views.py)   [/widgets/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.WidgetView.post (shop/views.py)   [/widgets/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.api_status (shop/views.py)   [/api/v1/status/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.api_status (shop/views.py)   [/api/v2/status/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_cancel (shop/views.py)   [/orders/cancel/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_credit_note (shop/views.py)   [/credit/notes/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_export (shop/views.py)   [/orders/more/export/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_history (shop/views.py)   [/orders/history/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_legacy (shop/views.py)   [route_table]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_list (shop/views.py)   [/orders/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_report (shop/views.py)   [/orders/extra/report/]
+  url_dispatch       registered  shop.urls.<module> (shop/urls.py) -> shop.views.order_settings (shop/views.py)   [/orders/settings/]
+── framework_unjoined (0) ──
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──

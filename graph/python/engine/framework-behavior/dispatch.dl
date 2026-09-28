@@ -356,10 +356,12 @@ py_route_entry_call(site, e) :-
 // The VALUE side of `urlpatterns = [...]`. The table name is a STORE target and the
 // entries are its sibling, not its descendant, so the two halves are joined through
 // assign_pair rather than by walking up from the name.
-.decl py_route_table_value(val:symbol)
-py_route_table_value(val) :- assign_pair("client", tgt, val),
+.decl py_route_root_value(val:symbol)
+py_route_root_value(val) :- assign_pair("client", tgt, val),
     expr_binding("client", b, "STORE", tgt),
     binding_decl("client", n, _, _, _, b), py_route_table(n).
+.decl py_route_table_value(val:symbol)
+py_route_table_value(val) :- py_route_root_value(val).
 
 // The entry expression IS that value, or sits transitively under it.
 //
@@ -374,18 +376,117 @@ expr_in_route_table(e) :- py_route_table_value(e).
 expr_in_route_table(e) :- py_route_table_value(val), expr_parent("client", val, _, _, e).
 expr_in_route_table(e) :- expr_in_route_table(p), expr_parent("client", p, _, _, e).
 
+// A LIST HANDED TO include() IS A TABLE TOO (#1511). `urlpatterns = [path("x/",
+// include(extra_patterns))]` mounts every entry of `extra_patterns`, and the list is
+// named through a binding rather than written inline, so the descent above never
+// reaches it. The name is joined to the assignment that binds it; a binding join is
+// same-module, which is where such a helper list lives. `include((extra_patterns,
+// "ns"))` names it one level down, as an element of the tuple.
+.decl py_route_include_name(inc:symbol, e:symbol)
+py_route_include_name(inc, a) :-
+    expr_in_route_table(inc), call_decl("client", _, fn, _, inc, _), py_route_include_fn(fn),
+    call_arg(inc, _, a).
+py_route_include_name(inc, x) :-
+    py_route_include_name(inc, a), expr_parent("client", a, "ELEMENT", _, x).
+// py_route_mount(inc, val): the include() call `inc` mounts the table value `val`, either
+// written inline (`include([path(...)])`) or named through a binding.
+.decl py_route_mount(inc:symbol, val:symbol)
+py_route_mount(inc, a) :-
+    py_route_include_name(inc, a), expr_parent("client", a, "ELEMENT", _, x), expr_in_route_table(x),
+    call_decl("client", _, fn, _, x, _), py_route_entry_fn(fn).
+py_route_mount(inc, val) :-
+    py_route_include_name(inc, a),
+    expr_binding("client", b, ctx, a), ctx != "STORE", binding_lookup("client", b, b2),
+    expr_binding("client", b2, "STORE", tgt), assign_pair("client", tgt, val).
+py_route_table_value(val) :- py_route_mount(_, val).
+
+// THE PATH A ROUTE SERVES (#1482, #1511). A table's entries are served under the prefix of
+// the entry that mounts the table: `path("api/v1/", include(api_patterns))` serves
+// `path("status/", views.api_status)` at `/api/v1/status/`, and a table mounted twice serves
+// its entries at both. A table named like `urlpatterns` is taken as the root, served at
+// `/`; one mounted by a module path string (`include("app.urls")`) is not followed, so
+// its paths are those of the root and can be short of the real prefix. A pattern that is
+// a regular expression is no literal path and stops the chain; a table that mounts
+// itself stops at the length bound instead of growing without end.
+.decl py_route_pattern_text(e:symbol, pat:symbol)
+py_route_pattern_text(e, pat) :-
+    py_route_entry_call(_, e), call_arg(e, "0", a), expr_node("client", "LITERAL", _, pat, a).
+.decl py_route_pattern_is_regex(e:symbol)
+py_route_pattern_is_regex(e) :-
+    py_route_pattern_text(e, pat), py_route_regex_syntax(re), match(re, pat).
+.decl py_route_pattern(e:symbol, pat:symbol)
+py_route_pattern(e, pat) :- py_route_pattern_text(e, pat), !py_route_pattern_is_regex(e).
+.decl py_route_entry_in(val:symbol, e:symbol)
+py_route_entry_in(val, e) :-
+    py_route_table_value(val), expr_parent("client", val, "ELEMENT", _, e), py_route_entry_call(_, e).
+.decl py_route_prefix(val:symbol, p:symbol)
+py_route_prefix(val, "/") :- py_route_root_value(val).
+py_route_prefix(val2, cat(p, pat)) :-
+    py_route_prefix(val, p), strlen(p) < 200,
+    py_route_entry_in(val, i), py_route_pattern(i, pat),
+    call_arg(i, _, inc), py_route_mount(inc, val2).
+.decl py_route_served(site:symbol, path:symbol)
+py_route_served(site, cat(p, pat)) :-
+    py_route_prefix(val, p), py_route_entry_in(val, e), py_route_pattern(e, pat),
+    py_route_entry_call(site, e).
+
+// The view an entry names. A route registers the declaration written under any
+// decorator, not what the decorator returns (#1510): `@login_required def settings`
+// is served at its route, and the name `settings` denoting the decorator's wrapper is
+// a fact about calls through that name, not about which def the route dispatches to.
+// So an argument that names a replaced def yields the def, and only then does the
+// value semantics of expr_denotes_method answer.
+.decl py_route_entry_arg(site:symbol, a:symbol)
+py_route_entry_arg(site, a) :- py_route_entry_call(site, e), call_arg(e, _, a).
+
+.decl py_route_arg_names_replaced(a:symbol, m:symbol)
+py_route_arg_names_replaced(a, m) :-
+    py_route_entry_arg(_, a), expr_attr_names_method("client", a, m), method_target_replaced("client", m).
+py_route_arg_names_replaced(a, m) :-
+    py_route_entry_arg(_, a),
+    expr_binding("client", b, ctx, a), ctx != "STORE", binding_lookup("client", b, b2),
+    binding_binds_replaced_method("client", b2, m).
+py_route_arg_names_replaced(a, m) :-
+    py_route_entry_arg(_, a),
+    expr_binding("client", b, ctx, a), ctx != "STORE", binding_lookup("client", b, b2),
+    import_binds_method("client", b2, m), method_target_replaced("client", m).
+
+.decl py_route_view(site:symbol, m:symbol)
+py_route_view(site, m) :- py_route_entry_arg(site, a), py_route_arg_names_replaced(a, m).
+py_route_view(site, m) :-
+    py_route_entry_arg(site, a), !py_route_arg_names_replaced(a, _),
+    expr_denotes_method("client", a, m), m != "".
+// A CLASS-BASED VIEW (#1513). `views.OrderView.as_view()` is a call into the framework,
+// which returns a function that dispatches on the request method to the handler of
+// that name. The class is the receiver of the call; the handlers are its methods named
+// for an HTTP verb, looked up through the MRO so a handler inherited from a project
+// base class counts. Only client methods: a handler the framework's own base defines
+// is not a change anyone here makes.
+py_route_view(site, m) :-
+    py_route_entry_arg(site, a), call_decl("client", _, fn, _, a, _), py_class_view_entry_fn(fn),
+    call_receiver_object(a, obj),
+    ( expr_names_type("client", obj, t) ; expr_attr_names_type("client", obj, t) ),
+    py_view_handler_name(n), mro_lookup("client", t, n, m),
+    method_decl("client", _, _, _, _, m).
+
 // The view is whichever argument of the entry DENOTES a def. A route entry takes the
 // pattern as a string and the view as a reference, so the string arguments simply do
 // not denote a method and drop out without a position rule.
-.decl py_url_dispatch(from:symbol, to:symbol)
-py_url_dispatch(from, to) :-
-    py_route_entry_call(site, e), call_arg(e, _, a),
-    expr_denotes_method("client", a, to), to != "",
+.decl py_url_dispatch_site(site:symbol, from:symbol, to:symbol)
+py_url_dispatch_site(site, from, to) :-
+    py_route_view(site, to),
     call_context("client", _, from, _, _, site), from != "".
+.decl py_url_dispatch(from:symbol, to:symbol)
+py_url_dispatch(from, to) :- py_url_dispatch_site(_, from, to).
 
 entry_point(m, "url") :- py_url_dispatch(_, m).
+// The edge carries the path the route serves where the table says it, so "what does this
+// URL run" and "where is this view routed" read the answer off the edge. A route whose
+// path is not written as a literal keeps the generic label.
+framework_edge(from, to, "url_dispatch", path, "registered") :-
+    py_url_dispatch_site(site, from, to), py_route_served(site, path).
 framework_edge(from, to, "url_dispatch", "route_table", "registered") :-
-    py_url_dispatch(from, to).
+    py_url_dispatch_site(site, from, to), !py_route_served(site, _).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. SIGNAL DISPATCH  (publisher -> receiver)
