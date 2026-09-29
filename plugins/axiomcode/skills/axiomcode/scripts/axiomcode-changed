@@ -9,7 +9,8 @@ the graph knows at that line, and the change is classified — the same way in e
 
     signature   a method's header changed: parameters added / removed / renamed / retyped, the return type, type parameters
     body        only lines inside a method's body changed
-    field       a field's declared type, name or initializer changed
+    field       a field's declared type, name or initializer changed (`variable` for a name a script's top-level code assigns);
+                on a line of several statements or declarations, only the one whose own statement changed
     type        a type's header changed (its name, what it extends or implements, its type parameters)
     removed     a declaration the new text no longer has
     added       lines the old text did not have, outside any changed declaration (a new method, a new field): nothing
@@ -390,13 +391,134 @@ class Changed:
         m = re.match(r'^(?:self\.)?([A-Za-z_$][\w$]*)\s*=', t)
         if m: return '', m.group(1)
         return '', ''
+    @staticmethod
+    def statements(blank, text, is_py):
+        """A LINE CAN HOLD SEVERAL STATEMENTS, and each is compared on its own. `blank` is the line with strings and
+        comments blanked, `text` the same line with only comments blanked (the two are aligned character for character).
+        Split at each `;` outside brackets; in Java and C# a field declaration with several declarators (`int a = 1, b = 2`)
+        is one statement per declarator, each spelled with the shared type (`int b = 2`). Read as one line, the whole line
+        was taken for its first statement: an edit to `rc = ...` in `con = ...; rc = ...` came back as "field rc renamed -> con"."""
+        cuts, depth, s = [], 0, 0
+        for x, ch in enumerate(blank):
+            if ch in '([{': depth += 1
+            elif ch in ')]}': depth = max(0, depth - 1)
+            elif ch == ';' and depth == 0: cuts.append((s, x)); s = x + 1
+            # a Python compound header with its body on the same line (`with open(p) as f: f.write(t)`): two statements
+            elif is_py and ch == ':' and depth == 0 and not cuts and re.match(r'\s*(async\s+)?(with|for|while|if|elif|else|try|except|finally)\b', blank) \
+                    and blank[x + 1:].strip(): cuts.append((s, x + 1)); s = x + 1
+        cuts.append((s, len(blank)))
+        out = []
+        for a, b in cuts:
+            if not text[a:b].strip(): continue
+            out.extend(Changed.unpack(blank[a:b], text[a:b]) if is_py else Changed.declarators(blank[a:b], text[a:b]))
+        return out
+    @staticmethod
+    def targets(stmt):
+        """the names a Python assignment binds when it binds several (`a, self.b = ...` -> [a, b]); [] otherwise"""
+        m = re.match(r'^\s*\(?\s*((?:\*?(?:self\.|cls\.)?[A-Za-z_]\w*\s*,\s*)+\*?(?:self\.|cls\.)?[A-Za-z_]\w*)\s*,?\s*\)?\s*=(?!=)', stmt) or \
+            re.match(r'^\s*(?:async\s+)?for\s+\(?\s*((?:(?:self\.|cls\.)?[A-Za-z_]\w*\s*,\s*)*(?:self\.|cls\.)?[A-Za-z_]\w*)\s*,?\s*\)?\s+in\s', stmt) or \
+            re.match(r'^\s*(?:async\s+)?(?:with|except)\b.*\bas\s+\(?\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*\)?\s*:?\s*$', stmt)
+        return [re.sub(r'^\*?(self\.|cls\.)?', '', x.strip()) for x in m.group(1).split(',')] if m else []
+    @staticmethod
+    def bound_value(stmt):
+        """what a Python assignment or `for` binds its names to: the text after `=`, or after `in`"""
+        m = re.match(r'^\s*(?:async\s+)?for\s.+?\sin\s(.*)$', stmt) or re.match(r'^\s*(?:async\s+)?(?:with|except)\b(.*)\bas\s', stmt) or re.match(r'^[^=]*?(?<![=!<>])=(?!=)(.*)$', stmt)
+        return re.sub(r'\s', '', m.group(1)) if m else None
+    @staticmethod
+    def unpack(blank, text):
+        """`a, b = x, y` -> [`a = x`, `b = y`]: each name with its own value, when the two sides pair up one to one. An
+        unpacking (`a, b = f()`) stays one statement, and binds both names"""
+        st = text.strip(); lead = len(text) - len(text.lstrip()); bl = blank[lead:lead + len(st)]
+        ts = Changed.targets(st); m = re.search(r'(?<![=!<>])=(?![=])', bl)
+        if len(ts) < 2 or not m: return [st] if st else []
+        vals, depth, s = [], 0, m.end()
+        for x in range(m.end(), len(bl)):
+            ch = bl[x]
+            if ch in '([{': depth += 1
+            elif ch in ')]}': depth = max(0, depth - 1)
+            elif ch == ',' and depth == 0: vals.append(st[s:x].strip()); s = x + 1
+        if st[s:].strip(): vals.append(st[s:].strip())
+        lhs = [x.strip() for x in st[:m.start()].strip().strip('()').split(',') if x.strip()]
+        if len(vals) != len(lhs) or any(v.startswith('*') for v in vals + lhs): return [st]
+        return [f"{a} = {v}" for a, v in zip(lhs, vals)]
+    @staticmethod
+    def declarators(blank, text):
+        """`private int a = 1, b = 2` -> [`private int a = 1`, `private int b = 2`]; any other statement is itself"""
+        st = text.strip(); lead = len(text) - len(text.lstrip()); bl = blank[lead:lead + len(st)]
+        head = re.split(r'(?<![=!<>])=(?![=>])', bl, maxsplit=1)[0]
+        if '(' in head or ',' not in bl: return [st]
+        # the first declarator ends at the first comma outside brackets (and outside `<...>` in the type)
+        cut, depth, angle = None, 0, 0
+        for x, ch in enumerate(bl):
+            if ch in '([{': depth += 1
+            elif ch in ')]}': depth = max(0, depth - 1)
+            elif ch == '<' and x < len(head): angle += 1
+            elif ch == '>' and x < len(head): angle = max(0, angle - 1)
+            elif ch == ',' and depth == 0 and angle == 0: cut = x; break
+        if cut is None: return [st]
+        ty, nm = Changed.field_parts(st[:cut])
+        if not ty or not nm: return [st]
+        m = re.match(rf'^(.*?\S)\s+{re.escape(nm)}\s*(?==|,|\[|$)', st)
+        if not m: return [st]
+        prefix, s0 = m.group(1) + ' ', len(m.group(1)) + 1
+        while s0 < len(st) and st[s0].isspace(): s0 += 1
+        segs, depth, s = [], 0, s0
+        for x in range(s0, len(bl)):
+            ch = bl[x]
+            if ch in '([{': depth += 1
+            elif ch in ')]}': depth = max(0, depth - 1)
+            elif ch == ',' and depth == 0: segs.append((s, x)); s = x + 1
+        segs.append((s, len(bl)))
+        out = []
+        for a, b in segs:
+            seg = st[a:b].strip()
+            # what follows a comma is a declarator only when it starts with a name (`b = 2`, `b`): the comma inside
+            # `new HashMap<String, Integer>()` is not one, and that piece belongs to the declarator before it
+            if out and not re.match(r'^[A-Za-z_$][\w$]*\s*(=(?![=>])|\[|$)', seg): out[-1] += ', ' + seg; continue
+            out.append(seg)
+        return [st] if len(out) < 2 else [prefix + x for x in out]
+    def statement_fields(self, fs, ob, ok, nb, nk, j, is_py):
+        """`fs` are the fields the graph declares on one old line; `ob`/`ok` that line (strings and comments blanked /
+        comments blanked), `nb`/`nk` the new line it became (j; empty when it was deleted). Returns the fields whose OWN
+        statement changed, each with (old statement, new statement or None, j), and whether a statement that declares
+        none of them changed as well. None when neither line holds more than one statement (the line is compared whole)
+        or a field's own statement cannot be told apart on it."""
+        os_ = self.statements(ob, ok, is_py); ns_ = self.statements(nb, nk, is_py) if j else []
+        if len(os_) < 2 and len(ns_) < 2 and len(fs) < 2: return None
+        norm = lambda s: re.sub(r'\s', '', s)
+        on, nn = [norm(x) for x in os_], [norm(x) for x in ns_]
+        decl_of = lambda s, n, k: self.field_parts(s)[1] == n or self.declares(s, n, k, is_py) or (is_py and n in self.targets(s))
+        own = {}
+        for x in fs:
+            q = next((q for q, s in enumerate(os_) if decl_of(s, x[5], x[3])), None)
+            if q is None: return None
+            own[x] = q
+        pos = {}
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, on, nn, autojunk=False).get_opcodes():
+            for q in range(i1, i2): pos[q] = (j1 + q - i1) if tag in ('equal', 'replace') and j1 + q - i1 < j2 else None
+        touched, paired = [], set()
+        for x, q in own.items():
+            if on[q] in nn: paired.add(nn.index(on[q])); continue                                   # its statement is unchanged (maybe moved along the line)
+            p = next((p for p, s in enumerate(ns_) if decl_of(s, x[5], x[3])), None)
+            if p is None: p = pos.get(q)
+            if p is not None: paired.add(p)
+            # one name of `a, b = f()` or `for a, b in ...`: untouched while its place and what it is bound to are the same
+            ots = self.targets(os_[q]) if is_py else []
+            if ots and p is not None and x[5] in ots:
+                nts = self.targets(ns_[p])
+                if len(nts) == len(ots) and nts[ots.index(x[5])] == x[5] and self.bound_value(os_[q]) == self.bound_value(ns_[p]): continue
+            touched.append((x, (os_[q], ns_[p] if p is not None else None, j)))
+        mine = set(own.values())
+        others = any(on[q] not in nn for q in range(len(os_)) if q not in mine) or \
+                 any(nn[p] not in on and p not in paired and not self.field_parts(ns_[p])[1] for p in range(len(ns_)))
+        return touched, others
 
     # ── one file: the declarations touched and how ────────────────────────────────────────────────────────────
     def file_changes(self, rel, old, new):
         OL, NL = old.split('\n'), new.split('\n')
         is_py = rel.endswith(('.py', '.pyi')) or bool(re.match(r'#![^\n]*\bpython[0-9.]*\b', new or old))   # a shebang script too (#1376)
         sm = difflib.SequenceMatcher(None, OL, NL, autojunk=False)
-        old_changed = set(); new_of = {}; added = []; removed_lines = set(); replaced = []; comment_only = set()
+        old_changed = set(); new_of = {}; added = []; removed_lines = set(); replaced = []; comment_only = set(); rep_of = {}
         # a blank line, a comment line, a brace on its own: not a change to a declaration
         TRIPLE = ('"' * 3, "'" * 3)
         noise = lambda t: not t.strip() or t.strip().startswith(('//', '*', '/*', '#') + TRIPLE) or t.strip() in ('{', '}', '};', ')', ');')
@@ -414,6 +536,7 @@ class Changed:
             elif tag == 'replace':
                 old_changed |= {i + 1 for i in range(i1, i2) if not noise(OL[i])} or ({i1 + 1} if any(not noise(NL[j]) for j in range(j1, j2)) else set())
                 new_of.update({i1 + 1: j1 + 1}); replaced.append((i1, j1 + 1, j2))                      # the new side may declare something new too
+                for x in range(i1, i2): rep_of[x + 1] = (j1 + 1, j2)
             elif tag == 'delete':
                 got = {i + 1 for i in range(i1, i2) if not noise(OL[i])}; old_changed |= got; removed_lines |= got
             elif tag == 'insert':
@@ -475,7 +598,15 @@ class Changed:
             for a, b, i, k, d, n in decls:
                 if ln < a <= ln + 3 and all(not L[x - 1].strip() or L[x - 1].strip().startswith('@') for x in range(ln + 1, a)): return (a, b, i, k, d, n)
             return None
-        decorated = {}
+        decorated = {}; stmt_pair = {}
+        OK = strip_code(old, strings=False, hash_comments=is_py).split('\n'); NK = strip_code(new, strings=False, hash_comments=is_py).split('\n')
+        def counterpart(ln):
+            """the new line an old changed line became: the most similar line of its replaced block; None when deleted"""
+            if ln in removed_lines: return None
+            if ln in rep_of:
+                j1, j2 = rep_of[ln]; o = re.sub(r'\s', '', OK[ln - 1])
+                return max(range(j1, j2 + 1), key=lambda j: (difflib.SequenceMatcher(None, o, re.sub(r'\s', '', NK[j - 1]), autojunk=False).ratio(), -abs(j - j1)))
+            return new_of.get(ln)
         for ln in sorted(old_changed):
             if OL[ln - 1].strip().startswith('@') and not narrowest(ln, {'method', 'function', 'constructor', 'module'}):
                 dd = decl_after(ln, OL)
@@ -486,9 +617,20 @@ class Changed:
                 if dd: decorated.setdefault(dd, []).extend(NL[j - 1].strip().split('(')[0] for j in range(j1, j2 + 1) if NL[j - 1].strip()); added.remove((after, j1, j2))
         for ln in sorted(old_changed):
             if OL[ln - 1].strip().startswith('@') and any(ln in range(1, dd[0]) for dd in decorated): continue
-            f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')), None)
+            fs = [(a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')]
+            f = fs[0] if fs else None
+            # SEVERAL STATEMENTS ON ONE LINE are matched one by one: only a field whose own statement changed is charged
+            # with the edit, and each is compared with its own counterpart (stmt_pair). A line of which no field's
+            # statement changed is the enclosing callable's (or the type's) like any other line
+            j = counterpart(ln) if fs else None
+            per = self.statement_fields(fs, OS[ln - 1], OK[ln - 1], NS[j - 1] if j else '', NK[j - 1] if j else '', j, is_py) if fs else None
+            if per is not None:
+                touched, others = per
+                for x, pair in touched: hits.setdefault(('field', x), set()).add(ln); stmt_pair[x[2]] = pair
+                if not others: continue                                                             # a new declaration on the line is read below, as added
+                f = None
             # a lambda's lines inside a field's initializer are the field's
-            if not f: f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if k in ('field', 'const', 'enum_member', 'variable') and a < ln
+            elif not f: f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if k in ('field', 'const', 'enum_member', 'variable') and a < ln
                                 and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None)
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
             t = narrowest(ln, {'class', 'interface', 'enum', 'type', 'namespace'})
@@ -629,8 +771,28 @@ class Changed:
             elif kind == 'field':
                 ot, on_ = self.field_parts(OL[a - 1]); na = new_of.get(a)
                 nline = ''
-                for s in range(max(1, (na or a) - 2), min(len(NL), (na or a) + 3) + 1):
-                    if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]): nline = NL[s - 1]; break
+                if i in stmt_pair:
+                    # one of several statements on its line: its own statement, and the one it became
+                    ost, nst, jn = stmt_pair[i]
+                    ot, on_ = self.field_parts(ost); nline = nst or ''; na = jn or na
+                    if is_py and n in self.targets(ost) and nst:
+                        # one name of an unpacking (`a, b = f()`): renamed when the name at its place is another
+                        ots, nts = self.targets(ost), self.targets(nst)
+                        if len(ots) == len(nts) and nts[ots.index(n)] != n: nline = f"{nts[ots.index(n)]} = _"
+                        elif n in nts: nline = f"{n} = _"
+                    # not on the line it was paired with: its statement on a line nearby (a joined line split in two).
+                    # Word for word there, it moved and did not change; otherwise that statement is what it became
+                    if not nst:
+                        near = [x for s in range(max(1, (na or a) - 3), min(len(NL), (na or a) + 3) + 1) for x in self.statements(NS[s - 1], NK[s - 1], is_py)
+                                if self.field_parts(x)[1] == n or self.declares(x, n, k, is_py)]
+                        if any(re.sub(r'\s', '', x) == re.sub(r'\s', '', ost) for x in near): continue
+                        if near: nst = nline = near[0]
+                    if not nst and not still_declared(n, k, na or a):
+                        if not any(e['kind'] == 'removed' and e['id'] == i for e in out): entry.update(kind='removed', target=self.target(kind, d, k, n)); out.append(entry)
+                        continue
+                else:
+                    for s in range(max(1, (na or a) - 2), min(len(NL), (na or a) + 3) + 1):
+                        if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]): nline = NL[s - 1]; break
                 nt, nn_ = self.field_parts(nline) if nline else ('', '')
                 if not nline:
                     # not within a few lines of where it was: looked for in the whole new text before it is called gone
@@ -649,6 +811,9 @@ class Changed:
             else: entry['target'] = None
             if i in unsure and entry['kind'] in ('signature', 'field', 'type') and not str(entry.get('detail', '')).startswith('may have changed'):
                 entry['detail'] = 'may have changed (placed by name: the graph is from an older text of this file): ' + str(entry.get('detail') or '')
+            # A VARIABLE IS NOT A FIELD. The graph records a name assigned in a script's top-level code (under `if`,
+            # `for`, `with`) as a `variable`; it was printed "field rc", as if some type owned it
+            if entry['kind'] == 'field' and k == 'variable': entry['label'] = 'variable'
             out.append(entry)
         # A COMMENT-ONLY EDIT is the declaration's own: a field whose line it is, else the narrowest callable or type that
         # holds it. Never a signature, never nothing; a comment in a module's top level belongs to no declaration
@@ -726,8 +891,12 @@ class Changed:
                     re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*$', st)))
                 if m and not re.match(r'^(if|for|while|switch|catch|synchronized|return|new|super|this|else)$', m.group(1)) and '=' not in st.split('(')[0]:
                     names.append((m.group(1), 'method', j)); hdrs[m.group(1)] = ' '.join(x.strip() for x in NL[j - 1:self.header_end(NL, j)]); continue
-                ty, nm = self.field_parts(st)
-                if nm and ty and st.endswith(';') and '(' not in st.split('=')[0]: names.append((nm, 'field', j))
+                # each declaration on the line: `int a = 1; int b = 2;` and `int a = 1, b = 2;` declare two fields
+                for s2 in ([st] if py or not st.endswith(';') else self.statements(SL[j - 1], NK[j - 1], False)):
+                    s2 = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', s2)
+                    if py and self.targets(s2): continue                                                  # `a, b = ...` is not `<type a,> b`
+                    ty, nm = self.field_parts(s2)
+                    if nm and ty and '(' not in s2.split('=')[0] and not any(x[0] == nm for x in names): names.append((nm, 'field', j))
             # a declaration the old file already has — same owner, same name, same arity — is not new (an added OVERLOAD is)
             def types_of(hdr):
                 """the parameter types of a header, as simple names: `List<String> xs, int n` → [List, int]; a signature without names too"""
@@ -783,6 +952,10 @@ class Changed:
         # An added OVERLOAD keeps its row: the old declaration is untouched there, so no signature row names it.
         sigged = {(e['file'], e['symbol']) for e in out if e['kind'] in ('signature', 'field', 'type')}
         out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in sigged)]
+        # a field renamed on its line is that field's change, not also a new field of the new name
+        renamed = {(e['file'], e['symbol'].rsplit('.', 1)[0] + '.' + str(e.get('detail'))[len('renamed → '):] if '.' in e['symbol'] else str(e.get('detail'))[len('renamed → '):])
+                   for e in out if e['kind'] == 'field' and str(e.get('detail', '')).startswith('renamed → ')}
+        out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in renamed)]
         if overrun_note: adds.append(overrun_note)
         # THE TARGET NAMES THIS DECLARATION, NOT EVERY DECLARATION OF ITS NAME. `symbol` stays the short display; the
         # target impact is asked is where the declaration is (at_line), and `shown_target` keeps its name for reading.
@@ -1048,7 +1221,7 @@ def main(argv):
     for e in shown:
         tail = (f"   → impact {e['target']}" if e.get('target') else
                 ('' if e.get('new_file') else '   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else ''))
-        print(f"  {e['kind']:<10} {e['symbol']}" + ('' if e.get('new_file') else f"   {e['file']}:{e['line']}") + (f"   — {e['detail']}" if e.get('detail') else '') + tail)
+        print(f"  {e.get('label') or e['kind']:<10} {e['symbol']}" + ('' if e.get('new_file') else f"   {e['file']}:{e['line']}") + (f"   — {e['detail']}" if e.get('detail') else '') + tail)
     by_file = {}
     for e in named: by_file.setdefault(e['file'], []).append(e)
     for f, es in by_file.items():

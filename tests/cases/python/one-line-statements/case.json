@@ -1,0 +1,172 @@
+{
+ "lang": "python",
+ "src": "src",
+ "checks": [
+  {
+   "why": "only the right-hand side of `rc` changed in a line of four `;`-joined statements: `rc` is reported, as a variable (it is assigned in script code, no type owns it), with its initializer changed; it was 'field rc renamed -> con', the line's first statement",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_rc.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "variable   rc",
+    "initializer"
+   ],
+   "avoid": [
+    "renamed",
+    "field      rc",
+    "   con   ",
+    "   dr   "
+   ]
+  },
+  {
+   "why": "control: `rc` really renamed in the same line is still a rename, to the name its own statement now has",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_rx.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "variable   rc",
+    "renamed → rx"
+   ],
+   "avoid": [
+    "renamed → con",
+    "   dr   "
+   ]
+  },
+  {
+   "why": "a class attribute's initializer edited in `size = 1; label = \"b\"`: the edit is `label`'s, not the line's first attribute `size`",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_label.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "field      Box.label",
+    "initializer"
+   ],
+   "avoid": [
+    "Box.size"
+   ]
+  },
+  {
+   "why": "control: the class attribute renamed on that line is still a field rename",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_tag.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "field      Box.label",
+    "renamed → tag"
+   ],
+   "avoid": [
+    "Box.size"
+   ]
+  },
+  {
+   "why": "`self.a = 1; self.b = 2`: an edit to `self.b` is `Box.b`, not `Box.a`",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_self_b.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "field      Box.b"
+   ],
+   "avoid": [
+    "Box.a"
+   ]
+  },
+  {
+   "why": "the same joined line inside a method holds locals: the method's body changed, and no field or variable is named",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_local.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "body       Box.run"
+   ],
+   "avoid": [
+    "  field      ",
+    "  variable   "
+   ]
+  },
+  {
+   "why": "`j = {}; lo, hi = 0, 10`: a tuple assignment pairs each name with its value; only `hi`'s value changed, so `hi` alone is reported",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_hi.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "variable   hi",
+    "initializer"
+   ],
+   "avoid": [
+    "variable   lo",
+    "variable   j",
+    "renamed"
+   ]
+  },
+  {
+   "why": "control: `hi` renamed in the tuple is still a rename of `hi`, not a change to `lo`",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/app.py",
+    "--new",
+    "{repo}/new_top.py",
+    "--file",
+    "src/app.py"
+   ],
+   "want": [
+    "variable   hi",
+    "renamed → top"
+   ],
+   "avoid": [
+    "variable   lo",
+    "variable   j"
+   ]
+  }
+ ]
+}

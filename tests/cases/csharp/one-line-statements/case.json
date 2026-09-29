@@ -1,0 +1,86 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "the second of two field declarations on one line changed its initializer: that field, `count`, not the line's first",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/Box.cs",
+    "--new",
+    "{repo}/new_count.cs",
+    "--file",
+    "src/Box.cs"
+   ],
+   "want": [
+    "field      Box.count",
+    "initializer"
+   ],
+   "avoid": [
+    "renamed",
+    "Box.label"
+   ]
+  },
+  {
+   "why": "`const int Limit = 3; const string Name = \"x\";`: an edit to `Name` is `Name`, not `Limit`",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/Box.cs",
+    "--new",
+    "{repo}/new_name.cs",
+    "--file",
+    "src/Box.cs"
+   ],
+   "want": [
+    "field      Box.Name",
+    "initializer"
+   ],
+   "avoid": [
+    "Box.Limit"
+   ]
+  },
+  {
+   "why": "control: the second declarator of `int size = 1, weight = 2;` renamed is still a field rename",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/Box.cs",
+    "--new",
+    "{repo}/new_heft.cs",
+    "--file",
+    "src/Box.cs"
+   ],
+   "want": [
+    "field      Box.weight",
+    "renamed → heft"
+   ],
+   "avoid": [
+    "Box.size"
+   ]
+  },
+  {
+   "why": "several local declarations on one line of a method: the method's body changed, no field is named",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/Box.cs",
+    "--new",
+    "{repo}/new_local.cs",
+    "--file",
+    "src/Box.cs"
+   ],
+   "want": [
+    "body       Box.Run"
+   ],
+   "avoid": [
+    "  field      "
+   ]
+  }
+ ]
+}
