@@ -11,7 +11,7 @@ are in your tool list; otherwise run `<this dir>/../../plugins/axiomcode/skills/
 verified output. `<repo>` defaults to the current directory. In Claude Code, a hook adds the graph's edges to your own
 Read / Grep results as `graph: …` lines.
 
-**Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
+**Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` / `[approx]` rows are leads, not facts.
 
 **A list of sites comes the way grep prints it.** The MCP `impact`, `path`, `test_impact` and `context` (without
 `source` / `explain` / `from_`) answer one site per line: `path:line: <the code on that line>  [resolved · hop 2 · test …]`,
@@ -75,6 +75,7 @@ An answer's label is the **worst** rung on its route. Read it before acting on t
 | `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
 | `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
 | `[alongside]` | declared in the same type or file — no call, no reference; its own section (`alongside` in `--json`), never a dependent |
+| `[approx]` | a text match placed in the declaration that holds it (a message it raises, a table in its query, a script or file it runs or reads, through a constant one step), with that declaration's callers; comments, docstrings and tests are never placed. For a name no graph declares and a file no graph reads (`.sh`, `.sql`, templates, config): `impact build.sh`, `context "which code raises 'x'"` |
 
 Below `[sound]` / `[one of a set]` the order is a tie-break, not a measured ranking. `[sound]` means the edges
 connect, not that a test exercises the change.
@@ -87,13 +88,13 @@ does not restrict. Detail: `reference/context.md`.
 
 ## impact — what a change to a declaration reaches
 
-`axiomcode impact <target>… [--depth N] [--in <path>] [--delete]`. Targets as written in the code:
+`axiomcode impact <target>… [--depth N] [--in <path>] [--delete] [--why]`. Targets as written in the code:
 `Owner.method`, `Owner.field`, `Type`, `Owner.method(param)`, `Type<T>`, `Owner.method:local`, a config key, or
 `file.ts:123` — the declaration at that line. Separators are interchangeable in every language: `util.square`,
 `src.util.square` and `src/util#square` are one name. **When you know where the declaration is, target it by `file:line`**: a
 bare name answers for EVERY declaration of that name, and two unrelated functions in different files come back as one.
 Sections: **must change with it** · **produces or writes it** · **reads or uses it** (by rung) · **reaches those**
-(transitively: what can reach a user, not where the value goes) · tests, counted by rung with the strong ones named · `verified:` · `bound:`. For the full test list ask second: `--tests-only` (grouped by rung and file), `--why` for routes, `--tests-in <file>` to narrow. A long answer comes in pages of ~2000 tokens with the whole answer's counts on every page; `--page 2` (MCP `page=2`) continues with the rows page 1 did not print, and says so when there is no page 2; `--page all` (MCP `page="all"`) prints every row. Ask for it only when page 1's strongest rows are not enough. It finds config
+(transitively: what can reach a user, not where the value goes) · tests, counted by rung with the strong ones named · `verified:` · `bound:`. For the full test list ask second: `--tests-only` (grouped by rung and file), `--why` for routes, `--tests-in <file>` to narrow. `--why` (MCP `why=True`) also prints, under each `change:` line, how the target name was resolved: the lookup step that matched (exact declaration, qualified suffix, simple name, field, type used by name, ...), the declarations it weighed with file:line, and why that one won or why the name matched nothing. A long answer comes in pages of ~2000 tokens with the whole answer's counts on every page; `--page 2` (MCP `page=2`) continues with the rows page 1 did not print, and says so when there is no page 2; `--page all` (MCP `page="all"`) prints every row. Ask for it only when page 1's strongest rows are not enough. It finds config
 keys, injected beans and handlers registered as values — none has a call site. Detail: `reference/impact.md`.
 
 ## changed · test-impact — from an edit
@@ -107,9 +108,11 @@ and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 
 ## path — asking the graph
 
-`axiomcode path <from> <to> [--every] [--in <path>]`: one shortest verified chain per target, or why there is none
+`axiomcode path <from> <to> [--every] [--in <path>] [--why]`: one shortest verified chain per target, or why there is none
 (with the unresolved sites that might connect them). Endpoints as written: `Owner.method`, `Type`, `file.ts:123`,
-`'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. Detail: `reference/path.md`.
+`'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. When an endpoint came out as something you did not mean, `--why` (MCP `path`:
+`why=True`) adds after the endpoint line how each name was resolved: the step that matched, up to five candidates with
+file:line, and why that one won or why the name fell to "nothing named". Detail: `reference/path.md`.
 
 ## diff: two graphs of the same tree
 

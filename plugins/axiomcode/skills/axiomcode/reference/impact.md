@@ -176,7 +176,9 @@ line and names the constructor query to run; take that suggestion before acting 
   file, with the entry points among the reached callables *and* the direct dependents (a `@PostMapping` handler that reads the
   field is where the change is observed from, though nothing resolved calls it). The tests are always counted by rung, with
   the strong-route ones (`[sound]`, `[one of a set]`) named and the top test files; `--tests` lists every one by rung and test
-  file, `--tests-only` prints only that, `--why` adds each test's shortest chain to the change, and `--tests-in <path>` narrows
+  file, `--tests-only` prints only that, `--why` adds each test's shortest chain to the change (and, under each `change:` line, how the target name was resolved:
+  the lookup step, the declarations weighed with file:line, and why that one won or why nothing matched; `--json` gains a
+  `why` list), and `--tests-in <path>` narrows
   the listing (not the closure) to test files containing it. Listing all of them with their chains by default was 169k
   characters for a hub method — 435 tests, 433 of them on weak routes (#1194). `--json` carries the full list. A test counts when
   its own body reaches the change **or a fixture its framework runs before or after it does** (a constructor, a static
