@@ -91,10 +91,33 @@ call_has_spread(ce) :- call_site("client", _, _, _, _, ce, cs),
 // target, so its count is unknown in the same sense a spread's is: arity stands down.
 call_has_spread(ce) :- bare_decorator_call(ce).
 
+// ── sbca_site_rejects(CallExpr, Callee) — the other family of call/apply/bind ──
+// In a MIXED project member-lookup.dl seeds BOTH `Function` and `CallableFunction` for
+// a callable receiver, because the project has no single answer. A call site does: its
+// module's governing tsconfig decides (module_sbca_governed), so here the family that
+// module's flag rules out is dropped. Only where the other family's same-named member
+// is ALSO a candidate at the site, so a receiver that reaches `Function.bind` alone
+// (an interface extending Function with no call signature) keeps it under any flag.
+sbca_site_rejects(ce, m) :- expr_call_candidate(ce, m),
+    call_site("client", _, _, _, _, ce, cs),
+    call_module(cs, mod),
+    module_sbca_governed(mod, "true"),
+    plain_function_member(n, m),
+    callable_function_member(n, other),
+    expr_call_candidate(ce, other).
+sbca_site_rejects(ce, m) :- expr_call_candidate(ce, m),
+    call_site("client", _, _, _, _, ce, cs),
+    call_module(cs, mod),
+    module_sbca_governed(mod, "false"),
+    callable_function_member(n, m),
+    plain_function_member(n, other),
+    expr_call_candidate(ce, other).
+
 // ── arity_match(CallExpr, Callee) ───────────────────────────────────────────
 // Guarded by the candidate set, so the numeric comparison is never a cross product
 // of all N-argument calls against all N-parameter methods.
 arity_match(ce, m) :- expr_call_candidate(ce, m),
+    !sbca_site_rejects(ce, m),
     call_expr_argc(ce, n),
     !call_has_spread(ce),
     method_min_arity(m, lo),
@@ -102,6 +125,7 @@ arity_match(ce, m) :- expr_call_candidate(ce, m),
     method_max_arity(m, hi),
     n <= hi.
 arity_match(ce, m) :- expr_call_candidate(ce, m),
+    !sbca_site_rejects(ce, m),
     call_has_spread(ce).
 // AN IMPLEMENTATION'S OWN MAXIMUM IS NOT A BOUND ON THE CALL.
 // `const assert: <L, R>(left, right) => R = x => x as any` is legal TypeScript:
@@ -120,6 +144,7 @@ arity_match(ce, m) :- expr_call_candidate(ce, m),
 // passes fewer arguments than a parameter the callee cannot default is still not
 // a call to it.
 arity_match(ce, m) :- expr_call_candidate(ce, m),
+    !sbca_site_rejects(ce, m),
     call_expr_argc(ce, n),
     !call_has_spread(ce),
     method_min_arity(m, lo),
@@ -129,6 +154,7 @@ arity_match(ce, m) :- expr_call_candidate(ce, m),
 // kept rather than dropped: prune-only means the absence of evidence never removes
 // the real callee.
 arity_match(ce, m) :- expr_call_candidate(ce, m),
+    !sbca_site_rejects(ce, m),
     !method_arity_raw(m, _, _, _).
 
 // ============================================================================
@@ -993,6 +1019,7 @@ expr_resolves_to_method(ce, m) :- arity_match(ce, m),
 // engine's error, not the program's.
 call_has_arity_match(ce) :- arity_match(ce, _).
 expr_resolves_to_method(ce, m) :- expr_call_candidate(ce, m),
+    !sbca_site_rejects(ce, m),
     !call_has_arity_match(ce).
 
 // ── arity_rejected(CallExpr, Callee, ArgCount, Min, Max) ────────────────────

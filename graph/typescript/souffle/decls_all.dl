@@ -176,6 +176,8 @@
 .decl module_strict_bind_call_apply(c0:symbol,c1:symbol,c2:symbol)
 .decl sbca_value(c0:symbol)
 .decl sbca_regime(c0:symbol)
+.decl module_sbca_governed(c0:symbol,c1:symbol)
+.decl sbca_site_rejects(c0:symbol,c1:symbol)
 .decl expr_spread(c0:symbol,c1:symbol)
 .decl expr_static_type(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_type(c0:symbol,c1:symbol,c2:symbol)
