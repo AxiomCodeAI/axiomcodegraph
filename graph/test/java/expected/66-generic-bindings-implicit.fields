@@ -1,0 +1,5 @@
+boundary_lib	read	probe.LibUses#field() -> example.lib.LibService#baseMapper
+known_edge	read	probe.Base#getMapper() -> probe.Base#mapper
+known_edge	read	probe.OrderService#late() -> probe.OrderService#holder
+known_edge	read	probe.OrderService#open() -> probe.Base#mapper
+known_edge	read	probe.OrderService#viaThis() -> probe.Base#mapper

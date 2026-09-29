@@ -686,6 +686,12 @@ export class FieldExtractor {
         // Collect annotation arguments
         const args = this.annotationExtractor.getExtractedArguments();
         this.extractedAnnotationArguments.push(...args);
+
+        // Collect the type references the annotations create (the annotation type itself, and a
+        // class literal argument such as `using = X.class`), as the method and type paths do.
+        // Dropped here, a class named only in a field annotation had no user (#1452).
+        const typeRefs = this.annotationExtractor.getExtractedTypeReferences();
+        this.extractedTypeReferences.push(...typeRefs);
         break; // extractFromFieldDeclaration handles all annotations
       }
     }
