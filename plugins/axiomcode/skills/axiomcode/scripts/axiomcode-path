@@ -33,7 +33,7 @@ look at, never as a path.
 import contextlib, io, json, os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract
+sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract, ax_text
 # The certainty table used to live here with SEVEN entries and a default of 5 for everything else. The
 # engine emits ELEVEN tiers, and the five it did not list all fell BELOW `defines` — which is not a call
 # at all — so on a JavaScript graph, where 8,916 of 25,048 traversable edges are `callback_registered`,
@@ -42,6 +42,7 @@ sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract
 TIER_RANK = ax_edges.TIER_RANK
 
 def die(msg, code=2): print(msg); sys.exit(code)
+UNRESOLVED = []                                     # endpoints G.resolve found nothing by, in the order refused
 
 # ── --json: the same answer, for a program ────────────────────────────────────────────────────────
 # Filled as the human output is produced, from the SAME chain objects, so the two cannot disagree:
@@ -496,6 +497,7 @@ class G:
                 shown = ', '.join(r['display'] for r in hits[:4]) + (' …' if len(hits) > 4 else '')
                 return f"{len(ids)} declaration(s) containing '{s}' ({shown})", ids
         near = self.q("SELECT DISTINCT display FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL) AND (lower(display) = lower(?) OR lower(name) = lower(?) OR display LIKE ?) LIMIT 6", s, s.split('.')[-1], f"%{s.split('.')[-1]}%")
+        UNRESOLVED.append(s)                        # each refusal below: the [text] block searches for it (ax_text.py)
         # with candidates the advice is "pick one"; with none it has to be something else, or the line reads
         # "use one of them" pointing at an empty list
         # a word the code WRITES but nothing declares (a local, a parameter, a property) is not a target: the methods that
@@ -1630,11 +1632,22 @@ if __name__ == '__main__':
     if args[0] == '*' and args[1] == '*': die("one endpoint must be named: path '*' X (everything that reaches X) or path X '*' (everything X reaches)")
 
     def answer():
-        g = G(args[2] if len(args) > 2 else '.'); g.IN = IN
+        global IN
+        repo = args[2] if len(args) > 2 else '.'
+        # an --in no graph holds is answered at the root, and says so (the same rule as impact's)
+        if IN and not ax_text.held(repo, IN):
+            print(f"{ax_text.SCOPE_GONE}'{IN}' in its path — answering at the repository root instead")
+            IN = None
+        g = G(repo); g.IN = IN
         RESULT['query'] = {'from': args[0], 'to': args[1], 'repo': g.repo}
-        if args[0] == '*': return closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth)
-        if args[1] == '*': return closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth)
-        return path(g, args[0], args[1], show_all, limit, every, max_paths)
+        try:
+            if args[0] == '*': return closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth)
+            if args[1] == '*': return closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth)
+            return path(g, args[0], args[1], show_all, limit, every, max_paths)
+        except SystemExit as e:
+            # an endpoint nothing in the graph declares: what a search by hand would find, labelled [text] (ax_text.py)
+            if e.code and UNRESOLVED and not as_json: sys.stdout.flush(); ax_text.emit(repo, UNRESOLVED, IN)
+            raise
 
     if not as_json: sys.exit(answer())
     # the prose goes to a buffer, not to the caller: one code path produces both, and `prose` is

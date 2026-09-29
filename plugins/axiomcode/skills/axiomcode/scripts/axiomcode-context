@@ -33,7 +33,7 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import ax_edges
+import ax_edges, ax_text
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, sole_scope, best_scope, budgeted, BOUND,
                          scope_spec, under_scope, scope_sql,
                          dirs_with_counts, drop_ancestors, offer, task_text, task_terms, winnow, headline, is_synthetic, code_terms,
@@ -939,6 +939,19 @@ def main(argv):
     if notice: print()
     if text_dirs:
         scopes = [x for x in scopes if x.strip('/').lstrip('./') not in text_dirs]
+    # AN --in NO GRAPH HOLDS AND NO DIRECTORY IS was refused with a menu, once per language graph, and no answer: the
+    # agent then searched by hand. A typo is not a question about nothing; the task is answered at the root (or under
+    # the scopes that are real) and the line says what was dropped and what is close. A scope another language's graph
+    # holds is left alone: this graph refuses it and that one answers; the line is printed once (ax_langs.py)
+    if scopes and not scope_offered:
+        gone = [x for x in scopes if x in unknown_scopes and not ax_text.held(g.repo, x)]
+        if gone:
+            scopes = [x for x in scopes if x not in gone]
+            import difflib
+            near = difflib.get_close_matches(gone[0], [d for d, _ in dirs_with_counts(g).items()], n=3, cutoff=0.4)
+            print(f"{ax_text.SCOPE_GONE}{', '.join(repr(x) for x in gone)} in its path — answering "
+                  + (f"under {', '.join(scopes)}" if scopes else "at the repository root") + " instead"
+                  + (f" (close: {', '.join(near)})" if near else '') + "\n")
     # the terms the report itself marked as code take the budget first (see winnow)
     terms = winnow(g, terms, strong=code_terms(body))
     scored = score_symbols(g, terms)
@@ -1251,11 +1264,39 @@ def main(argv):
     return 0
 
 
+# A QUOTED STRING IN THE TASK is usually a message, a key or a value the reader saw somewhere ("nothing named X",
+# `AXIOMCODE_NO_REFRESH`): the graph holds declarations, not what they print, so its words scored against names and the
+# agent then searched for the string by hand. Where it is written is a text search, so it is one, labelled [text] and
+# printed after the answer; a quoted name some graph declares is the graph's question and is left to it
+QUOTED = re.compile(r'"([^"\n]{4,120})"|(?<![\w])\'([^\'\n]{4,120})\'(?![\w])|`([^`\n]{4,120})`')
+
+
+def quoted_text(argv):
+    skip = {'--budget', '--seeds', '--in', '--from', '--page', '--page-budget'}
+    pos, i = [], 0
+    while i < len(argv):
+        if argv[i] in skip: i += 2; continue
+        if not argv[i].startswith('--'): pos.append(argv[i])
+        i += 1
+    if not pos: return
+    task, repo = pos[0], (pos[1] if len(pos) > 1 else '.')
+    asked = []
+    for m in QUOTED.finditer(task_text(task)):
+        s = next(x for x in m.groups() if x is not None).strip()
+        if len(s) < 4 or s.startswith('/') or s in asked: continue            # a route: the graph's route seeds answer it
+        if ax_text.declared(repo, re.split(r'[.#:$]', re.sub(r'\(.*\)$', '', s))[-1]): continue
+        asked.append(s)
+    ax_text.emit(repo, asked[:3], why='quoted', rows=4)
+
+
 def cli(argv):
     """--json: the same answer as one document. The prose is produced by the same code path and carried
     in `prose`, so the machine shape is never LESS than the human one — a second traversal to build it
     would be a second implementation to keep in step."""
-    if '--json' not in argv: sys.exit(main(argv))
+    if '--json' not in argv:
+        code = main(argv)
+        if code in (0, 2): quoted_text(argv)
+        sys.exit(code)
     import contextlib, io, json
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf): code = main(argv)

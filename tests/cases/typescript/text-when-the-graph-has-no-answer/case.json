@@ -1,0 +1,14 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "an environment variable no declaration names, matched only by name, also gets the lines that write it, as [text], placed in its function",
+   "run": ["impact", "ORDER_BATCH_LIMIT"], "expect_error": true,
+   "want": ["nothing named 'ORDER_BATCH_LIMIT' is declared", "[by name] readLimit",
+            "[text] the graph has no declaration for 'ORDER_BATCH_LIMIT'", "[text] src/orders.ts:2   in readLimit", "[text] .env.example:1   not indexed", "not call edges"],
+   "avoid": ["[resolved]"]},
+  {"why": "a quoted error message in a task is found as text in the function that throws it",
+   "run": ["context", "placing an order fails with 'order exceeds the batch limit'"],
+   "want": ["[text] no declaration is named 'order exceeds the batch limit'", "[text] src/orders.ts:7   in placeOrder"]},
+  {"why": "control: a declared function answers from the graph alone",
+   "run": ["impact", "readLimit"],
+   "want": ["placeOrder"],
+   "avoid": ["[text] the graph has no declaration"]}]}

@@ -55,7 +55,10 @@ for l, name, path in cases:
         tot += 1
         out = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['run']] + ([path] if ch['run'][0] != 'index' else []), capture_output=True, text=True)
         text = out.stdout + out.stderr
-        bad = [w for w in ch.get('want', []) if w not in text] + [f"(present) {w}" for w in ch.get('avoid', []) if w in text]
+        # a [text] row quoting this case.json is the spec read back (a name no graph declares is searched as text, and the
+        # case file lies in the searched tree): its own `avoid` strings there are not the tool's answer
+        said = re.sub(r'(?m)^\s*\[text\] case\.json:\d+.*\n?', '', text)
+        bad = [w for w in ch.get('want', []) if w not in text] + [f"(present) {w}" for w in ch.get('avoid', []) if w in said]
         # "stdout_json": true — STDOUT alone must parse as one JSON document. A diagnostic printed beside the answer
         # is invisible to a substring check (want/avoid read both streams together) and fatal to a consumer, which is
         # how a `note:` line sat inside --json for every name declared as both a field and a method.
