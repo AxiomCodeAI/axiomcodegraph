@@ -324,6 +324,18 @@ class G:
         try:
             with open(os.path.join(self.repo, f), 'rb') as h: return len(h.read().splitlines())
         except OSError: return None
+
+    def line_files(self, f):
+        """-> (the indexed files a file:line's path `f` names, the --in note when the scope chose among them). The file
+        written in full, else every file `f` is a suffix of. --IN CHOOSES AMONG THEM (#1666): it was applied only after
+        the file was settled, so `index.js:2 --in packages/a` was refused with every index.js listed. Under the scope
+        one file is the answer; two or more are the refusal's list; none leaves the list whole, and says so."""
+        files = sorted({x['file'] for x in self.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
+                        if x['file'] == f or (x['file'] or '').endswith('/' + f)})
+        if f in files: return [f], ''
+        if len(files) < 2 or not self.IN: return files, ''
+        kept = [x for x in files if self.under_in(x)]
+        return (kept, f" under *{self.IN}*") if kept else (files, f", none of them under *{self.IN}*")
     def _resolve(self, sel, fragment=False):
         s = sel.strip().strip('`"\'')
         # file:line, or file:line:col as a stack trace prints it — the column never changes which callable spans the line
@@ -334,17 +346,16 @@ class G:
             # lib/ took the smallest span across BOTH files, so the answer was for whichever function at that line was
             # shorter, labelled with what was typed. The path is settled first: the file written in full, else the one
             # file it is a suffix of; two or more are listed, each with what spans the line there.
-            files = sorted({x['file'] for x in self.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
-                            if x['file'] == f or (x['file'] or '').endswith('/' + f)})
-            if f in files: files = [f]
+            files, scoped = self.line_files(f)
             if len(files) > 1:
                 rows = []
                 for fx in files[:12]:
                     at = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY end_line - line LIMIT 1", fx, ln, ln)
                     rows.append(f"  {fx}:{ln}   " + (self.disp(at[0]['id']) if at else '(top-level code)'))
                 if len(files) > 12: rows.append(f"  … +{len(files) - 12} more")
-                die(f"'{m.group(1)}' matches {len(files)} indexed files — give enough of the path to name one:\n" + '\n'.join(rows))
+                die(f"'{m.group(1)}' matches {len(files)} indexed files{scoped} — give enough of the path to name one:\n" + '\n'.join(rows))
             if files: f = files[0]
+            if scoped: s = f"{f}:{ln}"                                   # the scope chose the file: the label names it
             # A LINE OUTSIDE THE FILE IS REFUSED (#1601). Line 0, or a line past the end — a number copied before the file
             # was edited, or from an old stack trace — spans no callable, so it fell through to the module node and was
             # answered as the file's top-level code, as if that line existed. The file on disk is what the reader sees.
