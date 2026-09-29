@@ -1,0 +1,4 @@
+known_edge	METHOD_PARAM	0	Widget [METHOD_PARAM] -> Target
+known_edge	METHOD_PARAM	0	Widget [METHOD_PARAM] -> Widget
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
