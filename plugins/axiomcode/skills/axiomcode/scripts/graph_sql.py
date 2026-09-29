@@ -2278,6 +2278,26 @@ def type_aliases(q):
     return spans, names
 
 
+def _constructs_other(q, t, n, by_tid, rel):
+    """{(caller, file, line)} where the caller constructs ANOTHER type named n and not t: a resolved constructor call, or an
+    implicit `new T()` the engine names (ext_ctor_implicit_type, #1473). impact.dl's typeref_other: the type_ref row there
+    keeps only the simple name, so `new App.Entities.Basket()` was also a by-name use of a view component `Basket`."""
+    same = {r[0] for r in q("SELECT id FROM symbols WHERE name = ? AND type_id IS NOT NULL AND method_id IS NULL", n)}
+    built = collections.defaultdict(set)                                   # (caller, file, line) -> the types built there
+    ctor = {m: t2 for t2 in same for (m, _n, k) in by_tid.get(t2, ()) if k == 'constructor'}
+    if ctor and _has(q, 'call_edges') and _has(q, 'call_sites'):
+        ph = ','.join('?' * len(ctor))
+        for c, m, f, l in q(f"""SELECT e.caller_id, e.callee_method_id, s.file_path, s.start_line FROM call_edges e
+                                JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_method_id IN ({ph})""", *ctor):
+            built[(c, rel(f) if f else '', l or 0)].add(ctor[m])
+    if same and _has(q, 'ext_ctor_implicit_type') and _has(q, 'call_sites'):
+        ph = ','.join('?' * len(same))
+        for c, t2, f, l in q(f"""SELECT s.caller_id, x.c1, s.file_path, s.start_line FROM ext_ctor_implicit_type x
+                                 JOIN call_sites s ON s.id = x.c0 WHERE x.c1 IN ({ph})""", *same):
+            built[(c, rel(f) if f else '', l or 0)].add(t2)
+    return {k for k, ts in built.items() if t not in ts}
+
+
 def typeref_holder(at, spans, modules):
     """`typeref(c, …)`'s c for a type reference at (f, l): the innermost callable, except that a reference on a type
     alias's own lines, where the only callable spanning it is the module, belongs to the alias. An alias declared
@@ -2509,8 +2529,10 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
                     rows.append((c, 'uses', 'references it', 'by name', f, l))
         # 273 — the name written in a type position: the context says which (a field type, a parameter, a cast)
         if _has(q, 'type_refs'):
+            other = _constructs_other(q, t, n, by_tid, rel)
             for nm, f, l, ctx in trefs(n):
                 c = holder(f, l)
+                if (c, f, l) in other: continue                     # typeref_other: the name at that line builds another type of it
                 if c and c not in inside: rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l))
                 if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
         # 273b — a signature the engine RESOLVED to this type (#1422): `type_use` holds each parameter, return and

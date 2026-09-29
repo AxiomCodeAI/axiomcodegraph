@@ -618,7 +618,18 @@ direct(q, c, "uses", cat("calls ", n), "one of a set", f, l) :- tmember(q, m, n,
 direct(q, c, "produces", "instantiates it (unresolved site)", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), unresolved(c, n, k, f, l), ctor_kind(k), !inside_target(q, c).
 direct(q, c, "produces", "reflects on its .class — deserialization or a framework produces it here", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, "CLASS_LITERAL", f, l), !inside_target(q, c).
 direct(q, c, "uses", "references it", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, ek, f, l), ek != "CLASS_LITERAL", !local_kind(ek), !member_kind(ek), !inside_target(q, c).
-direct(q, c, "uses", cat("names it (", ctx, ")"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, f, l), !inside_target(q, c).
+direct(q, c, "uses", cat("names it (", ctx, ")"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, f, l), !inside_target(q, c), !typeref_other(q, c, f, l).
+// A NAME THE ENGINE ALREADY TIED TO ANOTHER TYPE OF THAT NAME IS THAT TYPE'S. `new App.Entities.Basket()` builds the
+// entity; the type_ref row keeps only the simple name `Basket`, so read by name it was also a use of a view component
+// `Basket` in another namespace, and --delete on the component said NOT SAFE for a by-name row that constructs the
+// entity. Where the same caller, at the same line, constructs another type of the name (a resolved constructor call, or
+// an implicit `new T()`, #1473) and not the target, the name at that line is that other type's.
+.decl typeref_own_new(q:symbol, c:symbol, f:symbol, l:number)
+typeref_own_new(q, c, f, l) :- target(q, "type", t, _), implicit_new(c, t, f, l).
+typeref_own_new(q, c, f, l) :- target(q, "type", t, _), member(t, k, _, "constructor"), calls(c, k, _, f, l).
+.decl typeref_other(q:symbol, c:symbol, f:symbol, l:number)
+typeref_other(q, c, f, l) :- target(q, "type", t, _), typ(t, n, _), typ(t2, n, _), t2 != t, implicit_new(c, t2, f, l), !typeref_own_new(q, c, f, l).
+typeref_other(q, c, f, l) :- target(q, "type", t, _), typ(t, n, _), typ(t2, n, _), t2 != t, member(t2, k, _, "constructor"), calls(c, k, _, f, l), !typeref_own_new(q, c, f, l).
 // the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such alias,
 // and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes and never writes MapState.
 .decl alias_over(q:symbol, a:symbol)

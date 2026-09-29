@@ -10,7 +10,7 @@
    "avoid": ["src/Program.cs:2"]},
   {"why": "AddHostedService<T>() names the hosted service it registers",
    "run": ["impact", "WidgetSweeper", "--kind", "type"],
-   "want": ["Program.<Main>$   src/Program.cs:4   — names it (METHOD_TYPE_ARGUMENT)"],
+   "want": ["Program.<Main>$   src/Program.cs:4   — ", "names it (METHOD_TYPE_ARGUMENT)"],
    "avoid": ["src/Program.cs:6"]},
   {"why": "UseMiddleware<T>() names the middleware type it registers",
    "run": ["impact", "WidgetMiddleware", "--kind", "type"],
