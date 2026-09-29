@@ -1,0 +1,20 @@
+registered	Shop.DataSetup.<lambda>	Shop.AuditInterceptor.SavingChanges
+registered	Shop.DataSetup.<lambda>	Shop.AuditInterceptor.SavingChangesAsync
+registered	Shop.DataSetup.<lambda>	Shop.EventsInterceptor.SavingChangesAsync
+registered	Shop.DataSetup.AddData	Shop.Seeder.ExecuteAsync
+registered	Shop.OrderEndpoints.MapOrders	Shop.IdempotencyFilter.InvokeAsync
+registered	Shop.OrderEndpoints.MapOrders	Shop.NonEmptyFilter.InvokeAsync
+registered	Shop.OrderEndpoints.MapOrders	Shop.TenantFilter.InvokeAsync
+registered	Shop.OrdersHost.<lambda>	Shop.ErrorInterceptor.UnaryServerHandler
+registered	Shop.OrdersHost.Configure	Shop.CorrelationInterceptor.AsyncUnaryCall
+save	Shop.Committer.Commit	Shop.AuditInterceptor.SavingChangesAsync
+save	Shop.Committer.Commit	Shop.EventsInterceptor.SavingChangesAsync
+save	Shop.OrderStore.Save	Shop.AuditInterceptor.SavingChanges
+save	Shop.OrderStore.SaveAsync	Shop.AuditInterceptor.SavingChangesAsync
+save	Shop.OrderStore.SaveAsync	Shop.EventsInterceptor.SavingChangesAsync
+wraps	Shop.OrderEndpoints.Create	Shop.IdempotencyFilter.InvokeAsync	AddEndpointFilter
+wraps	Shop.OrderEndpoints.Create	Shop.TenantFilter.InvokeAsync	AddEndpointFilter
+wraps	Shop.OrderEndpoints.Get	Shop.NonEmptyFilter.InvokeAsync	AddEndpointFilter
+wraps	Shop.OrderEndpoints.Get	Shop.TenantFilter.InvokeAsync	AddEndpointFilter
+wraps	Shop.OrderEndpoints.Lines	Shop.TenantFilter.InvokeAsync	AddEndpointFilter
+wraps	Shop.StockService.Check	Shop.ErrorInterceptor.UnaryServerHandler	Interceptors.Add
