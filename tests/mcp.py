@@ -133,6 +133,7 @@ def check_arguments(label, cmd, cwd, lax=False):
              ('axiomcode_changed', {'repo': cwd, 'files': ['a.py']}),
              ('axiomcode_impact', {'targets': ['A.f'], 'repo': cwd, 'limit': 5, 'delete': True, 'in_path': 'src'}),
              ('axiomcode_context', {'task': 'x', 'repo': cwd, 'in_path': 'src', 'from_': 'main'}),
+             ('axiomcode_context', {'task': 'x', 'repo': cwd, 'limit': 5}),
              ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': cwd, 'limit': 3})]
     for name, args in right:
         res = call(cmd, cwd, name, args)
@@ -199,9 +200,15 @@ def check_grep_default():
         for f in grep:
             seen.clear(); f()
             if '--grep' not in seen[0]: bad.append(f"sites answer without --grep: {seen[0]}")
-        seen.clear(); grep[-1]()
-        if '--grep-limit' not in seen[0]: bad.append(f"limit=5 did not cap the sites: {seen[0]}")
-        if '--limit' in seen[0]: bad.append(f"limit=5 passed as the prose's --limit under --grep: {seen[0]}")
+        # limit=N caps the sites on every tool whose footer says "limit=N lists more": context took no limit, and
+        # test_impact's went to the prose's --limit, so the sites were never capped
+        for f in (grep[-1], lambda: server.axiomcode_context('how', limit=5), lambda: server.axiomcode_test_impact(limit=5),
+                  lambda: server.axiomcode_path('a', 'b', limit=5)):
+            seen.clear(); f()
+            if '--grep-limit' not in seen[0]: bad.append(f"limit=5 did not cap the sites: {seen[0]}")
+            if '--limit' in seen[0]: bad.append(f"limit=5 passed as the prose's --limit under --grep: {seen[0]}")
+        seen.clear(); server.axiomcode_test_impact(limit=5, why=True)       # the control: the prose keeps its --limit
+        if '--limit' not in seen[0] or '--grep-limit' in seen[0]: bad.append(f"test_impact prose lost --limit: {seen[0]}")
         for f in prose:
             seen.clear(); f()
             if any(a.startswith('--grep') for a in seen[0]): bad.append(f"prose asked for, got --grep: {seen[0]}")
