@@ -15,7 +15,7 @@ declaration, how) and `axiomcode impact` (what must change with it, who produces
 those, the tests) — ≤ 3 declarations per event, in parallel, a few lines each."""
 import concurrent.futures, json, os, re, subprocess, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
-import graph_sql
+import graph_sql, ax_evidence
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _host, _graphline, _where
 
@@ -114,6 +114,12 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         # count nobody can check. This cost a whole re-derivation once: three declarations reported 0 reached and
         # 0 tests where the rules report ~1800 and ~1470, and there was no way to tell from the block whether that
         # was the fast path answering, the rules answering, or the CLI having given up.
+        # with evidence on (AXIOMCODE_EVIDENCE, ax_evidence.py), the line that decides the strongest uncertain readers
+        if ax_evidence.on() and reads:
+            if not any(x.get('evidence') for x in reads): ax_evidence.impact_doc({'targets': j.get('targets') or [{'label': d['symbol']}], 'direct': reads}, cwd)
+            for x in [x for x in reads if (x.get('evidence') or {}).get('decider')][:2]:
+                dd = x['evidence']['decider']
+                lines.append(f"    decided: [{x['certainty']}] {x['at'].split('/')[-1]} ← {dd['at'].split('/')[-1]}: {dd['text'][:100]}  [{dd['kind']}]")
         lines.append(f"    [{'fast path' if j.get('_sql') else 'rules'}] reaches {len(rc)} more callable(s) through resolved calls within 12 hops; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
     if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more: axiomcode changed --impact")
     if bodies:

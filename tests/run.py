@@ -14,7 +14,9 @@ The case is indexed once (into its own .axiomcode, removed afterwards unless --k
 it. A check fails loudly with the line that was wrong, so a regression names itself. No corpus, no network, nothing
 outside the case directory.
 
-Three other keys a check may carry:
+Four other keys a check may carry:
+
+  "same_as": [run …]     STDOUT must be byte-identical to that other run's: a switch that must leave an answer alone.
 
   "stdout_json": true    STDOUT ALONE must parse as one JSON document. `want` and `avoid` read stdout and stderr
                          CONCATENATED, so no substring can express "this must not be inside the document" — which is
@@ -70,6 +72,14 @@ for l, name, path in cases:
         # not do this yet", not "anything may happen here". A crash, a missing fixture or an unreadable answer under
         # a marker would otherwise be indistinguishable from the gap it names, and the marker becomes the hiding
         # place this mechanism exists to remove.
+        # "same_as": [run …] — STDOUT must be BYTE-IDENTICAL to another run's: a switch that must not change an answer
+        # (evidence on an answer with no uncertain row, a default that is off) is a comparison, not a substring
+        if ch.get('same_as'):
+            other = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['same_as']] + [path], capture_output=True, text=True)
+            if other.stdout != out.stdout:
+                a_, b_ = out.stdout.split('\n'), other.stdout.split('\n')
+                i = next((i for i, (x, y) in enumerate(zip(a_, b_)) if x != y), min(len(a_), len(b_)))
+                bad.append(f"stdout differs from {' '.join(ch['same_as'])} at line {i + 1}: {a_[i] if i < len(a_) else '(end)'!r} vs {b_[i] if i < len(b_) else '(end)'!r}")
         crashed = bool(out.returncode) and not ch.get('expect_error')
         if crashed: bad.append(f"(exit {out.returncode})")
         # "pending": "<issue>" — a case that states behaviour the tool does NOT have yet. It still RUNS, and the two

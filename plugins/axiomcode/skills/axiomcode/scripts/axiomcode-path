@@ -2127,11 +2127,19 @@ if __name__ == '__main__':
             if e.code and UNRESOLVED and not as_json: sys.stdout.flush(); ax_text.emit(repo, UNRESOLVED, IN)
             raise
 
-    if not as_json: sys.exit(answer())
+    import ax_evidence
+    if not as_json:
+        code = answer()
+        # the line that decides each hop that is not an exact edge (ax_evidence.py), after the chains it qualifies
+        if ax_evidence.on() and isinstance(RESULT.get('query'), dict):
+            ax_evidence.annotate('path', RESULT, RESULT['query'].get('repo') or '.')
+            for l in ax_evidence.prose_block([h for a in RESULT.get('answers', []) for h in a.get('hops', [])], RESULT.get('evidence_more', 0), 'hops'): print(l)
+        sys.exit(code)
     # the prose goes to a buffer, not to the caller: one code path produces both, and `prose` is
     # carried in the document so a machine answer is never LESS than the human one.
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf): code = answer()
     RESULT['prose'] = buf.getvalue().rstrip('\n').split('\n')
+    ax_evidence.annotate('path', RESULT, (RESULT.get('query') or {}).get('repo') or '.')
     print(json.dumps(RESULT, indent=2))
     sys.exit(code)
