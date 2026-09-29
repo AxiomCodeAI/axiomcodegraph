@@ -1533,6 +1533,36 @@ def family(rel):
     return {'.py': 'py', '.pyi': 'py', '.java': 'java', '.cs': 'cs'}.get(e, 'js' if e in ('.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx') else ('py' if not e else e))
 
 
+# Being under a test directory and sharing a basename is not being a test. `test/fixtures/basic/index.js` is an
+# INPUT a test reads, `tests/test_index.py` is another language's test, and the changed file shares its own name:
+# all three were offered as "the tests of src/index.js", with a runner command. A by-name candidate is a test
+# only by the convention of the changed file's own ecosystem -- the pattern its runner collects by default.
+_CODE_EXT = ('.py', '.java', '.cs', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs')
+_TEST_AFFIX = {                                   # (prefixes, suffixes) of the file stem, per runner default
+    'py': (('test_',), ('_test',)),                                       # pytest python_files
+    'java': (('Test', 'IT'), ('Test', 'Tests', 'TestCase', 'IT')),        # surefire / failsafe includes
+    'cs': ((), ('Test', 'Tests')),
+    'js': ((), ('.test', '.spec')),                                       # jest / vitest testMatch
+}
+# a file DIRECTLY in one of these is collected whatever its name (mocha ./test/*.js, jest __tests__/);
+# one nested deeper (test/fixtures/x/index.js) is not
+_TEST_DIR_COLLECTS = {'js': ('__tests__', 'test', 'tests')}
+
+
+def tested_stems(rel):
+    """The module names `rel` is the test of by its ecosystem's own convention; empty when it is no test."""
+    fam = family(rel)
+    s = os.path.splitext(os.path.basename(rel))[0]
+    pre, suf = _TEST_AFFIX.get(fam, ((), ()))
+    # a Java prefix is a word of its own (TestParser), not the start of one (Testimonial)
+    out = {s[len(p):] for p in pre if s.startswith(p) and len(s) > len(p)
+           and (fam != 'java' or s[len(p)].isupper())}
+    out |= {s[:-len(x)] for x in suf if s.endswith(x) and len(s) > len(x)}
+    if os.path.basename(os.path.dirname(rel)) in _TEST_DIR_COLLECTS.get(fam, ()):
+        out.add(s)
+    return {x for x in out if len(x) > 2}
+
+
 def package_tier(repo, changed_files, limit=6000):
     """Two tiers of proximity, for when the call graph named nothing. Neither is a call-graph answer.
 
@@ -1546,27 +1576,35 @@ def package_tier(repo, changed_files, limit=6000):
     """
     pkgs = {package_of(f) for f in changed_files if f}
     pkgs.discard('')
+    # a candidate is a test of a changed file when it is a test by the convention of THAT file's language and
+    # names that file's module; anything else sharing the name is counted, not offered
+    changed = {f for f in changed_files if f}
+    want = {(family(f), os.path.splitext(os.path.basename(f))[0]) for f in changed}
     want_stems = set()
-    for f in changed_files:
-        if f: want_stems |= stems_of(f)
+    for f in changed:
+        want_stems |= stems_of(f)
     if not pkgs and not want_stems: return {}, {}, pkgs
-    fams = {family(f) for f in changed_files if f}
     by_pkg = collections.defaultdict(list)
-    by_name = []
+    by_name, not_tests = [], 0
     seen = 0
+
+    def named():
+        return {'files': sorted(by_name), **({'not_tests': not_tests} if not_tests else {})} if by_name or not_tests else {}
     for root, dirs, fs in os.walk(repo):
         dirs[:] = [d for d in dirs if d not in ('node_modules', '.git', 'dist', 'build', 'target', '.axiomcode')]
         for f in fs:
-            if not f.endswith(('.ts', '.tsx', '.js', '.mjs', '.java', '.py', '.cs')): continue   # a list that omits an extension makes both tiers below silently inert for that language (#1083's shape)
+            if not f.endswith(_CODE_EXT): continue   # a list that omits an extension makes both tiers below silently inert for that language (#1083's shape)
             rel = os.path.relpath(os.path.join(root, f), repo).replace(os.sep, '/')
             if not TESTY.search(rel) or rel in changed_files: continue       # a changed test file is run as edited, not found here
             seen += 1
-            if seen > limit: return dict(by_pkg), {'files': sorted(by_name)}, pkgs
-            # a test named after a changed file in ANOTHER language is not its test (server.js for server.py)
-            if stems_of(rel) & want_stems and family(rel) in fams: by_name.append(rel)
+            if seen > limit: return dict(by_pkg), named(), pkgs
+            # a test of a changed file by the convention of that file's own ecosystem (TypeScript and JavaScript read
+            # each other); a same-named file that is not one -- fixture input, another language's test -- is only counted
+            if any((family(rel), s) in want for s in tested_stems(rel)): by_name.append(rel)
+            elif stems_of(rel) & want_stems: not_tests += 1
             p = package_of(rel)
             if p in pkgs: by_pkg[p].append(rel)
-    return dict(by_pkg), ({'files': sorted(by_name)} if by_name else {}), pkgs
+    return dict(by_pkg), named(), pkgs
 
 
 CODE = ('.ts', '.tsx', '.js', '.mjs', '.java', '.py', '.cs')
@@ -1858,6 +1896,7 @@ def main(argv):
                           'named_in_test_text': {f: {'needle': n, 'tests': ts} for f, (n, ts) in loaded.items()},
                           'named_in_other_language_tests': len(other_lang),
                           'range_note': changed.get('range_note'),
+                          'same_name_not_tests': name_hits.get('not_tests') or 0,
                           'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
                                    'framework instantiating by name, a subprocess, or a case built at runtime is not here'},
                          indent=1))
@@ -1880,6 +1919,7 @@ def main(argv):
                   + ', '.join(fs[:3]) + (f" … +{len(fs) - 3}" if len(fs) > 3 else '') + "): no test there was looked at."
                   " Index without --src (or with one that holds the tests) before reading 'no test' as an answer.")
         nf = name_hits.get('files') or []
+        cmd = None
         if nf:
             print(f"\n  BY NAME ONLY — {len(nf)} test file(s) are NAMED AFTER a changed file")
             print("  (test_x.py for x.py, XTest.java for X.java). This is the naming convention, not the")
@@ -1893,6 +1933,9 @@ def main(argv):
             if cmd:
                 print("\n  " + cmd.replace("\n", "\n  "))
             print_unrun(nlang, repo, nf[:limit])
+        if name_hits.get('not_tests'):
+            print(f"\n  not a test: {name_hits['not_tests']} same-named file(s) under test data or in another"
+                  " language — left out, and no command runs them")
         if pkg_hits:
             n = sum(len(v) for v in pkg_hits.values())
             print(f"\n  BY PACKAGE ONLY — {n} test file(s) live under the same package as a changed file")
@@ -2002,6 +2045,10 @@ def main(argv):
     print("\nbound: this is a LOWER bound. A test that reaches the change only through something the graph "
           "does not encode — reflection, a service loader, a framework that instantiates by name, a subprocess, a case "
           "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")
+    if not tests and name_hits.get('files') and cmd:
+        # the generic next step says "only the tests above", which a by-name lead has not earned
+        print(f"next: run {cmd} first — named after the changed file, not reached through the graph; "
+              "then run the rest of the suite")
     return 0
 
 
