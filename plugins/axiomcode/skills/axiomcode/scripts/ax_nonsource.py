@@ -91,6 +91,20 @@ def code_shaped(line, start, end):
     return bool(QUALIFIER.search(before))
 
 
+MAPPER_NS = re.compile(r'<mapper\b[^>]*?\bnamespace\s*=\s*["\']([^"\']+)["\']', re.S)
+
+
+def mapper_namespace(repo, rel):
+    """the `<mapper namespace="...">` of a MyBatis mapper XML, or None for any other file. A statement id written in
+    it is resolved inside that namespace, so it binds only the methods of the type the namespace names (#1381)."""
+    if not rel.lower().endswith('.xml'): return None
+    try:
+        with open(os.path.join(repo, rel), errors='replace') as fh: head = fh.read(8192)
+    except OSError: return None
+    m = MAPPER_NS.search(head)
+    return m.group(1).strip() if m else None
+
+
 class NonSource:
     def __init__(self, repo, cache_dir, indexed, skip_dir, skip_ext):
         self.repo, self.cache_dir, self.indexed, self.skip_dir, self.skip_ext = repo, cache_dir, indexed, skip_dir, skip_ext

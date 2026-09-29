@@ -1658,6 +1658,7 @@ class Impact:
             if os.environ.get('AXIOMCODE_SQL_STRICT') and _sql is None:
                 die("AXIOMCODE_SQL_STRICT: no SQL rule for target kind(s) " + ','.join(sorted({k for _, k, _, _ in T})))
             if _sql is not None:
+                self.mapper_scope(T, _sql)
                 if os.environ.get('AXIOMCODE_BACKEND'): print('backend=sql', file=sys.stderr)
                 shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
                 if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
@@ -1689,6 +1690,7 @@ class Impact:
                     if p[0] in QS: rows.append(p[1:] + [p[0]])                               # … + the query id, so each row says which target it came from
                 out[n] = rows
             self.solve_store(D, key, out)
+        self.mapper_scope(T, out)
         # A KEY IS QUOTED AS IT IS WRITTEN AT THAT LINE (#1477). The join matches a settings line on the canonical form
         # (ckey: `batch_size`, `batch-size` and `batchSize` are one property), so the row carries that form; printed
         # as is, `app.orders.batch_size` was quoted as `app.orders.batchsize`, a spelling no file holds.
@@ -1705,6 +1707,50 @@ class Impact:
 
     def souffle_include(self):
         return dl_program.souffle_include()
+
+    def mapper_scope(self, T, out):
+        """A STATEMENT ID IN A MAPPER XML IS RESOLVED INSIDE ITS NAMESPACE (#1381). `<select id="findById">` under
+        `<mapper namespace="demo.user.UserMapper">` is the SQL of UserMapper.findById, and of nothing else named
+        findById: not another mapper's method of that name, not a repository method that delegates to a mapper. The
+        scan matches the simple name in every file, so a row "names the method" in a file with a mapper namespace is
+        kept only when one of the query's methods of that name is declared by the type the namespace names, or
+        inherited by it (a statement in OrderMapper.xml binds a method OrderMapper inherits from a generic base
+        mapper). A row in any other file, and a row that writes the method's name in full, are left as they are."""
+        rows = out.get('extbind')
+        if not rows: return out
+        import ax_nonsource
+        g = self.g; ns_of = {}; accepts = {}
+        methods = collections.defaultdict(list)                           # query id -> its method targets
+        for r in T:
+            if r[1] == 'method': methods[r[0]].append(r[2])
+        norm = lambda n: (n or '').replace('$', '.')
+        def namespaces(mid):
+            """the qualified names a mapper namespace may write for mid: its owner's, and each subtype's"""
+            if mid not in accepts:
+                sy = g.sym.get(mid) or {}
+                own = g.q("SELECT owner_type_id FROM methods WHERE id = ?", sy.get('method_id') or mid)
+                tid = own[0]['owner_type_id'] if own else None
+                qns = set()
+                if tid:
+                    qns = {norm(r['qualified_name']) for r in g.q(
+                        "SELECT qualified_name FROM types WHERE id = ? OR id IN "
+                        "(SELECT type_id FROM type_ancestors WHERE ancestor_type_id = ?)", tid, tid)}
+                elif sy.get('qualified_name') and '.' in sy['qualified_name']:
+                    qns = {norm(sy['qualified_name'].rsplit('.', 1)[0])}
+                accepts[mid] = qns or None                                 # None: nothing to compare, keep its rows
+            return accepts[mid]
+        keep = []
+        for r in rows:
+            f, n, how, qq = r[0], r[2], r[3], r[-1]
+            if how == 'names the method':
+                if f not in ns_of: ns_of[f] = ax_nonsource.mapper_namespace(g.repo, f)
+                ns = ns_of[f]
+                if ns is not None:
+                    mids = [m for m in methods.get(qq, ()) if (g.sym.get(m) or {}).get('name') == n]
+                    if mids and not any(namespaces(m) is None or norm(ns) in namespaces(m) for m in mids): continue
+            keep.append(r)
+        out['extbind'] = keep
+        return out
 
     # the facts a query writes itself; every other file in its fact directory is the graph's export, linked in
     PER_QUERY_WRITTEN = ('nonsource', 'qual_name', 'key_cap', 'key_use_cap', 'target', 'textuse', 'importuse', 'inside_target')
