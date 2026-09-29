@@ -956,7 +956,31 @@ test_hit(q, m, d, c) :- reach(q, c, d), kind(c, "class"), scope(c, s), member(s,
 // JUnit file holds several @Nested classes, and a helper private to one of them is not written for a sibling's
 // tests. A helper that belongs to no type -- a module-level function, an arrow beside the describe block -- has no
 // scope narrower than the file, and keeps it.
-test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), decl_file(c, f), is_test_file(f).
+test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), decl_file(c, f), is_test_file(f), !java_decl(c).
+// JAVA: A HELPER METHOD OF A TEST CLASS IS NOT A FIXTURE (#1416). JUnit runs a @BeforeEach / @BeforeAll / @Before /
+// @BeforeClass method, a JUnit 3 setUp, a constructor or an initializer before the tests of its class, and those are
+// `fixture` and carried by the fixture rule above; a teardown runs after each of them (java_teardown below). Anything else the class declares runs only when something calls it,
+// and every Java call is a recorded edge: a test that calls the helper reaches the change through it on its own route
+// (`usesHelper -> one -> parse`), and a fixture that calls it carries it as a fixture. Crediting the helper to every
+// test of the class listed tests that never call it, as `[fixture]`, and kept the calling test's own resolved route
+// out of the answer because the one-hop carrier route was nearer. A helper nothing calls credits no test at all.
+// What is left is a callable no call site names that a test body still runs: a lambda or an anonymous class written
+// inside the test, invoked through its functional interface. It serves the test that encloses it, and no sibling.
+.decl java_decl(c:symbol)
+java_decl(c) :- decl_file(c, f), match(".*[.]java", f).
+.decl called_somewhere(c:symbol)
+called_somewhere(c) :- edge(a, c, _), a != c.
+called_somewhere(c) :- fw_edge(a, c, _), a != c.
+test_hit(q, m, d, c) :- reach(q, c, d), java_decl(c), owner(c, _), !called_somewhere(c), lex_in(m, c), test_method(m), !test_method(c), !fixture(c), !java_teardown(c).
+// A TEARDOWN runs for every test of its class as a setUp does, after the body instead of before it: @AfterEach,
+// @AfterAll, @After, @AfterClass (and TestNG's @AfterMethod and kin), and a JUnit 3 tearDown. A change it reaches
+// fails every one of those tests, so it is carried like a fixture. The fixture facts name only what runs BEFORE, and
+// the helper rule above used to carry teardowns by accident: a test class's cleanup was credited, with every other
+// method of the class, to all its tests.
+.decl java_teardown(c:symbol)
+java_teardown(c) :- java_decl(c), decorated(c, n), match("After.*", n), owner(c, _), !test_method(c).
+java_teardown(c) :- java_decl(c), member(_, c, "tearDown", _), owner(c, _), !test_method(c).
+test_hit(q, m, d, c) :- reach(q, c, d), java_teardown(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
 // A helper no type owns is scoped by the innermost declaration that lexically encloses it: a
 // `describe` callback holds its own helpers and its own tests, not a sibling block's; a module holds
 // its file, which is the file rule kept where it was right. TypeScript has no other scope to use --
@@ -1024,6 +1048,13 @@ uses_fixture(m, fx) :- dec_literal(t, "usefixtures", n, _, _), typ(t, _, _), sco
 uses_fixture(m, fx) :- usefixtures_scope(p, n), decl_file(m, f), file_scope(f, p), test_method(m),
                        fixture_scope(fx, n, q), file_scope(f, q), m != fx.
 uses_fixture(m, fx) :- autouse_fixture(fx), fixture_scope(fx, _, p), decl_file(m, f), file_scope(f, p), test_method(m), m != fx.
+// JUnit 5's `@MethodSource("prices")` names the factory that supplies a parameterized test's arguments, and JUnit calls
+// it before that test, for that test only: no call site records it (#1416, #1424). The factory is looked up in the
+// test's class and the classes it extends or is nested in; without a value it is the factory named like the test.
+// The `Other#factory` form names a method of another class and is not read here.
+uses_fixture(m, fx) :- dec_literal(m, "MethodSource", n, _, _), test_method(m), java_decl(m), owner(m, u), scope(t, u), member(t, fx, n, _), fx != m, !test_method(fx).
+uses_fixture(m, fx) :- decorated(m, "MethodSource"), !dec_literal(m, "MethodSource", _, _, _), test_method(m), java_decl(m), member(_, m, n, _),
+                       owner(m, u), scope(t, u), member(t, fx, n, _), fx != m, !test_method(fx).
 // a fixture may request another fixture, and then both run before the test
 uses_fixture(m, g) :- uses_fixture(m, fx), uses_fixture(fx, g), m != g.
 test_hit(q, m, d, fx) :- reach(q, fx, d), uses_fixture(m, fx), test_method(m).
@@ -1055,7 +1086,11 @@ stub_near(q, a) :- stub_near(q, b), edge(a, b, _).
 .decl test_stub(q:symbol, m:symbol)
 test_stub(q, m) :- stub_near(q, m), test_method(m).
 test_stub(q, m) :- stub_near(q, fx), fixture(fx), !test_method(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
-test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f).
+test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f), !java_decl(c).
+// a Java helper holding the stub is walked up to its callers by the edge rule; only a lambda in a test body, which no
+// edge enters, is credited to the test around it (#1416)
+test_stub(q, m) :- stub_near(q, c), java_decl(c), !test_method(c), !fixture(c), !java_teardown(c), owner(c, _), !called_somewhere(c), lex_in(m, c), test_method(m).
+test_stub(q, m) :- stub_near(q, c), java_teardown(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
 .output test_stub
 
 // ── bound from outside the source ──────────────────────────────────────────────────────────────────────────────

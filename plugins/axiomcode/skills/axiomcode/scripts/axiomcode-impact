@@ -2032,6 +2032,12 @@ def main(argv):
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
     chains = {m: I.chain(m, parent) for m in tests}
+    # the ROUTE a record carries: a test reached through a fixture (a setUp, a @MethodSource factory) has no edge of
+    # its own to the change, so its chain was the test alone and `test-impact --why` printed the test's own name as
+    # its route (#1424). The route is the test, then the fixture's own chain down to the change; the first hop is the
+    # framework's, not an edge, which is why `chains` (verified hop by hop below) keeps the test's own chain.
+    def test_route(m, fx):
+        return [m] + I.chain(fx, parent) if fx else chains.get(m, [])
     # a MODULE counted as a test is a script test (graph_sql.script_tests): it is labelled with the command it runs by
     script_ids = {m for m in tests if g.sym[m]['kind'] == 'module'}
     _runs = {}
@@ -2249,7 +2255,7 @@ def main(argv):
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0])) if cert != 'alongside'],
                           'alongside': [{'id': c, 'display': g.disp(c), 'role': 'co-located', 'why': why, 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (g.disp(x[0]), x[2], x[4], x[0])) if cert == 'alongside'],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in test_route(m, fx)],
                                      **({'script': True, 'run': script_cmd(m)} if m in script_ids else {})} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'framework_entries': [{'id': m, 'display': g.disp(m), 'signal': sig, 'at': g.loc(m)} for m, sig in fw_ent],
                           'framework_grep': fw_grep,

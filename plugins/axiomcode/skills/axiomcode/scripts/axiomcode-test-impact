@@ -1977,7 +1977,10 @@ def main(argv):
         if why:
             print("\n  why each one is here:")
             for i, r in sorted(tests.items(), key=lambda kv: (kv[1].get('hops') or 99, kv[1].get('display', '')))[:limit]:
-                chain = " -> ".join(r.get('chain') or []) or "reaches it directly"
+                ch = r.get('chain') or []
+                # a fixture route starts with the framework's hop from the test to the fixture, which is not a call
+                # (#1424): `MoneyTest.positive <- MoneyTest.bounds -> Money.cents`
+                chain = (f"{ch[0]} <- " + " -> ".join(ch[1:]) if r.get('via') and len(ch) > 1 else " -> ".join(ch)) or "reaches it directly"
                 print(f"    {r.get('display')}  [{r.get('certainty')}]  {chain}")
         if replaced:
             # one line however many: an abstract class runs nothing by name, so the command names what extends it
