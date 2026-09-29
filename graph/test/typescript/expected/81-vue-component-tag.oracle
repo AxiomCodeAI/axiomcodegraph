@@ -1,0 +1,8 @@
+oracle=1 engine=8 agree=1 missing=0 (known 0, NEW 0) extra=7
+  extra    components/Child.vue#<module-init>() -> components/Child.vue#childLocal()
+  extra    components/Legacy.vue#data() -> components/Legacy.vue#legacyInit()
+  extra    components/MyWidget.vue#<module-init>() -> components/MyWidget.vue#widgetLabel()
+  extra    views/Parent.vue#<module-init>() -> components/Child.vue#<module-init>()
+  extra    views/Parent.vue#<module-init>() -> components/Legacy.vue#<module-init>()
+  extra    views/Parent.vue#<module-init>() -> components/MyWidget.vue#<module-init>()
+  extra    views/Parent.vue#<module-init>() -> components/badge#Badge()
