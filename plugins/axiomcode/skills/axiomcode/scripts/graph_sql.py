@@ -3167,6 +3167,15 @@ def _has_framework_hops(q, at=None, site_file=None):
         return True
     return False
 
+def _spawn_edges(q, lines, at):
+    """fw_edge(a, b, "spawns") :- spawns_fact(a, b): a test that runs a script by its path (ax_spawn.py)"""
+    if lines is None or at is None or not _has(q, 'symbols'): return []
+    import ax_spawn
+    mod_of = {}
+    for i, f in q("SELECT id, file FROM symbols WHERE kind = 'module' AND file IS NOT NULL ORDER BY id"): mod_of.setdefault(f, i)
+    tf = {r[0] for r in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
+    return sorted({(c, m, 'spawns') for c, m, _f, _l in ax_spawn.links(tf, mod_of, lines, at) if c != m})
+
 def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=None,
                        inside=(), textuse=(), importuse=(), lines=None):
     """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
@@ -3212,7 +3221,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
                            'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
+    E = _edges(q) + _spawn_edges(q, lines, at); rev = _rev(E); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
