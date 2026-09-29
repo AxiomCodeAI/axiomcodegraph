@@ -7,7 +7,7 @@
  * them is meaningless. Copying ninety lines of labelling is how they would drift apart.
  * The existing per-case goldens prove the lift changed nothing.
  *
- *   loadProgram(srcDir, libDir, toolName)
+ *   loadProgram(srcDir, libDir, toolName[, programDir])
  *     -> { ts, program, checker, own, reachable, root, libRoot,
  *          moduleName, simple, labelOf, callerOf, diagnostics }
  *
@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadTypeScript } from './load-typescript.mjs';
 
-export function loadProgram(srcDir, libDir, toolName) {
+export function loadProgram(srcDir, libDir, toolName, programDir) {
   const root = path.resolve(srcDir);
   // Through the shared loader like the rest of the stack: a bare `import ts from
   // 'typescript'` resolves to whatever is nearest and dies on a property access if that
@@ -70,29 +70,39 @@ export function loadProgram(srcDir, libDir, toolName) {
   // The PARSER already reads the case's tsconfig (it must, to emit the resolved flag at
   // ts_module c27), so honouring it here is what makes the two sides describe the same
   // program.
-  const caseConfig = path.join(root, 'tsconfig.json');
-  if (fs.existsSync(caseConfig)) {
-    const read = ts.readConfigFile(caseConfig, ts.sys.readFile);
-    if (read.error) {
-      console.error(`case tsconfig is unreadable: ${caseConfig}`);
-      process.exit(1);
-    }
-    const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, root);
-    if (parsed.errors.length) {
-      console.error(`case tsconfig is invalid: ${caseConfig}`);
-      for (const e of parsed.errors) {
-        console.error(`  ${ts.flattenDiagnosticMessageText(e.messageText, ' ')}`);
+  // A NESTED tsconfig (`programDir`) is a second program in the same case, as the parser
+  // treats it: its options are merged over the case root's, so one case can hold a strict
+  // program and a loose one side by side (#416). The caller picks, per file, the program
+  // whose directory governs it.
+  const configDirs = [root];
+  if (programDir !== undefined && path.resolve(programDir) !== root) {
+    configDirs.push(path.resolve(programDir));
+  }
+  for (const configDir of configDirs) {
+    const caseConfig = path.join(configDir, 'tsconfig.json');
+    if (fs.existsSync(caseConfig)) {
+      const read = ts.readConfigFile(caseConfig, ts.sys.readFile);
+      if (read.error) {
+        console.error(`case tsconfig is unreadable: ${caseConfig}`);
+        process.exit(1);
       }
-      process.exit(1);
+      const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, configDir);
+      if (parsed.errors.length) {
+        console.error(`case tsconfig is invalid: ${caseConfig}`);
+        for (const e of parsed.errors) {
+          console.error(`  ${ts.flattenDiagnosticMessageText(e.messageText, ' ')}`);
+        }
+        process.exit(1);
+      }
+      // Merged, not replaced: a case states the ONE option it is about and inherits the
+      // rest, so a case tsconfig cannot silently drop `lib` and change every other answer.
+      Object.assign(options, parsed.options);
+      // `noLib` and the default `lib` list contradict each other, and the default is ours,
+      // not the case's — so a case asking for noLib gets it rather than getting both.
+      if (options.noLib) delete options.lib;
+      // `files`/`include` are ignored on purpose — the file set is the directory walk above,
+      // which is what the parser is handed too.
     }
-    // Merged, not replaced: a case states the ONE option it is about and inherits the
-    // rest, so a case tsconfig cannot silently drop `lib` and change every other answer.
-    Object.assign(options, parsed.options);
-    // `noLib` and the default `lib` list contradict each other, and the default is ours,
-    // not the case's — so a case asking for noLib gets it rather than getting both.
-    if (options.noLib) delete options.lib;
-    // `files`/`include` are ignored on purpose — the file set is the directory walk above,
-    // which is what the parser is handed too.
   }
 
   const program = ts.createProgram(files, options);

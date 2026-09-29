@@ -1,0 +1,4 @@
+nominal	globals#Function.apply -> globals#CallableFunction.apply
+nominal	globals#Function.bind -> globals#CallableFunction.bind
+nominal	globals#Function.call -> globals#CallableFunction.call
+value	factory#<function-type>@18:23 -> factory#HandlerFactory.<arrow>
