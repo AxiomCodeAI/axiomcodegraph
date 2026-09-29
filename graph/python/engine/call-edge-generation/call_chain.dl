@@ -760,6 +760,59 @@ call_site_unresolved(site, caller, r, kind) :-
     site_class(site, "ambiguous_unknown"), site_caller(site, caller),
     site_reason(site, r), invocation_site(site, kind).
 
+// ── unresolved_value_callee(SiteKey, Binding) ────────────────────────────────
+// An unresolved call whose callee is a VALUE, not a name: `cb()` on a parameter, `f()`
+// on a loop or comprehension variable, `table[k]()`, `hook()` on what getattr returned,
+// `self.cb()` on a function stored in a field. Nothing about the name narrows what it
+// calls, so a question that finds no chain from its caller must answer "unknown", never
+// "independent" (the same relation, and the same Binding words, as the JavaScript rules).
+// A call on an untyped receiver (`obj.save()`) is not one: its name is the lead the
+// by-name search follows.
+// `cls(...)` in a classmethod constructs the class or a subclass of it, never an arbitrary
+// function, so it is not one.
+value_callee_site(site, c) :-
+    site_class(site, "ambiguous_unknown"), call_callee_is_value(site), call_callee_expr(site, c),
+    !expr_node("client", "CLS_REFERENCE", _, _, c).
+value_callee_binding(site, origin, kind, b2) :-
+    value_callee_site(site, c), expr_binding("client", b, ctx, c), ctx != "STORE",
+    binding_lookup("client", b, b2), binding_decl("client", _, _, kind, origin, b2).
+// what a local was assigned, when that is a getattr call: the attribute is picked by a
+// name the program computes
+value_callee_from_getattr(site) :-
+    value_callee_binding(site, _, _, b2), expr_binding("client", b2, "STORE", tgt),
+    assign_pair("client", tgt, val), call_of_expr(val, g), call_name(g, "getattr").
+value_callee_from_getattr(site) :-
+    value_callee_site(site, c), call_of_expr(c, g), call_name(g, "getattr").
+unresolved_value_callee(site, "getattr") :- value_callee_from_getattr(site).
+unresolved_value_callee(site, "parameter") :-
+    value_callee_binding(site, origin, _, _), (origin = "PARAMETER" ; origin = "LAMBDA_PARAM").
+unresolved_value_callee(site, "loop_variable") :-
+    value_callee_binding(site, origin, _, _), (origin = "FOR_TARGET" ; origin = "COMPREHENSION_TARGET").
+value_callee_names_value(origin) :- binding_decl("client", _, _, _, origin, _),
+    origin != "PARAMETER", origin != "LAMBDA_PARAM", origin != "FOR_TARGET", origin != "COMPREHENSION_TARGET",
+    origin != "FUNCTION_DEF", origin != "CLASS_DEF", origin != "IMPORT", origin != "TYPE_PARAM",
+    origin != "TYPE_ALIAS", origin != "MULTIPLE".
+unresolved_value_callee(site, "local") :-
+    value_callee_binding(site, origin, "LOCAL", _), value_callee_names_value(origin),
+    !value_callee_from_getattr(site).
+unresolved_value_callee(site, "module_variable") :-
+    value_callee_binding(site, origin, kind, _), kind != "LOCAL", value_callee_names_value(origin),
+    !value_callee_from_getattr(site).
+// `table[k]()`: an element of a collection
+unresolved_value_callee(site, "computed") :-
+    value_callee_site(site, c), expr_node("client", "SUBSCRIPT", _, _, c).
+// `make()()`, `(a or b)()`: the callee is what an expression evaluates to
+unresolved_value_callee(site, "expression") :-
+    value_callee_site(site, c), expr_node("client", k, _, _, c),
+    k != "NAME_REFERENCE", k != "SUBSCRIPT", k != "CLS_REFERENCE", k != "ATTRIBUTE_ACCESS",
+    !value_callee_from_getattr(site).
+// `self.cb()` where the class gives `cb` a field and no method: the function stored
+// there is whatever the constructor or a setter was handed
+unresolved_value_callee(site, "field") :-
+    site_class(site, "ambiguous_unknown"), invocation_site(site, "SELF_CALL"),
+    call_name(site, n), call_enclosing_type(site, t),
+    type_defines_field("client", t, n, _), !mro_lookup("client", t, n, _).
+
 // ── method_has_unknown_call(CallerMethodHash, SiteKey) ───────────────────────
 method_has_unknown_call(caller, site) :-
     site_class(site, "ambiguous_unknown"), site_caller(site, caller).
