@@ -1146,6 +1146,58 @@ def why_no_caller(g, ids, shown=2, decls=3):
     return out
 
 
+def entry_points_among(g, ids, targets=()):
+    """{symbol id: reason or None}: where execution enters, among `ids` (what reaches `targets`). One rule for `path '*'`
+    and `impact`, in every language (#1475, #1492):
+    - an `entry_points` row (a route, a lifecycle callback, a test) is an entry point WHATEVER calls it, with its reason.
+      A minimal-API route lambda has its definer as a "caller" in the graph, and a lifecycle override the subclass calls
+      through `base.` has a resolved caller, so "nothing calls it" alone dropped both.
+    - otherwise a method is one when nothing resolved calls it. A base's dispatch hop to its override is not a call: the
+      base's own callers are the override's callers. So an override reached only from a library base, or from a base
+      nothing resolved calls (a servlet's doGet, whose base the container runs), stays an entry point, and the override's
+      own `super.m()` / `base.M()` into that base does not count as calling itself.
+    - a method nothing calls that reaches the targets only by DEFINING an entry point (the method that registers a route
+      lambda) is not where execution enters for them: the framework runs the lambda, not its definer. Nor is a base
+      nothing calls that reaches them only through its override, when the override is listed: it is the same entry."""
+    ids = [m for m in ids if m in g.sym]
+    if not ids: return {}
+    reason = {}
+    if g.has('entry_points'):
+        for k in range(0, len(ids), 900):
+            part = ids[k:k + 900]
+            by_mid = {g.sym[i].get('method_id'): i for i in part if g.sym[i].get('method_id')}
+            if not by_mid: continue
+            for r in g.q("SELECT method_id, reason FROM entry_points WHERE method_id IN (%s) ORDER BY reason" % ','.join('?' * len(by_mid)), *by_mid):
+                reason.setdefault(by_mid[r['method_id']], r['reason'])
+    callers = collections.defaultdict(set)
+    for a, b, t in g.edges(): callers[b].add((a, t))
+    if not hasattr(g, '_dispatch_pairs'):
+        g._dispatch_pairs = {(r[0], r[1]) for r in g.q("SELECT DISTINCT base_method_id, candidate_method_id FROM dispatch_candidates"
+                                                        " WHERE base_method_id <> candidate_method_id")} if g.has('dispatch_candidates') else set()
+    disp = g._dispatch_pairs
+    def called(m):
+        seen = {m}; stack = [m]
+        while stack:
+            x = stack.pop()
+            for a, _t in callers.get(x, ()):
+                if (a, x) in disp:                       # through a base: whoever calls the base calls m
+                    if a not in seen: seen.add(a); stack.append(a)
+                elif a != m: return True                 # m's own call into its base is not a caller of m
+        return False
+    out = {m: reason.get(m) for m in ids if m in reason or g.sym[m]['is_test'] or not called(m)}
+    # what reaches the targets without stepping from a registered entry point up to the method that merely defines it
+    inside = set(ids) | set(targets); ahead = set(targets); fr = list(targets)
+    while fr:
+        x = fr.pop()
+        for a, t in callers.get(x, ()):
+            if a in inside and a not in ahead and not (t == 'defines' and x in reason) and not ((a, x) in disp and x in out):
+                ahead.add(a); fr.append(a)
+    return {m: r for m, r in out.items() if r or g.sym[m]['is_test'] or m in ahead}
+
+def entry_why(reason):
+    """the words a listed entry point carries after its location: why a framework enters it (a test says [test] already)"""
+    return f"   — {ax_edges.entry_phrase(reason)}" if reason and reason != 'test' else ''
+
 def closure(g, sel, upstream, limit=40, depth=40):
     g.export(); label, ids = g.resolve(sel, fragment=True)
     res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
@@ -1295,14 +1347,15 @@ def closure(g, sel, upstream, limit=40, depth=40):
         decs = {}
         if g.has('decorations'):
             for r in g.q("SELECT owner_id, name FROM decorations WHERE owner_id IN (%s)" % ','.join('?' * len(rows)), *[m for m, _ in rows]): decs.setdefault(r['owner_id'], []).append(r['name'].split('.')[-1])
-        ent = [(m, d) for m, d in rows if not adj.get(m) or g.sym[m]['is_test']]
+        why = entry_points_among(g, [m for m, _ in rows], ids)
+        ent = [(m, d) for m, d in rows if m in why]
         # two overloads share a display name, so (depth, display) is not a total order and a stable sort then keeps
         # whichever came first: add the id, which is unique, so the list does not depend on the row order.
         ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], x[0]))
-        print(f"  entry points among them ({len(ent)}: nothing resolved calls them — the caller is outside the graph — or a test), nearest first:")
+        print(f"  entry points among them ({len(ent)}: a framework enters them, for the reason given, or nothing resolved calls them — the caller is outside the graph — or a test), nearest first:")
         for m, d in ent[:limit]:
             tag = (' [test]' if g.sym[m]['is_test'] else '') + (' @' + ','.join(decs[m][:3]) if m in decs else '')
-            print(f"    {d:2} hop(s)  {g.disp(m)}{tag}   {g.loc(m)}")
+            print(f"    {d:2} hop(s)  {g.disp(m)}{tag}   {g.loc(m)}{entry_why(why[m])}")
         if len(ent) > limit: print(f"    … +{len(ent) - limit} (--limit N)")
     else:
         print(f"  nearest first:")
