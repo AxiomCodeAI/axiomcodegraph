@@ -1222,17 +1222,25 @@ def closure(g, sel, upstream, limit=40, depth=40):
             # which is not the line that makes the call, and a reader checking the hop wants the second. For a
             # direct caller that line is knowable exactly, so print it; beyond one hop there is no single site.
             qmark = ','.join('?' * len(ids))
+            # a chained route link (`router.get('/a', h1).post('/b', h2)`) is written on its own line, not its receiver's
+            link_line = {}
+            if any(d == 1 for _, d in np_[:limit]):
+                try:
+                    import ax_registration
+                    link_line = ax_registration.route_site_lines(g.q, g.site_file)
+                except Exception:
+                    pass
             for m, d in np_[:limit]:
                 at = ''
                 if d == 1:
-                    r = g.q("SELECT s.file_path f, s.start_line ln FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id "
-                            f"WHERE e.caller_id = ? AND e.callee_method_id IN ({qmark}) AND s.start_line IS NOT NULL "
-                            "ORDER BY s.start_line LIMIT 1", m, *ids)
+                    r = g.q("SELECT s.id sid, s.file_path f, s.start_line ln FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id "
+                            f"WHERE e.caller_id = ? AND e.callee_method_id IN ({qmark}) AND s.start_line IS NOT NULL", m, *ids)
                     if r:
-                        sf = g.site_file(r[0]['f'])
+                        ln, f = min((link_line.get(x['sid'], x['ln']), x['f'] or '') for x in r)
+                        sf = g.site_file(f)
                         # the call is nearly always written in the caller's own file, and repeating a 90-character
                         # path to say so pushes the name off the line. Same file, just the line.
-                        at = f"   — calls it at {':' if sf == (g.sym[m]['file'] or '') else sf + ':'}{r[0]['ln']}".replace('at ::', 'at :')
+                        at = f"   — calls it at {':' if sf == (g.sym[m]['file'] or '') else sf + ':'}{ln}".replace('at ::', 'at :')
                 print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}{at}")
             if len(np_) > limit: print(f"    … +{len(np_) - limit} production (--limit N)")
             if nt: print(f"    +{len(nt)} test caller(s) within 2 hop(s) — `axiomcode test-impact` names them and the command that runs them")
