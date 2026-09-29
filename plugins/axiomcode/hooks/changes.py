@@ -61,10 +61,10 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         It returns None for what it does not cover (a constructor, whose callers are instantiations rather than call
         edges); that falls through to impact.dl, which is still right for those."""
         try:
-            j = graph_sql.impact_shaped(cwd, d.get('shown_target') or d['target'])
+            j = graph_sql.impact_shaped(cwd, d['target'])
             if j is not None: return d, j
         except Exception: pass
-        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d.get('shown_target') or d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         results = list(ex.map(impact, decls[:3])); bodies = list(ex.map(impact, body[:3]))
@@ -108,7 +108,7 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         if reads:
             lines.append(f"    reads / uses it ({len(reads)}): " + names(reads) if not j.get('_sql')
                          else f"    reads / uses it — resolved callers: " + names(reads)
-                              + f" (the fast path; `axiomcode impact {d.get('shown_target') or d['target']}` adds the by-name, in-scope and text layers)")
+                              + f" (the fast path; `axiomcode impact {d['target']}` adds the by-name, in-scope and text layers)")
         # WHICH SIDE ANSWERED, in one word. The two paths give different answers by design — the fast path reads
         # call_edges and the rules add the by-name, in-scope and text layers — so a count nobody can attribute is a
         # count nobody can check. This cost a whole re-derivation once: three declarations reported 0 reached and

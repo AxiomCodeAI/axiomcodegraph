@@ -1822,7 +1822,10 @@ def main(argv):
     batches = [[t] for t in targets] if len(targets) <= 8 else [targets[k:k + 60] for k in range(0, len(targets), 60)]
     disp = {by_target[t].get('symbol'): t for t in targets}
     for batch in batches:
-        rc, o, e = run('axiomcode-impact', batch + [repo, '--tests', '--json'] + scope)
+        # a target is file:line (changed): a type or a field is asked as that kind, since a callable on its line (a
+        # record's constructor, an initializer's lambda) would otherwise answer for it
+        tk = by_target[batch[0]].get('target_kind') if len(batch) == 1 else None
+        rc, o, e = run('axiomcode-impact', batch + [repo, '--tests', '--json'] + scope + (['--kind', tk] if tk in ('type', 'field') else []))
         # EVERY TARGET HERE WAS READ FROM THE GRAPH by `changed` a moment ago, so a refusal is this program failing to
         # say it back, not a declaration the graph lacks. `Owner.m(p)` still refused is asked as `Owner.m` (the tests
         # that reach the method are the ones a parameter edit can fail); a batch still refused is asked one by one, so

@@ -1,0 +1,15 @@
+namespace App
+{
+    public class Job
+    {
+        public int Run()
+        {
+            return 1 + 0;
+        }
+
+        public int Run(int n)
+        {
+            return n * 2;
+        }
+    }
+}

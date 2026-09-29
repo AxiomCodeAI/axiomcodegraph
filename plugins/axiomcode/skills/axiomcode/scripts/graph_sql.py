@@ -67,10 +67,25 @@ def impact(repo, target, depth=DEPTH):
         # is not a parameter of that method is a DIFFERENT question (a one-argument signature), and the rules
         # answer it with their own ~20 cases, so it still declines.
         param = None
+        # `file:line` — THE DECLARATION AT THAT LINE, the target `changed` hands a hook for every edited declaration.
+        # By name (`main`, `run`) the lookup below matched every declaration carrying it, and the hook's blast radius
+        # for an edit in one `plan` named the callers of another. The callable whose header is on the line; else the
+        # narrowest one spanning it; nothing on the line declines, as an unknown name does.
+        def at_line(t):
+            m_ = re.fullmatch(r'(.+?):(\d+)', t)
+            if not m_: return None
+            f_, l_ = m_.group(1), int(m_.group(2))
+            r_ = q("SELECT id, kind, method_id FROM symbols WHERE file=? AND line=? AND method_id IS NOT NULL "
+                   "ORDER BY COALESCE(end_line, line) - line LIMIT 1", (f_, l_)).fetchall()      # a function on line 1, not its module
+            if not r_:
+                r_ = q("SELECT id, kind, method_id FROM symbols WHERE file=? AND line<=? AND COALESCE(end_line, line)>=? AND method_id IS NOT NULL "
+                       "ORDER BY COALESCE(end_line, line) - line LIMIT 1", (f_, l_, l_)).fetchall()
+            return r_[:1]
         m_par = re.fullmatch(r'(.+?)\(\s*([A-Za-z_]\w*)\s*\)', target.strip())
         if m_par:
             base, pname = m_par.group(1).strip(), m_par.group(2)
-            brows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (base,)).fetchall()
+            brows = at_line(base)
+            if brows is None: brows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (base,)).fetchall()
             if not brows: return None
             if not _has(lambda sql, *p_: q(sql, p_).fetchall(), 'refs'): return None
             ok = False
@@ -82,6 +97,8 @@ def impact(repo, target, depth=DEPTH):
                      (srow[0], srow[1], srow[2] or srow[1], pname)).fetchone(): ok = True; break
             if not ok: return None
             target, param, rows = base, pname, brows
+        elif at_line(target.strip()) is not None:
+            rows = at_line(target.strip())
         else:
             rows = q("SELECT id, kind, method_id FROM symbols WHERE display=? AND method_id IS NOT NULL", (target,)).fetchall()
             if not rows: rows = q("SELECT id, kind, method_id FROM symbols WHERE display=?", (target,)).fetchall()
@@ -179,6 +196,8 @@ def impact(repo, target, depth=DEPTH):
         # reads / uses it, by name: a site naming this method whose receiver the engine could not type. The parser
         # records callee_name and the bundle indexes it, so this is a lookup and not an inference.
         short = target.rsplit('.', 1)[-1]
+        if at_line(target.strip()):                                  # file:line: the name its declaration carries
+            short = (q("SELECT name FROM symbols WHERE id=?", (ids[0],)).fetchone() or [short])[0]
         byname = sorted({r[0] for r in q(
             """SELECT DISTINCT s.display FROM call_sites cs JOIN unresolved_sites us ON us.call_site_id=cs.id
                JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=? AND cs.id NOT IN (SELECT id FROM _stub)""", (short,))} - set(reads))

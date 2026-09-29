@@ -1,0 +1,15 @@
+namespace App
+{
+    public class Task
+    {
+        public int Run()
+        {
+            return 7;
+        }
+
+        public int Unique()
+        {
+            return 3;
+        }
+    }
+}

@@ -16,8 +16,9 @@ the graph knows at that line, and the change is classified — the same way in e
                 depends on them yet, so they are listed, not analysed
 
 The output is one line per changed declaration with the target `axiomcode impact` takes for it; `--impact` runs impact on all
-of them as one change set (the union) and prints its answer. A method whose only change is its body is a `method` target; a
-signature change with one parameter changed is `Owner.m(param)`; a field is `Owner.field`; a type header is `Type`.
+of them as one change set (the union) and prints its answer. The target is the declaration edited, `file:line` in the graph's
+lines, never its name (which answers for every declaration carrying it); a signature change with one parameter changed is
+`file:line(param)`. The name is printed on the same line.
 """
 import difflib, importlib.machinery, importlib.util, json, os, re, subprocess, sys
 
@@ -593,12 +594,28 @@ class Changed:
         out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in sigged)]
         if overrun_note: adds.append(overrun_note)
         # THE TARGET NAMES THIS DECLARATION, NOT EVERY DECLARATION OF ITS NAME. `symbol` stays the short display; the
-        # target a hook hands to impact is the full dotted name, or `square` also answers for every other `square`.
+        # target impact is asked is where the declaration is (at_line), and `shown_target` keeps its name for reading.
         for e in out:
             t = e.get('target')
+            if not t or e.get('lambda_'): continue
             q = self.qualified(e.get('id'), e.get('kind'))
-            if t and q and t.startswith(e['symbol']): e['target'] = q + t[len(e['symbol']):]; e['shown_target'] = t
+            sfx = t[len(e['symbol']):] if t.startswith(e['symbol']) else ''
+            e['shown_target'] = (q + sfx) if q else t
+            e['target'] = self.at_line(e.get('id'), sfx) or e['shown_target']
         return out, adds
+    def at_line(self, i, sfx=''):
+        """THE DECLARATION EDITED, AS file:line IN THE GRAPH'S OWN LINES. A name, even a module-qualified one, is not
+        one declaration: `main` in eight scripts, `score.main` in two directories, `axiomcode-install.main` (a name the
+        target grammar cannot spell, so it fell back to `main`), and an overload in Java or C#. Asked by name, impact
+        answered for all of them as one change: an edit inside one script's `main` listed 37 tests in 35 unrelated
+        files and missed the one test of that script. The graph's line (not the baseline's, which a refresh may have
+        moved) is what impact resolves back to exactly this declaration; `(p)`, a parameter, is kept after it."""
+        if i is None: return None
+        if isinstance(i, str) and i.startswith('f:'):
+            row = self.g.q("SELECT file, line FROM symbols WHERE rowid = ?", int(i[2:])) if i[2:].isdigit() else None
+            at = f"{row[0][0]}:{row[0][1]}" if row and row[0][0] and row[0][1] else None
+        else: at = self.g.lambda_target(i)
+        return at + sfx if at else None
     def new_file(self, rel, new, decls, is_py):
         """A FILE THE BASE DOES NOT HAVE is one change: `added <file> (N declarations)`. Read line by line as an insertion,
         a new module listed every function at line 1, each parameter list as a change and docstring words as methods. What
@@ -628,7 +645,8 @@ class Changed:
                 i = mids[m]; sy = self.g.all_sym[i]; lam = self.g.is_lambda(i)
                 out.append(dict(kind='added', symbol=self.g.lambda_label(i) if lam else sy['display'], id=i, file=rel, line=sy['line'], end=sy['end_line'] or sy['line'], old_lines=[],
                                 detail=f"new, and already called from outside this file ({len(cs)} caller(s): {', '.join(sorted(cs)[:3])}{' …' if len(cs) > 3 else ''})",
-                                target=(self.g.lambda_target(i) if lam else None) or self.qualified(i, 'method') or sy['display'], target_kind='method', referenced=True))
+                                target=self.at_line(i) or self.qualified(i, 'method') or sy['display'], shown_target=self.qualified(i, 'method') or sy['display'],
+                                target_kind='method', referenced=True))
         return out
     def whole_file(self, rel, why):
         """every callable the graph declares in a NAMED file, as changed: what `test-impact <file>` means when there is no
@@ -643,7 +661,8 @@ class Changed:
                 out.append(dict(kind='named', symbol=self.g.lambda_label(i), id=i, file=rel, line=a, end=b, old_lines=[], detail=why,
                                 target=self.g.lambda_target(i) or f"{rel}:{a}", target_kind='method')); continue
             out.append(dict(kind='named', symbol=d, id=i, file=rel, line=a, end=b, old_lines=[], detail=why,
-                            target=self.qualified(i, 'method') or d, target_kind='type' if k in ('class', 'interface', 'enum', 'type') else 'method'))
+                            target=self.at_line(i) or self.qualified(i, 'method') or d, shown_target=self.qualified(i, 'method') or d,
+                            target_kind='type' if k in ('class', 'interface', 'enum', 'type') else 'method'))
         if not out: out.append(dict(kind='named', symbol=rel, id=None, file=rel, line=1, end=1, old_lines=[], detail=why + '; the graph declares nothing in it', target=None))
         return out
     def qualified(self, i, kind):
@@ -803,7 +822,7 @@ def main(argv):
     named = [e for e in results if e['kind'] == 'named']; shown = [e for e in results if e['kind'] != 'named']
     print(f"changed declarations ({len(results)})" + (" — the two texts given" if (old_f or new_f) else against if C.built_at and mode == 'worktree' and not named else (f" — {rng}" if rng else '')) + ":")
     for e in shown:
-        tail = (f"   → impact {e.get('shown_target') or e['target']}" if e.get('target') else
+        tail = (f"   → impact {e['target']}" if e.get('target') else
                 ('' if e.get('new_file') else '   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else ''))
         print(f"  {e['kind']:<10} {e['symbol']}" + ('' if e.get('new_file') else f"   {e['file']}:{e['line']}") + (f"   — {e['detail']}" if e.get('detail') else '') + tail)
     by_file = {}
