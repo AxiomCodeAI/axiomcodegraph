@@ -1,0 +1,19 @@
+── framework_edge (14) ──
+  di_provider        registered  deps.ShapeFilter.__init__ (deps.py) -> deps.load_shape_size (deps.py)   [Depends]
+  di_provider        registered  handlers.by_alias (handlers.py) -> deps.check_region (deps.py)   [Depends]
+  di_provider        registered  handlers.by_alias (handlers.py) -> deps.load_cart (deps.py)   [Depends]
+  di_provider        registered  handlers.by_annotated (handlers.py) -> deps.check_region (deps.py)   [Depends]
+  di_provider        registered  handlers.by_annotated (handlers.py) -> deps.load_owner (deps.py)   [Depends]
+  di_provider        registered  handlers.by_decorator (handlers.py) -> deps.check_quota (deps.py)   [Depends]
+  di_provider        registered  handlers.by_decorator (handlers.py) -> deps.check_region (deps.py)   [Depends]
+  di_provider        registered  handlers.by_default (handlers.py) -> deps.check_region (deps.py)   [Depends]
+  di_provider        registered  handlers.by_default (handlers.py) -> deps.load_user (deps.py)   [Depends]
+  di_provider        registered  handlers.by_keyword (handlers.py) -> deps.load_owner (deps.py)   [Depends]
+  di_provider        registered  handlers.list_widgets (handlers.py) -> deps.ColorFilter.__init__ (deps.py)   [Depends]
+  di_provider        registered  handlers.list_widgets (handlers.py) -> deps.QuotaCheck.__call__ (deps.py)   [Depends]
+  di_provider        registered  handlers.list_widgets (handlers.py) -> deps.ShapeFilter.__init__ (deps.py)   [Depends]
+  di_provider        registered  handlers.list_widgets (handlers.py) -> deps.WidgetFilter.__init__ (deps.py)   [Depends]
+── framework_unjoined (0) ──
+── remote_edge (0) ──
+── remote_unserved (0) ──
+── remote_unsent (0) ──
