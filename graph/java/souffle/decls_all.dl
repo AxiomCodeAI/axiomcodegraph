@@ -488,6 +488,12 @@
 .decl concrete_class_type(c0:symbol)
 .decl lib_method_ret_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_arg_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl class_tvar_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // (type, super, superParam, arg) as seen from type
+.decl field_tvar(c0:symbol,c1:symbol,c2:symbol)                 // (field, ownerType, typeVariable) a field typed as its owner's variable
+.decl mtvar_ret(c0:symbol,c1:symbol)                            // (method, its own type variable it returns)
+.decl mtvar_class_param(c0:symbol,c1:symbol,c2:symbol)          // (method, typeVariable, position of its Class<T> parameter)
+.decl class_literal_type(c0:symbol,c1:symbol,c2:symbol)         // (classLiteralExpr, prov, type it names)
+.decl ref_names_tvar(c0:symbol)                                 // a reference whose name is a type variable in scope
 .decl type_fixes_super(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl arg_ref_at(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 
@@ -892,12 +898,9 @@
 .decl gen_prefix(c0:symbol,c1:symbol)                           // (prov,accessorPrefix)
 .decl gen_prefix_ambiguous(c0:symbol)
 .decl gen_prefix_applies(c0:symbol,c1:symbol,c2:symbol)
-.decl gen_prefix_key(c0:symbol)
 .decl gen_prefix_raw(c0:symbol,c1:symbol)
-.decl gen_prefix_value(c0:symbol,c1:symbol)
 .decl gen_pfx_junk(c0:symbol)
 .decl gen_pfx_step(c0:symbol,c1:symbol)
-.decl gen_accessor_src(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)    // (prov,owner,fieldName,fieldHash,kind)
 .decl gen_return_type(c0:symbol,c1:symbol,c2:symbol)            // (generatedGetterId, typeRef, type)
 .decl gen_capitalized(c0:symbol,c1:symbol)                      // (name, Name)
 .decl gen_accessor(c0:symbol,c1:symbol,c2:symbol,c3:symbol)     // (prov,owner,methodName,arity)
@@ -912,6 +915,45 @@
 .decl cfg_lib_bean_narrowing_enabled()
 .decl cfg_staged_lib_type(c0:symbol)
 .decl cfg_injectable_scope_type(c0:symbol)
+.decl gen_field_with_ann(c0:symbol)                             // annotation on a FIELD declaring a wither
+.decl gen_type_with_ann(c0:symbol)                              // annotation on a TYPE declaring a wither per field
+.decl gen_logger_type(c0:symbol,c1:symbol)                      // (logger annotation, qualified type of the field)
+.decl gen_static_arg(c0:symbol,c1:symbol)                       // (constructor annotation, element naming its static factory)
+.decl gen_acc(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol) // (prov,owner,fieldName,fieldType,fieldHash,kind)
+.decl gen_cfg_key(c0:symbol)                                    // a lombok.config key read here
+.decl gen_cfg_value(c0:symbol,c1:symbol,c2:symbol)              // (prov,key,rawValue)
+.decl gen_cfg_clean(c0:symbol,c1:symbol,c2:symbol)              // (prov,key,value with += / = peeled)
+.decl gen_style_opt(c0:symbol)                                  // an @Accessors element read here
+.decl gen_acc_ann_field(c0:symbol,c1:symbol,c2:symbol)          // (fieldHash,option,value) from @Accessors on the field
+.decl gen_acc_ann_type(c0:symbol,c1:symbol,c2:symbol)           // (ownerType,option,value) from @Accessors on the type
+.decl gen_acc_field_has(c0:symbol,c1:symbol)
+.decl gen_acc_type_has(c0:symbol,c1:symbol)
+.decl gen_style(c0:symbol,c1:symbol,c2:symbol)                  // (fieldHash,option,value) as the processor decides it
+.decl gen_fluent(c0:symbol)                                     // fieldHash whose accessors are fluent
+.decl gen_chain(c0:symbol)                                      // fieldHash whose setter returns the owner
+.decl gen_is_stripped(c0:symbol,c1:symbol,c2:symbol)            // (prov,fieldHash,name) boolean isX field -> X
+.decl gen_prop(c0:symbol,c1:symbol,c2:symbol)                   // (prov,fieldHash,propertyName)
+.decl gen_cap_demand(c0:symbol)
+.decl gen_acc_named(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol) // (prov,owner,fieldHash,kind,methodName,arity)
+.decl gen_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol) // (prov,owner,ownerQualifiedName,name,arity)
+.decl gen_field_type_q(c0:symbol,c1:symbol)                     // (generatedFieldId, qualified type name)
+.decl gen_field_type(c0:symbol,c1:symbol,c2:symbol)             // (generatedFieldId, prov, type)
+.decl gen_field_recv(c0:symbol,c1:symbol)                       // (receiverExpr, generatedFieldId)
+.decl gen_ctor_static(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // (prov,owner,shape,factoryName)
+.decl gen_ctor_arity(c0:symbol,c1:symbol,c2:number)             // (owner,shape,arity)
+.decl gen_ret_self(c0:symbol,c1:symbol)                         // (generatedMethodId, type it returns, no IR reference)
+.decl gen_builder(c0:symbol,c1:symbol,c2:symbol)                // (prov,owner,annotationHash)
+.decl gen_builder_opt(c0:symbol,c1:symbol,c2:symbol)            // (owner,element,value)
+.decl gen_builder_opt_has(c0:symbol,c1:symbol)
+.decl gen_builder_name(c0:symbol,c1:symbol,c2:symbol)           // (owner, class|method|build, name)
+.decl gen_builder_written(c0:symbol,c1:symbol,c2:symbol)        // (owner, builderType, qname) the source writes the builder
+.decl gen_builder_has_written(c0:symbol)
+.decl gen_builder_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol) // (prov,owner,builderType,builderQualifiedName)
+.decl gen_builder_field_skip(c0:symbol)
+.decl gen_builder_field(c0:symbol,c1:symbol,c2:symbol)          // (prov,owner,fieldName) with a builder setter
+.decl gen_delegate(c0:symbol,c1:symbol,c2:symbol)               // (prov,owner,delegateFieldType)
+.decl gen_delegate_kind(c0:symbol)
+.decl gen_delegate_target(c0:symbol,c1:symbol,c2:symbol,c3:symbol) // (delegateFieldType,name,arity,method)
 .decl gen_accessor_field(c0:symbol,c1:symbol)
 // call-edge-generation/event_dispatch.dl + knobs.dl (20): Spring application events (#1391)
 .decl cfg_event_publisher(c0:symbol,c1:symbol)

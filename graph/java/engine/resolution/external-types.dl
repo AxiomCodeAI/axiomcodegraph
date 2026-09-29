@@ -78,6 +78,23 @@ name_resolves_in_file(tn, fp) :- ref_file(_, tn, fp), type_resolves_java_lang(_,
 // on an inferred local got an `external:var.<m>` boundary beside its real target (3,842 of 85,025
 // edges on a 1,360-file project). Its type is the initializer's: local-flow.dl carries a client
 // one, and the `var` clause of expr_type below an external one. #1401.
+//
+// A TYPE VARIABLE is not a type name either. A field written `protected M mapper` in `Base<M>`
+// arrives as a CLASS reference named `M`, which nothing declares, so a call through it became a
+// library boundary on `external:M` (#1412). The variable is in scope from its declaring type, a
+// type enclosing that, or the generic method whose signature or body writes it.
+ref_names_tvar(ref) :- java_type_reference(_, _, encl, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, ref),
+    tn != "", java_type_parameter(tn, _, _, _, _, _, encl, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, encl, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, ref),
+    tn != "", type_in_type("client", encl, outer), java_type_parameter(tn, _, _, _, _, _, outer, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, _, _, _, _, _, "0", tn, _, _, _, _, _, _, m, "METHOD", ref),
+    tn != "", java_method_type_parameter(tn, _, _, _, _, _, _, m, _, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, _, _, _, _, _, "0", tn, _, _, _, _, _, _, p, "METHOD_PARAM", ref),
+    tn != "", java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p),
+    java_method_type_parameter(tn, _, _, _, _, _, _, m, _, _).
+ref_names_tvar(ref) :- java_type_reference(_, _, _, _, _, _, _, "0", tn, _, _, _, _, _, _, l, "LOCAL_VARIABLE", ref),
+    tn != "", java_local_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, l),
+    java_method_type_parameter(tn, _, _, _, _, _, _, m, _, _).
 candidate_ref(ref, tn, ctn, fp) :- java_type_reference(kind, ctx, _, _, _, _, _, "0", tn, ctn, _, _, _, _, _, _, _, ref),
     ext_ref_kind(kind),
     ext_ref_context(ctx),
@@ -85,7 +102,8 @@ candidate_ref(ref, tn, ctn, fp) :- java_type_reference(kind, ctx, _, _, _, _, _,
     tn != "var",
     ref_file(ref, tn, fp),
     !name_resolves_in_file(tn, fp),
-    !simple_name_declared(tn).
+    !simple_name_declared(tn),
+    !ref_names_tvar(ref).
 
 // ── ref_external_name(Ref, QualifiedName) ───────────────────────────────────
 ref_external_name(ref, q) :- candidate_ref(ref, tn, _, fp),
