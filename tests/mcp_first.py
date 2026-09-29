@@ -66,14 +66,19 @@ r = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'axiomcode-install'), 
 check('install --print prints the block', r.returncode == 0 and 'BEGIN axiomcode' in r.stdout, r.stderr[-200:])
 tool_first('install block', r.stdout, ('context', 'impact', 'path'))
 
-# 3. the directive before the first search; it needs only a graph file to exist
+# 3. the directive before the first search for a name the graph declares
 with tempfile.TemporaryDirectory() as repo:
+    import sqlite3
     os.makedirs(os.path.join(repo, '.axiomcode', 'out'))
-    open(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite'), 'w').close()
+    con = sqlite3.connect(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite'))
+    con.execute("CREATE TABLE symbols(name TEXT, display TEXT, kind TEXT, file TEXT, line INT, is_test INT)")
+    con.execute("INSERT INTO symbols VALUES ('findOrder', 'Repo.findOrder', 'method', 'src/Repo.java', 4, 0)")
+    con.commit(); con.close()
     rc, said = fire('direct.py', {'hook_event_name': 'PreToolUse', 'tool_name': 'Grep',
-                                  'tool_input': {'pattern': 'f'}, 'cwd': repo, 'session_id': 'm1'})
-    check('direct: the first search hears the directive', rc == 0 and bool(said), f'rc={rc}')
-    tool_first('direct', said, ('impact', 'path', 'context', 'changed', 'test-impact'))
+                                  'tool_input': {'pattern': 'findOrder'}, 'cwd': repo, 'session_id': 'm1'})
+    check('direct: the first search for a declared name hears the directive', rc == 0 and bool(said), f'rc={rc}')
+    # only the verbs that answer a search: changed / test-impact are about an edit, not about what a grep looks for
+    tool_first('direct', said, ('impact', 'path', 'context'))
 
 # 4. the orientation on the first prompt, both branches it can reach: a change question and a how-question
 with tempfile.TemporaryDirectory() as work:
