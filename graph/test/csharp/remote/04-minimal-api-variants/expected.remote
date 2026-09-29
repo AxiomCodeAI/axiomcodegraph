@@ -1,0 +1,16 @@
+edge	http	exact	/admin/items/{id}	Web.Services.DepotClient.Purge/1 -> ItemAdmin.Purge/1
+edge	http	exact	/any	Web.Services.DepotClient.Anything/0 -> ProbeEndpoints.Anything/0
+edge	http	exact	/api/parcels/{id}	Web.Services.DepotClient.Parcel/1 -> Api.Features.Parcels.ParcelEndpoints.GetParcel/1
+edge	http	exact	/api/users/{id}	Web.Services.DepotClient.User/1 -> GadgetEndpoints.User/1
+edge	http	exact	/dials	Web.Services.DepotClient.TurnDial/0 -> ProbeEndpoints.TurnDial/1
+edge	http	exact	/gadgets	Web.Services.DepotClient.Gadgets/0 -> Program.<lambda>/0
+edge	http	exact	/gadgets/{id}	Web.Services.DepotClient.Gadget/1 -> GadgetEndpoints.Show/1
+edge	http	exact	/gauges	Web.Services.DepotClient.SetGauge/1 -> ProbeEndpoints.SetGauge/1
+edge	http	exact	/health	Web.Services.DepotClient.Health/0 -> HealthEndpoints.Health/0
+edge	http	exact	/meters	Web.Services.DepotClient.ClearMeter/0 -> ProbeEndpoints.ClearMeter/0
+edge	http	exact	/probe	Web.Services.DepotClient.Probe/0 -> ProbeEndpoints.Probe/0
+edge	http	exact	/v1/items/{id}	Web.Services.DepotClient.OldItem/1 -> ItemEndpoints.GetItem/1
+edge	http	exact	/v2/items/{id}	Web.Services.DepotClient.NewItem/1 -> ItemEndpoints.GetItem/1
+unsent	http	-	/crates/{id}	Api.Features.Crates.CrateEndpoints.GetCrate/1
+unsent	http	-	/gizmos	Program.<lambda>/0
+unserved	http	-	/gauges	Web.Services.DepotClient.ReadGauge/0
