@@ -100,6 +100,10 @@ A = {
            dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
     # `const foo = () => …` : the method is named <arrow>; its name is the variable's
     boundNames=dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
+    # `obj.x = function …`, `{ all: (p) => … }`: named for the property, as JavaScript's are (#1585). The rows are
+    # read through `ts_member_rows`, which gives them JavaScript's expression shape
+    memberNames=dict(file='all-typescript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash',
+                     vars='all-typescript-variables.csv', shape='typescript'),
     skipped='skipped-typescript-files.csv'),
  'python': dict(
     modules=dict(file='all-python-modules.csv', id='pyModuleUniqueHash', filePath='filePath'),
@@ -242,12 +246,68 @@ if A['boundNames']:
 # PROPERTY_KEY sibling at the same childIndex). The owner is the receiver as written (`helpers`, `Foo` for
 # `Foo.prototype`), none for `exports` / `module.exports` / `this`; for a literal, the variable it initialises or the
 # key chain of the literal it is nested in. A named function expression keeps its own name: only placeholders move.
+TS_WRAPPERS = {'AS_EXPRESSION', 'SATISFIES_EXPRESSION', 'TYPE_ASSERTION', 'NON_NULL_EXPRESSION'}
+TS_ROLES = {'OBJECT_PROPERTY_KEY': 'PROPERTY_KEY', 'OBJECT_PROPERTY_VALUE': 'PROPERTY_VALUE',
+            'LEFT_OPERAND': 'ASSIGNMENT_TARGET', 'RIGHT_OPERAND': 'ASSIGNMENT_VALUE'}
+def ts_member_rows(file):
+    """TypeScript expression rows in the shape the naming pass reads (JavaScript's), and a map from a cast's id to the
+    expression it wraps. An arrow or function expression is a FUNCTION_EXPRESSION whose introducesDeclarationLinkHash is
+    its method; a literal's key and value are siblings at one `position`, the key's text in literalValue (a computed key
+    has no key row, so it names nothing); a property access has its name in a PROPERTY_NAME child and gets `text` as
+    written when its receiver is a dotted name. `x as T`, `x satisfies T`, `<T>x` and `x!` are seen through, so
+    `export const Api = { … } as const` is owned by `Api`."""
+    src = {r['tsExpressionUniqueHash']: r for r in rows(file) if r.get('tsExpressionUniqueHash')}
+    kids = collections.defaultdict(list)
+    for r in src.values(): kids[r.get('parentExpressionHash', '')].append(r)
+    def inner(i, depth=0):
+        r = src.get(i)
+        while r is not None and r.get('kind') in TS_WRAPPERS and depth < 8:
+            k = kids.get(r['tsExpressionUniqueHash'], ())
+            r = k[0] if len(k) == 1 else None; depth += 1
+        return r
+    def dotted(r, depth=0):
+        r = inner(r['tsExpressionUniqueHash']) if r else None
+        if r is None or depth > 8: return None
+        if r.get('kind') == 'THIS_REFERENCE': return 'this'
+        if r.get('kind') == 'IDENTIFIER_REFERENCE': return r.get('literalValue') or None
+        if r.get('kind') == 'PROPERTY_ACCESS':
+            ks = kids.get(r['tsExpressionUniqueHash'], ())
+            recv = next((k for k in ks if k.get('edgeRole') == 'RECEIVER'), None)
+            name = next((k.get('literalValue') for k in ks if k.get('edgeRole') == 'PROPERTY_NAME'), None)
+            o = dotted(recv, depth + 1)
+            return f"{o}.{name}" if o and name else None
+    def up(r):                                        # the parent and role, seen through the casts around r
+        p = src.get(r.get('parentExpressionHash', '')); role = r.get('edgeRole'); pos = r.get('position')
+        while p is not None and p.get('kind') in TS_WRAPPERS:
+            role = p.get('edgeRole'); pos = p.get('position'); p = src.get(p.get('parentExpressionHash', ''))
+        return p, role, pos
+    out = {}
+    for i, r in src.items():
+        kind = r.get('kind')
+        if kind in TS_WRAPPERS: continue
+        p, role, pos = up(r)
+        o = dict(jsExpressionUniqueHash=i, parentExpressionLinkHash=p['tsExpressionUniqueHash'] if p else '',
+                 edgeRole=TS_ROLES.get(role, role), childIndex=pos, operatorString=r.get('operatorString', ''),
+                 expressionKind={'ARROW_FUNCTION': 'FUNCTION_EXPRESSION', 'ASSIGNMENT_EXPRESSION': 'ASSIGNMENT'}.get(kind, kind),
+                 introducesDeclarationLinkHash=r.get('anonymousDeclarationHash', ''))
+        if role == 'OBJECT_PROPERTY_KEY' and (kind == 'IDENTIFIER_REFERENCE'
+                                              or (kind == 'LITERAL' and r.get('literalType') in ('STRING', 'NUMBER'))):
+            o['name'] = r.get('literalValue', '')
+        elif kind == 'PROPERTY_ACCESS':
+            ks = kids.get(i, ())
+            o['name'] = next((k.get('literalValue', '') for k in ks if k.get('edgeRole') == 'PROPERTY_NAME'), '')
+            o['text'] = dotted(r) or ''
+        out[i] = o
+    return out.values(), {i: inner(i)['tsExpressionUniqueHash'] for i, r in src.items() if r.get('kind') in TS_WRAPPERS and inner(i)}
 bound_owner = {}; cls_named = {}
 if A.get('memberNames'):
     mn = A['memberNames']; ex = {}; kids = collections.defaultdict(list)
-    for r in rows(mn['file']):
+    ts_shape = mn.get('shape') == 'typescript'
+    mrows, unwrap = ts_member_rows(mn['file']) if ts_shape else (rows(mn['file']), {})
+    for r in mrows:
         ex[r[mn['id']]] = r; kids[r.get('parentExpressionLinkHash', '')].append(r)
-    lit_var = {r['initializerExpressionLinkHash']: r['name'] for r in rows(mn['vars']) if r.get('initializerExpressionLinkHash') and r.get('name')}
+    lit_var = {unwrap.get(r['initializerExpressionLinkHash'], r['initializerExpressionLinkHash']): r['name']
+               for r in rows(mn['vars']) if r.get('initializerExpressionLinkHash') and r.get('name')}
     DOTTED = re.compile(r'^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$')
     def key_of(parent, role, idx):
         for k in kids.get(parent, ()):
@@ -363,8 +423,12 @@ def enum_constant_of(fp, ln):
     return None
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
     name = m['name'] or ckey.get(cmeth.get(m['id'], ''), '')
-    if name.startswith('<') and m['id'] in bound: name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
-    od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else bound_owner.get(m['id'])
+    renamed = name.startswith('<') and m['id'] in bound
+    if renamed: name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
+    # the object a function was assigned into names it before the class it is written in: `const o = { f: () => … }`
+    # inside a method of C is `o.f`, not `C.f` (a TypeScript arrow's owner type is the class around it). Only for a
+    # function that took the property's name: `helpers.alias = function realName …` stays `realName`
+    od = (renamed and bound_owner.get(m['id'])) or (tdisplay(m['owner_type_id']) if m['owner_type_id'] else None)
     if m['kind'] == 'ENUM_CONSTANT_METHOD' and od:
         k_ = enum_constant_of(rel(m['file_path']), m['start_line'] or 0)
         if k_: od = f"{od}.{k_}"
