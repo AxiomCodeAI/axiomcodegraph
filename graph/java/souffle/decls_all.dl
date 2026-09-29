@@ -35,6 +35,7 @@
 .decl entry_reachable(c0:symbol)
 .decl http_entry_ann(c0:symbol)
 .decl junit_entry_ann(c0:symbol)
+.decl annotation_type_category(c0:symbol)
 .decl cast_type_resolves(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl client_calls_client(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl client_calls_lib(c0:symbol,c1:symbol,c2:symbol,c3:symbol)

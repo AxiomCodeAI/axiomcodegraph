@@ -74,4 +74,16 @@ namespace App
         [GlobalTestInitialize] public static void Every(TestContext c) { }   // test (MSTest 3.10 lifecycle, #1503)
         [GlobalTestCleanup] public static void AfterEvery(TestContext c) { } // test
     }
+
+    // an attribute derived from a test attribute is one, transitively (#1497); one derived from Attribute is not
+    public class SlowFactAttribute : FactAttribute { }
+    public sealed class NightlyFactAttribute : SlowFactAttribute { }
+    public sealed class TracedAttribute : System.Attribute { }
+
+    public class DerivedAttributeTests
+    {
+        [SlowFact] public void Slow() { }                                // test, derived from FactAttribute
+        [NightlyFactAttribute] public void Nightly() { }                 // test, two levels down, with the suffix
+        [Traced] public void Traced() { }                                // not a test
+    }
 }

@@ -249,6 +249,7 @@
 .decl cs_string_passthrough(c0:symbol)
 .decl cs_string_type(c0:symbol)
 .decl cs_test_attr(c0:symbol)
+.decl cs_test_attr_type(c0:symbol)
 .decl cs_test_lifecycle_attr(c0:symbol)
 .decl cs_url_not_path_start(c0:symbol)
 .decl cseg(c0:symbol,c1:number,c2:symbol)
