@@ -555,9 +555,77 @@ def parent_up(edges, depth):
 
 
 import re as _re
+# ONE TEST CLASSIFICATION, read by the exporter (axiomcode-impact) and by every SQL answer here, so the two cannot
+# disagree on what a test is.
 TEST_DECOR = _re.compile(r'(^|\.)(\w*Test\w*|Fact|Theory|it|test)$')
-FIXTURE_DECOR = _re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', _re.I)
-FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}
+# A FIXTURE runs around the tests of its scope, and TEAR-DOWN is one as much as set-up: an exception in JUnit's
+# @AfterEach fails the test, one in @AfterAll fails the class, and MSTest's [TestCleanup] / [ClassCleanup] likewise.
+# Only the set-up half was listed, so a change reached from a teardown counted 0 tests (#1417). The runners' names,
+# as a language-neutral convention table: JUnit / TestNG @Before* / @After*, NUnit [SetUp] / [TearDown] /
+# [OneTimeSetUp] / [OneTimeTearDown], MSTest [TestInitialize] / [TestCleanup] / [ClassInitialize] / [ClassCleanup] /
+# [AssemblyInitialize] / [AssemblyCleanup] / [GlobalTestInitialize] / [GlobalTestCleanup], pytest @fixture.
+FIXTURE_DECOR = _re.compile(r'^(Before\w*|After\w*|fixture|setup\w*|teardown\w*|OneTime(SetUp|TearDown)'
+                            r'|(Global)?Test(Initialize|Cleanup)|(Class|Assembly)(Initialize|Cleanup))$', _re.I)
+FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll',
+                 'tearDown', 'tearDownClass', 'teardown', 'teardown_method', 'teardown_class', 'tearDownAfterClass', 'afterEach', 'afterAll'}
+# The `test*` NAMING convention carries the condition that the class is a test class -- JUnit 3 reads
+# it on a TestCase subclass, pytest only on a class matching python_classes (`Test*`). Read without
+# that condition it takes in a `@Bean` method of a nested @Configuration class and a method of a
+# Python class named anything at all, neither of which a runner ever invokes as a test (#1181).
+# Matched with search, not fullmatch: a mixin or base that only CONCRETE subclasses run --
+# `RFC2616PolicyTestMixin`, `StorageTestMixin`, `TestBase` -- declares real tests, collected
+# through a subclass named Test*. Anchoring the name dropped every one of them.
+TEST_OWNER = _re.compile(r'(Test|Spec|ITCase)')
+# a decoration that says the method is not a test the runner collects by its name:
+#  - a dependency the framework builds (`@Bean`, `@Provides`; a pytest `@fixture` whatever its name: `def test_image()`
+#    under it is built for the tests that request it, never collected, #1531);
+#  - an OVERRIDE (#1419): the method implements a supertype's, so whoever holds the supertype calls it -- a JUnit 5
+#    TestWatcher's `testSuccessful` / `testFailed`, a listener's `testStarted`. The naming convention finds a test
+#    by its DECLARATION on a test class; a callback of an extension interface is named by that interface.
+NON_TEST_DECOR = _re.compile(r'^(Bean|Configuration|Component|Provides|Produces|TestConfiguration|fixture|Override)$')
+# a file the runner imports for its fixtures and hooks and never collects tests from
+NON_TEST_FILE = _re.compile(r'(^|/)conftest\.py$')
+_RET_TYPE = _re.compile(r'\)\s*:\s*(.+)$')
+
+
+def _short_decoration(d):
+    return (d or '').split('.')[-1]
+
+
+def is_fixture_decoration(d):
+    return bool(FIXTURE_DECOR.match(_short_decoration(d)))
+
+
+def is_test_decoration(d):
+    """a decoration that marks its method as a test: @Test, [TestMethod], [Fact]. A set-up or tear-down attribute that
+    happens to contain the word (MSTest's [TestInitialize], [TestCleanup]) is a fixture, not a test (#1502)."""
+    return bool(TEST_DECOR.search(d or '')) and not is_fixture_decoration(d)
+
+
+def named_test(name, decs, owner, file, signature):
+    """the `test*` / `it*` naming convention, with the condition it actually carries: no owning type (a bare pytest
+    function, a module-level `function testX()`), or a type that is a test class; and no decoration that says the
+    method is something else (NON_TEST_DECOR)."""
+    if not (name or '').startswith(('test', 'it')): return False
+    if any(NON_TEST_DECOR.match(_short_decoration(d)) for d in decs or ()): return False
+    if NON_TEST_FILE.search(file or ''): return False
+    own = (owner or '').split('.')[-1]
+    if own and not TEST_OWNER.search(own): return False
+    # JUnit 3 reads the convention on `public void testX()`. A method that DECLARES a return
+    # type and it is not void is a helper the tests call -- `private Method[] testFoo()`.
+    # Languages whose signatures declare no return type are unaffected by this.
+    r = _RET_TYPE.search(signature or '')
+    return not r or r.group(1).strip() in ('void', 'Unit', 'None')
+
+
+def is_test_callable(name, decs, owner, file, signature):
+    """a test the runner collects: a test decoration, or the naming convention under its condition"""
+    return any(is_test_decoration(d) for d in decs or ()) or named_test(name, decs, owner, file, signature)
+
+
+def is_fixture_callable(name, decs):
+    """a callable the runner runs before or after the tests of its scope, by its name or its decoration"""
+    return name in FIXTURE_NAMES or any(is_fixture_decoration(d) for d in decs or ())
 
 
 TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
@@ -620,7 +688,8 @@ def _test_sets(q, lines=None, rel=None):
     A helper in a test file (`_assertAsBigInteger`) is neither, so it is not a test: it is a CARRIER, and the tests
     it brings are the ones declared beside it. Counting every is_test callable as a test returned the helpers and
     lost the seven @Test methods they carry.
-    A FIXTURE is a test type, a constructor or module, a known setUp name, or a Before*/fixture/setup* decoration.
+    A FIXTURE is a test type, a constructor or module, a known setUp / tearDown name, or a set-up or tear-down
+    decoration (Before* / After* / fixture / setup* / TestInitialize ...: FIXTURE_DECOR).
 
     A jest / vitest / mocha test is an ANONYMOUS callable handed to it(…) / test(…) / bench(…), so the name test
     above it is the registrar's, not the callable's. Without that second leg the test layer of a JS or TS bundle
@@ -631,13 +700,13 @@ def _test_sets(q, lines=None, rel=None):
     for oid, name in q("SELECT owner_id, name FROM decorations") if _has(q, 'decorations') else []:
         dec.setdefault(oid, []).append(name or '')
     tm, fx = set(), set()
-    for sid, name, kind, mid, tid in q("SELECT id, name, kind, method_id, type_id FROM symbols WHERE is_test=1"):
+    for sid, name, kind, mid, tid, owner, f, sig in q("SELECT id, name, kind, method_id, type_id, owner, file, signature FROM symbols WHERE is_test=1"):
         d = dec.get(sid, ())
-        # a pytest fixture named test_* is built for the tests that request it and never collected (#1531)
-        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))) \
-                and not any((x or '').split('.')[-1] == 'fixture' for x in d):
+        # the exporter's own rule (is_test_callable): a test decoration, or the test* name under its condition. The
+        # name alone, read with no owner condition, counted a TestWatcher's testFailed callback as a test (#1419)
+        if mid and kind in ('method', 'function') and is_test_callable(name, d, owner, f, sig):
             tm.add(sid)
-        if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):
+        if (tid and not mid) or kind in ('constructor', 'module') or is_fixture_callable(name, d):
             fx.add(sid)
     # …and the anonymous ones, named as tests by the registrar written on their own declaration line
     if lines is not None:
@@ -1003,7 +1072,7 @@ def no_caller_reasons(q, mids):
     A wrapper (INERT_DECORATIONS, or a decorator this repository declares) is never a reason and never hides the
     by-name count. The type-level reasons (base, type decoration) are skipped for a private, static or constructor
     member, which is never entered through its type. A method with no reason gets []."""
-    out = {}
+    out = {}; members = None
     has = {t: _has(q, t) for t in ('entry_points', 'decorations', 'methods', 'overrides', 'unresolved_sites', 'call_sites')}
     client_fn = {}
     def in_repo_decorator(name):
@@ -1027,7 +1096,8 @@ def no_caller_reasons(q, mids):
             if not sn or sn in INERT_DECORATIONS: continue
             shown = '@' + ((t or '').split('(')[0].strip().lstrip('@[') or (n or '')).rstrip(']')
             # the key a decoration registers it under, by the convention decoration_keys applies (none on a test)
-            keys = [] if s.get('is_test') else ax_registration.decoration_key_strings(t)
+            if not s.get('is_test') and members is None: members = ax_registration.member_names(q)
+            keys = [] if s.get('is_test') else ax_registration.decoration_key_strings(t, n, members)
             if keys: rs.append(('registered', f'{shown} "{keys[0]}"', loc(f, l)))
             elif not in_repo_decorator(sn): rs.append(('framework', shown, loc(f, l)))
         row = q("SELECT kind, visibility, owner_type_id FROM methods WHERE id = ?", mid) if has['methods'] else []

@@ -1,0 +1,14 @@
+{"lang": "python",
+ "checks": [
+  {"why": "a keyword argument that configures a decorator (mode=) is not the key it registers the function under (#1413)",
+   "expect_error": true, "run": ["path", "*", "Widget.fill"],
+   "avoid": ["registered under \"before\""]},
+  {"why": "so a function that only returns the same word does not reach the validator (#1413)",
+   "run": ["impact", "Widget.fill"],
+   "avoid": ["pick"]},
+  {"why": "control: the route's positional path is still its key",
+   "expect_error": true, "run": ["path", "*", "list_widgets"],
+   "want": ["registered as a route \"/widgets\""]},
+  {"why": "the route's methods= list configures it and is no key: a function returning \"GET\" does not reach the handler (#1413)",
+   "expect_error": true, "run": ["path", "*", "list_widgets"],
+   "avoid": ["registered under \"GET\""]}]}
