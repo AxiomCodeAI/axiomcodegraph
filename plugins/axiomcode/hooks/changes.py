@@ -73,7 +73,7 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
     # name or a text match, and neither a hand-off nor a truncated fan-out outranks a resolved call.
     rank = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'in scope': 4, 'by name': 5, 'text': 6}
     for d, j in results:
-        hd = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
+        hd = f"  {d.get('label') or d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(hd + "  (impact unavailable)"); continue
         con = j.get('contract', []); dr = sorted(j.get('direct', []), key=lambda x: (rank.get(x['certainty'], 9), x['display'])); rc = j.get('reached', []); ts = j.get('tests', [])
         prod = [x for x in dr if x['role'] in ('produces', 'writes')]; reads = [x for x in dr if x['role'] in ('reads', 'uses')]

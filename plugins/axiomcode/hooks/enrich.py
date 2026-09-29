@@ -193,7 +193,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     base = (ch.get('built_at') or '')[:10]
     if decls: lines.append(f"graph: this edit changed {len(decls)} declaration(s) in {rel}" + (f" (against the graph's commit {base})" if base else '') + " —")
     for d, j in results:
-        head = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
+        head = f"  {d.get('label') or d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(head + "  (impact unavailable)"); continue
         con = j.get('contract', []); dr = j.get('direct', []); rc = j.get('reached', []); ts = j.get('tests', [])
         # ordered as ax_edges.DIRECT_ORDER and impact's CERT are: an edge the engine asserted outranks a

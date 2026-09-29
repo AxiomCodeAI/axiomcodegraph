@@ -161,7 +161,7 @@ class V:
         try: truth = json.loads(r.stdout)
         except Exception: self.fact(False, f"change {rel}: `changed` failed: {(r.stdout + r.stderr).strip()[-160:]}"); return
         os.unlink(fo.name); os.unlink(fn.name)
-        tset = {(d['kind'], d['symbol']) for d in truth.get('changed', [])}
+        tset = {(d.get('label') or d['kind'], d['symbol']) for d in truth.get('changed', [])}
         cur = None
         for l in text.split('\n')[1:]:
             # "(impact unavailable)" is the hook giving up — the CLI raised or blew its timeout. It is a legitimate
@@ -170,15 +170,15 @@ class V:
             # numbers reads exactly like a fix that turns wrong numbers into right ones. This runs the CLI itself,
             # without the hook's timeout, so the question it asks is answerable: did the hook give up on something
             # the tool can answer?
-            mu = re.match(r'  (signature|body|field|type|removed|added) (\S+).*\(impact unavailable\)$', l)
+            mu = re.match(r'  (signature|body|field|variable|type|removed|added) (\S+).*\(impact unavailable\)$', l)
             if mu:
                 cur = None
                 self.fact(False, f"change {rel}: the hook gave up on {mu.group(1)} {mu.group(2)} — the block carries"
                                  f" no claim about it at all, while this check answers it from the same CLI")
                 continue
-            mm = re.match(r'  (signature|body|field|type|removed|added) (\S+)(?: — (.*))?$', l)
+            mm = re.match(r'  (signature|body|field|variable|type|removed|added) (\S+)(?: — (.*))?$', l)
             if mm:
-                cur = next((d for d in truth.get('changed', []) if d['symbol'] == mm.group(2) and d['kind'] == mm.group(1)), None)
+                cur = next((d for d in truth.get('changed', []) if d['symbol'] == mm.group(2) and (d.get('label') or d['kind']) == mm.group(1)), None)
                 self.fact(cur is not None, f"change {rel}: block names {mm.group(1)} {mm.group(2)} but `changed` on the same texts gives {sorted(tset)[:4]}")
                 if cur and cur.get('target'):
                     r2 = subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), cur['target'], self.repo, '--json', '--depth', '12'] + (['--kind', cur['target_kind']] if cur.get('target_kind') and cur['target_kind'] != 'param' and '(' not in cur['target'] else []), capture_output=True, text=True)
