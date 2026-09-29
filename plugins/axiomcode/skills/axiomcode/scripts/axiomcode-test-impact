@@ -2040,7 +2040,13 @@ def main(argv):
         if why:
             print("\n  why each one is here:")
             for i, r in sorted(tests.items(), key=lambda kv: (kv[1].get('hops') or 99, kv[1].get('display', '')))[:limit]:
-                chain = " -> ".join(r.get('chain') or []) or "reaches it directly"
+                ch = r.get('chain') or []
+                # a fixture-selected test's route runs test <- fixture -> ... -> the change: the first hop is the runner
+                # handing the fixture's result to the test, not a call the test makes (#1424)
+                if r.get('via') and len(ch) > 1 and ch[1] == r['via']:
+                    chain = f"{ch[0]} <- " + " -> ".join(ch[1:])
+                else:
+                    chain = " -> ".join(ch) or "reaches it directly"
                 print(f"    {r.get('display')}  [{r.get('certainty')}]  {chain}")
         if replaced:
             # one line however many: an abstract class runs nothing by name, so the command names what extends it

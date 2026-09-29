@@ -175,7 +175,7 @@ DIRECT_WHY = {
 # …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
 # value (a JavaScript callback's wording): the dependent sends it, and a framework runs the handler for what is sent.
 TIER_WHY = {
-    'event_dispatch': 'sends the request or event this handles — a framework runs it for what is sent here, no call site names it',
+    'event_dispatch': 'sends the request or event this handles, or builds the class mock whose proxy runs this constructor — a framework runs it for what is sent here, no call site names it',
 }
 
 

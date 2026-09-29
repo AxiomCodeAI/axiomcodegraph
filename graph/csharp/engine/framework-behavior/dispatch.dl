@@ -155,3 +155,32 @@ med_dispatch(e, m) :- med_declared_handler(e, m).
 med_send_matcher(e) :- med_send_arg(e, a), call_callee_name("client", a, n0), last_segment(n0, n), cs_mock_arg_matcher(n).
 call_chain_edge(e, from, "-", m, "client", "event_dispatch", kind) :- med_send_site(e, from, _, _), med_dispatch(e, m),
     !med_send_matcher(e), from != m, invocation_site("client", e, kind).
+
+// ── A CLASS MOCK RUNS ITS TYPE'S CONSTRUCTOR ────────────────────────────────
+// `new Mock<PriceRule>(2m)` and `Substitute.ForPartsOf<PriceRule>(2m)` construct a proxy
+// subclass of PriceRule, and the proxy's constructor calls PriceRule(decimal) with the
+// arguments given. The site's own target is the library's (Mock's constructor,
+// ForPartsOf), so `impact` on the constructor left those tests out and `path` called the
+// two independent (#1495). The hop is ADDED beside the site's row, on the tier a
+// framework-run hop takes (event_dispatch), as the mediator's is above; the site's own
+// resolution is unchanged. The overload is chosen by argument count, as for `new C(args)`.
+// Knobs: cs_mock_new_type, cs_mock_factory, cs_mock_behavior_arg.
+mock_ctor_site(e, gk) :- expr_new_type_ref("client", e, tr), type_ref_name("client", tr, n0), last_segment(n0, n),
+    cs_mock_new_type(n), type_ref_arg("client", tr, "0", ar), type_ref_resolves("client", ar, gk).
+mock_ctor_site(e, gk) :- call_receiver_text("client", e, rn0), last_segment(rn0, rn), call_callee_name("client", e, sn),
+    cs_mock_factory(rn, sn), call_type_argc("client", e, "1"),
+    type_ref_owner("client", tr, e, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_resolves("client", tr, gk).
+last_segment_demand(n) :- expr_new_type_ref("client", _, tr), type_ref_name("client", tr, n).
+last_segment_demand(n) :- call_receiver_text("client", e, n), call_callee_name("client", e, sn), cs_mock_factory(_, sn).
+// `new Mock<C>(() => new C(1))` hands Moq the construction to run: that lambda's own
+// `new` is the call, and the site passes no constructor arguments.
+mock_ctor_lambda(e) :- mock_ctor_site(e, _), arg_index(e, 0, a), expr_kind("client", a, "LAMBDA").
+mock_ctor_behavior(e) :- mock_ctor_site(e, _), arg_index(e, 0, a), expr_written_name("client", a, w),
+    cs_mock_behavior_arg(b), strlen(w) > strlen(b), substr(w, 0, strlen(b) + 1) = cat(b, ".").
+mock_ctor_argc(e, ac) :- mock_ctor_site(e, _), !mock_ctor_lambda(e), !mock_ctor_behavior(e), call_argc("client", e, ac).
+mock_ctor_argc(e, ac) :- mock_ctor_site(e, _), !mock_ctor_lambda(e), mock_ctor_behavior(e), call_argc("client", e, ac0),
+    ac = to_string(to_number(ac0) - 1).
+mock_ctor(e, ctor) :- mock_ctor_site(e, gk), mock_ctor_argc(e, ac), type_ctor("client", gk, ctor), ctor_accepts_argc("client", ctor, ac).
+call_chain_edge(e, from, "-", ctor, "client", "event_dispatch", kind) :- mock_ctor(e, ctor), call_from("client", e, from),
+    from != ctor, invocation_site("client", e, kind).
