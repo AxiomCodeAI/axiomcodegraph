@@ -319,6 +319,11 @@ class G:
                 if p == root or p.startswith(root.rstrip('/') + '/'):
                     return os.path.relpath(p, root).replace(os.sep, '/'), False
         return f.lstrip('/'), True
+    def file_lines(self, f):
+        """how many lines the indexed file `f` has on disk, or None when it cannot be read there"""
+        try:
+            with open(os.path.join(self.repo, f), 'rb') as h: return len(h.read().splitlines())
+        except OSError: return None
     def _resolve(self, sel, fragment=False):
         s = sel.strip().strip('`"\'')
         # file:line, or file:line:col as a stack trace prints it — the column never changes which callable spans the line
@@ -340,6 +345,12 @@ class G:
                 if len(files) > 12: rows.append(f"  … +{len(files) - 12} more")
                 die(f"'{m.group(1)}' matches {len(files)} indexed files — give enough of the path to name one:\n" + '\n'.join(rows))
             if files: f = files[0]
+            # A LINE OUTSIDE THE FILE IS REFUSED (#1601). Line 0, or a line past the end — a number copied before the file
+            # was edited, or from an old stack trace — spans no callable, so it fell through to the module node and was
+            # answered as the file's top-level code, as if that line existed. The file on disk is what the reader sees.
+            if ln < 1: die(f"line {ln} is not in {f}: lines are numbered from 1")
+            n = self.file_lines(f) if files else None
+            if n is not None and ln > n: die(f"{f} has {n} line{'' if n == 1 else 's'}; line {ln} is not in it")
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
             r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
