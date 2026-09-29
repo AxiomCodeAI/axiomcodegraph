@@ -74,7 +74,10 @@ jobs:
           set -euo pipefail
           for pair in java:java typescript:typescript python:python javascript:javascript; do
             lang="${pair%%:*}"
-            case_dir="$(ls -d graph/test/$lang/cases/*/src | head -1)"
+            # A glob, not ls | head: under pipefail, head exiting early SIGPIPEs ls and fails the step.
+            cases=(graph/test/"$lang"/cases/*/src)
+            case_dir="${cases[0]}"
+            [ -d "$case_dir" ] || { echo "::error::no $lang case under graph/test/$lang/cases"; exit 1; }
             bash .github/scripts/e2e-install.sh artifacts/engines-linux-x64 linux-x64 "$lang" "$case_dir"
           done
 
