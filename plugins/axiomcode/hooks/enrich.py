@@ -195,7 +195,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     for d, j in results:
         head = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(head + "  (impact unavailable)"); continue
-        con = j.get('contract', []); dr = j.get('direct', []); rc = j.get('reached', []); ts = j.get('tests', [])
+        con = j.get('contract', []); dr = graph_sql.hook_direct(j); rc = j.get('reached', []); ts = j.get('tests', [])
         # ordered as ax_edges.DIRECT_ORDER and impact's CERT are: an edge the engine asserted outranks a
         # name or a text match, and neither a hand-off nor a truncated fan-out outranks a resolved call.
         rank = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'in scope': 4, 'by name': 5, 'text': 6}

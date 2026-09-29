@@ -448,6 +448,17 @@ jobs:
         # AXIOM_SUITE_JOBS=1 here would run them one at a time, as they used to.
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
 
+      # The hooks answer impact from SQL (graph_sql.impact_shaped) and fall back to the rules (dl/impact.dl) only when
+      # it declines, so the two must list the same rows for the same edit: tests/fastpath.py indexes a small case, asks
+      # both on each target shape, and runs hooks/changes.py on one edit through each path. Same parser and engine
+      # cache as the suite above. Not typescript: its case needs the TypeScript engine; javascript has no case.
+      - name: the hooks' fast path agrees with the rules (${{ matrix.lang }})
+        if: matrix.lang == 'python' || matrix.lang == 'java' || matrix.lang == 'csharp'
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        run: python3 tests/fastpath.py --lang ${{ matrix.lang }}
+
       # Saved whether or not the suite passed. The binary does not depend on the verdict:
       # run-souffle.sh publishes it only whole and verified (a temp name, then a rename),
       # so a red run's engine is as good as a green one's, and the run that most needs the
