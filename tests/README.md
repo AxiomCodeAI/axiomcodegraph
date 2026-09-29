@@ -33,6 +33,8 @@ One check needs no graph and is its own script:
                                          directly, through an npm-style symlink to bin/axiomcode.js, on the SDK-free
                                          fallback, and from .mcp.json, .codex-plugin/mcp.json and .cursor-plugin
                                          as each host starts it
+    python3 tests/mixed_separators.py    the verb dispatcher finds its own folder when $0 mixes / and \, as the MCP
+                                         server starts it on Windows (every MCP tool call failed there from 0.1.3)
     python3 tests/manifests.py           every agent's manifest (Claude, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
                                          them, and Gemini's skill and Cursor's rule are current copies
