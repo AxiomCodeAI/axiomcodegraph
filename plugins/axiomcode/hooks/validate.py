@@ -18,6 +18,7 @@ import collections, atexit, json, os, random, re, sqlite3, subprocess, sys, temp
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 'skills', 'axiomcode', 'scripts'))
 from ax_contract import subtokens, is_synthetic        # the annotation's own tokeniser, so this checks its claim
+from graph_sql import hook_direct                      # the rows the hook lists, as the hook picks them
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 def hook(script, event, tool, inp, cwd, session='validate', extra=None):
@@ -194,7 +195,7 @@ class V:
             m3 = re.match(r'    (produces / writes|reads / uses) it \((\d+)\): (.*)', l)
             if m3:
                 roles = ('produces', 'writes') if m3.group(1).startswith('produces') else ('reads', 'uses')
-                rows = [x for x in j.get('direct', []) if x['role'] in roles]
+                rows = [x for x in hook_direct(j) if x['role'] in roles]
                 self.fact(int(m3.group(2)) == len(rows), f"change {cur['symbol']}: {m3.group(1)} count {m3.group(2)} vs {len(rows)}")
                 for nm in re.findall(r'(\S+) \S+:\d+', m3.group(3)): self.fact(any(x['display'] == nm for x in rows), f"change {cur['symbol']}: {nm} is not a {m3.group(1)} entry in impact")
             # the hop clause is optional because the line has carried one since the shim's depth was fixed — and
