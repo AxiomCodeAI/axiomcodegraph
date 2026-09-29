@@ -247,6 +247,14 @@ if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   exit 1
 fi
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
+# ── --closed-world on narrows the dispatch fan and records it (#473) ─────────
+# The goldens pin the default (CHA) fan; this solves case 82 with the flag on and checks
+# that exactly the never-constructed implementors drop, each with an assumption row, and
+# that a class built through `new`, through a registry, or through a subclass stays.
+if ! bash "$HERE/tools/closed-world-dispatch-test.sh"; then
+  echo "aborting: --closed-world does not narrow the fan the way it claims"
+  exit 1
+fi
 WORK="$HERE/.work"
 # shellcheck source=../tools/case-pool.sh
 . "$ROOT/graph/test/tools/case-pool.sh"

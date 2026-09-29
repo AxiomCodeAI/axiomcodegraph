@@ -1,0 +1,45 @@
+Auth.jsx:12:18 FUNCTION_CALL useCallback  ->  ambiguous_unknown  -
+Auth.jsx:12:18 FUNCTION_CALL useCallback  ->  callback_registered  Auth.jsx:12:30 <arrow>
+Auth.jsx:13:10 JSX_ELEMENT <ThemeCtx value={useMemo(() => ({ toggle }), [toggle])}>{chi  ->  ambiguous_unknown  -
+Auth.jsx:13:27 FUNCTION_CALL useMemo  ->  ambiguous_unknown  -
+Auth.jsx:13:27 FUNCTION_CALL useMemo  ->  callback_registered  Auth.jsx:13:35 <arrow>
+Auth.jsx:18:22 FUNCTION_CALL useContext  ->  ambiguous_unknown  -
+Auth.jsx:19:18 JSX_ATTRIBUTE onClick={logout}  ->  callback_registered  Auth.jsx:7:18 <arrow>
+Auth.jsx:23:30 FUNCTION_CALL useContext  ->  ambiguous_unknown  -
+Auth.jsx:27:10 JSX_ELEMENT <AuthCtx.Consumer>{(auth) => <a onClick={auth.logout}>out</a  ->  ambiguous_unknown  -
+Auth.jsx:27:42 JSX_ATTRIBUTE onClick={auth.logout}  ->  callback_registered  Auth.jsx:7:18 <arrow>
+Auth.jsx:32:30 FUNCTION_CALL useContext  ->  ambiguous_unknown  -
+Auth.jsx:33:18 JSX_ATTRIBUTE onClick={toggle}  ->  callback_registered  Auth.jsx:12:30 <arrow>
+Auth.jsx:33:18 JSX_ATTRIBUTE onClick={toggle}  ->  callback_registered  Auth.jsx:4:49 <arrow>
+Auth.jsx:3:24 FUNCTION_CALL createContext  ->  ambiguous_unknown  -
+Auth.jsx:4:25 FUNCTION_CALL createContext  ->  ambiguous_unknown  -
+Auth.jsx:4:25 FUNCTION_CALL createContext  ->  callback_registered  Auth.jsx:4:49 <arrow>
+Auth.jsx:8:10 JSX_ELEMENT <AuthCtx.Provider value={{ logout }}>{children}</AuthCtx.Pro  ->  ambiguous_unknown  -
+Menu.jsx:5:16 FUNCTION_CALL useAuth  ->  known_edge  Auth.jsx:23:24 <arrow>
+Menu.jsx:6:14 JSX_ATTRIBUTE onClick={auth.logout}  ->  callback_registered  Auth.jsx:7:18 <arrow>
+Plain.jsx:9:21 FUNCTION_CALL connect  ->  known_edge  db.js:1:1 connect
+Profile.jsx:10:18 JSX_ATTRIBUTE onSubmit={onSave}  ->  callback_registered  Profile.jsx:4:1 saveProfile
+Profile.jsx:10:44 JSX_ATTRIBUTE onClick={this.props.onSave}  ->  callback_registered  Profile.jsx:4:1 saveProfile
+Profile.jsx:14:16 FUNCTION_CALL connect  ->  ambiguous_unknown  -
+Profile.jsx:14:16 FUNCTION_CALL connect  ->  callback_registered  Profile.jsx:4:1 saveProfile
+Profile.jsx:14:16 FUNCTION_CALL connect(null, { onSave: saveProfile })  ->  ambiguous_unknown  -
+Profile.jsx:21:15 JSX_ATTRIBUTE onClick={this.props.onOpen}  ->  callback_registered  Profile.jsx:16:1 openFavorites
+Profile.jsx:25:35 FUNCTION_CALL connect  ->  ambiguous_unknown  -
+Profile.jsx:25:35 FUNCTION_CALL connect  ->  callback_registered  Profile.jsx:16:1 openFavorites
+Profile.jsx:25:35 FUNCTION_CALL connect(null, { onOpen: openFavorites })  ->  ambiguous_unknown  -
+Settings.jsx:12:16 FUNCTION_CALL connect  ->  ambiguous_unknown  -
+Settings.jsx:12:16 FUNCTION_CALL connect  ->  callback_registered  Settings.jsx:7:25 <arrow>
+Settings.jsx:12:16 FUNCTION_CALL connect  ->  callback_registered  Settings.jsx:8:28 <arrow>
+Settings.jsx:12:16 FUNCTION_CALL connect(mapStateToProps, mapDispatchToProps)  ->  ambiguous_unknown  -
+Settings.jsx:12:16 FUNCTION_CALL connect(mapStateToProps, mapDispatchToProps)  ->  callback_registered  Settings.jsx:3:1 Settings
+Settings.jsx:4:18 JSX_ATTRIBUTE onClick={props.onClickLogout}  ->  callback_registered  Settings.jsx:9:18 <arrow>
+Settings.jsx:9:24 FUNCTION_CALL dispatch  ->  ambiguous_unknown  -
+main.jsx:10:7 JSX_ELEMENT <ThemeProvider>\n        <LogoutButton /><LogoutLink /><Them  ->  known_edge  Auth.jsx:11:1 ThemeProvider
+main.jsx:11:25 JSX_ELEMENT <LogoutLink />  ->  known_edge  Auth.jsx:26:1 LogoutLink
+main.jsx:11:39 JSX_ELEMENT <ThemeButton />  ->  known_edge  Auth.jsx:31:1 ThemeButton
+main.jsx:11:54 JSX_ELEMENT <Menu />  ->  known_edge  Menu.jsx:4:1 Menu
+main.jsx:11:9 JSX_ELEMENT <LogoutButton />  ->  known_edge  Auth.jsx:17:1 LogoutButton
+main.jsx:12:30 JSX_ELEMENT <ConnectedProfile />  ->  known_edge  Profile.jsx:8:3 render
+main.jsx:12:50 JSX_ELEMENT <Plain />  ->  known_edge  Plain.jsx:4:1 Plain
+main.jsx:12:9 JSX_ELEMENT <ConnectedSettings />  ->  known_edge  Settings.jsx:3:1 Settings
+main.jsx:9:5 JSX_ELEMENT <AuthProvider>\n      <ThemeProvider>\n        <LogoutButton  ->  known_edge  Auth.jsx:6:1 AuthProvider

@@ -69,6 +69,10 @@ BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIG
 # the one name a front end gives every lambda it declares (Python and C#; Java declares none): a name that says nothing
 # about WHICH lambda, so it is never a target on its own (G.lambda_label, G.lambda_target)
 LAMBDA_NAMES = {'<lambda>'}
+# what a front end synthesises ON a field's line that is the field's own, never a callable written there (G.decl_at_line):
+# the node that runs a class's field initializers, and the unnamed function an initializer holds (`cb = wrap(() => …)`),
+# which JavaScript and TypeScript name `<arrow>` / `<function-expression>` where Python and C# say `<lambda>`
+FIELD_OWNED_NAMES = {'<static-init>', '<instance-init>', '<arrow>', '<function-expression>'}
 # a reference the parser binds to a VALUE (refs.entity_kind, as each front end spells it): the name there is a variable,
 # a parameter, a member or a function, never a type, so it is not evidence of a type the code uses without declaring
 VALUE_BINDINGS = {'VARIABLE', 'LOCAL_VARIABLE', 'GLOBAL_VARIABLE', 'FREE_VARIABLE', 'NONLOCAL_VARIABLE', 'PARAMETER',
@@ -257,7 +261,9 @@ class G:
         fend = max([x.get('end_line') or x['line'] for x in fields], default=ln)
         for x in spanning:
             s = self.sym.get(x['id']) or self.all_sym.get(x['id']) or {}
-            if fields and self.is_lambda(x['id']) and ln <= (s.get('line') or 0) and (s.get('end_line') or 0) <= fend: continue
+            # the initializer's own lambda, or the node that runs the class's field initializers, is the field's
+            if (fields and (self.is_lambda(x['id']) or s.get('name') in FIELD_OWNED_NAMES)
+                    and ln <= (s.get('line') or 0) and (s.get('end_line') or 0) <= fend): continue
             if types and s.get('kind') == 'constructor' and s.get('line') == ln and (s.get('end_line') or ln) == ln: continue
             return None                                                   # a callable of its own is written on this line
         return ('field', fields[0]) if fields else ('type', types[0])

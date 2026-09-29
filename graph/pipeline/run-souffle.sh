@@ -45,7 +45,10 @@ DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAUL
 LANG_ARG=""   # which rule set under graph/<lang>/ to run. Default java.
 TAINT=""      # --taint on → gate lib→lib GROW on client-seeded data flow (dataflow/taint.dl). Also
               # settable via env AXIOM_TAINT_GATING=on. Empty = ungated (default behavior).
-MODE="run"    # run | print-engine-id | emit-program — the last two need no IR and no souffle
+CLOSED_WORLD="" # --closed-world on → narrow the dispatch fan to types the program constructs (RTA),
+              # and record every edge that drops as an assumption row. Env AXIOM_DISPATCH_CLOSED_WORLD=on.
+              # Empty = the fan is every declared override (default). See #473.
+MODE="run"   # run | print-engine-id | emit-program — the last two need no IR and no souffle
 EMIT=""
 while [ $# -gt 0 ]; do case "$1" in
   --client-ir) CLIENT="$2"; shift 2;; --library) LIB="$2"; shift 2;;
@@ -54,6 +57,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --dispatch-cap) DISPATCH_CAP="$2"; shift 2;;
   --lib-depth) LIB_DEPTH="$2"; shift 2;;
   --taint) TAINT="$2"; shift 2;;
+  --closed-world) CLOSED_WORLD="$2"; shift 2;;
   --language) LANG_ARG="$2"; shift 2;;
   --print-engine-id) MODE="print-engine-id"; shift;;
   --emit-program) MODE="emit-program"; EMIT="$2"; shift 2;;
@@ -195,7 +199,7 @@ write_program(){
   map_rels_su "$TPL/client-ir.map" || return 1
   map_rels_su "$TPL/lib.map" sig || return 1
   for r in $LIB_BODY; do _SU+=("$r"); done
-  _SU+=(jdk_max_depth lib_max_depth taint_gating dispatch_cap)
+  _SU+=(jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world)
   sort_unique_su
   PROGRAM_INPUTS=(${_SU[@]+"${_SU[@]}"})
   # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
@@ -247,7 +251,7 @@ write_program(){
 # the expected one, each exactly once, with nothing extra. Exit status only: no pipe to lose.
 verify_program(){
   awk -v cmap="$TPL/client-ir.map" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
-      -v libsig=" $LIB_SIG " -v extra="$LIB_BODY jdk_max_depth lib_max_depth taint_gating dispatch_cap" '
+      -v libsig=" $LIB_SIG " -v extra="$LIB_BODY jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world" '
     function want(line) { if (!(line in need)) { need[line] = 1; n++ } }
     function inp(r) { want(".input " r "(IO=file, filename=\"" r ".facts\", delimiter=\"\\t\", rfc4180=true)") }
     function maprels(path, sigonly,   l, rc, r, k) {
@@ -504,6 +508,17 @@ echo "▶ taint gating = $( [ -s "$FACTS/taint_gating.facts" ] && echo 'on (opt-
 CAP_EFF="${AXIOM_DISPATCH_CAP:-$DISPATCH_CAP}"
 case "$CAP_EFF" in off|none|no|0|"") CAP_EFF="";; esac
 [ -n "$CAP_EFF" ] && printf '%s\n' "$CAP_EFF" > "$FACTS/dispatch_cap.facts"
+
+# dispatch_closed_world — OPT-IN RTA narrowing of the dispatch fan (#473). The file always exists
+# so its .input directive is generated; EMPTY = the fan is every declared override (the default,
+# and what every golden pins). "on" admits only overrides a constructed or escaping type can
+# reach, and exports each dropped edge as an assumption row: the narrowing is sound only when
+# every construction is in the analysed code, so the bundle says it was made. Only front ends
+# that read the relation change; the others ignore it.
+: > "$FACTS/dispatch_closed_world.facts"
+CW_EFF="${AXIOM_DISPATCH_CLOSED_WORLD:-$CLOSED_WORLD}"
+case "$CW_EFF" in on|yes|1|true) CW_EFF="on"; printf 'on\n' > "$FACTS/dispatch_closed_world.facts";; *) CW_EFF="off";; esac
+echo "▶ dispatch closed world = $CW_EFF"
 echo "▶ dispatch cap = $( [ -s "$FACTS/dispatch_cap.facts" ] && echo "$(cat "$FACTS/dispatch_cap.facts") (default; --dispatch-cap off for unbounded reachability)" || echo 'OFF — uncapped/sound (sink & taint traversal)' )"
 
 # engine-ii (lib-frontier forward-chain) is GATED — default OFF so the build is CLIENT-ONLY
@@ -803,7 +818,7 @@ BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
 "${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
   --library "$LIB" --lib-facts "$LIBDIR" "${BUNDLE_FLAGS[@]}" \
   --meta "engine_commit=$ENGINE_COMMIT" \
-  --meta "dispatch_cap=${CAP_EFF:-off}" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
+  --meta "dispatch_cap=${CAP_EFF:-off}" --meta "dispatch_closed_world=$CW_EFF" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
   --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))" \
   ${EXTRA_META[@]+"${EXTRA_META[@]}"}
 

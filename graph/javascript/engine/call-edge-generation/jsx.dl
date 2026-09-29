@@ -26,7 +26,10 @@
 // A tag bound to a component WRAPPER (`memo(C)`, `forwardRef(fn)`, `observer(C)`,
 // `withRouter(C)`) or a LOADER (`lazy(() => import("./x"))`) renders what the wrapper
 // was handed or what the loader settles to — see "wrapped and lazy components" below.
-// Not modelled: `connect(…)(C)` and other curried wrappers.
+// Redux's curried `connect(…)(C)` is such a wrapper, and it also hands C the props its
+// map functions return; React context hands `useContext(Ctx)` the provider's `value`
+// — see "props that come from outside the element" below. Not modelled: other curried
+// wrappers.
 // ============================================================================
 
 // ── the element and what its tag holds ──────────────────────────────────────
@@ -67,6 +70,16 @@ jsx_component_loader(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n,
 jsx_vue_definer_name("defineComponent").
 jsx_vue_definer_name("defineNuxtComponent").
 jsx_vue_definer(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n, _, _, _, w, _, _), jsx_vue_definer_name(n).
+// Redux `connect(mapState, mapDispatch)(C)`: the OUTER call is the wrapper, its argument
+// 0 the component. Keyed on the callee being a call of `connect`, so a plain
+// `connect(db)` or a `connect(…)` whose result is not called again stays out.
+jsx_connect_call(w, inner) :- expr_kind(_, "CALL", _, w), expr_child(_, w, "CALLEE", _, inner),
+    expr_kind(_, "CALL", _, inner), call_site("client", _, "connect", _, _, _, inner, _, _).
+jsx_component_wrapper(w) :- jsx_connect_call(w, _).
+// React `createContext(…)`: not a wrapper, but it reaches `<Ctx.Provider>` and
+// `useContext(Ctx)` the ways a component reaches a tag, so jsx_holds follows it too.
+// No jsx_call_renders rule reads it: holding a context renders nothing.
+jsx_context_create(c) :- expr_kind(_, "CALL", _, c), call_site("client", _, "createContext", _, _, _, c, _, _).
 
 // jsx_holds(Expr, Call) — the wrapper or loader call an expression holds, followed the
 // ways a component reaches a tag: the call itself, a const initialised with it, a named
@@ -74,6 +87,7 @@ jsx_vue_definer(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n, _, _
 jsx_holds(w, w) :- jsx_component_wrapper(w).
 jsx_holds(w, w) :- jsx_component_loader(w).
 jsx_holds(w, w) :- jsx_vue_definer(w).
+jsx_holds(c, c) :- jsx_context_create(c).
 jsx_holds(e, w) :- expr_binding(_, v, e), jsx_var_holds(v, w).
 jsx_var_holds(v, w) :- var_init(_, _, e, v), !var_binding_form(_, "OBJECT_PATTERN", v), !var_binding_form(_, "ARRAY_PATTERN", v),
     jsx_holds(e, w).
@@ -171,6 +185,57 @@ param_value(p, "obj", je) :- jsx_tag_value(je, "ctor", t), type_construct_target
     method_decl("client", _, _, _, _, _, _, m), !method_is_hot(m, _),
     param_decl(_, _, "0", m, p), !param_is_rest(_, p).
 prop_value("inst", t, "props", "obj", je) :- jsx_tag_value(je, "ctor", t), type_decl("client", _, _, _, _, t).
+
+// ── props that come from outside the element ────────────────────────────────
+// Two library conventions hand a component values no JSX attribute names, so a
+// handler reached through them had no use: `onClick={props.onClickLogout}` and
+// `const { logout } = useContext(Ctx); … onClick={logout}` registered nothing.
+//
+// connect(mapState, mapDispatch)(C): C's props also hold what each map function
+// returns, and the object form of mapDispatch (`connect(null, { onSave })`) itself.
+// Every returned object is merged into one props value, as the library does.
+jsx_connect_props(w, k, i) :- jsx_connect_call(w, inner), call_arg(inner, pos, a), pos <= 1,
+    expr_value(a, "func", f), return_value(f, k, i), k = "obj".
+jsx_connect_props(w, "obj", o) :- jsx_connect_call(w, inner), call_arg(inner, 1, a), expr_value(a, "obj", o).
+param_value(p, k, i) :- jsx_connect_props(w, k, i), jsx_call_renders(w, kc, ic), kc != "ctor", callable_value(kc, ic, m),
+    method_decl("client", _, _, _, _, _, _, m), !method_is_hot(m, _),
+    param_decl(_, _, "0", m, p), !param_is_rest(_, p).
+// A class component reads them as `this.props` in its OWN methods. Not a prop_value of
+// the instance: that is inherited (value-flow.dl), and a subclass connected on its own
+// (`class Favorites extends Profile`, each with its connect) would read the parent's
+// handlers too.
+jsx_connect_class_props(t, k, i) :- jsx_connect_props(w, k, i), jsx_call_renders(w, "ctor", t), type_decl("client", _, _, _, _, t).
+expr_value(e, k, i) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, "props", e),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_kind(_, "THIS", _, r), expr_owner(_, m, _, r),
+    this_value(m, "inst", t), jsx_connect_class_props(t, k, i).
+
+// React context: `useContext(Ctx)` (and React 19's `use(Ctx)`) evaluates to the `value`
+// of every `<Ctx.Provider value={…}>` (React 19: `<Ctx value={…}>`) of the same
+// createContext call, and to that call's default argument. "Same" is the call the
+// argument and the tag hold, followed through consts, imports and re-exports — never
+// the name — so two contexts in one app keep their values apart.
+jsx_context_tag(je, c) :- jsx_element_tag(je, tag), expr_kind(_, "PROPERTY_ACCESS", _, tag), expr_name(_, "Provider", tag),
+    expr_child(_, tag, "ACCESS_TARGET", _, r), jsx_holds(r, c), jsx_context_create(c).
+jsx_context_tag(je, c) :- jsx_element_tag(je, tag), jsx_holds(tag, c), jsx_context_create(c).
+jsx_context_value(c, k, i) :- jsx_context_tag(je, c), prop_value("obj", je, "value", k, i).
+jsx_context_value(c, k, i) :- jsx_context_create(c), call_arg(c, 0, a), expr_value(a, k, i).
+// The provider's value is usually memoised — `useMemo(() => ({ user, logout }), [user])`
+// with its handlers in `useCallback(fn, deps)` — and React's library is not staged, so
+// both calls had no value. useMemo evaluates to what its argument 0 returns,
+// useCallback to argument 0 itself.
+expr_value(u, k, i) :- expr_kind(_, "CALL", _, u), call_site("client", _, "useMemo", _, _, _, u, _, _),
+    call_arg(u, 0, a), expr_value(a, "func", f), return_value(f, k, i).
+expr_value(u, "func", f) :- expr_kind(_, "CALL", _, u), call_site("client", _, "useCallback", _, _, _, u, _, _),
+    call_arg(u, 0, a), expr_value(a, "func", f).
+jsx_context_reader_name("useContext").
+jsx_context_reader_name("use").
+expr_value(u, k, i) :- expr_kind(_, "CALL", _, u), call_site("client", _, n, _, _, _, u, _, _), jsx_context_reader_name(n),
+    call_arg(u, 0, a), jsx_holds(a, c), jsx_context_create(c), jsx_context_value(c, k, i).
+// `<Ctx.Consumer>{(value) => …}</Ctx.Consumer>` — the render function receives it.
+param_value(p, k, i) :- jsx_element_tag(je, tag), expr_kind(_, "PROPERTY_ACCESS", _, tag), expr_name(_, "Consumer", tag),
+    expr_child(_, tag, "ACCESS_TARGET", _, r), jsx_holds(r, c), jsx_context_create(c),
+    prop_value("obj", je, "children", "func", m), method_decl("client", _, _, _, _, _, _, m),
+    param_decl(_, _, "0", m, p), !param_is_rest(_, p), jsx_context_value(c, k, i).
 
 // ── the rows ────────────────────────────────────────────────────────────────
 // The caller is the callable whose body holds the markup; top-level markup

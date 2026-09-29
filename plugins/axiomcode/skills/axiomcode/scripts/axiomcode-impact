@@ -488,10 +488,16 @@ class Impact:
             if tids: out.append(('type', f"{self.g.sym[tids[0]]['kind']} {self.g.disp(tids[0])}" + (f" (+{len(tids)-1})" if len(tids) > 1 else ''), tids))
         # a const declared ON the line is the declaration written there: the enclosing module spans the line and a
         # function in its initializer (`const h = wrap(async (req, res) => …)`) starts on it, and neither is what was asked
-        # — unless that function IS the const (`const h = async (req, res) => …` is named `h`), which stays the method
+        # — unless that function IS the const (`const h = async (req, res) => …` is named `h`), which stays the method.
+        # A CLASS field is the other way round: G.decl_at_line has already taken it when only its own initializer node
+        # or lambda is written there, so what is left on its line is a callable of its own that its initializer
+        # declares (`static cfg = make({ run() {…} })`), and that callable is what the line names (#1752)
         if kind is None and out and out[0][0] == 'field' and re.fullmatch(r'.+\.\w+:\d+', s):
-            named = {self.g.sym[i]['name'] for i in self.methods(s, soft=True) if self.g.sym[i].get('line') == out[0][2][0]['line']}
-            if not named & {f['name'] for f in out[0][2]}: return out
+            at = [i for i in self.methods(s, soft=True) if self.g.sym[i].get('line') == out[0][2][0]['line']]
+            if not {self.g.sym[i]['name'] for i in at} & {f['name'] for f in out[0][2]}:
+                if at and out[0][2][0].get('kind') == 'field': out = out[1:]
+                # the same header as every other file:line answer: the line says WHICH declaration of the name
+                else: return [(k, f"{lbl} (at {s})", p) for k, lbl, p in out]
         if kind in (None, 'method'):
             mids = self.methods(s, soft=True)
             # `Type` written alone is the type, and its construction is Type.<init>, so a bare type name must not

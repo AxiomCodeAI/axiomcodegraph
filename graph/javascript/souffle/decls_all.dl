@@ -70,6 +70,13 @@
 .decl jsx_vue_module(c0:symbol)
 .decl jsx_vue_module_renders(c0:symbol)
 .decl jsx_vue_tag_module(c0:symbol, c1:symbol)
+.decl jsx_connect_call(c0:symbol, c1:symbol)
+.decl jsx_connect_props(c0:symbol, c1:symbol, c2:symbol)
+.decl jsx_connect_class_props(c0:symbol, c1:symbol, c2:symbol)
+.decl jsx_context_create(c0:symbol)
+.decl jsx_context_tag(c0:symbol, c1:symbol)
+.decl jsx_context_value(c0:symbol, c1:symbol, c2:symbol)
+.decl jsx_context_reader_name(c0:symbol)
 
 // ── call-edge-generation/calls.dl ──
 .decl method_prov(c0:symbol, c1:symbol)
@@ -385,6 +392,7 @@
 .decl literal_contains_method_nested(c0:symbol, c1:symbol)
 // ── executor knobs (written by run-souffle.sh for every language; unread here) ──
 .decl dispatch_cap(c0:symbol)
+.decl dispatch_closed_world(c0:symbol)
 .decl jdk_max_depth(c0:number)
 .decl lib_max_depth(c0:number)
 .decl taint_gating(c0:symbol)

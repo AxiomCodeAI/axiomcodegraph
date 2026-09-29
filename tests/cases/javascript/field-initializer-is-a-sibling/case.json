@@ -9,5 +9,9 @@
   {"why": "and the method of a class expression written in it", "run": ["path", "ClsExpr.<static-init>", "tick"], "want": ["[defines", "<anonymous-class>.m", "tick"]},
   {"why": "a one-line instance initializer defines the method of the plain object it holds", "run": ["path", "PlainObj.<instance-init>", "tick"], "want": ["[defines", "onClick", "tick"]},
   {"why": "and of the object literal it hands to a call", "run": ["path", "InstObj.<instance-init>", "tick"], "want": ["[defines", "fetch", "tick"]},
-  {"why": "the line of such an initializer names the callable written inside it, not both", "run": ["impact", "src/app.js:32"], "want": ["change: run (at src/app.js:32)"], "avoid": ["callables at src/app.js:32"]},
+  {"why": "the line of such an initializer names the callable written inside it, not both", "run": ["impact", "src/app.js:32"], "want": ["change: run (at src/app.js:32)"], "avoid": ["callables at src/app.js:32", "change: field ObjLit.cfg"]},
+  {"why": "an instance field's initializer that declares a method names that method, as a static one does", "run": ["impact", "src/app.js:47"], "want": ["change: fetch (at src/app.js:47)"], "avoid": ["change: field InstObj.api"]},
+  {"why": "control: a static field whose initializer only calls is the field, not the node that runs the initializers", "run": ["impact", "src/app.js:6"], "want": ["change: field Registry.count (at src/app.js:6)"], "avoid": ["<static-init>"]},
+  {"why": "control: an instance field whose initializer only calls is the field", "run": ["impact", "src/app.js:12"], "want": ["change: field Panel.size (at src/app.js:12)"], "avoid": ["<instance-init>"]},
+  {"why": "control: an arrow in a field's initializer is part of the field", "run": ["impact", "src/app.js:25"], "want": ["change: field Host.cb (at src/app.js:25)"], "avoid": ["change: <arrow>"]},
   {"why": "control: on a one-line class the method beside the initializer, and a function after the class, stay its siblings", "run": ["path", "OneLine.<static-init>", "tick"], "want": ["no chain of resolved calls connects"], "avoid": ["defines"], "expect_error": true}]}
