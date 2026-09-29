@@ -62,6 +62,32 @@ def bound_ref_null_check(lines, at):
 
 PRIM = {'B':'byte','C':'char','D':'double','F':'float','I':'int','J':'long','S':'short','Z':'boolean','V':'void'}
 
+def strip_generics(s):
+    """Remove every balanced <...> group from a javap class-header line.
+
+    CLASS_HDR matches the type-parameter list with `(?:<[^>]*>)?`, which stops at the FIRST `>`, so a
+    bound that is itself generic, `class SelfMid<S extends SelfMid<S>> extends SelfBase<S>`, leaves a
+    stray `>` and the header does not match at all. The class is then never opened: its methods are
+    declared on whichever class javap printed before it, and its calls are made from there. On a
+    self-typed class that produced a caller that exists nowhere (`RawService#probe.SelfMid()`: the
+    constructor's rendered name, never renamed to <init> because the class was not the one open),
+    so an empty implicit constructor escaped the skip below and its super() read as a written call;
+    and a call to a method such a class declares (`withTimeout` on `SelfBase<S extends SelfBase<S>>`)
+    found no declaration on its owner and was dropped from the ground truth. Stripping the groups
+    first makes the match independent of how deeply the bounds nest. The supertypes are read with
+    their arguments removed either way."""
+    out, d = [], 0
+    for ch in s:
+        if ch == '<':
+            d += 1
+        elif ch == '>':
+            if d > 0:
+                d -= 1
+        elif d == 0:
+            out.append(ch)
+    return ''.join(out)
+
+
 def desc_params(desc):
     inner = desc[desc.index('(')+1:desc.rindex(')')]
     out, i = [], 0
@@ -143,7 +169,7 @@ def parse(classes, names):
     in_bsm = None; bsm_idx = None; bsm_is_lambda = False
     for i, raw in enumerate(out):
         line = raw.rstrip(); s = line.strip()
-        m = CLASS_HDR.match(s)
+        m = CLASS_HDR.match(strip_generics(s))
         if m and (m.group(2) in names or '.' in m.group(2)):
             cls = m.group(2).split('<')[0]; meth = None
             for g in (m.group(3), m.group(4)):
