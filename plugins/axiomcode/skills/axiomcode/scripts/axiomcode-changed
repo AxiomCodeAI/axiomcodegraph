@@ -59,11 +59,52 @@ def resolve_range(repo, rng):
     mb = (sh('git', 'merge-base', ha, hb, cwd=repo) or '').strip()
     if not mb:
         return ha, hb, f"range: {a} and {b} share no history, so this compares the two tips"
+    # A BRANCH BEHIND THE ONE b WAS REBASED ONTO. After `git rebase origin/x` (or a pull) with the local x never updated, the
+    # merge-base with x is the OLD fork point, and every commit origin/x brought in between counted as b's own. When x's
+    # upstream (or origin/x) holds more of b's history than x does, the fork is read from it, and the note says so; a
+    # commit named by its sha, or a branch that is not behind, is read exactly as written.
+    fr = fresher_base(repo, a, hb, mb)
+    if fr:
+        u, mu = fr
+        return mu, hb, (f"range base: merge-base {mu[:10]} of {u} and {b}, not of {a} — {a} is behind {u}, and {b} already holds "
+                        f"{u}'s commits up to {mu[:10]} (a rebase or a pull onto {u}), which are not {b}'s own; "
+                        f"name a commit instead of {a} to read from {a} itself")
     if mb == ha: return ha, hb, None                                        # a is an ancestor of b: exactly the old answer
     moved = (sh('git', 'rev-list', '--count', f'{mb}..{ha}', cwd=repo) or '?').strip()
     return mb, hb, (f"range base: merge-base {mb[:10]} of {a} and {b}, not {a} itself — {a} has moved {moved} commit(s) since "
                     f"{b} forked from it, and those are not changes of {b}'s; this answers for {b}'s own commits"
                     + (" (a...b already means this)" if dots == 3 else ''))
+
+def fresher_base(repo, a, hb, mb):
+    """(ref, merge-base) when `a` is a local branch and its upstream, or origin/<a>, forked from b LATER than `a` did: b was
+    rebased onto (or pulled from) that remote ref while `a` stayed behind. None otherwise."""
+    if sh('git', 'show-ref', '--verify', '-q', f'refs/heads/{a}', cwd=repo) is None: return None
+    ups = [(sh('git', 'rev-parse', '--abbrev-ref', '-q', f'{a}@{{upstream}}', cwd=repo) or '').strip(), f'origin/{a}']
+    for u in dict.fromkeys(x for x in ups if x):
+        hu = (sh('git', 'rev-parse', '--verify', '-q', f'{u}^{{commit}}', cwd=repo) or '').strip()
+        mu = (sh('git', 'merge-base', hu, hb, cwd=repo) or '').strip() if hu else ''
+        if mu and mu != mb and sh('git', 'merge-base', '--is-ancestor', mb, mu, cwd=repo) is not None: return u, mu
+    return None
+
+def moved_base(repo):
+    """{'old', 'new', 'tree', 'commits'} when HEAD is no longer the commit the baseline was set at (.axiomcode/out/base-commit,
+    written by every build): a rebase, a pull, a checkout, a reset or a commit since. `commits` is how many commits HEAD has
+    that the old base did not, patch-equivalent ones (a rebased commit of the agent's own) left out. None when it has not moved."""
+    try: bc = open(os.path.join(repo, '.axiomcode', 'out', 'base-commit')).read().strip()
+    except OSError: return None
+    h = (sh('git', 'rev-parse', '-q', '--verify', 'HEAD', cwd=repo) or '').strip()
+    if not bc or bc == 'nogit' or not h or bc == h: return None
+    t = (sh('git', 'rev-parse', '-q', '--verify', 'HEAD^{tree}', cwd=repo) or '').strip()
+    if not t: return None
+    n = (sh('git', 'rev-list', '--count', '--right-only', '--cherry-pick', f'{bc}...{h}', cwd=repo) or '').strip()
+    return dict(old=bc, new=h, tree=t, commits=int(n) if n.isdigit() else None)
+
+def moved_note(mv):
+    """one line for a baseline HEAD has moved from: what it is read against now, and what is left out"""
+    n = mv.get('commits')
+    return (f"the base moved: HEAD is {mv['new'][:10]}, not {mv['old'][:10]} where the baseline was set"
+            + (f" ({n} commit(s) it did not have: a rebase, a pull, a checkout or a commit)" if n is not None else '')
+            + "; edits are read against HEAD, so what those commits changed is not counted as an edit")
 
 def branch_suggestion(repo):
     """when the working tree matches the baseline but HEAD holds commits of its own: the nearest ref HEAD forked from, and
@@ -78,6 +119,10 @@ def branch_suggestion(repo):
     rows = (sh('git', 'for-each-ref', fmt, *usual, cwd=repo) or '').split('\n')
     rows += (sh('git', 'for-each-ref', '--sort=-committerdate', '--count=40', fmt, 'refs/heads', 'refs/remotes', cwd=repo) or '').split('\n')
     cur = (sh('git', 'rev-parse', '--abbrev-ref', 'HEAD', cwd=repo) or '').strip()
+    # the branch HEAD tracks, as it is now (a branch cut with `-b x origin/rel` tracks rel): a candidate even when it is
+    # neither a usual base name nor among the recent refs
+    up = (sh('git', 'rev-parse', '--abbrev-ref', '-q', '@{upstream}', cwd=repo) or '').strip()
+    if up: rows.insert(0, f"{up} {(sh('git', 'rev-parse', '-q', '--verify', up, cwd=repo) or '').strip()}")
     # on a base branch itself (or its remote's default) there is no fork to name: its commits are the base's own
     dflt = (sh('git', 'symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD', cwd=repo) or '').strip()
     if cur in ('main', 'master', 'dev', 'develop', 'trunk') or (dflt and cur == dflt.split('/', 1)[-1]): return None
@@ -157,6 +202,15 @@ class Changed:
         b = os.path.join(self.repo, '.axiomcode', 'out', 'base-tree')
         b = open(b).read().strip() if os.path.exists(b) else ''
         self.base_tree = b if b and sh('git', 'cat-file', '-e', b, cwd=self.repo) is not None else self.indexed_tree
+        # THE BASE MOVED UNDER THE BASELINE: a rebase, a pull, a checkout, a reset or a commit since it was set, and the
+        # refresher has not caught up (it builds HEAD's text first, which takes minutes on a dirty tree, and never runs
+        # with refresh off). Read against the old baseline, every change the new commits brought in (upstream's) came
+        # back as the agent's edit, and a graph's lines laid on the new text garbled the signatures they fell on. The
+        # baseline is where the refresher will put it, HEAD's tree, now; the graph's spans are carried onto it (decl_spans).
+        self.moved = moved_base(self.repo)
+        if self.moved:
+            if baseline: self.indexed_tree = self.base_tree                                      # the kept graph describes the OLD baseline
+            self.base_tree = self.moved['tree']; baseline = False
         self.tree_differs = bool(self.base_tree) and (sh('git', 'rev-parse', 'HEAD^{tree}', cwd=self.repo) or '').strip() != self.base_tree
         if baseline: self.indexed_tree = self.base_tree                                          # reading the baseline's own graph: its spans ARE the baseline's
         self.base_absorbed = self._absorbed() if self.tree_differs else []
@@ -1136,7 +1190,11 @@ def main(argv):
         # the dispatcher names the CURRENT graph of the language it is asking (AXIOMCODE_GRAPH_LANG): that is not a
         # graph chosen for this edit, so the language's baseline is still looked for, as it is for the main one
         if given and os.path.realpath(given) == os.path.realpath(ax_fresh.graph_dir(rrepo)): given = None
-        if bg and (not given or os.path.realpath(given) == os.path.realpath(bg)):
+        if moved_base(rrepo):
+            # the kept graph describes the baseline HEAD has left (a rebase, a pull, a checkout): the current graph is read,
+            # its lines carried onto HEAD's text (Changed), and --impact asks it too
+            if bg and given and os.path.realpath(given) == os.path.realpath(bg): os.environ['AXIOMCODE_GRAPH'] = ax_fresh.graph_dir(rrepo)
+        elif bg and (not given or os.path.realpath(given) == os.path.realpath(bg)):
             baseline = bg; os.environ['AXIOMCODE_GRAPH'] = bg                 # also for --impact, which runs impact below
     C = Changed(repo, baseline=bool(baseline)); C.mode = 'files' if (old_f or new_f) else mode
     range_note = None
@@ -1208,18 +1266,22 @@ def main(argv):
                  f"{rng} (from {C.range_old[:10]} to {C.range_new[:10]})" if mode == 'range' else mode)
     sugg_line = (f"your commits are not in the working tree: HEAD is {suggest['commits']} commit(s) ahead of {suggest['ref']} — "
                  f"ask `changed --range {suggest['range']}` (MCP range='{suggest['range']}') for them") if suggest else None
+    mv = C.moved if mode in ('worktree', 'head') and not (old_f or new_f) else None
+    moved_json = dict(mv, note=moved_note(mv)) if mv else None
     if as_json:
         print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes], 'outside_index': sorted(outside),
                           'range_base': (C.range_old if mode == 'range' else None), 'range_note': range_note, 'baseline_note': base_note,
-                          'suggest_range': suggest, 'suggest_note': sugg_line}, indent=1))
+                          'suggest_range': suggest, 'suggest_note': sugg_line, 'base_moved': moved_json}, indent=1))
         return 3 if fanout_empty else 0
     if range_note: print(f"note: {range_note}")
+    if mv: print(f"note: {moved_note(mv)}")
     if base_note: print(f"note: {base_note}")
     if not results and not notes:
         print(f"no change to a declaration the graph knows ({base_desc})")
         if sugg_line: print(f"next: {sugg_line}")
         return 3 if fanout_empty else 0
-    against = (f" — against the tree the graph was indexed from at the last `axiomcode index` (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
+    against = (f" — against HEAD {mv['new'][:10]} (the base moved: see the note)" if mv else
+               f" — against the tree the graph was indexed from at the last `axiomcode index` (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
                else f" — against the graph's commit {C.built_at[:10]}" if C.built_at != 'nogit' else " — against HEAD (the graph was built before this was a git checkout)")
     named = [e for e in results if e['kind'] == 'named']; shown = [e for e in results if e['kind'] != 'named']
     print(f"changed declarations ({len(results)})" + (" — the two texts given" if (old_f or new_f) else against if C.built_at and mode == 'worktree' and not named else (f" — {rng}" if rng else '')) + ":")

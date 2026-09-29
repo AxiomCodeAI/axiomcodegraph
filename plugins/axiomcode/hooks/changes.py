@@ -126,7 +126,9 @@ def key(d): return f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}
 lines = []
 if event == 'PreToolUse' and tool in ('Edit', 'Write', 'MultiEdit'):
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
-    if not _where.is_source(fp) or TEST.search(rel) or not os.path.exists(fp): sys.exit(0)
+    if not _where.is_source(fp) or TEST.search(rel): sys.exit(0)
+    _graphline.snapshot_before(cwd, ev.get('session_id'), fp)     # what the PostToolUse report diffs this one edit against
+    if not os.path.exists(fp): sys.exit(0)
     cur = open(fp, errors='replace').read(); new = cur
     if tool == 'Write': new = str(inp.get('content', ''))
     else:
@@ -150,30 +152,43 @@ elif event in ('PostToolUse', 'UserPromptSubmit'):
     try: ax_fresh.wait_baseline(cwd, 8, hook=True)          # never a rebuild of a graph another axiomcode built
     except Exception: pass
     bg = ax_fresh.baseline_graph(cwd)
-    if bg: os.environ['AXIOMCODE_GRAPH'] = bg
     # HEAD MOVED AND THE BASELINE HAS NOT FOLLOWED YET (a rebase, a pull, a checkout; the wait above ran out). Measured
     # against the baseline, every declaration the incoming commits changed was reported as this session's edit. Against
-    # HEAD it is the working tree's own edits only; the commits that came in are nobody's edit here
+    # HEAD it is the working tree's own edits only; the commits that came in are nobody's edit here. The kept baseline
+    # graph describes the old base then, so `changed` reads with the current graph, its lines carried onto HEAD's text
     try: behind = ax_fresh.base_moved(cwd)
     except Exception: behind = False
+    if bg and not behind: os.environ['AXIOMCODE_GRAPH'] = bg
     AGAINST = ['--against-head'] if behind else []
 if event == 'PostToolUse' and tool == 'Bash':
     c = str(inp.get('command', ''))
     if not re.search(r'\bsed\s+-i|\bpatch\b|\bgit\s+(apply|checkout|switch|pull|merge|rebase|revert|cherry-pick|stash\s+pop|reset\s+--hard|restore)\b|>>?\s*\S+\.(' + _where.SOURCE_ALT + r')\b|\b(python3?|node|bash|sh)\s+\S+|\bmv\b|\bcp\b|\brm\b', c): sys.exit(0)
     j = changed(AGAINST, timeout=18)
     st = load_state(); seen = set(st.get('reported', []))
+    # a rebase, a pull, a checkout or a reset moved HEAD: said once, and `changed` reads against the new HEAD, so what the
+    # new commits changed is never listed as the agent's
+    moved = _graphline.base_moved_line(cwd, st)
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
+    head_at = ' '.join(x for x in ('HEAD', (j.get('base_moved') or {}).get('new', '')[:10]) if x)
+    since = f"{head_at}: the commits that came in are not counted" if (AGAINST or j.get('base_moved')) else f"the graph's commit {(j.get('built_at') or '')[:10]}"
     if new:
-        lines = summarize(new, f"graph: after that command, {{n}} declaration(s) changed in the working tree (against " + ("HEAD: the commits that came in are not counted" if AGAINST else f"the graph's commit {(j.get('built_at') or '')[:10]}") + ") —")
-        st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
+        lines = summarize(new, f"graph: after that command, {{n}} declaration(s) changed in the working tree (against {since}) —")
+        st['reported'] = list(seen | {key(d) for d in new})
+    if moved: lines = [moved] + lines
+    if new or moved: save_state(st)
 elif event == 'UserPromptSubmit':
     j = changed(AGAINST, timeout=18)
     st = load_state(); seen = set(st.get('reported', []))
+    moved = _graphline.base_moved_line(cwd, st)
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
+    head_at = ' '.join(x for x in ('HEAD', (j.get('base_moved') or {}).get('new', '')[:10]) if x)
+    since = (f"against {head_at} (the commits that came in are not counted)" if (AGAINST or j.get('base_moved'))
+             else f"since the graph's commit {(j.get('built_at') or '')[:10]}")
     if new:
-        lines = summarize(new, (f"graph: {{n}} declaration(s) changed in the working tree against HEAD (the commits that came in are not counted) and were not reported yet —" if AGAINST
-                                else f"graph: {{n}} declaration(s) changed in the working tree since the graph's commit {(j.get('built_at') or '')[:10]} and were not reported yet —"))
-        st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
+        lines = summarize(new, f"graph: {{n}} declaration(s) changed in the working tree {since} and were not reported yet —")
+        st['reported'] = list(seen | {key(d) for d in new})
+    if moved: lines = [moved] + lines
+    if new or moved: save_state(st)
 try:
     with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'event': event, 'tool': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines), 'input': {k: v for k, v in inp.items() if k in ('file_path', 'command', 'old_string', 'new_string')}, 'text': '\n'.join(lines)}) + '\n')
 except OSError: pass

@@ -35,6 +35,7 @@ What to pass, and what the answer says when the question cannot be answered the 
 |---|---|---|
 | uncommitted edits | `changed` · `test-impact` | the edits against the baseline |
 | your branch's commits | `changed --range <base>..HEAD` (MCP `range='<base>..HEAD'`) | read from `git merge-base <base> HEAD`, not from `<base>`'s tip: commits the base branch received after you branched are not yours and are left out. A `note: range base: merge-base …` line says so whenever `<base>` has moved. `a...b` means the same; `a` alone is `a..HEAD` |
+| after a rebase, a pull, a checkout or a reset | `changed` · `test-impact` | read against the NEW HEAD at once, even before the background refresh has caught up: a `note: the base moved …` line names the move, and what the new commits changed is never counted as your edit. `--range <branch>..HEAD` where the local `<branch>` is behind the remote you rebased onto reads from that remote's fork, with a note; name a commit to read exactly from it |
 | committed work, clean tree | `changed` | `no change …` followed by `next: … HEAD is N commit(s) ahead of <ref> — ask --range <ref>..HEAD` |
 | a copy without git | `changed` | a refusal: no base to diff against. Name the files instead |
 | named files | `changed <file>…` · `test-impact <file>…` (MCP `files=[…]`) | each file's edit; a named file with no edit (or any named file on a copy without git) counts **whole**: every callable declared in it is `named`, and test-impact selects the tests of all of them |
@@ -79,6 +80,8 @@ signature, a field, a type or a removal —, who produces or writes it, who read
 the unresolved-call bound). That is where the agent that changed `String zipCode` to `Integer` is told, before the edit
 lands, about the five `getZipCode().length()` uses in another service, the generated constructor call in a controller, and
 the four repositories that deserialize a holder.
+
+**One edit, not the branch.** The PostToolUse report compares the file just before the tool call with the file after it (the host's `originalFile`, else the PreToolUse copy, else the edit undone), never with the baseline, so a rebase or a pull the refresher has not caught up with does not turn upstream's changes into "this edit changed". When HEAD moves, the next report says so once: `graph: the base moved: HEAD is …, was … (N commit(s) it did not have)`.
 
 **Does it find what it says it finds?** `tests/run.py` at the repository root: a synthetic project per behaviour under
 `tests/cases/<language>/<name>/`, each with the claim it checks, what must appear in the answer and what must not. It

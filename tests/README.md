@@ -21,6 +21,9 @@ One check needs no graph and is its own script:
     python3 tests/hook_languages.py      the edit hooks speak for C# as for Java and Python, from one extension table,
                                          and a body edit's command runs the classes that extend an abstract test base
                                          (indexes a small C# project, so it needs the engine)
+    python3 tests/hook_rebase.py         after a rebase, a pull or a checkout, an edit report names only that edit and says
+                                         the base moved once; `changed` reads against the new HEAD; `--range` from a branch
+                                         left behind its remote reads from the remote's fork (indexes a small project)
     python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
                                          edit, `changed` answers the same before and after, a burst costs one rebuild
                                          and queries during it answer (#1305; builds real graphs, needs the engine)

@@ -1146,8 +1146,8 @@ def wait_baseline(repo, seconds, hook=False):
         if not base_moved(repo): return ''
         if read_state(repo).get('state') == 'failed': break
         kick(repo, 'a query')
-    return (f"graph refresh: HEAD moved since the baseline was set ({head(repo)[:10]}); the baseline is still being moved, "
-            "so this answer also counts what the new commits changed")
+    return (f"graph refresh: HEAD moved since the baseline was set ({head(repo)[:10]}); the baseline graph is still being built, "
+            "so edits are read against HEAD's text with the current graph's lines carried onto it")
 
 def last_update(repo):
     """the last time anything looked at this graph's freshness or rebuilt it: a check, a refresh, a build"""

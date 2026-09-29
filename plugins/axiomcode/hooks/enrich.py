@@ -162,8 +162,21 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     fp = _where._abs(inp.get('file_path', ''), scwd); rel = rel_of(fp)
     if not _where.is_source(fp) or _where.is_test(rel): sys.exit(0)
     SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
-    try: ch = json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), cwd, rel, '--json'], capture_output=True, text=True, timeout=10).stdout or '{}')
+    # WHAT THIS EDIT CHANGED: the file just before the tool call against the file now. Against the baseline, as this read
+    # before, a rebase or a pull the refresher had not caught up with made every change the new commits brought into the
+    # file "this edit changed" (_graphline.edit_before). Only when the before-text cannot be known is the baseline asked,
+    # and `changed` then reads against HEAD once HEAD has moved from it.
+    before = _graphline.edit_before(tool, inp, ev.get('tool_response'), fp, cwd, ev.get('session_id'))
+    args = [cwd, rel]
+    if before is not None:
+        import tempfile
+        with tempfile.NamedTemporaryFile('w', suffix=os.path.splitext(rel)[1], delete=False) as f: f.write(before); tmp = f.name
+        args = [cwd, '--old', tmp, '--new', fp, '--file', rel]
+    try: ch = json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), *args, '--json'], capture_output=True, text=True, timeout=10).stdout or '{}')
     except Exception: ch = {}
+    if before is not None:
+        try: os.unlink(tmp)
+        except OSError: pass
     decls = [d for d in ch.get('changed', []) if d.get('target')]
     # AN EDIT THAT CHANGED NO DECLARATION SAYS NOTHING. It printed "this edit changed 0 declaration(s) -- added: 1 new
     # line(s)", which restates the edit the agent just made; 28 of 30 of these blocks went unused.
@@ -172,7 +185,11 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     key = lambda d: f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}"
     st = load_state(); done = set(st.get('reported', []))
     decls = [d for d in decls if key(d) not in done]
-    if not decls: sys.exit(0)
+    moved = _graphline.base_moved_line(cwd, st)                   # once per move of HEAD: the base moved, and is not this edit
+    if not decls:
+        if moved: save_state(st); _host.emit('PostToolUse', moved)
+        sys.exit(0)
+    if moved: lines.append(moved)
     st['reported'] = list(dict.fromkeys(st.get('reported', []) + [key(d) for d in decls])); save_state(st)   # once per session (changes.py reads this)
     # A BODY EDIT BREAKS NO CALLER, so its readers are not a blast radius: 10-42 `reads / uses it` rows nobody could act on.
     # What it is worth is the tests that reach it and the command that runs them, on one line.
@@ -191,7 +208,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         results = list(ex.map(impact, decls[:3])); bodies = list(ex.map(impact, body[:3]))
     base = (ch.get('built_at') or '')[:10]
-    if decls: lines.append(f"graph: this edit changed {len(decls)} declaration(s) in {rel}" + (f" (against the graph's commit {base})" if base else '') + " —")
+    if decls: lines.append(f"graph: this edit changed {len(decls)} declaration(s) in {rel}" + (f" (against the graph's commit {base})" if base and before is None else '') + " —")
     for d, j in results:
         head = f"  {d.get('label') or d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(head + "  (impact unavailable)"); continue
