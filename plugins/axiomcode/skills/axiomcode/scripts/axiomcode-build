@@ -18,22 +18,6 @@
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"
-# A REBUILD THAT NAMES NO LANGUAGE KEEPS THE LANGUAGES THE INDEX CHOSE. Every rebuild comes here: an explicit `index`,
-# the background refresh after an edit or a commit, a query that repairs a broken graph, `graph`. One that named no
-# language detected every language in the tree, so on a repository indexed with --lang csharp it solved a few stray
-# .ts and .js files too (a JavaScript Souffle compile of up to an hour), left a graph for each that later queries
-# answered from, and recorded the detected list as the index's choice, so every refresh after it did the same. When
-# the graph here was built with an explicit --lang (lang_auto false in its file table), a request with no language
-# keeps that --lang, and the --src with it when none is given; a graph whose languages were detected is detected again.
-if [ -z "${AXIOMCODE_LANG:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ]; then
-  KEPT="$(python3 "$H/ax_fresh.py" chosen "$REPO" 2>/dev/null || true)"
-  if [ -n "$KEPT" ]; then
-    AXIOMCODE_LANG="${KEPT%%$'\t'*}"; export AXIOMCODE_LANG
-    [ -n "${AXIOMCODE_SRC:-}" ] || { AXIOMCODE_SRC="${KEPT#*$'\t'}"; export AXIOMCODE_SRC; }
-    [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "keeping the languages this graph was indexed with (--lang $AXIOMCODE_LANG${AXIOMCODE_SRC:+ --src $AXIOMCODE_SRC}); pass --lang, or AXIOMCODE_REINDEX=1, to choose again"
-  fi
-fi
-SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
 # THE ENGINE IS CHOSEN THE SAME WAY EVERY TIME, AND A BUILD THAT FINDS NONE SAYS WHERE IT LOOKED. The background
 # refresh runs this script from a hook, with the hook's PATH, the hook's Node and, installed from a marketplace, from a
 # plugin COPIED outside any checkout; an explicit `axiomcode index` runs it from inside the npm package. Each found an
@@ -94,6 +78,35 @@ fi
   for t in "${TRIED[@]}"; do echo "    - $t" >&2; done
   exit 1; }
 AXIOMCODE_ENGINE="$ENGINE"
+# THE FIRST LINE NAMES THE ENGINE AND PARSER THIS BUILD USES, AND WHERE THEY CAME FROM (ax_fresh.py which_engine). A
+# worktree whose parser/dist linked to a deleted build directory was not "built" above, so its build silently took the
+# installed engine and the graph was not the worktree's. A checkout with its own engine sources whose built parts DANGLE
+# is refused; one whose parts are simply not built says loudly that another engine is used; an installed engine with no
+# checkout of its own says one quiet line. Where it came from goes into the file table and the graph (engine_origin).
+WALKED=""; [ "$WALK" != / ] && WALKED="$WALK"
+ERC=0; EOUT="$(python3 "$H/ax_fresh.py" which-engine "$REPO" "$ENGINE" "${ENGINE_HOW:-}" "$WALKED" 2>/dev/null)" || ERC=$?
+AXIOMCODE_ENGINE_ORIGIN="$(printf '%s\n' "$EOUT" | sed -n 's/^@origin //p')"; export AXIOMCODE_ENGINE_ORIGIN
+ENGINE_LINE="$(printf '%s\n' "$EOUT" | sed '/^@origin /d')"
+if [ "$ERC" = 3 ]; then printf '%s\n' "$ENGINE_LINE" >&2; exit 1; fi
+[ -n "$ENGINE_LINE" ] || ENGINE_LINE="engine: $ENGINE (${ENGINE_HOW:-})"
+printf '%s\n' "$ENGINE_LINE"
+export AXIOMCODE_BUILT_WITH="${ENGINE_LINE%%$'\n'*}"
+# A REBUILD THAT NAMES NO LANGUAGE KEEPS THE LANGUAGES THE INDEX CHOSE. Every rebuild comes here: an explicit `index`,
+# the background refresh after an edit or a commit, a query that repairs a broken graph, `graph`. One that named no
+# language detected every language in the tree, so on a repository indexed with --lang csharp it solved a few stray
+# .ts and .js files too (a JavaScript Souffle compile of up to an hour), left a graph for each that later queries
+# answered from, and recorded the detected list as the index's choice, so every refresh after it did the same. When
+# the graph here was built with an explicit --lang (lang_auto false in its file table), a request with no language
+# keeps that --lang, and the --src with it when none is given; a graph whose languages were detected is detected again.
+if [ -z "${AXIOMCODE_LANG:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ]; then
+  KEPT="$(python3 "$H/ax_fresh.py" chosen "$REPO" 2>/dev/null || true)"
+  if [ -n "$KEPT" ]; then
+    AXIOMCODE_LANG="${KEPT%%$'\t'*}"; export AXIOMCODE_LANG
+    [ -n "${AXIOMCODE_SRC:-}" ] || { AXIOMCODE_SRC="${KEPT#*$'\t'}"; export AXIOMCODE_SRC; }
+    [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "keeping the languages this graph was indexed with (--lang $AXIOMCODE_LANG${AXIOMCODE_SRC:+ --src $AXIOMCODE_SRC}); pass --lang, or AXIOMCODE_REINDEX=1, to choose again"
+  fi
+fi
+SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
 # THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
 # rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
 # the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
@@ -343,15 +356,25 @@ ENGINE_RC=0
 REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
 # WHEN AND WHY THIS GRAPH WAS BUILT, in the graph itself (index_meta): refreshed_at (UTC), refresh_reason (`axiomcode
 # index`, or what the background refresher saw: files changed, HEAD moved, found by an edit, a query or the timer), and
-# the tree and commit it describes. Written before the swap: a write to the live graph later would change its mtime,
+# the tree and commit it describes, and the engine that built it. Written before the swap: a write to the live graph later would change its mtime,
 # which keys the impact-facts cache, and cost the next query a re-export.
-stamp_meta(){ python3 - "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
-import sqlite3, sys
+stamp_meta(){ AXIOMCODE_ENGINE="$ENGINE" python3 - "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$INDEXED_TREE" "$HEAD_SHA" <<'PY' 2>/dev/null || true
+import os, sqlite3, sys
 db, at, reason, tree, commit = sys.argv[1:6]
+# and WHAT BUILT IT: the engine, where it came from (this checkout, AXIOMCODE_ENGINE, installed, or a fallback from a
+# checkout whose own parser was not built) and the build's first line, so any later reader can name it
+e = os.path.normpath(os.environ['AXIOMCODE_ENGINE']) if os.environ.get('AXIOMCODE_ENGINE') else ''
+try:
+    import json; ver = json.load(open(os.path.join(e, 'package.json'))).get('version', '?')
+except Exception: ver = '?'
+eng = [('engine', e), ('engine_version', ver), ('engine_origin', os.environ.get('AXIOMCODE_ENGINE_ORIGIN', '')),
+       ('parser', os.path.realpath(os.path.join(e, 'parser', 'dist')) if e else ''),
+       ('built_with', os.environ.get('AXIOMCODE_BUILT_WITH', '').lstrip('\u26a0\ufe0f ').strip())]
 with sqlite3.connect(db) as c:
-    c.execute("DELETE FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_tree','refreshed_commit')")
+    c.execute("DELETE FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_tree','refreshed_commit',"
+              "'engine','engine_version','engine_origin','parser','built_with')")
     c.executemany("INSERT INTO index_meta VALUES (?,?)", [('refreshed_at', at), ('refresh_reason', reason),
-                  ('refreshed_tree', tree), ('refreshed_commit', commit)])
+                  ('refreshed_tree', tree), ('refreshed_commit', commit)] + eng)
 PY
 }
 tiers(){ python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(", ".join(f"{t} {n}" for t, n in c.execute("SELECT tier, count(*) FROM call_edges GROUP BY tier ORDER BY 2 DESC")))' "$1"; }

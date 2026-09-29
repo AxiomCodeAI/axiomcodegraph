@@ -29,6 +29,9 @@ the previous graph. Three pieces:
   ax_fresh.py count <dir>                      the source files of each language, walked as the parser walks
   ax_fresh.py chosen <repo>                    the --lang and --src an explicit index chose, which a rebuild keeps
   ax_fresh.py newer <repo>                     exit 0 (saying so) when a newer axiomcode built the graph: never rebuilt by this one
+  ax_fresh.py which-engine <repo> <engine> <how> [<checkout>]
+                                               the build's first line: the engine and parser it uses and where they came
+                                               from; exit 3 when the checkout's own engine parts dangle (never built over)
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
@@ -345,13 +348,88 @@ def plugin_id():
     return h.hexdigest(), (m.group(1) if m else '?')
 
 def built_by(engine):
-    """what a build with `engine` records in its file table"""
+    """what a build with `engine` records in its file table: with the engine, where it came from (AXIOMCODE_ENGINE_ORIGIN,
+    set by axiomcode-build from which_engine) and the parser it ran, so an answer can name what built the graph"""
     rules, impact = plugin_id()
     d = dict(rules=rules, impact=impact)
     if engine and engine_ok(engine):
         version, content, sig = engine_id(engine)
-        d.update(engine=engine, engine_version=version, engine_hash=content(), engine_stat=sig)
+        d.update(engine=os.path.normpath(engine), engine_version=version, engine_hash=content(), engine_stat=sig,
+                 parser=os.path.realpath(os.path.join(engine, 'parser', 'dist')))
+        if os.environ.get('AXIOMCODE_ENGINE_ORIGIN'): d['engine_origin'] = os.environ['AXIOMCODE_ENGINE_ORIGIN']
     return d
+
+# ── WHICH ENGINE A BUILD USES, SAID ON ITS FIRST LINE ────────────────────────────────────────────────────────────────
+# A checkout's engine is its sources (bin/, graph/, parser/src) plus parts that are built or linked in: parser/dist (the
+# parser), dist/ (the compiled bundle stage) and node_modules (tsx, which runs the bundle stage from source). A worktree
+# whose parser/dist was a link into a build directory that had since been deleted was not "built" to axiomcode-build,
+# which then took the next engine in its order (the installed one) without a word: the worktree's own rules were never
+# run, and 15 of its checks failed as if its fix were wrong. So every build names the engine and parser it uses and where
+# they came from, a checkout with its own engine sources whose parts DANGLE refuses to build with another engine, and one
+# whose parts are simply not built says loudly that another engine is used instead. A build from an installed engine
+# with no checkout of its own around it says one quiet line.
+ENGINE_PARTS = (('parser', os.path.join('parser', 'dist')), ('compiled bundle stage', 'dist'), ('dependencies', 'node_modules'))
+
+def engine_parts(d):
+    """[(name, relative path, state, target)] of a checkout's built parts: state is ok, link (ok, through a symlink),
+    dangling (a symlink whose target is gone) or missing"""
+    out = []
+    for name, rel in ENGINE_PARTS:
+        p = os.path.join(d, rel)
+        if os.path.islink(p):
+            t = os.readlink(p)
+            out.append((name, rel, 'link' if os.path.exists(p) else 'dangling', t))
+        else: out.append((name, rel, 'ok' if os.path.exists(p) else 'missing', ''))
+    return out
+
+def has_engine_sources(d):
+    """d is a checkout of the engine's sources (not only an installed package): bin/, graph/, package.json, parser/src"""
+    return engine_ok(d) and os.path.isdir(os.path.join(d, 'parser', 'src'))
+
+def _parser_of(engine):
+    p = os.path.join(engine, 'parser', 'dist')
+    return p + (f" -> {os.path.realpath(p)}" if os.path.islink(p) else '')
+
+def which_engine(engine, how, walk):
+    """(lines, refuse, origin) for the engine axiomcode-build chose: `how` it was found, `walk` the checkout the plugin's
+    scripts sit in ('' when none). origin is what the file table and index_meta record: 'this checkout', 'AXIOMCODE_ENGINE',
+    'installed' (no checkout engine of its own), or 'fallback from <checkout>: ...' naming what the checkout was missing"""
+    engine = os.path.normpath(engine)                   # found through a link it reads <prefix>/bin/../lib/...
+    try: version = json.load(open(os.path.join(engine, 'package.json'))).get('version', '?')
+    except (OSError, ValueError): version = '?'
+    same = bool(walk) and os.path.realpath(walk) == os.path.realpath(engine)
+    parts = engine_parts(walk) if walk and has_engine_sources(walk) else []
+    dangling = [(r, t) for n, r, s, t in parts if s == 'dangling']
+    if walk and not same and parts and how != 'AXIOMCODE_ENGINE':
+        if dangling:
+            gone = '; '.join(f"{r} is a link to {t}, which does not exist" for r, t in dangling)
+            return ([f"❌ engine: not building with another engine in place of this checkout's own. {walk} has its own engine "
+                     f"sources, but {gone}; the build would have used engine {version} at {engine} ({how}) instead, "
+                     f"so the graph would not be this checkout's.",
+                     f"   Relink or rebuild it (ln -sfn <a built engine>/{dangling[0][0]} {os.path.join(walk, dangling[0][0])}, "
+                     f"or npm install && npm run build there), or set AXIOMCODE_ENGINE={engine} to build with that engine on purpose."],
+                    True, f"refused: {dangling[0][0]} dangling")
+        missing = [r for n, r, s, t in parts if s == 'missing' and n == 'parser']
+        why = f"{', '.join(missing) or 'its parser'} is not built there"
+        return ([f"⚠️  engine: {version} at {engine} ({how}), NOT this checkout's own: {walk} has engine sources but {why}; "
+                 f"parser {_parser_of(engine)}. Build it there (npm install && npm run build) to use its own rules."],
+                False, f"fallback from {walk}: {why}")
+    if same: origin, first = 'this checkout', f"engine: this checkout {engine} ({version}); parser {_parser_of(engine)}"
+    elif how == 'AXIOMCODE_ENGINE': origin, first = 'AXIOMCODE_ENGINE', f"engine: {version} at {engine} (AXIOMCODE_ENGINE); parser {_parser_of(engine)}"
+    else: origin, first = 'installed', f"engine: {version} at {engine} ({how}); parser {_parser_of(engine)}"
+    lines = [first]
+    # the engine used has a part that dangles (node_modules gone, dist/ still there): it may run, from what is left
+    for n, r, s, t in engine_parts(engine):
+        if s == 'dangling': lines.append(f"⚠️  engine: {os.path.join(engine, r)} ({n}) is a link to {t}, which does not exist")
+    return lines, False, origin
+
+def built_with(t):
+    """one line naming the engine that built a graph when it was NOT the checkout's own (its file table's built_by), or ''.
+    An answer from such a graph says so every time: its rules are not the ones the checkout would run"""
+    b = (t or {}).get('built_by')
+    if not isinstance(b, dict) or not str(b.get('engine_origin', '')).startswith('fallback'): return ''
+    return (f"graph built by: engine {b.get('engine_version', '?')} at {b.get('engine')} ({b['engine_origin']}); "
+            "its answers come from that engine's rules, not this checkout's")
 
 def _label(version, h): return f"{version} {h[:8]}" if h else version
 
@@ -662,14 +740,17 @@ def unbuilt_row(repo):
 def status(repo):
     if not has_graph(repo): return dict(state='no graph')
     if graph_broken(repo): return dict(state='building' if building(repo) else 'stale', changed=['.axiomcode/out/graph.sqlite (the pointer to the graph is broken)'], added=[], removed=[])
-    c = changes(repo)
+    t = load_table(repo)
+    c = changes(repo, t)
     st = read_state(repo)
     if c is None: return dict(state='unknown', note='the graph predates the file table; the next `axiomcode index` records it')
     changed, added, removed = c
     busy = building(repo)
-    eng, newer = built_by_state(repo)
-    # a graph a newer axiomcode built: answered from as it is, never rebuilt here (newer_build), and said on every answer
+    eng, newer = built_by_state(repo, t)
+    # a graph a newer axiomcode built: answered from as it is, never rebuilt here (newer_build), and said on every answer;
+    # one a fallback engine built in place of the checkout's own names that engine on every answer (built_with)
     nw = {'newer': newer} if newer else {}
+    if built_with(t): nw['built_with'] = built_with(t)
     if not (changed or added or removed) and not eng:
         # a build that already published this tree's main graph and is still solving other languages: the graph a query
         # reads is current, and waiting would be waiting for other languages' compiles
@@ -850,7 +931,7 @@ def refreshed(repo):
     d = {}
     try:
         con = sqlite3.connect(f"file:{os.path.join(out_dir(repo), 'graph.sqlite')}?mode=ro", uri=True)
-        d = dict(con.execute("SELECT key, value FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_commit')").fetchall()); con.close()
+        d = dict(con.execute("SELECT key, value FROM index_meta WHERE key IN ('refreshed_at','refresh_reason','refreshed_commit','built_with')").fetchall()); con.close()
     except Exception: pass
     st = read_state(repo)
     if st.get('checked'): d['checked_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(st['checked'])); d['checked_by'] = st.get('checked_by') or st.get('reason', '')
@@ -877,6 +958,7 @@ def note(s, marked=None, named=None, off=False):
     graph predating the edit that wrote X, not X being absent. `off`: the refresher is switched off, nothing rebuilds"""
     # the languages a running build has still to publish (#1555) get a line of their own, before any line about edits
     first = pending_note(s)
+    if s.get('built_with'): first = s['built_with'] + ('\n' + first if first else '')
     if s.get('newer'): first = (first + '\n' if first else '') + newer_note(s['newer'])
     if s.get('state') not in ('stale', 'building'): return first
     if s.get('engine'):
@@ -1144,6 +1226,7 @@ def query(repo, verb, argv, fresh=False):
                 obj['freshness'] = dict(state='off' if off else s['state'], edited=edited(s), rows_marked=n,
                                         **({'built_by': s['engine']} if s.get('engine') else {}),
                                         **({'newer': s['newer']} if s.get('newer') else {}),
+                                        **({'built_with': s['built_with']} if s.get('built_with') else {}),
                                         **({'failed': s['failed']} if s.get('failed') else {}),
                                         **({'named_in_edits': [dict(name=a, file=b) for a, b in missed]} if missed else {}))
                 marked = json.dumps(obj, indent=1, ensure_ascii=False) + '\n'
@@ -1211,8 +1294,16 @@ def main(argv):
             r = refreshed(repo)
             print(s['state'] + (': ' + note(s) if note(s) else ''))
             if r.get('refreshed_at'): print(f"built {r['refreshed_at']} ({r.get('refresh_reason', '')})" + (f"; last checked {r['checked_at']}" if r.get('checked_at') else ''))
+            if r.get('built_with'): print(f"built with {r['built_with']}")
         return 0
     if cmd == 'kick': kick(repo); return 0
+    if cmd == 'which-engine':
+        # ax_fresh.py which-engine <repo> <engine> <how> [<checkout>]: what axiomcode-build prints first. Exit 3 when it
+        # must not build (the checkout's own engine parts dangle); the last line, "@origin <origin>", is for the build
+        lines, refuse, origin = which_engine(argv[3], argv[4], argv[5] if len(argv) > 5 else '')
+        for l in lines: print(l)
+        print(f"@origin {origin}")
+        return 3 if refuse else 0
     if cmd == 'newer':
         # what axiomcode-build asks before it rebuilds: exit 0, saying why, when the graph here was built by a newer
         # axiomcode, which this one must not rebuild (newer_build); 1 otherwise
