@@ -2237,7 +2237,11 @@ def main(argv):
                           # the sort key ends in x[0], the id: two distinct anon-class methods can share a
                           # display AND every other component of the key, and without the id the order is
                           # whatever the solver happened to emit — which is not the same between backends.
-                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0]))],
+                          # AN `alongside` ROW IS NOT A DEPENDENT, so it never shares `direct` or a role with one. It sat
+                          # there as role 'uses', and a reader keyed on role or section counted a same-file sibling as a
+                          # user: a check passed on it, then failed when the type moved to another file with no edge changed.
+                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0])) if cert != 'alongside'],
+                          'alongside': [{'id': c, 'display': g.disp(c), 'role': 'co-located', 'why': why, 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (g.disp(x[0]), x[2], x[4], x[0])) if cert == 'alongside'],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
                           'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])],
                                      **({'script': True, 'run': script_cmd(m)} if m in script_ids else {})} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
@@ -2274,7 +2278,10 @@ def main(argv):
     # the hidden tail. Surest first, then named before anonymous, then the entries with the most sites
     anon = lambda c: g.disp(c).split('.')[-1].startswith('<')
     D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
-    groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
+    # `alongside` rows are their own section, never counted under `reads or uses it`: no call, no reference, so no dependent
+    groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes') and x[3] != 'alongside']),
+              ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses') and x[3] != 'alongside']),
+              ('declared alongside it, not a dependent', [x for x in D if x[3] == 'alongside'])]
     # AN ENTRY POINT IS NOT "NOTHING". A route handler, a queue consumer or a CLI command is invoked BY THE
     # FRAMEWORK, which is exactly WHY no client call site reaches it. Printing only "nothing the graph can see"
     # for a live HTTP route reads as dead code and is the single most misleading line this command can emit
@@ -2350,7 +2357,7 @@ def main(argv):
     # library base is the only signal `next:` states it as the condition it is (the `maybe` case below)
     unmod_own = [x for x in unmod if not (' on its type ' in x[1] or x[1].endswith('which the graph does not contain'))]
     unmod_sig = '; '.join(sig for _i, sig in unmod[:3]) + (f" (+{len(unmod) - 3} more)" if len(unmod) > 3 else '')
-    if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
+    if not [x for x in D if x[3] != 'alongside']: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
     # a throws clause is a contract: say what adding one to this method would cost, and who already handles the ones it has
     n_callers = len({c for c, role, why, cert, loc, n in D if cert == 'resolved' and 'calls it' in why})
     thrown = sorted({x[0] for x in res.get('target_throws', [])})

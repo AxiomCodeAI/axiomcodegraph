@@ -99,7 +99,7 @@ def main(argv=None):
                     if a[k] != b[k]: print(f"       {k}: fast={a[k]}  rules={b[k]}")
                 bad += 1
             else:
-                al = sorted({x['display'] for x in j.get('direct', []) if x.get('certainty') == ALONG})
+                al = sorted({x['display'] for x in j.get('alongside', [])})
                 print(f"ok   {target!r}: {len(a['direct'])} direct, {a['reached']} reached — identical to the rules"
                       + (f" (the rules also list {len(al)} `alongside` row(s), not compared: {', '.join(al)})" if al else ''))
     finally:

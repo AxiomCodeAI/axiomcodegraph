@@ -66,6 +66,7 @@ An answer's label is the **worst** rung on its route. Read it before acting on t
 | `[by key]` | joined through a registration **string** (route, signal, CLI command) — not an edge |
 | `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
 | `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
+| `[alongside]` | declared in the same type or file — no call, no reference; its own section (`alongside` in `--json`), never a dependent |
 
 Below `[sound]` / `[one of a set]` the order is a tie-break, not a measured ranking. `[sound]` means the edges
 connect, not that a test exercises the change.
