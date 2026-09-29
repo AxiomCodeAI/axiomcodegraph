@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  signal_receiver models.audit_invoice   models.py:32
+  signal_receiver models.audit_order   models.py:19
+  signal_receiver models.before_order_delete   models.py:27

@@ -37,7 +37,7 @@
 // ── WHAT IT EMITS, AND WHY NOT AS A CALL ────────────────────────────────────
 //   framework_edge(FromMethod, ToMethod, Mechanism, Detail, Confidence)
 //     Mechanism   task_dispatch | fixture_injection | url_dispatch |
-//                 signal_dispatch | di_provider | orm_hook
+//                 signal_dispatch | di_provider | model_hook | command_dispatch
 //     Detail      what joined the two ends: the dispatch method, the parameter name,
 //                 the route table, the signal binding, the marker, the hook target
 //     Confidence  registered   both ends carry the framework's own registration
@@ -72,6 +72,7 @@ py_fw_deco_tail(v) :- py_fixture_deco(v).
 py_fw_deco_tail(v) :- py_parametrize_deco(v).
 py_fw_deco_tail(v) :- py_signal_receiver_deco(v).
 py_fw_deco_tail(v) :- py_orm_hook_deco(v).
+py_fw_deco_tail(v) :- py_app_hook_deco(v).
 
 // py_deco_named(DecoratorHash, Tail) -- the decorator's dotted path IS the tail, or
 // ends with "." ++ tail. A bare `@task` and `@app.task` both match; `@mytask` does not,
@@ -360,6 +361,8 @@ py_route_entry_call(site, e) :-
 py_route_root_value(val) :- assign_pair("client", tgt, val),
     expr_binding("client", b, "STORE", tgt),
     binding_decl("client", n, _, _, _, b), py_route_table(n).
+// The same table handed to the application as a keyword, `Starlette(routes=[...])` (#1524).
+py_route_root_value(val) :- call_kwarg(_, k, val), py_route_table(k).
 .decl py_route_table_value(val:symbol)
 py_route_table_value(val) :- py_route_root_value(val).
 
@@ -421,14 +424,30 @@ py_route_entry_in(val, e) :-
     py_route_table_value(val), expr_parent("client", val, "ELEMENT", _, e), py_route_entry_call(_, e).
 .decl py_route_prefix(val:symbol, p:symbol)
 py_route_prefix(val, "/") :- py_route_root_value(val).
-py_route_prefix(val2, cat(p, pat)) :-
+py_route_prefix(val2, r) :-
     py_route_prefix(val, p), strlen(p) < 200,
-    py_route_entry_in(val, i), py_route_pattern(i, pat),
-    call_arg(i, _, inc), py_route_mount(inc, val2).
+    py_route_entry_in(val, i),
+    call_arg(i, _, inc), py_route_mount(inc, val2), py_route_join(val, i, r).
 .decl py_route_served(site:symbol, path:symbol)
-py_route_served(site, cat(p, pat)) :-
-    py_route_prefix(val, p), py_route_entry_in(val, e), py_route_pattern(e, pat),
-    py_route_entry_call(site, e).
+py_route_served(site, r) :-
+    py_route_prefix(val, _), py_route_entry_in(val, e), py_route_entry_call(site, e),
+    py_route_join(val, e, r).
+
+// py_route_join(Table, Entry, Path): the entry's pattern under the table's prefix. A
+// pattern written with its leading "/" (`Route("/widgets", ...)`) under a prefix that ends
+// with one is joined on ONE separator, not two (#1524). A prefix is never empty (the root
+// is "/"). Written with constraints rather than a negated helper, because the prefix is
+// recursive through this relation and a negation inside that cycle does not stratify.
+.decl py_route_join(val:symbol, e:symbol, r:symbol)
+py_route_join(val, e, cat(p, pat)) :- py_route_prefix(val, p), py_route_entry_in(val, e),
+    py_route_pattern(e, pat), substr(p, max(0, strlen(p) - 1), 1) != "/".
+py_route_join(val, e, p) :- py_route_prefix(val, p), py_route_entry_in(val, e),
+    py_route_pattern(e, pat), strlen(pat) = 0.
+py_route_join(val, e, cat(p, pat)) :- py_route_prefix(val, p), py_route_entry_in(val, e),
+    py_route_pattern(e, pat), strlen(pat) > 0, substr(pat, 0, 1) != "/".
+py_route_join(val, e, cat(p, substr(pat, 1, strlen(pat) - 1))) :- py_route_prefix(val, p),
+    py_route_entry_in(val, e), py_route_pattern(e, pat),
+    substr(p, max(0, strlen(p) - 1), 1) = "/", strlen(pat) > 0, substr(pat, 0, 1) = "/".
 
 // The view an entry names. A route registers the declaration written under any
 // decorator, not what the decorator returns (#1510): `@login_required def settings`
@@ -438,6 +457,9 @@ py_route_served(site, cat(p, pat)) :-
 // value semantics of expr_denotes_method answer.
 .decl py_route_entry_arg(site:symbol, a:symbol)
 py_route_entry_arg(site, a) :- py_route_entry_call(site, e), call_arg(e, _, a).
+// ... or by keyword: `WebSocketRoute("/feed", endpoint=feed)` (#1524).
+py_route_entry_arg(site, a) :- py_route_entry_call(site, e),
+    py_route_endpoint_kw(k), call_kwarg(e, k, a).
 
 .decl py_route_arg_names_replaced(a:symbol, m:symbol)
 py_route_arg_names_replaced(a, m) :-
@@ -467,6 +489,15 @@ py_route_view(site, m) :-
     call_receiver_object(a, obj),
     ( expr_names_type("client", obj, t) ; expr_attr_names_type("client", obj, t) ),
     py_view_handler_name(n), mro_lookup("client", t, n, m),
+    method_decl("client", _, _, _, _, m).
+
+// AN ENDPOINT CLASS (#1524). `Route("/widgets", Widgets)` hands the framework the class
+// itself; it instantiates it per request and calls the method named for the request's
+// verb (or, for a websocket endpoint, its connect / receive / disconnect handler). The
+// handlers are looked up through the MRO, client methods only, as for as_view() above.
+py_route_view(site, m) :-
+    py_route_entry_arg(site, a), expr_type_class_object("client", a, t),
+    py_endpoint_handler_name(n), mro_lookup("client", t, n, m),
     method_decl("client", _, _, _, _, m).
 
 // The view is whichever argument of the entry DENOTES a def. A route entry takes the
@@ -537,29 +568,57 @@ py_signal_identity(b, r) :- py_import_binds_binding(b, r).
 // each write the signal's NAME, but a name reference carries its own binding hash per
 // occurrence; only the DECLARING binding is shared. Joining the raw hashes silently
 // produced no edge at all while both halves looked correct on their own.
+//
+// py_signal_ref(Expr, SignalBinding): an expression that names a signal, in either of the
+// two spellings a project writes: the bare name (`order_placed`, imported or declared
+// here) or the module attribute (`signals.order_closed` after `import signals`), which is
+// joined like an import, on the resolved module and the member's own name (#1515).
+// Seeded from the places a signal is named, so the join never runs over every name in
+// the tree.
+.decl py_signal_ref_demand(e:symbol)
+py_signal_ref_demand(a) :- decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_signal_receiver_deco(v),
+    decorator_expr("client", de, h), call_arg(de, "0", a).
+py_signal_ref_demand(el) :- py_signal_ref_demand(a), expr_parent("client", a, "ELEMENT", _, el).
+py_signal_ref_demand(rexpr) :- call_decl("client", _, meth, _, _, site),
+    py_signal_connect_method(meth), call_receiver("client", _, _, rexpr, site).
+py_signal_ref_demand(rexpr) :- call_decl("client", _, meth, _, _, site),
+    py_signal_send_method(meth), call_receiver("client", _, _, rexpr, site).
+
+.decl py_signal_ref(e:symbol, sigb:symbol)
+py_signal_ref(e, sigb) :- py_signal_ref_demand(e),
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, lb), py_signal_identity(lb, sigb).
+py_signal_ref(e, sigb) :- py_signal_ref_demand(e),
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_module("client", obj, mod), py_module_level_binding(mod, n, sigb).
+
+// A receiver decorator takes one signal or a LIST of them: `@receiver([a, b])` attaches
+// the function to each (#1515).
+.decl py_signal_refs(e:symbol, sigb:symbol)
+py_signal_refs(e, sigb) :- py_signal_ref(e, sigb).
+py_signal_refs(e, sigb) :- py_signal_ref_demand(e),
+    expr_parent("client", e, "ELEMENT", _, el), py_signal_ref(el, sigb).
+
 py_signal_receiver(m, sigb) :-
     decorator_target("client", _, m, h), m != "",
     py_deco_named(h, v), py_signal_receiver_deco(v),
-    decorator_expr("client", de, h), call_arg(de, "0", a),
-    expr_binding("client", b, ctx, a), ctx != "STORE",
-    binding_lookup("client", b, lb), py_signal_identity(lb, sigb).
+    decorator_expr("client", de, h), call_arg(de, "0", a), py_signal_refs(a, sigb).
 py_signal_receiver(m, sigb) :-
     call_decl("client", _, meth, _, ce, site), py_signal_connect_method(meth),
-    call_receiver("client", "NAME", _, rexpr, site),
-    expr_binding("client", b, ctx, rexpr), ctx != "STORE",
-    binding_lookup("client", b, lb), py_signal_identity(lb, sigb),
+    call_receiver("client", _, _, rexpr, site), py_signal_ref(rexpr, sigb),
     call_arg(ce, "0", a), expr_denotes_method("client", a, m), m != "".
 
 // A receiver runs when the signal fires, whether or not this tree contains the send.
 entry_point(m, "signal_receiver") :- py_signal_receiver(m, _).
 
-// The publisher: `<sig>.send(sender=...)` on the same binding.
+// The publisher: `<sig>.send(sender=...)` (or send_robust, asend, asend_robust) on the
+// same signal, named either way.
 .decl py_signal_send(site:symbol, from:symbol, sigb:symbol)
 py_signal_send(site, from, sigb) :-
     call_decl("client", _, meth, _, _, site), py_signal_send_method(meth),
-    call_receiver("client", "NAME", _, rexpr, site),
-    expr_binding("client", b, ctx, rexpr), ctx != "STORE",
-    binding_lookup("client", b, lb), py_signal_identity(lb, sigb),
+    call_receiver("client", _, _, rexpr, site), py_signal_ref(rexpr, sigb),
     call_context("client", _, from, _, _, site), from != "".
 
 // The two ends meet ONLY through the same binding. An ordinary `mailer.send(...)` has
@@ -568,6 +627,62 @@ py_signal_send(site, from, sigb) :-
 framework_edge(from, to, "signal_dispatch", "signal", "registered") :-
     py_signal_send(_, from, sigb), py_signal_receiver(to, sigb).
 
+// A send is joined when ANY of its identities has a receiver. An imported signal has two
+// (the importing module's own binding and the declaring one), and the receiver is
+// registered on the declaring one only, so a negation per identity reported a send that
+// had joined as `no_receiver` (#1517). The diagnostic negates per site.
+.decl py_signal_send_joined(site:symbol)
+py_signal_send_joined(site) :- py_signal_send(site, _, sigb), py_signal_receiver(_, sigb).
+
+// ── MODEL SIGNALS: sent by the library on the client's behalf (#1551) ─────────
+// `post_save`, `pre_delete` and the rest are declared by the ORM, not by the client, and
+// the ORM sends them from inside `save()`, `delete()` and the manager's `create()`. So the
+// client has no `send` to join: the publisher is the code that saves the model, and the
+// receiver is scoped to ONE model by `sender=`. The join is therefore
+//   the signal's NAME     imported from outside the client, catalogued in knobs.dl with
+//                         the write methods that fire it;
+//   the sender's CLASS    written as `sender=Order` on the receiver, and the class of the
+//                         receiver of the write (`order.save()`, `Order.objects.create()`).
+// A receiver whose static class is a base of the sender may be saving that model, so the
+// sender may be the write's class or a subclass of it; never an unrelated class.
+.decl py_lib_signal_name(lb:symbol, sig:symbol)
+py_lib_signal_name(lb, orig) :- import_binding("client", lb, i),
+    import_alias("client", orig, _, i), py_model_signal_method(orig, _),
+    !py_import_binds_binding(lb, _).
+
+.decl py_model_signal_receiver(m:symbol, sig:symbol, t:symbol)
+py_model_signal_receiver(m, sig, t) :-
+    decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_signal_receiver_deco(v),
+    decorator_expr("client", de, h), call_arg(de, "0", a), py_signal_refs(a, lb),
+    py_lib_signal_name(lb, sig),
+    py_signal_sender_kw(k), call_kwarg(de, k, s), expr_type_class_object("client", s, t).
+py_model_signal_receiver(m, sig, t) :-
+    call_decl("client", _, meth, _, ce, site), py_signal_connect_method(meth),
+    call_receiver("client", _, _, rexpr, site), py_signal_ref(rexpr, lb),
+    py_lib_signal_name(lb, sig),
+    call_arg(ce, "0", a), expr_denotes_method("client", a, m), m != "",
+    py_signal_sender_kw(k), call_kwarg(ce, k, s), expr_type_class_object("client", s, t).
+
+// The write: an instance method on a receiver of a known class (`order.save()`), or the
+// manager's method on the class (`Order.objects.create(...)`).
+.decl py_model_write(e:symbol, from:symbol, meth:symbol, t:symbol)
+py_model_write(e, from, meth, t) :-
+    call_decl("client", _, meth, _, e, site), py_model_signal_method(_, meth),
+    call_recv_type(e, t),
+    call_context("client", _, from, _, _, site), from != "".
+py_model_write(e, from, meth, t) :-
+    call_decl("client", _, meth, _, e, site), py_model_signal_method(_, meth),
+    call_receiver_object(e, obj),
+    expr_node("client", "ATTRIBUTE_ACCESS", _, attr, obj), py_model_manager_attr(attr),
+    expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, cls),
+    expr_type_class_object("client", cls, t),
+    call_context("client", _, from, _, _, site), from != "".
+
+framework_edge(from, to, "signal_dispatch", sig, "registered") :-
+    py_model_write(_, from, meth, t), py_model_signal_method(sig, meth),
+    py_model_signal_receiver(to, sig, t2), type_self_or_ancestor("client", t2, t).
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. DEPENDENCY-INJECTION PROVIDERS  (handler -> provider)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -575,19 +690,152 @@ framework_edge(from, to, "signal_dispatch", "signal", "registered") :-
 // VALUE and the framework calls it. A provider may declare its own, so the chain has
 // to carry.
 //
-// THE ARGUMENT MUST DENOTE A DEF. `Depends(get_service())` calls the provider eagerly:
-// that is an ordinary call site, already a resolved edge, and the argument expression
-// denotes the RESULT rather than the function -- so it drops out here with no rule of
-// its own. `Depends()` names nothing and matches nothing.
+// THE MARKER IS READ WHEREVER THE FRAMEWORK READS IT, not only as a default:
+//   def h(svc = Depends(get_service))                      a parameter's default
+//   def h(svc: Annotated[Service, Depends(get_service)])   Annotated metadata
+//   ServiceDep = Annotated[Service, Depends(get_service)]  the same, through an alias
+//   def h(svc: ServiceDep)                                 (often in another module)
+//   @router.get("/", dependencies=[Depends(check)])        a route's dependency list
+//   router = APIRouter(dependencies=[Depends(check)])      every route on that router
+// Reading only the first made the documented spelling (Annotated) invisible.
+//
+// WHAT THE FRAMEWORK CALLS is decided by the marker's argument, not by its name:
+//   a def            the def                         Depends(get_service)
+//   a class          its constructor                 Depends(Filter)
+//   nothing          the annotated class's           c: Filter = Depends()
+//                    constructor                     c: Annotated[Filter, Depends()]
+//   an instance      type(instance).__call__         Depends(checker)
+// A class is found through expr_type_class_object and an instance through expr_type,
+// so an instance resolves to ITS class's __call__, never to another __call__ that only
+// shares the name.
+//
+// `Depends(get_service())` calls the provider eagerly: that is an ordinary call site,
+// already a resolved edge, and the argument denotes the RESULT, so the def clause drops
+// it. Only when that result is an instance of a class with __call__ does the instance
+// clause see it, and that __call__ is exactly what the framework then calls.
+
+// ── py_di_marker_call(MarkerExpr, Marker) ────────────────────────────────────
+.decl py_di_marker_call(de:symbol, marker:symbol)
+py_di_marker_call(de, marker) :-
+    call_decl("client", _, marker, _, de, _), py_di_marker(marker).
+
+// ── py_di_marker_arg(MarkerExpr, ArgExpr): the provider, by position or keyword ──
+.decl py_di_marker_arg(de:symbol, a:symbol)
+py_di_marker_arg(de, a) :- py_di_marker_call(de, _), call_arg(de, "0", a).
+py_di_marker_arg(de, a) :- py_di_marker_call(de, _), py_di_marker_kwarg(k),
+    call_kwarg(de, k, a).
+
+// `Depends()` and `Depends(use_cache=False)` name no provider.
+.decl py_di_marker_bare(de:symbol)
+py_di_marker_bare(de) :- py_di_marker_call(de, _), !py_di_marker_arg(de, _).
+
+// ── py_di_marker_target(MarkerExpr, Callable): what the framework calls ───────
+.decl py_di_marker_target(de:symbol, to:symbol)
+py_di_marker_target(de, to) :- py_di_marker_arg(de, a),
+    expr_denotes_method("client", a, to), to != "".
+py_di_marker_target(de, to) :- py_di_marker_arg(de, a),
+    expr_type_class_object("client", a, t), type_constructor("client", t, to).
+py_di_marker_target(de, to) :- py_di_marker_arg(de, a),
+    expr_type("client", a, t), type_call_target("client", t, to).
+// ... and an instance IMPORTED from the module that builds it (`from deps import quota`).
+// A value-shaped import carries no type, so it is followed to the declaring module-level
+// binding (py_signal_identity, section 4) and typed from the construction assigned there.
+py_di_marker_target(de, to) :- py_di_marker_arg(de, a),
+    expr_binding("client", b, ctx, a), ctx != "STORE",
+    binding_lookup("client", b, lb), py_import_binds_binding(lb, rb),
+    expr_binding("client", rb, "STORE", tgt), assign_pair("client", tgt, val),
+    call_constructs_type(val, t), type_call_target("client", t, to).
+
+// ── py_annotated_subscript(Subscript) / py_annotated_element(Subscript, Element) ──
+// `Annotated[T, m1, m2]`, spelled bare or as `typing.Annotated`. The IR has two shapes:
+// in an annotation the arguments sit directly under the subscript, in an assigned value
+// they are wrapped in a TUPLE first.
+.decl py_annotated_subscript(s:symbol)
+py_annotated_subscript(s) :- expr_node("client", "SUBSCRIPT", _, _, s),
+    expr_parent("client", s, "SUBSCRIPT_OBJECT", _, o),
+    expr_node("client", "NAME_REFERENCE", _, n, o), py_annotated_form(n).
+py_annotated_subscript(s) :- expr_node("client", "SUBSCRIPT", _, _, s),
+    expr_parent("client", s, "SUBSCRIPT_OBJECT", _, o),
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, o), py_annotated_form(n).
+.decl py_annotated_element(s:symbol, el:symbol)
+py_annotated_element(s, el) :- py_annotated_subscript(s),
+    expr_parent("client", s, "SUBSCRIPT_INDEX", _, el),
+    !expr_node("client", "TUPLE", _, _, el).
+py_annotated_element(s, el) :- py_annotated_subscript(s),
+    expr_parent("client", s, "SUBSCRIPT_INDEX", _, tup),
+    expr_node("client", "TUPLE", _, _, tup),
+    expr_parent("client", tup, "ELEMENT", _, el).
+
+// ── py_di_param_annotated(ParamHash, AnnotatedSubscript) ─────────────────────
+// The parameter's annotation is `Annotated[...]` itself, or a name bound to one. The
+// alias is a module-level VALUE, and the parser gives a value-shaped import no target
+// hash, so an imported alias is followed through py_signal_identity (resolved module
+// plus the member's own name, section 4).
+.decl py_di_param_annotated(ph:symbol, s:symbol)
+py_di_param_annotated(ph, s) :- py_annotated_subscript(s),
+    expr_root_context("client", "ANNOTATION", s),
+    expr_owner("client", "METHOD_PARAMETER", ph, _, s).
+py_di_param_annotated(ph, s) :-
+    expr_node("client", "NAME_REFERENCE", "ANNOTATION", _, e),
+    expr_owner("client", "METHOD_PARAMETER", ph, _, e),
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, lb), py_signal_identity(lb, ab),
+    expr_binding("client", ab, "STORE", tgt), assign_pair("client", tgt, s),
+    py_annotated_subscript(s).
+
+// ── py_di_dependency_list(CallExpr, MarkerExpr): `dependencies=[Depends(x), ...]` ──
+.decl py_di_dependency_list(ce:symbol, de:symbol)
+py_di_dependency_list(ce, de) :- py_di_dependencies_kwarg(k), call_kwarg(ce, k, lst),
+    expr_parent("client", lst, "ELEMENT", _, de), py_di_marker_call(de, _).
+
+// A router built with a dependency list, keyed on the binding it is stored into.
+.decl py_di_router_dependency(rb:symbol, de:symbol)
+py_di_router_dependency(rb, de) :- py_di_dependency_list(ce, de),
+    assign_pair("client", tgt, ce), expr_binding("client", rb, "STORE", tgt).
+
 .decl py_di_injection(from:symbol, to:symbol, marker:symbol)
+// (a) the parameter's default value
 py_di_injection(from, to, marker) :-
     param_decl("client", _, _, _, from, ph), from != "",
     param_default_expr("client", de, ph),
-    call_decl("client", _, marker, _, de, _), py_di_marker(marker),
-    call_arg(de, "0", a),
-    expr_denotes_method("client", a, to), to != "", to != from.
+    py_di_marker_call(de, marker), py_di_marker_target(de, to), to != from.
+// (b) Annotated metadata, written in place or through an alias
+py_di_injection(from, to, marker) :-
+    param_decl("client", _, _, _, from, ph), from != "",
+    py_di_param_annotated(ph, s), py_annotated_element(s, de),
+    py_di_marker_call(de, marker), py_di_marker_target(de, to), to != from.
+// (c) `Depends()` naming no provider: the class the parameter is annotated with
+py_di_injection(from, to, marker) :-
+    param_decl("client", _, _, _, from, ph), from != "",
+    param_default_expr("client", de, ph),
+    py_di_marker_call(de, marker), py_di_marker_bare(de),
+    param_declared_type("client", ph, t), type_constructor("client", t, to).
+py_di_injection(from, to, marker) :-
+    param_decl("client", _, _, _, from, ph), from != "",
+    py_di_param_annotated(ph, s), py_annotated_element(s, de),
+    py_di_marker_call(de, marker), py_di_marker_bare(de),
+    py_annotated_element(s, te), te != de,
+    expr_type_class_object("client", te, t), type_constructor("client", t, to).
+// (d) a route decorator's dependency list guards the decorated handler
+py_di_injection(from, to, marker) :-
+    decorator_target("client", _, from, h), from != "",
+    decorator_expr("client", dx, h), py_di_dependency_list(dx, de),
+    py_di_marker_call(de, marker), py_di_marker_target(de, to), to != from.
+// (e) a router's dependency list guards every handler routed through that router
+py_di_injection(from, to, marker) :-
+    decorator_target("client", _, from, h), from != "",
+    decorator_expr("client", dx, h),
+    expr_parent("client", dx, "RECEIVER", _, attr),
+    expr_parent("client", attr, "ATTRIBUTE_OBJECT", _, obj),
+    expr_binding("client", ob, ctx, obj), ctx != "STORE",
+    binding_lookup("client", ob, lb), py_signal_identity(lb, rb),
+    py_di_router_dependency(rb, de),
+    py_di_marker_call(de, marker), py_di_marker_target(de, to), to != from.
 
+// A provider in ANY dependency list runs, whether or not the guarded handlers are
+// known here (an application-wide list, or one passed when a router is included).
 entry_point(m, "di_provider") :- py_di_injection(_, m, _).
+entry_point(m, "di_provider") :- py_di_dependency_list(_, de), py_di_marker_target(de, m).
 framework_edge(from, to, "di_provider", marker, "registered") :-
     py_di_injection(from, to, marker).
 
@@ -595,9 +843,10 @@ framework_edge(from, to, "di_provider", marker, "registered") :-
 // 6. ORM AND MODEL HOOKS
 // ─────────────────────────────────────────────────────────────────────────────
 // A lifecycle or validation hook is registered by decoration and called by the library.
-// There is no second end in the client at all -- nothing here fires the hook -- so this
-// mechanism produces an ENTRY POINT and no framework_edge. Claiming an edge would mean
-// naming a caller that does not exist.
+// Most have no second end in the client -- nothing here fires the hook -- so the hook is
+// an ENTRY POINT. The one client end some of them do have is the code that BUILDS the
+// model, which runs its construction-time hooks; that edge is drawn below (model_hook),
+// and no other caller is claimed.
 //
 // The registration must NAME ITS TARGET: a hook always says what it hooks (a mapper and
 // an event, or the fields it validates). A project's own decorator spelled the same way
@@ -608,7 +857,142 @@ py_orm_hook(m, v) :- decorator_target("client", _, m, h), m != "",
     py_deco_named(h, v), py_orm_hook_deco(v),
     decorator_text("client", _, _, argc, h), argc != "0", argc != "".
 
+// A MODEL CLASS: one whose lineage leaves the client, through a base the engine cannot
+// see (an unresolved import) or one declared in a library. A validation library's hooks
+// are methods of such a class; a class with no base, or only client bases, is not one.
+.decl py_type_external_lineage(t:symbol)
+py_type_external_lineage(t) :- type_self_or_ancestor("client", t, a),
+    type_base_unresolved("client", a, _, _).
+py_type_external_lineage(t) :- type_self_or_ancestor("client", t, a),
+    type_base_resolved("client", a, _, b), !type_decl("client", _, _, _, b).
+
+// A hook written bare (`@root_validator`, `@model_serializer`) names no target, so the
+// rule above does not see it. On a method of a model class the decorator is the
+// registration (#1536); on anything else a bare decorator of that name is not trusted.
+py_orm_hook(m, v) :- decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_orm_hook_deco(v),
+    decorator_text("client", _, _, argc, h), ( argc = "0" ; argc = "" ),
+    method_owner("client", t, m), py_type_external_lineage(t).
+
+// A lifecycle method the library calls on every instance it builds, found by its NAME on
+// a model class: `def model_post_init(self, ctx)` overrides the library's own (#1536). On
+// a class that is not a model, a method of that name is an ordinary method.
+.decl py_model_post_init(m:symbol, t:symbol)
+py_model_post_init(m, t) :- py_model_lifecycle_method(n),
+    method_decl("client", n, _, _, _, m), method_owner("client", t, m),
+    py_type_external_lineage(t).
+
 entry_point(m, "orm_hook") :- py_orm_hook(m, _).
+entry_point(m, "orm_hook") :- py_model_post_init(m, _).
+
+// ── WHAT BUILDING A MODEL RUNS (#1532) ───────────────────────────────────────
+// `Widget(**data)` and `Widget.model_validate(data)` run the class's validators, its
+// post-init hook and the default factories of the fields left out, and none of those has
+// a call site: the library's constructor calls them. The client's side of the hop is the
+// construction, so the edge runs from the code that builds the model to each of them.
+//   a construction-time validator   declared on the class or an ancestor (a serializer
+//                                   runs on dump, not on build, and is not reached here)
+//   the post-init hook              the one the class's MRO selects
+//   a default factory               `Field(default_factory=f)` or `field(default_factory=f)`
+//                                   in the class body of the class or an ancestor; a
+//                                   dataclass runs it from its generated __init__ the same way
+.decl py_model_build(e:symbol, from:symbol, t:symbol)
+py_model_build(e, from, t) :- call_constructs_type(e, t),
+    call_decl("client", _, _, _, e, site),
+    call_context("client", _, from, _, _, site), from != "".
+py_model_build(e, from, t) :-
+    call_decl("client", _, meth, _, e, site), py_model_build_method(meth),
+    call_receiver_object(e, obj), expr_type_class_object("client", obj, t),
+    py_type_external_lineage(t),
+    call_context("client", _, from, _, _, site), from != "".
+
+.decl py_model_build_runs(t:symbol, m:symbol, detail:symbol)
+py_model_build_runs(t, m, v) :- py_model_build(_, _, t),
+    type_self_or_ancestor("client", t, a), method_owner("client", a, m),
+    py_orm_hook(m, v), py_model_construct_hook_deco(v).
+py_model_build_runs(t, m, n) :- py_model_build(_, _, t),
+    py_model_lifecycle_method(n), mro_lookup("client", t, n, m), py_model_post_init(m, _).
+py_model_build_runs(t, m, k) :- py_model_build(_, _, t),
+    type_self_or_ancestor("client", t, a),
+    call_context("client", _, body, a, _, site), method_kind("client", "CLASS_INITIALIZER", _, body),
+    call_decl("client", _, _, _, fe, site),
+    py_default_factory_kw(k), call_kwarg(fe, k, f), expr_denotes_method("client", f, m), m != "".
+
+framework_edge(from, to, "model_hook", detail, "registered") :-
+    py_model_build(_, from, t), py_model_build_runs(t, to, detail), from != to.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6b. APPLICATION LIFECYCLE  (#1523)
+// ─────────────────────────────────────────────────────────────────────────────
+// An application registers callables it runs around every request, on an error, or at
+// start and stop. None has a call site in the client, so each is an entry point:
+//   @app.middleware("http")          a decorator in the py_app_hook_deco catalogue, which
+//   @app.exception_handler(Exc)      must NAME what it hooks (an argument): a bare
+//   @app.on_event("startup")         decorator of the same name is some object's method
+//   FastAPI(lifespan=fn)             a keyword in py_app_lifecycle_kw, holding the callable
+//   Starlette(on_startup=[fn])       or a list of them
+//   app.add_middleware(Timing)       a middleware CLASS, registered by a catalogued method
+//   Middleware(Timing)               or wrapper; the framework builds it and calls its
+//                                    request handler (py_middleware_handler_name)
+// A decorated def (`@asynccontextmanager async def lifespan`) is named by the def written
+// under the decorator, as a route is.
+.decl py_app_hook(m:symbol)
+py_app_hook(m) :- decorator_target("client", _, m, h), m != "",
+    py_deco_named(h, v), py_app_hook_deco(v),
+    decorator_text("client", _, _, argc, h), argc != "0", argc != "".
+
+.decl py_app_lifecycle_value(a:symbol)
+py_app_lifecycle_value(a) :- py_app_lifecycle_kw(k), call_kwarg(_, k, a).
+py_app_lifecycle_value(el) :- py_app_lifecycle_kw(k), call_kwarg(_, k, a),
+    expr_parent("client", a, "ELEMENT", _, el).
+py_app_hook(m) :- py_app_lifecycle_value(a),
+    expr_binding("client", b, ctx, a), ctx != "STORE", binding_lookup("client", b, b2),
+    binding_binds_replaced_method("client", b2, m).
+py_app_hook(m) :- py_app_lifecycle_value(a), expr_denotes_method("client", a, m), m != "".
+
+.decl py_middleware_class(t:symbol)
+py_middleware_class(t) :- call_decl("client", _, meth, _, e, _), py_middleware_register_fn(meth),
+    call_arg(e, "0", a), expr_type_class_object("client", a, t).
+py_app_hook(m) :- py_middleware_class(t), py_middleware_handler_name(n),
+    mro_lookup("client", t, n, m), method_decl("client", _, _, _, _, m).
+py_app_hook(m) :- py_middleware_class(t), type_constructor("client", t, m),
+    method_decl("client", _, _, _, _, m).
+
+entry_point(m, "lifecycle") :- py_app_hook(m).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6c. MANAGEMENT COMMANDS  (#1520)
+// ─────────────────────────────────────────────────────────────────────────────
+// A command is a module in a `management/commands/` package whose class of the catalogued
+// name defines the handler; the runner imports the module by its FILE NAME and calls the
+// handler. `call_command("close_orders")` is the in-process way to run one, keyed on that
+// same name. All three names are the framework's convention (py_command_* in knobs.dl); a
+// class of that name anywhere else is an ordinary class.
+.decl py_command_type(t:symbol, q:symbol)
+py_command_type(t, q) :- py_command_class(cn), type_decl("client", cn, _, _, t),
+    type_module("client", mod, t), module_file("client", p, mod),
+    py_command_dir(d), contains(d, cat("/", p)),
+    module_decl("client", _, q, _, mod).
+.decl py_command_handler(t:symbol, m:symbol)
+py_command_handler(t, m) :- py_command_type(t, _), py_command_handler_name(n),
+    mro_lookup("client", t, n, m), method_decl("client", _, _, _, _, m).
+
+entry_point(m, "cli") :- py_command_handler(_, m).
+
+// `call_command("<name>")` reaches the handler of the command module named <name>: the
+// module's qualified name is `<package>.management.commands.<name>`.
+.decl py_command_call(site:symbol, from:symbol, name:symbol)
+py_command_call(site, from, n) :- call_decl("client", _, fn, _, e, site), py_command_call_fn(fn),
+    call_arg(e, "0", a), expr_node("client", "LITERAL", _, n, a), n != "",
+    call_context("client", _, from, _, _, site), from != "".
+framework_edge(from, m, "command_dispatch", n, "registered") :-
+    py_command_call(_, from, n), py_command_type(t, q), py_command_package(pq),
+    sfx = cat(".", cat(pq, n)), strlen(q) > strlen(sfx),
+    substr(q, max(0, strlen(q) - strlen(sfx)), strlen(sfx)) = sfx,
+    py_command_handler(t, m).
+framework_edge(from, m, "command_dispatch", n, "registered") :-
+    py_command_call(_, from, n), py_command_type(t, q), py_command_package(pq),
+    q = cat(pq, n), py_command_handler(t, m).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 7. DIAGNOSTICS — the half that says what did NOT join
@@ -629,5 +1013,5 @@ framework_unjoined(e, "task_dispatch", meth) :-
     call_decl("client", _, meth, _, e, site), py_task_dispatch_method(meth),
     !py_task_dispatch(site, _, _, _).
 framework_unjoined(e, "signal_dispatch", "no_receiver") :-
-    py_signal_send(site, _, sigb), !py_signal_receiver(_, sigb),
+    py_signal_send(site, _, _), !py_signal_send_joined(site),
     call_decl("client", _, _, _, e, site).
