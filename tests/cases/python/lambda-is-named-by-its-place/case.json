@@ -2,7 +2,7 @@
  "checks": [
   {"why": "an edit inside a lambda in a method body is a body change of THAT METHOD: the lambda is part of its body, and its one name, <lambda>, is never the declaration an edit is charged to (it matched every lambda in the graph, and their tests)",
    "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new-in-lambda.txt", "--file", "lib.py"],
-   "want": ["body       Orders.totals", "→ impact Orders.totals"],
+   "want": ["body       Orders.totals", "→ impact lib.py:5"],
    "avoid": ["<lambda", "  signature "]},
   {"why": "and what it reaches are the tests of that method, not the tests of every other lambda",
    "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new-in-lambda.txt", "--file", "lib.py", "--impact"],

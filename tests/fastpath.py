@@ -142,6 +142,15 @@ def main(argv=None):
         r = subprocess.run(['bash', AX, 'index', CASE, '--lang', LANG], capture_output=True, text=True)
         if r.returncode: print("FAIL index: " + (r.stderr or r.stdout)[-400:]); return 1
     bad = 0; along = set(); along_of = {}
+    # THE SHAPE `changed` NOW EMITS FOR EVERY EDIT: file:line, the declaration edited, and file:line(p) for a parameter.
+    # A name answered for every declaration carrying it; the fast path must answer the line for that one alone.
+    import sqlite3
+    fn = SHAPES[0][0].replace('#', '.').rsplit('.', 1)[-1]; par = SHAPES[1][0].rsplit('(', 1)[-1].rstrip(')')
+    con = sqlite3.connect(os.path.join(CASE, '.axiomcode', 'out', 'graph.sqlite'))
+    at = con.execute("SELECT file, line FROM symbols WHERE name=? AND method_id IS NOT NULL ORDER BY file, line LIMIT 1", (fn,)).fetchone()
+    con.close()
+    if at: SHAPES = SHAPES + [(f"{at[0]}:{at[1]}", True), (f"{at[0]}:{at[1]}({par})", True)]
+    else: print(f"FAIL: {fn} is not in the graph, so its file:line shapes cannot be asked"); bad += 1
     try:
         for target, must_answer in SHAPES:
             fast = graph_sql.impact_shaped(CASE, target)

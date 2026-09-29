@@ -8,8 +8,9 @@ extends / implements, type parameters), `removed`, and `added` lines outside any
 nothing depends on new code yet). By default it reads the working tree against **the commit the graph was built from** (the
 build stamps it), so an uncommitted edit is always measured against the tree the graph describes; `--range a..b` reads two
 commits (when the graph is at the newer side, the declarations are the new text's and the direction is turned around),
-`--staged` the index, `--old/--new/--file` two texts of one file. Each line ends with the target `impact` takes for it — a
-signature with one parameter changed is `Owner.m(param)` — and `--impact` runs impact on all of them as one change set.
+`--staged` the index, `--old/--new/--file` two texts of one file. Each line ends with the target `impact` takes for it: the
+declaration edited, as `file:line` (a name answers for every declaration carrying it: eight `main`s, two overloads), and
+`file:line(param)` for a signature with one parameter changed. `--impact` runs impact on all of them as one change set.
 
 What to pass, and what the answer says when the question cannot be answered the way it was asked:
 

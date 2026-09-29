@@ -22,7 +22,7 @@ Each run builds a real graph in a throwaway git repository (Python, so the rules
 
     python3 tests/changed_range.py
 """
-import json, os, shutil, subprocess, sys, tempfile
+import json, os, re, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX = os.path.join(ROOT, 'bin', 'axiomcode')
@@ -178,7 +178,7 @@ def main():
         r = sh(pk, AX, 'changed', '.', '--range', 'HEAD~1..HEAD', '--json', env=env)
         try: targets = [e['target'] for e in json.loads(r.stdout)['changed'] if e.get('target')]
         except Exception: targets = []
-        check(any('(' in t and t.count('.') >= 3 for t in targets), 'changed hands over a package-qualified parameter target', r.stdout + r.stderr)
+        check(any(re.fullmatch(r'shop/pricing\.py:\d+\(\w+\)', t) for t in targets), 'changed hands over a parameter target on the declaration edited (file:line(param))', r.stdout + r.stderr)
         for t in dict.fromkeys(targets):
             r2, o2 = ax(pk, 'impact', t, '.')
             check(r2 == 0 and 'matches no package' not in o2, f'the printed target {t} is answered by impact', o2)

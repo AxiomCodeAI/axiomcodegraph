@@ -1,0 +1,147 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "an edit inside one of two same-named functions (`main` in alpha/cli.py and in beta/cli.py, both `cli.main`) is targeted by file:line, the declaration edited, and the name stays on the line",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-body.txt",
+    "--file",
+    "alpha/cli.py"
+   ],
+   "want": [
+    "body       main   alpha/cli.py:5",
+    "→ impact alpha/cli.py:5"
+   ],
+   "avoid": [
+    "→ impact main",
+    "→ impact cli.main"
+   ]
+  },
+  {
+   "why": "so what it reaches is that main's callers alone, not those of the other main",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-body.txt",
+    "--file",
+    "alpha/cli.py",
+    "--impact"
+   ],
+   "want": [
+    "go_a",
+    "test_alpha"
+   ],
+   "avoid": [
+    "go_b",
+    "test_beta",
+    "names 2 declarations"
+   ]
+  },
+  {
+   "why": "and the tests selected for it are that main's test file, not the other one's",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-body.txt",
+    "--file",
+    "alpha/cli.py"
+   ],
+   "want": [
+    "alpha/test_alpha.py"
+   ],
+   "avoid": [
+    "beta/test_beta.py"
+   ]
+  },
+  {
+   "why": "the JSON a hook reads carries the file:line target and the name beside it",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-body.txt",
+    "--file",
+    "alpha/cli.py",
+    "--json"
+   ],
+   "stdout_json": true,
+   "want": [
+    "\"target\": \"alpha/cli.py:5\"",
+    "\"shown_target\": \"cli.main\""
+   ],
+   "avoid": []
+  },
+  {
+   "why": "control: a unique name is answered as it was, its own callers and tests",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-unique.txt",
+    "--file",
+    "alpha/cli.py",
+    "--impact"
+   ],
+   "want": [
+    "body       unique_alpha",
+    "→ impact alpha/cli.py:9",
+    "test_alpha"
+   ],
+   "avoid": [
+    "go_b",
+    "test_beta"
+   ]
+  },
+  {
+   "why": "a renamed declaration is read as its old header changed: file:line on the graph's line still names what the old name's callers lose, and only theirs",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-rename.txt",
+    "--file",
+    "alpha/cli.py",
+    "--impact"
+   ],
+   "want": [
+    "main   alpha/cli.py:5",
+    "→ impact alpha/cli.py:5",
+    "go_a"
+   ],
+   "avoid": [
+    "go_b",
+    "test_beta"
+   ]
+  },
+  {
+   "why": "near miss: the bare name still answers for every declaration of it, and says so",
+   "run": [
+    "impact",
+    "main"
+   ],
+   "want": [
+    "go_a",
+    "go_b"
+   ],
+   "avoid": []
+  }
+ ]
+}
