@@ -394,6 +394,29 @@ check("java: ParserTest and TestParser are Parser's tests; a resource Parser.jav
       ti.package_tier(d, ['src/main/java/a/Parser.java'])[1],
       {'files': ['src/test/java/a/ParserTest.java', 'src/test/java/a/TestParser.java'], 'not_tests': 1})
 shutil.rmtree(d)
+# the text tier: a directory of a changed data file is named by a test only where the test writes it as THAT directory.
+# A path segment is not a phrase match: `cases` inside another tree's path, a @MethodSource("cases"), a dict key or a
+# comment names some other `cases`, and matched every test of the repository
+CASE = 'graph/test/java/cases/70-orders/src/derived/Order.java'
+d = tree({'graph/test/java/tools/runner.py': "CASES = os.path.join(os.path.dirname(HERE), 'cases')\n",
+          'graph/test/java/check_cases.py': "for c in glob.glob('cases/*/src/**', recursive=True): pass\n",
+          'tests/test_paths.py': "ROOT = 'graph/test/java/cases/'\n",
+          'tests/cases/python/x/test_a.py': "p = os.path.join(HERE, 'tests', 'cases', 'python')\n",
+          'tests/test_other_tree.py': "fx = 'test/python/cases/10-async'\n",
+          'src/test/java/a/RatesTest.java': '@MethodSource("cases")\nvoid rates() {}\n',
+          'tests/test_prose.py': "# the derived/ and test/java/cases layouts differ\nkinds = {'derived': 1}\n",
+          'tests/test_join_other.py': "base = os.path.join(ROOT, 'build', 'derived')\n"})
+got = ti.loaders(d, {CASE: False})
+check("a data file under cases/ is named by the runner beside it, a glob below it and its full path; not by another "
+      "tree's path, an annotation value, a dict key, a comment or a join under another root",
+      (got[CASE][0], got[CASE][1]), ('cases', ['graph/test/java/check_cases.py', 'graph/test/java/tools/runner.py', 'tests/test_paths.py']))
+check("names_dir: a glob below the directory must match what lies below it (control)",
+      ti.names_dir(CASE, 'cases', 't.py', "glob('cases/*/case.json')"), False)
+check("names_dir: a path written with its own parents agrees (control)",
+      ti.names_dir(CASE, 'derived', 'tests/t.py', "p = 'java/cases/70-orders/src/derived'"), True)
+check("names_dir: the same word under another parent does not",
+      ti.names_dir(CASE, 'derived', 'tests/t.py', "p = 'python/cases/70-orders/src/derived'"), False)
+shutil.rmtree(d)
 check("a runner given only another language's files prints no command", ti.command_for('python', ['tests/Foo.cs'], [], None, '.'), None)
 check("java drops a .py file from a file-named selection", ti.command_for('java', ['src/test/java/ATest.java', 'tests/test_a.py'], []),
       'mvn test -Dtest=ATest')
