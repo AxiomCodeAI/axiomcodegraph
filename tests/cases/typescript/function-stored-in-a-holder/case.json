@@ -114,6 +114,23 @@
     "src/app.ts: "
    ],
    "avoid": []
+  },
+  {
+   "why": "a call through a function-typed field the graph cannot fill (a library-made wrapper) ends on the type's signature: path says unknown, names the site and that it carries the target's name, never independent",
+   "run": [
+    "path",
+    "Svc.login",
+    "Store.find"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "— the callee is held by a field, variable or parameter of a function type",
+    "named like the target: if it holds Store.find, the chain is real"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
   }
  ]
 }

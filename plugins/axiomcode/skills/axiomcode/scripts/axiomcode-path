@@ -71,6 +71,8 @@ def chain_json(g, chain):
 # declarations that describe a callable and have no body (score.py's bodiless_kinds)
 BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE',
                   'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE'}
+# of those, the ones a call through a VALUE lands on: a function type or a bare call signature, not a member of an interface
+FUNCTION_TYPE_KINDS = {'FUNCTION_TYPE_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE'}
 # the one name a front end gives every lambda it declares (Python and C#; Java declares none): a name that says nothing
 # about WHICH lambda, so it is never a target on its own (G.lambda_label, G.lambda_target)
 LAMBDA_NAMES = {'<lambda>'}
@@ -1767,8 +1769,18 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     # `table[k]()`: nothing about the name narrows the target, so the by-name search above finds no lead and
     # "independent" was printed for a start that hands control to whatever it was given. The engine marks such a
     # site (`unresolved_value_callee`); one in either side's closure makes the connection unknown, not absent.
+    # A typed front end RESOLVES the same call, to the holder's function type (`find: (e: string) => …`), a signature
+    # with no body: the chain ends there, and the function the holder is given is what runs. Those count too.
     opaque = []
-    if not (remote_found or lib_side or sends) and g.has('ext_unresolved_value_callee'):
+    value_sql = []
+    if g.has('ext_unresolved_value_callee'):
+        value_sql.append("SELECT s.caller_id c, s.callee_name n, s.file_path f, s.start_line ln, v.c1 why FROM ext_unresolved_value_callee v"
+                         " JOIN call_sites s ON s.id = v.c0 WHERE s.caller_id IN (%s)")
+    if g.has('methods') and g.has('call_edges'):
+        value_sql.append("SELECT DISTINCT s.caller_id c, s.callee_name n, s.file_path f, s.start_line ln, 'function_type' why FROM call_edges e"
+                         " JOIN call_sites s ON s.id = e.call_site_id JOIN methods m ON m.id = e.callee_method_id"
+                         f" WHERE m.kind IN ({','.join(repr(k) for k in sorted(FUNCTION_TYPE_KINDS))}) AND s.caller_id IN (%s)")
+    if not (remote_found or lib_side or sends) and value_sql:
         for xs, lx in ((A_, la), (B_, lb)):
             seen = {i for i in xs if i in g.sym and g.sym[i]['kind'] not in ('library', 'written')}; fr = list(seen)
             while fr:
@@ -1778,8 +1790,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             ids = sorted(seen); rows = []
             for i in range(0, len(ids), 900):
                 part = ids[i:i + 900]
-                rows += g.q("SELECT s.caller_id c, s.callee_name n, s.file_path f, s.start_line ln, v.c1 why FROM ext_unresolved_value_callee v"
-                            " JOIN call_sites s ON s.id = v.c0 WHERE s.caller_id IN (%s)" % ','.join('?' * len(part)), *part)
+                for sql in value_sql: rows += g.q(sql % ','.join('?' * len(part)), *part)
             if rows: opaque.append((lx, sorted(rows, key=lambda r: (g.site_file(r['f']), r['ln'] or 0))))
     # …but a framework may still connect them, and the graph holds the evidence for it: the target is registered
     # under a key, and the source writes that key. That is not a chain of calls, so it is reported and not walked.
@@ -1821,15 +1832,22 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
            'instance_member': 'a function stored on the instance from outside the class',
            'parameter_member': 'a member of a parameter', 'expression': 'computed by an expression',
            'getattr': 'an attribute looked up by a name computed at run time',
-           'imported_variable': "another module's exported variable, which that module reassigns"}
+           'imported_variable': "another module's exported variable, which that module reassigns",
+           'function_type': 'held by a field, variable or parameter of a function type, whatever function it is given'}
+    # A value callee that carries the OTHER endpoint's name (`this.find()` where the field holds a wrapper
+    # around find) is the likeliest connection: listed first, and said so.
+    names = {la: {g.sym[i]['name'] for i in B_ if i in g.sym}, lb: {g.sym[i]['name'] for i in A_ if i in g.sym}}
     for lx, rows in opaque:
+        other = lb if lx == la else la
+        rows = sorted(rows, key=lambda r: r['n'] not in names[lx])
         # the sites that make the answer unknown, in --json too: a consumer reading only `answers` saw "no chain"
         RESULT['value_calls'] = RESULT.get('value_calls', []) + [
             {'side': lx, 'caller': g.disp(r['c']), 'callee': r['n'] or '', 'at': f"{g.site_file(r['f'])}:{r['ln']}",
-             'callee_is': WHY.get(r['why'], r['why'])} for r in rows[:50]]
+             'callee_is': WHY.get(r['why'], r['why']), 'named_like_target': r['n'] in names[lx]} for r in rows[:50]]
         print(f"  {lx} reaches {len(rows)} call(s) through a value:")
         for r in rows[:4]:
-            print(f"    `{r['n'] or '[…]'}()` in {g.disp(r['c'])} at {g.site_file(r['f'])}:{r['ln']} — the callee is {WHY.get(r['why'], r['why'])}")
+            print(f"    `{r['n'] or '[…]'}()` in {g.disp(r['c'])} at {g.site_file(r['f'])}:{r['ln']} — the callee is {WHY.get(r['why'], r['why'])}"
+                  + (f" — named like the target: if it holds {other}, the chain is real" if r['n'] in names[lx] else ''))
         if len(rows) > 4: print(f"    … +{len(rows) - 4} more")
     for line in fw: print(line)
     return 1
