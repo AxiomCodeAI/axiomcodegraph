@@ -172,6 +172,19 @@ expr_type(p, e, t) :-
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_type_from_construction(p, f, t).
+// (i2c) the SAME hop with a CLASS OBJECT in the object position (#1518):
+// `Order.objects.open_orders()` where the class body says `objects = OrderManager()`.
+// The clause above joins expr_type, an INSTANCE type, so the class spelling had no
+// clause while `Order().objects` resolved. Only a CLASS-BODY assignment is read here:
+// an attribute written through `self` in a method does not exist on the class object,
+// so typing `Cls.x` from it would name something the class never holds.
+expr_type(p, e, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type_class_object(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_decl(p, n, _, "CLASS_BODY_ASSIGN", f),
+    field_type_from_construction(p, f, t).
 // ── (i3) A PROPERTY READ IS A CALL, SO IT HAS A RETURN TYPE (issue #286) ─────
 // `attribute-lookup.dl` already argues that `obj.x` on a `@property` is a method call, and
 // `call_chain.dl` emits the PROPERTY_READ edge from it. Nothing gave the ATTRIBUTE
