@@ -32,6 +32,7 @@ From the shell the same shape is `--grep` (`--grep-limit N`); without it the ans
 | "how does A reach B" · "everything that reaches X" | `axiomcode path A B` · `axiomcode path '*' X` |
 | "what did my edit touch" · "which tests do I run" | `axiomcode changed --impact` · `axiomcode test-impact` |
 | "is it safe to delete X" | `axiomcode impact X --delete` |
+| what an engine or rules change did to a graph · a before/after of one tree | `axiomcode diff <before> <after>` (two indexed copies, or two graph.sqlite) |
 | the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` (drawn from the existing graph in seconds; a stale one is rebuilt first with the flags it was indexed with; prints the page's absolute path) · `axiomcode install` |
 
 Rules that decide whether an answer means anything:
@@ -102,6 +103,15 @@ and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 `axiomcode path <from> <to> [--every] [--in <path>]`: one shortest verified chain per target, or why there is none
 (with the unresolved sites that might connect them). Endpoints as written: `Owner.method`, `Type`, `file.ts:123`,
 `'new File'`, `'@GetMapping'`, `'*'`, or a bare word. A misspelt name stops with the close ones. Detail: `reference/path.md`.
+
+## diff: two graphs of the same tree
+
+`axiomcode diff <graphA> <graphB> [--file <fragment>] [--json]`: what changed between two graphs of one tree, each a
+`graph.sqlite` or an indexed directory (copy the tree, index each copy, e.g. before and after an engine change). Call
+edges added, removed, retiered or re-targeted, entry points with their reason, remote and framework edges, config
+bindings and symbols, with the call edges per tier. Rows match by file, line, qualified name and callee, never by id
+(ids hash the index directory), so one tree indexed at two paths diffs to nothing. Use it instead of hand SQL for a
+before/after. Detail: `reference/diff.md`.
 
 A fact no verb prints (decorations, bases, entry points by reason, field writers): `reference/schema.md` names the table per language.
 
