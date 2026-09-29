@@ -246,6 +246,42 @@ extension_match(prov, e, m) :-
     call_recv_type_name(prov, e, tn),
     extension_recv_name(prov, m, tn).
 
+// (5) THROUGH THE RECEIVER'S UNSTAGED HERITAGE. An in-source class that derives from
+// or implements an unstaged type the `this` parameter names: `class AppServices :
+// IServiceCollection` against `this IServiceCollection`. The heritage entry is
+// written with the same name the parameter is, so the match is as firm as (3). (No
+// test that the `this` type is itself unresolved: that negation would sit inside the
+// typing recursion, and a heritage entry that failed to resolve names no staged type.)
+extension_match(prov, e, m) :-
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    call_recv_type(prov, e, rgk),
+    type_self_or_ancestor(prov, rgk, agk),
+    type_base_unresolved(prov, agk, _, tn, _),
+    extension_recv_name(prov, m, tn).
+
+// (6) A LIBRARY-TYPED RECEIVER (#1535). With --library, `Kit.Run()` returns the
+// staged `Report`, and `Describe(this Report r)` has its `this` type resolved to that
+// same library group. The nominal clause (1) walks type_self_or_ancestor, which is
+// keyed on the CLIENT's groups and has no row for a library group, not even the
+// reflexive one, so the extension matched only without the library and staging it
+// made the answer worse. The library's own ancestors are followed the same way.
+extension_lib_self_or_ancestor(gk, gk) :- type_group("lib", _, gk).
+extension_lib_self_or_ancestor(gk, agk) :- type_ancestor("lib", gk, agk).
+extension_match(prov, e, m) :-
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    call_recv_type(prov, e, rgk),
+    type_group("lib", _, rgk),
+    extension_recv_type(prov, m, tgk),
+    extension_lib_self_or_ancestor(rgk, tgk).
+
 // THE GATE. An extension method is considered only where instance lookup found
 // nothing applicable, which is the language's rule and not an optimisation: a type
 // with its own `Select` must bind to its own, and offering both makes every LINQ
@@ -253,6 +289,34 @@ extension_match(prov, e, m) :-
 extension_candidate(prov, e, m) :-
     extension_match(prov, e, m),
     call_instance_lookup_failed(prov, e).
+// The candidates of the matching clauses (1)-(6), without rung (7) below: what an
+// external label on an unstaged receiver is withheld for (external-types.dl).
+extension_candidate_matched(prov, e) :- extension_match(prov, e, _), call_instance_lookup_failed(prov, e).
+
+// (7) BOTH SIDES UNSTAGED, UNDER DIFFERENT NAMES (#1472): `ServiceCollection services;
+// services.AddWidgetRules()` against `AddWidgetRules(this IServiceCollection s)`. The
+// receiver's type is unstaged, so the engine has no ancestors for it, and the `this`
+// type is unstaged too, so neither nominal nor by-name matching can say whether one
+// implements the other. It is the documented DI registration shape, and dropping it
+// hid the caller from `impact`. So it is a candidate, but never a firm one: the site
+// keeps its external label beside it and reads as one of a set. Taken only where no
+// other extension matched the site, so it never widens an answer (3) already gave.
+// An in-source `this` type is not this rung: an unstaged type cannot derive from it.
+extension_loose_match(prov, e, m) :-
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    call_recv_type_name(prov, e, tn), !call_recv_type(prov, e, _),
+    external_type_name(prov, mod, tn, _),
+    !extension_recv_type(prov, m, _),
+    !extension_recv_is_generic(prov, m), !extension_recv_is_object(prov, m),
+    extension_recv_name(prov, m, xn), xn != tn.
+extension_candidate(prov, e, m) :-
+    extension_loose_match(prov, e, m),
+    call_instance_lookup_failed(prov, e),
+    !extension_match(prov, e, _).
 
 // A candidate the engine has real evidence for, as opposed to one it reached by
 // assuming an unanswerable question was answered "nothing". Only a FIRM candidate
@@ -297,6 +361,7 @@ extension_is_guess(prov, e, m) :-
     extension_match(prov, e, m),
     extension_recv_is_generic(prov, m),
     !call_recv_type(prov, e, _).
+extension_is_guess(prov, e, m) :- extension_loose_match(prov, e, m), !extension_match(prov, e, _).
 
 // An extension method is STATIC and is never virtually dispatched: the receiver is
 // an ordinary argument, so the target is exact and needs no fan.
