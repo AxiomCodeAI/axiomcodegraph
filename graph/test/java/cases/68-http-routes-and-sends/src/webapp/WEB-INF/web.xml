@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" version="6.0">
+  <servlet>
+    <servlet-name>counts</servlet-name>
+    <servlet-class>app.web.CountServlet</servlet-class>
+  </servlet>
+  <servlet>
+    <servlet-name>files</servlet-name>
+    <servlet-class>app.web.FileServlet</servlet-class>
+  </servlet>
+  <servlet>
+    <servlet-name>everything</servlet-name>
+    <servlet-class>app.web.CatchAllServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>counts</servlet-name>
+    <url-pattern>/counts</url-pattern>
+  </servlet-mapping>
+  <servlet-mapping>
+    <servlet-name>files</servlet-name>
+    <url-pattern>/files/*</url-pattern>
+  </servlet-mapping>
+  <servlet-mapping>
+    <servlet-name>everything</servlet-name>
+    <url-pattern>/*</url-pattern>
+  </servlet-mapping>
+</web-app>

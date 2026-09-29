@@ -52,6 +52,66 @@ cfg_props_ann("ConfigurationProperties").
 // ── (6) CONTAINER-INVOKED METHODS (entry points sourced from annotations that
 //        carry a config VALUE — the name-only cases stay in annotation_flow.dl) ──
 cfg_lifecycle_ann("PostConstruct").  cfg_lifecycle_ann("PreDestroy").
+// @Bean(initMethod = "start", destroyMethod = "stop"): the annotation twin of the XML
+// init-method / destroy-method attributes (8), naming a method on the bean's type.
+// cfg_bean_lifecycle_arg(AnnotationArgument, EntryKind)
+cfg_bean_lifecycle_arg("initMethod",    "lifecycle_init").
+cfg_bean_lifecycle_arg("destroyMethod", "lifecycle_destroy").
+// JPA entity callbacks: the persistence provider calls them on the entity, on its mapped
+// superclasses and on the classes its @EntityListeners names, with no call site anywhere.
+cfg_jpa_callback_ann("PrePersist").  cfg_jpa_callback_ann("PostPersist").
+cfg_jpa_callback_ann("PreUpdate").   cfg_jpa_callback_ann("PostUpdate").
+cfg_jpa_callback_ann("PreRemove").   cfg_jpa_callback_ann("PostRemove").
+cfg_jpa_callback_ann("PostLoad").
+
+// ── (6b) TYPES A FRAMEWORK INSTANTIATES BECAUSE AN ANNOTATION NAMES THEM ──────
+// Only these. Lifting the "annotation" exclusion on cfg_registered_type wholesale would
+// register every X.class written in any annotation argument.
+// cfg_registering_type_ann(AnnotationOnTheType, EntryKind): the type itself carries it.
+cfg_registering_type_ann("WebServlet",  "web_servlet").
+cfg_registering_type_ann("WebFilter",   "web_filter").
+cfg_registering_type_ann("WebListener", "web_listener").
+cfg_registering_type_ann("Converter",   "orm_hook").        // JPA @Converter
+cfg_registering_type_ann("Provider",    "framework_hook").  // JAX-RS @Provider
+// cfg_registering_class_arg(Annotation, Argument, EntryKind): a class named in an argument.
+cfg_registering_class_arg("EntityListeners", "value",     "orm_hook").
+cfg_registering_class_arg("Convert",         "converter", "orm_hook").
+// Methods a framework calls on a type of that kind whose supertype is usually not in the
+// analysed library set (so "overrides a library method" finds nothing), matched by name.
+// cfg_registered_callback_name(EntryKind, MethodName)
+cfg_registered_callback_name("orm_hook", "convertToDatabaseColumn").
+cfg_registered_callback_name("orm_hook", "convertToEntityAttribute").
+cfg_registered_callback_name("framework_hook", "filter").      // Container{Request,Response}Filter
+cfg_registered_callback_name("framework_hook", "toResponse").  // ExceptionMapper
+cfg_registered_callback_name("framework_hook", "readFrom").    // MessageBodyReader
+cfg_registered_callback_name("framework_hook", "isReadable").
+cfg_registered_callback_name("framework_hook", "writeTo").     // MessageBodyWriter
+cfg_registered_callback_name("framework_hook", "isWriteable").
+cfg_registered_callback_name("framework_hook", "getSize").
+cfg_registered_callback_name("framework_hook", "aroundReadFrom").   // ReaderInterceptor
+cfg_registered_callback_name("framework_hook", "aroundWriteTo").    // WriterInterceptor
+cfg_registered_callback_name("framework_hook", "getContext").       // ContextResolver
+cfg_registered_callback_name("framework_hook", "getConverter").     // ParamConverterProvider
+// A JAX-RS request parameter whose type is not a String is built by that type's static
+// valueOf(String) / fromString(String) or its String constructor.
+cfg_jaxrs_param_ann("QueryParam").  cfg_jaxrs_param_ann("PathParam").
+cfg_jaxrs_param_ann("HeaderParam"). cfg_jaxrs_param_ann("FormParam").
+cfg_jaxrs_param_ann("MatrixParam"). cfg_jaxrs_param_ann("CookieParam").
+cfg_jaxrs_param_factory("valueOf").  cfg_jaxrs_param_factory("fromString").
+// Registration in code: ServletContext.addServlet("name", X.class), addFilter(.., new F()),
+// addListener(L.class), and Jetty's handler.addServlet(X.class, "/p"). The receiver's type
+// decides, because addListener is a common method name.
+// cfg_servlet_registration(MethodName, EntryKind)
+cfg_servlet_registration("addServlet",  "web_servlet").
+cfg_servlet_registration("addFilter",   "web_filter").
+cfg_servlet_registration("addListener", "web_listener").
+cfg_servlet_registrar_type("ServletContext").
+cfg_servlet_registrar_type("ServletContextHandler").
+cfg_servlet_registrar_type("ServletHandler").
+// … and Spring Boot's registration beans, which take the instance as a constructor argument.
+cfg_servlet_registration_bean("ServletRegistrationBean",         "web_servlet").
+cfg_servlet_registration_bean("FilterRegistrationBean",          "web_filter").
+cfg_servlet_registration_bean("ServletListenerRegistrationBean", "web_listener").
 cfg_scheduled_ann("Scheduled").
 cfg_listener_ann("EventListener").   cfg_listener_ann("KafkaListener").
 cfg_listener_ann("TransactionalEventListener").
@@ -83,6 +143,10 @@ cfg_xml_lifecycle_attr("factory-method", "lifecycle_factory").
 cfg_xml_container_elem("servlet-class",  "web_servlet").
 cfg_xml_container_elem("filter-class",   "web_filter").
 cfg_xml_container_elem("listener-class", "web_listener").
+// The <servlet-name> that ties a <servlet> to its <servlet-mapping><url-pattern>.
+cfg_xml_servlet_name_elem("servlet-name").
+cfg_xml_servlet_mapping_elem("servlet-mapping").
+cfg_xml_url_pattern_elem("url-pattern").
 
 // ── (10) XML: wiring elements (a bean depends on another bean) ───────────────
 // cfg_xml_wire_elem(Tag, WireKind)
@@ -140,6 +204,15 @@ cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators
 cfg_stub_client_suffix("BlockingStub").
 cfg_stub_client_suffix("FutureStub").
 cfg_stub_client_suffix("Stub").
+cfg_stub_client_suffix("BlockingV2Stub").   // grpc-java 1.73+, newBlockingV2Stub
+
+// With the generated class absent (#1548), the holder is known only by its written name, `<S>Grpc`,
+// and an rpc only by its response observer parameter.
+.decl cfg_grpc_holder_suffix(c0:symbol)
+cfg_grpc_holder_suffix("Grpc").
+.decl cfg_grpc_observer_type(c0:symbol)
+cfg_grpc_observer_type("StreamObserver").
+cfg_grpc_observer_type("io.grpc.stub.StreamObserver").
 
 // ── (8) DESTINATIONS: a name that identifies a place a message or request goes ──
 // A producer and the consumer that serves it live in different deployables and never
@@ -233,6 +306,32 @@ cfg_sends_verb("postForLocation", "POST"). cfg_sends_verb("put", "PUT").
 cfg_sends_verb("delete", "DELETE").        cfg_sends_verb("patchForObject", "PATCH").
 cfg_sends_verb("get", "GET").              cfg_sends_verb("post", "POST").
 cfg_sends_verb("patch", "PATCH").
+
+// The servlet method that serves each verb, for a servlet mapped to a URL pattern by
+// web.xml or @WebServlet. `service` handles every verb.
+cfg_servlet_verb_method("doGet", "GET").       cfg_servlet_verb_method("doPost", "POST").
+cfg_servlet_verb_method("doPut", "PUT").       cfg_servlet_verb_method("doDelete", "DELETE").
+cfg_servlet_verb_method("doHead", "HEAD").     cfg_servlet_verb_method("doOptions", "OPTIONS").
+cfg_servlet_verb_method("doPatch", "PATCH").   cfg_servlet_verb_method("service", "any").
+cfg_servlet_url_arg("value"). cfg_servlet_url_arg("urlPatterns").
+// a JAX-RS method with @Path and no verb is a sub-resource locator
+cfg_subresource_locator_ann("Path").
+
+// The JAX-RS client API: client.target(url).path(p).request(..).get(..). The chain has to
+// start on one of these types, typed as the library's (never a client class of the same
+// name), AND pass through target(..) and request(..).
+cfg_jaxrs_client_owner("Client").  cfg_jaxrs_client_owner("WebTarget").
+cfg_jaxrs_client_factory("ClientBuilder").   // ClientBuilder.newClient().target(..)
+cfg_jaxrs_invoke_verb("get", "GET").        cfg_jaxrs_invoke_verb("post", "POST").
+cfg_jaxrs_invoke_verb("put", "PUT").        cfg_jaxrs_invoke_verb("delete", "DELETE").
+cfg_jaxrs_invoke_verb("head", "HEAD").      cfg_jaxrs_invoke_verb("options", "OPTIONS").
+cfg_jaxrs_invoke_verb("method", "any").
+// builder steps between request(..) and the verb
+cfg_jaxrs_builder_step("accept").          cfg_jaxrs_builder_step("acceptLanguage").
+cfg_jaxrs_builder_step("acceptEncoding").  cfg_jaxrs_builder_step("header").
+cfg_jaxrs_builder_step("headers").         cfg_jaxrs_builder_step("cookie").
+cfg_jaxrs_builder_step("cacheControl").    cfg_jaxrs_builder_step("property").
+cfg_jaxrs_builder_step("async").           cfg_jaxrs_builder_step("rx").
 
 // (i) an annotation that makes a TYPE a declarative HTTP CLIENT. Its methods carry the
 //     same mapping annotations a controller does, so without this a Feign interface is
