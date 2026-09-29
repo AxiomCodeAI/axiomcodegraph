@@ -1432,8 +1432,8 @@ def unmodelled_entry(g, ids):
             continue
         own = s.get('owner')
         if not own: continue
-        for r in g.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL", own):
-            for n in decs(r[0]): out.append((i, f"@{n} on its type {own}"))
+        for t in graph_sql.owner_type_ids(g.q, s):            # the declaring type, not every type of that display
+            for n in decs(t): out.append((i, f"@{n} on its type {own}"))
     return list(dict.fromkeys(out))
 
 def grep_roots(g):

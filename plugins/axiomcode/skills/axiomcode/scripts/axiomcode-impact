@@ -2733,19 +2733,26 @@ def main(argv):
         if g.has('overrides') and g.q("SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id WHERE o.overriding_method_id = ? AND b.provenance <> 'client' LIMIT 1", s['method_id']): return 'yes'
         if g.has('decorations') and g.q("SELECT 1 FROM decorations WHERE owner_id = ? AND name = 'Override' LIMIT 1", s['method_id']): return 'yes'
         return 'maybe'
-    how = {}
+    # keyed by the DECLARING type's symbol id, not its display: an entity Basket and a view component Basket share
+    # the display, and the entity's method was said to extend the component's library base
+    how = {}; own_name = {}
     for m in seeds:
         if m not in g.sym: continue
-        own = g.sym[m].get('owner') or (g.sym[m]['display'] if g.sym[m].get('type_id') and not g.sym[m].get('method_id') else None)
+        sm = g.sym[m]
+        is_type = sm.get('type_id') and not sm.get('method_id')
+        own = sm.get('owner') or (sm['display'] if is_type else None)
         v = via_super(m) if own else None
-        if v: how[own] = 'yes' if 'yes' in (how.get(own), v) else v
+        if not v: continue
+        for sid in (graph_sql.type_parts(g.q, m) if is_type else graph_sql.owner_type_ids(g.q, sm)):
+            how[sid] = 'yes' if 'yes' in (how.get(sid), v) else v; own_name[sid] = own
     outside = []; outside_how = {}
-    for own in sorted(how):
+    for sid in sorted(how, key=lambda t: (own_name[t], t)):
         # a library ancestor the engine resolved, or a written base no client type carries (Python and C# leave an
         # unresolvable library base out of type_ancestors, so a subclass of one read as having no outside caller)
-        for a in sorted({b for (sid,) in g.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL", own)
-                         for b in P._library_bases(g, sid)}):
-            if a.split('.')[-1] not in MARKER: outside.append((own, a)); outside_how[a] = 'yes' if 'yes' in (outside_how.get(a), how[own]) else how[own]
+        own = own_name[sid]
+        for a in sorted(P._library_bases(g, sid)):
+            if a.split('.')[-1] not in MARKER and (own, a) not in outside:
+                outside.append((own, a)); outside_how[a] = 'yes' if 'yes' in (outside_how.get(a), how[sid]) else how[sid]
     dunder = sorted({g.sym[m]['name'] for m in seeds if m in g.sym and re.fullmatch(r'__\w+__', g.sym[m]['name'] or '')})
     # A NAME IN A FILE THE INDEX DOES NOT READ AS SOURCE IS TWO KINDS OF EVIDENCE (#1388). A type written in full
     # (a qualified class name in spring.factories, a services file, a mapper XML, a settings file) or a key a settings
