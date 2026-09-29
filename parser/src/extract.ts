@@ -311,7 +311,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
-    xmlAnalyzer.analyzeXmlFiles(scanTargets, opts.versionLink),
+    xmlAnalyzer.analyzeXmlFiles(scanTargets, opts.versionLink, absolutePath),
     yamlAnalyzer.analyzeYamlFiles(scanTargets, opts.versionLink),
     gradleAnalyzer.analyzeGradleFiles(scanTargets, opts.versionLink),
     // META-INF/services is given the same scan targets as the other file-type
