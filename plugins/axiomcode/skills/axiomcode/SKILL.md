@@ -41,7 +41,7 @@ Rules that decide whether an answer means anything:
   graph, names the edited files on a `graph refresh:` line, and marks every row that lies in one `(may be out of date)`
   (`"stale": true` in `--json`); unmarked rows are current. Read a marked row's file for its current text. It waits
   briefly on its own only when the answer touches an edited file and the rebuild is nearly done.
-- **Before a delete or a rename, ask with `--fresh`** (MCP `fresh=true`): it waits for the rebuild, printing its
+- **Before a delete or a rename, ask with `--fresh`** (MCP `impact`, `path` or `context` with `fresh=True`): it waits for the rebuild, printing its
   progress, and answers from a graph that includes every edit.
   A manual `index` with different flags rebuilds a worse graph over the good one. A bare `index`, the background
   refresh and `graph` keep the `--lang` (and `--src`, `--library`) the graph was indexed with; pass `--lang` to change it.
