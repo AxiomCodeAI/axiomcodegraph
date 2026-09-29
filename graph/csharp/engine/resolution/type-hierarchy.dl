@@ -201,6 +201,24 @@ type_base_unresolved(prov, gk, pos, bn, ba) :-
 // instead of ambiguous_unknown.
 type_hierarchy_incomplete(prov, gk) :- type_base_unresolved(prov, gk, _, _, _).
 
+// type_member_base_unresolved(Prov, GroupKey, BaseName) -- the unresolved entries
+// MEMBER LOOKUP on a receiver of this type can reach (#1431). C# looks a member up on
+// a class or struct receiver through the class chain only, never through the
+// interfaces it implements, and a base class can only be written at position 0 of a
+// class. So an unstaged entry after a class's first, and every entry of a struct, is
+// an interface whose members the type must declare itself: a member found on the
+// type is the answer, and `external:IComparable.Total` beside it names a target no
+// lookup can reach. On an interface every entry is a base interface, and lookup does
+// go through it. An unstaged entry AT position 0 of a class is either a base class or
+// an interface, which the name alone cannot tell (an `I` prefix is a convention, not
+// proof), so it keeps the boundary. The looser type_hierarchy_incomplete is kept for
+// a MISS, which the boundary still explains when nothing is declared.
+type_member_base_unresolved(prov, gk, bn) :-
+    type_base_unresolved(prov, gk, "0", bn, _), type_group(prov, t, gk), type_is_class(prov, t).
+type_member_base_unresolved(prov, gk, bn) :-
+    type_base_unresolved(prov, gk, _, bn, _), type_group(prov, t, gk), type_is_interface(prov, t).
+type_members_incomplete(prov, gk) :- type_member_base_unresolved(prov, gk, _).
+
 // ── ANCESTORS ───────────────────────────────────────────────────────────────
 // type_parent -- one relation over both kinds, for reachability. The two are kept
 // distinct above because dispatch needs them distinct; here they are unioned because
