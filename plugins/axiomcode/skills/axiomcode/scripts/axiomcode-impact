@@ -428,6 +428,17 @@ class Impact:
                 near = self.g.q("SELECT name, count(*) n FROM decorations GROUP BY name ORDER BY n DESC LIMIT 8")
                 die(f"nothing carries {s} in this graph." + (" Decorations here: " + ', '.join(f"@{x[0]} ({x[1]})" for x in near) if near else ''))
             return [('decoration', f"{s} ({len(ids)} declaration(s) carry it)", ids)]
+        # A C# CONFIGURATION KEY is written `Section:Key` (IConfiguration's separator), which is the shape of `Owner.m:v`
+        # below: asked as a local, `Widgets:MaxCount` looked `Widgets` up as a method and answered "nothing named
+        # 'Widgets'" (#1443). It is a key when its first segment names no method and the key is written somewhere: in a
+        # string literal of a .cs file or as a path in an appsettings*.json.
+        if self.CS_KEY_RE.match(s):
+            lits = self.cs_config_literals().get(s.lower(), [])
+            defs = self.cs_config_defs({s.lower()}) if not lits else [None]
+            # `Orders:MaxCount` beside a method `Orders` is still the key, unless that method has a local of the name
+            loc = ':' in s and s.count(':') == 1 and any(self.refs_in(mid, s.split(':')[1], LOCAL_KINDS) for mid in self.methods(s.split(':')[0], soft=True) or [])
+            if (lits or defs) and not loc:
+                return [('config', f"configuration key {s} (read by its string on {len(lits)} line(s))", s.lower())]
         m = re.match(r'^(.+?):([A-Za-z_]\w*)$', s)
         if m and '/' not in m.group(2):                                                # Owner.m:v — a local
             mids = self.methods(m.group(1)); found = []
@@ -730,6 +741,138 @@ class Impact:
     def nonsource_hits(self, names):
         """-> [(name, file, line)] where one of `names` is written as a whole token in a non-source file"""
         return self._nonsource().hits(names)
+    # A C# set-up that runs for tests OUTSIDE its own type, which no call and no type scope carries:
+    #   NUnit  [SetUpFixture] class: its [OneTimeSetUp] / [OneTimeTearDown] run once around every test in the
+    #          class's namespace and the namespaces nested in it (the whole assembly for a class in no namespace);
+    #   MSTest [AssemblyInitialize] / [AssemblyCleanup] once around the assembly's tests, and [GlobalTestInitialize] /
+    #          [GlobalTestCleanup] (3.10+) around each of them.
+    # The assembly is the project: the nearest directory above the file holding a .csproj. (#1501, #1503)
+    NS_FIXTURE_TYPE = {'SetUpFixture'}
+    NS_FIXTURE_METHOD = {'OneTimeSetUp', 'OneTimeTearDown'}
+    ASSEMBLY_FIXTURE = {'AssemblyInitialize', 'AssemblyCleanup', 'GlobalTestInitialize', 'GlobalTestCleanup'}
+    CS_NOT_NUNIT = {'Fact', 'TestMethod', 'DataTestMethod'}
+    CS_MSTEST = {'TestMethod', 'DataTestMethod'}
+    def wide_fixtures(self, tests, decs):
+        """-> {(test, fixture)}: a C# fixture the runner runs before tests of other types (see above)"""
+        g = self.g
+        strip = lambda n: n[:-9] if n.endswith('Attribute') and len(n) > 9 else n
+        dn = lambda i: {strip(d) for d in decs.get(i, ())}
+        wide = []
+        for i, sy in g.sym.items():
+            if not (sy.get('method_id') and (sy.get('file') or '').endswith('.cs')): continue
+            ds = dn(i)
+            if ds & self.ASSEMBLY_FIXTURE: wide.append((i, None))
+            elif ds & self.NS_FIXTURE_METHOD:
+                t = next((r[0] for r in g.q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL AND name = ? AND file = ?",
+                                            (sy.get('owner') or '').split('.')[-1], sy['file'])), None)
+                if t and dn(t) & self.NS_FIXTURE_TYPE: wide.append((i, self.cs_namespace(i)))   # '' = the global namespace
+        if not wide: return set()
+        proj = {}
+        def project(f):
+            d = os.path.dirname(f)
+            if d in proj: return proj[d]
+            cur = d
+            while True:
+                try: hit = any(n.endswith('.csproj') for n in os.listdir(os.path.join(g.repo, cur) if cur else g.repo))
+                except OSError: hit = False
+                if hit or not cur: break
+                cur = os.path.dirname(cur)
+            proj[d] = cur if hit else None
+            return proj[d]
+        out = set()
+        cs_tests = [m for m in tests if (g.sym.get(m, {}).get('file') or '').endswith('.cs')]
+        for fx, ns in wide:
+            p = project(g.sym[fx]['file'])
+            # a runner's fixture runs for ITS tests: NUnit's for no [Fact] (xUnit) or [TestMethod] (MSTest), MSTest's for
+            # [TestMethod] / [DataTestMethod] only
+            for m in cs_tests:
+                if m == fx or project(g.sym[m]['file']) != p: continue
+                if ns is not None and dn(m) & self.CS_NOT_NUNIT: continue
+                if ns is None and not dn(m) & self.CS_MSTEST: continue
+                if ns:                                                      # '' (no namespace): the whole assembly
+                    tn = self.cs_namespace(m)
+                    if not (tn == ns or tn.startswith(ns + '.')): continue
+                out.add((m, fx))
+        return out
+    def cs_namespace(self, i):
+        """the namespace a C# member is declared in: its qualified name less the owner's and its own"""
+        sy = self.g.sym[i]
+        q = next((r[0] for r in self.g.q("SELECT qualified_name FROM symbols WHERE id = ?", i)), '') or ''
+        tail = '.' + '.'.join(x for x in (sy.get('owner'), sy.get('name')) if x)
+        return q[:-len(tail)] if q.endswith(tail) else q.rsplit('.', 2)[0] if q.count('.') >= 2 else ''
+    # Moq's `mock.Protected().Setup<decimal>("Fee")` / `.Verify("Fee", ...)` names a protected member BY STRING: no call
+    # site, so a rename breaks the test only at run time and `impact` on the member did not list it (#1540). Each such
+    # literal is a stub row on the member of that name on a type the file mocks (`Mock<T>`) or a base of it: it names
+    # the member and runs none of it, which is what the tier "stub" already says for `Setup(x => x.F())`.
+    PROTECTED_CALL = re.compile(r'\bProtected\s*\(\s*\)\s*\.\s*(?:Setup|Verify)\w*\s*(?:<(?:[^<>()]|<(?:[^<>()]|<[^<>()]*>)*>)*>)?\s*\(\s*"(\w+)"')
+    MOCK_OF = re.compile(r'\bMock\s*<\s*([\w.]+)\s*>')
+    def protected_name_stubs(self):
+        g = self.g
+        if not g.has('literals'): return []
+        out = []
+        for f in sorted({r[0] for r in g.q("SELECT DISTINCT file FROM literals WHERE file LIKE '%.cs'")}):
+            L = self.lines(f); text = '\n'.join(L)
+            if 'Protected' not in text: continue
+            mocked = {t.split('.')[-1] for t in self.MOCK_OF.findall(text)}
+            if not mocked: continue
+            types = {r[0] for t in mocked for r in g.q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL AND name = ?", t)}
+            if g.has('type_ancestors'):
+                types |= {r[0] for t in list(types) for r in g.q("SELECT ancestor_type_id FROM type_ancestors WHERE type_id = ?", t)}
+            owners = {r[0] for t in types for r in g.q("SELECT name FROM symbols WHERE id = ?", t)}
+            callers = [(sy['line'], sy['end_line'] or sy['line'], i) for i, sy in g.sym.items()
+                       if sy.get('file') == f and sy.get('method_id') and sy.get('line')]
+            for (ln,) in g.q("SELECT DISTINCT line FROM literals WHERE file = ? AND line > 0", f):
+                if ln - 1 >= len(L): continue
+                # `mock.Protected()` may end the line above and `.Setup<Task>("Name", ...)` open this one
+                for n in set(self.PROTECTED_CALL.findall(L[ln - 1]) + self.PROTECTED_CALL.findall((L[ln - 2] if ln > 1 else '') + ' ' + L[ln - 1])):
+                    c = min((b - a, i) for a, b, i in callers if a <= ln <= b)[1] if any(a <= ln <= b for a, b, _ in callers) else None
+                    if not c: continue
+                    for (m,) in g.q("SELECT id FROM symbols WHERE method_id IS NOT NULL AND name = ?", n):
+                        if (g.sym.get(m) or {}).get('owner', '').split('.')[-1] in owners: out.append((c, m, ax_edges.STUB_TIER, f, ln))
+        return out
+    # ── C# configuration keys (#1443) ─────────────────────────────────────────────────────────────────────────
+    # The C# engine emits no configuration facts, so a key is joined on what is WRITTEN: the string literal a reader passes
+    # to IConfiguration (`config["Widgets:MaxCount"]`, `GetValue<int>("Widgets:MaxCount")`) and the path that defines it in
+    # an appsettings*.json. Keys are case-insensitive there, so both sides are compared lowercased.
+    CS_KEY_RE = re.compile(r'^[A-Za-z_][\w.-]*(?::[A-Za-z0-9_][\w.-]*)+$')
+    CS_CONFIG_READ = re.compile(r'\[\s*@?"|\b(?:GetValue|GetSection|GetRequiredSection|GetConnectionString|Bind|Configure|BindConfiguration)\b')
+    def cs_config_literals(self):
+        """-> {lowercased key: [(callable, file, line, the line reads configuration)]}: the key-shaped literals of .cs files"""
+        if getattr(self, '_cs_cfg_lits', None) is not None: return self._cs_cfg_lits
+        g = self.g; out = collections.defaultdict(list)
+        if g.has('literals'):
+            for v, f, ln in g.q("SELECT value, file, line FROM literals WHERE file LIKE '%.cs' AND value LIKE '%:%' AND line > 0"):
+                if not self.CS_KEY_RE.match(v or ''): continue
+                c = self.at(f, ln)
+                if not c: continue
+                L = self.lines(f)
+                out[v.lower()].append((c, f, ln, bool(ln - 1 < len(L) and self.CS_CONFIG_READ.search(L[ln - 1]))))
+        self._cs_cfg_lits = out
+        return out
+    def cs_config_defs(self, keys):
+        """-> [(key, file, line)]: where an appsettings*.json defines one of `keys` (lowercased `A:B:C` paths)"""
+        keys = {k for k in keys if ':' in k}
+        if not keys: return []
+        out = []
+        for rel in self.nonsource_files():
+            b = os.path.basename(rel).lower()
+            if not (b.startswith('appsettings') and b.endswith('.json')): continue
+            try: L = open(os.path.join(self.g.repo, rel), errors='replace').read().split('\n')
+            except OSError: continue
+            # the path of each `"name":` line, from the nesting of the lines above it: settings files are written one
+            # property per line, and a line-level walk keeps the line number json.load would throw away
+            stack = []; depth = 0
+            for i, line in enumerate(L, 1):
+                for mm in re.finditer(r'"((?:[^"\\]|\\.)*)"\s*:|[{}\[\]]', line):
+                    t = mm.group(0)
+                    if t in '{[': depth += 1
+                    elif t in '}]':
+                        depth -= 1; stack = [x for x in stack if x[0] <= depth]
+                    else:
+                        stack = [x for x in stack if x[0] < depth] + [(depth, mm.group(1))]
+                        path = ':'.join(n for _, n in stack).lower()
+                        if path in keys: out.append((path, rel, i))
+        return out
     KEYFILE_EXT = {'.properties','.yml','.yaml','.conf','.ini','.cfg','.env'}
     def config_key_sites(self, keys):
         """a key DEFINED or overridden in a settings file, matched on the canonical form so the spelling there
@@ -761,7 +904,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '44'        # 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '45'        # 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -802,7 +945,9 @@ class Impact:
                 by_file.setdefault(sy['file'], []).append((sy['line'], sy['end_line'], i))
         lex = []
         for rows in by_file.values():
-            rows.sort(key=lambda r: (r[0], -r[1]))
+            # on ONE line (`[Fact] public void T() => M(() => F());`) the spans tie: a compiler-named member (`<lambda>`)
+            # is the one inside, so it sorts after the declaration that writes it
+            rows.sort(key=lambda r: (r[0], -r[1], (g.sym[r[2]].get('name') or '').startswith('<')))
             stack = []
             for a, b, i in rows:
                 while stack and stack[-1][1] < a: stack.pop()
@@ -945,7 +1090,8 @@ class Impact:
         # a chained route link's edge sits on the line of its own verb and path, where `registration` labels it
         link_line = ax_registration.route_site_lines(g.q, g.site_file)
         W('calls', [(r['caller_id'], r['callee_method_id'], ax_edges.STUB_TIER if r['call_site_id'] in stubs else r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', link_line.get(r['call_site_id'], r['start_line'] or 0))
-                    for r in g.q("SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
+                    for r in g.q("SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")]
+                  + self.protected_name_stubs())
         # a hand-off on EVERY line its call site spans: a chained registration (`router\n  .route('/')\n  .post(auth(), ctrl.h)`)
         # records its edges on the statement's first line, while the handler is named on a later one
         W('handoff_at', sorted({(r['caller_id'], r['callee_method_id'], g.site_file(r['file_path']), l) for r in g.q(
@@ -1144,6 +1290,7 @@ class Impact:
         tm += sorted(scripts)
         fx = [i for i, s in g.sym.items() if s['is_test'] and i not in scripts and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
+        W('runs_before', sorted(self.wide_fixtures(tm, decs)))
         # ── which fixture runs before which test, when nothing calls it ────────────────────────────────────────
         # pytest hands a fixture to a test BY THE NAME OF A PARAMETER, and the fixture that serves a whole directory
         # is declared in `conftest.py`, which is not the test's file and is imported by nothing. Neither end is a call
@@ -1346,6 +1493,7 @@ class Impact:
                     hit = names & enum_consts.get(disp, set())
                     if hit: sw.append((i, tid, str(len(hit))))
         W('throws_', sorted(set(thr))); W('catches', sorted(set(cat_))); W('switch_over', sorted(set(sw)))
+        W('cs_config_literal', sorted({(k, c, 'by name' if rd else 'text', f, l) for k, rows in self.cs_config_literals().items() for c, f, l, rd in rows}))
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
         # a bean another class registers by naming it in an annotation: the query is graph_sql's, so the rules and the
         # hook's fast path read the same rows
@@ -1471,7 +1619,7 @@ class Impact:
                 for f in payload: want.add(f['name'])
             elif kind == 'config': want.add(payload)
         cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
-        prof('  per-query: targets walked'); _nonsource = sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))); g.write('nonsource', _nonsource, F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
+        prof('  per-query: targets walked'); _nonsource = sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys)) | set(self.cs_config_defs(cfgkeys))); g.write('nonsource', _nonsource, F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
         g.write('key_cap', [(int(os.environ.get('AXIOMCODE_KEY_CAP', '4')),)], F)
         g.write('key_use_cap', [(int(os.environ.get('AXIOMCODE_KEY_USE_CAP', '4')),)], F)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
@@ -2245,7 +2393,7 @@ def main(argv):
                           # whatever the solver happened to emit — which is not the same between backends.
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0]))],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in (([m] + I.chain(fx, parent)) if fx else chains.get(m, []))],
                                      **({'script': True, 'run': script_cmd(m)} if m in script_ids else {})} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'framework_entries': [{'id': m, 'display': g.disp(m), 'signal': sig, 'at': g.loc(m)} for m, sig in fw_ent],
                           'framework_grep': fw_grep,
@@ -2582,7 +2730,8 @@ def main(argv):
     # A test that only stubs it on a mock, or reaches it only through a type it holds as one, is not one of them: it is
     # the [stubs it] line below, which says it is not counted because a body change cannot fail it.
     test_rows = sorted(({m for m, _ in ent if _is_t(m)} | {c for c, role, why, cert, loc, n in D if _is_t(c) and cert not in ('alongside', 'stubs it')
-                                                          and not why.startswith('stubs a method of this name')}) - set(tests) - set(stubbed),
+                                                          and not why.startswith('stubs a method of this name')}) - set(tests) - set(stubbed)
+                       - {v[1] for v in tests.values() if isinstance(v, tuple) and len(v) > 1 and v[1]},   # a fixture the count credits through
                        key=lambda m: (g.disp(m), g.loc(m)))
     # a callable in a file whose test is counted runs when that file does (`main` under a script's main guard, the
     # describe block around a counted `it`): the count already credits it

@@ -275,6 +275,26 @@ cs_test_lifecycle_attr("OneTimeSetUp").     cs_test_lifecycle_attr("OneTimeTearD
 cs_test_lifecycle_attr("TestInitialize").   cs_test_lifecycle_attr("TestCleanup").
 cs_test_lifecycle_attr("ClassInitialize").  cs_test_lifecycle_attr("ClassCleanup").
 cs_test_lifecycle_attr("AssemblyInitialize"). cs_test_lifecycle_attr("AssemblyCleanup").
+// MSTest 3.10+: run around EVERY test of the assembly (#1503)
+cs_test_lifecycle_attr("GlobalTestInitialize"). cs_test_lifecycle_attr("GlobalTestCleanup").
+
+// cs_main_return(Written) / cs_main_param(Written): the shapes C# accepts as a program's
+// entry point. A static `Main` of any other shape, `static string Main()` on a helper, is
+// an ordinary method its callers reach, and was a main entry point (#1451).
+cs_main_return("void"). cs_main_return("int"). cs_main_return("Int32"). cs_main_return("System.Int32").
+cs_main_return("Task"). cs_main_return("Task<int>"). cs_main_return("Task<Int32>").
+cs_main_return("System.Threading.Tasks.Task"). cs_main_return("System.Threading.Tasks.Task<int>").
+cs_main_param("string[]"). cs_main_param("String[]"). cs_main_param("System.String[]").
+
+// cs_mock_new_type(Type) / cs_mock_factory(Receiver, Method): building a CLASS mock runs the
+// mocked type's constructor with the arguments given, through the proxy subclass the
+// library generates: `new Mock<C>(args)` (Moq) and `Substitute.ForPartsOf<C>(args)`,
+// `Substitute.For<C>(args)` (NSubstitute). cs_mock_behavior_arg is a leading argument
+// that configures the mock and is not passed on (Moq's `MockBehavior.Strict`) (#1495).
+cs_mock_new_type("Mock").
+cs_mock_factory("Substitute", "ForPartsOf").
+cs_mock_factory("Substitute", "For").
+cs_mock_behavior_arg("MockBehavior").
 // cs_framework_callback(Base, Method, Reason): a framework calls Method on a type that
 // derives from Base or implements it, directly or through the project's own bases.
 // Base is the written simple name without type arguments. Method "*" is every public

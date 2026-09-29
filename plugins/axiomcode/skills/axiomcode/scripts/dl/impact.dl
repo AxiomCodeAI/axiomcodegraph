@@ -100,6 +100,9 @@
 .decl fixture_scope(fx:symbol, n:symbol, p:symbol)                .input fixture_scope
 .decl file_scope(f:symbol, p:symbol)                              .input file_scope
 .decl autouse_fixture(fx:symbol)                                  .input autouse_fixture
+//   runs_before(m, fx)                a C# set-up the runner runs for tests outside its type: an NUnit [SetUpFixture]'s
+//                                     [OneTimeSetUp] for its namespace, MSTest's assembly-wide initializers for the project
+.decl runs_before(m:symbol, fx:symbol)                            .input runs_before
 //   injects(m, fx)                    the language engine resolved m's request to fixture fx (Python: the runner's own
 //                                     visibility, the decorator's `name=`, star imports and `pytest_plugins`)
 //   injected_fixture(fx)              fx is injected by name and runs only for what requests it: not every test of its file
@@ -131,6 +134,9 @@
 .decl nonsource(n:symbol, f:symbol, l:number)                     .input nonsource
 .decl qual_name(s:symbol, n:symbol)                               .input qual_name
 .decl config(k:symbol, m:symbol, why:symbol)                      .input config
+//   cs_config_literal(k, c, cert, f, l) a C# string literal inside c spelling the configuration key k (lowercased `A:B`);
+//                                     cert is `by name` where the line reads IConfiguration, `text` elsewhere (#1443)
+.decl cs_config_literal(k:symbol, c:symbol, cert:symbol, f:symbol, l:number) .input cs_config_literal
 .decl config_key_known(k:symbol)                                  .input config_key_known
 .decl bean(n:symbol, t:symbol, kind:symbol)                       .input bean
 .decl bean_factory(m:symbol, t:symbol)                            .input bean_factory
@@ -271,6 +277,7 @@ contract(q, s, "extends / implements it") :- target(q, "clinit", t, _), extends(
 // a CONFIGURATION KEY: the methods the container binds it into — no call reaches them, so nothing else would find these
 direct(q, m, "reads", cat("reads this configuration key (", why, ")"), "resolved", "", 0) :- target(q, "config", k, _), config(k, m, why).
 // the binding site: the line that ties the key to the code, and the one that must be edited with it
+direct(q, c, "reads", "reads this configuration key by its string (the C# engine has no configuration facts: joined on the key as written)", cert, f, l) :- target(q, "config", k, _), cs_config_literal(k, c, cert, f, l).
 direct(q, c, "produces", cat("BINDS the key here, at the @", dn, " placeholder — this is the line a rename must change"), "resolved", f, l) :- target(q, "config", k, _), config_site(k, c, dn, f, l).
 
 // a type the container INJECTS: its consumers receive it without a call the graph can see
@@ -704,6 +711,7 @@ seed_of(q, m) :- target(q, "decoration", m, _).
 seed_of(q, t) :- target(q, "newconst", t, _).
 seed_of(q, c) :- target(q, "newconst", t, _), switch_over(c, t, _).
 seed_of(q, m) :- target(q, "config", k, _), config(k, m, _).
+seed_of(q, c) :- target(q, "config", k, _), cs_config_literal(k, c, _, _, _).
 seed_of(q, t) :- target(q, "field", fl, _), field(fl, t, _, _, _).
 seed_of(q, m) :- target(q, "type", t, _), member(t, m, _, _), kind(m, k), (k = "method" ; k = "constructor" ; k = "function" ; k = "module").
 seed_of(q, t) :- target(q, "type", t, _).
@@ -957,7 +965,13 @@ test_hit(q, m, d, c) :- reach(q, c, d), kind(c, "class"), scope(c, s), member(s,
 // JUnit file holds several @Nested classes, and a helper private to one of them is not written for a sibling's
 // tests. A helper that belongs to no type -- a module-level function, an arrow beside the describe block -- has no
 // scope narrower than the file, and keeps it.
-test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), decl_file(c, f), is_test_file(f).
+// ...except a callable written INSIDE a test method (a C# or Java lambda, a local function): it belongs to that test,
+// not to its type. Owned by the class, a `mock.Setup(s => ...)` or `Func<int> f = () => ...` in one test carried its
+// callees to every test of the class as [fixture], and the test holding it lost its own route (#1556).
+test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), !in_test_body(c), decl_file(c, f), is_test_file(f).
+.decl in_test_body(c:symbol)
+in_test_body(c) :- lex_in(m, c), test_method(m), !test_method(c).
+test_hit(q, m, d, c) :- reach(q, c, d), owner(c, _), in_test_body(c), lex_in(m, c), test_method(m).
 // A helper no type owns is scoped by the innermost declaration that lexically encloses it: a
 // `describe` callback holds its own helpers and its own tests, not a sibling block's; a module holds
 // its file, which is the file rule kept where it was right. TypeScript has no other scope to use --
@@ -1024,6 +1038,7 @@ uses_fixture(m, fx) :- dec_literal(t, "usefixtures", n, _, _), typ(t, _, _), sco
 // A module's `pytestmark` and the ini `usefixtures` option apply the marker to every test under their path (#1528).
 uses_fixture(m, fx) :- usefixtures_scope(p, n), decl_file(m, f), file_scope(f, p), test_method(m),
                        fixture_scope(fx, n, q), file_scope(f, q), m != fx.
+uses_fixture(m, fx) :- runs_before(m, fx), test_method(m).
 uses_fixture(m, fx) :- autouse_fixture(fx), fixture_scope(fx, _, p), decl_file(m, f), file_scope(f, p), test_method(m), m != fx.
 // a fixture may request another fixture, and then both run before the test
 uses_fixture(m, g) :- uses_fixture(m, fx), uses_fixture(fx, g), m != g.
@@ -1056,7 +1071,7 @@ stub_near(q, a) :- stub_near(q, b), edge(a, b, _).
 .decl test_stub(q:symbol, m:symbol)
 test_stub(q, m) :- stub_near(q, m), test_method(m).
 test_stub(q, m) :- stub_near(q, fx), fixture(fx), !test_method(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
-test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f).
+test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), !in_test_body(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f).
 .output test_stub
 
 // ── bound from outside the source ──────────────────────────────────────────────────────────────────────────────

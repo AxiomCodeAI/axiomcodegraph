@@ -18,6 +18,21 @@ namespace App
         public void Main() { }                                           // not static: not an entry point
     }
 
+    public static class Names
+    {
+        public static string Main() => "widgets";                        // returns string: not an entry point (#1451)
+    }
+
+    public static class Tool
+    {
+        public static int Main(int x) => x;                              // an int parameter: not an entry point
+    }
+
+    public static class AsyncProgram
+    {
+        public static async Task<int> Main() { await Task.Yield(); return 0; }   // main: Task<int>, no parameter
+    }
+
     public class Worker
     {
         public void Run() => Helper();                                   // reachable from Main
@@ -56,5 +71,7 @@ namespace App
     public class MsTests
     {
         [TestMethodAttribute] public void Runs() { }                     // test, written with the suffix
+        [GlobalTestInitialize] public static void Every(TestContext c) { }   // test (MSTest 3.10 lifecycle, #1503)
+        [GlobalTestCleanup] public static void AfterEvery(TestContext c) { } // test
     }
 }
