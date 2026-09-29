@@ -373,6 +373,27 @@ check("an edit to __init__.py or __main__.py names no test file by name", ti.pac
 check("an edit to pricing.py still names test_pricing.py (control)", ti.package_tier(d, ['app/pricing.py'])[1],
       {'files': ['tests/test_pricing.py']})
 shutil.rmtree(d)
+# the by-name tier holds only tests by the changed file's own ecosystem: a fixture input under a test tree, another
+# language's test and the changed file itself share the name but are counted, never offered or run
+d = tree({'src/index.js': '', 'test/fixtures/basic/index.js': '', 'test/fixtures/esm/index.js': '',
+          'tests/test_index.py': '', 'test/index.test.js': '', 'test/server.js': '', 'test/fixtures/app/server.js': '',
+          'src/server.ts': '', 'src/schema.ts': '', 'test/fixtures/schema.ts': '', 'test/schema.spec.ts': '',
+          'test/app.ts': '', 'test/fixtures/app/index.js': ''})
+check("fixture inputs and another language's test are not the tests of src/index.js",
+      ti.package_tier(d, ['src/index.js'])[1], {'files': ['test/index.test.js'], 'not_tests': 4})
+check("a .spec.ts names schema.ts; the fixture schema.ts is counted, not offered",
+      ti.package_tier(d, ['src/schema.ts'])[1], {'files': ['test/schema.spec.ts'], 'not_tests': 1})
+check("a file directly in test/ is a mocha test of server.ts (control); the nested fixture server.js is not",
+      ti.package_tier(d, ['src/server.ts'])[1], {'files': ['test/server.js'], 'not_tests': 1})
+check("a changed test-tree file is not its own test", ti.package_tier(d, ['test/fixtures/basic/index.js'])[1].get('files'),
+      ['test/index.test.js'])
+shutil.rmtree(d)
+d = tree({'src/main/java/a/Parser.java': '', 'src/test/java/a/ParserTest.java': '', 'src/test/java/a/TestParser.java': '',
+          'src/test/resources/cases/Parser.java': '', 'tests/test_parser.py': '', 'src/test/java/a/Testimonial.java': ''})
+check("java: ParserTest and TestParser are Parser's tests; a resource Parser.java is not",
+      ti.package_tier(d, ['src/main/java/a/Parser.java'])[1],
+      {'files': ['src/test/java/a/ParserTest.java', 'src/test/java/a/TestParser.java'], 'not_tests': 1})
+shutil.rmtree(d)
 check("a runner given only another language's files prints no command", ti.command_for('python', ['tests/Foo.cs'], [], None, '.'), None)
 check("java drops a .py file from a file-named selection", ti.command_for('java', ['src/test/java/ATest.java', 'tests/test_a.py'], []),
       'mvn test -Dtest=ATest')
