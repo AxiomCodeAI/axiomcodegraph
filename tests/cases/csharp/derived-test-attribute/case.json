@@ -1,0 +1,18 @@
+{"lang": "csharp",
+ "checks": [
+  {"why": "a method under an attribute derived from FactAttribute is a test xUnit runs, so what it reaches is credited to it, not to a sibling [Fact] through a fixture route (#1497)",
+   "run": ["impact", "Pricer.Price", "--tests"],
+   "want": ["1 of 3 test method(s)", "[sound] 1 test(s)", "PricerTests::PricesSlowly"],
+   "avoid": ["PricerTests::TaxesPlainly", "[fixture]"]},
+  {"why": "the base is followed transitively: an attribute derived from the derived one is a test marker too",
+   "run": ["impact", "Pricer.Sweep", "--tests"],
+   "want": ["1 of 3 test method(s)", "PricerTests::SweepsNightly"],
+   "avoid": ["PricerTests::TaxesPlainly", "[fixture]"]},
+  {"why": "near miss: an attribute derived from Attribute alone does not make its method a test",
+   "run": ["impact", "Pricer.Audit", "--tests"],
+   "want": ["of 3 test method(s)", "via PricerTests.AuditTrail"],
+   "avoid": ["PricerTests::AuditTrail", "of 4 test method(s)"]},
+  {"why": "control: a direct [Fact] is a test as before",
+   "run": ["impact", "Pricer.Tax", "--tests"],
+   "want": ["1 of 3 test method(s)", "[sound] 1 test(s)", "PricerTests::TaxesPlainly"],
+   "avoid": ["[fixture]"]}]}

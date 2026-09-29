@@ -20,6 +20,15 @@ entry_point(m, "test") :- attr_on(m, "METHOD", n, _), cs_test_attr(n).
 entry_point(m, "test") :- attr_on(m, "METHOD", n, _), cs_test_lifecycle_attr(n).
 entry_point(m, "test") :- attr_on(m, "METHOD", n0, _), cs_attr_suffix(n0, n), cs_test_attr(n).
 entry_point(m, "test") :- attr_on(m, "METHOD", n0, _), cs_attr_suffix(n0, n), cs_test_lifecycle_attr(n).
+// an attribute class DERIVED from a test attribute is one: xUnit reads `[SlowFact]` through
+// `SlowFactAttribute : FactAttribute` as a fact (#1497), transitively. Matched by the base's written name, since
+// the framework is not in the source; an attribute derived from anything else (`AuditedAttribute : Attribute`)
+// stays out.
+cs_test_attr_type(cat(n, "Attribute")) :- cs_test_attr(n).
+cs_test_attr_type(n0) :- type_decl("client", n0, _, _, _, t), heritage_slot("client", t, _, bn0, _, _),
+    last_segment(bn0, bn), cs_test_attr_type(bn).
+entry_point(m, "test") :- attr_on(m, "METHOD", n0, _), cs_test_attr_type(n0).
+entry_point(m, "test") :- attr_on(m, "METHOD", n0, _), cs_test_attr_type(cat(n0, "Attribute")).
 // `[FactAttribute]` is the same attribute as `[Fact]`
 cs_attr_suffix(n0, n) :- attr_on(_, "METHOD", n0, _), strlen(n0) > 9,
     substr(n0, strlen(n0) - 9, 9) = "Attribute", n = substr(n0, 0, strlen(n0) - 9).

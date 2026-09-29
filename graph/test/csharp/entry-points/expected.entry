@@ -1,11 +1,15 @@
 entry	http	App.OrdersController.List
 entry	lifecycle	App.Poller.ExecuteAsync
 entry	main	App.Program.Main
+entry	test	App.DerivedAttributeTests.Nightly
+entry	test	App.DerivedAttributeTests.Slow
 entry	test	App.MsTests.Runs
 entry	test	App.NunitTests.Before
 entry	test	App.NunitTests.Works
 entry	test	App.XunitTests.Lists
 entry	test	App.XunitTests.Many
+reachable	App.DerivedAttributeTests.Nightly
+reachable	App.DerivedAttributeTests.Slow
 reachable	App.MsTests.Runs
 reachable	App.NunitTests.Before
 reachable	App.NunitTests.Works

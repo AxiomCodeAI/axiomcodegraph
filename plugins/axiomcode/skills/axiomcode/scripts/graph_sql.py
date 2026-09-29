@@ -545,6 +545,53 @@ FIXTURE_DECOR = _re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixtu
 FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}
 
 
+def _attr_stem(n):
+    """a C# attribute's name as written on a member: `[SlowFact]` for `SlowFactAttribute`"""
+    return n[:-len('Attribute')] if n.endswith('Attribute') and len(n) > len('Attribute') else n
+
+
+def derived_test_markers(q):
+    """the simple names of the decorations declared IN THIS REPOSITORY that mark a test although their own name does not
+    say so: a Java annotation type meta-annotated with a test marker (JUnit 5's composed `@interface IntegrationCase`
+    carrying `@Test`), and a C# attribute class derived from one (`SlowFactAttribute : FactAttribute`), transitively.
+    The runner reads the meta-annotation or the base, so a method under either runs as a test; read by name alone it
+    was a helper, and what it reached was credited to a sibling test (#1418, #1497).
+
+    Only declarations that ARE a decoration's type count: a Java type of the annotation category, a C# class named
+    *Attribute. A type that merely has Test in its own decorations or bases (a test class, a TestCase subclass) is
+    not a marker, and an annotation that carries no test marker (`@Audited`) stays what its name says."""
+    marks = {}                                              # declared marker name -> names it is built from
+    if _has(q, 'types') and _has(q, 'symbols') and _has(q, 'decorations'):
+        for n, d in q("""SELECT t.name, d.name FROM types t JOIN symbols s ON s.type_id = t.id AND s.method_id IS NULL
+                         JOIN decorations d ON d.owner_id = s.id WHERE t.category LIKE 'ANNOTATION%'"""):
+            if n and d: marks.setdefault(n, set()).add(d.split('.')[-1])
+    if _has(q, 'types') and _has(q, 'type_refs'):
+        spans = {}
+        for n, f, a, b in q("""SELECT name, file_path, start_line, end_line FROM types
+                               WHERE name LIKE '%Attribute' AND file_path IS NOT NULL AND start_line > 0"""):
+            spans.setdefault(f, []).append((a, b or a, n))
+        if spans:
+            for base, f, ln in q("SELECT name, file, line FROM type_refs WHERE context = 'BASE_LIST' AND file IS NOT NULL"):
+                # the base list is written in the header of the innermost type declared at or above its line
+                own = max(((a, n) for a, b, n in spans.get(f, ()) if a <= ln <= b), default=None)
+                if own and base: marks.setdefault(own[1], set()).add(base.split('.')[-1].split('<')[0])
+    if not marks: return set()
+    def is_marker(n, found):
+        return n in found or _attr_stem(n) in found or TEST_DECOR.search(_attr_stem(n)) is not None
+    found, grew = set(), True
+    while grew:
+        grew = False
+        for n, via in marks.items():
+            if n not in found and any(is_marker(v, found) for v in via):
+                found.add(n); grew = True
+    return found | {_attr_stem(n) for n in found}
+
+
+def test_decoration(name, derived=()):
+    """whether a decoration, as written on a method, marks it as a test: by its name, or as a marker declared here"""
+    return TEST_DECOR.search(name or '') is not None or (name or '').split('.')[-1] in derived
+
+
 TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
 EACH_TABLE = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
 
@@ -616,10 +663,11 @@ def _test_sets(q, lines=None, rel=None):
     for oid, name in q("SELECT owner_id, name FROM decorations") if _has(q, 'decorations') else []:
         dec.setdefault(oid, []).append(name or '')
     tm, fx = set(), set()
+    derived = derived_test_markers(q) if dec else set()     # a composed / derived test marker declared here (#1418)
     for sid, name, kind, mid, tid in q("SELECT id, name, kind, method_id, type_id FROM symbols WHERE is_test=1"):
         d = dec.get(sid, ())
         # a pytest fixture named test_* is built for the tests that request it and never collected (#1531)
-        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))) \
+        if mid and kind in ('method', 'function') and (any(test_decoration(x, derived) for x in d) or (name or '').startswith(('test', 'it'))) \
                 and not any((x or '').split('.')[-1] == 'fixture' for x in d):
             tm.add(sid)
         if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):

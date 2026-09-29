@@ -57,4 +57,16 @@ namespace App
     {
         [TestMethodAttribute] public void Runs() { }                     // test, written with the suffix
     }
+
+    // an attribute derived from a test attribute is one, transitively (#1497); one derived from Attribute is not
+    public class SlowFactAttribute : FactAttribute { }
+    public sealed class NightlyFactAttribute : SlowFactAttribute { }
+    public sealed class TracedAttribute : System.Attribute { }
+
+    public class DerivedAttributeTests
+    {
+        [SlowFact] public void Slow() { }                                // test, derived from FactAttribute
+        [NightlyFactAttribute] public void Nightly() { }                 // test, two levels down, with the suffix
+        [Traced] public void Traced() { }                                // not a test
+    }
 }

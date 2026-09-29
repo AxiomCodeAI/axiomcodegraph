@@ -1,0 +1,18 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a method under a composed annotation (an @interface meta-annotated @Test) is a test the runner runs, so what it reaches is credited to it, not to a sibling @Test through a fixture route (#1418)",
+   "run": ["impact", "Ledger.total", "--tests"],
+   "want": ["1 of 3 test method(s)", "[sound] 1 test(s)", "LedgerChecks::balancesTotals"],
+   "avoid": ["LedgerChecks::control", "[fixture]"]},
+  {"why": "the meta-annotation is followed transitively: an annotation carrying the composed one is a test marker too",
+   "run": ["impact", "Ledger.sweep", "--tests"],
+   "want": ["1 of 3 test method(s)", "LedgerChecks::sweepsNightly"],
+   "avoid": ["LedgerChecks::control", "[fixture]"]},
+  {"why": "near miss: an annotation that carries no test marker (@Audited) does not make its method a test; it stays a helper of the tests beside it",
+   "run": ["impact", "Ledger.audit", "--tests"],
+   "want": ["of 3 test method(s)", "via LedgerChecks.auditTrail"],
+   "avoid": ["LedgerChecks::auditTrail", "of 4 test method(s)"]},
+  {"why": "control: a direct @Test is a test as before",
+   "run": ["impact", "Ledger.count", "--tests"],
+   "want": ["1 of 3 test method(s)", "[sound] 1 test(s)", "LedgerChecks::control"],
+   "avoid": ["[fixture]"]}]}
