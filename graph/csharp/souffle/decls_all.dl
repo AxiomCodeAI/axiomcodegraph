@@ -18,6 +18,7 @@
 // ============================================================================
 
 .decl dispatch_cap(c0:symbol)
+.decl dispatch_closed_world(c0:symbol)
 .decl jdk_max_depth(c0:number)
 .decl lib_max_depth(c0:number)
 .decl runtime_observed_edge(c0:symbol,c1:symbol,c2:symbol)
