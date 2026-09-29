@@ -146,6 +146,9 @@ def path(d, code):
             prev = h['to']
     for r in d.get('reached', []):
         rows.append(('reached', site(code, r['at'], f"hop {r['hops']}{stale(r)}", r['name'])))
+    # `path '*' X`'s by-name group (#1421): the sites impact lists as [by name], after every resolved row
+    for r in d.get('by_name', []):
+        rows.append(('by name', site(code, r['at'], f"by name · receiver not typed{stale(r)}", r['name'])))
     # every printed hop of a chain is looked up again (`unverified_hops` counts the ones that were not there); the
     # document's own `verified` speaks for the `'*'` closure
     ans = d.get('answers', [])

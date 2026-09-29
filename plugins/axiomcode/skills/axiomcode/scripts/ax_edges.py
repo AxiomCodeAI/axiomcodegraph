@@ -47,6 +47,9 @@ TIER_RANK = {
     'dispatch': 2,              # a base method to an override that is actually instantiated
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
     'event_dispatch': 3,        # emitted here, handled there
+    'remote': 5,                # a request crosses a process to its handler (remote_edge): no call site names it.
+    'framework': 5,             # a framework runs the other end for this one (framework_edge). Both 5, the default
+                                # impact's route reader already gave them (P.TIER_RANK.get(t, 5)), so its routes do not move
     'defines': 4,               # NOT a call: the callee is written inside the caller's body
     'ambient_terminal': 6,      # into the platform or an ambient declaration: terminal
     'intrinsic_terminal': 6,    # a JSX intrinsic element or a dynamic import(): nothing the graph can name
@@ -66,6 +69,8 @@ TIER_NOTE = {
     'dispatch':             'a base method to an override the project instantiates',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
     'event_dispatch':       'emitted here, handled there',
+    'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
+    'framework':            'NOT a call site: a framework runs the other end for this one (mechanism and registration on the hop)',
     'defines':              'NOT a call — written inside that body, so it runs only after it',
     'library':              'into a dependency; the chain ends there',
     'boundary_lib':         'into a dependency; the chain ends there',
@@ -110,6 +115,13 @@ KIND = {
     # run-time code loading
     'DYNAMIC_IMPORT_CALL': 'import', 'DYNAMIC_CODE_CALL': 'eval', 'DYNAMIC_CALL': 'dynamic',
 }
+
+# A HOP NO CALL SITE EXPRESSES, read from the engine's own relations rather than call_edges: a request to the handler that
+# serves it (ext_remote_edge) and a hand-over a framework makes (ext_framework_edge: a fixture a test names, a signal and
+# its receiver, a filter wrapping an endpoint). `impact` lists the far end as a [remote] / [framework] dependent; `path`
+# walks them as hops (#1469) and says on each one what it is. Only the path finder adds them: impact's closure keeps
+# them as direct rows, the contract #1509 set, so they are not written to edge.facts.
+OUTSIDE_CALL = ('remote', 'framework')
 
 NOT_A_CALL = {'defines'}           # a containment relation, not control reaching B. The engine's own name
                                    # for it, kept as the wire name: graph_sql.py and the rules both write it.
@@ -163,6 +175,7 @@ DIRECT_CERT = {
     'ambient_terminal': 'registered', 'dynamic_terminal': 'registered', 'intrinsic_terminal': 'registered',
     'fan_capped': 'capped set',
     'stub': 'stubs it',             # a call inside a mock's stub or verification (stub_sites below): named, never run
+    'remote': 'remote', 'framework': 'framework',   # impact's own rung names for the same two hops (#1469)
 }
 DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and this table cannot name — never `resolved`
 

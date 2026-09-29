@@ -40,10 +40,15 @@
 - **No chain is an answer with a bound.** "no chain of resolved calls" is followed by whether unresolved sites *would*
   connect the two by name, and at which `file:line` — that is the site to read, not a path to claim. The `bound:` line
   counts unresolved calls on the chain shown: other chains may exist that the graph cannot see.
-  When a framework joins the two ends directly (a Python `.delay()` and the task it enqueues, a signal `send` and its
-  `@receiver`, a route table and its view, a `Depends()` default and its provider, a test and the fixture it names), the
-  answer prints that hop with its mechanism and the engine's confidence, labelled framework-mediated, and no longer calls
-  the two independent. It is not a call, so it is never part of a chain.
+- **A hop no call site makes is a hop of the chain, labelled as one.** A request that crosses a process to the handler
+  that serves it (`[remote · grpc at <destination> (exact) · no call site]`) and a hand-over a framework makes (a Python
+  `.delay()` and the task it enqueues, a signal `send` and its `@receiver`, a test and the fixture it names, a C#
+  endpoint filter and the endpoint it wraps: `[framework · <mechanism> via <registration> (<confidence>) · no call site]`)
+  are the same hops `impact` lists as `[remote]` / `[framework]` dependents, and the chain walks them, so a client
+  reaches what its handler calls and a test what its fixture calls. The count says how many hops are calls
+  (`1 call(s) + 1 hop(s) no call site makes`) and a note under the chain names each such hop's two ends. `path '*' X`
+  counts the callers reached this way apart from the exact calls. Every language whose engine writes the two relations
+  gets them; a hop never joins two languages' graphs.
 - **A call into a library is an endpoint too — with or without `--library`.** `path '*' 'new ArrayList'`,
   `path '*' Files.readAllBytes`, `path '*' readAllBytes`, `path '*' 'Collections.*'`, `path '*' open`: the name as the parser
   wrote it at the call site (kind `new` or method, and the receiver written before it), matched at every unresolved site,
@@ -78,7 +83,10 @@
   *entry points* among them, nearest first. An entry point is decided by one language-neutral fact — nothing resolved
   calls it (the caller is outside the graph: a framework, a runner, reflection) or it is a test; a decoration on it is
   shown as information, never used to decide. `path X '*'` is everything X reaches, and the library calls X makes itself
-  (the platform methods where the client graph ends), listed but never traversed. `--in src/main` keeps only the part
+  (the platform methods where the client graph ends), listed but never traversed. `path '*' X` also lists, apart, the
+  call sites written with X's name on a receiver the engine could not type (`[by name] <caller>  <file:line>`): the
+  callers `impact X` lists as `[by name]`, so the two verbs name the same direct callers. They are leads, never walked,
+  and when nothing resolved calls X they are the answer's `next:`. `--in src/main` keeps only the part
   under that path; `--depth N` bounds the hops. Each closure is cross-checked against a second, independent traversal (the `verified:` line)
   and bounded by the unresolved calls inside it.
 - **An empty answer names the framework that owns it.** `path '*' <handler>` for a live route used to print "0

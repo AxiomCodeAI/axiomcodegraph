@@ -195,6 +195,9 @@ def next_path(text):
     sites = list(dict.fromkeys(re.findall(r'call @ ' + LOC + r'\]', text)))
     if sites:
         multi = ' — one hop is [multi_inferred], one of several candidates: check that call site only if the answer depends on which' if 'multi_inferred ·' in text else ''
+        # a hop no call site makes (#1469) has no line in that list: its two ends are on the note under the chain
+        if re.search(r'\[(remote|framework) · ', text):
+            multi += (' — and a hop no call site makes ([remote] / [framework]): check it at the two ends its note names')
         return (f"next: the chain is verified (every printed hop is an edge in the graph); its {len(sites)} call "
                 f"site(s): {', '.join(sites[:6])}{' …' if len(sites) > 6 else ''}{multi}. For a change, those sites are "
                 "what to check; to explain how it works, read each hop's body — `context \"how does …\" --from <start>` "
@@ -215,6 +218,11 @@ def next_path(text):
                 + ', '.join(f"{n} {loc}" for n, loc in first)
                 + (" — read it" if len(first) == 1 else " — read those") + "; farther hops matter only if these pass the change on"
                 + (f" (of {total.group(1)} in all)" if total else ''))
+    # nothing resolved calls it, and impact's [by name] callers are listed (#1421): they are the only leads there are
+    bn = re.findall(r'^\s+\[by name\] (\S+)\s+' + LOC, text, re.M)
+    if bn:
+        return (f"next: no resolved call reaches it; the {len(bn)} [by name] site(s) are leads, not calls: read "
+                + ', '.join(f"{loc}" for _, loc in bn[:4]) + " and check whether the receiver there is this method's type")
     # a framework hop (#1509) is the connection when no call is: both ends are printed, so point at them
     fw = re.findall(r'a framework connects them: (\S+) ' + LOC + r' → (\S+) ' + LOC, text)
     if fw:

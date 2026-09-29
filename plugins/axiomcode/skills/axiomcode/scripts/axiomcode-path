@@ -816,6 +816,28 @@ class G:
         replace_file(tmp, p)
     def edges(self):
         return [tuple(l.rstrip('\n').split('\t')) for l in open(os.path.join(self.facts, 'edge.facts'))] + list(self.EXTRA)
+    def add_outside_call_edges(self):
+        """THE HOPS NO CALL SITE EXPRESSES, as hops of this query (#1469). A gRPC client reaches the handler that serves
+        it (ext_remote_edge), a test the fixture it names and a filter the endpoint it wraps (ext_framework_edge), and
+        `impact` already lists each far end as a [remote] / [framework] dependent. The chain search walked call edges
+        only, so it found the hop when the two endpoints were its own two ends and nothing one call past it: a client
+        and what its handler calls were "independent". Added per query, like the `written` nodes, and never to
+        edge.facts, which impact's closure reads: there these hops stay direct rows (#1509). Same rows in every
+        language that writes the relations; each graph is one language, so a hop never joins two of them."""
+        if getattr(self, 'OUTSIDE', None) is not None: return
+        self.OUTSIDE = {}
+        for table, tier in (('ext_remote_edge', 'remote'), ('ext_framework_edge', 'framework')):
+            if not self.has(table): continue
+            for a, b, how, where, conf in self.q(f"SELECT c0, c1, c2, c3, c4 FROM {table}"):
+                if a == b or a not in self.sym or b not in self.sym: continue
+                self.OUTSIDE.setdefault((a, b, tier), []).append((how, where, conf))
+        self.EXTRA += sorted(self.OUTSIDE)
+    def outside_detail(self, a, b, t):
+        """what an outside-call hop is, as impact words it: `grpc at <destination> (exact)` / `fixture_injection via cart (by_name)`"""
+        rows = sorted(set((getattr(self, 'OUTSIDE', None) or {}).get((a, b, t), [])))
+        if not rows: return ''
+        how, where, conf = rows[0]
+        return f"{how} at {where} ({conf})" if t == 'remote' else f"{how} via {where} ({conf})"
 
 # ── the same answers in SQL: no .facts written, no Soufflé process ──────────────────────────────────────────────
 def _facts_rows(g, programs):
@@ -908,6 +930,7 @@ def verify(g, chain, srcs, dst, adj):
         if t in ('known_edge', 'multi_inferred') and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = ? LIMIT 1", a, b, t): bad.append((a, b, t))
         if t == 'library' and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = 'boundary_lib' LIMIT 1", a, b): bad.append((a, b, t))
         if t == 'written' and not any(r['caller_id'] == a for r in getattr(g, 'SITES', {}).get(b, [])): bad.append((a, b, t))
+        if t in ax_edges.OUTSIDE_CALL and not g.q(f"SELECT 1 FROM {'ext_remote_edge' if t == 'remote' else 'ext_framework_edge'} WHERE c0 = ? AND c1 = ? LIMIT 1", a, b): bad.append((a, b, t))
     # plain BFS over the same facts: the second implementation must agree on the shortest length
     seen = {s: 0 for s in srcs}; fr = list(srcs); d = 0; found = None
     while fr and found is None:
@@ -1008,6 +1031,7 @@ def hop_detail(g, a, b, t):
     was dropped on export (`SELECT caller_id, callee_method_id, tier`), so `new Foo()`, `super(...)`,
     `@app.route(...)` and an ordinary invocation all printed identically in every language."""
     if t in ax_edges.NOT_A_CALL: return '', None
+    if t in ax_edges.OUTSIDE_CALL: return g.outside_detail(a, b, t), None     # no call site: the relation's own words
     rows = g.q("SELECT e.kind k, s.file_path f, s.start_line ln FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id "
                "WHERE e.caller_id = ? AND e.callee_method_id = ? ORDER BY (s.start_line IS NULL), s.start_line LIMIT 1", a, b)
     if not rows: return '', None
@@ -1025,7 +1049,7 @@ def hop_detail(g, a, b, t):
 def hop_label(g, a, b, t):
     """[tier · kind @ where the call is written] — everything needed to check the hop by hand."""
     kind, at = hop_detail(g, a, b, t)
-    bits = [t] + ([kind] if kind else []) + (["not a call"] if t in ax_edges.NOT_A_CALL else [])
+    bits = [t] + ([kind] if kind else []) + (["not a call"] if t in ax_edges.NOT_A_CALL else []) + (["no call site"] if t in ax_edges.OUTSIDE_CALL else [])
     return f"[{' · '.join(bits)}" + (f" @ {at}]" if at else "]")
 
 
@@ -1146,8 +1170,49 @@ def why_no_caller(g, ids, shown=2, decls=3):
     return out
 
 
+CTOR_SITE_KINDS = ('new', 'anon_new', 'CONSTRUCTOR_CALL')   # impact.dl's ctor_kind: a construction is not a call of a method
+
+def byname_sites(g, ids):
+    """THE CALLERS `impact` LISTS AS [by name], for `path '*' X` (#1421). An unresolved call site written with X's name
+    on a receiver the engine could not type: `impact X` lists its caller as a lead, and the closure, which walks
+    resolved edges only, left it out, so the two verbs gave different sets of direct callers and `path` gave no hint
+    of the second one. The same rule as dl/impact.dl's `direct(... "by name")`: a callable target, a site that is not
+    a construction and not inside a mock's stub or verification, and not in the target's own body. Listed apart and
+    never walked: the name may belong to another method, and the by-name closure stays the search `path A B` runs
+    only when nothing resolved connects its two ends."""
+    names = sorted({g.sym[i]['name'] for i in ids if i in g.sym and g.sym[i].get('method_id')
+                    and g.sym[i]['kind'] not in ('library', 'written', 'module') and g.sym[i].get('name')})
+    if not names or not g.has('unresolved_sites'): return [], set()
+    stubs = ax_edges.stub_sites(lambda s, p: g.q(s, *p)) if g.has('call_sites') else set()
+    own = set(ids); out = []; stubbed = set()
+    for n in names:
+        for r in g.q("SELECT s.id sid, s.caller_id c, s.callee_name cn, s.kind k, s.file_path f, s.start_line ln FROM call_sites s"
+                     " JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name = ? OR s.callee_name LIKE ?", n, '%.' + n):
+            if (r['cn'] or '').split('.')[-1] != n or r['k'] in CTOR_SITE_KINDS or r['c'] in own: continue
+            if r['c'] not in g.sym or (g.IN and not g.under_in(g.sym[r['c']]['file'])): continue
+            if r['sid'] in stubs: stubbed.add(r['c']); continue      # impact's "stubs it" rows: named on a mock, never run
+            out.append((r['c'], n, g.site_file(r['f']) if r['f'] else g.sym[r['c']]['file'], r['ln'] or g.sym[r['c']]['line']))
+    return sorted(set(out), key=lambda x: (g.sym[x[0]]['is_test'], x[2] or '', x[3] or 0, g.sym[x[0]]['display'])), stubbed - {c for c, *_ in out}
+
+
+def print_byname(g, found, limit):
+    named, stubbed = found
+    if stubbed:
+        print(f"  +{len(stubbed)} caller(s) only stub a method of this name on a mock (receiver not typed): they run none of it;"
+              " `impact` lists them apart as stubs")
+    if not named: return
+    RESULT['by_name'] = [{'name': g.disp(c), 'callee': n, 'at': f"{f}:{ln}"} for c, n, f, ln in named]
+    print(f"  by name, not resolved ({len(named)} site(s) in {len({c for c, *_ in named})} caller(s)): a call written with"
+          f" {' / '.join(sorted({f'`{n}`' for _, n, _, _ in named}))} on a receiver the engine could not type — `impact` lists"
+          " these callers as [by name]; the name may be another method's, so they are leads, not walked:")
+    for c, n, f, ln in named[:limit]:
+        print(f"    [by name] {g.disp(c)}   {f}:{ln}   — calls `{n}` (receiver not typed)")
+    if len(named) > limit: print(f"    … +{len(named) - limit} (--limit N)")
+
+
 def closure(g, sel, upstream, limit=40, depth=40):
     g.export(); label, ids = g.resolve(sel, fragment=True)
+    g.add_outside_call_edges()
     res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
     rows = [(m, int(d)) for m, d in (res['dist_up'] if upstream else res['dist'])['c'] if 0 < int(d) <= depth and m in g.sym]
     if g.IN: rows = [(m, d) for m, d in rows if g.under_in(g.sym[m]['file'])]        # --in: only the part of the closure under that path
@@ -1191,19 +1256,23 @@ def closure(g, sel, upstream, limit=40, depth=40):
         ex = _walk(_exact_t)
         in_rows = {m for m, _ in rows}
         exact = (ex - set(ids)) & in_rows
-        sent = ((_walk(lambda t: _exact_t(t) or t in ax_edges.TIER_WHY) - set(ids)) & in_rows) - exact
+        sent = ((_walk(lambda t: _exact_t(t) or t in ax_edges.TIER_WHY or t in ax_edges.OUTSIDE_CALL) - set(ids)) & in_rows) - exact
         prod = lambda ms: sum(1 for m in ms if not g.sym[m]['is_test'])
         n_prod, n_test = prod(in_rows), len(in_rows) - prod(in_rows)
         e_prod, e_test = prod(exact), len(exact) - prod(exact)
         print(f"  {n_prod} production, {n_test} test. Through exact calls only: {e_prod} production, {e_test} test"
-              + (f"; {len(sent)} more through a request or event sent to a handler, which the framework runs for what is sent" if sent else '')
+              + (f"; {len(sent)} more through a request or event sent to a handler, which the framework runs for what is sent,"
+                 " or a hop a framework or another process makes ([framework] / [remote])" if sent else '')
               + f"; the other {len(in_rows) - len(exact) - len(sent)} only through a dispatch choice (an interface or override with several implementations, "
               "a call with several candidates) — they MAY run it, not must")
     if not upstream:
         print_boundary(g, ids, "it calls into libraries directly", "it also makes")
+    named = byname_sites(g, ids) if upstream else ([], set())
     if not rows:
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(ids))})", *ids)[0]['n'] if not upstream else 0
-        print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ") + "an unresolved site elsewhere may still " + ("call it" if upstream else "be it")))
+        print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ")
+              + (f"{len(named[0])} unresolved site(s) write its name (below)" if named[0] else "an unresolved site elsewhere may still " + ("call it" if upstream else "be it"))))
+        print_byname(g, named, limit)
         # AN EMPTY UPSTREAM CLOSURE IS THE MOST MISLEADING LINE THIS COMMAND CAN PRINT. For a live route handler,
         # a signal receiver or a CLI command the answer "0 methods reach it" is true of calls and false of the
         # program: the framework reaches it. Name the registration rather than leave the reader at a dead end.
@@ -1270,9 +1339,15 @@ def closure(g, sel, upstream, limit=40, depth=40):
                         # the call is nearly always written in the caller's own file, and repeating a 90-character
                         # path to say so pushes the name off the line. Same file, just the line.
                         at = f"   — calls it at {':' if sf == (g.sym[m]['file'] or '') else sf + ':'}{ln}".replace('at ::', 'at :')
+                    else:
+                        # no call site: a request it sends or a framework hand-over reaches it, said as the hop says it
+                        how = next((f"   — [{t}: {g.outside_detail(m, i, t)}], no call site" for i in ids for t in ax_edges.OUTSIDE_CALL
+                                    if g.outside_detail(m, i, t)), '')
+                        at = how
                 print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}{at}")
             if len(np_) > limit: print(f"    … +{len(np_) - limit} production (--limit N)")
             if nt: print(f"    +{len(nt)} test caller(s) within 2 hop(s) — `axiomcode test-impact` names them and the command that runs them")
+    print_byname(g, named, limit)
     byhop = collections.Counter(d for _, d in rows); print("  by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
     # most_common breaks a tie by insertion order, which is the order the closure rows arrived in: two files with the
     # same count then swap depending on which engine answered. Sort the tie by name so the line is stable either way.
@@ -1450,6 +1525,7 @@ def grep_for(g, name):
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
+    g.add_outside_call_edges()
     res = run(g, {'fwd': (A, B), 'rev': (B, A)}, ('path.dl', 'path-every.dl') if every else ('path.dl',))
     if not res['hit']['fwd'] and not res['hit']['rev']:                      # nothing resolved connects them: now, and only now, the by-name closure
         res_opt = run(g, {'fwd': (A, B), 'rev': (B, A)}, ('path-opt.dl',)); res['hit_opt'] = res_opt['hit_opt']; res['parent_opt'] = res_opt['parent_opt']
@@ -1459,7 +1535,11 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     for q, srcs, dsts, word in (('fwd', A_, B_, f"{la} → {lb}"), ('rev', B_, A_, f"{lb} → {la}  (the reverse direction)")):
         hits = sorted(res['hit'][q], key=lambda h: (int(h[1]), h[0]))
         if not hits: continue
-        print(f"{word}: {len(hits)} of {len(dsts)} target(s) reached through resolved calls; nearest at {hits[0][1]} hop(s)")
+        near = read_back(res['parent'], q, hits[0][0], srcs) or []
+        outside = sorted({t for _, t in near[1:] if t in ax_edges.OUTSIDE_CALL})
+        print(f"{word}: {len(hits)} of {len(dsts)} target(s) reached through resolved calls"
+              + (f" and a hop no call site expresses ([{'] and ['.join(outside)}], below)" if outside else '')
+              + f"; nearest at {hits[0][1]} hop(s)")
         if len(hits) > limit and not show_all:
             # a name declared under many owners (close · toString · run): say WHICH owners' declarations are reached and how far,
             # then print the nearest chains only; the rest is one more call away
@@ -1467,7 +1547,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             for m, d in hits: own.setdefault(g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'] or '?'), []).append(int(d))
             print(f"  reached under {len(own)} owner(s), nearest first: " + ', '.join(f"{o} ({min(ds)} hop{'s' if min(ds) != 1 else ''})" for o, ds in list(own.items())[:12]) + (f" … +{len(own) - 12}" if len(own) > 12 else ''))
             print(f"  the {limit} nearest chains follow; --all for every one, or narrow the target: Owner.{g.sym[hits[0][0]]['name']} · --in <path>")
-        shown = 0; vbad = 0; vlen = 0; seen_tiers = set()
+        shown = 0; vbad = 0; vlen = 0; seen_tiers = set(); noted = set()
         for m, d in hits:
             d = int(d)
             if d == 0: print(f"    {g.disp(m)} is itself an endpoint of both"); continue
@@ -1475,9 +1555,22 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             if not chain: print(f"    {g.disp(m)} at {d} hops (chain could not be read back)"); continue
             bad, bfs = verify(g, chain, srcs, m, adj); vbad += len(bad); vlen += (bfs != d)
             ncall, nother = chain_size(chain); seen_tiers.update(t for _, t in chain[1:])
-            print(f"  {ncall} call(s)" + (f" + {nother} containment hop(s)" if nother else '') +
+            nout = sum(1 for _, t in chain[1:] if t in ax_edges.OUTSIDE_CALL)      # a hop no call site makes is not a call either
+            print(f"  {ncall - nout} call(s)" + (f" + {nout} hop(s) no call site makes" if nout else '') + (f" + {nother} containment hop(s)" if nother else '') +
                   ":" + (f"   ✗ {len(bad)} hop(s) NOT in the graph" if bad else '') + (f"   ✗ the second traversal says {bfs}" if bfs != d else ''))
             print(print_chain(g, chain)); shown += 1
+            # a hop no call site expresses is said in the words the no-chain answer used for it, so a reader can tell it
+            # from an invocation: it crosses a process, or a framework makes it, and it may run later or elsewhere
+            for (x, _), (y, t) in zip(chain, chain[1:]):
+                if t not in ax_edges.OUTSIDE_CALL or (x, y, t) in noted: continue
+                noted.add((x, y, t))
+                for how, where, conf in sorted(set(g.OUTSIDE.get((x, y, t), []))):
+                    if t == 'remote':
+                        print(f"    connected across a process: {g.disp(x)} → {g.disp(y)}   [{how}] at {where} ({conf}) — no call site"
+                              f" expresses this hop; `impact {g.disp(y)}` lists {g.disp(x)} as a [remote] dependent")
+                    else:
+                        print(f"    a framework connects them: {g.disp(x)} {g.loc(x)} → {g.disp(y)} {g.loc(y)}   [framework: {how} via {where}]"
+                              f" ({conf}) — framework-mediated, not a call; `impact {g.disp(y)}` lists {g.disp(x)} as a [framework] dependent")
             RESULT['answers'].append(dict(chain_json(g, chain), direction=q, unverified_hops=len(bad)))
             if shown >= limit and not show_all: print(f"  … +{len(hits) - shown} more targets (--all)"); break
         blind = {n for n, _ in (read_back(res['parent'], q, hits[0][0], srcs) or [])}
@@ -1495,8 +1588,8 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     # A CROSS-PROCESS HOP IS A CONNECTION, AND THIS SAID THERE WAS NONE (#1108). A gRPC client and the
     # handler it calls, or a producer and its consumer, are joined by an edge no call site expresses, so
     # the BFS above cannot reach it and the honest-sounding "the two are independent in this graph" was
-    # false. Reported separately rather than woven into the chain: it crosses a process, it may be
-    # asynchronous, and a reader has to be able to tell that from an invocation.
+    # false. The chain search now walks it (G.add_outside_call_edges, #1469) and labels the hop; this is the
+    # fallback for a row whose ends are not both callables of this graph, which the search cannot hold.
     remote_found = False
     if g.has('ext_remote_edge'):
         rows = g.q("SELECT c0, c1, c2, c3, c4 FROM ext_remote_edge WHERE (c0 IN (%s) AND c1 IN (%s)) OR (c0 IN (%s) AND c1 IN (%s))"
@@ -1510,8 +1603,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             remote_found = True
     # A FRAMEWORK HOP INSIDE ONE PROCESS WAS THE SAME FALSE "INDEPENDENT" (#1509). `order_placed.send()` and its
     # @receiver, `send_report.delay()` and the task body: the engine writes framework_edge for the pair and no call
-    # site expresses it. Reported beside the cross-process hop and for the same reason not woven into a chain: it
-    # is framework-mediated, and a reader has to be able to tell that from an invocation.
+    # site expresses it. Walked as a labelled hop of the chain since #1469; kept here for the same fallback as above.
     if g.has('ext_framework_edge') and A_ and B_:
         rows = g.q("SELECT c0, c1, c2, c3, c4 FROM ext_framework_edge WHERE (c0 IN (%s) AND c1 IN (%s)) OR (c0 IN (%s) AND c1 IN (%s))"
                    % (','.join('?' * len(A_)), ','.join('?' * len(B_)), ','.join('?' * len(B_)), ','.join('?' * len(A_))),
