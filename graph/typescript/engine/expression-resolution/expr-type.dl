@@ -601,6 +601,20 @@ expr_element_type(e, prov, t) :- expr_type(e, _, qt),
 expr_element_type(e, prov, t) :- expr_type(e, _, qt),
     index_signature_in_scope(qt, f),
     field_type(f, prov, t).
+// …and the same signature written INLINE — `const reg: { [k: string]: Handler }` —
+// where the qualifier has a SHAPE rather than a named type. And where the signature's
+// value is itself a function type, `{ [k: string]: (n: number) => Shape }`, the element
+// is that signature: `factories[kind](n).area()` is a call on it, and without the shape
+// the call had no candidate and `.area()` no receiver type.
+expr_element_type(e, prov, t) :- expr_shape(e, qs),
+    index_signature_in_scope(qs, f),
+    field_type(f, prov, t).
+expr_element_shape(e, sh) :- expr_type(e, _, qt),
+    index_signature_in_scope(qt, f),
+    field_shape(f, sh).
+expr_element_shape(e, sh) :- expr_shape(e, qs),
+    index_signature_in_scope(qs, f),
+    field_shape(f, sh).
 
 // ── `new C()` — the constructed type ───────────────────────────────────────
 expr_type(e, prov, t) :- expr_kind("client", "NEW_EXPRESSION", _, e),

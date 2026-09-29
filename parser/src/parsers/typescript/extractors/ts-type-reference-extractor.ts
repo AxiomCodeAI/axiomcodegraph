@@ -50,6 +50,8 @@ interface PlannedChild {
   readonly context: TsTypeRefContext;
   readonly isOptionalElement?: boolean;
   readonly isRestElement?: boolean;
+  /** Type parameters in scope for this child only: a type-literal signature's own `<T>`. */
+  readonly introduces?: readonly ts.TypeParameterDeclaration[];
 }
 
 export class TsTypeReferenceExtractor {
@@ -321,6 +323,11 @@ export class TsTypeReferenceExtractor {
       introduced.push(node.typeParameter);
     } else if (ts.isConditionalTypeNode(node)) {
       collectInferParameters(node.extendsType, introduced);
+    } else if (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node)) {
+      // `<T>() => T`: the signature's own parameters scope its parameters and its
+      // return. Without this the return `T` was a TYPE_REFERENCE to nothing, so
+      // `get<User>()` through a parameter of that type bound T to nothing.
+      introduced.push(...(node.typeParameters ?? []));
     }
     for (const declared of introduced) {
       this.typeLevelParameterScope.push(declared);
@@ -328,11 +335,21 @@ export class TsTypeReferenceExtractor {
     try {
       let index = 0;
       for (const child of children) {
-        this.emit(child.node, child.context, owner, row.getHash(), index, depth + 1,
-          isTypeOnlyPosition, {
-            isOptionalElement: child.isOptionalElement,
-            isRestElement: child.isRestElement,
-          });
+        const own = child.introduces ?? [];
+        for (const declared of own) {
+          this.typeLevelParameterScope.push(declared);
+        }
+        try {
+          this.emit(child.node, child.context, owner, row.getHash(), index, depth + 1,
+            isTypeOnlyPosition, {
+              isOptionalElement: child.isOptionalElement,
+              isRestElement: child.isRestElement,
+            });
+        } finally {
+          for (let i = 0; i < own.length; i += 1) {
+            this.typeLevelParameterScope.pop();
+          }
+        }
         index += 1;
       }
     } finally {
@@ -356,7 +373,7 @@ export class TsTypeReferenceExtractor {
 function plannedChildren(node: ts.TypeNode): PlannedChild[] {
   const out: PlannedChild[] = [];
   const push = (child: ts.TypeNode | undefined, context: TsTypeRefContext,
-                extra?: { isOptionalElement?: boolean; isRestElement?: boolean }): void => {
+                extra?: Omit<PlannedChild, 'node' | 'context'>): void => {
     if (child) {
       out.push({ node: child, context, ...extra });
     }
@@ -459,6 +476,9 @@ function plannedChildren(node: ts.TypeNode): PlannedChild[] {
       const memberType = (member as { type?: ts.TypeNode }).type;
       push(memberType, contextForTypeElement(member), {
         isOptionalElement: (member as { questionToken?: ts.QuestionToken }).questionToken !== undefined,
+        // `{ get<T>(): T }`: the member's `T` is in scope for its return, as a function type's is.
+        introduces: ts.isMethodSignature(member) || ts.isCallSignatureDeclaration(member)
+          || ts.isConstructSignatureDeclaration(member) ? member.typeParameters : undefined,
       });
     }
     return out;

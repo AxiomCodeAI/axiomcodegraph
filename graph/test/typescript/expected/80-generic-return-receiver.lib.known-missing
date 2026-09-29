@@ -1,0 +1,6 @@
+# Accepted gaps for 80-generic-return-receiver — each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+# `Map` is the standard library's, which no case pass loads; it resolves on a real index
+# given the TypeScript lib as a library.
+use#recvMapGet() -> User#touch()
