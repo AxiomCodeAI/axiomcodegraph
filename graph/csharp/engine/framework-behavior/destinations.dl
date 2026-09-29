@@ -48,9 +48,7 @@ call_recv_written_name(e, n) :-
 // …and a property read off another value, `services.Mediator.Send(..)`: a minimal-API
 // endpoint takes its services as one parameter object, and the receiver is that
 // object's property, whose declared type name is what the project wrote.
-call_recv_written_name(e, n) :-
-    call_receiver_expr("client", e, r), property_access("client", r, p, _),
-    property_type_name("client", p, n, _), n != "".
+// (recv_value_written_name below)
 // …and a `var` from the service locator, which holds its type argument
 call_recv_written_name(e, n) :-
     call_receiver_expr("client", e, r),
@@ -58,6 +56,47 @@ call_recv_written_name(e, n) :-
     csite("client", init), call_callee_name("client", init, f), cs_di_resolve(f),
     type_ref_owner("client", tr, init, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
     !type_ref_parent("client", tr, _, _, _), type_ref_name("client", tr, n).
+
+// The same shapes with no local in between, and a local holding a member read. Each names
+// the type the project WROTE at the value's source:
+//   `new Pricing.PricingClient(ch).Quote(..)`                  the created type
+//   `factory.CreateClient<Orders.OrdersClient>("o").Place(..)`  the type argument of a
+//                                                               service locator or client factory
+//   `Shared.Client.GetAsync(..)`, `Shared.Field.GetAsync(..)`   a property's or field's declared type
+//   `var c = Shared.Client; c.GetAsync(..)`                     the same, through a `var`
+// A client factory is its own knob (cs_client_factory_generic), not cs_di_resolve, which
+// also names messaging receivers.
+recv_value_written_name(x, n) :- expr_new_type_ref("client", x, tr), type_ref_name("client", tr, n).
+recv_value_written_name(x, n) :- csite("client", x), call_callee_name("client", x, f), cs_di_resolve(f),
+    type_ref_owner("client", tr, x, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_name("client", tr, n).
+recv_value_written_name(x, n) :- csite("client", x), call_callee_name("client", x, f), cs_client_factory_generic(f),
+    type_ref_owner("client", tr, x, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_name("client", tr, n).
+recv_value_written_name(x, n) :- property_access("client", x, p, _), property_type_name("client", p, n, _), n != "".
+recv_value_written_name(x, n) :- expr_kind("client", x, "MEMBER_ACCESS"),
+    expr_qualifier_child("client", x, q), expr_member_name_child("client", x, nm), expr_written_name("client", nm, fn),
+    ref_names_type("client", q, gk), member_lookup("client", gk, fn, "field", f),
+    field_type_name("client", f, n, _), n != "".
+recv_value_written_name(x, n) :- expr_kind("client", x, "MEMBER_ACCESS"),
+    expr_qualifier_child("client", x, q), expr_member_name_child("client", x, nm), expr_written_name("client", nm, fn),
+    expr_type("client", q, gk), member_lookup("client", gk, fn, "field", f),
+    field_type_name("client", f, n, _), n != "".
+call_recv_written_name(e, n) :- call_receiver_expr("client", e, r), recv_value_written_name(r, n).
+call_recv_written_name(e, n) :-
+    call_receiver_expr("client", e, r),
+    ref_denotes("client", r, "LOCAL_VARIABLE", v), var_is_implicit("client", v),
+    var_value_initializer("client", v, init), recv_value_written_name(init, n).
+call_recv_written_name(e, n) :-
+    call_receiver_expr("client", e, r),
+    ref_denotes("client", r, "LOCAL_VARIABLE", v), var_is_implicit("client", v),
+    var_value_initializer("client", v, init), ref_denotes("client", init, "PROPERTY", p),
+    property_type_name("client", p, n, _), n != "".
+call_recv_written_name(e, n) :-
+    call_receiver_expr("client", e, r),
+    ref_denotes("client", r, "LOCAL_VARIABLE", v), var_is_implicit("client", v),
+    var_value_initializer("client", v, init), ref_denotes("client", init, "FIELD", f),
+    field_type_name("client", f, n, _), n != "".
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. gRPC
@@ -97,12 +136,22 @@ grpc_service_of_name(n, svc, sfx) :- grpc_name_segs(n, svc, tail), svc != "",
 // ── the server end ──────────────────────────────────────────────────────────
 // A method a service class OVERRIDES from `<S>.<S>Base` serves `<S>/<name>`. Only an
 // override: every rpc is a virtual on the generated base, and a helper written beside
-// the rpcs is not one.
-grpc_serves(m, d) :-
-    heritage_slot("client", t, _, bn, _, _),
-    cs_grpc_server_suffix(sfx), grpc_service_of_name(bn, svc, sfx),
-    method_owner("client", t, m), method_modifier("client", m, "override"),
-    method_name("client", m, n), d = cat(svc, cat("/", n)).
+// the rpcs is not one. The base is written `<S>.<S>Base` (optionally qualified), or
+// `<S>Base` alone after `using static <ns>.<S>;`, and the service class may reach it
+// through the project's own bases (`StockService : AuditedStockBase : Stock.StockBase`).
+// grpc_base_at(T0, Svc): the type whose heritage WRITES the generated base.
+grpc_base_at(t0, svc) :- heritage_slot("client", t0, _, bn, _, _),
+    cs_grpc_server_suffix(sfx), grpc_service_of_name(bn, svc, sfx).
+grpc_base_at(t0, svc) :- grpc_static_base(t0, svc, _).
+grpc_static_base(t0, svc, st) :- heritage_slot("client", t0, _, bn, _, _), !contains(".", bn),
+    type_module("client", t0, mod), using_static_type("client", mod, st), last_segment(st, svc),
+    cs_grpc_server_suffix(sfx), bn = cat(svc, sfx).
+last_segment_demand(st) :- using_static_type("client", _, st).
+grpc_service_type(gk, t0, svc) :- grpc_base_at(t0, svc), type_group("client", t0, gk).
+grpc_service_type(gk, t0, svc) :- type_ancestor("client", gk, agk), grpc_base_at(t0, svc), type_group("client", t0, agk).
+grpc_serves_at(m, d, t0) :- grpc_service_type(gk, t0, svc), method_in_type("client", gk, m),
+    method_modifier("client", m, "override"), method_name("client", m, n), d = cat(svc, cat("/", n)).
+grpc_serves(m, d) :- grpc_serves_at(m, d, _).
 
 // ── the client end ──────────────────────────────────────────────────────────
 // A call on a receiver written `<S>.<S>Client`. The call name is the rpc, or the rpc
@@ -129,9 +178,73 @@ grpc_send_primary(e, from, d) :- grpc_send_site(e, from, svc, n),
 grpc_name_ends_async(n) :- grpc_send_site(_, _, _, n), cs_grpc_async_suffix(a),
     strlen(n) > strlen(a), substr(n, strlen(n) - strlen(a), strlen(a)) = a.
 
+// ── which namespace each end's `<S>` can be in ──────────────────────────────
+// The generated `<S>` is never in source, so each end is read for the namespaces its
+// written name could resolve in: a qualifier it wrote (`Widgets.Rpc.Catalog.CatalogBase`,
+// relative to each enclosing namespace too), the namespace a `using static` names, or,
+// unqualified, the enclosing namespaces and the file's and the project's `using`s. Two
+// services called Catalog in two namespaces are then told apart by whether the client's
+// namespaces and the server's meet. Framework namespaces (System, Microsoft) and the
+// gRPC runtime's own never hold a generated service and are not evidence.
+grpc_ns_demand(ns) :- grpc_base_at(t0, _), type_namespace("client", t0, ns).
+grpc_ns_demand(ns) :- grpc_send_name(e, _), grpc_send_ns_home(e, ns).
+grpc_ns_dot(ns, i) :- grpc_ns_demand(ns), i = range(0, strlen(ns)), substr(ns, i, 1) = ".".
+grpc_ns_prefix(ns, ns) :- grpc_ns_demand(ns), ns != "".
+grpc_ns_prefix(ns, p) :- grpc_ns_dot(ns, i), p = substr(ns, 0, i).
+grpc_name_prefix(n, q) :- grpc_name_prev_dot(n, p), q = substr(n, 0, p).
+grpc_global_using(ns) :- using_decl("client", _, ns, _, u), using_is_global("client", u),
+    !using_is_static("client", u), !using_is_alias("client", u).
+
+// the server: T0 is the type whose heritage names the base
+grpc_written_base(t0, bn) :- heritage_slot("client", t0, _, bn, _, _), cs_grpc_server_suffix(sfx),
+    grpc_service_of_name(bn, _, sfx).
+grpc_srv_ns(t0, q) :- grpc_written_base(t0, bn), grpc_name_prefix(bn, q).
+grpc_srv_ns(t0, cat(p, cat(".", q))) :- grpc_written_base(t0, bn), grpc_name_prefix(bn, q),
+    type_namespace("client", t0, ns), grpc_ns_prefix(ns, p).
+grpc_srv_ns(t0, p) :- grpc_written_base(t0, bn), !grpc_name_has_prev(bn),
+    type_namespace("client", t0, ns), grpc_ns_prefix(ns, p).
+grpc_srv_ns(t0, u) :- grpc_written_base(t0, bn), !grpc_name_has_prev(bn),
+    type_module("client", t0, mod), using_namespace("client", mod, u).
+grpc_srv_ns(t0, u) :- grpc_written_base(t0, bn), !grpc_name_has_prev(bn), grpc_global_using(u).
+grpc_srv_ns(t0, q) :- grpc_static_base(t0, _, st), grpc_name_last_dot(st, l), q = substr(st, 0, l).
+grpc_name_demand(st) :- using_static_type("client", _, st), contains(".", st).
+
+// the client: the name its receiver wrote, and the namespace the calling method is in
+grpc_send_name(e, rn) :- call_recv_written_name(e, rn), cs_grpc_client_suffix(sfx),
+    grpc_service_of_name(rn, _, sfx), csite("client", e).
+grpc_send_ns_home(e, ns) :- grpc_send_name(e, _), call_from("client", e, from),
+    method_owner("client", t, from), type_namespace("client", t, ns).
+grpc_cli_ns(e, q) :- grpc_send_name(e, rn), grpc_name_prefix(rn, q).
+grpc_cli_ns(e, cat(p, cat(".", q))) :- grpc_send_name(e, rn), grpc_name_prefix(rn, q),
+    grpc_send_ns_home(e, ns), grpc_ns_prefix(ns, p).
+grpc_cli_ns(e, p) :- grpc_send_name(e, rn), !grpc_name_has_prev(rn), grpc_send_ns_home(e, ns), grpc_ns_prefix(ns, p).
+grpc_cli_ns(e, u) :- grpc_send_name(e, rn), !grpc_name_has_prev(rn), call_module("client", e, mod),
+    using_namespace("client", mod, u).
+grpc_cli_ns(e, u) :- grpc_send_name(e, rn), !grpc_name_has_prev(rn), grpc_global_using(u).
+grpc_ns_not_evidence(ns) :- grpc_cli_ns(_, ns), cs_grpc_runtime_namespace(ns).
+grpc_ns_not_evidence(ns) :- grpc_cli_ns(_, ns), cs_framework_namespace_root(r), ns = r.
+grpc_ns_not_evidence(ns) :- grpc_cli_ns(_, ns), cs_framework_namespace_root(r),
+    strlen(ns) > strlen(r), substr(ns, 0, strlen(r) + 1) = cat(r, ".").
+
+// ── the join ────────────────────────────────────────────────────────────────
+// One service of that name: [exact], as before. Several: those whose namespaces meet the
+// client's stay [exact] and the others are dropped; when none meets (the namespace
+// cannot be read), every one is kept, one rung down, at `service_name`.
+grpc_pair(e, from, to, d, t0) :- grpc_send_cand(e, from, d), grpc_serves_at(to, d, t0), from != to.
+grpc_pair_t0(e, d, t0) :- grpc_pair(e, _, _, d, t0).
+grpc_pair_n(e, d, k) :- grpc_pair_t0(e, d, _), k = count : { grpc_pair_t0(e, d, _) }.
+grpc_pair_scoped(e, d, t0) :- grpc_pair_t0(e, d, t0), grpc_cli_ns(e, ns), !grpc_ns_not_evidence(ns),
+    grpc_srv_ns(t0, ns).
+grpc_has_scoped(e, d) :- grpc_pair_scoped(e, d, _).
 remote_edge_via(e, from, to, tr, d, conf) :-
     cs_remote_transport_grpc(tr), cs_remote_confidence_exact(conf),
-    grpc_send_cand(e, from, d), grpc_serves(to, d), from != to.
+    grpc_pair(e, from, to, d, t0), grpc_pair_n(e, d, 1).
+remote_edge_via(e, from, to, tr, d, conf) :-
+    cs_remote_transport_grpc(tr), cs_remote_confidence_exact(conf),
+    grpc_pair(e, from, to, d, t0), grpc_pair_n(e, d, k), k > 1, grpc_pair_scoped(e, d, t0).
+remote_edge_via(e, from, to, tr, d, conf) :-
+    cs_remote_transport_grpc(tr), cs_remote_confidence_service_name(conf),
+    grpc_pair(e, from, to, d, _), grpc_pair_n(e, d, k), k > 1, !grpc_has_scoped(e, d).
 remote_send_at(e, from, tr, d) :- cs_remote_transport_grpc(tr), grpc_send_primary(e, from, d).
 serves_destination(m, tr, d) :- cs_remote_transport_grpc(tr), grpc_serves(m, d).
 
@@ -229,17 +342,147 @@ http_route_raw(m, p2, verb) :- ctl_route_c(m, p, verb), tok_at_a(p, i), method_n
     p2 = cat(substr(p, 0, i), cat(n, substr(p, i + 8, strlen(p) - i - 8))).
 http_route_raw(m, p, verb) :- ctl_route_c(m, p, verb), !contains("[action]", p).
 
+// ── the server: MVC controllers and their actions ───────────────────────────
+// An action is a public instance method of a controller: a non-abstract class named
+// `<X>Controller` or deriving from Controller/ControllerBase, not [NonAction], not an
+// override of the framework's own virtuals.
+mvc_ctl(t, c) :- type_decl("client", tn, _, _, "CLASS", t), !type_modifier("client", t, "abstract"),
+    !type_modifier("client", t, "static"), cs_http_controller_suffix(sfx), ends_with_suffix(tn, sfx),
+    c = substr(tn, 0, strlen(tn) - strlen(sfx)).
+mvc_ctl(t, tn) :- type_decl("client", tn, _, _, "CLASS", t), !type_modifier("client", t, "abstract"),
+    !type_modifier("client", t, "static"), cs_http_controller_suffix(sfx), !ends_with_suffix(tn, sfx),
+    heritage_slot("client", t, _, bn, _, _), last_segment(bn, b), cs_http_controller_base(b).
+mvc_non_action(m) :- attr_on(m, "METHOD", n, _), cs_http_non_action_attr(n).
+mvc_action(t, m) :- mvc_ctl(t, _), method_owner("client", t, m), method_kind("client", m, "METHOD"),
+    member_access("client", m, "PUBLIC"), !method_is_static("client", m),
+    !method_modifier("client", m, "override"), !mvc_non_action(m).
+
+// Attribute routing, the class's route with no route on the action: every action of a
+// `[Route("[controller]/[action]")]` class is served there, for any verb. Only when the
+// class template names [action], so each action has a route of its own; a public method
+// under a template without it would share its sibling's route, and is more often a
+// helper someone forgot to mark [NonAction] than a route anyone calls.
+ctl_action(m, "", verb) :- mvc_action(t, m), ctl_base(t, b), contains("[action]", b),
+    !method_has_verb(m), !method_has_route_tmpl(m), cs_http_verb_any(verb).
+
+// ── the server: conventional routes ─────────────────────────────────────────
+// `app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}")` routes
+// every action that has no attribute route: its class has no [Route], it has no template
+// of its own, and it is not in an [ApiController] (which requires attribute routing).
+// The route is the pattern with {controller} and {action} (and {area}) filled in; a verb
+// attribute with no template narrows the verb. A pattern that does not spell
+// {controller} or {action} takes it from the call's defaults, `new { controller = "X" }`.
+conv_route_call(e, k) :- call_callee_name("client", e, n), cs_http_conventional_route(n, k), csite("client", e).
+conv_pattern(e, p) :- conv_route_call(e, k), http_arg_string(e, k, p).
+conv_pattern(e, p) :- call_callee_name("client", e, n), cs_http_default_route(n, p), csite("client", e).
+conv_pattern(e, p) :- call_callee_name("client", e, n), cs_http_area_route(n, _, k), csite("client", e),
+    http_arg_string(e, k, p).
+conv_area_fixed(e, a) :- call_callee_name("client", e, n), cs_http_area_route(n, k, _), csite("client", e),
+    http_arg_string(e, k, a).
+// a default: `defaults: new { controller = "Reports" }`. The parser writes an anonymous
+// object's members as its children in order, each name followed by its value.
+// (demanded by the callee's name, not by conv_pattern: the pattern's value is a string
+// read through str_value, and so are these)
+conv_call(e) :- conv_route_call(e, _).
+conv_call(e) :- call_callee_name("client", e, n), cs_http_default_route(n, _), csite("client", e).
+conv_call(e) :- call_callee_name("client", e, n), cs_http_area_route(n, _, _), csite("client", e).
+conv_default_lit(e, key, raw) :- conv_call(e), http_arg(e, _, a), expr_kind("client", a, "ANONYMOUS_OBJECT"),
+    expr_child("client", a, _, kp, k), expr_written_name("client", k, key), cs_http_route_value_key(key),
+    expr_child("client", a, _, vp, val), to_number(vp) = to_number(kp) + 1, expr_literal("client", val, _, raw).
+str_demand(raw) :- conv_default_lit(_, _, raw).
+conv_default(e, key, v) :- conv_default_lit(e, key, raw), str_value(raw, v).
+
+// where `{name` opens a token in a pattern, and the `}` that closes it
+conv_tok_at(p, nm, i) :- conv_pattern(_, p), cs_http_route_value_key(nm), tok = cat("{", nm),
+    contains(tok, p), i = range(0, strlen(p) - strlen(tok)), substr(p, i, strlen(tok)) = tok,
+    cs_route_token_end(substr(p, i + strlen(tok), 1)).
+conv_has(p, nm) :- conv_tok_at(p, nm, _).
+conv_tok_span(p, nm, i, j) :- conv_tok_at(p, nm, i),
+    j = min k : { k = range(i, strlen(p)), substr(p, k, 1) = "}" }.
+
+mvc_type_attr_routed(t) :- ctl_has_base(t).
+mvc_type_attr_routed(t) :- attr_on(t, "TYPE", n, _), cs_http_api_controller_attr(n).
+mvc_method_attr_routed(m) :- method_has_route_tmpl(m).
+mvc_method_attr_routed(m) :- method_verb_attr(m, _, a), attr_has_template(a).
+mvc_area(t, a) :- attr_on(t, "TYPE", n, at), cs_http_area_attr(n), attr_template(at, a).
+mvc_has_area(t) :- mvc_area(t, _).
+conv_action(t, m, c, mn) :- mvc_action(t, m), mvc_ctl(t, c), !mvc_type_attr_routed(t), !mvc_method_attr_routed(m),
+    method_name("client", m, mn).
+conv_ctl_ok(e, p, t) :- conv_pattern(e, p), conv_has(p, "controller"), conv_action(t, _, _, _).
+conv_ctl_ok(e, p, t) :- conv_pattern(e, p), !conv_has(p, "controller"), conv_default(e, "controller", c),
+    conv_action(t, _, c, _).
+conv_act_ok(e, p, m) :- conv_pattern(e, p), conv_has(p, "action"), conv_action(_, m, _, _).
+conv_act_ok(e, p, m) :- conv_pattern(e, p), !conv_has(p, "action"), conv_default(e, "action", a),
+    conv_action(_, m, _, a).
+conv_area_ok(e, p, t, "") :- conv_pattern(e, p), !conv_has(p, "area"), !conv_area_fixed(e, _),
+    conv_action(t, _, _, _), !mvc_has_area(t).
+conv_area_ok(e, p, t, a) :- conv_pattern(e, p), conv_has(p, "area"), !conv_area_fixed(e, _), mvc_area(t, a).
+conv_area_ok(e, p, t, a) :- conv_pattern(e, p), conv_area_fixed(e, a), mvc_area(t, a).
+conv_use(p, m, c, mn, a) :- conv_action(t, m, c, mn), conv_ctl_ok(e, p, t), conv_act_ok(e, p, m),
+    conv_area_ok(e, p, t, a).
+
+// fill the tokens in turn: controller, then action, then area
+conv_s1(p, c, s) :- conv_use(p, _, c, _, _), conv_tok_span(p, "controller", i, j),
+    s = cat(substr(p, 0, i), cat(c, substr(p, j + 1, strlen(p) - j - 1))).
+conv_s1(p, c, p) :- conv_use(p, _, c, _, _), !conv_has(p, "controller").
+conv_s2_demand(s, mn) :- conv_use(p, _, c, mn, _), conv_s1(p, c, s).
+conv_s2_at(s, i) :- conv_s2_demand(s, _), tok = "{action", contains(tok, s),
+    i = range(0, strlen(s) - strlen(tok)), substr(s, i, strlen(tok)) = tok, cs_route_token_end(substr(s, i + 7, 1)).
+conv_s2_has(s) :- conv_s2_at(s, _).
+conv_s2(s, mn, o) :- conv_s2_demand(s, mn), conv_s2_at(s, i), j = min k : { k = range(i, strlen(s)), substr(s, k, 1) = "}" },
+    o = cat(substr(s, 0, i), cat(mn, substr(s, j + 1, strlen(s) - j - 1))).
+conv_s2(s, mn, s) :- conv_s2_demand(s, mn), !conv_s2_has(s).
+conv_s3_demand(o, a) :- conv_use(p, _, c, mn, a), conv_s1(p, c, s), conv_s2(s, mn, o).
+conv_s3_at(s, i) :- conv_s3_demand(s, _), tok = "{area", contains(tok, s),
+    i = range(0, strlen(s) - strlen(tok)), substr(s, i, strlen(tok)) = tok, cs_route_token_end(substr(s, i + 5, 1)).
+conv_s3_has(s) :- conv_s3_at(s, _).
+conv_s3(s, a, o) :- conv_s3_demand(s, a), conv_s3_at(s, i), j = min k : { k = range(i, strlen(s)), substr(s, k, 1) = "}" },
+    o = cat(substr(s, 0, i), cat(a, substr(s, j + 1, strlen(s) - j - 1))).
+conv_s3(s, a, s) :- conv_s3_demand(s, a), !conv_s3_has(s).
+conv_route(m, r) :- conv_use(p, m, c, mn, a), conv_s1(p, c, s1), conv_s2(s1, mn, s2), conv_s3(s2, a, r).
+conv_verb(m, verb) :- conv_route(m, _), method_verb_attr(m, verb, _).
+conv_verb(m, verb) :- conv_route(m, _), !method_has_verb(m), cs_http_verb_any(verb).
+http_route_raw(m, r, verb) :- conv_route(m, r), conv_verb(m, verb).
+
 // ── the server: minimal APIs ────────────────────────────────────────────────
-map_call(e, verb) :- call_callee_name("client", e, n), cs_http_map_verb(n, verb), csite("client", e).
+map_verb_call(e, verb) :- call_callee_name("client", e, n), cs_http_map_verb(n, verb), csite("client", e).
+map_methods_call(e) :- call_callee_name("client", e, n), cs_http_map_methods(n), csite("client", e).
 map_group_call(e) :- call_callee_name("client", e, n), cs_http_map_group(n), csite("client", e).
 
+// MapMethods: the verbs a collection spells, `new[] { "HEAD", "OPTIONS" }`, `["PUT"]`,
+// `new List<string> { ... }` or `new[] { HttpMethods.Head }`, inline or in a local.
+// A list none of whose elements reads as a verb serves any verb, like a bare [Route].
+map_verbs_expr(e, l) :- map_methods_call(e), http_arg(e, 1, l).
+map_verbs_expr(e, i) :- map_methods_call(e), http_arg(e, 1, l),
+    ref_denotes("client", l, "LOCAL_VARIABLE", v), var_value_initializer("client", v, i).
+map_verb_elem(e, x) :- map_verbs_expr(e, l), expr_child("client", l, _, _, init),
+    expr_kind("client", init, "INITIALIZER"), expr_child("client", init, _, _, x).
+map_verb_elem(e, x) :- map_verbs_expr(e, l), expr_child("client", l, "COLLECTION_ELEMENT", _, x).
+str_demand(raw) :- map_verb_elem(_, x), expr_literal("client", x, _, raw).
+map_methods_verb(e, verb) :- map_verb_elem(e, x), expr_literal("client", x, _, raw), str_value(raw, verb),
+    cs_http_method_member(_, verb).
+map_methods_verb(e, verb) :- map_verb_elem(e, x), expr_kind("client", x, "MEMBER_ACCESS"),
+    expr_member_name_child("client", x, nm), expr_written_name("client", nm, mn), cs_http_method_member(mn, verb).
+map_methods_has_verb(e) :- map_methods_verb(e, _).
+
+map_call(e, verb) :- map_verb_call(e, verb).
+map_call(e, verb) :- map_methods_verb(e, verb).
+map_call(e, verb) :- map_methods_call(e), !map_methods_has_verb(e), cs_http_verb_any(verb).
+
+// the handler is argument 1, or 2 on MapMethods; written there, or held in a local
+map_handler_at(e, 1) :- map_verb_call(e, _).
+map_handler_at(e, 2) :- map_methods_call(e).
+map_handler_expr(e, h) :- map_handler_at(e, k), http_arg(e, k, h).
+map_handler_expr(e, i) :- map_handler_at(e, k), http_arg(e, k, h),
+    ref_denotes("client", h, "LOCAL_VARIABLE", v), var_value_initializer("client", v, i).
+
 // the handler: a method group, `Type.Method`, or a lambda (its own method row)
-map_handler(e, m) :- map_call(e, _), http_arg(e, 1, h), expr_anon_decl("client", h, m).
-map_handler(e, m) :- map_call(e, _), http_arg(e, 1, h),
+map_handler(e, m) :- map_handler_expr(e, h), expr_anon_decl("client", h, m).
+map_handler(e, m) :- map_handler_expr(e, h),
     expr_kind("client", h, "NAME_REFERENCE"), expr_ref_unknown("client", h),
     expr_written_name("client", h, n), !local_binds("client", h, _),
     expr_ultimate_type_group("client", h, gk), member_lookup("client", gk, n, "method", m).
-map_handler(e, m) :- map_call(e, _), http_arg(e, 1, h),
+map_handler(e, m) :- map_handler_expr(e, h),
     expr_kind("client", h, "MEMBER_ACCESS"),
     expr_qualifier_child("client", h, q), expr_member_name_child("client", h, nm),
     expr_written_name("client", nm, n), delegate_qualifier_type("client", q, gk),
@@ -253,7 +496,7 @@ gp_demand(init) :- gp_demand(r), ref_denotes("client", r, "LOCAL_VARIABLE", v), 
 gp_demand(rr) :- gp_demand(r), csite("client", r), call_receiver_expr("client", r, rr).
 gp_is_local(r) :- gp_demand(r), ref_denotes("client", r, "LOCAL_VARIABLE", v), var_initializer("client", v, _).
 gp_is_call(r) :- gp_demand(r), csite("client", r), call_receiver_expr("client", r, _).
-group_prefix(r, "") :- gp_demand(r), !gp_is_local(r), !gp_is_call(r).
+group_prefix(r, "") :- gp_demand(r), !gp_is_local(r), !gp_is_call(r), !gp_is_param(r).
 group_prefix(r, p) :- gp_demand(r), ref_denotes("client", r, "LOCAL_VARIABLE", v),
     var_initializer("client", v, init), group_prefix(init, p).
 group_prefix(r, p) :- gp_demand(r), csite("client", r), !map_group_call(r),
@@ -261,9 +504,46 @@ group_prefix(r, p) :- gp_demand(r), csite("client", r), !map_group_call(r),
 group_prefix(r, g) :- gp_demand(r), map_group_call(r), http_arg_string(r, 0, g),
     call_receiver_expr("client", r, rr), group_prefix(rr, "").
 group_prefix(r, p) :- gp_demand(r), map_group_call(r), http_arg_string(r, 0, g),
-    call_receiver_expr("client", r, rr), group_prefix(rr, pp), pp != "", !starts_slash(g), p = cat(pp, cat("/", g)).
+    call_receiver_expr("client", r, rr), group_prefix(rr, pp), pp != "", strlen(pp) < 512, !starts_slash(g),
+    p = cat(pp, cat("/", g)).
 group_prefix(r, p) :- gp_demand(r), map_group_call(r), http_arg_string(r, 0, g),
-    call_receiver_expr("client", r, rr), group_prefix(rr, pp), pp != "", starts_slash(g), p = cat(pp, g).
+    call_receiver_expr("client", r, rr), group_prefix(rr, pp), pp != "", strlen(pp) < 512, starts_slash(g),
+    p = cat(pp, g).
+// (the length bound only stops a helper that maps a sub-group of itself from recursing)
+
+// A group handed to a helper: `app.MapGroup("/api/orders").MapOrderEndpoints()` with
+// `MapOrderEndpoints(this RouteGroupBuilder g) { g.MapGet(...); }`. The parameter takes
+// the prefix of the builder at EACH call site, so a helper mapped under two groups
+// serves under both. A call binds the helper when it resolved to it, or, since the
+// builder type is never staged and such a call resolves to nothing, when it names the
+// one route-builder extension of that name and arity in scope. Without a bound call
+// the parameter is a root, as before.
+gp_bind_param(w, p, k) :- param_decl("client", w, pos, _, p), param_type_name("client", p, tn, _),
+    cs_http_route_builder_type(tn), k = to_number(pos).
+gp_w_nparams(w, n) :- gp_bind_param(w, _, _), n = count : { param_decl("client", w, _, _, _) }.
+gp_ext_named(w, n, mod) :- gp_bind_param(w, p, 0), extension_method("client", w, p),
+    method_name("client", w, n), extension_in_scope("client", mod, w).
+gp_named_call(c, n, mod) :- call_callee_name("client", c, n), gp_ext_named(_, n, mod), csite("client", c),
+    call_module("client", c, mod), call_receiver_expr("client", c, _), !expr_resolves_to_method("client", c, _).
+gp_c_nargs(c, n) :- gp_named_call(c, _, _), n = count : { arg_index(c, _, _) }.
+gp_c_nargs(c, n) :- gp_bind_param(w, _, _), expr_resolves_to_method("client", c, w), csite("client", c),
+    n = count : { arg_index(c, _, _) }.
+gp_named_cand(c, w) :- gp_named_call(c, n, mod), gp_ext_named(w, n, mod), gp_c_nargs(c, na), gp_w_nparams(w, na + 1).
+gp_named_ncand(c, k) :- gp_named_cand(c, _), k = count : { gp_named_cand(c, _) }.
+gp_helper_call(c, w) :- gp_bind_param(w, _, _), expr_resolves_to_method("client", c, w), csite("client", c).
+gp_helper_call(c, w) :- gp_named_cand(c, w), gp_named_ncand(c, 1).
+// extension form: the receiver is parameter 0 and argument k-1 is parameter k
+gp_bind_arg(p, a) :- gp_helper_call(c, w), extension_method("client", w, _), gp_c_nargs(c, na),
+    gp_w_nparams(w, na + 1), gp_bind_param(w, p, 0), call_receiver_expr("client", c, a).
+gp_bind_arg(p, a) :- gp_helper_call(c, w), extension_method("client", w, _), gp_c_nargs(c, na),
+    gp_w_nparams(w, na + 1), gp_bind_param(w, p, k), k > 0, arg_index(c, k - 1, a).
+// a plain or statically written call: argument k is parameter k
+gp_bind_arg(p, a) :- gp_helper_call(c, w), gp_c_nargs(c, na), gp_w_nparams(w, na),
+    gp_bind_param(w, p, k), arg_index(c, k, a).
+gp_param_arg(r, a) :- gp_demand(r), ref_denotes("client", r, "PARAMETER", p), gp_bind_arg(p, a).
+gp_demand(a) :- gp_param_arg(_, a).
+gp_is_param(r) :- gp_param_arg(r, _).
+group_prefix(r, p) :- gp_param_arg(r, a), group_prefix(a, p).
 
 http_route_raw(m, p, verb) :- map_call(e, verb), map_handler(e, m), http_arg_string(e, 0, t),
     call_receiver_expr("client", e, r), group_prefix(r, ""), p = t.

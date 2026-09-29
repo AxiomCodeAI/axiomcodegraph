@@ -342,8 +342,16 @@ def route_seeds(g, text):
         if parts and parts not in asked: asked.append(parts)
     if not asked: return []
     hits = []                                   # (symbol id, route as written)
+    # A SENDER DOES NOT SERVE THE ROUTE IT SENDS TO. The engine names every send it read (ext_remote_edge c0,
+    # ext_remote_unserved c0); a URL literal inside one is a request, and labelling that method "serves the route"
+    # put a client above the handler.
+    senders, servers = set(), set()
+    for tbl, col in (('ext_remote_edge', 'c0'), ('ext_remote_unserved', 'c0')):
+        if g.has(tbl): senders |= {r[0] for r in g.q(f"SELECT DISTINCT {col} FROM {tbl}")}
+    for tbl, col in (('ext_remote_edge', 'c1'), ('ext_remote_unsent', 'c0')):
+        if g.has(tbl): servers |= {r[0] for r in g.q(f"SELECT DISTINCT {col} FROM {tbl}")}
     def serve(mid, route):
-        if mid in g.sym: hits.append((mid, route))
+        if mid in g.sym and (mid not in senders or mid in servers): hits.append((mid, route))
     # the path a url_dispatch edge says its view is served at: the engine composed it through every include() that
     # mounts the table, so it is the one source that names the handler of `/api/v1/status/` when no line spells it
     tables = set()                              # route files whose every literal path the engine already composed
@@ -356,7 +364,13 @@ def route_seeds(g, text):
     # a route the engine answered is not searched again as text: the literal scan below is the fallback for a route
     # no edge carries, and on an answered one it only adds the table's module and every literal that spells a suffix
     asked = [a for a in asked if not any(_route_eq(_route_parts(r), a) for _s, r in hits)]
-    for tbl in ('ext_remote_unserved', 'ext_remote_unsent') if asked else ():
+    # A HANDLER THAT SOMETHING SENDS TO IS STILL THE HANDLER. ext_remote_unsent lists a route only while no client in
+    # the graph reaches it; once a send links, the handler moves to ext_remote_edge (c1, at destination c3), and reading
+    # only the unlinked tables dropped exactly the routes the graph understood best.
+    if asked and g.has('ext_remote_edge'):
+        for r in g.q("SELECT DISTINCT c1, c3 FROM ext_remote_edge"):
+            if any(_route_eq(_route_parts(r['c3']), a) for a in asked): serve(r['c1'], r['c3'])
+    for tbl in ('ext_remote_unsent',) if asked else ():
         if g.has(tbl):
             for r in g.q(f"SELECT c0, c2 FROM {tbl}"):
                 if any(_route_eq(_route_parts(r['c2']), a) for a in asked): serve(r['c0'], r['c2'])

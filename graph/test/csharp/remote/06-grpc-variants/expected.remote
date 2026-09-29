@@ -1,0 +1,10 @@
+edge	grpc	exact	Orders/Amend	Depot.Client.ChannelCaller.Amend/1 -> Depot.Rpc.OrdersService.Amend/2
+edge	grpc	exact	Orders/Cancel	Depot.Client.FactoryCaller.Cancel/0 -> Depot.Rpc.OrdersService.Cancel/2
+edge	grpc	exact	Orders/Place	Depot.Client.FactoryCaller.Place/0 -> Depot.Rpc.OrdersService.Place/2
+edge	grpc	exact	Pricing/Quote	Depot.Client.ChannelCaller.Quote/0 -> Depot.Rpc.PricingService.Quote/2
+edge	grpc	exact	Pricing/Refund	Depot.Client.ChannelCaller.Refund/0 -> Depot.Rpc.PricingService.Refund/2
+edge	grpc	exact	Registry/Lookup	Elsewhere.QualifiedCaller.Run/1 -> Gadgets.Rpc.GadgetRegistry.Lookup/2
+edge	grpc	exact	Registry/Lookup	Widgets.Client.WidgetCaller.Run/1 -> Widgets.Rpc.WidgetRegistry.Lookup/2
+edge	grpc	exact	Stock/Reserve	Depot.Client.ChannelCaller.Reserve/1 -> Depot.Rpc.StockService.Reserve/2
+edge	grpc	service_name	Registry/Lookup	Elsewhere.LooseCaller.Run/1 -> Gadgets.Rpc.GadgetRegistry.Lookup/2
+edge	grpc	service_name	Registry/Lookup	Elsewhere.LooseCaller.Run/1 -> Widgets.Rpc.WidgetRegistry.Lookup/2
