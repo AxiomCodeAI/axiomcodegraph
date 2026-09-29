@@ -1,0 +1,4 @@
+App.PriceRuleTests.ForTwo()	App.PriceRule.<constructor>(decimal,decimal)
+App.PriceRuleTests.MoqBehaviorTwo()	App.PriceRule.<constructor>(decimal,decimal)
+App.PriceRuleTests.MoqOne()	App.PriceRule.<constructor>(decimal)
+App.PriceRuleTests.PartsOfOne()	App.PriceRule.<constructor>(decimal)
