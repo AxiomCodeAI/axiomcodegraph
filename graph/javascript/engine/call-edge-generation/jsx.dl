@@ -131,12 +131,37 @@ jsx_call_renders(w, "func", f) :- jsx_vue_definer(w), call_arg(w, 0, a), expr_va
 jsx_vue_has_setup(o) :- expr_kind(_, "OBJECT_LITERAL", _, o), expr_child(_, o, "PROPERTY_KEY", _, key), expr_name(_, "setup", key).
 jsx_vue_has_setup(o) :- literal_owns_method(o, m), method_decl(_, "setup", _, _, _, _, _, m).
 
+// ── Vue single-file components ──────────────────────────────────────────────
+// A `.vue` template tag, `<Child/>`, reaches this file as a JSX_ELEMENT (the parser
+// writes it into the component's virtual script), so everything above applies to it.
+// A definer call renders when its argument is a function or names setup/render — read
+// off the literal's own keys, as jsx_vue_has_setup is.
+jsx_vue_option(a, n) :- literal_owns_method(a, m), method_decl(_, n, _, _, _, _, _, m).
+jsx_vue_option(a, n) :- expr_child(_, a, "PROPERTY_KEY", _, key), expr_name(_, n, key).
+jsx_vue_definer_renders(w) :- jsx_vue_definer(w), call_arg(w, 0, a), expr_kind(_, "FUNCTION_EXPRESSION", _, a).
+jsx_vue_definer_renders(w) :- jsx_vue_definer(w), call_arg(w, 0, a), jsx_vue_option(a, "setup").
+jsx_vue_definer_renders(w) :- jsx_vue_definer(w), call_arg(w, 0, a), jsx_vue_option(a, "render").
+
+// A single-file component, `import Child from "./Child.vue"`: its script is the
+// module's top-level code — a `<script setup>` body runs once per instance, and the
+// virtual script writes the component's template there too — so the tag reaches the
+// module initializer. A `<script setup>` component has no default export at all, and
+// an Options API one (`export default { components: {…}, data() {…} }`) exports an
+// object no rule above renders. One whose default export is a definer that renders is
+// reached through that export instead.
+jsx_vue_module(mod) :- module_file("client", fp, mod), match(".*[.]vue", fp).
+jsx_vue_module_renders(mod) :- jsx_export_holds(mod, "default", w), jsx_vue_definer_renders(w).
+jsx_vue_tag_module(je, mod) :- jsx_element_tag(je, tag), expr_binding(_, v, tag), var_import(_, imp, v),
+    import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod), jsx_vue_module(mod).
+
 // ── jsx_renders(Element, Component) — the callables the element runs ───────
 // A function component (a constructor FUNCTION is callable_value's "ctor" half).
 jsx_renders(je, m) :- jsx_tag_value(je, k, i), callable_value(k, i, m).
 // A class component: constructed, then rendered.
 jsx_renders(je, m) :- jsx_tag_value(je, "ctor", t), type_construct_target(t, m).
 jsx_renders(je, m) :- jsx_tag_value(je, "ctor", t), type_member(t, "render", m).
+// A Vue single-file component: its module initializer (see "Vue components" above).
+jsx_renders(je, init) :- jsx_vue_tag_module(je, mod), !jsx_vue_module_renders(mod), module_init("client", init, mod).
 
 // ── the props object ────────────────────────────────────────────────────────
 // Keyed by the element, as an object literal is keyed by the literal.

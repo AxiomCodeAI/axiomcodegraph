@@ -1213,7 +1213,7 @@ class JsModuleEdgeExtractor {
     // tsc resolves no `.vue` import itself (its extensions are fixed), so a
     // component in this program is looked up by path.
     const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined)
-      ?? resolveVueSpecifier(specifier, this.options.absoluteFilePath);
+      ?? resolveVueSpecifier(specifier, this.options.absoluteFilePath, this.options.compilerOptions);
     if (resolved === undefined) {
       return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
     }
