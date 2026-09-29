@@ -3,6 +3,8 @@ import * as path from 'path';
 
 import * as ts from 'typescript';
 
+import { isJsComponentFile, sfcScriptText } from '@/utils/javascript';
+
 /**
  * A Vue single-file component read as the script it compiles to.
  *
@@ -120,18 +122,47 @@ export function vueComponentLanguage(file: string): VueScriptLanguage | undefine
 }
 
 /**
- * A source file's text as a script parser reads it, and how it parses: a `.vue`
- * component becomes its virtual script; every other file is itself.
+ * A source file's text as a script parser reads it, and how it parses. The one
+ * place a single-file component becomes a script, for every analyzer:
+ *
+ *   - a `.vue` component becomes its virtual script (script bodies plus template
+ *     references, see above); `language` says which analyzer it belongs to;
+ *   - a `.svelte` / `.astro` component keeps only its JavaScript `<script>` blocks
+ *     (and Astro's frontmatter), the rest blanked (see `sfcScriptText`);
+ *   - every other file is itself.
+ *
+ * `unread` is set when a component holds no script the JavaScript front end can
+ * read, saying what was left out, so the caller records the absence.
+ *
+ * Each component is transformed exactly once, here: running a second reader over
+ * text the first one already blanked finds no `<script>` left and yields nothing.
  */
-export function scriptTextOf(file: string, text: string): { text: string; scriptKind?: ts.ScriptKind } {
-  if (!isVueFile(file)) {
-    return { text };
+export function scriptTextOf(
+  file: string,
+  text: string
+): { text: string; scriptKind?: ts.ScriptKind; language?: VueScriptLanguage; unread?: string } {
+  if (isVueFile(file)) {
+    const language = vueScriptLanguage(text);
+    return {
+      text: vueVirtualScript(text) ?? '',
+      scriptKind: vueScriptKind(language ?? 'js'),
+      language,
+      unread: language === undefined ? 'Vue component with no inline <script>'
+        : language === 'ts' || language === 'tsx'
+          ? `Vue component whose <script> is lang=${language}, read by the TypeScript analyzer` : undefined,
+    };
   }
-  const language = vueScriptLanguage(text);
-  return {
-    text: vueVirtualScript(text) ?? '',
-    scriptKind: vueScriptKind(language ?? 'js'),
-  };
+  if (isJsComponentFile(path.basename(file))) {
+    const script = sfcScriptText(file, text);
+    return {
+      text: script.text,
+      unread: script.blocks.length > 0 && !script.blocks.some((block) => block.kept)
+        ? `single-file component with no JavaScript to read: ${script.blocks.map((block) =>
+          `<script lang=${block.lang}> at line ${block.line}`).join(', ')}`
+        : undefined,
+    };
+  }
+  return { text };
 }
 
 /**
