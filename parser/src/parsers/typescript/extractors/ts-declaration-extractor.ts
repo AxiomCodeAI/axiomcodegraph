@@ -264,6 +264,14 @@ export class TsDeclarationExtractor {
   private readonly pendingMemberTypeLinks: { row: TsFieldRegistry; node: ts.TypeNode }[] = [];
 
   /**
+   * Parameters of a function type whose declared type the enclosing tree emits.
+   *
+   * The same shape again: `<T>(x: T) => T` had parameter rows with the type only as
+   * text, so `pick(u)` through it could not bind T from the argument it was passed.
+   */
+  private readonly pendingParameterTypeLinks: { row: TsMethodParameterRegistry; node: ts.TypeNode }[] = [];
+
+  /**
    * Object-literal members awaiting the hash of the literal that owns them.
    *
    * §4.8.1 widened this FK to "the owning type OR shape". An object literal is a
@@ -1887,6 +1895,8 @@ export class TsDeclarationExtractor {
             tsModuleLinkHash: context.moduleHash,
           })
         );
+      } else if (parameter.type) {
+        this.pendingParameterTypeLinks.push({ row, node: parameter.type });
       }
       if (parameter.initializer) {
         this.pendingExpressionLinks.push({
@@ -2519,6 +2529,12 @@ export class TsDeclarationExtractor {
       }
     }
     for (const pending of this.pendingMemberTypeLinks) {
+      const hash = this.typeReferenceExtractor.hashForTypeNode(pending.node);
+      if (hash !== '') {
+        pending.row.setTypeReferenceLinkHash(hash);
+      }
+    }
+    for (const pending of this.pendingParameterTypeLinks) {
       const hash = this.typeReferenceExtractor.hashForTypeNode(pending.node);
       if (hash !== '') {
         pending.row.setTypeReferenceLinkHash(hash);

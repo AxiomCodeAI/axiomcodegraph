@@ -1,0 +1,9 @@
+oracle=23 engine=29 agree=22 missing=1 (known 1, NEW 0) extra=7
+  known    use#recvMapGet() -> User#touch()
+  extra    use#indexValue(string) -> Circ#area()
+  extra    use#indexValue(string) -> Sq#area()
+  extra    use#recordArea(string,number) -> Circ#area()
+  extra    use#recordArea(string,number) -> Sq#area()
+  extra    use#run() -> Ninja#fight()
+  extra    use#totalArea(string,number) -> Circ#area()
+  extra    use#totalArea(string,number) -> Sq#area()

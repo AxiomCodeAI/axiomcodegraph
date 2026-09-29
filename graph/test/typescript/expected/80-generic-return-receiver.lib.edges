@@ -1,0 +1,36 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	use#recvMapGet() @L19 -> -
+ambiguous_unknown	METHOD_CALL	use#<module-init>() @L78 -> -
+ambiguous_unknown	METHOD_CALL	use#ctlAnyIndex(string) @L71 -> -
+ambiguous_unknown	METHOD_CALL	use#ctlCast() @L60 -> -
+ambiguous_unknown	METHOD_CALL	use#ctlDeclared() @L56 -> -
+ambiguous_unknown	METHOD_CALL	use#ctlGenericUnbound(() =) @L66 -> -
+ambiguous_unknown	METHOD_CALL	use#recvMapGet() @L20 -> -
+boundary_lib	CONSTRUCTOR_CALL	use#<module-init>() @L77 -> Container#<new>()
+boundary_lib	METHOD_CALL	use#<module-init>() @L79 -> Container#bind(symbol)
+boundary_lib	METHOD_CALL	use#run() @L82 -> Container#get(symbol)
+boundary_lib	METHOD_CALL	use#viaRegistry(Registry) @L87 -> Registry#lookup(string)
+known_edge	CONSTRUCTOR_CALL	use#<arrow@30>(?) @L30 -> Sq#<new>(number)
+known_edge	CONSTRUCTOR_CALL	use#<arrow@31>(?) @L31 -> Circ#<new>(number)
+known_edge	CONSTRUCTOR_CALL	use#<arrow@38>(?) @L38 -> Sq#<new>(number)
+known_edge	CONSTRUCTOR_CALL	use#<module-init>() @L44 -> Sq#<new>(number)
+known_edge	FUNCTION_CALL	use#ctlGenericUnbound(() =) @L66 -> use#<arrow@65>()
+known_edge	FUNCTION_CALL	use#recvGeneric(() =) @L25 -> use#<arrow@24>()
+known_edge	FUNCTION_CALL	use#recvGenericArg((x: T) =,User) @L51 -> use#<arrow@50>(T)
+known_edge	METHOD_CALL	use#ctlCast() @L61 -> User#save()
+known_edge	METHOD_CALL	use#ctlDeclared() @L57 -> User#save()
+known_edge	METHOD_CALL	use#recordArea(string,number) @L40 -> use#<arrow@38>(number)
+known_edge	METHOD_CALL	use#recvGeneric(() =) @L25 -> User#touch()
+known_edge	METHOD_CALL	use#recvGenericArg((x: T) =,User) @L51 -> User#save()
+known_edge	METHOD_CALL	use#totalArea(string,number) @L34 -> use#<arrow@29>(number)
+known_edge	METHOD_CALL	use#viaRegistry(Registry) @L87 -> User#touch()
+multi_inferred	METHOD_CALL	use#indexValue(string) @L46 -> Circ#area()
+multi_inferred	METHOD_CALL	use#indexValue(string) @L46 -> Shape#area()
+multi_inferred	METHOD_CALL	use#indexValue(string) @L46 -> Sq#area()
+multi_inferred	METHOD_CALL	use#recordArea(string,number) @L40 -> Circ#area()
+multi_inferred	METHOD_CALL	use#recordArea(string,number) @L40 -> Shape#area()
+multi_inferred	METHOD_CALL	use#recordArea(string,number) @L40 -> Sq#area()
+multi_inferred	METHOD_CALL	use#run() @L83 -> Ninja#fight()
+multi_inferred	METHOD_CALL	use#run() @L83 -> Warrior#fight()
+multi_inferred	METHOD_CALL	use#totalArea(string,number) @L34 -> Circ#area()
+multi_inferred	METHOD_CALL	use#totalArea(string,number) @L34 -> Shape#area()
+multi_inferred	METHOD_CALL	use#totalArea(string,number) @L34 -> Sq#area()

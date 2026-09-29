@@ -20,6 +20,7 @@ known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L22 -> Node#vis
 known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L23 -> Holder#make()
 known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L23 -> Node#visit()
 known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L24 -> Node#visit()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L25 -> Node#visit()
 known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L26 -> Node#visit()
 known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L27 -> Node#visit()
 known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L28 -> Node#visit()
