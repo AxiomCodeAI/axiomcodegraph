@@ -758,29 +758,30 @@ THE DATA GRAPH. One row per (site, resolved field), and the answer to "who reads
 
 | value | languages | meaning |
 |---|---|---|
-| `read` | java, typescript | The value is used and not replaced. |
-| `write` | java, typescript | The value is replaced without being read: a plain assignment `f = v`. |
-| `readwrite` | java, typescript | The value is read and replaced at the one site: a compound assignment `f += v`, or `f++` / `--f`. One row, not two — a consumer asking "who writes f" and one asking "who reads f" must both match it. |
+| `read` | java, typescript, csharp | The value is used and not replaced. |
+| `write` | java, typescript, csharp | The value is replaced without being read: a plain assignment `f = v`. |
+| `readwrite` | java, typescript, csharp | The value is read and replaced at the one site: a compound assignment `f += v`, or `f++` / `--f`. One row, not two — a consumer asking "who writes f" and one asking "who reads f" must both match it. |
 
 **`field_access.tier` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `known_edge` | java, typescript | Exactly one field resolved. Stronger than the call_edges tier of the same name: a field is not virtually dispatched, so this IS the storage location the access binds to. |
-| `multi_inferred` | java, typescript | A sound SET: the receiver has more than one possible type, or two unrelated ancestors declare the name (which Java itself treats as ambiguous). Each member is one row. |
-| `boundary_lib` | java, typescript | The field is declared in a staged library type. field_id is set and resolves in `fields` with provenance lib. |
+| `known_edge` | java, typescript, csharp | Exactly one field resolved. Stronger than the call_edges tier of the same name: a field is not virtually dispatched, so this IS the storage location the access binds to. |
+| `multi_inferred` | java, typescript, csharp | A sound SET: the receiver has more than one possible type, or two unrelated ancestors declare the name (which Java itself treats as ambiguous). Each member is one row. |
+| `boundary_lib` | java, typescript, csharp | The field is declared in a staged library type. field_id is set and resolves in `fields` with provenance lib. |
 | `ambiguous_unknown` | java, typescript | Declared blind spot: the receiver could not be typed, or the name is not a member of the type it was typed to. field_id is NULL. Never dropped, and never replaced by a match on simple name. |
 
 **`field_access.field_provenance` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `client` | java, typescript | The field is declared in the analysed project. |
-| `lib` | java, typescript | The field is declared in a staged library IR. |
+| `client` | java, typescript, csharp | The field is declared in the analysed project. |
+| `lib` | java, typescript, csharp | The field is declared in a staged library IR. |
 
 **Notes**
 
-- **all** — JAVA AND TYPESCRIPT. The table is declared in every bundle and is EMPTY for Python, JavaScript and C# (C# fills `fields`, not `field_access`), so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".
+- **all** — JAVA, TYPESCRIPT AND C#. The table is declared in every bundle and is EMPTY for Python and JavaScript, so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".
+- **csharp** — ONLY RESOLVED SITES ARE ROWS: there is no ambiguous_unknown tier for C#. A C# member access is a field, a property, an event or a method group until resolution says which, so an unresolved one is not known to be a field access (#1445). A PROPERTY is not here either: reading it is a call, in call_edges with kind property_read or property_write. Enum members are not rows, because `fields` does not list them.
 - **typescript** — AN ACCESSOR IS NOT HERE. `get url()` read as `c.url` is a CALL, and call_edges already carries it with kind PROPERTY_READ or PROPERTY_WRITE (#703). The two tables are disjoint by construction: this one holds properties, call_edges holds accessors. Ask both when you want every read of a member.
 - **typescript** — AN ELEMENT ACCESS IS NOT HERE either: `obj["x"]` with a literal key is a different node kind and is not yet a site. A known gap, not a silent one.
 - **typescript** — A METHOD IS NOT A SITE. The callee of `obj.m()` is a PROPERTY_ACCESS node (37% of them, measured on one TypeScript library), and `const f = obj.m` reads a method as a value; neither is a data edge, and admitting them would fill the ambiguous_unknown tier with sites the engine HAS resolved elsewhere. Both are excluded and counted in ext_field_site_excluded with reasons method_callee and method_value.
