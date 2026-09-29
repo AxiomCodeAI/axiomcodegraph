@@ -94,7 +94,9 @@ def main(argv):
             for cmd in (('git', 'init', '-q'), ('git', 'add', '-A'),
                         ('git', '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'base')):
                 sh(repo, *cmd)
-            env = dict(os.environ, AXIOMCODE_ENGINE=ROOT, AXIOMCODE_REFRESH_DEBOUNCE='0.5', AXIOMCODE_FRESH_WAIT='600')
+            # the machine-wide cap on background builds counts this suite's refreshes apart from the machine's own
+            env = dict(os.environ, AXIOMCODE_ENGINE=ROOT, AXIOMCODE_REFRESH_DEBOUNCE='0.5', AXIOMCODE_FRESH_WAIT='600',
+                       AXIOMCODE_REFRESH_SLOTS=os.path.join(work, 'slots'))
             quiet = dict(env, AXIOMCODE_NO_REFRESH='1')          # the control: a query that neither refreshes nor waits
             out = os.path.join(repo, '.axiomcode', 'out')
             tree = lambda: open(os.path.join(out, 'indexed-tree')).read().strip() if os.path.exists(os.path.join(out, 'indexed-tree')) else ''
@@ -110,20 +112,21 @@ def main(argv):
             check('graph up to date' in again.stdout, f'{lang}: `index` with nothing changed does not rebuild ({took:.1f}s)', again.stdout + again.stderr)
 
             # ── built by an older axiomcode ────────────────────────────────────────────────────────────────────
-            # no file changed, but the table says another engine and another IMPACT_VERSION built the graph (what a plugin
-            # update leaves behind): not up to date. A query answers from it at once and says so, the refresher rebuilds
-            # it, and `index` rebuilds it saying why. The control is the check above: same engine, no edit, "graph up to
-            # date" and no rebuild
+            # no file changed, but the table says another engine built the graph (what an update leaves behind): not up
+            # to date. A query answers from it at once and says so, the refresher rebuilds it, and `index` rebuilds it
+            # saying why. The control is the check above: same engine, no edit, "graph up to date" and no rebuild. The
+            # IMPACT_VERSION set beside it is not a reason: the graph's facts are exported again, the graph is not rebuilt
             tp = os.path.join(out, 'files.json')
             def older():
                 t = json.load(open(tp)); by = t.get('built_by') or {}
-                check(by.get('engine_hash') and by.get('rules') and by.get('impact'), f'{lang}: the file table records the engine, rules and IMPACT_VERSION that built the graph', json.dumps(by))
+                check(by.get('engine_hash') and by.get('engine_langs') == [lang] and by.get('index') and by.get('impact'),
+                      f'{lang}: the file table records the engine (keyed on {lang}), axiomcode-index and IMPACT_VERSION that built the graph', json.dumps(by))
                 by.update(engine_hash='0' * 40, engine_stat='0' * 40, engine_version='0.0.1', impact='1'); t['built_by'] = by
                 json.dump(t, open(tp, 'w'))
             older()
             q = sh(repo, AX, 'impact', helper, '.', env=quiet)
             check(q.returncode == 0 and helper in q.stdout and 'graph built by an older axiomcode (engine 0.0.1 00000000 ->' in q.stderr
-                  and 'IMPACT_VERSION 1 ->' in q.stderr and 'nothing rebuilds it' in q.stderr,
+                  and f'({lang})' in q.stderr and 'IMPACT_VERSION' not in q.stderr and 'nothing rebuilds it' in q.stderr,
                   f'{lang}: a query over a graph an older axiomcode built answers from it and says so', q.stdout[-300:] + q.stderr)
             fr = sh(repo, AX, 'impact', helper, '.', '--fresh', env=env)
             m = meta()
@@ -136,6 +139,20 @@ def main(argv):
                   f'{lang}: `index` over it rebuilds, and says why', ix.stdout + ix.stderr)
             again = sh(repo, AX, 'index', '.', '--lang', lang, env=env)
             check('graph up to date' in again.stdout and 'older axiomcode' not in again.stdout, f'{lang}: control: then `index` finds it up to date', again.stdout + again.stderr)
+
+            # ── another IMPACT_VERSION alone ──────────────────────────────────────────────────────────────────
+            # the graph stands; the refresher exports its facts again for the new version and records it (no rebuild)
+            t = json.load(open(tp)); want = t['built_by']['impact']; t['built_by']['impact'] = '1'; json.dump(t, open(tp, 'w'))
+            q = sh(repo, AX, 'impact', helper, '.', env=quiet)
+            check(q.returncode == 0 and helper in q.stdout and 'older axiomcode' not in q.stderr and 'graph refresh' not in q.stderr,
+                  f'{lang}: another IMPACT_VERSION alone is not a stale graph: a query answers with no note', q.stderr)
+            n0, built0 = rebuilds(), meta().get('refreshed_at')
+            stamp = os.path.join(out, 'dl', 'impact', 'stamp'); open(stamp, 'w').write('0:1')      # the export an older version left
+            w = sh(repo, sys.executable, FRESH, 'worker', '.', env=env)
+            log = open(os.path.join(repo, '.axiomcode', 'refresh.log')).read() if os.path.exists(os.path.join(repo, '.axiomcode', 'refresh.log')) else ''
+            check(w.returncode == 0 and json.load(open(tp))['built_by']['impact'] == want and rebuilds() == n0 and meta().get('refreshed_at') == built0
+                  and open(stamp).read().endswith(':' + want) and 'exporting the graph' in w.stdout + log,
+                  f'{lang}: the refresher exports the facts again for it and records it, with no rebuild', w.stdout + w.stderr + log[-400:])
 
             # ── an added function ─────────────────────────────────────────────────────────────────────────────
             f = os.path.join(repo, L['edit']); text = open(f).read()

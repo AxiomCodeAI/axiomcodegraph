@@ -75,6 +75,8 @@ PKG="$(cd "$SRC/.." && pwd)"   # the package root: package.json, node_modules, p
 . "$SRC/pipeline/portable-stat.sh"
 # shellcheck source=lib-cache-key.sh
 . "$SRC/pipeline/lib-cache-key.sh"
+# shellcheck source=compile-lock.sh
+. "$SRC/pipeline/compile-lock.sh"
 # Rules are PER-LANGUAGE and live under graph/<lang>/; the executor itself is shared.
 LANG_ARG="${LANG_ARG:-java}"
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
@@ -615,18 +617,11 @@ if [ -n "$PACKAGED" ]; then
 elif [ -x "$BIN" ]; then
   echo "▶ reusing cached binary"
 elif command -v souffle >/dev/null 2>&1; then
-  # ONE COMPILE PER ENGINE ID. Concurrent runs that miss the cache together (a suite's
-  # concurrent cases, several agents on one machine) each compiled the same engine: a
-  # multi-GB c++ per run, enough of them at once to exhaust memory. The first takes the
-  # lock and compiles; the others wait, then reuse its binary. A lock older than 30 min
-  # is a dead compile's (killed, out of memory) and is taken over.
-  COMPILE_LOCK="$BIN.lock"; _waited=0
-  until mkdir "$COMPILE_LOCK" 2>/dev/null; do
-    if [ -n "$(find "$COMPILE_LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$COMPILE_LOCK" 2>/dev/null || true; continue; fi
-    [ "$_waited" = 1 ] || echo "▶ another run is compiling this engine; waiting for it..."
-    _waited=1; sleep 3
-  done
-  trap 'rmdir "$COMPILE_LOCK" 2>/dev/null || true' EXIT
+  # ONE COMPILE PER ENGINE ID, under a lock whose owner must be dead, not merely old, before
+  # another run takes it over (compile-lock.sh).
+  COMPILE_LOCK="$BIN.lock"
+  compile_lock_take "$COMPILE_LOCK"
+  trap 'compile_lock_drop "$COMPILE_LOCK"' EXIT
 fi
 if [ -z "$PACKAGED" ] && [ -x "$BIN" ] && [ -n "${COMPILE_LOCK:-}" ]; then
   echo "▶ reusing the binary another run compiled"
@@ -668,7 +663,7 @@ elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
   fi
   mv -f "$BIN.tmp.$$" "$BIN"
 fi
-if [ -n "${COMPILE_LOCK:-}" ]; then rmdir "$COMPILE_LOCK" 2>/dev/null || true; trap - EXIT
+if [ -n "${COMPILE_LOCK:-}" ]; then compile_lock_drop "$COMPILE_LOCK"; trap - EXIT
 elif [ -z "$PACKAGED" ] && [ ! -x "$BIN" ]; then
   echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2
   echo "   • run \`npm install\` here — it fetches $ENGINE_PACKAGE_SCOPE/engine-<platform> for this machine (if these rules have been published), or" >&2
