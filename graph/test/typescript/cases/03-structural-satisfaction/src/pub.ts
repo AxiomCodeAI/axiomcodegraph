@@ -4,6 +4,8 @@
 //   * Bus (bus.ts) sees Pub but its publish needs two arguments — not assignable;
 //   * Stranger (stranger.ts) has the right arity but no module that holds it ever
 //     imports this one, so no instance of it can reach a Pub-typed slot.
+// The control for Stranger is Declared (declared.ts): it never reaches this module either,
+// but it imports a Pub from a package the walk cannot follow, so it stays a candidate.
 
 export interface Pub {
   publish(e: { id: string }): void;

@@ -720,6 +720,7 @@
 .decl sat_meets_trivially(c0:symbol,c1:symbol)
 .decl sat_module_dep(c0:symbol,c1:symbol)
 .decl sat_module_reach(c0:symbol,c1:symbol)
+.decl sat_opaque_import_name(c0:symbol,c1:symbol)
 .decl sat_source_method(c0:symbol,c1:symbol,c2:symbol)
 .decl sat_target_method(c0:symbol,c1:symbol,c2:symbol)
 .decl sat_visible_source_method(c0:symbol,c1:symbol)

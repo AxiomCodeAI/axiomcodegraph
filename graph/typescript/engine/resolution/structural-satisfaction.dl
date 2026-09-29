@@ -309,6 +309,21 @@ sat_can_meet(s, t) :- sat_meet_open(s, t),
     sat_holder_module(s, o),
     type_module("client", mt, t),
     sat_module_reach(o, mt).
+// THE WALK STOPS WHERE AN IMPORT LEADS OUT OF THE CLIENT: a workspace package whose
+// manifest points at build output that is not there, or at a compiled .d.ts, binds no
+// client module, so the walk cannot tell whether T's module is behind it. An import
+// there that NAMES the interface is the evidence instead: the class's module, or one it
+// reaches, brings in a type called T from a place the walk cannot follow.
+sat_opaque_import_name(m, name) :- import_binding("client", _, name, _, m, h),
+    !import_target_module(h, "client", _).
+sat_opaque_import_name(m, name) :- import_binding("client", _, _, name, m, h),
+    name != "",
+    !import_target_module(h, "client", _).
+sat_can_meet(s, t) :- sat_meet_open(s, t),
+    sat_holder_module(s, o),
+    sat_module_reach(o, m),
+    sat_opaque_import_name(m, name),
+    type_decl("client", name, _, _, _, _, t).
 
 // ── satisfaction_unmeasured(TargetTypeHash, Name) ───────────────────────────
 // EVERY SUPPRESSION COUNTABLE. A required member of a tested interface that NO

@@ -1,4 +1,5 @@
-oracle=14 engine=19 agree=14 missing=0 (known 0, NEW 0) extra=5
+oracle=16 engine=22 agree=16 missing=0 (known 0, NEW 0) extra=6
+  extra    Relay#run() -> Declared#publish({ id: string })
   extra    Relay#run() -> Duck#publish({ id: string },string)
   extra    Relay#run() -> Real#publish({ id: string })
   extra    duck#consume(Reader) -> FileReader#read()
