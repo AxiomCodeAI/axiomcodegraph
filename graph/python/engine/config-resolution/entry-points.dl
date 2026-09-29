@@ -72,6 +72,9 @@ http_route_deco(dp) :- decorator_text("client", dp, _, argc, _), argc != "0",
 .decl http_route_path(deco:symbol)
 http_route_path(d) :- annotation_arg("client", _, v, _, _, "false", d, _),
     strlen(v) > 0, substr(v, 0, 1) = "/".
+// The one path that does not begin with "/": the empty one, first and written as a string, which a router
+// mounted under a prefix serves at the prefix itself (`APIRouter(prefix="/orders")` + `@router.post("")`).
+http_route_path(d) :- annotation_arg("client", _, "", "STRING_LITERAL", "0", "false", d, _).
 
 entry_point(m, "http") :- decorator_target("client", _, m, h),
     decorator_text("client", dp, _, _, h), http_route_deco(dp), http_route_path(h).
