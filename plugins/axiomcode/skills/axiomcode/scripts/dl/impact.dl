@@ -47,6 +47,8 @@
 .decl handoff_at(c:symbol, m:symbol, f:symbol, l:number)          .input handoff_at
 .decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
 .decl named_site(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input named_site
+// a `new T()` of a type with no written constructor (C#): no constructor to call, so no `calls` row, but the engine knows the type (#1473)
+.decl implicit_new(c:symbol, t:symbol, f:symbol, l:number) .input implicit_new
 .decl member(t:symbol, s:symbol, n:symbol, k:symbol)              .input member
 .decl owner(c:symbol, t:symbol)                                   .input owner
 .decl typ(t:symbol, n:symbol, k:symbol)                           .input typ
@@ -579,6 +581,7 @@ direct(q, c, "produces", why, cert, f, l) :- produces(q, c, why, cert, f, l), !i
 .decl tmember(q:symbol, m:symbol, n:symbol, k:symbol)
 tmember(q, m, n, k) :- target(q, "type", t, _), member(t, m, n, k).
 direct(q, c, "produces", "instantiates it", "resolved", f, l) :- tmember(q, m, _, "constructor"), calls(c, m, _, f, l), !inside_target(q, c).
+direct(q, c, "produces", "instantiates it", "resolved", f, l) :- target(q, "type", t, _), implicit_new(c, t, f, l), !inside_target(q, c).
 direct(q, c, "uses", cat("calls ", n), "resolved", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, t, f, l), t != "multi_inferred", !inside_target(q, c).
 direct(q, c, "uses", cat("calls ", n), "one of a set", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, "multi_inferred", f, l), !inside_target(q, c).
 direct(q, c, "produces", "instantiates it (unresolved site)", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), unresolved(c, n, k, f, l), ctor_kind(k), !inside_target(q, c).
@@ -716,6 +719,8 @@ direct_edge(q, c, a) :- target(q, "field", fl, _), field(fl, t, _, _, _), access
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), member(t, k, _, "constructor"), calls(c, k, _, _, _).
 direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), holds(h, t), member(h, k, _, "constructor"), calls(c, k, _, _, _).
 direct_edge(q, c, m) :- tmember(q, m, _, _), calls(c, m, _, _, _).
+// an instantiation of a type that writes no constructor lands on the type itself: the engine's ctor_implicit_type row (#1473)
+direct_edge(q, c, t) :- target(q, "type", t, _), implicit_new(c, t, _, _).
 direct_edge(q, c, m) :- target(q, "param", m, _), calls(c, m, _, _, _).
 direct_edge(q, c, m) :- target(q, "typeparam", m, _), calls(c, m, _, _, _).
 .output direct_edge

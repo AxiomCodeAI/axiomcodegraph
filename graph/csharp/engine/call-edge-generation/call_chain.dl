@@ -127,6 +127,17 @@ call_class(prov, e, "ambiguous_dynamic") :-
 call_class(prov, e, "known_implicit_ctor") :-
     call_target_count(prov, e, 0), call_ctor_implicit(prov, e, _).
 
+// ...AND WHICH TYPE IT CONSTRUCTS. The edge above has no callee, truthfully: there is
+// no constructor to point at. But the site still instantiates a type the engine
+// knows, and without the type a consumer asking "who creates SystemClock" found
+// nothing, while the same `new` of a class that writes a constructor is an edge to
+// that constructor (#1473). One row per declaration of the type (each part of a
+// partial class), keyed on the site, so it joins call_sites without touching the
+// edge table.
+ctor_implicit_type(e, t) :-
+    call_class("client", e, "known_implicit_ctor"),
+    call_ctor_implicit("client", e, gk), type_group("client", t, gk).
+
 // AN OPERATOR OR CAST THAT RAN NO USER CODE. `i + 1`, `s == null`, `(int)d`: the
 // operator is one of the language's built-ins and the cast is a numeric or
 // reference conversion. There is no method anywhere -- System.Int32 declares no
@@ -328,6 +339,72 @@ call_chain_edge(acc, caller, "-", label, "external", "boundary_lib", "property_r
 call_chain_edge(e, caller, "-", label, "external", "boundary_lib", "indexer") :-
     external_element_access("client", e, label),
     call_from_expr("client", e, caller).
+
+// A MEMBER ACCESS ON A RECEIVER THAT IS A SITE WITH NO TYPE. `options.Value.MaxCount`
+// on an IOptions<WidgetOptions> the run was not given: `options.Value` is labelled
+// above, and nothing says what it returns, so `.MaxCount` has no member to look up
+// and no type to name. It reached the output as no row at all, while the sibling
+// `options.Value.Clamp()` is an ambiguous_unknown invocation, so impact dropped the
+// reader from its answer and from its `bound:` (#1441).
+//
+// THE RECEIVER MUST BE A SITE, not merely an untyped expression. A namespace
+// qualifier (`System.Text` in `System.Text.Encoding.UTF8`) is an untyped member
+// access too, and it is not a call. A call, a property read or an indexer is one, and
+// its result having no type is exactly the case this covers. Recursive, so every
+// link of `a.B.C.D` past the first untyped one is its own site.
+//
+// No target. The accessor NAME is kept (get_ for a read or read-write, set_ for a
+// write) in site_unresolved_member, which the bundle writes as the site's callee_name,
+// so a by-name lookup offers the reader as a lead exactly as it offers a method call
+// on the same receiver.
+member_access_site_untyped(prov, q) :-
+    csite(prov, q), !expr_type(prov, q, _).
+member_access_site_untyped(prov, q) :-
+    external_property_read(prov, q, _), !expr_type(prov, q, _).
+member_access_site_untyped(prov, q) :-
+    external_element_access(prov, q, _), !expr_type(prov, q, _).
+member_access_site_untyped(prov, q) :-
+    unresolved_member_access(prov, q, _, _).
+// ...and through the syntax that passes a value on unchanged: `f()!.X`, `(f()).X`.
+member_access_site_untyped(prov, e) :-
+    expr_kind(prov, e, "UNARY"), expr_operator(prov, e, "!"),
+    expr_child(prov, e, "UNARY_OPERAND", _, x), member_access_site_untyped(prov, x).
+member_access_site_untyped(prov, e) :-
+    expr_kind(prov, e, "PARENTHESIZED"), !expr_type(prov, e, _),
+    expr_child(prov, e, "PARENTHESIZED_OPERAND", _, x), member_access_site_untyped(prov, x).
+
+unresolved_member_access(prov, acc, n, kind) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_resolved(prov, acc),
+    !external_property_read(prov, acc, _),
+    !dynamic_property_read(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    member_access_site_untyped(prov, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    unresolved_member_access_kind(prov, acc, kind).
+// A compound assignment (`x.N += 1`) is kept as the read: one site, one name.
+unresolved_member_access_kind(prov, acc, "property_read") :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"), !expr_is_write_target(prov, acc).
+unresolved_member_access_kind(prov, acc, "property_write") :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"), expr_is_write_target(prov, acc).
+
+// (site, receiver text, accessor name), in the shape of site_unresolved_named: the
+// receiver text groups the failures, twenty reads off one untyped value being one gap.
+unresolved_member_accessor(acc, cat("get_", n)) :-
+    unresolved_member_access("client", acc, n, "property_read").
+unresolved_member_accessor(acc, cat("set_", n)) :-
+    unresolved_member_access("client", acc, n, "property_write").
+site_unresolved_member(acc, recv, name) :-
+    unresolved_member_accessor(acc, name),
+    expr_qualifier_child("client", acc, q), expr_written_name("client", q, recv).
+site_unresolved_member(acc, "<none>", name) :-
+    unresolved_member_accessor(acc, name),
+    expr_qualifier_child("client", acc, q), !expr_written_name("client", q, _).
+
+call_chain_edge(acc, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
+    unresolved_member_access("client", acc, _, kind),
+    call_from_expr("client", acc, caller).
 
 // A PROPERTY READ THROUGH `dynamic`. The same declared blind spot as a call through
 // `dynamic`, and it reaches the output for the same reason: a site that produced no

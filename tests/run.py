@@ -46,7 +46,8 @@ fail = tot = pend = 0
 for l, name, path in cases:
     print(f"… {l}/{name}", flush=True)
     spec = json.load(open(os.path.join(path, 'case.json')))
-    build = ['bash', AX, 'index', path, '--lang', spec.get('lang', l)] + (['--src', spec['src']] if spec.get('src') else [])
+    build = ['bash', AX, 'index', path, '--lang', spec.get('lang', l)] + (['--src', spec['src']] if spec.get('src') else []) \
+            + (['--library', os.path.join(path, spec['library'])] if spec.get('library') else [])   # a dependency root, staged as with --library
     r = subprocess.run(build, capture_output=True, text=True)
     if r.returncode: print(f"FAIL {l}/{name}: index failed: {(r.stderr or r.stdout)[-300:]}"); fail += 1; continue
     for stmt in spec.get('sql', []):                                  # facts a framework extension would have written

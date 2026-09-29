@@ -1,0 +1,13 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "an implicitly typed lambda passed to a method with one candidate takes that parameter's delegate type (#1442)",
+   "run": ["impact", "WidgetOptions.Reset"],
+   "want": ["[resolved] Wiring.<lambda>   src/Widgets.cs:18", "[resolved] Wiring.<lambda>   src/Widgets.cs:19"],
+   "avoid": ["[by name] Wiring.<lambda>   src/Widgets.cs:18", "src/Widgets.cs:20"]},
+  {"why": "the second argument lambda takes the second parameter's type, not the first",
+   "run": ["impact", "GadgetOptions.Reset"],
+   "want": ["[resolved] Wiring.<lambda>   src/Widgets.cs:20"],
+   "avoid": ["src/Widgets.cs:18", "src/Widgets.cs:19"]},
+  {"why": "control: a lambda passed to an overloaded method is not typed from either overload",
+   "run": ["impact", "GadgetOptions.Reset"],
+   "avoid": ["[resolved] Wiring.<lambda>   src/Widgets.cs:21"]}]}

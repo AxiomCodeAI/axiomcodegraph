@@ -149,6 +149,13 @@ export interface LanguageAdapter {
      * relation and absent from `fields`, so the join lost the row silently.
      */
     configBinding?: RawSource;
+    /**
+     * (site, name), #1441. The accessor name of a site the IR gives no written name, where
+     * the engine knows it: a property read on a receiver with no type is a site with no
+     * target, and without the name a by-name lookup cannot offer it. Fills callee_name only
+     * where the IR left it NULL.
+     */
+    siteNames?: RawSource;
   };
   ir: {
     methods: MethodsIR;
@@ -376,6 +383,8 @@ const CSHARP: LanguageAdapter = {
     dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
     // (prov, type) — no "how"; every row is a construction
     typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [1], constant: 'new' },
+    // (site, recv, accessor name): an unresolved member access, get_X or set_X
+    siteNames: { file: 'site-unresolved-member.csv', columns: [0, 2] },
   },
   ir: {
     // A C# method row carries BOTH its module and its type, and the type is empty for a
