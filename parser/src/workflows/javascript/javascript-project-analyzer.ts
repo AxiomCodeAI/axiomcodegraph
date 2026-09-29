@@ -259,6 +259,7 @@ export class JavaScriptProjectAnalyzer {
       ? '' : realPathOf(path.resolve(options.baseMservPath));
     const pathAnchor = pathAnchorFor(rootDir, baseMservPath);
     const packageJson = new PackageJsonResolver();
+    const pathAliases = new PathAliasResolver();
     // The union of every root's files, by absolute path. A monorepo root and its
     // packages both claim the same files, and extracting one twice would mint
     // identical primary keys and DOUBLE the row count rather than colliding.
@@ -444,7 +445,7 @@ export class JavaScriptProjectAnalyzer {
               ? ''
               : toRelative(pathAnchor, governing.packageJsonPath),
             packageName: governing.packageName,
-            compilerOptions: compilerOptionsFor(governing.moduleSystem),
+            compilerOptions: compilerOptionsFor(governing.moduleSystem, pathAliases.aliasesFor(file)),
             projectModuleHashes,
             toProjectRelative,
           });
@@ -597,13 +598,80 @@ export class JavaScriptProjectAnalyzer {
  * here. A parser running two resolvers and comparing them is doing resolution
  * work, which is exactly what `js_import.resolverAgreement` was deleted for.
  */
-function compilerOptionsFor(moduleSystem: string): ts.CompilerOptions {
+function compilerOptionsFor(moduleSystem: string, aliases: PathAliases): ts.CompilerOptions {
   return {
     allowJs: true,
     target: ts.ScriptTarget.ESNext,
     module: moduleSystem === 'ESM' ? ts.ModuleKind.NodeNext : ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    ...aliases,
   };
+}
+
+/** The alias half of a `jsconfig.json` / `tsconfig.json`: nothing else of it is read. */
+type PathAliases = Partial<Pick<ts.CompilerOptions, 'baseUrl' | 'paths' | 'pathsBasePath'>>;
+
+/**
+ * The `compilerOptions.paths` / `baseUrl` that govern a file, from the nearest
+ * `tsconfig.json` or `jsconfig.json` above it (`tsconfig.json` first, as editors do).
+ *
+ * Next.js, Remix, Nuxt and Vite projects import their own code as `@/lib/x` or
+ * `~/models/x` through that mapping, and the bundler honours it. Without it every
+ * such import was UNRESOLVED_MISSING, so a plain imported function was called
+ * "by name". `extends` is followed by `ts.parseJsonConfigFileContent`; the directory
+ * listing it would do for `include` is skipped, since only the options are wanted.
+ */
+class PathAliasResolver {
+  private readonly byDirectory = new Map<string, PathAliases>();
+
+  aliasesFor(file: string): PathAliases {
+    return this.inDirectory(path.dirname(file));
+  }
+
+  private inDirectory(directory: string): PathAliases {
+    const cached = this.byDirectory.get(directory);
+    if (cached !== undefined) {
+      return cached;
+    }
+    let aliases: PathAliases | undefined;
+    for (const name of ['tsconfig.json', 'jsconfig.json']) {
+      const configPath = path.join(directory, name);
+      if (fs.existsSync(configPath)) {
+        aliases = readPathAliases(configPath);
+        break;
+      }
+    }
+    if (aliases === undefined) {
+      const parent = path.dirname(directory);
+      aliases = parent === directory ? {} : this.inDirectory(parent);
+    }
+    this.byDirectory.set(directory, aliases);
+    return aliases;
+  }
+}
+
+function readPathAliases(configPath: string): PathAliases {
+  const read = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (read.error !== undefined || read.config === undefined) {
+    return {};
+  }
+  const host: ts.ParseConfigHost = {
+    useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+    readDirectory: () => [],
+    fileExists: ts.sys.fileExists,
+    readFile: ts.sys.readFile,
+  };
+  const { options } = ts.parseJsonConfigFileContent(read.config, host, path.dirname(configPath),
+    undefined, configPath);
+  const aliases: PathAliases = {};
+  if (options.baseUrl !== undefined) {
+    aliases.baseUrl = options.baseUrl;
+  }
+  if (options.paths !== undefined) {
+    aliases.paths = options.paths;
+    aliases.pathsBasePath = options.pathsBasePath;
+  }
+  return aliases;
 }
 
 /**
