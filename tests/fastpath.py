@@ -67,6 +67,15 @@ def _args(argv):
 # and a run where the rules never emitted one fails, because then this check would pass on nothing.
 ALONG = 'alongside'
 
+# WHERE AN ALONGSIDE ROW LIVES. The rules used to carry them in `direct` with certainty `alongside`; since they are
+# listed apart (never as dependents) they sit in their own `alongside` list, and `direct` holds dependents only. Read
+# both places, on BOTH paths, so a move of the section cannot turn the tier into a comparison of nothing again: the
+# counting below found no row after the move and would have passed silently had it not also required one.
+def along_rows(d):
+    d = d or {}
+    return ({x['display'] for x in d.get('direct', []) if x.get('certainty') == ALONG}
+            | {x['display'] for x in d.get(ALONG, [])})
+
 def rels(d):
     d = d or {}
     return dict(contract=sorted({x['display'] for x in d.get('contract', [])}),
@@ -104,7 +113,8 @@ def hook_rows(case, lang, path):
             for m in ROW.findall(l)]
     return rows, text
 
-def check_hook(case, lang):
+def check_hook(case, lang, siblings=frozenset()):
+    """`siblings`: the rules' alongside rows for the edit's target, `Owner.m(param)`; neither path may list them."""
     if lang not in EDITS: return 0
     got = {}
     for path in ('fast', 'rules'):
@@ -117,6 +127,8 @@ def check_hook(case, lang):
         if any(c == ALONG for c, _ in rows):
             print(f"FAIL hook ({path}): lists `alongside` rows as uses: {sorted(d for c, d in rows if c == ALONG)}"); return 1
         got[path] = sorted({d for _, d in rows})
+        if set(got[path]) & set(siblings):
+            print(f"FAIL hook ({path}): lists the rules' `alongside` rows as uses: {sorted(set(got[path]) & set(siblings))}"); return 1
     if got['fast'] != got['rules']:
         print(f"FAIL hook: the same edit lists different rows by path: fast={got['fast']}  rules={got['rules']}"); return 1
     print(f"ok   hook on {EDITS[lang][0]}: both paths list {got['fast']}")
@@ -129,7 +141,7 @@ def main(argv=None):
     if not built:
         r = subprocess.run(['bash', AX, 'index', CASE, '--lang', LANG], capture_output=True, text=True)
         if r.returncode: print("FAIL index: " + (r.stderr or r.stdout)[-400:]); return 1
-    bad = 0; along = set()
+    bad = 0; along = set(); along_of = {}
     try:
         for target, must_answer in SHAPES:
             fast = graph_sql.impact_shaped(CASE, target)
@@ -146,23 +158,31 @@ def main(argv=None):
                                   '--json', '--depth', '12'], capture_output=True, text=True)
             try: j = json.loads(cli.stdout)
             except Exception: print(f"FAIL {target!r}: the rules gave no JSON to compare against"); bad += 1; continue
-            along |= {x['display'] for x in j.get('direct', []) if x.get('certainty') == ALONG}
-            if any(x.get('certainty') == ALONG for x in fast.get('direct', [])):
-                print(f"FAIL {target!r}: the fast path emitted `alongside` rows, which it has no rule for"); bad += 1; continue
+            fa, ra = along_rows(fast), along_rows(j)
+            along |= ra; along_of[target] = ra
+            # the alongside tier, compared: the fast path has no rule for it, so any row it emits there (in either
+            # place) disagrees with the rules, whether or not the rules have the same row
+            if fa:
+                print(f"FAIL {target!r}: fast path and rules disagree on `alongside` rows, which the fast path has no "
+                      f"rule for: fast={sorted(fa)}  rules={sorted(ra)}"); bad += 1; continue
             a, b = rels(fast), rels(j)
+            # and neither path may list one of the rules' alongside rows as a dependent in a hook
+            listed = {p: sorted(ra & set(r['direct'])) for p, r in (('fast', a), ('rules', b))}
+            if any(listed.values()):
+                print(f"FAIL {target!r}: the rules' `alongside` rows are listed as direct uses: {listed}"); bad += 1; continue
             if a != b:
                 print(f"FAIL {target!r}: fast path and rules disagree")
                 for k in a:
                     if a[k] != b[k]: print(f"       {k}: fast={a[k]}  rules={b[k]}")
                 bad += 1
             else:
-                al = sorted({x['display'] for x in j.get('alongside', [])})
+                al = sorted(ra)
                 print(f"ok   {target!r}: {len(a['direct'])} direct, {a['reached']} reached — identical to the rules"
                       + (f" (neither lists the rules' {len(al)} `alongside` row(s) as direct: {', '.join(al)})" if al else ''))
         if LANG in EDITS:
             if not along:
                 print(f"FAIL the rules emitted no `alongside` row on any shape, so the tier was never compared"); bad += 1
-            bad += check_hook(CASE, LANG)
+            bad += check_hook(CASE, LANG, along_of.get(SHAPES[2][0], set()))
     finally:
         if not keep:
             import shutil; shutil.rmtree(os.path.join(CASE, '.axiomcode'), ignore_errors=True)
