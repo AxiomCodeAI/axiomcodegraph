@@ -48,6 +48,7 @@ import { JsTypeReferenceRegistry } from '@/analysis-types/javascript/JsTypeRefer
 import { JsTypeRegistry } from '@/analysis-types/javascript/JsTypeRegistry';
 import { JsVariableRegistry } from '@/analysis-types/javascript/JsVariableRegistry';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
+import { isVueFile, scriptTextOf, vueComponentLanguage } from '@/utils/vue-sfc';
 
 /**
  * Each relation's header, from its registry, so an EMPTY relation still writes
@@ -431,12 +432,14 @@ export class JavaScriptProjectAnalyzer {
         const governing = governingByFile.get(file)!;
         let facts: JsFileFacts;
         try {
+          const script = scriptTextOf(file, sourceText);
           facts = extractJavaScriptFile({
             absoluteFilePath: file,
             filePath: toRelative(pathAnchor, file),
             baseMservPath: baseMservPath,
             moduleQualifiedName: toProjectRelative(file),
-            sourceText,
+            sourceText: script.text,
+            scriptKind: script.scriptKind,
             serviceVersionLinkHash,
             moduleSystem: governing.moduleSystem,
             moduleSystemSource: governing.moduleSystemSource,
@@ -649,6 +652,16 @@ function toRelative(anchor: string, absolutePath: string): string {
 }
 
 /**
+ * A `.vue` component whose inline script is JavaScript (a missing `lang` is
+ * JavaScript). One with a TypeScript script is the TypeScript analyzer's, and
+ * one with no script has nothing to read.
+ */
+function isJavaScriptVueComponent(file: string): boolean {
+  const language = vueComponentLanguage(file);
+  return language === 'js' || language === 'jsx';
+}
+
+/**
  * A module's qualified name: the relative path with its extension removed.
  *
  * Cutting at the last dot gave `pkg/a.js` for `pkg/a.js.flow`, so a qualified
@@ -760,7 +773,8 @@ function collectJavaScriptFiles(
       if (entry.name === 'package.json') {
         packageJsonsSeen.add(full);
       }
-      if (isJavaScriptSourceFile(entry.name)) {
+      if (isJavaScriptSourceFile(entry.name)
+        || (isVueFile(entry.name) && isJavaScriptVueComponent(full))) {
         out.push(full);
       }
     }

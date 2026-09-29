@@ -5,6 +5,7 @@ import * as ts from 'typescript';
 import { TsImportRegistry } from '@/analysis-types/typescript/TsImportRegistry';
 import { TsImportKind, TsImportResolutionKind } from '@/enums/typescript/imports';
 import { nodeId } from '@/parsers/typescript/extractors/ts-binder';
+import { resolveVueSpecifier, VUE_EXTENSION } from '@/utils/vue-sfc';
 
 /**
  * Emits `ts_import` rows — schema §4.12.
@@ -442,6 +443,18 @@ export class TsImportExtractor {
       ts.sys
     );
     const module = resolved.resolvedModule;
+    const vueFile = module ? undefined : resolveVueSpecifier(specifier, this.options.absoluteFilePath);
+    if (vueFile !== undefined && this.options.projectModuleHashes.has(vueFile)) {
+      // A component in this program; tsc resolves no `.vue` import itself.
+      return {
+        absolutePath: vueFile,
+        relativePath: this.options.toProjectRelative(vueFile),
+        moduleHash: this.options.projectModuleHashes.get(vueFile)!,
+        kind: TsImportResolutionKind.RELATIVE_FILE,
+        extension: VUE_EXTENSION,
+        packageName: '',
+      };
+    }
     if (!module) {
       // `undefined` is an honest answer, not a failure to try. It is also the
       // right answer for a wildcard ambient specifier like `"*.svg"`, which

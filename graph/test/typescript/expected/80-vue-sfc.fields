@@ -1,0 +1,1 @@
+known_edge	read	child#Child({ msg: string }) -> { msg: string }#msg
