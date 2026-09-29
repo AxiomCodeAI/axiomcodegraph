@@ -338,6 +338,33 @@ def best_scope(ranked):
     return (top[0], len(rows)) if score > 0 else None
 
 
+def scope_spec(scope, repo='.'):
+    """(the scope as the index writes paths, whether it is a PATH) — how `--in` is matched (#1584).
+
+    A scope used to match any file whose path CONTAINED it, so `--in tests` in a repository with a top-level tests/
+    also took `parser/src/tests-util/…` and `graph/contests/…`: a directory name is a substring of many paths that
+    are not under it. A scope that names a file or directory of the repository is that path, and matches by prefix;
+    one that names nothing there (`pkg`, a fragment of a package name) is still matched anywhere, as it always was.
+    The test is the working tree, not a graph, so every language's graph reads one scope the same way."""
+    s = (scope or '').strip().replace('\\', '/')
+    while s.startswith('./'): s = s[2:]
+    s = s.rstrip('/')
+    return s, bool(s) and os.path.exists(os.path.join(repo or '.', s))
+
+
+def under_scope(f, spec):
+    """is file `f` (repo-relative, as the index stores it) inside `spec` (a scope_spec)"""
+    s, is_path = spec; f = f or ''
+    return (f == s or f.startswith(s + '/')) if is_path else s in f
+
+
+def scope_sql(spec, col='file'):
+    """(the SQL condition, its parameters) that keeps the rows of `col` inside `spec`"""
+    s, is_path = spec
+    if is_path: return f"({col} = ? OR substr({col}, 1, ?) = ?)", (s, len(s) + 1, s + '/')
+    return f"{col} LIKE ?", (f'%{s}%',)
+
+
 def require_scope(g, scope, terms=(), rank=None, flag=''):
     """Rule 1. Returns None when the scope is usable, or an exit code after printing the correction.
 
@@ -361,7 +388,10 @@ def require_scope(g, scope, terms=(), rank=None, flag=''):
         # when no ranking was supplied.
         return offer("this needs to know WHERE to look: --in <path> is required.",
                      rank or sorted(dirs.items(), key=by_terms), terms, flag=flag)
-    missing = [x for x in scopes if not g.q("SELECT COUNT(*) n FROM symbols WHERE file LIKE ?", f'%{x}%')[0]['n']]
+    def held(x):
+        cond, params = scope_sql(scope_spec(x, getattr(g, 'repo', '.')))
+        return g.q(f"SELECT COUNT(*) n FROM symbols WHERE {cond}", *params)[0]['n']
+    missing = [x for x in scopes if not held(x)]
     for scope in missing[:1]:
         # A path that is not in the graph is usually a TYPO, and a typo is a character-level miss, not a
         # token-level one: `complier-core` shares exactly the same two tokens with `compiler-core` as with
@@ -449,7 +479,8 @@ def ensure_graph(repo, db):
         # relink above took every pointer that leaves this .axiomcode/out: one still here is this repository's own
         try: gone = f" (.axiomcode/out/graph.sqlite points at {os.readlink(db)}, which is not there)"
         except OSError: gone = ''
-        print(f"the graph of {repo} is missing (a build was interrupted){gone} — rebuilding it; the baseline edits are measured against is kept …", file=sys.stderr)
+        why = "it was corrupt and was moved aside" if os.path.exists(os.path.join(ax_fresh.out_dir(rr), 'corrupt')) else "a build was interrupted"
+        print(f"the graph of {repo} is missing ({why}){gone} — rebuilding it; the baseline edits are measured against is kept …", file=sys.stderr)
         env = dict(os.environ, AXIOMCODE_KEEP_BASE='1')
     else:
         print(f"no graph for {repo} yet — building one (this is the only slow call; later ones read it) …", file=sys.stderr)
@@ -502,6 +533,94 @@ def _start_build(argv, log, env):
         try: return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env, creationflags=flags)
         except OSError: continue
     return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, env=env)
+
+
+def usable_graph(repo, gdir):
+    """The graph directory a verb reads: `gdir` itself, unless its graph.sqlite is CORRUPT (a disk that filled, a copy cut
+    short). Then it is never read — every verb died in a Python traceback on it — but moved aside and rebuilt: the main
+    graph through ensure_graph (a shell waits for it; the MCP server starts it and answers at once), another language's
+    in the background. Until the rebuild is in, the last good graph answers (the baseline a refresh kept), and says so
+    on a `graph refresh:` line, which the MCP server carries into the answer. With none, the verb stops in words."""
+    db = os.path.join(gdir, 'out', 'graph.sqlite')
+    if not os.path.exists(db): return gdir
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
+    why = ax_fresh.graph_corrupt(db)
+    if not why: return gdir
+    return _corrupt(repo, gdir, db, why)
+
+
+def _corrupt(repo, gdir, db, why):
+    import ax_fresh
+    rr = os.path.realpath(repo)
+    lang = ax_fresh.graph_lang()
+    # a graph someone placed with AXIOMCODE_GRAPH is theirs: said, never moved or rebuilt. One of this repository's own
+    # language graphs (the dispatcher sets AXIOMCODE_GRAPH to it, with AXIOMCODE_GRAPH_LANG) is ours to repair
+    placed = os.environ.get('AXIOMCODE_GRAPH')
+    own = not placed or (lang and os.path.realpath(placed) == os.path.realpath(os.path.join(rr, '.axiomcode', 'lang', lang)))
+    what = f"the {lang} graph" if lang else "the graph"
+    if not own:
+        _stop(f"{what} at {db} is corrupt ({why}); AXIOMCODE_GRAPH placed it, so it is not rebuilt here — rebuild it where it was built")
+    moved = ax_fresh.quarantine(rr, db, why)
+    print(f"graph refresh: {what} at {db} is corrupt ({why}) — " + (f"moved aside to {moved} and rebuilding it" if moved else "rebuilding it"),
+          file=sys.stderr, flush=True)
+    if not lang:
+        if ensure_graph(repo, db) and os.path.exists(db) and not ax_fresh.graph_corrupt(db): return gdir
+    elif not ax_fresh.building(rr):
+        _rebuild_in_background(rr)
+    good = ax_fresh.last_good_graph(rr)
+    if good:
+        print(f"graph refresh: until the rebuild is in, this answer comes from the last good graph ({good}), which predates "
+              f"the edits since it was built", file=sys.stderr, flush=True)
+        return good
+    _stop(_BUILD_NOTE[-1] if _BUILD_NOTE else
+        f"{what} at {db} was corrupt and there is no earlier graph to answer from; a rebuild is "
+        f"{'running' if ax_fresh.building(rr) else 'needed'} — ask again when it is done, or run `axiomcode index {repo}`")
+
+
+def _stop(msg):
+    """the verb's refusal, as the verbs' own die() gives it: the words on stdout, exit 2"""
+    print(msg); sys.exit(2)
+
+
+def _rebuild_in_background(repo):
+    """start a detached build of the repository, keeping the baseline, as a repair does (another language's graph was
+    corrupt; the build rebuilds every language, and the corrupt marker keeps it from calling the tree up to date)"""
+    build = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'axiomcode-build')
+    if not os.path.exists(build): return
+    env = dict(os.environ, AXIOMCODE_KEEP_BASE='1', AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON='a corrupt graph')
+    for k in ('AXIOMCODE_GRAPH', 'AXIOMCODE_GRAPH_LANG', 'AXIOMCODE_FANOUT', 'AXIOMCODE_LANG'): env.pop(k, None)
+    try:
+        log = open(os.path.join(repo, '.axiomcode', 'refresh.log'), 'a')
+        kw = dict(start_new_session=True) if os.name != 'nt' else dict(creationflags=0x00000008 | 0x00000200)
+        subprocess.Popen([os.environ.get('AXIOMCODE_BASH') or 'bash', build, repo], stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                         close_fds=True, env=env, **kw)
+    except OSError: pass
+
+
+def on_corrupt(repo, db):
+    """A graph that reads cleanly when opened can still hold a malformed page that only a query reaches. Installed by a
+    verb once its graph is open: an sqlite error that escapes the verb is checked with quick_check, and when the graph is
+    corrupt the verb says so and moves it aside for a rebuild instead of printing a traceback. Any other error is
+    reported as it was."""
+    prev = sys.excepthook
+    def hook(t, e, tb):
+        import sqlite3
+        if isinstance(e, sqlite3.DatabaseError) and os.path.exists(db):
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import ax_fresh
+            why = ax_fresh.graph_corrupt(db, thorough=True)
+            if why:
+                rr = os.path.realpath(repo); lang = ax_fresh.graph_lang()
+                placed = os.environ.get('AXIOMCODE_GRAPH')
+                own = not placed or (lang and os.path.realpath(placed) == os.path.realpath(os.path.join(rr, '.axiomcode', 'lang', lang)))
+                moved = ax_fresh.quarantine(rr, db, why) if own else ''
+                if own and not ax_fresh.building(rr): _rebuild_in_background(rr)
+                print(f"{'the ' + lang + ' graph' if lang else 'the graph'} at {db} is corrupt ({why}) — "
+                      + (f"moved aside to {moved}; it is being rebuilt, ask again in a minute" if moved else
+                         "rebuild it where it was built" if not own else f"run `axiomcode index {repo}` to rebuild it"),
+                      file=sys.stderr, flush=True)
+                sys.stdout.flush(); os._exit(1)                # SystemExit raised in an excepthook is itself reported
+        prev(t, e, tb)
+    sys.excepthook = hook
 
 
 def _published(repo):

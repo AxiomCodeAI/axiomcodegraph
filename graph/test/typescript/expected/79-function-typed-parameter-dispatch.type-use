@@ -1,5 +1,4 @@
 ambiguous_unknown	AS_TARGET	0	store [EXPRESSION] -> -
-ambiguous_unknown	TYPE_ARGUMENT	2	LoggerImpl [TYPE] -> -
 ambiguous_unknown	TYPE_ELEMENT	1	store [METHOD_PARAM] -> -
 known_edge	CONDITIONAL_TRUE	2	Mutate [TYPE] -> Mutate
 known_edge	FIELD_TYPE	0	StoreApi [FIELD] -> SetStateInternal

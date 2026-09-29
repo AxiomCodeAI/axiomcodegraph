@@ -87,6 +87,9 @@ call_expr_argc(ce, n) :- call_site("client", "TAGGED_TEMPLATE_CALL", _, _, _, ce
 call_has_spread(ce) :- call_site("client", _, _, _, _, ce, cs),
     call_shape("client", _, si, _, cs),
     si != "".
+// A BARE DECORATOR WRITES NO ARGUMENTS and receives two or three, by decorator system and
+// target, so its count is unknown in the same sense a spread's is: arity stands down.
+call_has_spread(ce) :- bare_decorator_call(ce).
 
 // ── arity_match(CallExpr, Callee) ───────────────────────────────────────────
 // Guarded by the candidate set, so the numeric comparison is never a cross product

@@ -31,7 +31,7 @@ the caller, never a drawn edge.
 import os, re, sys, json, time, sqlite3, collections, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import ax_contract
+sys.path.insert(0, HERE); import ax_contract, ax_fresh
 TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$')
 METHOD_KINDS = ('function', 'method', 'constructor', 'module')
 TYPE_KINDS = ('class', 'interface', 'enum', 'type', 'namespace')
@@ -51,13 +51,17 @@ def graph_dbs(repo, gdir):
         ld = os.path.join(repo, '.axiomcode', 'lang')
         for l in sorted(os.listdir(ld)) if os.path.isdir(ld) else ():
             d = os.path.join(ld, l, 'out', 'graph.sqlite')
-            if os.path.exists(d): dbs.append(d)
+            if not os.path.exists(d): continue
+            why = ax_fresh.graph_corrupt(d)
+            # another language's corrupt graph is left out of the page, said, rather than ending the page in a traceback
+            if why: print(f"graph refresh: the {l} graph at {d} is corrupt ({why}) and is left out of this page; `axiomcode index` rebuilds it", file=sys.stderr)
+            else: dbs.append(d)
     return dbs
 
 
 def export(repo, page=None, how=''):
     repo = os.path.realpath(repo or '.')
-    gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode')
+    gdir = ax_contract.usable_graph(repo, os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode'))
     db = os.path.join(gdir, 'out', 'graph.sqlite')
     # the same door every other verb goes through: built on demand under the CLI, refused in words
     # that name the one command that helps under anything else.
@@ -76,7 +80,7 @@ def export(repo, page=None, how=''):
         if r['line'] and len(sites[c]) < 400: sites[c].append([r['line'], r['written'] or '', target, r['tier']])
     skipped, tiers = None, collections.Counter()
     for db in graph_dbs(repo, gdir):
-        con = sqlite3.connect(db); con.row_factory = sqlite3.Row
+        con = sqlite3.connect(db); con.row_factory = sqlite3.Row; ax_contract.on_corrupt(repo, db)
         q = lambda sql: con.execute(sql).fetchall()
         has = lambda t: bool(con.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone())
         run = {r['key']: r['value'] for r in q("SELECT key, value FROM run")}; runs.append(run)

@@ -1,0 +1,10 @@
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       app.js:16:3  METHOD_CALL replacedOnly  member_absent
+unresolved       app.js:18:3  METHOD_CALL replacedOnly  member_absent
+unresolved       app.js:6:3  METHOD_CALL aOnly  member_absent
+unresolved       many.js:12:3  METHOD_CALL aOnly  member_absent
+unresolved       wrap.js:24:16  FUNCTION_CALL fn  callee_untyped
+unresolved       wrap.js:9:16  FUNCTION_CALL fn  callee_untyped
+unresolved       wrap.js:9:16  FUNCTION_CALL fn  param_fan_capped
+value_callee     wrap.js:24:16  fn  parameter
+value_callee     wrap.js:9:16  fn  parameter

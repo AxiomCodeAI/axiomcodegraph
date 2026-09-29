@@ -89,8 +89,28 @@ def main(argv):
     if all(n[2] == 3 for n in named):                   # no graph has anything to say: the main one says so
         sys.stdout.write(named[0][3]); sys.stderr.write(named[0][4]); return 0
     named = [n for n in named if n[2] != 3]
+    named, outside = by_scope(named)
     named, others = by_landing(named)
+    # what each graph found nothing by (ax_text.py): searched once, below, and never shown as a graph's stderr
+    import ax_text
+    marks = []
+    for i, n in enumerate(named):
+        err, got = ax_text.take(n[4]); marks.append(got); named[i] = (*n[:4], err)
     answered = [n for n in named if n[2] == 0]
+    # a graph that could not answer at all keeps its `graph refresh:` lines (a corrupt graph moved aside and being rebuilt,
+    # ax_contract.usable_graph): dropped with its refusal, the answer read as whole while a language was missing from it
+    notes = ''.join(l + '\n' for n in named if n[2] != 0 and answered for l in n[4].splitlines() if l.startswith('graph refresh:'))
+    text = ''
+    quoted = [m for ms in marks for m in ms if m.get('why') != 'unresolved']
+    if quoted:
+        # a string asked about, or quoted in a task, is searched once for the repository, whichever graphs answered
+        text = ax_text.block(repo, list(dict.fromkeys(a for m in quoted for a in m['asked'])), quoted[0].get('scope'),
+                             quoted[0].get('why'), quoted[0].get('rows') or ax_text.ROWS)
+    elif not answered and marks and all(marks):
+        # every graph refused and every one of them found nothing by the name: ONE [text] block, not one per language.
+        # A graph that refused for another reason (a scope it does not hold, an ambiguous kind) withholds it
+        asked = [a for a in marks[0][0]['asked'] if all(any(a in m['asked'] for m in ms) for ms in marks)]
+        text = ax_text.block(repo, asked, marks[0][0].get('scope')) if asked else ''
     if not answered:
         # a graph that does not hold the --in scope says only that; the graph that holds it has the refusal that
         # matters (nothing under it matches, or the name is not there), so a scope in one language is judged by it
@@ -109,25 +129,56 @@ def main(argv):
             print(json.dumps(base, indent=1))
         else:
             print(json.dumps(base, indent=1) if not isinstance(base, str) else base, end='' if isinstance(base, str) else '\n')
-        sys.stderr.write(''.join(n[4] for n in answered))
+        sys.stderr.write(''.join(n[4] for n in answered) + notes)
         return 0
 
     show = answered or named
     if not answered and len({(n[3], n[4]) for n in named}) == 1:            # the same refusal from every graph: once
         print(f"══ {', '.join(n[0] for n in named)} graph{'s' if len(named) > 1 else ''} ══"); sys.stdout.write(named[0][3]); sys.stderr.write(named[0][4])
+        if text: sys.stdout.write('\n' + text)
         return named[0][2]
+    # an --in no graph holds is dropped by every graph for the root, and each says so: the line is said once, on top
+    gone = [o.split('\n', 1)[0] for _, _, _, o, _ in show if o.startswith(ax_text.SCOPE_GONE)]
+    if len(show) > 1 and gone:
+        print(gone[0]); show = [(*n[:3], n[3][len(n[3].split('\n', 1)[0]) + 1:] if n[3].startswith(ax_text.SCOPE_GONE) else n[3], n[4]) for n in show]
     for i, (lang, is_main, rc, out, err) in enumerate(show):
         if len(show) > 1 or not is_main:
             print(('' if i == 0 else '\n') + f"══ {lang} graph ══" + ('' if is_main else f"   (.axiomcode/lang/{lang})"), flush=True)
         sys.stdout.write(out); sys.stdout.flush(); sys.stderr.write(err); sys.stderr.flush()
+    if notes: sys.stderr.write(notes); sys.stderr.flush()
+    if text: sys.stdout.write('\n' + text)
     if answered and others:
         print(f"\nthe --from name is also declared in the {', '.join(others)} graph(s), where its flow reaches "
               "half as many of the task's words or fewer; --lang <language> asks one of them")
+    if answered and outside:
+        print(f"\nthe name is also declared in the {', '.join(outside)} graph(s), none of it under the --in scope; "
+              "drop --in, or --lang <language>, to ask about those")
     return 0 if answered else named[0][2]
 
 
 LANDING = 'axiomcode-from-landing: '
 NOT_HELD = 'no indexed file has '          # ax_contract.require_scope: the --in path is not in this graph at all
+
+
+SCOPED = 'axiomcode-scope-declared: '       # axiomcode-impact: whether the target's declarations lie under --in
+
+
+def by_scope(named):
+    """(the answers, the languages left out) — `impact <name> --in <path>` in every graph (#1584).
+
+    Every graph that declares the name answered, each for its own declarations, so a scope meant to pick the one
+    under it came back with other languages' declarations from elsewhere first. A graph with a declaration under the
+    scope answers; one whose declarations all lie outside it is left out and named — when some graph has one inside.
+    """
+    flag = {}
+    for i, n in enumerate(named):
+        err = n[4].splitlines(keepends=True)
+        for l in err:
+            if l.startswith(SCOPED): flag[i] = l[len(SCOPED):].strip() == '1'
+        named[i] = (*n[:4], ''.join(l for l in err if not l.startswith(SCOPED)))
+    if not any(flag.get(i) and n[2] == 0 for i, n in enumerate(named)): return named, []
+    drop = {i for i, n in enumerate(named) if n[2] == 0 and flag.get(i) is False}
+    return [n for i, n in enumerate(named) if i not in drop], [named[i][0] for i in sorted(drop)]
 
 
 def by_landing(named):

@@ -1,0 +1,6 @@
+── entry_point (5) ──
+  exported_from_entry_module pipeline#runByName   pipeline.ts:32
+  exported_from_entry_module pipeline#runDirect   pipeline.ts:37
+  exported_from_entry_module pipeline#runIndexed   pipeline.ts:23
+  exported_from_entry_module pipeline#runIterated   pipeline.ts:13
+  unimported_module pipeline#<module>   pipeline.ts:1

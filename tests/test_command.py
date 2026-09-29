@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""tests/test_command.py — the command test-impact prints for a TypeScript or JavaScript selection runs those files.
+"""tests/test_command.py — the command test-impact prints runs the selected files, with the runner their project uses.
+
+A Python file is run by its project's runner: `python manage.py test <dotted>` for Django with no pytest, `python -m
+unittest` for TestCase modules with no pytest, pytest otherwise; each runner is handed only its own language's files.
 
 `npx vitest run <file>` on a file vitest does not collect exits 1 with "No test files found" (#1570). Each file is
 placed with the runner its own package would collect it with (that runner's include globs), else with the command
@@ -310,7 +313,96 @@ for why, files, f, want in [
     shutil.rmtree(d)
 
 # control: other languages are untouched
-check("python unchanged (control)", ti.command_for('python', ['tests/test_a.py'], []), 'pytest tests/test_a.py')
+check("python with nothing to read keeps pytest (control)", ti.command_for('python', ['tests/test_a.py'], []), 'pytest tests/test_a.py')
+
+# a Python test file is run by the runner its project uses: Django's manage.py test, unittest, or pytest
+DJ_MANAGE = "import os, sys\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hc.settings')\nfrom django.core.management import execute_from_command_line\n"
+UT = "import unittest\nclass T(unittest.TestCase):\n    def test_a(self): pass\n"
+DJ_T = "from django.test import TestCase\nclass T(TestCase):\n    def test_a(self): pass\n"
+for why, files, sel, want in [
+    ("django: manage.py and no pytest anywhere runs manage.py test with dotted labels",
+     {'manage.py': DJ_MANAGE, 'requirements.txt': 'Django==5.0\n', 'hc/api/tests/test_check.py': DJ_T},
+     ['hc/api/tests/test_check.py'], 'python manage.py test hc.api.tests.test_check'),
+    ("django: pytest-django in the requirements keeps pytest (near miss)",
+     {'manage.py': DJ_MANAGE, 'requirements-dev.txt': 'pytest-django==4.8\n', 'hc/api/tests/test_check.py': DJ_T},
+     ['hc/api/tests/test_check.py'], 'pytest hc/api/tests/test_check.py'),
+    ("django: a [tool.pytest.ini_options] section keeps pytest (near miss)",
+     {'manage.py': DJ_MANAGE, 'pyproject.toml': '[tool.pytest.ini_options]\nDJANGO_SETTINGS_MODULE = "x"\n', 'app/tests.py': DJ_T},
+     ['app/tests.py'], 'pytest app/tests.py'),
+    ("django: a conftest.py above the test keeps pytest (near miss)",
+     {'manage.py': DJ_MANAGE, 'app/conftest.py': '', 'app/tests/test_x.py': DJ_T},
+     ['app/tests/test_x.py'], 'pytest app/tests/test_x.py'),
+    ("django: manage.py in a subdirectory runs from there",
+     {'src/manage.py': DJ_MANAGE, 'src/requirements.txt': 'Django\n', 'src/shop/tests/test_cart.py': DJ_T},
+     ['src/shop/tests/test_cart.py'], '(cd src && python manage.py test shop.tests.test_cart)'),
+    ("a manage.py that is not Django's (a Flask CLI) is not a Django runner (near miss)",
+     {'manage.py': 'from flask.cli import FlaskGroup\n', 'tests/test_x.py': 'def test_a(): pass\n'},
+     ['tests/test_x.py'], 'pytest tests/test_x.py'),
+    ("CI that runs manage.py test is read as the runner",
+     {'manage.py': DJ_MANAGE, '.github/workflows/ci.yml': 'run: python manage.py test\n', 'requirements.txt': 'Django\n',
+      'a/tests.py': DJ_T}, ['a/tests.py'], 'python manage.py test a.tests'),
+    ("unittest: TestCase modules with no pytest anywhere run under python -m unittest",
+     {'setup.py': 'from setuptools import setup\n', 'tests/test_x.py': UT}, ['tests/test_x.py'], 'python -m unittest tests.test_x'),
+    ("unittest: tox that runs -m unittest is read as the runner",
+     {'tox.ini': '[testenv]\ncommands = python -m unittest discover\n', 'tests/test_x.py': UT}, ['tests/test_x.py'],
+     'python -m unittest tests.test_x'),
+    ("unittest: a test importing pytest keeps pytest (near miss)",
+     {'setup.py': '', 'tests/test_x.py': 'import pytest, unittest\nclass T(unittest.TestCase): pass\n'},
+     ['tests/test_x.py'], 'pytest tests/test_x.py'),
+    ("unittest: a bare def test_ needs pytest (near miss)",
+     {'setup.py': '', 'tests/test_x.py': 'def test_a(): pass\n'}, ['tests/test_x.py'], 'pytest tests/test_x.py'),
+    ("a test script (no test function, exits on its own) is run as a program, the tests beside it with pytest",
+     {'pyproject.toml': '[project]\ndependencies = ["pytest"]\n', 'tests/test_x.py': 'def test_a(): pass\n',
+      'tests/test_cmd.py': 'import sys\nfails = 0\nsys.exit(1 if fails else 0)\n'},
+     ['tests/test_cmd.py', 'tests/test_x.py'], 'pytest tests/test_x.py\npython tests/test_cmd.py'),
+    ("a module under a test tree that declares no test and runs as no program is on no command line",
+     {'pyproject.toml': '[project]\ndependencies = ["pytest"]\n', 'tests/test_x.py': 'def test_a(): pass\n',
+      'tests/cases/shop/pricing.py': 'def price(q):\n    return q\n'},
+     ['tests/cases/shop/pricing.py', 'tests/test_x.py'], 'pytest tests/test_x.py'),
+    ("a runner only gets files of its language: a .cs and a .ts fixture are left off the pytest line",
+     {'pyproject.toml': '[project]\ndependencies = ["pytest"]\n', 'tests/test_x.py': ''},
+     ['tests/test_x.py', 'tests/cases/Foo.cs', 'tests/cases/a.ts'], 'pytest tests/test_x.py'),
+]:
+    d = tree(files)
+    check(why, ti.command_for('python', sel, [], None, d), want)
+    shutil.rmtree(d)
+# the by-name tier: a stem every package repeats names no module's tests
+d = tree({'app/__init__.py': '', 'app/pricing.py': '', 'app/__main__.py': '', 'tests/__init__.py': '',
+          'tests/test_pricing.py': 'def test_a(): pass\n', 'tests/sub/__init__.py': '', 'tests/conftest.py': ''})
+check("an edit to __init__.py or __main__.py names no test file by name", ti.package_tier(d, ['app/__init__.py', 'app/__main__.py'])[1], {})
+check("an edit to pricing.py still names test_pricing.py (control)", ti.package_tier(d, ['app/pricing.py'])[1],
+      {'files': ['tests/test_pricing.py']})
+shutil.rmtree(d)
+# the by-name tier holds only tests by the changed file's own ecosystem: a fixture input under a test tree, another
+# language's test and the changed file itself share the name but are counted, never offered or run
+d = tree({'src/index.js': '', 'test/fixtures/basic/index.js': '', 'test/fixtures/esm/index.js': '',
+          'tests/test_index.py': '', 'test/index.test.js': '', 'test/server.js': '', 'test/fixtures/app/server.js': '',
+          'src/server.ts': '', 'src/schema.ts': '', 'test/fixtures/schema.ts': '', 'test/schema.spec.ts': '',
+          'test/app.ts': '', 'test/fixtures/app/index.js': ''})
+check("fixture inputs and another language's test are not the tests of src/index.js",
+      ti.package_tier(d, ['src/index.js'])[1], {'files': ['test/index.test.js'], 'not_tests': 4})
+check("a .spec.ts names schema.ts; the fixture schema.ts is counted, not offered",
+      ti.package_tier(d, ['src/schema.ts'])[1], {'files': ['test/schema.spec.ts'], 'not_tests': 1})
+check("a file directly in test/ is a mocha test of server.ts (control); the nested fixture server.js is not",
+      ti.package_tier(d, ['src/server.ts'])[1], {'files': ['test/server.js'], 'not_tests': 1})
+check("a changed test-tree file is not its own test", ti.package_tier(d, ['test/fixtures/basic/index.js'])[1].get('files'),
+      ['test/index.test.js'])
+shutil.rmtree(d)
+d = tree({'src/main/java/a/Parser.java': '', 'src/test/java/a/ParserTest.java': '', 'src/test/java/a/TestParser.java': '',
+          'src/test/resources/cases/Parser.java': '', 'tests/test_parser.py': '', 'src/test/java/a/Testimonial.java': ''})
+check("java: ParserTest and TestParser are Parser's tests; a resource Parser.java is not",
+      ti.package_tier(d, ['src/main/java/a/Parser.java'])[1],
+      {'files': ['src/test/java/a/ParserTest.java', 'src/test/java/a/TestParser.java'], 'not_tests': 1})
+shutil.rmtree(d)
+check("a runner given only another language's files prints no command", ti.command_for('python', ['tests/Foo.cs'], [], None, '.'), None)
+check("java drops a .py file from a file-named selection", ti.command_for('java', ['src/test/java/ATest.java', 'tests/test_a.py'], []),
+      'mvn test -Dtest=ATest')
+check("csharp drops a .java file from a file-named selection", ti.command_for('csharp', ['T/ATests.cs', 'x/BTest.java'], []),
+      'dotnet test --filter "FullyQualifiedName~ATests"')
+for lang, rel, want in [('python', 'tests/test_a.py', True), ('python', 'tests/cases/fixture.py', False),
+                        ('python', 'tests/cases/Foo.cs', False), ('java', 'src/test/java/ATest.java', True),
+                        ('java', 'tests/test_a.py', False), ('csharp', 'T/ATests.cs', True)]:
+    check(f"collected_by({lang}, {rel}) is {want}", ti.collected_by(lang, rel), want)
 check("java unchanged (control)", ti.command_for('java', [], ['app.ATest']), 'mvn test -Dtest=ATest')
 
 # the next: line names every command, and still names a single one as it did
@@ -319,6 +411,14 @@ check("next: one command is named as before (control)",
 check("next: a (cd pkg && …) command is recognised",
       ax_pages.next_test_impact("\n  (cd parser && npx tsx src/test/a-tests.ts)\n").split(' — ')[0],
       'next: run (cd parser && npx tsx src/test/a-tests.ts)')
+check("next: a manage.py test command is recognised",
+      ax_pages.next_test_impact("\n  python manage.py test hc.api.tests.test_x\n").split(' — ')[0],
+      'next: run python manage.py test hc.api.tests.test_x')
+check("next: a python -m unittest command is recognised",
+      ax_pages.next_test_impact("\n  (cd src && python -m unittest a.test_b)\n").split(' — ')[0],
+      'next: run (cd src && python -m unittest a.test_b)')
+check("next: a test script run as a program is recognised",
+      ax_pages.next_test_impact("\n  python tests/test_cmd.py\n").split(' — ')[0], 'next: run python tests/test_cmd.py')
 check("next: several commands are counted",
       ax_pages.next_test_impact("\n  (cd p && npx tsx a.ts)\n  (cd p && npx tsx b.ts)\n").startswith('next: run the 2 commands above'),
       True)

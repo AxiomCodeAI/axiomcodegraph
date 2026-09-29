@@ -781,6 +781,97 @@ global_decl(name, k, prov, h) :- module_decl(prov, _, _, _, "DECLARATION_FILE", 
     !module_is_external(prov, mod),
     module_local_decl(prov, mod, name, k, h).
 
+// ============================================================================
+// WHICH PROGRAM A CLIENT GLOBAL BELONGS TO (#1574)
+// ============================================================================
+// The global scope is per PROGRAM, not per repository. A test fixture that is its own
+// program — its own tsconfig, often `noLib` with a hand-written `interface Array<T> {
+// map … }` — declares globals that only its own files can see. Treating them as
+// repository-wide made every production `xs.map(f)` resolve to the FIXTURE's
+// `Array.map`, and from that bodiless signature callback dispatch reached every callback
+// passed to `map` anywhere: a TypeScript helper "reached" the Python extractor.
+//
+// The parser already names each file's governing tsconfig (ts_module c14, one per file,
+// program-independent). A client global declared under tsconfig T is visible to a module
+// that T governs, or that lies in T's directory tree — the second keeps a root
+// `types/global.d.ts` visible to every nested package, which is how monorepos share
+// ambient declarations. It is NOT visible to a module outside that tree: a nested
+// fixture's globals stop at the fixture, and a sibling package's stop at that package.
+// A global with no governing tsconfig, and every LIBRARY global, stays repository-wide:
+// there is no program to scope them to, and hiding them would turn answers into misses.
+module_tsconfig(m, t) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, m, _),
+    t != "".
+client_global_module(h, mod) :- module_is_global("client", mod),
+    module_local_decl("client", mod, _, _, h).
+client_global_module(h, mod) :- module_decl("client", _, _, _, "DECLARATION_FILE", mod),
+    !module_is_external("client", mod),
+    module_local_decl("client", mod, _, _, h).
+client_global_program(h, t) :- client_global_module(h, mod), module_tsconfig(mod, t).
+
+// ── ONE MERGED ENTITY PER PROGRAM, NOT PER NAME ─────────────────────────────
+// The parser keys a declaration group by NAME, program-independently, so the fixture's
+// `interface Array<T>` and production's land in ONE group — and member lookup reads the
+// group (scope_sibling), so production's `Array` still offered the fixture's `map` even
+// once the NAME stopped resolving to it. Declaration merging happens inside a program.
+// A declaration therefore joins another's merged entity only when its own program sees
+// that declaration's file: a nested package's `interface Window` augmentation merges into
+// the root's `Window` for the package's code (the package's lookup starts from both), but
+// the root's `Window` does not pick up the package's members, and a sibling program's
+// declaration joins neither.
+type_program(t, p) :- type_module("client", m, t), module_tsconfig(m, p).
+split_group_program(p) :- group_of(t, g), group_of(t2, g),
+    type_program(t, p), type_program(t2, p2), p != p2.
+merge_sibling_cut(t, t2) :- group_of(t, g), group_of(t2, g),
+    type_program(t, p), type_program(t2, p2), p != p2,
+    type_module("client", m, t),
+    !program_sees(m, p2).
+
+scoped_program(t) :- client_global_program(_, t).
+scoped_program(t) :- split_group_program(t).
+path_key(t) :- scoped_program(t).
+program_dir(t, d) :- scoped_program(t), path_dir(t, d).
+
+// ── program_sees(ModuleHash, Tsconfig) ──────────────────────────────────────
+// Bounded by (client modules) x (programs that declare a global or a split group), and
+// the second is a handful: one row per tsconfig, not per declaration.
+program_sees(m, t) :- scoped_program(t), module_tsconfig(m, t).
+program_sees(m, t) :- program_dir(t, d),
+    module_file("client", fp, m),
+    n = strlen(d),
+    strlen(fp) >= n,
+    substr(fp, 0, n) = d.
+
+// ── global_decl_unscoped(Name, Kind, Prov, Hash) ────────────────────────────
+// The globals that belong to no program: every library global, and a client global
+// whose script has no governing tsconfig.
+global_decl_unscoped(name, k, prov, h) :- global_decl(name, k, prov, h),
+    !client_global_program(h, _).
+
+// ── global_decl_visible(ModuleHash, Name, Kind, Prov, Hash) — per module ────
+// What a name lookup in a CLIENT module reads. Gated on global_name_demanded, exactly as
+// the lookup it feeds was, so the width stays (client modules) x (names source writes).
+global_decl_visible(m, name, k, prov, h) :- module_decl("client", _, _, _, _, m),
+    global_name_demanded(name),
+    global_decl_unscoped(name, k, prov, h).
+global_decl_visible(m, name, k, "client", h) :- client_global_program(h, t),
+    global_decl(name, k, "client", h),
+    global_name_demanded(name),
+    program_sees(m, t).
+
+// ── global_decl_wide(Name, Kind, Prov, Hash) — no module to scope by ────────
+// The readers that ask for a global with no module in hand — Object's prototype
+// members, CallableFunction's, `typeof X` on a global variable — take the unscoped
+// globals and the globals of a program that sees EVERY client module. A single-program
+// repository therefore reads exactly what it did; a nested fixture's `Object` no longer
+// lends its `toString` to the whole repository.
+client_module_count(n) :- n = count : { module_file("client", _, _) }.
+program_module_count(t, n) :- client_global_program(_, t), n = count : { program_sees(_, t) }.
+program_is_wide(t) :- program_module_count(t, n), client_module_count(n).
+global_decl_wide(name, k, prov, h) :- global_decl_unscoped(name, k, prov, h).
+global_decl_wide(name, k, "client", h) :- client_global_program(h, t),
+    program_is_wide(t),
+    global_decl(name, k, "client", h).
+
 // ── import_type_module(Specifier, ModuleHash) ───────────────────────────────
 // The module named by an inline `import('M')` inside a TYPE. Ambient declarations
 // claim a specifier outright; a staged package is matched by package root.

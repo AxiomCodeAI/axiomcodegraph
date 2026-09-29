@@ -1,0 +1,6 @@
+nominal	use#Shape.area -> use#Circ.area
+nominal	use#Shape.area -> use#Sq.area
+nominal	use#Warrior.fight -> use#Ninja.fight
+value_call	use#recordArea -> use#<arrow>@38
+value_call	use#totalArea -> use#<arrow>@30
+value_call	use#totalArea -> use#<arrow>@31

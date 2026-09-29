@@ -25,6 +25,7 @@ import {
 } from '@/parsers/typescript/extractors/ts-binder';
 import {
   calleeOf,
+  isBareDecorator,
   unwrapParentheses,
 } from '@/parsers/typescript/extractors/ts-expression-extractor';
 
@@ -1225,6 +1226,13 @@ function callArgumentCount(node: ts.Node): number {
   // spells as attributes and children.
   if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
     return 1;
+  }
+  // A bare `@guarded` writes no arguments; the runtime passes two or three
+  // depending on the decorator system and the target, which this pass does not
+  // know. No count admits any parameterised signature, so a sole candidate is
+  // still taken and an overload set is left unchosen rather than guessed.
+  if (isBareDecorator(node)) {
+    return -1;
   }
   return 0;
 }

@@ -9,7 +9,6 @@ ambiguous_unknown	FUNCTION_CALL	pipeline#runValues(Node) @L64 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#<module-init>() @L11 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#keysOnly() @L76 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#runByKey(Node,'grow' | 'shrink') @L35 -> -
-ambiguous_unknown	METHOD_CALL	pipeline#runByName(Node) @L38 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#runForEach(Node) @L43 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#runIndexed(Node,number) @L30 -> -
 ambiguous_unknown	METHOD_CALL	pipeline#runReduce(Node) @L46 -> -
@@ -26,3 +25,4 @@ known_edge	FUNCTION_CALL	steps#pushed(Node) @L8 -> steps#measure(Node)
 known_edge	FUNCTION_CALL	steps#spreadIn(Node) @L9 -> steps#measure(Node)
 known_edge	FUNCTION_CALL	steps#square(Node) @L6 -> steps#measure(Node)
 known_edge	FUNCTION_CALL	steps#widen(Node) @L4 -> steps#measure(Node)
+known_edge	METHOD_CALL	pipeline#runByName(Node) @L38 -> steps#narrow(Node)

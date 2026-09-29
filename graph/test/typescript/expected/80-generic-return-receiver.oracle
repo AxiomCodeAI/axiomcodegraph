@@ -1,0 +1,10 @@
+oracle=19 engine=22 agree=16 missing=3 (known 3, NEW 0) extra=6
+  known    use#recvMapGet() -> User#touch()
+  known    use#run() -> Warrior#fight()
+  known    use#viaRegistry(Registry) -> User#touch()
+  extra    use#indexValue(string) -> Circ#area()
+  extra    use#indexValue(string) -> Sq#area()
+  extra    use#recordArea(string,number) -> Circ#area()
+  extra    use#recordArea(string,number) -> Sq#area()
+  extra    use#totalArea(string,number) -> Circ#area()
+  extra    use#totalArea(string,number) -> Sq#area()

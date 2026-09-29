@@ -111,7 +111,7 @@ global_name_demanded("ReadonlyArray").
 
 name_binds_any(mod, name, prov, k, ent) :- module_decl("client", _, _, _, _, mod),
     global_name_demanded(name),
-    global_decl(name, k, prov, ent),
+    global_decl_visible(mod, name, k, prov, ent),
     !name_bound_locally(mod, name).
 
 // ── name_binds(ModuleHash, Name, Prov, Kind, EntityHash) ────────────────────
@@ -127,7 +127,7 @@ name_binds(mod, name, prov, k, ent) :- module_local_decl(prov, mod, name, k, ent
     !decl_is_type_only(prov, k, ent).
 name_binds(mod, name, prov, k, ent) :- module_decl("client", _, _, _, _, mod),
     global_name_demanded(name),
-    global_decl(name, k, prov, ent),
+    global_decl_visible(mod, name, k, prov, ent),
     !decl_is_type_only(prov, k, ent),
     !name_bound_locally(mod, name).
 

@@ -1,5 +1,7 @@
 value	values#<function-type>@4:25 -> values#<arrow>@6
 value	values#<function-type>@4:25 -> values#<arrow>@7
+value	values#<function-type>@4:25 -> values#Pipeline.tag
 value_call	values#Pipeline.run -> values#<arrow>@6
 value_call	values#apply -> values#<arrow>@6
 value_call	values#apply -> values#<arrow>@7
+value_call	values#drive -> values#Pipeline.tag

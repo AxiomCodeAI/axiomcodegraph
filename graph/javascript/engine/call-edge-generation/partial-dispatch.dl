@@ -83,7 +83,38 @@ partial_dispatch_target(ce, m) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, 
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "obj", i),
     prop_value("obj", i, _, "func", m).
 
+// ============================================================================
+// AN OPEN READ: THE SAME TABLE WITH NOTHING BESIDE IT
+//
+//     const h = handlers[action.type]; h(state, p)       a Redux-style reducer
+//     handlers[type](state, p)                           a command map
+//     cli.commands[argv[0]](argv)                        CLI dispatch
+//
+// No default merges here, so nothing was asserted wrongly: the site was a dead end
+// (dynamic_terminal, or ambiguous_unknown through the const), and every entry of the
+// table had no caller at all. The key is unknown; the table is not. The call runs one
+// of its function values, which is what an array read with a computed index already
+// says (resolution/arrays.dl). Emitted as edges for the reason above, and only where
+// the value layer found NO target: a key whose value it could read keeps its answer.
+// ============================================================================
+open_read(e, i) :- expr_kind(_, "ELEMENT_ACCESS", _, e),
+    expr_child(_, e, "COMPUTED_KEY", _, key), !expr_kind(_, "LITERAL", _, key),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "obj", i).
+
+open_dispatch_target(ce, m) :- call_target_count(ce, 0), expr_child(_, ce, "CALLEE", _, c),
+    open_read(c, i), prop_value("obj", i, _, "func", m).
+open_dispatch_target(ce, m) :- call_target_count(ce, 0), expr_child(_, ce, "CALLEE", _, c),
+    expr_binding(_, v, c), var_init(_, _, e, v), open_read(e, i), prop_value("obj", i, _, "func", m).
+open_dispatch_target(ce, m) :- call_target_count(ce, 0), call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "COMPUTED_KEY", _, key), !expr_kind(_, "LITERAL", _, key),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "obj", i), prop_value("obj", i, _, "func", m).
+
+open_dispatch(ce) :- open_dispatch_target(ce, _).
+open_dispatch_width(ce, n) :- open_dispatch(ce), n = count : { open_dispatch_target(ce, _) }.
+partial_dispatch(ce) :- open_dispatch(ce).
+partial_dispatch_target(ce, m) :- open_dispatch_target(ce, m).
+
 // ── the edges, and the tier that stops asserting ───────────────────────────
 call_chain_edge(ce, caller, "-", m, "client", "multi_inferred", kind) :-
-    partial_dispatch_target(ce, m), !expr_resolves_to_method(ce, m),
+    partial_dispatch_target(ce, m), !expr_resolves_to_method(ce, m), !call_over_cap(ce),
     call_from(ce, caller), invocation_site(ce, kind).

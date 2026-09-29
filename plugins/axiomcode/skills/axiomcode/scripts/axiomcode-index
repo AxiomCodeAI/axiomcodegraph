@@ -20,7 +20,8 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections
 csv.field_size_limit(10**9)
-INDEX_VERSION = '4'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function); the query
+INDEX_VERSION = '5'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+                         # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -123,7 +124,10 @@ A = {
     # each made the function or class it names look declared as a second kind, so `impact C` refused as ambiguous
     decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
                 kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
-           dict(file='all-javascript-fields.csv', kind=lambda r: 'field', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
+           # a field's owner is its class by hash (`this.x = …` in a constructor, a class field, `F.prototype.x = …`), so it
+           # displays as `Store.items`, not `items`; a computed key (`[Symbol.iterator] = …`) is named by its key expression
+           dict(file='all-javascript-fields.csv', id='jsFieldUniqueHash', kind=lambda r: 'field', name='name', owner=None, ownerType='ownerTypeLinkHash', computed='computedNameExpressionLinkHash',
+                fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
     # `const foo = () => …`: the variable's initializerExpressionLinkHash is the FUNCTION_EXPRESSION row whose
     # introducesDeclarationLinkHash is the method — two hops, where TypeScript has boundFunctionLinkHash in one
     boundNames=dict(file='all-javascript-variables.csv', name='name', only=lambda r: r.get('initializerKind') == 'FUNCTION',
@@ -132,6 +136,12 @@ A = {
     # is the value of, the way the language's own name inference does it, and is owned by the object's variable
     memberNames=dict(file='all-javascript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash',
                      vars='all-javascript-variables.csv'),
+    # `static [Symbol.hasInstance](x) {…}`: the parser leaves the name empty and links the key expression; the member is
+    # named `[Symbol.hasInstance]`, as written, instead of displaying as `Tagged.` with nothing to ask for
+    computedNames=dict(file='all-javascript-methods.csv', id='jsMethodUniqueHash', key='computedNameExpressionLinkHash',
+                       expr='all-javascript-expressions.csv', exprId='jsExpressionUniqueHash', text='text'),
+    # `const Foo = class {…}`: the parser's type is `<anonymous-class>`; it takes the variable, field or property it is bound to
+    classNames=dict(file='all-javascript-types.csv', id='jsTypeUniqueHash', fields='all-javascript-fields.csv'),
     skipped='skipped-javascript-files.csv'),
  'csharp': dict(
     modules=dict(file='all-csharp-modules.csv', id='csModuleUniqueHash', filePath='filePath'),
@@ -212,41 +222,7 @@ CREATE TABLE paths(raw TEXT PRIMARY KEY, rel TEXT);
 raw_paths = {r[0] for t in ('call_sites', 'methods', 'types') for r in c.execute(f"SELECT DISTINCT file_path FROM {t} WHERE file_path IS NOT NULL")}
 c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in raw_paths))
 
-# ── types: display names with nesting recovered by line containment ───────────────────────────────
-types = {r['id']: dict(r) for r in c.execute("SELECT id, name, qualified_name, category, file_path, start_line, end_line, provenance FROM types")}
-byfile = {}
-for t in types.values():
-    if t['file_path'] and t['start_line'] is not None: byfile.setdefault(t['file_path'], []).append(t)
-outer_of = {}
-for fp, ts in byfile.items():
-    ts.sort(key=lambda t: (t['start_line'], -(t['end_line'] or 0)))
-    for i, t in enumerate(ts):
-        best = None
-        for o in ts[:i]:   # the narrowest earlier type whose range contains t
-            if o['start_line'] < t['start_line'] and (o['end_line'] or 0) >= (t['end_line'] or 0) and (best is None or (o['end_line'] - o['start_line']) < (best['end_line'] - best['start_line'])):
-                best = o
-        if best: outer_of[t['id']] = best['id']
-c.executemany("INSERT INTO nesting VALUES (?,?)", outer_of.items())
-def tname(t):
-    n = t['name'] or ''
-    m = re.match(r'^(.*)\$anon:(.+)$', n)      # Java: Outer$anon:Iface
-    return f"<anon {m.group(2)}>" if m else n
-disp = {}
-def tdisplay(tid, seen=()):
-    if tid in disp: return disp[tid]
-    t = types.get(tid)
-    if not t: return ''
-    o = outer_of.get(tid)
-    d = (tdisplay(o, seen + (tid,)) + '.' if o and o not in seen else '') + tname(t)
-    disp[tid] = d; return d
-sym = []
-for t in types.values():
-    if t['provenance'] != 'client': continue
-    d = tdisplay(t['id']); fp = rel(t['file_path'])
-    sym.append((t['id'], tname(t), d, type_kind(t['category'] or ''), t['qualified_name'], None, fp, t['start_line'], t['end_line'],
-                tdisplay(outer_of[t['id']]) if t['id'] in outer_of else None, 1 if fp and TESTRE.search(fp) else 0, None, t['id']))
-
-# ── methods ───────────────────────────────────────────────────────────────────────────────────────
+# ── names a function or class takes from what it is bound to ──────────────────────────────────────
 bound = {}
 if A['boundNames']:
     b = A['boundNames']
@@ -266,7 +242,7 @@ if A['boundNames']:
 # PROPERTY_KEY sibling at the same childIndex). The owner is the receiver as written (`helpers`, `Foo` for
 # `Foo.prototype`), none for `exports` / `module.exports` / `this`; for a literal, the variable it initialises or the
 # key chain of the literal it is nested in. A named function expression keeps its own name: only placeholders move.
-bound_owner = {}
+bound_owner = {}; cls_named = {}
 if A.get('memberNames'):
     mn = A['memberNames']; ex = {}; kids = collections.defaultdict(list)
     for r in rows(mn['file']):
@@ -285,11 +261,9 @@ if A.get('memberNames'):
         if not k or k.get('isComputedName') == 'true' or not k.get('name'): return None
         o = literal_owner(p, depth + 1)
         return f"{o}.{k['name']}" if o else k['name']
-    for r in ex.values():
-        m_ = r.get(mn['method'])
-        if not m_ or m_ in bound or r.get('expressionKind') != 'FUNCTION_EXPRESSION': continue
+    def named_by(r):
         p = ex.get(r.get('parentExpressionLinkHash', ''))
-        if not p: continue
+        if not p: return None, None
         role = r.get('edgeRole'); name = owner = None
         if role == 'ASSIGNMENT_VALUE' and p.get('expressionKind') == 'ASSIGNMENT' and p.get('operatorString') == '=':
             t = key_of(p[mn['id']], 'ASSIGNMENT_TARGET', None)
@@ -301,9 +275,80 @@ if A.get('memberNames'):
             k = key_of(p[mn['id']], 'PROPERTY_KEY', r.get('childIndex'))
             if k and k.get('isComputedName') != 'true' and k.get('name'):
                 name = k['name']; owner = literal_owner(p)
+        return name, owner
+    # `const Foo = class {…}`, `static Inner = class {…}`, `ns.Bar = class {…}`: an anonymous class expression takes
+    # the name it is bound to, as a function expression does, so its members display as `Outer.Inner.ping`, not
+    # `Outer.<anonymous-class>.ping`. The IR does not link the expression to its type; both start at one position.
+    cls = A.get('classNames'); ANON_CLASS = re.compile(r'^class(\s|\\n)*(extends\b|\{)')
+    field_init = {r['initializerExpressionLinkHash']: r['name'] for r in rows(cls['fields']) if r.get('initializerExpressionLinkHash') and r.get('name')} if cls else {}
+    for r in ex.values():
+        if r.get('expressionKind') != 'FUNCTION_EXPRESSION': continue
+        m_ = r.get(mn['method'])
+        if not m_:
+            if cls and ANON_CLASS.match(r.get('text') or ''):
+                i = r[mn['id']]; name = lit_var.get(i) or field_init.get(i); owner = None
+                if not name: name, owner = named_by(r)
+                if name: cls_named[(r.get('ownerModuleLinkHash'), r.get('startLine'), r.get('startColumn'))] = (name, owner)
+            continue
+        if m_ in bound: continue
+        name, owner = named_by(r)
         if name:
             bound[m_] = name
             if owner: bound_owner[m_] = owner
+# ── types: display names with nesting recovered by line containment ───────────────────────────────
+types = {r['id']: dict(r) for r in c.execute("SELECT id, name, qualified_name, category, file_path, start_line, end_line, provenance FROM types")}
+byfile = {}
+for t in types.values():
+    if t['file_path'] and t['start_line'] is not None: byfile.setdefault(t['file_path'], []).append(t)
+outer_of = {}
+for fp, ts in byfile.items():
+    ts.sort(key=lambda t: (t['start_line'], -(t['end_line'] or 0)))
+    for i, t in enumerate(ts):
+        best = None
+        for o in ts[:i]:   # the narrowest earlier type whose range contains t
+            if o['start_line'] < t['start_line'] and (o['end_line'] or 0) >= (t['end_line'] or 0) and (best is None or (o['end_line'] - o['start_line']) < (best['end_line'] - best['start_line'])):
+                best = o
+        if best: outer_of[t['id']] = best['id']
+c.executemany("INSERT INTO nesting VALUES (?,?)", outer_of.items())
+cls_bound = {}                                       # type id -> (name, owner as written) of a bound anonymous class
+if cls_named:
+    for r in rows(A['classNames']['file']):
+        v = cls_named.get((r.get('ownerModuleLinkHash'), r.get('startLine'), r.get('startColumn')))
+        if v and r.get('typeCategory') == 'ANONYMOUS_CLASS' and r.get(A['classNames']['id']) in types: cls_bound[r[A['classNames']['id']]] = v
+def tname(t):
+    if t['id'] in cls_bound: return cls_bound[t['id']][0]
+    n = t['name'] or ''
+    m = re.match(r'^(.*)\$anon:(.+)$', n)      # Java: Outer$anon:Iface
+    return f"<anon {m.group(2)}>" if m else n
+disp = {}
+def tdisplay(tid, seen=()):
+    if tid in disp: return disp[tid]
+    t = types.get(tid)
+    if not t: return ''
+    o = outer_of.get(tid); ow = cls_bound.get(tid, (None, None))[1]
+    d = (tdisplay(o, seen + (tid,)) + '.' if o and o not in seen else ow + '.' if ow else '') + tname(t)
+    disp[tid] = d; return d
+sym = []
+bound_at = set()                                     # (file, line, name) of a variable or field that IS a function or class: its row is not a second symbol
+for t in types.values():
+    if t['provenance'] != 'client': continue
+    d = tdisplay(t['id']); fp = rel(t['file_path'])
+    if t['id'] in cls_bound: bound_at.add((fp, t['start_line'], tname(t)))
+    sym.append((t['id'], tname(t), d, type_kind(t['category'] or ''), t['qualified_name'], None, fp, t['start_line'], t['end_line'],
+                tdisplay(outer_of[t['id']]) if t['id'] in outer_of else cls_bound.get(t['id'], (None, None))[1], 1 if fp and TESTRE.search(fp) else 0, None, t['id']))
+
+# ── methods ───────────────────────────────────────────────────────────────────────────────────────
+# a member whose key is an expression (`[Symbol.iterator]() {…}`, `[KEY] = 1`) has no name in the IR, only a link to the
+# key expression: it is named `[<key as written>]`. Only the linked expressions are kept, so the common case reads no extra file.
+ckey = {}; cmeth = {}
+cn = A.get('computedNames')
+if cn:
+    for r in rows(cn['file']):
+        if not r.get('name') and r.get(cn['key']) and r.get(cn['id']): cmeth[r[cn['id']]] = r[cn['key']]
+    want = set(cmeth.values()) | {r[d['computed']] for d in A['decls'] if d.get('computed') for r in rows(d['file']) if not r.get(d['name']) and r.get(d['computed'])}
+    if want:
+        for r in rows(cn['expr']):
+            if r.get(cn['exprId']) in want and r.get(cn['text']): ckey[r[cn['exprId']]] = '[' + ' '.join(r[cn['text']].split())[:80] + ']'
 # Java: a method declared in an enum CONSTANT's body (`Initial { boolean process(...) {…} }`) is registered per constant with the
 # same qualified_name and the enum as owner — 23 `HtmlTreeBuilderState.process` rows in the JVM parser. The constant's span names it.
 econst = collections.defaultdict(list)
@@ -316,9 +361,8 @@ def enum_constant_of(fp, ln):
     for a, b, n in econst.get(fp, ()):
         if a <= ln <= b and b > a: return n
     return None
-bound_at = set()                                     # (file, line, name) of a variable that IS a function: the variable row is not a second symbol
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
-    name = m['name'] or ''
+    name = m['name'] or ckey.get(cmeth.get(m['id'], ''), '')
     if name.startswith('<') and m['id'] in bound: name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
     od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else bound_owner.get(m['id'])
     if m['kind'] == 'ENUM_CONSTANT_METHOD' and od:
@@ -373,9 +417,11 @@ def file_of(r, d):
 for d in A['decls']:
     for r in rows(d['file']):
         if d.get('only') and not d['only'](r): continue
-        name = r.get(d['name'], '');
+        name = r.get(d['name'], '') or (ckey.get(r.get(d['computed'], ''), '') if d.get('computed') else '')
         if not name: continue
-        fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else None
+        fp = file_of(r, d)
+        # the owner by qualified name (Java, TypeScript) or by the owning type's id (JavaScript)
+        od = owner_display(r.get(d['owner'], '')) if d.get('owner') else (tdisplay(r.get(d['ownerType'], '')) or None) if d.get('ownerType') else None
         # the owner as a link to the declaring type's row (C#): its display and qualified name come from that row, so a
         # nested type's member is `Outer.Inner.Member` and two types' same-named members stay two symbols
         ot = types.get(r.get(d['ownerVia'], '')) if d.get('ownerVia') else None

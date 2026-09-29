@@ -24,8 +24,8 @@ function viaTernary(prop, a, b) {
 }
 
 // THE CONSTRUCT, form 3: no default at all, and the read is called directly. Nothing
-// merges here, so the site was already honest; it is listed to show the widened value
-// set reaches the call rather than only the variable.
+// merges here; the call reaches one of the table's functions (case 68 covers this
+// open read in its own right).
 function viaDirect(prop, a, b) {
   return table[prop](a, b);
 }

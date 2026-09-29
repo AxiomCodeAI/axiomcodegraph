@@ -58,10 +58,20 @@ def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges
+sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges, ax_text
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die, BODILESS_KINDS = P.G, P.run_dl, P.die, P.BODILESS_KINDS
+
+
+def script_run(repo, rel):
+    """the command a script test (graph_sql.script_test_file) is run by: the one test-impact gives for the file — its
+    package's script, its own usage line, the interpreter — so impact and test-impact name the same command"""
+    global _TI
+    if '_TI' not in globals():
+        spec = importlib.util.spec_from_loader('axtestimpact', importlib.machinery.SourceFileLoader('axtestimpact', os.path.join(HERE, 'axiomcode-test-impact')))
+        _TI = importlib.util.module_from_spec(spec); spec.loader.exec_module(_TI)
+    return _TI.script_command(repo, rel)
 
 # written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
@@ -384,9 +394,8 @@ class Impact:
         mfl = re.match(r'^(.+?):(\d+)(?::\d+)?$', s)
         if mfl and ('/' in mfl.group(1) or '.' in mfl.group(1)) and kind in (None, 'field', 'type'):
             f, ln = self.g.repo_file(mfl.group(1))[0], int(mfl.group(2))
-            files = sorted({x['file'] for x in self.g.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
-                            if x['file'] == f or (x['file'] or '').endswith('/' + f)})
-            if f in files: files = [f]
+            files, scoped = self.g.line_files(f)                          # --in chooses among a partial path's files (#1666)
+            if scoped and len(files) == 1: s = f"{files[0]}:{ln}"
             d = self.g.decl_at_line(files[0], ln) if len(files) == 1 else None
             if d and d[0] == 'field' and kind in (None, 'field'):
                 row = self.fields.get(d[1]['rowid']) or d[1]
@@ -444,6 +453,9 @@ class Impact:
         if '#' in verb:
             hit = self.g.q("SELECT id FROM symbols WHERE (display = ? OR qualified_name = ?) AND method_id IS NOT NULL", verb, verb)
             if hit: return [('method', verb + (f" ({len(hit)} declarations)" if len(hit) > 1 else ''), [x['id'] for x in hit])]
+            # …and a private FIELD (`Vault.#secret`, `#secret`) the same way: rewritten, it asked for `Vault..secret`
+            rows = self.field_rows(verb) if kind in (None, 'field') and re.search(r'(^|\.)#[A-Za-z_$]', verb) else []
+            if rows: return [('field', f"{rows[0]['kind']} {rows[0]['display']}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows)]
         base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
         m0 = re.match(r'^(.+)\.<new>$', base)
@@ -530,7 +542,10 @@ class Impact:
         except SystemExit:
             if soft: return []
             print(buf.getvalue(), end=''); raise
-        last = re.sub(r'\(.*\)$', '', s).replace('#', '.').replace('$', '.').rstrip('.').split('.')[-1]
+        written = re.sub(r'\(.*\)$', '', s)
+        # a computed key (`Tagged.[Symbol.hasInstance]`) is one segment, dots and all
+        key = re.search(r'\.(\[[^\[\]]+\])$', written)
+        last = key.group(1) if key else written.replace('#', '.').replace('$', '.').rstrip('.').split('.')[-1]
         lam = bool(re.search(r'<\w+@L\d+>$', s))                                       # Owner.m.<lambda@L42>: the lambda at that line
         ids = [i for i in ids if self.g.sym.get(i, {}).get('method_id') and self.g.sym[i]['kind'] not in ('library', 'written') and (self.g.sym[i]['name'] == last or ':' in s or lam)]
         if not ids and not soft: die(f"{s} is not a method in the graph")
@@ -552,8 +567,10 @@ class Impact:
         # the one declaration a file:line could not target, and its bare name answered for every const so named
         fl = re.fullmatch(r'(.+\.\w+):(\d+)', s)
         if fl:
-            p, n = fl.group(1), int(fl.group(2))
-            return [f for f in self.fields.values() if f['line'] == n and (f['file'] == p or (f['file'] or '').endswith('/' + p))]
+            # a partial path names ONE file, as for a callable (#1599, #1666): matched against every file it ends, it took
+            # the field at that line in whichever of them had one, so `test.js:6` in 17 test.js answered for one of them
+            files, _ = self.g.line_files(self.g.repo_file(fl.group(1))[0]); n = int(fl.group(2))
+            return [f for f in self.fields.values() if f['line'] == n and f['file'] == files[0]] if len(files) == 1 else []
         parts = s.split('.'); name = parts[-1]; owner = '.'.join(parts[:-1])
         rows = [f for f in self.fields.values() if f['name'] == name and (not owner or (f['owner'] or '') == owner or (f['owner'] or '').endswith('.' + owner) or (f['qualified_name'] or '').endswith('.' + s))]
         if not rows and '.' in s:                                                     # the dotted spelling, only after the written one
@@ -730,7 +747,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '37'          # 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '40'          # 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -906,7 +923,9 @@ class Impact:
                                for t in {r[0] for r in g.q("SELECT DISTINCT tier FROM call_edges")} | {ax_edges.STUB_TIER}}))
         # a call written inside a mock's stub or verification keeps its row and loses its tier: "stub" (ax_edges.stub_sites)
         stubs = ax_edges.stub_sites(lambda s, p: g.q(s, *p)) if g.has('call_sites') else set()
-        W('calls', [(r['caller_id'], r['callee_method_id'], ax_edges.STUB_TIER if r['call_site_id'] in stubs else r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
+        # a chained route link's edge sits on the line of its own verb and path, where `registration` labels it
+        link_line = ax_registration.route_site_lines(g.q, g.site_file)
+        W('calls', [(r['caller_id'], r['callee_method_id'], ax_edges.STUB_TIER if r['call_site_id'] in stubs else r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', link_line.get(r['call_site_id'], r['start_line'] or 0))
                     for r in g.q("SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
         # a hand-off on EVERY line its call site spans: a chained registration (`router\n  .route('/')\n  .post(auth(), ctrl.h)`)
         # records its edges on the statement's first line, while the handler is named on a later one
@@ -1098,7 +1117,13 @@ class Impact:
             L = self.lines(sy['file'])
             if sy['line'] - 1 < len(L) and REGISTRAR.search(L[sy['line'] - 1]): tm.append(i)
             elif any(f == sy['file'] and a <= sy['line'] <= b for f, a, b in tables): tm.append(i)
-        fx = [i for i, s in g.sym.items() if s['is_test'] and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
+        # …and a SCRIPT TEST, a test-tree file run as a program with no framework: its module is the test (graph_sql,
+        # the one rule the hooks' fast path reads too)
+        import graph_sql
+        scripts = graph_sql.script_tests([(i, s['kind'], s.get('file')) for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s.get('file')],
+                                         lambda f: '\n'.join(self.lines(f)), set(tm))
+        tm += sorted(scripts)
+        fx = [i for i, s in g.sym.items() if s['is_test'] and i not in scripts and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
         # ── which fixture runs before which test, when nothing calls it ────────────────────────────────────────
         # pytest hands a fixture to a test BY THE NAME OF A PARAMETER, and the fixture that serves a whole directory
@@ -1644,6 +1669,70 @@ def route_per_file(g, reached, hop0, files):
         res[f] = ' '.join(chain)
     return res
 
+def scope_targets(g, rs):
+    """(the resolved targets, whether any was narrowed to --in) — the scope applied to the DECLARATIONS (#1584).
+
+    `--in` bounded only the transitive layer, so `impact run --in plugins/x` answered for every `run` in the graph, all
+    of them outside the scope. A name with declarations under the scope now answers for those alone, as `path` always
+    did. A name with none there keeps all of them: the scope then asks who under it USES a declaration made elsewhere,
+    which is the question it always answered."""
+    def file_of(x):
+        if isinstance(x, str):
+            r = g.sym.get(x) or g.all_sym.get(x)
+            return r.get('file') if r else None
+        try: return x['file']
+        except (TypeError, KeyError, IndexError): return None
+    out, narrowed = [], False
+    for k, lab, pay in rs:
+        if isinstance(pay, list) and pay:
+            kept = [x for x in pay if file_of(x) and g.under_in(file_of(x))]
+            if kept and len(kept) < len(pay):
+                lab = re.sub(r' \(\+?\d+(?: declarations?(?: of that name)?)?\)$', '', lab) + f" [{len(kept)} of {len(pay)} declarations under {g.IN}]"
+                pay = kept
+            narrowed = narrowed or bool(kept)
+        out.append((k, lab, pay))
+    return out, narrowed
+
+
+# A TEST TREE THE INDEX NEVER READ. `index --src app` reads app/ only, and a project whose tests sit in a sibling tests/
+# then has no test in the graph at all: every answer said "tests: 0 of 0" or "0 of N", which reads as "nothing tests
+# this" when the truth is "the tests were never looked at". So when no test is counted and the graph was built from a
+# subtree, the test files of the graph's language lying outside it are counted and named, with the index that reads them.
+OUTSIDE_EXT = {'python': ('.py',), 'java': ('.java', '.kt'), 'csharp': ('.cs',), 'typescript': ('.ts', '.tsx'),
+               'javascript': ('.js', '.mjs', '.cjs', '.jsx')}
+OUTSIDE_TEST = re.compile(r'(^|/)(tests?|__tests__|specs?)/|(^|/)test_[^/]*\.py$|_test\.py$|Tests?\.(java|kt|cs)$|IT\.java$'
+                          r'|\.(test|spec)\.[cm]?[jt]sx?$')
+OUTSIDE_SKIP = {'.git', '.axiomcode', 'node_modules', '.venv', 'venv', 'env', '.tox', 'build', 'dist', 'target', 'bin', 'obj',
+                '__pycache__', '.mypy_cache', '.pytest_cache', 'site-packages'}
+
+
+def tests_outside_src(g, cap=20000):
+    """(the --src the graph was built from, [test files of its language outside it]) — ('', []) for a whole-repo graph"""
+    try:
+        run = dict(g.q("SELECT key, value FROM run"))
+    except Exception:
+        return '', []
+    root = os.path.realpath(g.repo); src = os.path.realpath(run.get('source_dir') or root)
+    rel = os.path.relpath(src, root)
+    if rel == '.' or rel.startswith('..'): return '', []
+    ext = OUTSIDE_EXT.get((run.get('language') or '').lower())
+    if not ext: return rel.replace(os.sep, '/'), []
+    out, seen = [], 0
+    for d, dirs, fs in os.walk(root):
+        dirs[:] = sorted(x for x in dirs if x not in OUTSIDE_SKIP and not x.startswith('.') and os.path.join(d, x) != src)
+        for f in fs:
+            seen += 1
+            if seen > cap: return rel.replace(os.sep, '/'), out
+            if not f.endswith(ext): continue
+            r = os.path.relpath(os.path.join(d, f), root).replace(os.sep, '/')
+            # a Python test tree also holds __init__.py, conftest.py and helpers: only the modules a runner collects count
+            if OUTSIDE_TEST.search(r) and (not f.endswith('.py') or re.fullmatch(r'test\w*\.py|\w+_test\.py', f)): out.append(r)
+    return rel.replace(os.sep, '/'), sorted(out)
+
+
+STRING_TEXT = []                                    # (repo, target, --in, why): targets answered by text too (ax_text.py)
+
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
     # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
@@ -1652,7 +1741,15 @@ def main(argv):
     tests_only = '--tests-only' in args; want_tests = '--tests' in args or tests_only; want_why = '--why' in args
     want_delete = '--delete' in args; want_warm = '--warm' in args; want_depends = '--depends' in args
     # the default view collapses a flood of [by name] rows; an explicit --limit or --page all asks for every row
-    list_all = '--limit' in args or getattr(sys.modules.get('ax_pages'), 'PAGE', None) == 'all'
+    # A LATER PAGE CONTINUES THE ROWS (ax_pages.paginate). Page 1 is the default view; page 2 on holds the rows that
+    # view left out. So whenever the pager captures the answer every row is printed, the ones the default view hides
+    # marked as hidden and its summary lines ("… +54 more", "+9 [by name]") marked as summaries: the pager builds
+    # page 1 from the one, pages the rest from the other, and counts what is left from the rows themselves.
+    # `--page all` prints every row, unmarked.
+    _pg = sys.modules.get('ax_pages'); _page = getattr(_pg, 'PAGE', 1)
+    every_row = _page == 'all'; later = isinstance(_page, int) and bool(getattr(_pg, 'CAPTURING', False))
+    HIDE, SUMM = (getattr(_pg, 'HIDE', ''), getattr(_pg, 'SUMM', '')) if later else ('', '')
+    list_all = '--limit' in args or every_row
     args = [a for a in args if a not in ('--tests', '--tests-only', '--why', '--json', '--delete', '--warm', '--depends')]
     tests_in = None
     if '--tests-in' in args:
@@ -1699,10 +1796,37 @@ def main(argv):
     if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--json] [--kind k] [--delete]\n"
                      "       axiomcode impact --from-text <file|-> [<repo>] [--top N]   — an issue report in, the candidate declarations out\n"
                      "       axiomcode impact --warm [<repo>]                            — export the graph's facts now so the first query need not")
+    # AN --in NO GRAPH HOLDS narrowed the answer to nothing and said only "0 more callable(s) under it": a typo read as an
+    # answer. It is answered at the root and says so; a scope another language's graph holds is left alone (that graph
+    # answers under it); in a repository in several languages ax_langs.py prints the line once
+    if IN and not ax_text.held(repo, IN):
+        print(f"{ax_text.SCOPE_GONE}'{IN}' in its path — answering at the repository root instead",
+              file=sys.stderr if as_json else sys.stdout)
+        IN = None
     g = G(repo); g.IN = IN; I = Impact(g); prof('graph loaded, path facts exported')
-    targets = []
+    I.kind_arg(kind)                                    # a bad --kind is a usage error, not a name to search the text for
+    if IN:
+        cond, params = P.ax_contract.scope_sql(P.ax_contract.scope_spec(IN, g.repo))
+        if not g.q(f"SELECT 1 FROM symbols WHERE {cond} LIMIT 1", *params):
+            # a scope this graph holds no file of: in a repository in several languages it is another language's
+            # (#1584), and the dispatcher leaves a graph that says this out when any other graph holds the scope
+            die(f"no indexed file has '{IN}' in its path.")
+    targets = []; scoped_in = False
     for a in args:
-        rs = I.resolve(a, kind)
+        try: rs = I.resolve(a, kind)
+        except SystemExit as e:
+            # nothing in the graph answers for it: say what a search by hand would find, labelled [text] (ax_text.py)
+            if e.code and not as_json: sys.stdout.flush(); ax_text.emit(repo, [a], IN)
+            raise
+        if IN:
+            rs, narrowed = scope_targets(g, rs)
+            scoped_in = scoped_in or narrowed
+        # a string is text before it is anything else: its literal sites below, and after them where it is WRITTEN
+        # and a name nothing declares, matched only where it is referenced by name (type_use), is answered by name
+        # alone: the lines that write it are what a search by hand was for. A library method is a resolved edge: not this
+        if not as_json and any(k == 'string' for k, _, _ in rs): STRING_TEXT.append((repo, a, IN, 'string'))
+        elif not as_json and any('not declared here' in lab and 'library method' not in lab for _, lab, _ in rs):
+            STRING_TEXT.append((repo, a, IN, 'undeclared'))
         kinds = {k for k, _, _ in rs}
         if kinds == {'field', 'method'} and not kind:
             # a fluent accessor, a record component, a Python @property: one concept written one way. Answering for
@@ -1726,7 +1850,10 @@ def main(argv):
                 print(f"note: {a} names {len(ids)} declarations in {len(files)} files ({where}) — this answer is for all of them; "
                       f"target one by file:line (e.g. `impact {g.loc(ids[0])}`)", file=sys.stderr if as_json else sys.stdout)
         targets += rs
-    targets_files = [t for k, _, pay in targets for t in (pay if isinstance(pay, list) else []) if isinstance(t, str) and t in g.sym]
+    if IN and os.environ.get('AXIOMCODE_FANOUT') == '1':
+        # for ax_langs: a graph whose declarations of the name lie under --in outranks one whose lie elsewhere (#1584)
+        print(f"axiomcode-scope-declared: {int(scoped_in)}", file=sys.stderr)
+    targets_files =[t for k, _, pay in targets for t in (pay if isinstance(pay, list) else []) if isinstance(t, str) and t in g.sym]
     prof('targets resolved'); res = I.run(targets); prof('souffle done')
     LAB = res['_targets']; multi = len(LAB) > 1
     contract_of = collections.defaultdict(set)
@@ -1828,7 +1955,7 @@ def main(argv):
     for m, d, q_ in res['reach']:
         if 0 < int(d) <= depth and m in g.sym:
             reached[m] = min(int(d), reached.get(m, 10 ** 9)); reach_from[m].add(LAB[q_])
-    if IN: reached = {m: d for m, d in reached.items() if IN in (g.sym[m]['file'] or '')}
+    if IN: reached = {m: d for m, d in reached.items() if g.under_in(g.sym[m]['file'])}
     parent = collections.defaultdict(list)
     for a, b, t, q_ in res['parent_up']: parent[a].append((b, t))
     callers_of = collections.defaultdict(set)
@@ -1847,6 +1974,12 @@ def main(argv):
             at_d = [x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d)]
             _vias = sorted(v for v in at_d if v)
             tests[m] = (int(d), None if any(not v for v in at_d) else (_vias[0] if _vias else None))
+    # A SCRIPT TEST (a module counted as a test) runs its own functions: `runCase` / `main` beside it is its body, not a
+    # fixture run before it, so its own route is the one to report even when it is a hop longer than the carrier's
+    for m, (d, via) in list(tests.items()):
+        if via and g.sym[m]['kind'] == 'module' and (g.sym.get(via) or {}).get('file') == g.sym[m]['file']:
+            own = [int(x[1]) for x in res['test_hit'] if x[0] == m and not x[2] and int(x[1]) <= depth]
+            if own: tests[m] = (min(own), None)
     # the same test, inherited: the subclass runs the base's test method, in its own file
     inh = {}
     for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
@@ -1864,6 +1997,7 @@ def main(argv):
         return (f, int(ln), g.disp(c), c) if f and ln.isdigit() else (g.loc(c), 0, g.disp(c), c)
     sure_set = {x[0] for x in res['reach_sure']}                 # reached from the dependents that ARE an exact edge
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
+    out_src = tests_outside_src(g) if not tests else ('', [])
     # an `alongside` row is not a place the change is observed from: it must stay out of the entry points, as it stays out
     # of the seeds — a reader is promised that an entry point reaches the change (#762)
     # …nor is a stub on a mock: it names the declaration and runs none of it
@@ -1879,6 +2013,13 @@ def main(argv):
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
     chains = {m: I.chain(m, parent) for m in tests}
+    # a MODULE counted as a test is a script test (graph_sql.script_tests): it is labelled with the command it runs by
+    script_ids = {m for m in tests if g.sym[m]['kind'] == 'module'}
+    _runs = {}
+    def script_cmd(m):
+        f = g.sym[m]['file']
+        if f not in _runs: _runs[f] = script_run(g.repo, f)
+        return _runs[f]
     # A TEST THAT HOLDS A MOCK OF A TYPE ON ITS ROUTE never runs that type's methods (ax_edges.mocked_types): a web test
     # with `@MockBean OrderService` reaches the controller over HTTP and stops at the mock, so a route through
     # OrderService is not a route, whatever its rung. Read off the route the answer prints (the nearest one); the test
@@ -1935,7 +2076,10 @@ def main(argv):
                'ambient_terminal': 'registered', 'dynamic_terminal': 'registered',
                'boundary_generated': 'sound', 'implicit_constructor': 'sound',
                # the candidate set was too large to enumerate, so what is here is a SAMPLE of it
-               'fan_capped': 'by name'}
+               'fan_capped': 'by name',
+               # a client across a process to the handler it reaches (#1293): joined by the destination both ends
+               # name, not by a call
+               'remote': 'remote'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -1973,7 +2117,10 @@ def main(argv):
     # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
     # the word that means one.
     CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'registered': 5,
-                 'by key': 6, 'decorator by name': 7, 'protocol': 8, 'fixture': 9, 'by name': 10}
+                 'remote': 6, 'by key': 7, 'decorator by name': 8, 'protocol': 9, 'fixture': 10, 'by name': 11}
+    # `remote` (#1293) sits just above `by key`: both join two ends on a string, but the engine matched a remote
+    # hop's whole route and verb on both ends, where a key join is this file's own rules matching one literal. Not
+    # measured, like every rung below `one of a set`.
     # `registered` is inserted, and nothing above or below it is re-ordered: every rung the precisions were
     # measured for keeps the neighbours it had. It sits below `one of a set` because it is not a resolved
     # call, and above `by key` because the ENGINE recorded the hand-off, where a key join is this file's own
@@ -2034,7 +2181,7 @@ def main(argv):
             # `decorator by name` is the rules' own hop from a decorated def to the decorator it names
             # (dl/impact.dl fw_edge), asserted exactly as `decorator` is; leaving it out printed "✗ not found" on
             # every answer whose test route passes through a project decorator
-            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator', 'decorator by name') for x, t in parent.get(a, [])): bad += 1
+            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator', 'decorator by name', 'remote') for x, t in parent.get(a, [])): bad += 1
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
@@ -2070,7 +2217,8 @@ def main(argv):
                           # whatever the solver happened to emit — which is not the same between backends.
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0]))],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])],
+                                     **({'script': True, 'run': script_cmd(m)} if m in script_ids else {})} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'framework_entries': [{'id': m, 'display': g.disp(m), 'signal': sig, 'at': g.loc(m)} for m, sig in fw_ent],
                           'framework_grep': fw_grep,
                           'stub_tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'at': g.loc(m), 'certainty': 'stubs it',
@@ -2078,7 +2226,7 @@ def main(argv):
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=by_place)],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how, **({'prose': True} if (n, f, l) in prose_hits else {})} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
-                          'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
+                          'test_universe': universe, **({'tests_outside_src': dict(zip(('src', 'files'), out_src))} if out_src[1] else {}), 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
     for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
     # --tests-only: every section is still COMPUTED (the tests are derived from them) but only the tests section,
@@ -2226,6 +2374,31 @@ def main(argv):
         if dropped_alongside: print(f"({dropped_alongside} further `alongside` row(s) not shown — AXIOMCODE_ALONGSIDE_CAP={ALONG_CAP}; those kept share a field with the target or sit in its file)")
         print("(`alongside` = no call, no reference, no contract — only that a fix touching one of these often touches the other;\n"
               " it is never a seed, so the transitive layer below is unaffected by it)")
+    def byname_search(collapsed, seeds):
+        # THE SEARCH NAMES WHAT THE ROWS CALL, OR THE TARGET'S OWN NAME. It used to name the seeds' method names, and a
+        # type or a field has none a person can grep for: `impact User` said grep "<init>", a Python class
+        # "<classbody>", a C# type "<constructor>", and a C# property the names of unrelated methods in its closure.
+        # So: the names each row's reason says it calls; else the target's name as written (the type, the field, the
+        # method); a compiler-made name (<init>, __init__, constructor) is never one.
+        called = collections.Counter()
+        for r in collapsed:
+            for part in re.findall(r'\bcalls (?:the generated \w+ )?([^;(]*(?:\(\))?(?:, [^;,]+)*)', re.sub(r'calls a method of this name[^;]*', '', r[2])):
+                for x in re.findall(r'[A-Za-z_$][\w$]*', part):
+                    if x not in ('the', 'generated', 'getter', 'setter', 'and', 'it', 'sites'): called[x] += 1
+        made = re.compile(r'__\w+__|constructor|<[^>]*>')
+        nm = list(dict.fromkeys(x for x, _ in called.most_common() if not made.fullmatch(x)))[:4]
+        if nm:
+            return (f'grep -rn "\\.{nm[0]}(" {P.grep_roots(g)}' if len(nm) == 1 else
+                    'grep -rnw ' + ' '.join(f'-e "{n}"' for n in nm) + f' {P.grep_roots(g)}')
+        own = []                                   # "class User", "field BasketItem.UnitPrice", "Basket.Add", "f (at a.py:3)"
+        for k_, lab, _p in targets:
+            w = [x for x in re.findall(r'[A-Za-z_$][\w$]*', re.sub(r'<[^>]*>', '', lab.split(' (')[0])) if not made.fullmatch(x)]
+            if w: own.append((k_ if not lab.startswith('construction of') else 'type', w[-1]))
+        own = list(dict.fromkeys(own))[:4]
+        if not own: return ''
+        if len(own) == 1 and own[0][0] == 'method':
+            return f'grep -rn "\\.{own[0][1]}(" {P.grep_roots(g)}'
+        return 'grep -rnw ' + ' '.join(f'-e "{n}"' for _, n in own) + f' {P.grep_roots(g)}'
     for title, rows in groups:
         if not rows: continue
         # PRODUCTION BEFORE TESTS. A test that reaches the target is a CONSEQUENCE of the change, not a place that
@@ -2262,19 +2435,26 @@ def main(argv):
         cap = max(3, limit // 5); per = collections.Counter(); shown = []; hidden = []
         for r in body:
             f = (r[4] or '').rsplit(':', 1)[0]
-            if len(shown) < limit and per[f] < cap: per[f] += 1; shown.append(r)
+            if every_row or (len(shown) < limit and per[f] < cap): per[f] += 1; shown.append(r)
             else: hidden.append(r)
-        for c, role, why, cert, loc, n in shown:
+        def row(r, mark=''):
+            c, role, why, cert, loc, n = r
             why, oth = merge_reasons(why, direct_also.get((c, _grp(role))) or [])
-            print(f"    [{cert}] {g.disp(c)}   {loc}   — {why}" + (f" ({n} sites)" if n > 1 else '') + also_text(oth) + (f"   [for {', '.join(sorted(direct_for[(c, _grp(role))]))}]" if multi else ''))
+            print(f"{mark}    [{cert}] {g.disp(c)}   {loc}   — {why}" + (f" ({n} sites)" if n > 1 else '') + also_text(oth) + (f"   [for {', '.join(sorted(direct_for[(c, _grp(role))]))}]" if multi else ''))
+        for r in shown: row(r)
         if hidden:
             byf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in hidden)
-            print(f"    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--limit N for all of them)")
+            print(f"{SUMM}    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--page 2 for the next rows, --limit N for all of them)")
+            if later:
+                for r in hidden: row(r, HIDE)
         if collapsed:
-            nm = sorted({g.sym[t]['name'] for t in seeds if t in g.sym and g.sym[t].get('method_id') and g.sym[t].get('name')})
-            srch = (f'grep -rn "\\.{nm[0]}(" {P.grep_roots(g)}' if len(nm) == 1 else P.grep_for(g, nm[0]) if nm else '')
-            print(f"    +{len({c for c, *_ in collapsed})} [by name] (the same method name on an untyped receiver; may be another method)"
+            srch = byname_search(collapsed, seeds)
+            calls_ = any(re.search(r'\bcalls\b', r[2]) for r in collapsed)
+            print(f"{SUMM}    +{len({c for c, *_ in collapsed})} [by name] " + ("(the same method name on an untyped receiver; may be another method)" if calls_ else
+                  "(the name written where the engine could not bind it to this declaration; may be another one)")
                   + (f" — {srch} lists them" if srch else '') + "; --page all or --limit N prints each row")
+            if later:
+                for r in collapsed: row(r, HIDE)
         # a test callable that only STUBS it on a mock names it and runs none of it: said apart, never as "reach it"
         tstub = [r for r in tst if r[3] == 'stubs it' or r[2].startswith('stubs a method of this name')]
         tst = [r for r in tst if r not in tstub]
@@ -2362,6 +2542,11 @@ def main(argv):
     weak_tests = [m for m in tests if m not in sure_set]
     sys.stdout = _stdout
     print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
+    if out_src[1]:
+        print(f"    NOT SEEN: the graph was indexed with --src {out_src[0]}, and {len(out_src[1])} test file(s) lie outside it ("
+              + ', '.join(out_src[1][:3]) + (f" … +{len(out_src[1]) - 3}" if len(out_src[1]) > 3 else '')
+              + "), so no test there is counted: 0 here is not 'nothing tests this'. Index without --src (or with one that"
+              " holds the tests) to count them")
     # THE TESTS LINE AGREES WITH THE ROWS ABOVE IT. A callable in test code that this answer LISTS as reaching the change
     # (a [test] entry point, a test row) but that the count does not credit -- a runner entry this tool does not
     # collect (a custom test attribute, a script's main), a remote hop the test walk does not take -- made "tests: 0"
@@ -2371,6 +2556,9 @@ def main(argv):
     test_rows = sorted(({m for m, _ in ent if _is_t(m)} | {c for c, role, why, cert, loc, n in D if _is_t(c) and cert not in ('alongside', 'stubs it')
                                                           and not why.startswith('stubs a method of this name')}) - set(tests) - set(stubbed),
                        key=lambda m: (g.disp(m), g.loc(m)))
+    # a callable in a file whose test is counted runs when that file does (`main` under a script's main guard, the
+    # describe block around a counted `it`): the count already credits it
+    test_rows = [m for m in test_rows if g.sym[m]['file'] not in tfiles]
     if test_rows:
         print(f"    {'and ' if tests else 'but '}{len(test_rows)} callable(s) in test code listed above reach it by a route this count does not credit "
               "(a runner entry it does not collect, a remote or framework hop) — treat them as tests to run: "
@@ -2440,13 +2628,16 @@ def main(argv):
                 # when the file's tests share it, a count when they do not (each one's own is under --why)
                 fxs = {g.disp(tests[m][1]) for m in ms if tests[m][1]}
                 via = (f" via {next(iter(fxs))}" if len(fxs) == 1 else f" via {len(fxs)} fixtures" if fxs else '')
+                # a script test is a whole file run as a program: the command it runs by, never a framework's
+                sc = next((m for m in ms if m in script_ids), None)
+                head = f"{f} (script: {script_cmd(sc) or 'no command found: run the file as its project does'})" if sc else f"{f} ({len(ms)}){via}"
                 if want_why:
-                    print(f"      {f} ({len(ms)}){via}:")
+                    print(f"      {head}:")
                     for m in shown:
                         r = route(m); print(f"        {tname(m)}  {tests[m][0]} hop(s)" + (f"   {r}" if r else ''))
                     if len(ms) > limit: print(f"        … +{len(ms) - limit} more (--limit N)")
                 else:
-                    print(f"      {f} ({len(ms)}){via}: " + ', '.join(tname(m) for m in shown) + (f" … +{len(ms) - limit} more (--limit N)" if len(ms) > limit else ''))
+                    print(f"      {head}: " + ', '.join(tname(m) for m in shown) + (f" … +{len(ms) - limit} more (--limit N)" if len(ms) > limit else ''))
         if not want_why: print("    --why adds each test's route (with --tests-in <file> to keep it short)")
     if want_tests and stubbed:
         sfiles = collections.defaultdict(list)
@@ -2478,7 +2669,7 @@ def main(argv):
         print(f"\ndepends on (what it calls, so what may have to change with it): {len(seen_d)} callable(s)")
         if not seen_d and not libs:
             print("    nothing resolved" + (f" — but its body has {unres} unresolved call(s), so what it depends on is unknown, not nothing" if unres else ""))
-        for m, (cert, f, l) in sorted(seen_d.items(), key=lambda x: (CERT_RANK.get(x[1][0], 9), g.sym[x[0]]['display']))[:limit]:
+        for m, (cert, f, l) in sorted(seen_d.items(), key=lambda x: (CERT_RANK.get(x[1][0], 10), g.sym[x[0]]['display']))[:limit]:
             print(f"    [{cert}] {g.disp(m)}   {g.loc(m)}")
         if len(seen_d) > limit: print(f"    … +{len(seen_d) - limit} (--limit N)")
         if libs: print("    into libraries (not traversed): " + ', '.join(str(x['lab']).split('(')[0] for x in libs[:6]) + (f" … +{len(libs) - 6}" if len(libs) > 6 else ''))
@@ -2760,6 +2951,18 @@ def main(argv):
     nt = len(tests) + len(test_rows)
     tpart = (f"; {nt} test(s) reach it — run them after the edit (`test-impact`)" if nt else '')
     if places: places = list(dict.fromkeys(places + [x for x in ext_locs if x not in here]))
+    # WHY NOTHING CALLS IT, every reason, from the one reader the hooks' `← ?` label and path's empty-upstream note read
+    # (graph_sql.no_caller_reasons): the hook said `? framework (@cache.memoize)` where this answer counted callers by
+    # name, and this answer named a library base where the hook named the annotation. Said where no production caller
+    # was found, before the verdict that depends on it.
+    if lone and not places:
+        _am = [i for i in asked if (g.sym.get(i) or {}).get('method_id')][:3]
+        try: _why = graph_sql.no_caller_reasons(g.q, _am) if _am else {}
+        except Exception: _why = {}
+        for i in _am:
+            if any(k not in ('entry', 'test') for k, _l, _a in _why.get(i) or ()):     # an entry point alone is said above
+                print(f"why nothing in the graph calls {g.disp(i)}: " + '; '.join(
+                    graph_sql.no_caller_phrase(k, l) + (f" ({at})" if at else '') for k, l, at in _why[i]))
     if not places and ext_locs:
         print(f"next: nothing resolved in the source depends on it, but {len(ext_locs)} site(s) outside the source {'define' if all(x[3].startswith('defines') for x in ext_strong) else 'name'} it and "
               f"break at RUN time on a rename, a move or a delete — read {', '.join(here) or 'the declaration'}, then "
@@ -2777,7 +2980,17 @@ def main(argv):
         print(f"next: nothing in this graph calls it, but it is not local — it is {'an' if ep_why[0][:1] in 'aeiou' else 'a'} {'/'.join(ep_why[:3])} entry point, so its "
               f"callers are outside the graph (the framework, a request, a client, a runner, a scheduler): read {', '.join(here) or 'the declaration'}; a body change "
               f"is safe there, a change to its name, route, parameters or result breaks those callers{tpart}{lead}")
-    elif not places and unmod and (unmod_own or not maybe):
+    # THE ORDER IS graph_sql.NO_CALLER_KINDS, the order the hooks' `← ?` label and path's note read: a decoration on it,
+    # then the call sites that write its name, then what says only that a framework MAY enter its TYPE (a decoration on
+    # the type, a library base whose methods the graph does not hold)
+    elif not places and unmod and unmod_own:
+        print(f"next: {nobody}, but NOT CHECKED: {unmod_sig} — a framework calls it and the graph does not model how; "
+              f"before treating the change as local run: {unmod_grep}{' — then read ' + ', '.join(here) if here else ''}{tpart}{lead}")
+    elif not places and weak_n:
+        print(f"next: no resolved caller, but {weak_n} caller(s) above reach it by name or text, which the graph could not confirm — "
+              f"check {', '.join(weak_locs[:4]) or 'them'}{' …' if len(weak_locs) > 4 else ''} before treating the change as contained, "
+              f"then read {', '.join(here) or 'the declaration'}{tpart}")
+    elif not places and unmod and not maybe:
         print(f"next: {nobody}, but NOT CHECKED: {unmod_sig} — a framework calls it and the graph does not model how; "
               f"before treating the change as local run: {unmod_grep}{' — then read ' + ', '.join(here) if here else ''}{tpart}{lead}")
     elif not places and maybe:
@@ -2785,10 +2998,6 @@ def main(argv):
               f"it is declared on a subtype of {', '.join(maybe[:3])}, which the graph does not contain: if it overrides one of "
               f"its methods (for a type: wherever one of its methods does), that library calls it with no call site here, so a "
               f"change to that name or signature is not local{'; to check: ' + unmod_grep if unmod_grep else ''}{lead}")
-    elif not places and weak_n:
-        print(f"next: no resolved caller, but {weak_n} caller(s) above reach it by name or text, which the graph could not confirm — "
-              f"check {', '.join(weak_locs[:4]) or 'them'}{' …' if len(weak_locs) > 4 else ''} before treating the change as contained, "
-              f"then read {', '.join(here) or 'the declaration'}{tpart}")
     elif not places and nt:
         print(f"next: no production code depends on it, but {nt} test(s) reach it — read {', '.join(here) or 'the declaration'} "
               f"and edit there, then run those tests (`test-impact` after the edit){lead}")
@@ -2806,4 +3015,6 @@ def main(argv):
 if __name__ == '__main__':
     if not sys.argv[1:] or sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
     import ax_pages; ax_pages.install('impact')       # --page / --budget, and the answer printed in pages (#1198)
-    sys.exit(main(sys.argv[1:]))
+    code = main(sys.argv[1:])
+    for repo, a, scope, why in STRING_TEXT: sys.stdout.flush(); ax_text.emit(repo, [a], scope, why=why)
+    sys.exit(code)

@@ -840,6 +840,11 @@ function calleeExpressionOf(
   if (!callRow) {
     return undefined;
   }
+  // A bare `@guarded` is its own callee: the site is the name, with no call
+  // expression around it (#233).
+  if (callSite.callKind === 'DECORATOR_CALL' && callRow.kind !== 'CALL_EXPRESSION') {
+    return callRow;
+  }
   return (childrenByParent.get(callRow.getHash()) ?? [])
     .find((child) => child.edgeRole === 'METHOD_NAME');
 }

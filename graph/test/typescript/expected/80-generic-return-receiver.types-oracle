@@ -1,0 +1,7 @@
+80-generic-return-receiver [types]
+  precision 1.0000   (8 correct, 0 wrong)
+  recall    1.0000   (8 of 8 the compiler resolved)
+  sites 22   resolved 18 (81.8%)
+  tiers ambiguous_unknown=4  known_edge=18
+  contexts AS_TARGET=1  IMPLEMENTS_INTERFACE=3  INDEX_SIGNATURE_VALUE=1  METHOD_PARAM=2  METHOD_RETURN=2  METHOD_TYPE_ARGUMENT=4  OBJECT_CREATION_TYPE=6  TYPE_ARGUMENT=1  VARIABLE_TYPE=2
+  not scored: 4 rows whose target is not a client declaration

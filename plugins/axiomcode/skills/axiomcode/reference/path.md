@@ -87,7 +87,11 @@
   have no chain, a key that connects them is reported with the line that writes it, including the two spellings of one
   path (`/orders/o-1/price` written against `/orders/{order_id}/price` registered). It is reported, never walked: a
   chain here means control reaches B from A *through these calls*, and a registration is not a call. `impact` is the
-  verb that follows the hop, and the answer says so rather than ending at a dead end. The conventions come from the
+  verb that follows the hop, and the answer says so rather than ending at a dead end. It also says WHY nothing in the
+  graph calls it, the first two reasons from the same reader the hooks' `← ?` label and impact's `why nothing in the
+  graph calls` line use: an entry point, a registration, a decoration a framework reads (a wrapper such as a cache is
+  not one), a library method it overrides, the call sites that write its name, a library base of its type, a
+  decoration on its type. A caller through an interface or base method the closure does not walk is named there too. The conventions come from the
   one module both tools read (`scripts/ax_registration.py`).
 - **What it cannot find, by construction** — say so instead of guessing: a call whose receiver the engine could not type
   (DI-injected, unbound generic, a parameter in a dynamic language) stops the chain and is counted in `bound:`; callbacks

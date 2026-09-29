@@ -1,0 +1,11 @@
+import_cause     index.js:19:14  some-unstaged-base  not_staged
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       index.js:12:18  METHOD_CALL x  member_absent
+unresolved       index.js:20:41  METHOD_CALL emit  member_absent
+unresolved       index.js:22:31  METHOD_CALL hasOwnProperty  member_absent
+unresolved       index.js:4:33  METHOD_CALL hook  member_absent
+unresolved       index.js:7:23  METHOD_CALL assign  no_target
+unresolved       index.js:8:18  METHOD_CALL onReady  member_absent
+value_callee     index.js:12:18  this.x  field
+value_callee     index.js:4:33  this.hook  instance_member
+value_callee     index.js:8:18  this.onReady  instance_member

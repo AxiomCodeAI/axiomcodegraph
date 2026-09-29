@@ -302,7 +302,8 @@ direct(q, c, "uses", cat("serves what this sends across a process boundary (", c
 // a provider does not depend on the handler asking for it, so it is claimed for none.
 // Certainty is `framework`, never `resolved`: the reason carries the mechanism, what joined the two ends and
 // the engine's own confidence (`registered`, or `by_name` for a fixture), so a reader can tell the hop from
-// an invocation. A direct row only, not a seed of the closure: the contract `remote` keeps, for the same reason.
+// an invocation. A direct row only, not a seed of the closure. (`remote` is walked by the closure, as the fw_edge
+// tier `remote` below, from the sender to the handler only.)
 .decl framework(f:symbol, t:symbol, mech:symbol, detail:symbol, conf:symbol)             .input framework
 direct(q, c, "uses", cat("framework-mediated, not a call: ", cat(mech, cat(" via ", cat(detail, cat(" [", cat(conf, "]")))))), "framework", "", 0)
     :- target(q, "method", m, _), framework(c, m, mech, detail, conf), c != m.
@@ -876,6 +877,12 @@ fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b
 dec_decl(d, w) :- decorated(_, d), named(d, w), 1 = count : { named(d, _) }.
 dec_decl(d, w) :- decorated(s, d), named(d, w), decl_file(s, f), decl_file(w, f).
 fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
+// A CLIENT ACROSS A PROCESS: the sender depends on the handler it reaches (#1293). `remote` above makes the client a
+// DIRECT row; walked only there, a test that drives the client never reached a change to the handler, so
+// test-impact stopped at the route while impact named the client one line up. Walked here as its own tier, the
+// test route carries the `remote` rung, so it is never read as a call chain. One direction only: a handler does
+// not depend on who sends to it.
+fw_edge(a, b, "remote") :- remote(a, b, _, _, _), a != b.
 // THE PROTOCOL MEMBERS OF A TYPE YOU CONSTRUCT. `with Audit(...) as a`, `for line in audit`, `a == b`, `len(x)`,
 // `x[k]` — each runs a method, and none of them writes its name, so `__enter__`, `__iter__`, `__eq__` and their
 // siblings have no call site at all and a test that drives them looks unrelated. The one thing the graph does see

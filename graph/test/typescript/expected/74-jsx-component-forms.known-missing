@@ -1,9 +1,6 @@
 # Accepted gaps for 74-jsx-component-forms — each line is an edge the TypeScript compiler
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
-# `<ui.Chip/>` — a member of an object literal named as a tag: the same receiver shape
-# as `ui.Chip({...})`, which the member rules do not resolve either.
-app#App() -> parts#Chip({ text: string })
 # CONTROL, not a JSX gap: `factory()` calls the product a declared factory returns, a
 # bodiless function type. Argument 0 of makeFactory must NOT stand in for it.
 app#useFactory() -> parts#<arrow@22>()

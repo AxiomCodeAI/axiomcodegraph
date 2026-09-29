@@ -1,4 +1,8 @@
 package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       declared.js:9:34  FUNCTION_CALL fn  callee_untyped
+unresolved       declared.js:9:34  FUNCTION_CALL fn  param_fan_capped
 unresolved       memoize.js:7:14  FUNCTION_CALL fn  callee_untyped
 unresolved       memoize.js:7:14  FUNCTION_CALL fn  param_fan_capped
+unresolved       shapes.js:55:3  METHOD_CALL run  member_absent
+value_callee     declared.js:9:34  fn  parameter
 value_callee     memoize.js:7:14  fn  parameter

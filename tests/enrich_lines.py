@@ -42,12 +42,15 @@ SRC = {
                               '    public void prime(Object anything) {\n        registry.lookup("jobs").nudgeAll();\n    }\n}\n'),
     P + 'Jobs.java': ('package app.orders;\n\nimport org.springframework.scheduling.annotation.Scheduled;\n'
                       'import org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n'
-                      '@RestController\npublic class Jobs implements Runnable {\n'
+                      '@RestController\npublic class Jobs {\n'
                       '    @GetMapping("/orders")\n    public String listOrders() { return new Plain().countAll(); }\n\n'
                       '    @Scheduled(fixedRate = 1000)\n    public void sweepStale() { new Plain().countAll(); }\n\n'
-                      '    @Override\n    public void run() { new Plain().countAll(); }\n\n'
                       '    public void nudgeAll() { new Plain().countAll(); }\n\n'
                       '    public void pokeAll() { new Plain().countAll(); }\n}\n'),
+    # a library base: `run` overrides it, `tickAll` only may (the graph does not hold Runnable's methods)
+    P + 'Ticker.java': ('package app.orders;\n\npublic class Ticker implements Runnable {\n'
+                        '    @Override\n    public void run() { new Plain().countAll(); }\n\n'
+                        '    public void tickAll() { new Plain().countAll(); }\n}\n'),
     P + 'Plain.java': ('package app.orders;\n\npublic class Plain {\n    public String countAll() { return "1"; }\n'
                        '    public int unusedCount() { return Integer.parseInt(countAll()); }\n}\n'),
     # two overloads in one file: one name to the reader, printed once
@@ -110,13 +113,15 @@ with tempfile.TemporaryDirectory() as repo:
     g = grep(repo, 'listOrders|sweepStale|nudgeAll|pokeAll|unusedCount')
     check('a route handler with no caller reads as an entry point, not as 0', '← entry (http)' in line_of(g, 'Jobs.listOrders'), g)
     check('a scheduled method reads as an entry point', '← entry (scheduled)' in line_of(g, 'Jobs.sweepStale'), g)
-    check('a method whose name is written at an untyped call site counts that site', '← 0 resolved, 1 by name' in line_of(g, 'Jobs.nudgeAll'), g)
+    check('a method whose name is written at an untyped call site counts that site, before the annotation on its class',
+          '← 0 resolved, 1 by name' in line_of(g, 'Jobs.nudgeAll'), g)
     check('a method of a framework-annotated class says which annotation', '← ? framework (@RestController on Jobs)' in line_of(g, 'Jobs.pokeAll'), g)
     check('control: an undecorated method nothing calls still reads 0', '← 0  →' in line_of(g, 'Plain.unusedCount'), g)
-    r = fire(repo, 'r1', 'Read', {'file_path': os.path.join(repo, P + 'Jobs.java')})
+    r = fire(repo, 'r1', 'Read', {'file_path': os.path.join(repo, P + 'Ticker.java')})
     check('a Read labels a library override the same way', 'run ←? framework (overrides a library method)' in r, r)
+    check('a method of a class with a library base that it may not override names the base', 'tickAll ←? framework (extends Runnable)' in r, r)
     check('control: a Read of a method with callers still counts them',
-          'countAll ←5' in fire(repo, 'r2', 'Read', {'file_path': os.path.join(repo, P + 'Plain.java')}))
+          'countAll ←6' in fire(repo, 'r2', 'Read', {'file_path': os.path.join(repo, P + 'Plain.java')}))
 
     # ── the preview order (#1507) and several declarations (#1546) ───────────────────────────────────────
     g = grep(repo, 'findById')
@@ -198,7 +203,8 @@ with tempfile.TemporaryDirectory() as repo:
         tool = os.path.join(repo, 'tool.py')
         r = fire(repo, 'p1', 'Read', {'file_path': tool})
         check('a whole-script read does not list its own top level as a caller', '<module>' not in r, r)
-        check('control: the cross-file callee it cannot show is still there', 'helper ←0 →1' in r, r)
+        check('control: the cross-file callee it cannot show is still there', 'helper ← callers in range →1' in r, r)
+        check('a declaration whose only caller is in the lines read does not read as ←0', 'helper ←0' not in r, r)
         r = fire(repo, 'p2', 'Read', {'file_path': tool, 'offset': 8, 'limit': 3})
         check('control: a range that leaves out the top-level call names it, at the line of the call',
               'main L8' in r and 'tool.<module> L17' in r, r)
@@ -212,6 +218,38 @@ with tempfile.TemporaryDirectory() as repo:
         check('anonymous functions, bare or owner-qualified, are counted in +N more but not named',
               ('+5 more' in more or '+4 more' in more) and '<lambda>' not in more, r)
         check('control: the named ones left over are still named there', 'f' in more.split(':', 1)[-1], r)
+
+# ── one reader for "why nothing calls it" (graph_sql.no_caller_reasons), and callers through an interface ──────────
+CASES = os.path.join(ROOT, 'tests', 'cases')
+with tempfile.TemporaryDirectory() as repo:
+    shutil.copytree(os.path.join(CASES, 'python', 'why-no-caller-one-reader', 'src'), os.path.join(repo, 'src'))
+    git(repo, 'init', '-q'); git(repo, 'add', '-A'); git(repo, 'commit', '-qm', 'init')
+    subprocess.run(['bash', AX, 'index', repo, '--lang', 'python'], capture_output=True, text=True, timeout=1800)
+    if not os.path.exists(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')):
+        check('the reader project indexes', False)
+    else:
+        g = grep(repo, 'get_standings|refresh_board|load_user|_unused_helper', session='g-why')
+        check('a caching wrapper is not the reason: the Grep line counts the call sites that write the name, as impact does',
+              '← 0 resolved, 1 by name' in line_of(g, 'get_standings') and 'memoize' not in g, g)
+        check('near-miss control: a library decoration a framework reads is still the reason',
+              '← ? framework (@app_hooks.before_request)' in line_of(g, 'load_user'), g)
+        check('control: a private helper with no reason still reads 0', '← 0  →' in line_of(g, '_unused_helper'), g)
+with tempfile.TemporaryDirectory() as repo:
+    shutil.copytree(os.path.join(CASES, 'java', 'callers-through-the-interface', 'src'), os.path.join(repo, 'src'))
+    git(repo, 'init', '-q'); git(repo, 'add', '-A'); git(repo, 'commit', '-qm', 'init')
+    subprocess.run(['bash', AX, 'index', repo, '--lang', 'java'], capture_output=True, text=True, timeout=1800)
+    if not os.path.exists(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')):
+        check('the interface project indexes', False)
+    else:
+        rd = lambda f, sid: fire(repo, sid, 'Read', {'file_path': os.path.join(repo, 'src', 'app', *f.split('/'))})
+        r = rd('store/Store.java', 'r-iface')
+        check('an interface method whose callers hold an interface-typed field lists them, as impact does (#1542)',
+              'Store.save L4  ← CtorIface.place, FieldIface.place' in r, r)
+        r = rd('widgets/WidgetService.java', 'r-iface2')
+        check('a caller through the interface is listed beside a resolved one', 'WidgetReport.line' in r and 'WidgetController.get' in r, r)
+        r = rd('shapes/Circle.java', 'r-area')
+        check('near-miss control: a caller typed on the other implementation is not a caller of this one',
+              'Circle.area' in r and 'squareOnly' not in r, r)
 
 print()
 print(f"{len(checked) - len(fails)} of {len(checked)} check(s) held" if not fails else f"{len(fails)} FAILED: " + '; '.join(fails))

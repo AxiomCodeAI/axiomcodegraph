@@ -23,3 +23,4 @@ unresolved       app.jsx:9:14  FUNCTION_CALL memo  callee_untyped
 unresolved       defmemo.jsx:4:16  FUNCTION_CALL memo  callee_untyped
 unresolved       parts.jsx:6:24  FUNCTION_CALL memo  callee_untyped
 unresolved       parts.jsx:6:29  FUNCTION_CALL forwardRef  callee_untyped
+value_callee     app.jsx:42:3  Card  module_variable

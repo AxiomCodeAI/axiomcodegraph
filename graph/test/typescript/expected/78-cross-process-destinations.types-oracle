@@ -1,0 +1,9 @@
+78-cross-process-destinations [types]
+  precision 0.5000   (1 correct, 1 wrong)
+  recall    0.5000   (1 of 2 the compiler resolved)
+  sites 12   resolved 3 (25.0%)
+  tiers ambiguous_unknown=9  known_edge=3
+  contexts DECORATOR_TYPE=3  METHOD_PARAM=3  METHOD_RETURN=3  OBJECT_CREATION_TYPE=1  SUPER_TYPE=1  VARIABLE_TYPE=1
+  not scored: 9 rows whose target is not a client declaration
+    WRONG   client/axios USES HttpStatic
+    MISSING client/axios.d USES HttpStatic
