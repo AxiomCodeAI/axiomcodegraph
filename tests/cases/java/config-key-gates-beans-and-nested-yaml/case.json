@@ -1,0 +1,46 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a key read only by @ConditionalOnProperty is a configuration fact: the beans it gates are what it reaches, with the verdict",
+   "run": ["impact", "feature.mode"],
+   "want": ["FeatureConfig.ModeA.engineA", "FeatureConfig.ModeB.engineB", "selected", "excluded"],
+   "avoid": ["no configuration fact", "has no configuration facts"]
+  },
+  {
+   "why": "a condition on a @Bean factory gates that factory, and nothing else in its class",
+   "run": ["impact", "feature.fast"],
+   "want": ["FeatureConfig.fastEngine"],
+   "avoid": ["no configuration fact", "engineA", "engineB"]
+  },
+  {
+   "why": "a key only a condition names, defined nowhere, is still answered: the condition is undecided",
+   "run": ["impact", "app.web.enabled"],
+   "want": ["WebConfig.webEngine", "undecided"],
+   "avoid": ["no configuration fact"]
+  },
+  {
+   "why": "control: a key bound by @Value still lists its reader",
+   "run": ["impact", "greet.prefix"],
+   "want": ["Greeter.greet"]
+  },
+  {
+   "why": "the nested YAML line that defines the key is listed, beside the flat .properties override",
+   "run": ["impact", "greet.prefix"],
+   "want": ["application.yml:5", "application-dev.properties:1"]
+  },
+  {
+   "why": "control: a flat dotted spelling in YAML is listed at its line, and a nested leaf of another key is not",
+   "run": ["impact", "greet.suffix"],
+   "want": ["application.yml:6"],
+   "avoid": ["application.yml:5", "application-dev.properties"]
+  },
+  {
+   "why": "a nested key under a parent that shares no line with it is found at the leaf, not at the parent line",
+   "run": ["impact", "feature.mode"],
+   "want": ["application.yml:2"],
+   "avoid": ["application.yml:1 "]
+  }
+ ]
+}

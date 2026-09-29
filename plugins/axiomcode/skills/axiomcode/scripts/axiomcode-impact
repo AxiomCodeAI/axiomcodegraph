@@ -114,6 +114,32 @@ def ckey(k):
     so a key is matched on this form and every spelling that shares it is one target."""
     return re.sub(r'[^a-z0-9.]', '', k.lower())
 
+def yaml_key_lines(text):
+    """-> [(canonical full key, line)] for every mapping key in a YAML text, with its NESTING: `greet:` then
+    `  prefix: "Hi "` is `greet.prefix` at the second line, which a line read alone calls `prefix` (#1390). The
+    usual settings-file subset only: indentation opens a level, `---` starts a new document, a list item and a
+    block scalar's text (`key: |`) define no key. A flat dotted spelling (`greet.suffix: x`) is its own path."""
+    out, stack, scalar = [], [], None                 # stack: [(indent, key)]; scalar: the indent a block scalar sits under
+    for i, line in enumerate(text.split('\n'), 1):
+        body = line.rstrip()
+        if not body.strip() or body.lstrip().startswith('#'): continue
+        ind = len(body) - len(body.lstrip(' '))
+        if scalar is not None:
+            if ind > scalar: continue
+            scalar = None
+        if re.match(r'^(---|\.\.\.)(\s|$)', body): stack = []; continue
+        while stack and stack[-1][0] >= ind: stack.pop()
+        if body.lstrip().startswith('-'): stack.append((ind, None)); continue      # a list item: what it holds is indexed, not named
+        if any(x is None for _, x in stack): continue
+        m = re.match(r'\s*(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z0-9_.\-\[\]]+))\s*:(?:\s+(.*))?$', body)
+        if not m: continue
+        k = m.group(1) or m.group(2) or m.group(3); v = (m.group(4) or '').strip()
+        full = '.'.join([x for _, x in stack] + [k])
+        out.append((ckey(full), i))
+        if re.match(r'^[|>][-+0-9]*(\s+#.*)?$', v): scalar = ind
+        elif not v or v.startswith('#'): stack.append((ind, k))
+    return out
+
 # `registered` and `capped set` sit between the resolved edge and the ones the engine never made:
 # both ARE engine edges, so they outrank `in scope` and every name match, and neither is a resolved
 # call to the declaration, so neither may outrank `one of a set`. See ax_edges.DIRECT_CERT.
@@ -270,25 +296,25 @@ class Impact:
         return bool(self.g.q("SELECT 1 FROM symbols WHERE name = ? AND kind NOT IN ('library', 'written') LIMIT 1", name))
     def has_config(self):
         g = self.g
-        return any(g.q(f"SELECT 1 FROM {t} LIMIT 1") for t in ('ext_config_affects_method', 'ext_config_binding', 'ext_config_key_ref') if g.has(t))
+        return any(g.q(f"SELECT 1 FROM {t} LIMIT 1") for t in ('ext_config_affects_method', 'ext_config_binding', 'ext_config_key_ref',
+                                                             'ext_config_bean_condition') if g.has(t))
     def config_target(self, s):
         """a configuration key: what the engine's framework extension bound it into. An unknown key stops with what is known —
         a key is never answered as a by-name match on code, which is what makes a wrong answer look like an answer."""
         g = self.g
-        any_cfg = sum(g.q(f"SELECT count(*) FROM {t}")[0][0] for t in ('ext_config_affects_method', 'ext_config_binding', 'ext_config_key_ref') if g.has(t))
-        if not any_cfg:
+        if not self.has_config():
             die(f"'{s}' looks like a configuration key, and this graph has no configuration facts (the engine's framework extension\n"
                 f"  did not run, or found none here): what reads this key is NOT visible. Re-index with the extension, or ask for the\n"
                 f"  code that reads it by name (a @Value / @ConfigurationProperties method).")
-        want = ckey(s); written = set()
-        for tb in ('ext_config_affects_method', 'ext_config_binding', 'ext_config_key_ref', 'ext_config_unresolved'):
-            if g.has(tb): written |= {r[0] for r in g.q(f"SELECT DISTINCT c0 FROM {tb}") if ckey(r[0]) == want}
+        import graph_sql
+        want = ckey(s); written = {k for k in graph_sql.config_keys_written(g.q) if ckey(k) == want}
         if not written:
             near = [r[0] for r in g.q("SELECT DISTINCT c0 FROM ext_config_binding WHERE c0 LIKE ? LIMIT 6", s.split('.')[0] + '%')] if g.has('ext_config_binding') else []
             die(f"no configuration fact for the key '{s}' in this graph: nothing the engine saw binds or reads it, so its impact is\n"
                 f"  UNKNOWN, not empty." + (" Keys under the same prefix that are known: " + ', '.join(near) if near else ''))
-        n = len({r[0] for r in g.q("SELECT c1, c0 FROM ext_config_affects_method")
-                 if ckey(r[1]) == want}) if g.has('ext_config_affects_method') else 0
+        n = len(({r[0] for r in g.q("SELECT c1, c0 FROM ext_config_affects_method")
+                  if ckey(r[1]) == want} if g.has('ext_config_affects_method') else set())
+                | {m for k, m, _ in graph_sql.config_condition_uses(g.q) if ckey(k) == want})
         others = sorted(written - {s})
         return [('config', f"configuration key {s}" + (f" ({n} method(s) bound to it)" if n else " (bound, but no method reads it in this graph)")
                  + (f", also written {', '.join(others)}" if others else ''), want)]
@@ -735,6 +761,9 @@ class Impact:
             if os.path.splitext(rel)[1].lower() not in self.KEYFILE_EXT: continue
             try: text = open(os.path.join(self.g.repo, rel), errors='replace').read()
             except OSError: continue
+            if os.path.splitext(rel)[1].lower() in ('.yml', '.yaml'):
+                out += [(k, rel, i) for k, i in yaml_key_lines(text) if k in keys]
+                continue
             for i, line in enumerate(text.split('\n'), 1):
                 m = re.match(r'\s*([A-Za-z0-9_.\-]+)\s*[:=]', line)
                 if m and ckey(m.group(1)) in keys: out.append((ckey(m.group(1)), rel, i))
@@ -755,7 +784,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '40'          # 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '45'          # 45: config and config_key_known read the key from each ext_config_* table's own column and add the beans a property condition gates (#1386); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1284,8 +1313,9 @@ class Impact:
         if g.has('ext_config_affects_method'):
             for r in g.q("SELECT a.c0, a.c1, a.c2 FROM ext_config_affects_method a JOIN symbols s ON s.method_id = a.c1"): cfg.append((ckey(r[0]), r[1], r[2] or 'bound'))
             keys |= {ckey(r[0]) for r in g.q("SELECT DISTINCT c0 FROM ext_config_affects_method")}
-        for t in ('ext_config_binding', 'ext_config_key_ref', 'ext_config_unresolved'):
-            if g.has(t): keys |= {ckey(r[0]) for r in g.q(f"SELECT DISTINCT c0 FROM {t}")}
+        import graph_sql
+        keys |= {ckey(k) for k in graph_sql.config_keys_written(g.q)}
+        for k, m, why in graph_sql.config_condition_uses(g.q): cfg.append((ckey(k), m, why))
         if g.has('ext_bean_def'):
             beans = [(r[0], r[1], r[2] or 'bean') for r in g.q("SELECT c0, c1, c2 FROM ext_bean_def")]
             # c3 is the METHOD an @Bean factory is declared on; `bean` keys on the TYPE, so a rule that wants

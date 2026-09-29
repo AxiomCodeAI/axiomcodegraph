@@ -266,6 +266,12 @@ cfg_query_arg("value").           cfg_query_arg("query").
 //     expects; conditions.dl joins that against the resolved key space.
 //     cfg_property_condition_ann(Name, KeyArg, ExpectedArg)
 cfg_property_condition_ann("ConditionalOnProperty", "name", "havingValue").
+cfg_property_condition_ann("ConditionalOnBooleanProperty", "name", "havingValue").
+//     cfg_property_condition_default(Name, Expected): the havingValue an annotation
+//     expects when the argument is omitted. ConditionalOnBooleanProperty's havingValue
+//     is a boolean defaulting to true; ConditionalOnProperty has none, and then
+//     matches any value but "false".
+cfg_property_condition_default("ConditionalOnBooleanProperty", "true").
 
 // (b) PROFILE conditions. The same question keyed on the active profile set,
 //     which is itself a config key (spring.profiles.active).
@@ -375,3 +381,14 @@ cfg_event_listener_type("ApplicationListener", "onApplicationEvent").
 // is wrapped in a PayloadApplicationEvent, which is an ApplicationEvent.
 cfg_event_catch_all("ApplicationEvent").
 cfg_event_catch_all("Object").
+
+// ── (21) BINDER VALIDATORS: @InitBinder registers, @Valid runs it ────────────
+// (call-edge-generation/binder_validation.dl). The binder method annotation, the calls
+// on its WebDataBinder that register a validator, the validator methods Spring calls
+// (name, parameter count), the argument annotations that ask for validation, and the
+// @ModelAttribute arguments that name a model attribute.
+cfg_init_binder_ann("InitBinder").
+cfg_binder_register("setValidator"). cfg_binder_register("addValidators").
+cfg_validator_method("validate", 2). cfg_validator_method("supports", 1).
+cfg_valid_ann("Valid").              cfg_valid_ann("Validated").
+cfg_model_attr_arg("value").         cfg_model_attr_arg("name").

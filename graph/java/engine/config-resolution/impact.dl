@@ -14,8 +14,9 @@
 //
 // FOUR BINDING MECHANISMS, reported separately (a per-mechanism precision/recall
 // number is the only kind that says WHICH mechanism is broken):
-//   value_annotation   @Value("${a.b}")                      field or parameter
-//   config_properties  @ConfigurationProperties(prefix="a")  every field of the type
+//   value_annotation   @Value("${a.b}")                      field, parameter or method
+//   config_properties  @ConfigurationProperties(prefix="a")  every field of the type (on
+//                                                            the type or its @Bean factory)
 //   xml_property       <property name="p" value="${a.b}"/>   the bean's setP setter
 //   class_binding      a key whose value NAMES a class       that class's methods
 //
@@ -74,12 +75,27 @@ cfg_value_site_param(p, m, v) :- ann_on_param(prov, a, n, p, m), cfg_value_ann(n
 config_binding(k, "value_annotation", "param", p, m) :-
     cfg_value_site_param(p, m, v), cfg_placeholder(v, k, _).
 
+// (b2) @Value on a METHOD. Spring documents a method as an injection point: the container
+// calls it with the resolved value, as it calls the setter an XML <property> names, so it
+// binds as a "setter" and the setter clauses below take it from there.
+cfg_value_site_method(m, owner, v) :- ann_on_method(prov, a, n, m, owner), cfg_value_ann(n),
+    ann_arg_value(prov, a, v).
+config_binding(k, "value_annotation", "setter", m, owner) :-
+    cfg_value_site_method(m, owner, v), cfg_placeholder(v, k, _).
+
 // (c) @ConfigurationProperties(prefix="svc") on a TYPE: every field of that type
 // binds to prefix + "." + fieldName, and a field whose own type is another client
 // type nests one more level. Bounded to depth 3 — deep enough for every real
 // binding tree, shallow enough that a self-referential type cannot diverge.
 cfg_props_prefix(t, pre) :- ann_on_type(prov, a, n, t), cfg_props_ann(n), ann_arg_value(prov, a, pre).
 cfg_props_prefix(t, pre) :- ann_on_type(prov, a, n, t), cfg_props_ann(n), ann_arg(prov, a, "prefix", pre, _, _).
+// ... and on a @Bean FACTORY METHOD, the documented way to bind a class the application does
+// not annotate itself: the prefix applies to the type the factory produces (cfg_factory_type,
+// di.dl). A factory producing a library type binds nothing, since it has no client fields.
+cfg_props_prefix(t, pre) :- ann_on_method(prov, a, n, m, _), cfg_props_ann(n),
+    ann_arg_value(prov, a, pre), cfg_factory_type(m, t).
+cfg_props_prefix(t, pre) :- ann_on_method(prov, a, n, m, _), cfg_props_ann(n),
+    ann_arg(prov, a, "prefix", pre, _, _), cfg_factory_type(m, t).
 cfg_props_scope(t, pre, 0) :- cfg_props_prefix(t, pre).
 cfg_props_scope(ft, sub, d1) :- cfg_props_scope(t, pre, d), d < 3, d1 = d + 1,
     java_field(fn, _, _, _, _, _, _, _, t, _, _, _, _, f),
@@ -161,6 +177,32 @@ cfg_field_read(f, id) :- gen_accessor_field(id, f).
 // touches the bound value.
 config_bound_method(k, m, "reads_field") :- config_binding_effective(k, _, "field", f, _),
     cfg_field_read(f, m).
+// A key that arrives through a PARAMETER and is STORED in a field: a constructor
+// `Ctor(@Value("${a}") int ttl) { this.ttl = ttl; }`, or a bound setter
+// `setTtl(int t) { this.ttl = t; }`. The receiving method runs once, from the container,
+// so its callers are not where the value goes; the methods that read the field are. The
+// store is found through field_access (the resolved write), so `this.f` and a bare `f`
+// count and a local sharing the field's name does not. The stored value is any
+// expression the parameter appears in (`t`, `t * 1000L`): the field then depends on the key.
+cfg_bound_param(k, p, m) :- config_binding_effective(k, _, "param", p, m).
+cfg_bound_param(k, p, m) :- config_binding_effective(k, _, "setter", m, _),
+    param_decl("client", _, _, _, m, p).
+cfg_store_method(m) :- cfg_bound_param(_, _, m).
+cfg_store_kind("ASSIGNMENT_EXPRESSION"). cfg_store_kind("COMPOUND_ASSIGNMENT").
+cfg_field_store(asgn, f, m) :- cfg_store_method(m), cfg_store_kind(sk),
+    java_expression(sk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, asgn),
+    expr_ultimate_method("client", asgn, m),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tgt),
+    field_access_target(tgt, f), field_prov("client", f).
+cfg_store_value(asgn, e) :- cfg_field_store(asgn, _, _),
+    java_expression(_, "ASSIGNMENT_VALUE", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+cfg_store_value(asgn, e) :- cfg_store_value(asgn, par),
+    java_expression(_, _, _, _, _, _, par, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+cfg_param_to_field(p, f) :- cfg_field_store(asgn, f, m), cfg_store_value(asgn, e),
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "PARAMETER", _, _, _, _, _, _, _, _, _, e),
+    param_decl("client", name, _, _, m, p).
+config_bound_method(k, r, "reads_field") :- cfg_bound_param(k, p, _), cfg_param_to_field(p, f),
+    cfg_field_read(f, r).
 config_bound_method(k, m, "receives_param") :- config_binding_effective(k, _, "param", _, m).
 config_bound_method(k, m, "setter") :- config_binding_effective(k, _, "setter", m, _).
 config_bound_method(k, m, "class_binding") :- config_binding_effective(k, _, "type", t, _),
@@ -196,3 +238,5 @@ config_unresolved("value_annotation", f, k, "undefined_key") :-
     cfg_value_site_field(f, _, v), cfg_placeholder(v, k, ""), !config_key_defined(k).
 config_unresolved("value_annotation", p, k, "undefined_key") :-
     cfg_value_site_param(p, _, v), cfg_placeholder(v, k, ""), !config_key_defined(k).
+config_unresolved("value_annotation", m, k, "undefined_key") :-
+    cfg_value_site_method(m, _, v), cfg_placeholder(v, k, ""), !config_key_defined(k).

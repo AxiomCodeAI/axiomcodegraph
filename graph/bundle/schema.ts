@@ -616,6 +616,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'anon_new', languages: J, meaning: '`new X() { … }` — an anonymous class creation.' },
   { table: 'call_edges', column: 'kind', value: 'event', languages: J, meaning: 'Synthesised: the publishEvent call site to a listener it runs (tier event_dispatch). Not a written call to that method.' },
   { table: 'call_edges', column: 'kind', value: 'record_accessor', languages: J, meaning: 'Synthesised: a record pattern `case Pair(var l, var r)` calls each accessor. Not a written call; the site is the pattern expression.' },
+  { table: 'call_edges', column: 'kind', value: 'binder_validator', languages: J, meaning: 'Synthesised: a Spring MVC handler whose argument carries @Valid or @Validated reaching the validate/supports of the Validator its controller\'s @InitBinder method registers (setValidator, addValidators) for that model attribute (tier known_edge). Not a written call; the site is the handler method itself, which has no expression position, so the site carries the handler\'s file and no line.' },
   { table: 'call_edges', column: 'kind', value: 'resource_close', languages: J, meaning: 'Synthesised: a try-with-resources resource `try (var w = open())` is closed when the block exits, so its close() is called. Not a written call; the site is the resource local.' },
   // — TypeScript (the parser's callKind)
   { table: 'call_edges', column: 'kind', value: 'FUNCTION_CALL', languages: T, meaning: '`f(…)` — a bare callee.' },

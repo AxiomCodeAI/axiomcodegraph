@@ -756,6 +756,41 @@ def field_decl_type(line, name):
     return m.group(1).split('.')[-1] if m else None
 
 
+CONFIG_KEY_TABLES = (('ext_config_affects_method', 'c0'), ('ext_config_binding', 'c0'), ('ext_config_key_ref', 'c0'),
+                     ('ext_config_key_ref', 'c1'), ('ext_config_unresolved', 'c1'), ('ext_config_unresolved', 'c2'),
+                     ('ext_config_bean_condition', 'c3'))
+
+
+def config_keys_written(q):
+    """every configuration key the engine exported a fact for, as it wrote it. Each table keeps the key in its own
+    column: a key reference is (property, the key it interpolates), an unresolved row is (category, site or key, key),
+    and a bean condition is (bean, type, kind, KEY, expected, verdict). Reading `c0` of all of them, as `impact` did,
+    answered a key that only gates a bean, or is only interpolated, as one nothing binds (#1386). An opaque condition
+    keeps its reason in the key column, which is no dotted key and so is never asked for."""
+    out = set()
+    for t, c in CONFIG_KEY_TABLES:
+        if _has(q, t): out |= {r[0] for r in q(f"SELECT DISTINCT {c} FROM {t} WHERE {c} IS NOT NULL AND {c} <> ''")}
+    return out
+
+
+def config_condition_uses(q):
+    """(key, method id, why) for every bean a property or profile condition gates (`ext_config_bean_condition`):
+    the @Bean factory it guards, or every method of the configuration class it guards. The key decides whether
+    those exist at all, so they are what a change to it reaches, with the verdict the engine exported (#1386)."""
+    if not (_has(q, 'ext_config_bean_condition') and _has(q, 'ext_bean_def')): return []
+    out = []
+    for name, t, kind, key, exp, verdict in q("SELECT c0, c1, c2, c3, c4, c5 FROM ext_config_bean_condition "
+                                              "WHERE c2 IN ('property', 'profile')"):
+        why = f"a {kind} condition on it decides whether the bean {name} exists: {verdict}" + (f", expects {exp}" if exp and exp != '-' else '')
+        ms = [r[0] for r in q("SELECT DISTINCT b.c3 FROM ext_bean_def b JOIN symbols s ON s.method_id = b.c3 "
+                              "WHERE b.c0 = ? AND b.c1 = ? AND b.c2 = 'factory_method'", name, t)]
+        if not ms and _has(q, 'methods'):                    # the condition is on a class: every method it declares
+            ms = [r[0] for r in q("SELECT DISTINCT s.method_id FROM methods m JOIN symbols s ON s.method_id = m.id "
+                                  "WHERE m.owner_type_id = ?", t)]
+        out += [(key, m, why) for m in ms]
+    return sorted(set(out))
+
+
 def bean_injections(q):
     """(bean type, receiver) for every injection point the engine wired to ONE bean (`ext_di_edge` known_bean / xml_ref):
     a field injection's receiver is the type declaring it, a constructor or setter injection's is the method. Keyed on
@@ -1645,6 +1680,10 @@ def direct_for_config(q, keys, at, rel):
             if _ckey(k) not in keys: continue
             readers.add(m)
             rows.append((m, 'reads', f"reads this configuration key ({why or 'bound'})", 'resolved', '', 0))
+    for k, m, why in config_condition_uses(q):
+        if _ckey(k) not in keys: continue
+        readers.add(m)
+        rows.append((m, 'reads', f"reads this configuration key ({why})", 'resolved', '', 0))
     # config_site(k,c,dn,f,l) :- dec_literal(c,dn,v,f,l), the ${…} placeholders written in v — or v itself when it
     # is already a dotted key. Matched on the canonical key, so the spelling at the site need not be the one asked.
     for c, dn, v, f, l in _dec_literals(q, at):

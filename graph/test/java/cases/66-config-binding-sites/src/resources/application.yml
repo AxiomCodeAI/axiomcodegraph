@@ -1,0 +1,16 @@
+app:
+  plain:
+    endpoint: https://plain.example.com
+  third:
+    endpoint: https://third.example.com
+  pool:
+    size: 8
+  other:
+    endpoint: https://other.example.com
+greet:
+  timeout: 10
+  retries: 3
+  home: /srv/greet
+widget:
+  ttl: 3600
+  label: blue

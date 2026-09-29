@@ -484,6 +484,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `anon_new` | java | `new X() { … }` — an anonymous class creation. |
 | `event` | java | Synthesised: the publishEvent call site to a listener it runs (tier event_dispatch). Not a written call to that method. |
 | `record_accessor` | java | Synthesised: a record pattern `case Pair(var l, var r)` calls each accessor. Not a written call; the site is the pattern expression. |
+| `binder_validator` | java | Synthesised: a Spring MVC handler whose argument carries @Valid or @Validated reaching the validate/supports of the Validator its controller's @InitBinder method registers (setValidator, addValidators) for that model attribute (tier known_edge). Not a written call; the site is the handler method itself, which has no expression position, so the site carries the handler's file and no line. |
 | `resource_close` | java | Synthesised: a try-with-resources resource `try (var w = open())` is closed when the block exits, so its close() is called. Not a written call; the site is the resource local. |
 | `FUNCTION_CALL` | typescript | `f(…)` — a bare callee. |
 | `METHOD_CALL` | typescript | `obj.m(…)`. |

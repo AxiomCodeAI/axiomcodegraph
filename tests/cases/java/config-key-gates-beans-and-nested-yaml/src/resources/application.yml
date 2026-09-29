@@ -1,0 +1,6 @@
+feature:
+  mode: a
+  fast: true
+greet:
+  prefix: "Hi "
+greet.suffix: "!"

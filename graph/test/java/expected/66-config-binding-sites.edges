@@ -1,0 +1,11 @@
+ambiguous_unknown	method	app.settings.WidgetCache#expiry() -> -
+known_edge	method	app.settings.Greeter#describe() -> app.settings.Greeter#name()
+known_edge	method	app.settings.Greeter#describe() -> app.settings.Greeter#timeout()
+known_edge	method	app.settings.Reader#otherEndpoint() -> app.settings.OtherThing#getEndpoint()
+known_edge	method	app.settings.Reader#plainEndpoint() -> app.settings.PlainProperties#getEndpoint()
+known_edge	method	app.settings.Reader#poolSize() -> app.settings.Pool#getSize()
+known_edge	method	app.settings.Reader#thirdEndpoint() -> app.settings.ThirdParty#getEndpoint()
+known_edge	method	app.settings.WidgetCache#put(String) -> app.settings.WidgetCache#expiry()
+known_edge	new	app.settings.ThirdConfig#otherThing() -> app.settings.OtherThing#<init>()
+known_edge	new	app.settings.ThirdConfig#pool() -> app.settings.Pool#<init>()
+known_edge	new	app.settings.ThirdConfig#thirdParty() -> app.settings.ThirdParty#<init>()

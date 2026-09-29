@@ -1,0 +1,11 @@
+app:
+  flag: true
+  const:
+    enabled: true
+  bool:
+    off: false
+    on: true
+  alt:
+    enabled: true
+  dup:
+    enabled: true
