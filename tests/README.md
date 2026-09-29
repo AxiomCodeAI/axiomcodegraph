@@ -12,7 +12,9 @@ the behaviour it is about, so a failure says what broke rather than which number
 One check needs no graph and is its own script:
 
     python3 tests/surfaces.py            every dispatched verb is documented on --help, SKILL.md and MCP
-    python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape
+    python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape, on a small
+                                         Python case by default; --lang java|csharp|typescript for the others
+                                         (typescript needs the TypeScript engine; indexes, so it needs the engine)
     python3 tests/directive.py           the PreToolUse directive hook keeps its promises (never blocks,
                                          never raises, silent without a graph, once per session across
                                          repositories, and names the verb for a declared name it is searched for)
