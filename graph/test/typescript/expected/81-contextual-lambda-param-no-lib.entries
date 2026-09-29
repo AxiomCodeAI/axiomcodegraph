@@ -1,12 +1,22 @@
-── entry_point (11) ──
-  exported_from_entry_module use#ctlAnnotated   use.ts:85
-  exported_from_entry_module use#ctlOwnMap   use.ts:81
-  exported_from_entry_module use#ctlOwnThen   use.ts:78
+── entry_point (21) ──
+  exported_from_entry_module shadow#ctlOwnPromise   shadow.ts:28
+  exported_from_entry_module shadow#ctlOwnSet   shadow.ts:25
+  exported_from_entry_module shadow#ctlUnionOfFns   shadow.ts:34
+  exported_from_entry_module shadow#either   shadow.ts:33
+  exported_from_entry_module use#aliasGeneric   use.ts:72
+  exported_from_entry_module use#aliasPlain   use.ts:69
+  exported_from_entry_module use#ctlAnnotated   use.ts:112
+  exported_from_entry_module use#ctlOwnMap   use.ts:108
+  exported_from_entry_module use#ctlOwnThen   use.ts:105
   exported_from_entry_module use#everyParam   use.ts:53
   exported_from_entry_module use#findReadonly   use.ts:50
   exported_from_entry_module use#forEachParen   use.ts:45
   exported_from_entry_module use#mapBare   use.ts:42
+  exported_from_entry_module use#mapForEach   use.ts:87
+  exported_from_entry_module use#nestedArrays   use.ts:76
   exported_from_entry_module use#reduceElement   use.ts:57
   exported_from_entry_module use#thenBare   use.ts:60
   exported_from_entry_module use#thenParam   use.ts:63
+  exported_from_entry_module use#thenThenMap   use.ts:81
+  unimported_module shadow#<module>   shadow.ts:1
   unimported_module use#<module>   use.ts:1

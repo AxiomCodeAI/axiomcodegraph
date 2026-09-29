@@ -1,23 +1,50 @@
-ambiguous_unknown	METHOD_CALL	use#ctlAnnotated(User[]) @L86 -> -
+ambiguous_unknown	METHOD_CALL	shadow#<arrow@36>(?) @L36 -> -
+ambiguous_unknown	METHOD_CALL	use#<arrow@77>(?) @L78 -> -
+ambiguous_unknown	METHOD_CALL	use#<arrow@82>(?) @L83 -> -
+ambiguous_unknown	METHOD_CALL	use#aliasGeneric(Many) @L73 -> -
+ambiguous_unknown	METHOD_CALL	use#aliasPlain(Users) @L70 -> -
+ambiguous_unknown	METHOD_CALL	use#ctlAnnotated(User[]) @L113 -> -
 ambiguous_unknown	METHOD_CALL	use#everyParam(Admin[]) @L54 -> -
 ambiguous_unknown	METHOD_CALL	use#findReadonly(Repo) @L51 -> -
 ambiguous_unknown	METHOD_CALL	use#forEachParen(Repo) @L46 -> -
 ambiguous_unknown	METHOD_CALL	use#mapBare(Repo) @L43 -> -
+ambiguous_unknown	METHOD_CALL	use#mapForEach(Map) @L88 -> -
+ambiguous_unknown	METHOD_CALL	use#nestedArrays(Admin[][]) @L77 -> -
 ambiguous_unknown	METHOD_CALL	use#reduceElement(User[]) @L58 -> -
 ambiguous_unknown	METHOD_CALL	use#thenBare(Repo) @L61 -> -
 ambiguous_unknown	METHOD_CALL	use#thenParam(Promise) @L64 -> -
-callback_registered	METHOD_CALL	use#ctlAnnotated(User[]) @L86 -> use#<arrow@86>(User)
+ambiguous_unknown	METHOD_CALL	use#thenThenMap(Promise) @L82 -> -
+callback_registered	METHOD_CALL	use#<arrow@77>(?) @L78 -> use#<arrow@78>(?)
+callback_registered	METHOD_CALL	use#<arrow@82>(?) @L83 -> use#<arrow@83>(?)
+callback_registered	METHOD_CALL	use#aliasGeneric(Many) @L73 -> use#<arrow@73>(?)
+callback_registered	METHOD_CALL	use#aliasPlain(Users) @L70 -> use#<arrow@70>(?)
+callback_registered	METHOD_CALL	use#ctlAnnotated(User[]) @L113 -> use#<arrow@113>(User)
 callback_registered	METHOD_CALL	use#everyParam(Admin[]) @L54 -> use#<arrow@54>(?)
 callback_registered	METHOD_CALL	use#findReadonly(Repo) @L51 -> use#<arrow@51>(?)
 callback_registered	METHOD_CALL	use#forEachParen(Repo) @L46 -> use#<arrow@46>(?)
 callback_registered	METHOD_CALL	use#mapBare(Repo) @L43 -> use#<arrow@43>(?)
+callback_registered	METHOD_CALL	use#mapForEach(Map) @L88 -> use#<arrow@88>(?,?)
+callback_registered	METHOD_CALL	use#nestedArrays(Admin[][]) @L77 -> use#<arrow@77>(?)
 callback_registered	METHOD_CALL	use#reduceElement(User[]) @L58 -> use#<arrow@58>(?,?)
 callback_registered	METHOD_CALL	use#thenBare(Repo) @L61 -> use#<arrow@61>(?)
 callback_registered	METHOD_CALL	use#thenParam(Promise) @L64 -> use#<arrow@64>(?)
-known_edge	CONSTRUCTOR_CALL	Lazy#map((u: User) =) @L75 -> User#<new>()
-known_edge	CONSTRUCTOR_CALL	Lazy#then((a: Admin) =) @L72 -> Admin#<new>()
-known_edge	FUNCTION_CALL	Lazy#map((u: User) =) @L75 -> Lazy#<arrow@74>(User)
-known_edge	FUNCTION_CALL	Lazy#then((a: Admin) =) @L72 -> Lazy#<arrow@71>(Admin)
+callback_registered	METHOD_CALL	use#thenThenMap(Promise) @L82 -> use#<arrow@82>(?)
+known_edge	CONSTRUCTOR_CALL	Lazy#map((u: User) =) @L102 -> User#<new>()
+known_edge	CONSTRUCTOR_CALL	Lazy#then((a: Admin) =) @L99 -> Admin#<new>()
+known_edge	CONSTRUCTOR_CALL	Promise#then((k: Key) =) @L22 -> Key#<new>()
+known_edge	CONSTRUCTOR_CALL	Set#forEach((k: Key) =) @L17 -> Key#<new>()
+known_edge	FUNCTION_CALL	Lazy#map((u: User) =) @L102 -> Lazy#<arrow@101>(User)
+known_edge	FUNCTION_CALL	Lazy#then((a: Admin) =) @L99 -> Lazy#<arrow@98>(Admin)
+known_edge	FUNCTION_CALL	Promise#then((k: Key) =) @L22 -> Promise#<arrow@21>(Key)
+known_edge	FUNCTION_CALL	Set#forEach((k: Key) =) @L17 -> Set#<arrow@16>(Key)
+known_edge	FUNCTION_CALL	shadow#ctlUnionOfFns() @L36 -> shadow#either(((i: Item) =)
+known_edge	METHOD_CALL	shadow#<arrow@26>(?) @L26 -> Key#display()
+known_edge	METHOD_CALL	shadow#<arrow@29>(?) @L29 -> Key#display()
+known_edge	METHOD_CALL	shadow#ctlOwnPromise(Promise) @L29 -> Promise#then((k: Key) =)
+known_edge	METHOD_CALL	shadow#ctlOwnSet(Set) @L26 -> Set#forEach((k: Key) =)
+known_edge	METHOD_CALL	use#<arrow@106>(?) @L106 -> Admin#touch()
+known_edge	METHOD_CALL	use#<arrow@109>(?) @L109 -> User#touch()
+known_edge	METHOD_CALL	use#<arrow@113>(User) @L113 -> User#save()
 known_edge	METHOD_CALL	use#<arrow@43>(?) @L43 -> User#display()
 known_edge	METHOD_CALL	use#<arrow@46>(?) @L47 -> User#save()
 known_edge	METHOD_CALL	use#<arrow@51>(?) @L51 -> User#touch()
@@ -25,11 +52,14 @@ known_edge	METHOD_CALL	use#<arrow@54>(?) @L54 -> Admin#save()
 known_edge	METHOD_CALL	use#<arrow@58>(?,?) @L58 -> User#save()
 known_edge	METHOD_CALL	use#<arrow@61>(?) @L61 -> User#touch()
 known_edge	METHOD_CALL	use#<arrow@64>(?) @L64 -> Admin#display()
-known_edge	METHOD_CALL	use#<arrow@79>(?) @L79 -> Admin#touch()
-known_edge	METHOD_CALL	use#<arrow@82>(?) @L82 -> User#touch()
-known_edge	METHOD_CALL	use#<arrow@86>(User) @L86 -> User#save()
-known_edge	METHOD_CALL	use#ctlOwnMap(Lazy) @L82 -> Lazy#map((u: User) =)
-known_edge	METHOD_CALL	use#ctlOwnThen(Lazy) @L79 -> Lazy#then((a: Admin) =)
+known_edge	METHOD_CALL	use#<arrow@70>(?) @L70 -> User#save()
+known_edge	METHOD_CALL	use#<arrow@73>(?) @L73 -> Admin#touch()
+known_edge	METHOD_CALL	use#<arrow@78>(?) @L78 -> Admin#save()
+known_edge	METHOD_CALL	use#<arrow@83>(?) @L83 -> User#touch()
+known_edge	METHOD_CALL	use#<arrow@88>(?,?) @L89 -> User#display()
+known_edge	METHOD_CALL	use#<arrow@88>(?,?) @L90 -> Admin#touch()
+known_edge	METHOD_CALL	use#ctlOwnMap(Lazy) @L109 -> Lazy#map((u: User) =)
+known_edge	METHOD_CALL	use#ctlOwnThen(Lazy) @L106 -> Lazy#then((a: Admin) =)
 known_edge	METHOD_CALL	use#findReadonly(Repo) @L51 -> Repo#readonlyAll()
 known_edge	METHOD_CALL	use#forEachParen(Repo) @L46 -> Repo#all()
 known_edge	METHOD_CALL	use#mapBare(Repo) @L43 -> Repo#all()

@@ -63,6 +63,33 @@ export function thenBare(r: Repo): Promise<string> {
 export function thenParam(p: Promise<Admin>): Promise<string> {
   return p.then(a => a.display());
 }
+// Through a type alias, plain and generic.
+export type Users = User[];
+export type Many<T> = Array<T>;
+export function aliasPlain(us: Users): void {
+  us.forEach(u => u.save());
+}
+export function aliasGeneric(as: Many<Admin>): void {
+  as.forEach(a => a.touch());
+}
+// A callback over a parameter that was itself typed from context.
+export function nestedArrays(xss: Admin[][]): void {
+  xss.forEach(xs => {
+    xs.forEach(a => a.save());
+  });
+}
+export function thenThenMap(p: Promise<User[]>): void {
+  p.then(us => {
+    us.map(u => u.touch());
+  });
+}
+// `Map.forEach((value, key) => …)`: the value is type argument 1, the key argument 0.
+export function mapForEach(m: Map<Admin, User>): void {
+  m.forEach((v, k) => {
+    v.display();
+    k.touch();
+  });
+}
 
 // ── CONTROLS ────────────────────────────────────────────────────────────────
 // A class of the user's own with a `then` and a `map`: its own signatures type the
