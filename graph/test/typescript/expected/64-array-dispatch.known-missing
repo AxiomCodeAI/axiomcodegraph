@@ -20,4 +20,5 @@
 # (case 78 measures that).
 pipeline#runIterated(Node) -> steps#widenRange(Node)
 pipeline#runIndexed(Node) -> steps#widenRange(Node)
-pipeline#runByName(Node) -> steps#squareRange(Node)
+# runByName (`byName.square(node)`) resolves: a NAMED property of a literal is one function,
+# not an element of a union, so the compiler's answer is exact and now matched.
