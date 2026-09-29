@@ -1,0 +1,123 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a test that runs bin/cli.js as a child process by its path (a path.join of literals held in a constant) covers everything the script reaches: the path is the only link, and without it the answer said no test reaches shout",
+   "run": [
+    "impact",
+    "shout",
+    "--kind",
+    "method",
+    "--tests"
+   ],
+   "want": [
+    "test/cli.test.js",
+    "spawns"
+   ],
+   "avoid": [
+    "test/source.test.js",
+    "test/quiet.test.js",
+    "test/stamp.test.js"
+   ]
+  },
+  {
+   "why": "the link is its own rung, counted in the tests section of the plain answer, not folded into a resolved call",
+   "run": [
+    "impact",
+    "shout",
+    "--kind",
+    "method"
+   ],
+   "want": [
+    "spawns"
+   ],
+   "avoid": [
+    "tests: 0 of"
+   ]
+  },
+  {
+   "why": "a path.resolve with the path in one literal, handed to spawnSync, is the same link; the script's top-level call reaches stamp",
+   "run": [
+    "impact",
+    "stamp",
+    "--kind",
+    "method",
+    "--tests"
+   ],
+   "want": [
+    "test/stamp.test.js"
+   ],
+   "avoid": [
+    "test/cli.test.js",
+    "test/source.test.js"
+   ]
+  },
+  {
+   "why": "a helper beside the tests starts the script (`const run = args => spawnSync(node, [bin].concat(args))`, bin a require.resolve with no extension): the tests that call the helper run the script, and the route is labelled as the spawn, not as a fixture",
+   "run": [
+    "impact",
+    "stamp",
+    "--kind",
+    "method",
+    "--tests"
+   ],
+   "want": [
+    "test/stamp-helper.test.js",
+    "[spawns]"
+   ],
+   "avoid": [
+    "[fixture]",
+    "test/source.test.js"
+   ]
+  },
+  {
+   "why": "CONTROL: a test that only READS the script's file with the same path shape starts no process and runs none of it, so it gains no link",
+   "run": [
+    "impact",
+    "main",
+    "--kind",
+    "method",
+    "--tests"
+   ],
+   "want": [
+    "test/cli.test.js"
+   ],
+   "avoid": [
+    "test/source.test.js"
+   ]
+  },
+  {
+   "why": "CONTROL: a module no test spawns keeps exactly the tests that call it",
+   "run": [
+    "impact",
+    "quiet",
+    "--kind",
+    "method",
+    "--tests"
+   ],
+   "want": [
+    "test/quiet.test.js"
+   ],
+   "avoid": [
+    "spawns",
+    "test/cli.test.js"
+   ]
+  },
+  {
+   "why": "test-impact for an edit to a module the script reaches selects the test that spawns the script, and not the test that only reads the script's file",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "src/lib/shout.js"
+   ],
+   "want": [
+    "test/cli.test.js"
+   ],
+   "avoid": [
+    "test/source.test.js",
+    "test/quiet.test.js"
+   ]
+  }
+ ]
+}

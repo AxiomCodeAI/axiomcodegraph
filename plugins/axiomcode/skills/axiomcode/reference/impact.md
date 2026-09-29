@@ -198,6 +198,14 @@ line and names the constructor query to run; take that suggestion before acting 
   is injected. An entry point of the change that a framework enters (a route handler, a listener) is named on a
   `NOT COUNTED` line with the search that finds the tests driving it, since those are counted only where a `[by key]`
   route joins them.
+- **a test that runs a script as a child process is a hop** — `execFileSync(node, [path.join(__dirname, '..', 'bin',
+  'cli.js')])`, `spawn(process.execPath, [require.resolve('../bin/tool')])`, `subprocess.run([sys.executable, SCRIPT])`
+  with `SCRIPT = os.path.join(HERE, '..', 'scripts', 'report.py')`: the script's module body runs in another process, and
+  no call site or import says so. When a call that starts a process names, among its arguments, a file this graph indexed
+  (a literal, a join of literals, or a constant holding one), the test — or the helper beside the tests that makes the
+  call — is joined to that file's module entry, so everything the script reaches gains the test. The hop is `[spawns]`:
+  a key (the path), not a call. Reading the same path (`fs.readFileSync`, `open`) starts no process and is not joined,
+  and a file of another language is in no graph of this one, so it is never joined across languages.
 - **a decorator that rebinds the name is a hop** — `@audited def summarise(…)` leaves `summarise` denoting what
   `audited(summarise)` RETURNED, so every caller written with that name runs the wrapper. That is the engine's own
   resolution (`ext_decorated_name_target`), not a name match, so the hop is `[sound]`; without it a `functools.wraps`

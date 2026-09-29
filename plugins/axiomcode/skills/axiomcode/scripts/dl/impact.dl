@@ -867,6 +867,13 @@ fw_edge(a, b, "by key") :- verb_fits(a, b, k, _), !reg_capped(k), use_fan_for(b,
 // a decorator that REBINDS THE NAME: `@audited def summarise` leaves `summarise` denoting the wrapper, so every
 // caller written with that name runs the wrapper. This one is the engine's own resolution, not a name match.
 fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b.
+// A TEST THAT RUNS A SCRIPT AS A CHILD PROCESS, BY ITS PATH. `execFileSync(node, [path.join(__dirname, '..', 'bin',
+// 'cli.js')])`, `subprocess.run([sys.executable, SCRIPT])`: the script's module body runs in another process, and no
+// call site or import records it — so everything the script reaches looked untested. The path written in the test is
+// joined to the file this graph indexed (ax_spawn.py), only at a call that starts a process: reading the same path is
+// not running it. A key, not a call, so it is its own rung, and a file of another language is in no graph of this one.
+.decl spawns_fact(a:symbol, b:symbol)                             .input spawns_fact
+fw_edge(a, b, "spawns") :- spawns_fact(a, b), a != b.
 // a decorator the project DECLARES ITSELF: `@exporter("csv") def export_csv` means export_csv is whatever exporter
 // returned, so a change to the decorator changes what every declaration it wraps does. Nothing links the two but the
 // `@` line: the decorator has no call site, and the registry it writes into is read by a key, not by a name. The
