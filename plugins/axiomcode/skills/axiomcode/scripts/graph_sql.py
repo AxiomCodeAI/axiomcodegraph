@@ -1054,6 +1054,42 @@ def _sym_row(q, i):
     return dict(zip(k, tuple(r[0])))
 
 
+def type_parts(q, sid):
+    """the symbol ids of every declaration of the type whose symbol is `sid`, that one first: the parts of a C#
+    `partial class` are separate type symbols with one qualified name, and a base written on one part is the base of
+    all of them. Two types that only share a display (an entity `Basket` and a view component `Basket` in another
+    namespace) have different qualified names and stay apart."""
+    r = q("SELECT qualified_name FROM symbols WHERE id = ?", sid)
+    qn = r[0][0] if r else None
+    if not qn: return [sid]
+    return [sid] + [x[0] for x in q("""SELECT id FROM symbols WHERE qualified_name = ? AND method_id IS NULL
+                                       AND type_id IS NOT NULL AND id <> ? ORDER BY id""", qn, sid)]
+
+
+def owner_type_ids(q, s):
+    """the symbol ids of the type that DECLARES member `s` (a symbols row as a dict), with its other partial parts,
+    never another type that only shares its display. Two classes of one simple name in different namespaces or
+    modules (an entity `Basket` and a view component `Basket`) have one display, so a join on the owner's display
+    gave the member every base and decoration of both. The owner comes from the member's own row: the method's
+    owner_type_id, else the type of that display whose span holds the member's line in the member's file. Only when
+    neither tells them apart is every type of that display returned, as before."""
+    own = s.get('owner') if s else None
+    if not own: return []
+    if s.get('method_id') and _has(q, 'methods'):
+        r = q("SELECT owner_type_id FROM methods WHERE id = ?", s['method_id'])
+        tid = r[0][0] if r else None
+        if tid:
+            ids = [x[0] for x in q("SELECT id FROM symbols WHERE type_id = ? AND method_id IS NULL ORDER BY id", tid)]
+            if ids: return list(dict.fromkeys(p for i in ids for p in type_parts(q, i)))
+    rows = [tuple(r) for r in q("""SELECT id, file, line, end_line FROM symbols
+                                   WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL ORDER BY id""", own)]
+    if len(rows) <= 1: return [r[0] for r in rows]
+    f, ln = s.get('file'), s.get('line')
+    inside = [(r[0], (r[3] or r[2]) - r[2]) for r in rows if f and ln and r[1] == f and r[2] and r[2] <= ln <= (r[3] or r[2])]
+    if inside: return type_parts(q, min(inside, key=lambda x: x[1])[0])     # the innermost span holding the member
+    return [r[0] for r in rows if f and r[1] == f] or [r[0] for r in rows]
+
+
 def no_caller_reasons(q, mids):
     """{method id: [(kind, label, evidence)]}: why nothing in the graph calls each of `mids`, strongest first, in the
     order of NO_CALLER_KINDS. `evidence` is `file:line` where there is a line to read, else ''.
@@ -1114,16 +1150,18 @@ def no_caller_reasons(q, mids):
                     """SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id
                        WHERE o.overriding_method_id = ? AND b.provenance = 'client' LIMIT 1""", mid)):
                 rs.append(('overrides', '', ''))
-            own = None
-            if s.get('owner'):
-                r = q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL LIMIT 1", s['owner'])
-                own = _sym_row(q, r[0][0]) if r else None
-            if own is None and owner_tid:
+            # the declaring type and its partial parts, not every type that shares the owner's display
+            parts = owner_type_ids(q, s) if s.get('owner') else []
+            if not parts and owner_tid:
                 r = q("SELECT id FROM symbols WHERE type_id = ? AND method_id IS NULL LIMIT 1", owner_tid)
-                own = _sym_row(q, r[0][0]) if r else None
-            if own:
-                if not any(k == 'overrides' for k, *_ in rs):
-                    for b in library_bases(q, own)[:2]: rs.append(('base', b, loc(own.get('file'), own.get('line'))))
+                parts = type_parts(q, r[0][0]) if r else []
+            owners = [o for o in (_sym_row(q, i) for i in parts) if o]
+            if owners and not any(k == 'overrides' for k, *_ in rs):
+                first = {}                                            # each base once, at the part that writes it
+                for o in owners:
+                    for b in library_bases(q, o): first.setdefault(b, o)
+                for b, o in list(first.items())[:2]: rs.append(('base', b, loc(o.get('file'), o.get('line'))))
+            for own in owners:
                 if has['decorations']:
                     for n, t, f, l in q("SELECT name, text, file, line FROM decorations WHERE owner_id = ? ORDER BY line", own['id']):
                         sn = decoration_name(n)
