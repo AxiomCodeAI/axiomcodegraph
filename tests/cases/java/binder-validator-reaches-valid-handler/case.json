@@ -1,0 +1,18 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a Validator an @InitBinder registers runs for the @Valid handler argument it names, so that handler reaches it",
+   "run": ["impact", "WidgetValidator.validate"],
+   "want": ["WidgetController.create", "WidgetController.named", "OpenController.open", "WidgetController.check"],
+   "avoid": ["WidgetController.preview", "WidgetController.gadget", "WidgetController.other", "PlainController.plain"]
+  },
+  {
+   "why": "and the test that calls that handler is among its tests; a test of a handler that is not validated is not",
+   "run": ["impact", "WidgetValidator.validate", "--tests-only"],
+   "want": ["WidgetControllerTests::create", "WidgetControllerTests::check"],
+   "avoid": ["WidgetControllerTests::preview"]
+  }
+ ]
+}

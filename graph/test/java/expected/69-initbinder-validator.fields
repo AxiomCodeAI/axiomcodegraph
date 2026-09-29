@@ -1,0 +1,3 @@
+known_edge	read	app.widgets.Gadget#getLabel() -> app.widgets.Gadget#label
+known_edge	read	app.widgets.Widget#getName() -> app.widgets.Widget#name
+known_edge	write	app.widgets.Widget#setName(String) -> app.widgets.Widget#name

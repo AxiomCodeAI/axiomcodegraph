@@ -137,7 +137,23 @@ bean_def(name, t, "stereotype", a) :- cfg_stereotype(prov, a, t), !cfg_stereotyp
 
 // (b) FACTORY METHOD: @Bean / @Produces / @Provides. The bean's type is the
 // method's DECLARED RETURN type; its name is the method name unless given.
-cfg_factory(prov, a, m, owner) :- ann_on_method(prov, a, n, m, owner), cfg_factory_ann(n).
+cfg_factory(prov, a, m, owner) :- ann_on_method(prov, a, n, m, owner), cfg_factory_ann(n),
+    !cfg_not_a_factory(a).
+// TWO ANNOTATIONS ARE CALLED `Produces`. CDI's (jakarta/javax.enterprise.inject.Produces)
+// makes a method a bean factory; JAX-RS's (jakarta/javax.ws.rs.Produces) declares the
+// media type a resource method answers with, and defines no bean. The simple name alone
+// took `@Produces("application/json")` for a factory named `application/json`, and
+// every @Inject of its return type for an injection the HTTP handler served. CDI's
+// @Produces declares no element at all, so an annotation carrying an argument is never
+// it; and a file whose `Produces` is imported from a `ws.rs` package means JAX-RS's,
+// whether by name or on demand (unless the file also imports CDI's by name, which then
+// wins as Java's own resolution does).
+cfg_not_a_factory(a) :- ann_on_method(prov, a, "Produces", _, _), ann_arg(prov, a, _, _, _, _).
+cfg_not_a_factory(a) :- ann_on_method(prov, a, "Produces", _, _), ann_file(prov, a, f),
+    import_single(_, "Produces", imp, f, _), cfg_jaxrs_package(pkg), imp = cat(pkg, ".Produces").
+cfg_not_a_factory(a) :- ann_on_method(prov, a, "Produces", _, _), ann_file(prov, a, f),
+    import_wildcard(_, pkg, f, _), cfg_jaxrs_package(pkg), !import_single(_, "Produces", _, f, _).
+cfg_jaxrs_package("jakarta.ws.rs"). cfg_jaxrs_package("javax.ws.rs").
 cfg_factory_named(m, name) :- cfg_factory(prov, a, m, _), ann_arg_value(prov, a, name), name != "".
 cfg_factory_has_name(m) :- cfg_factory_named(m, _).
 // The bean's TYPE is the method's DECLARED return type — EXCEPT when the body

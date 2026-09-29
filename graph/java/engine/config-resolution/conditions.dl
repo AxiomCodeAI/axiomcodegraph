@@ -47,8 +47,25 @@ cfg_cond_site(a, "property", t) :- ann_on_type(_, a, n, t), cfg_property_conditi
 cfg_cond_site(a, "property", m) :- ann_on_method(_, a, n, m, _), cfg_property_condition_ann(n, _, _).
 cfg_cond_site(a, "profile", t)  :- ann_on_type(_, a, n, t), cfg_profile_condition_ann(n).
 cfg_cond_site(a, "profile", m)  :- ann_on_method(_, a, n, m, _), cfg_profile_condition_ann(n).
-cfg_cond_site(a, "opaque", t)   :- ann_on_type(_, a, n, t), cfg_opaque_condition_ann(n, _).
-cfg_cond_site(a, "opaque", m)   :- ann_on_method(_, a, n, m, _), cfg_opaque_condition_ann(n, _).
+cfg_cond_site(a, "opaque", t)   :- ann_on_type(_, a, n, t), cfg_cond_opaque_reason(n, _).
+cfg_cond_site(a, "opaque", m)   :- ann_on_method(_, a, n, m, _), cfg_cond_opaque_reason(n, _).
+
+// cfg_cond_ann_name(Ann, Name) -- which property annotation a site is, for its defaults.
+cfg_cond_ann_name(a, n) :- cfg_cond_site(a, "property", _), ann_on_type(_, a, n, _).
+cfg_cond_ann_name(a, n) :- cfg_cond_site(a, "property", _), ann_on_method(_, a, n, _, _).
+
+// A CONDITION ANNOTATION NOBODY LISTED is still a condition. Spring Boot names every
+// one of its own `ConditionalOn...`, and so do the libraries that follow it, so an
+// annotation of that shape that no knob decides is declared opaque with its own
+// reason instead of being dropped: dropped, the bean reads as unconditional, which
+// claims more than the analysis knows. Only the exact prefix counts, so an annotation
+// such as `ConditionalLogging` is not taken for a condition.
+cfg_cond_listed(n) :- cfg_property_condition_ann(n, _, _).
+cfg_cond_listed(n) :- cfg_profile_condition_ann(n).
+cfg_cond_listed(n) :- cfg_opaque_condition_ann(n, _).
+cfg_cond_opaque_reason(n, r) :- cfg_opaque_condition_ann(n, r).
+cfg_cond_opaque_reason(n, "unmodelled_condition") :- annotation_on(_, n, _, _, _, _),
+    strlen(n) > 13, substr(n, 0, 13) = "ConditionalOn", !cfg_cond_listed(n).
 
 // cfg_cond_bean(Ann, Kind, BeanName, BeanType) -- the bean the condition gates.
 cfg_cond_bean(a, k, name, t) :- cfg_cond_site(a, k, t), bean_def(name, t, "stereotype", _).
@@ -62,17 +79,35 @@ cfg_cond_bean(a, k, name, t) :- cfg_cond_site(a, k, m), bean_def(name, t, "facto
 // An array of names is one row per element already (annotation-args.dl), so a
 // multi-key condition yields one condition row per key, which is the right shape:
 // Spring requires ALL of them, so one refuted key refutes the condition.
-cfg_cond_name(a, v) :- cfg_cond_site(a, "property", _), ann_arg(_, a, "name", v, _, _), v != "".
-cfg_cond_name(a, v) :- cfg_cond_site(a, "property", _), ann_arg(_, a, "value", v, _, _), v != "".
-cfg_cond_prefix(a, p) :- cfg_cond_site(a, "property", _), ann_arg(_, a, "prefix", p, _, _), p != "".
+//
+// An argument written as a CONSTANT (`prefix = Keys.PREFIX`) arrives as the
+// reference's source text, so it is read through its literal initializer
+// (const_string_ref, destinations.dl). A reference that does not resolve to one value
+// keeps its text: the key is then one no file defines, the verdict is undecided, and
+// the unresolved row names the reference rather than hiding the condition.
+const_ref_demand(r) :- cfg_cond_site(a, "property", _), ann_arg(_, a, _, r, "ENUM_CONSTANT", _).
+cfg_cond_arg(a, an, v) :- cfg_cond_site(a, "property", _), ann_arg(_, a, an, v, vt, _),
+    vt != "ENUM_CONSTANT".
+cfg_cond_arg(a, an, v) :- cfg_cond_site(a, "property", _), ann_arg(_, a, an, r, "ENUM_CONSTANT", _),
+    const_string_ref(r, v).
+cfg_cond_arg(a, an, r) :- cfg_cond_site(a, "property", _), ann_arg(_, a, an, r, "ENUM_CONSTANT", _),
+    !const_string_ref(r, _).
+
+cfg_cond_name(a, v) :- cfg_cond_arg(a, "name", v), v != "".
+cfg_cond_name(a, v) :- cfg_cond_arg(a, "value", v), v != "".
+cfg_cond_prefix(a, p) :- cfg_cond_arg(a, "prefix", p), p != "".
 cfg_cond_has_prefix(a) :- cfg_cond_prefix(a, _).
 
 cfg_cond_key(a, k) :- cfg_cond_name(a, k), !cfg_cond_has_prefix(a).
 cfg_cond_key(a, k) :- cfg_cond_name(a, n), cfg_cond_prefix(a, p), k = cat(p, cat(".", n)).
 
-// havingValue, and matchIfMissing, both optional.
-cfg_cond_expected(a, v) :- cfg_cond_site(a, "property", _),
-    ann_arg(_, a, "havingValue", v, _, _).
+// havingValue, and matchIfMissing, both optional. An annotation whose havingValue has
+// a declared default (@ConditionalOnBooleanProperty: true) expects that default when
+// the argument is omitted, rather than the "anything but false" test below.
+cfg_cond_expected(a, v) :- cfg_cond_arg(a, "havingValue", v).
+cfg_cond_written_expected(a) :- cfg_cond_arg(a, "havingValue", _).
+cfg_cond_expected(a, v) :- cfg_cond_ann_name(a, n), cfg_property_condition_default(n, v),
+    !cfg_cond_written_expected(a).
 cfg_cond_has_expected(a) :- cfg_cond_expected(a, _).
 cfg_cond_match_if_missing(a) :- cfg_cond_site(a, "property", _),
     ann_arg(_, a, "matchIfMissing", "true", _, _).
@@ -94,21 +129,35 @@ cfg_cond_profile(a, v) :- cfg_cond_site(a, "profile", _), ann_arg(_, a, "name", 
 cfg_cond_key_value(a, v) :- cfg_cond_key(a, k), config_key_value(_, k, v).
 cfg_cond_key_resolved(a) :- cfg_cond_key_value(a, _).
 
-// havingValue given: the resolved value must equal it.
+// CASE. Spring compares both ways with equalsIgnoreCase: havingValue = "TRUE" matches
+// a configured `true`, and `app.off=FALSE` in a .properties file (read verbatim, where
+// YAML would have normalised the boolean) is false. Souffle has no lower(), so the
+// strings that meet here, and only those, are folded with the ASCII map in di.dl.
+cfg_ci_demand(v) :- cfg_cond_key_value(_, v).
+cfg_ci_demand(v) :- cfg_cond_expected(_, v).
+cfg_ci_step(s, 0, "") :- cfg_ci_demand(s).
+cfg_ci_step(s, j, cat(acc, lo)) :- cfg_ci_step(s, i, acc), i < strlen(s),
+    cfg_lower(substr(s, i, 1), lo), j = i + 1.
+cfg_ci_step(s, j, cat(acc, c)) :- cfg_ci_step(s, i, acc), i < strlen(s),
+    c = substr(s, i, 1), !cfg_is_upper_char(c), j = i + 1.
+cfg_ci(s, f) :- cfg_ci_step(s, i, f), i = strlen(s).
+
+// havingValue given: the resolved value must equal it, ignoring case.
 config_bean_condition(name, t, "property", k, exp, "selected") :-
     cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
-    cfg_cond_expected(a, exp), cfg_cond_key_value(a, exp).
+    cfg_cond_expected(a, exp), cfg_cond_key_value(a, v), cfg_ci(v, f), cfg_ci(exp, f).
 config_bean_condition(name, t, "property", k, exp, "excluded") :-
     cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
-    cfg_cond_expected(a, exp), cfg_cond_key_value(a, v), v != exp.
+    cfg_cond_expected(a, exp), cfg_cond_key_value(a, v), cfg_ci(v, fv), cfg_ci(exp, fe),
+    fv != fe.
 
-// havingValue omitted: Spring matches unless the value is literally "false".
+// havingValue omitted: Spring matches unless the value is "false", in any case.
 config_bean_condition(name, t, "property", k, "-", "selected") :-
     cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
-    !cfg_cond_has_expected(a), cfg_cond_key_value(a, v), v != "false".
+    !cfg_cond_has_expected(a), cfg_cond_key_value(a, v), cfg_ci(v, f), f != "false".
 config_bean_condition(name, t, "property", k, "-", "excluded") :-
     cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
-    !cfg_cond_has_expected(a), cfg_cond_key_value(a, "false").
+    !cfg_cond_has_expected(a), cfg_cond_key_value(a, v), cfg_ci(v, "false").
 
 // the key resolves to nothing this analysis saw: UNDECIDED, and the bean stays live.
 config_bean_condition(name, t, "property", k, exp, "undecided") :-
@@ -134,10 +183,10 @@ config_bean_condition(name, t, "profile", "spring.profiles.active", p, "undecide
 // ── opaque: named, never guessed ─────────────────────────────────────────────
 config_bean_condition(name, t, "opaque", reason, "-", "undecided") :-
     cfg_cond_bean(a, "opaque", name, t), cfg_cond_site(a, "opaque", _),
-    ann_on_type(_, a, n, _), cfg_opaque_condition_ann(n, reason).
+    ann_on_type(_, a, n, _), cfg_cond_opaque_reason(n, reason).
 config_bean_condition(name, t, "opaque", reason, "-", "undecided") :-
     cfg_cond_bean(a, "opaque", name, t), cfg_cond_site(a, "opaque", _),
-    ann_on_method(_, a, n, _, _), cfg_opaque_condition_ann(n, reason).
+    ann_on_method(_, a, n, _, _), cfg_cond_opaque_reason(n, reason).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. DECLARED UNKNOWNS

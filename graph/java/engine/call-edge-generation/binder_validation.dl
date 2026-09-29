@@ -1,0 +1,73 @@
+// ============================================================================
+// Call-edge generation · BINDER VALIDATORS  (@InitBinder setValidator -> @Valid handler)
+//
+//     @InitBinder("widget")
+//     void initBinder(WebDataBinder b) { b.setValidator(new WidgetValidator()); }
+//
+//     @PostMapping("/widgets")
+//     String create(@Valid Widget widget, BindingResult r) { … }     // validated here
+//
+// Spring MVC builds a WebDataBinder for each handler argument it binds, runs the
+// controller's @InitBinder methods on it, and, when the argument carries @Valid or
+// @Validated, calls the registered Validator's validate(target, errors) before the
+// handler body runs. No call site in the handler names the validator, so without this
+// file `impact WidgetValidator.validate` listed only handlers that call validate
+// themselves, and every test reaching a @Valid handler was missing from its tests (#1506).
+//
+// WHY A CALL EDGE. The validator runs in the request thread, before the handler, as a
+// consequence of the handler being invoked: a dispatch inside one JVM keyed on the
+// controller that declares both, like an application event (event_dispatch.dl). The
+// edge goes FROM THE HANDLER to the validator's validate/supports; the site is the
+// handler itself (no expression in it makes the call), kind `binder_validator`.
+//
+// THE KEY, exactly as Spring applies it:
+//   - the @InitBinder method and the handler are declared in the SAME controller type
+//     (a @ControllerAdvice binder applies more widely; not modelled, see below);
+//   - an @InitBinder with names applies only to the model attributes it names: the
+//     argument's @ModelAttribute name, else its type's simple name decapitalised, which
+//     is Spring's default attribute name; an @InitBinder without names applies to all;
+//   - only an argument annotated @Valid or @Validated is validated.
+//
+// WHAT IS NOT MODELLED, and stays unlinked rather than guessed:
+//   - a validator held in a field or parameter declared as the Validator interface: its
+//     class is the injected bean, which this file does not follow;
+//   - @InitBinder in a @ControllerAdvice, and a global validator from WebMvcConfigurer;
+//   - JSR-303 constraint validators, which the Bean Validation provider runs.
+// The names are in knobs.dl, section (21).
+// ============================================================================
+
+// the @InitBinder methods, with the controller that declares them
+binder_init(ib, c) :- ann_on_method("client", _, n, ib, c), cfg_init_binder_ann(n).
+binder_init_names(ib) :- ann_on_method("client", a, n, ib, _), cfg_init_binder_ann(n), ann_arg(_, a, "value", v, _, _), v != "".
+binder_init_name(ib, v) :- ann_on_method("client", a, n, ib, _), cfg_init_binder_ann(n), ann_arg(_, a, "value", v, _, _), v != "".
+
+// the validator class each registers: the static type of the registration's argument,
+// when that is a class of the application
+binder_validator(ib, vt) :- binder_init(ib, _), call_from(call, ib), call_site(call, name, _),
+    cfg_binder_register(name), expr_child("client", call, "ARGUMENT", arg), expr_type(_, arg, vt),
+    java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, vt).
+
+// the method of that validator Spring calls, declared or inherited, in the application
+binder_validator_method(vt, m) :- binder_validator(_, vt), cfg_validator_method(mn, n),
+    method_name_in_type(mn, vt, m), method_paramc(m, n), method_owner("client", _, m).
+
+// the validated handler arguments, and the model attribute name each binds as
+binder_valid_param(h, p) :- ann_on_param("client", _, n, p, h), cfg_valid_ann(n).
+binder_param_named(p) :- binder_valid_param(_, p), ann_on_param("client", ma, "ModelAttribute", p, _),
+    ann_arg(_, ma, an, v, _, _), cfg_model_attr_arg(an), v != "".
+binder_param_name(p, v) :- binder_valid_param(_, p), ann_on_param("client", ma, "ModelAttribute", p, _),
+    ann_arg(_, ma, an, v, _, _), cfg_model_attr_arg(an), v != "".
+cfg_decap_demand(sn) :- binder_valid_param(_, p), method_param_type_resolves(_, p, _, t),
+    type_decl(_, sn, _, _, _, _, t).
+binder_param_name(p, d) :- binder_valid_param(_, p), !binder_param_named(p),
+    method_param_type_resolves(_, p, _, t), type_decl(_, sn, _, _, _, _, t), cfg_decap(sn, d).
+
+// the binder applies to the handler's argument
+binder_applies(ib, h) :- binder_init(ib, c), !binder_init_names(ib), binder_valid_param(h, _),
+    method_owner("client", c, h), h != ib.
+binder_applies(ib, h) :- binder_init(ib, c), binder_init_name(ib, v), binder_valid_param(h, p),
+    binder_param_name(p, v), method_owner("client", c, h), h != ib.
+
+binder_validation_edge(h, m) :- binder_applies(ib, h), binder_validator(ib, vt), binder_validator_method(vt, m).
+
+call_chain_edge(h, h, "-", m, "client", "known_edge", "binder_validator") :- binder_validation_edge(h, m).

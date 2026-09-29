@@ -1,0 +1,5 @@
+known_edge	new	app.GadgetFactory#gadget() -> app.Gadget#<init>()
+known_edge	new	app.SprocketFactory#sprocket() -> app.Sprocket#<init>()
+known_edge	new	app.ThingResource#thing() -> app.Thing#<init>()
+known_edge	new	app.WidgetsResource#current() -> app.Widget#<init>()
+known_edge	new	app.WidgetsResource#plain() -> app.Widget#<init>()

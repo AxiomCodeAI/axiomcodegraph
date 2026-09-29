@@ -71,11 +71,32 @@ dest_resolved(v, d) :- dest_raw(v), cfg_placeholder(v, k, d), d != "",
 // several client constants declare with DIFFERENT values resolves to nothing rather
 // than to an arbitrary one.
 // const_string(Name, Value): a static final String whose initializer is a literal.
-const_string(n, v) :- java_field(n, _, _, _, _, _, _, _, _, _, _, _, mods, f),
+// An interface field is implicitly static final; the parser stamps both modifiers on
+// it, so the modifier test below covers `interface Keys { String PREFIX = "x"; }` too.
+const_string_owned(n, o, q, v) :- java_field(n, _, _, _, _, _, _, _, _, o, q, _, mods, f),
     contains("STATIC", mods), contains("FINAL", mods),
     expr_owner("client", f, _, e), expr_literal("client", v, e).
+const_string(n, v) :- const_string_owned(n, _, _, v).
 const_string_values(n, c) :- const_string(n, _), c = count : { const_string(n, _) }.
 const_string_unique(n, v) :- const_string(n, v), const_string_values(n, 1).
+
+// const_string_ref(Ref, Value): a constant as an argument WRITES it -- bare (`PREFIX`,
+// a static import or the declaring type itself), or qualified by any trailing part of
+// its owner's name (`Keys.PREFIX`, `Constants.Auth.PREFIX`, `com.acme.Keys.PREFIX`).
+// A spelling resolves only when every constant it can denote has one value: two
+// `Keys` types with different PREFIX values leave `Keys.PREFIX` unresolved.
+// Demand-driven (const_ref_demand, filled by the rules that read a reference), and
+// joined on the reference's last segment, so no rule pairs every reference with every
+// constant.
+const_ref_dot(r, i) :- const_ref_demand(r), i = range(0, strlen(r)), substr(r, i, 1) = ".".
+const_ref_last(r, r) :- const_ref_demand(r), !const_ref_dot(r, _).
+const_ref_last(r, substr(r, i + 1, strlen(r) - i - 1)) :- const_ref_demand(r),
+    const_ref_dot(r, _), i = max j : { const_ref_dot(r, j) }.
+const_string_ref_cand(r, v) :- const_ref_last(r, r), const_string_owned(r, _, _, v).
+const_string_ref_cand(r, v) :- const_ref_last(r, n), r != n, const_string_owned(n, _, q, v),
+    full = cat(q, cat(".", n)), strlen(full) >= strlen(r), strlen(full) - strlen(r) = d,
+    substr(full, d, strlen(r)) = r, ( d = 0 ; d > 0, substr(full, d - 1, 1) = "." ).
+const_string_ref(r, v) :- const_string_ref_cand(r, v), 1 = count : { const_string_ref_cand(r, _) }.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. WHAT A METHOD SERVES
