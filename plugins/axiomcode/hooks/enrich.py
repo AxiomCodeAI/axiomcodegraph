@@ -195,9 +195,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     for d, j in results:
         head = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(head + "  (impact unavailable)"); continue
-        # `alongside` (same file, same type; no call, no reference) is not a user: an answer from before it had its own list
-        # still carries it in `direct`, so it is dropped here too
-        con = j.get('contract', []); dr = [x for x in j.get('direct', []) if x.get('certainty') != 'alongside']; rc = j.get('reached', []); ts = j.get('tests', [])
+        con = j.get('contract', []); dr = graph_sql.hook_direct(j); rc = j.get('reached', []); ts = j.get('tests', [])
         # ordered as ax_edges.DIRECT_ORDER and impact's CERT are: an edge the engine asserted outranks a
         # name or a text match, and neither a hand-off nor a truncated fan-out outranks a resolved call.
         rank = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'in scope': 4, 'by name': 5, 'text': 6}
