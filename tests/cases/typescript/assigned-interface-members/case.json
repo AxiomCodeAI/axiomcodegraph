@@ -11,7 +11,7 @@
   {
    "why": "a function assigned to an interface's method member through a property chain implements it: the walk from a call to the member reaches both assigned arrows, one of them through `run = parse`",
    "run": ["path", "parse", "*"],
-   "want": ["<arrow>   src/schema.ts:15", "<arrow>   src/schema.ts:19"],
+   "want": ["inst._i.parse   src/schema.ts:15", "inst._i.run   src/schema.ts:19"],
    "avoid": []
   },
   {
