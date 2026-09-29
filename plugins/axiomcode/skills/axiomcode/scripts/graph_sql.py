@@ -1081,7 +1081,8 @@ def no_caller_phrase(kind, label):
 
 def _bean_call(q, ids, sites):
     """The container-bean layer on `calls it`, and the only rules in `direct` that a bundle without a container
-    never exercises — which is why jackson (0 rows in ext_bean_def) was clean on it and keycloak (213) was not.
+    never exercises — which is why a container-free JSON library (0 rows in ext_bean_def) was clean on it and a large
+    container-wired Java server (213) was not.
 
         bean_call(q,c,m) :- target(q,"method",m,_), owner(m,ot), bean(_,ot,_), calls(c,m,t,_,_), t != "multi_inferred", t != "stub"
 
@@ -1243,7 +1244,7 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
     if fields:
         # every file a MEMBER of the owner is written in, not just the file of the owner's own type symbol.
         # `member(t,c,…)` resolves the owner display to one type id, so a type owns every method written with
-        # that display wherever it lives: keycloak has a jpa RealmAdapter and an infinispan one, and taking the
+        # that display wherever it lives: a large Java server has two storage adapters sharing one display, and taking the
         # first type symbol's file left 179 rows worded "a sibling of the same type" where the rules say
         # "…, using the same field cached".
         want_files = set()
@@ -1706,7 +1707,7 @@ GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Set
              # TypedDict generates no callable, but its members are reached by STRING KEY (`d["zip_code"]`), so
              # naming it here is what makes the [text] layer's string hits legible as members rather than noise.
              'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'},
-             # discriminating names only. SQLAlchemy 2.0 states its base outright; 1.x builds one with
+             # discriminating names only. The ORM's 2.0 API states its base outright; 1.x builds one with
              # declarative_base(), which the base-alias rule in impact.dl resolves through. Django's
              # `models.Model` is NOT here: the parser keeps only the last segment, so the key would be
              # `Model` and would fire on any project's own class of that name.
@@ -2460,8 +2461,8 @@ def _declares(q, t):
     """`declares(t,n)`: a member of t, a member of anything t extends, or a nested type of that name.
 
     Keyed on the type ID, because `member(t,_,n,_)` is. Falling back to `WHERE owner = <display>` merges every
-    class that shares a display: keycloak has two `ParTest` classes and only one of them extends the base that
-    declares REALM_NAME, so the display lookup shadowed 18 rows the rules report.
+    class that shares a display: one measured Java server has two test classes of one display and only one of them extends the base that
+    declares the constant, so the display lookup shadowed 18 rows the rules report.
     """
     up, _down, nest_in, nm, memo = _rel_index(q)
     if t in memo: return memo[t]
@@ -2852,11 +2853,11 @@ def _same_file_members(q, own_tid, f):
     Keyed on the type SYMBOL ID, because that is what the rule joins on, and the exporter builds its two maps
     from different row sets: `tid_of` from anything carrying a type_id (a method row can), `type_in_file` from
     the type rows only (method_id IS NULL) plus the module nodes. Keying this on the display instead moved 179
-    rows off one keycloak target and pulled 168 others in.
+    rows off one target in a large Java server and pulled 168 others in.
 
     Iterating the symbols IN f is also not the same thing and loses rows: `member(t2,c)` resolves the owner
     display to ONE type id, first id wins, so a type in f owns every method written with that owner display —
-    including ones in another file entirely. keycloak has two `AbstractOrganizationTest` classes in different
+    including ones in another file entirely. One large Java server has two abstract test classes of one display in different
     modules, and 24 of the members the rules report for the one in f are written in the other.
     """
     _memb, _od, _tf, _tid, by_tid = _members(q)
