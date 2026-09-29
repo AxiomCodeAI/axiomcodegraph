@@ -38,6 +38,10 @@
 //                     site in process (a mediator's Send reaching the handler for the
 //                     request type). Added beside the site's row, by
 //                     framework-behavior/dispatch.dl.
+//   callback_registered NOT the site's own target either: a method group handed
+//                     over as a value (an argument, or `+=` on an event the engine
+//                     does not know), which the receiver of it may invoke. Added
+//                     beside the call it is an argument of (resolution/delegates.dl).
 // ============================================================================
 
 // ── THE SITE UNIVERSE ───────────────────────────────────────────────────────
@@ -96,8 +100,11 @@ call_target_count(prov, e, n) :-
 // A site whose receiver type has an INCOMPLETE HIERARCHY is never known_edge. The
 // member may well be declared in the base nobody staged, so the one target that
 // resolved is a target and so is whatever the missing base declares. Saying
-// known_edge there claims monomorphism the engine cannot support.
-site_leaves_client(prov, e) :- call_recv_type(prov, e, gk), type_hierarchy_incomplete(prov, gk).
+// known_edge there claims monomorphism the engine cannot support. Only an entry
+// member lookup can reach counts (type_members_incomplete): an unstaged interface
+// after a class's base, or on a struct, declares nothing a class or struct receiver
+// can bind to (#1431).
+site_leaves_client(prov, e) :- call_recv_type(prov, e, gk), type_members_incomplete(prov, gk).
 site_leaves_client(prov, e) :- client_calls_lib(prov, e, _, _).
 // A site whose target is an UNSTAGED type leaves the client too. Without this every
 // `Console.WriteLine` in a client-only run is counted as an engine blind spot, and on
@@ -227,6 +234,22 @@ call_chain_edge(e, caller, "-", node, "client", "boundary_lib", kind) :-
     delegate_invoke_node(mem, node),
     call_from("client", e, caller),
     invocation_site("client", e, kind).
+
+// ── HAND-OFF EDGES: A METHOD GROUP PASSED ON (#1550) ────────────────────────
+// `new Timer(Sweep, ...)`, `Run(Report)`, `ProcessExit += OnExit`: the enclosing
+// method hands the method to code that may invoke it (resolution/delegates.dl,
+// method_group_handoff). Tier `callback_registered`, the tier the JavaScript engine
+// gives the same hand-off, so no reader takes it for a call written there; kind
+// `ref`, Java's kind for `X::m`, the same construct. FromExpr is the method group
+// itself, positioned where the name is written.
+//
+// Not an invocation_site, for the reason the primary-constructor edge below is not:
+// the site universe is the parser's call list, and a method group is not a call. The
+// call it is an argument of (`Run`, `new Timer`) keeps its own row and tier.
+call_chain_edge(e, caller, "-", m, "client", "callback_registered", "ref") :-
+    method_group_handoff("client", e, m),
+    method_decl("client", _, _, _, m),
+    call_from_expr("client", e, caller).
 
 // ── SYNTHESISED EDGES: A PRIMARY CONSTRUCTOR'S BASE INVOCATION ──────────────
 // `class D(int a) : B(a)` calls B's constructor with no call syntax anywhere in the
