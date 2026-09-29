@@ -20,8 +20,9 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections
 csv.field_size_limit(10**9)
-INDEX_VERSION = '5'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
-                         # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding); the query
+INDEX_VERSION = '6'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+                         # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding;
+                         # v6: TypeScript class-property arrows named after their field); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -98,8 +99,13 @@ A = {
                 kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-fields.csv', id='tsFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
-    # `const foo = () => …` : the method is named <arrow>; its name is the variable's
-    boundNames=dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
+    # `const foo = () => …` : the method is named <arrow>; its name is the variable's. A class property `handler = () => …`
+    # is the same shape through the field: its initializer is the ARROW_FUNCTION row whose anonymousDeclarationHash is the
+    # method, so `this.handler()` (resolved to that method) is a caller of `Svc.handler`, not of `Svc.<arrow>`.
+    # `handler = debounce(() => …)` is not: its initializer is the CALL, which declares nothing
+    boundNames=[dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
+                dict(file='all-typescript-fields.csv', name='name',
+                     via=dict(key='initializerExpressionLinkHash', file='all-typescript-expressions.csv', id='tsExpressionUniqueHash', method='anonymousDeclarationHash'))],
     skipped='skipped-typescript-files.csv'),
  'python': dict(
     modules=dict(file='all-python-modules.csv', id='pyModuleUniqueHash', filePath='filePath'),
@@ -224,19 +230,25 @@ c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in 
 
 # ── names a function or class takes from what it is bound to ──────────────────────────────────────
 bound = {}
-if A['boundNames']:
-    b = A['boundNames']
-    if b.get('via'):                                   # variable -> expression -> method
+# method -> (file, line, name) of the variable or field that names it, where that row says its own place: `run:\n T =\n (…) => …`
+# starts the field lines above its arrow, and without this the field stayed a second `Holder.run`, a field beside the method
+bound_src = {}
+def bind(m_, r, name):
+    if m_ in bound: return
+    bound[m_] = name
+    if r.get('filePath') and (r.get('startLine') or '').isdigit(): bound_src[m_] = (rel(r['filePath']), int(r['startLine']), name)
+for b in ([A['boundNames']] if isinstance(A['boundNames'], dict) else A['boundNames'] or []):
+    if b.get('via'):                                   # variable (or field) -> expression -> method
         v = b['via']; expr2m = {}
         for r in rows(v['file']):
             if r.get(v['method']) and r.get(v['id']): expr2m[r[v['id']]] = r[v['method']]
         for r in rows(b['file']):
             if b.get('only') and not b['only'](r): continue
             m_ = expr2m.get(r.get(v['key'], ''))
-            if m_ and r.get(b['name']): bound.setdefault(m_, r[b['name']])
+            if m_ and r.get(b['name']): bind(m_, r, r[b['name']])
     else:
         for r in rows(b['file']):
-            if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
+            if r.get(b['method']): bind(r[b['method']], r, r[b['name']])
 # a function that is the value of a property takes the property's name: `recv.key = function …` (an ASSIGNMENT whose
 # target is a non-computed property access) and `{ key: () => … }` (an OBJECT_LITERAL's PROPERTY_VALUE, keyed by the
 # PROPERTY_KEY sibling at the same childIndex). The owner is the receiver as written (`helpers`, `Foo` for
@@ -363,7 +375,9 @@ def enum_constant_of(fp, ln):
     return None
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
     name = m['name'] or ckey.get(cmeth.get(m['id'], ''), '')
-    if name.startswith('<') and m['id'] in bound: name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
+    if name.startswith('<') and m['id'] in bound:
+        name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
+        if m['id'] in bound_src: bound_at.add(bound_src[m['id']])
     od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else bound_owner.get(m['id'])
     if m['kind'] == 'ENUM_CONSTANT_METHOD' and od:
         k_ = enum_constant_of(rel(m['file_path']), m['start_line'] or 0)
