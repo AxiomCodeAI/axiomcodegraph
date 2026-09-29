@@ -375,3 +375,29 @@ cfg_event_listener_type("ApplicationListener", "onApplicationEvent").
 // is wrapped in a PayloadApplicationEvent, which is an ApplicationEvent.
 cfg_event_catch_all("ApplicationEvent").
 cfg_event_catch_all("Object").
+
+// ── (21) ENTITY LIFECYCLE CALLBACKS: save(entity) runs its @PrePersist … listeners ──
+// A JPA provider runs an entity's lifecycle callbacks, and those of the listener classes
+// @EntityListeners names, when the entity is written. No call site names them
+// (call-edge-generation/entity_lifecycle.dl).
+//
+// cfg_entity_store(TypeSimpleName): a write call on a receiver declared as this type, or
+// as a subtype of it (a project repository interface), writes its first argument.
+cfg_entity_store("Repository").            cfg_entity_store("CrudRepository").
+cfg_entity_store("ListCrudRepository").    cfg_entity_store("PagingAndSortingRepository").
+cfg_entity_store("JpaRepository").         cfg_entity_store("EntityManager").
+cfg_entity_store("Session").
+// cfg_entity_write(Method, Phase): the callbacks of which phase a write method runs. A
+// save or merge may insert or update, so it runs both.
+cfg_entity_write("save", "persist").         cfg_entity_write("save", "update").
+cfg_entity_write("saveAndFlush", "persist"). cfg_entity_write("saveAndFlush", "update").
+cfg_entity_write("merge", "persist").        cfg_entity_write("merge", "update").
+cfg_entity_write("saveOrUpdate", "persist"). cfg_entity_write("saveOrUpdate", "update").
+cfg_entity_write("persist", "persist").      cfg_entity_write("update", "update").
+cfg_entity_write("delete", "remove").        cfg_entity_write("remove", "remove").
+// cfg_entity_callback_ann(Annotation, Phase)
+cfg_entity_callback_ann("PrePersist", "persist").  cfg_entity_callback_ann("PostPersist", "persist").
+cfg_entity_callback_ann("PreUpdate", "update").    cfg_entity_callback_ann("PostUpdate", "update").
+cfg_entity_callback_ann("PreRemove", "remove").    cfg_entity_callback_ann("PostRemove", "remove").
+// a type annotation whose class arguments are listener classes
+cfg_entity_listeners_ann("EntityListeners").

@@ -932,6 +932,20 @@
 .decl event_listener_class(c0:symbol,c1:symbol)
 .decl event_listener_method(c0:symbol)
 .decl event_dispatch_edge(c0:symbol,c1:symbol,c2:symbol)
+// call-edge-generation/entity_lifecycle.dl + knobs.dl (21): JPA entity lifecycle callbacks
+.decl cfg_entity_store(c0:symbol)
+.decl cfg_entity_write(c0:symbol,c1:symbol)
+.decl cfg_entity_callback_ann(c0:symbol,c1:symbol)
+.decl cfg_entity_listeners_ann(c0:symbol)
+.decl entity_store_type(c0:symbol)
+.decl entity_store_recv_type(c0:symbol)
+.decl entity_write_site(c0:symbol,c1:symbol)
+.decl entity_written(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl entity_callback_method(c0:symbol,c1:symbol,c2:symbol)
+.decl entity_names_listener(c0:symbol,c1:symbol)
+.decl entity_scope(c0:symbol,c1:symbol)
+.decl entity_runs(c0:symbol,c1:symbol,c2:symbol)
+.decl entity_callback_edge(c0:symbol,c1:symbol,c2:symbol)
 // #1401: `var` in an enhanced for, a try-with-resources resource and a lambda parameter
 .decl iter_written_ref(c0:symbol,c1:symbol)                   // (iterable expr, its written declaration ref)
 .decl foreach_platform_iterable(c0:symbol,c1:symbol)          // (package, simple name) knob

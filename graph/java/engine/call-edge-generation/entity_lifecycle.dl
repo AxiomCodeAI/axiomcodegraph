@@ -1,0 +1,86 @@
+// ============================================================================
+// Call-edge generation · ENTITY LIFECYCLE CALLBACKS  (save(entity) -> the callbacks it runs)
+//
+//     orders.save(order);                                   // written here
+//     @Entity @EntityListeners(Stamps.class) class Order { @PrePersist void check() { … } }
+//     class Stamps { @PrePersist void onCreate(Order o) { … } }   // run from there
+//
+// A JPA provider fires an entity's lifecycle callbacks when the entity is written through
+// the persistence context: the methods of the entity (and of its mapped superclasses)
+// annotated @PrePersist / @PostPersist / @PreUpdate / @PostUpdate / @PreRemove /
+// @PostRemove, and the same-annotated methods of every listener class that
+// @EntityListeners names on the entity or on a superclass. No call site names any of
+// them, so without this file `path` from the code that saves an entity to its listener
+// said the two were independent, and `impact` on a listener said the change was local.
+//
+// WHY A CALL EDGE WITH TIER event_dispatch. It is the application-event shape
+// (event_dispatch.dl): one JVM, keyed on a TYPE (the entity's), the callback running
+// before or right after the write returns. The provider publishes a lifecycle event and
+// runs its handlers, which is what the event_dispatch tier already says to every tool
+// that walks call_chain_edge; the KIND column, `entity_callback`, tells the two apart.
+// The boundary row for the save call itself is kept: the edge is ADDED beside it.
+//
+// THE KEY IS THE STATIC TYPE OF THE WRITTEN ENTITY, with the subtype rule JPA applies:
+// callbacks declared on the entity type or any ancestor of it, and listeners named on
+// the entity type or any ancestor of it. An entity that names no listener and declares
+// no callback gets no edge, and a listener class that no entity names is never linked.
+//
+// WHICH CALLBACKS, BY OPERATION (cfg_entity_write): a save or merge may insert or update,
+// so it reaches the persist and the update callbacks; persist reaches the persist ones;
+// delete / remove the remove ones.
+//
+// THE STORE is a knob table of persistence interfaces (cfg_entity_store), matched against
+// the receiver's declared type or any ancestor of it — a Spring Data repository interface
+// in the project reaches it through `extends JpaRepository<…>`. A project class that
+// declares its own save(entity) is neither, so a call on it stays the ordinary call it is.
+//
+// WHAT IS NOT MODELLED, and stays unlinked rather than guessed:
+//   - saveAll(Iterable) / deleteAll(…) / deleteById(id): the argument is not the entity.
+//   - an update of a managed entity at flush or commit with no write call (dirty checking).
+//   - @PostLoad (a read, not a write), @ExcludeSuperclassListeners, default listeners
+//     declared in orm.xml.
+// ============================================================================
+
+// ── the store types, by name ───────────────────────────────────────────────
+// An external node (`external:<qualified name>`, or `external:<simple name>` from an
+// on-demand import) or a staged library type, as event_dispatch.dl matches publishers.
+entity_store_type(x) :- cfg_entity_store(n), external_type(x), x = cat("external:", n).
+entity_store_type(x) :- cfg_entity_store(n), external_type(x),
+    strlen(x) > strlen(n) + 1,
+    substr(x, max(0, strlen(x) - strlen(n) - 1), strlen(n) + 1) = cat(".", n).
+entity_store_type(t) :- cfg_entity_store(n), lib_type(n, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+entity_store_recv_type(t) :- entity_store_type(t).
+entity_store_recv_type(t) :- entity_store_type(a), type_ancestor(t, a).
+
+// ── the write sites, and the static type of the entity each one writes ──────
+entity_write_site(call, phase) :- call_site(call, name, recv), cfg_entity_write(name, phase),
+    expr_type(_, recv, t), entity_store_recv_type(t).
+
+entity_written(call, caller, et, phase) :- entity_write_site(call, phase),
+    expr_child("client", call, "ARGUMENT", arg), expr_position("client", arg, "0"),
+    expr_type(_, arg, et), call_from(call, caller).
+
+// ── the callbacks each entity type runs, by phase ──────────────────────────
+entity_callback_method(m, owner, phase) :- ann_on_method(_, _, n, m, _), cfg_entity_callback_ann(n, phase),
+    method_owner("client", owner, m).
+
+// the listener classes a type names with @EntityListeners (one row per class; an array
+// argument is stored as one row per element)
+entity_names_listener(t, l) :- ann_on_type(_, a, n, t), cfg_entity_listeners_ann(n),
+    ann_arg(_, a, _, v, "CLASS_REFERENCE", _), config_class_ref("annotation", a, v, l, _).
+
+// the types whose callbacks and named listeners apply to an entity of type et: et itself
+// and every ancestor of it
+entity_scope(et, et) :- entity_written(_, _, et, _).
+entity_scope(et, a) :- entity_written(_, _, et, _), type_ancestor(et, a).
+
+entity_runs(et, m, phase) :- entity_scope(et, s), entity_callback_method(m, s, phase).
+entity_runs(et, m, phase) :- entity_scope(et, s), entity_names_listener(s, l),
+    entity_callback_method(m, l, phase).
+
+// ── the edge ────────────────────────────────────────────────────────────────
+entity_callback_edge(call, caller, m) :- entity_written(call, caller, et, phase), entity_runs(et, m, phase).
+
+call_chain_edge(call, caller, "-", m, "client", "event_dispatch", "entity_callback") :-
+    entity_callback_edge(call, caller, m).
