@@ -1,0 +1,12 @@
+known_edge	read	probe.Catalog#add(String) -> probe.Catalog#items
+known_edge	read	probe.Catalog#display(Item) -> probe.Catalog#shelf
+known_edge	read	probe.Catalog#importItem(Item) -> probe.Catalog#em
+known_edge	read	probe.Catalog#jot(String) -> probe.Catalog#notes
+known_edge	read	probe.Catalog#remove(Item) -> probe.Catalog#items
+known_edge	read	probe.Item#beforeInsert() -> probe.Item#name
+known_edge	readwrite	probe.Audited#touch() -> probe.Audited#version
+known_edge	write	probe.Catalog#<init>(ItemRepository,NoteRepository,EntityManager) -> probe.Catalog#em
+known_edge	write	probe.Catalog#<init>(ItemRepository,NoteRepository,EntityManager) -> probe.Catalog#items
+known_edge	write	probe.Catalog#<init>(ItemRepository,NoteRepository,EntityManager) -> probe.Catalog#notes
+known_edge	write	probe.Item#beforeInsert() -> probe.Item#name
+known_edge	write	probe.Item#rename(String) -> probe.Item#name
