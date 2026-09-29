@@ -166,7 +166,7 @@ GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Set
              # breaks each construction site at the argument it passes. TypedDict generates no callable, but its
              # members are reached by STRING KEY, which is what makes its [text] hits members rather than noise.
              'NamedTuple': {'ctor'}, 'TypedDict': {'ctor'},
-             # discriminating names only. SQLAlchemy 2.0 states its base outright; 1.x builds one with
+             # discriminating names only. The ORM's 2.0 API states its base outright; 1.x builds one with
              # declarative_base(), which the base-alias rule in impact.dl resolves through. Django's
              # `models.Model` is NOT here: the parser keeps only the last segment, so the key would be
              # `Model` and would fire on any project's own class of that name.
