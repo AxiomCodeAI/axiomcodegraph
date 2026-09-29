@@ -99,5 +99,8 @@ sqlite3 -readonly $G "SELECT c2, count(*) FROM ext_call_site_unresolved GROUP BY
   its `class Meta:` line.
 - **Names.** Python `type_refs` and `decorations` keep only the last dotted segment; the full text is in
   `ext_type_base_unresolved.c3` and `decorations.text`. String cells are CSV-escaped: match with `LIKE '%x%'`.
+  JavaScript `symbols`: a field (`this.x = …` in a constructor or constructor function, a class field) has its class as
+  `owner` (`Store.items`); a member with a computed key is named by the key as written (`Tagged.[Symbol.hasInstance]`);
+  an anonymous class expression takes the name it is bound to (`static Inner = class {…}` → `Outer.Inner`).
 - **`ext_*` tables** have positional columns `c0…cN`; `SELECT description FROM schema_tables WHERE name = '<t>'`
   names them.

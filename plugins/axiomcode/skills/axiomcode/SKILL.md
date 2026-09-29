@@ -94,7 +94,7 @@ keys, injected beans and handlers registered as values — none has a call site.
 `field`, `type`, `removed`, `added`). `axiomcode test-impact [--why] [<file>…]` lists the tests the edit reaches and the
 command to run them. For your branch's commits ask `--range <base>..HEAD`: it reads from the merge-base, so a base
 that moved on is not counted as yours. On a copy without git, name the files you edited. Changed fixtures and other
-files no graph reads are named, with the tests whose text names them. It is a **lower bound**: skipping what it does not name is your risk decision, since reflection
+files no graph reads are named, with the tests whose text names them; a case directory's files map to its case runner's command. It is a **lower bound**: skipping what it does not name is your risk decision, since reflection
 and service loaders are invisible. Detail: `reference/changed-and-tests.md`.
 
 ## path — asking the graph
