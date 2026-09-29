@@ -94,6 +94,7 @@ def impact(d, code):
     for r in d.get('contract', []):
         rows.append(('contract', site(code, r['at'], f"must change · {r['why']}{stale(r)}", r['display'])))
     seen = set()
+    if d.get('alongside'): more('alongside (no call, no reference)', len(d['alongside']))
     for r in d.get('direct', []):
         cert = r.get('certainty') or 'resolved'
         if cert == 'alongside': more('alongside (no call, no reference)'); continue

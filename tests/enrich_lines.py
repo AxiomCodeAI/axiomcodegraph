@@ -56,6 +56,10 @@ SRC = {
     # two overloads in one file: one name to the reader, printed once
     P + 'Pricer.java': ('package app.orders;\n\npublic class Pricer {\n    public int quoteAll(int n) { return n; }\n\n'
                         '    public int quoteAll(String s) { return quoteAll(s.length()); }\n}\n'),
+    # a constant with one reader, a sibling that does not read it, and a second class in the same file
+    P + 'Limits.java': ('package app.orders;\n\npublic class Limits {\n    public static final int MAX_ITEMS = 3;\n\n'
+                        '    public int cap() { return MAX_ITEMS; }\n\n    public int floor() { return 1; }\n}\n\n'
+                        'class Spare {\n    int spareCount() { return 2; }\n}\n'),
 }
 # two test stubs in modules whose paths sort before core/, with the same file name and line
 for m in ('json', 'xml'):
@@ -174,6 +178,13 @@ with tempfile.TemporaryDirectory() as repo:
     open(f, 'w').write(body)
     out = fire(repo, 'u1', '', {}, 'changes.py', 'UserPromptSubmit')
     check('the prompt-time report of a body edit is the same one line', 'body edit of OrderStore.findById' in out and 'reads / uses it' not in out, out)
+    open(f, 'w').write(orig)
+    # a declaration beside it in the file (a sibling, another class) is not a reader: `reads / uses it` counts readers only
+    f = os.path.join(repo, P + 'Limits.java')
+    orig = open(f).read()
+    out = edit('e5', orig.replace('    public static final int MAX_ITEMS = 3;\n\n', ''))
+    check('a removed constant lists its reader and not the declarations beside it',
+          'reads / uses it (1): ' in out and 'Limits.cap' in out and 'Limits.floor' not in out and 'Spare.spareCount' not in out, out)
     open(f, 'w').write(orig)
 
 # ── what a Read of a script says: a call in the text read is not an edge the text does not show ─────────────

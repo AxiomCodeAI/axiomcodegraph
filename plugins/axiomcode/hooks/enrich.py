@@ -195,13 +195,15 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     for d, j in results:
         head = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
         if not j: lines.append(head + "  (impact unavailable)"); continue
-        con = j.get('contract', []); dr = j.get('direct', []); rc = j.get('reached', []); ts = j.get('tests', [])
+        # `alongside` (same file, same type; no call, no reference) is not a user: an answer from before it had its own list
+        # still carries it in `direct`, so it is dropped here too
+        con = j.get('contract', []); dr = [x for x in j.get('direct', []) if x.get('certainty') != 'alongside']; rc = j.get('reached', []); ts = j.get('tests', [])
         # ordered as ax_edges.DIRECT_ORDER and impact's CERT are: an edge the engine asserted outranks a
         # name or a text match, and neither a hand-off nor a truncated fan-out outranks a resolved call.
         rank = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'in scope': 4, 'by name': 5, 'text': 6}
         dr = sorted(dr, key=lambda x: (rank.get(x['certainty'], 9), x['display']))
         prod = [x for x in dr if x['role'] in ('produces', 'writes')]; reads = [x for x in dr if x['role'] in ('reads', 'uses')]
-        def names(xs, k=4): return ', '.join(f"{x['display']} {x['at'].split('/')[-1]}" for x in xs[:k]) + (f" … +{len(xs) - k}" if len(xs) > k else '')
+        def names(xs, k=4): return ', '.join(f"[{x['certainty']}] {x['display']} {x['at'].split('/')[-1]}" for x in xs[:k]) + (f" … +{len(xs) - k}" if len(xs) > k else '')
         lines.append(head)
         if con and d['kind'] in ('signature', 'field', 'type', 'removed'): lines.append(f"    must change with it ({len(con)}): " + ', '.join(f"{x['display']} ({x['why']})" for x in con[:4]) + (' …' if len(con) > 4 else ''))
         if prod: lines.append(f"    produces / writes it ({len(prod)}): " + names(prod))
