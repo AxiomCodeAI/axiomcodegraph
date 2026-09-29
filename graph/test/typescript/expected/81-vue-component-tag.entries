@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  exported_from_entry_module main#mount   main.ts:3
+  unimported_module main#<module>   main.ts:1
+  unimported_module shims-vue#<module>   shims-vue.d.ts:1

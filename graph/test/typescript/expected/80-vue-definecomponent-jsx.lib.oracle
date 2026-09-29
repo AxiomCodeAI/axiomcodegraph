@@ -1,0 +1,11 @@
+oracle=21 engine=27 agree=19 missing=2 (known 2, NEW 0) extra=8
+  known    app#<arrow@13>() -> Component#<arrow@22>(any[])
+  known    card#render() -> Component#<arrow@22>(any[])
+  extra    app#<arrow@13>() -> button#setup()
+  extra    app#<arrow@13>() -> card#render()
+  extra    app#<arrow@13>() -> parts#<arrow@40>(?)
+  extra    app#<arrow@13>() -> parts#render()
+  extra    app#<arrow@13>() -> parts#setup()@L43
+  extra    app#<arrow@13>() -> parts#setup(?)
+  extra    app#<arrow@13>() -> reg#setup()
+  extra    card#render() -> parts#setup(?)

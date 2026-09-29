@@ -118,14 +118,16 @@ with tempfile.TemporaryDirectory() as tmp:
           fire(app, 'c7', 'Read', {'file_path': os.path.join(app, 'vendored', P, 'OrderStore.java')}) == '')
 
     # ── the directive (PreToolUse) ────────────────────────────────────────────────────────────────────────
-    d = fire(ws, 'd1', 'Read', {'file_path': svc}, hook='direct.py', event='PreToolUse')
-    check('the directive speaks before a Read by absolute path from a directory with no graph', 'axiomcode_impact' in d, d)
-    check('control: the directive is silent before a Read in a tree with no graph',
-          fire(ws, 'd2', 'Read', {'file_path': os.path.join(plain, P, 'OrderStore.java')}, hook='direct.py', event='PreToolUse') == '')
-    check('the directive is silent on a shell `cat` of a file that is not source',
-          fire(app, 'd3', 'Bash', {'command': 'cat notes.md'}, hook='direct.py', event='PreToolUse') == '')
-    d = fire(app, 'd4', 'Bash', {'command': f'cat {os.path.relpath(store, app)}'}, hook='direct.py', event='PreToolUse')
-    check('control: the directive speaks on a shell `cat` of a source file', 'axiomcode_impact' in d, d)
+    # it speaks once per session (stamped in the temp directory), so each check gets a session no earlier run used
+    sid = lambda s: f'{s}-{os.getpid()}-{int(time.time() * 1000)}'
+    d = fire(ws, sid('d1'), 'Grep', {'pattern': 'findById', 'path': app}, hook='direct.py', event='PreToolUse')
+    check('the directive speaks before a Grep by absolute path from a directory with no graph', 'axiomcode_impact' in d and 'OrderStore.java' in d, d)
+    check('control: the directive is silent before a Grep of a tree with no graph',
+          fire(ws, sid('d2'), 'Grep', {'pattern': 'findById', 'path': plain}, hook='direct.py', event='PreToolUse') == '')
+    check('the directive is silent on a shell grep of a file that is not source',
+          fire(app, sid('d3'), 'Bash', {'command': 'grep -n findById notes.md'}, hook='direct.py', event='PreToolUse') == '')
+    d = fire(app, sid('d4'), 'Bash', {'command': f'grep -n findById {os.path.relpath(store, app)}'}, hook='direct.py', event='PreToolUse')
+    check('control: the directive speaks on a shell grep of a source file for a declared method', 'axiomcode_impact' in d, d)
 
     # ── orientation ──────────────────────────────────────────────────────────────────────────────────────
     for i in range(30):

@@ -24,10 +24,13 @@ import { JsScopeNode, nodeKey } from '@/parsers/javascript/extractors/js-symbol-
 import {
   enclosingVariableDeclaration,
   isDynamicImportCall,
+  isJsComponentFile,
   isNodeBuiltinSpecifier,
+  isRelativeSpecifier,
   isRequireCall,
   pointOf,
 } from '@/utils/javascript';
+import { resolveVueSpecifier } from '@/utils/vue-sfc';
 
 /**
  * `js_import` and `js_export`, minted in a **second pass from expression rows**.
@@ -1187,6 +1190,14 @@ class JsModuleEdgeExtractor {
     // none; a bundler-only ES module that spells `./lib` for `./lib/index.js` gets
     // the CommonJS-mode answer as a fallback rather than nothing, since the file it
     // means is not in doubt.
+    // `./Price.vue`: the compiler's resolver knows no component extension, so the
+    // file the relative path names is the answer when the analyzer walked it.
+    if (isRelativeSpecifier(specifier) && isJsComponentFile(path.basename(specifier))) {
+      const named = realPathOfResolved(path.resolve(path.dirname(this.options.absoluteFilePath), specifier));
+      if (this.options.projectModuleHashes.has(named)) {
+        return { filePath: this.options.toProjectRelative(named), outcome: JsImportResolutionOutcome.RESOLVED_PROJECT };
+      }
+    }
     const requireLike = form === JsImportForm.REQUIRE_CALL || form === JsImportForm.CREATE_REQUIRE
       || (form === JsImportForm.JSDOC_IMPORT_TYPE && this.options.moduleSystem !== 'ESM');
     const mode = requireLike ? ts.ModuleKind.CommonJS : ts.ModuleKind.ESNext;
@@ -1199,7 +1210,10 @@ class JsModuleEdgeExtractor {
       undefined,
       m
     ).resolvedModule?.resolvedFileName;
-    const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined);
+    // tsc resolves no `.vue` import itself (its extensions are fixed), so a
+    // component in this program is looked up by path.
+    const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined)
+      ?? resolveVueSpecifier(specifier, this.options.absoluteFilePath);
     if (resolved === undefined) {
       return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
     }

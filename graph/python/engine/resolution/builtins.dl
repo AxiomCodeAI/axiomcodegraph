@@ -154,6 +154,24 @@ py_builtin_callable(n) :-
 // computed_name_prefix).
 py_str_concat_operator("+").
 
+// ── importlib: a module object made from a NAME or a FILE written in the source ──
+// importlib.import_module(name) returns the module `name` denotes, exactly as `import`
+// would bind it; importlib.util.module_from_spec(spec) returns the module the spec's file
+// defines, where the spec comes from spec_from_file_location(name, path) or from
+// spec_from_loader(name, SourceFileLoader(name, path)). The second is how a file that
+// `import` cannot reach is loaded: a hyphenated or extensionless script, a plugin file.
+// The pairs name the FUNCTION and the POSITION of the argument that decides the module
+// (0-based, as the parser writes argument positions); name-resolution.dl joins on them.
+py_importlib_import_by_name("import_module", "0").
+py_importlib_module_from_spec("module_from_spec", "0").
+py_importlib_spec_path_arg("spec_from_file_location", "1").
+py_importlib_spec_loader_arg("spec_from_loader", "1").
+py_importlib_loader_path_arg("SourceFileLoader", "1").
+// How a path is BUILT from a directory and a written file name: os.path.join(dir, "x.py")
+// puts the file name last, and pathlib's `dir / "x.py"` puts it on the right.
+py_path_join_function("join").
+py_path_join_operator("/").
+
 // ── py_copy_module(Module) / py_copy_function(Name) ──────────────────────────
 // The standard library's `copy` module, whose two functions return an object of their
 // argument's type. They are the clone idiom: `def copy(self): return copy.copy(self)`,

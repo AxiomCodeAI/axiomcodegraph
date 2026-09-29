@@ -1,0 +1,80 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a test that runs scripts/run_report.py with subprocess.run, its path an os.path.join of literals held in a module constant, covers what the script reaches: nothing imports the script, so the path is the only link",
+   "run": [
+    "impact",
+    "summarise",
+    "--tests"
+   ],
+   "want": [
+    "test_cli.py",
+    "spawns"
+   ],
+   "avoid": [
+    "test_source.py",
+    "test_tally.py"
+   ]
+  },
+  {
+   "why": "CONTROL: a test that only open()s the script with the same path shape runs none of it and gains no link",
+   "run": [
+    "impact",
+    "main",
+    "--tests"
+   ],
+   "want": [
+    "test_cli.py"
+   ],
+   "avoid": [
+    "test_source.py"
+   ]
+  },
+  {
+   "why": "CONTROL: a function the script does not reach keeps exactly the tests that call it",
+   "run": [
+    "impact",
+    "tally",
+    "--tests"
+   ],
+   "want": [
+    "test_tally.py"
+   ],
+   "avoid": [
+    "test_cli.py",
+    "spawns"
+   ]
+  },
+  {
+   "why": "CONTROL: `scripts` is a DIRECTORY piece of the spawned path, and tests/scripts.py beside the test is a module nothing runs: a directory name plus an implied .py does not name a file the test spawns",
+   "run": [
+    "impact",
+    "fixture_names",
+    "--tests"
+   ],
+   "want": [
+    "tests: 0 of"
+   ],
+   "avoid": [
+    "spawns",
+    "test_cli.py"
+   ]
+  },
+  {
+   "why": "test-impact for an edit to a module the script reaches selects the test that spawns the script (beside the test that calls tally directly), and not the test that only reads the script's file",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "app/report.py"
+   ],
+   "want": [
+    "tests/test_cli.py"
+   ],
+   "avoid": [
+    "tests/test_source.py"
+   ]
+  }
+ ]
+}

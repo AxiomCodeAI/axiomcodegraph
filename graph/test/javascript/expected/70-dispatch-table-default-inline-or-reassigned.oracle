@@ -1,0 +1,15 @@
+main.js:37:10 FUNCTION_CALL h  SOUND_SUPERSET  main.js:7:1;main.js:8:1;main.js:9:1
+main.js:55:10 FUNCTION_CALL h  SOUND_SUPERSET  main.js:8:1;main.js:9:1
+main.js:62:10 FUNCTION_CALL h  SOUND_SUPERSET  main.js:7:1;main.js:9:1
+main.js:69:1 FUNCTION_CALL inlineOr  EXACT  main.js:14:1
+main.js:70:1 FUNCTION_CALL inlineTernary  EXACT  main.js:17:1
+main.js:71:1 FUNCTION_CALL reassigned  EXACT  main.js:20:1
+main.js:72:1 FUNCTION_CALL nullishAssigned  EXACT  main.js:27:1
+main.js:73:1 FUNCTION_CALL readAssigned  EXACT  main.js:34:1
+main.js:74:1 FUNCTION_CALL importedInline  EXACT  main.js:41:1
+main.js:75:1 FUNCTION_CALL importedReassigned  EXACT  main.js:42:1
+main.js:76:1 FUNCTION_CALL inlineLiteralKey  EXACT  main.js:49:1
+main.js:77:1 FUNCTION_CALL reassignedDotted  EXACT  main.js:52:1
+main.js:78:1 FUNCTION_CALL reassignedPlain  EXACT  main.js:59:1
+main.js:79:1 FUNCTION_CALL inlineDefaultOnly  EXACT  main.js:66:1
+# defects: 0

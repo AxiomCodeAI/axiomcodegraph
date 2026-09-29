@@ -111,6 +111,11 @@ export interface JsFileExtractionOptions {
   readonly projectModuleHashes: ReadonlyMap<string, string>;
   /** Absolute path -> project-relative path, extension stripped. */
   readonly toProjectRelative: (absolutePath: string) => string;
+  /**
+   * How `sourceText` parses, when the file's extension cannot say: a `.vue`
+   * component's virtual script is JS or JSX by its `lang`, not by its name.
+   */
+  readonly scriptKind?: ts.ScriptKind;
 }
 
 export interface JsFileFacts {
@@ -160,7 +165,7 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     options.sourceText,
     ts.ScriptTarget.Latest,
     true,
-    scriptKindFor(options.absoluteFilePath)
+    options.scriptKind ?? scriptKindFor(options.absoluteFilePath)
   );
 
   const moduleResult = extractModule({

@@ -1,0 +1,14 @@
+import_cause     components/List.svelte:2:12  svelte  not_staged
+import_cause     components/Price.vue:4:10  vue  not_staged
+import_cause     main.js:2:10  vue  not_staged
+package_entry    single-file-component-scripts  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       components/Legacy.vue:7:26  METHOD_CALL $emit  member_absent
+unresolved       components/List.svelte:5:3  FUNCTION_CALL onMount  callee_untyped
+unresolved       components/Price.vue:1:50  FUNCTION_CALL onlyInMarkup  callee_untyped
+unresolved       components/Price.vue:6:15  FUNCTION_CALL defineProps  callee_untyped
+unresolved       components/Price.vue:7:15  FUNCTION_CALL computed  callee_untyped
+unresolved       components/Price.vue:8:22  METHOD_CALL log  no_target
+unresolved       lib/format.js:3:47  METHOD_CALL toFixed  no_target
+unresolved       lib/format.js:4:37  METHOD_CALL toLowerCase  no_target
+unresolved       main.js:5:1  FUNCTION_CALL createApp  callee_untyped
+unresolved       main.js:5:1  METHOD_CALL mount  receiver_untyped

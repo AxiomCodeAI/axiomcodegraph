@@ -80,6 +80,49 @@ assign_pair(p, tgt, val) :-
     expr_parent(p, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_parent(p, a, "ASSIGNMENT_VALUE", _, val).
 
+// ── DESTRUCTURING: `a, b = x, y` pairs a with x and b with y ─────────────────
+// A tuple (or list) target over a tuple (or list) value is element-wise assignment, and
+// pairing only the two displays told no rule what either NAME holds. The shape that
+// motivated it: a script loads a module by path, then writes `G, die = mod.G, mod.die`;
+// G stayed untyped, so `self.g = G(repo)` and every call through self.g were name matches.
+//
+// Paired ONLY when position i on one side is exactly position i on the other: every
+// element on each side has a partner at the same position, and no element on either side
+// is starred. `a, *rest = xs`, a length mismatch (a ValueError at run time) and a value
+// that is not a display (`a, b = f()`) pair nothing. One level: `(a, b), c = ...` pairs c
+// and leaves the inner display to the next rule that needs it.
+destructure_display("TUPLE").
+destructure_display("LIST").
+destructure_pair(p, tgt, val) :-
+    expr_node(p, "ASSIGNMENT", _, _, a),
+    expr_parent(p, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_parent(p, a, "ASSIGNMENT_VALUE", _, val),
+    expr_node(p, tk, _, _, tgt), destructure_display(tk),
+    expr_node(p, vk, _, _, val), destructure_display(vk).
+destructure_unaligned(p, tgt, val) :-
+    destructure_pair(p, tgt, val),
+    expr_parent(p, tgt, "ELEMENT", pos, _), !expr_parent(p, val, "ELEMENT", pos, _).
+destructure_unaligned(p, tgt, val) :-
+    destructure_pair(p, tgt, val),
+    expr_parent(p, val, "ELEMENT", pos, _), !expr_parent(p, tgt, "ELEMENT", pos, _).
+destructure_unaligned(p, tgt, val) :-
+    destructure_pair(p, tgt, val),
+    expr_parent(p, tgt, "ELEMENT", _, e), expr_starred(p, e).
+destructure_unaligned(p, tgt, val) :-
+    destructure_pair(p, tgt, val),
+    expr_parent(p, val, "ELEMENT", _, e), expr_starred(p, e).
+destructure_unaligned(p, tgt, val) :-
+    destructure_pair(p, tgt, val),
+    expr_parent(p, tgt, "ELEMENT", _, e), expr_node(p, "STARRED", _, _, e).
+destructure_unaligned(p, tgt, val) :-
+    destructure_pair(p, tgt, val),
+    expr_parent(p, val, "ELEMENT", _, e), expr_node(p, "STARRED", _, _, e).
+assign_pair(p, te, ve) :-
+    destructure_pair(p, tgt, val),
+    !destructure_unaligned(p, tgt, val),
+    expr_parent(p, tgt, "ELEMENT", pos, te),
+    expr_parent(p, val, "ELEMENT", pos, ve).
+
 // ============================================================================
 // BINDING -> DECLARATION
 // ============================================================================
@@ -425,6 +468,14 @@ expr_names_type_direct(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", b
 expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_binds_method(p, b2, m).
 expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), import_binds_method(p, b2, m), !method_target_replaced(p, m).
 
+// ── alias_binding_origin(BindingOrigin) ──────────────────────────────────────
+// The syntax that binds a name to ONE value it can be read from: `x = v`, and a target of
+// `a, b = x, y`, which symtable records as TUPLE_UNPACK_TARGET. The unpack is only ever
+// read through assign_pair's destructuring clause, which pairs a target with a value only
+// when the two displays line up position for position.
+alias_binding_origin("ASSIGNMENT").
+alias_binding_origin("TUPLE_UNPACK_TARGET").
+
 // ── binding_alias_type(Prov, BindingHash, TypeHash) ──────────────────────────
 // `_Aliased = Base` — a name bound to a CLASS by assignment, not by class statement
 // and not by import. This is the shape that made the linkage-sample's ViaAlias base
@@ -438,17 +489,30 @@ expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE",
 //   falls through to ambiguous_unknown, which is the honest outcome for
 //   `X = A if cond else B`.
 binding_alias_type(p, b, t) :-
-    binding_decl(p, _, _, _, "ASSIGNMENT", b),
+    binding_decl(p, _, _, _, origin, b), alias_binding_origin(origin),
     binding_rebinding(p, "1", _, _, b),
     expr_binding(p, b, "STORE", tgt),
     assign_pair(p, tgt, val),
     expr_names_type_direct(p, val, t).
 
+// The same alias read off a MODULE: `G = mod.G`, and `G, die = mod.G, mod.die`. The
+// module is whatever expr_names_module says the object denotes (an import, or an
+// importlib load: binding_alias_module), so this reaches no further than those do.
+binding_alias_type(p, b, t) :-
+    binding_decl(p, _, _, _, origin, b), alias_binding_origin(origin),
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, val),
+    expr_parent(p, val, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_module(p, obj, mod),
+    module_member_type(p, mod, n, t).
+
 // ── binding_alias_method(Prov, BindingHash, MethodHash) ──────────────────────
 // The same shape for a function value: `handler = do_work`. Python treats functions as
 // first-class, so this is an ordinary idiom, not a corner case.
 binding_alias_method(p, b, m) :-
-    binding_decl(p, _, _, _, "ASSIGNMENT", b),
+    binding_decl(p, _, _, _, origin, b), alias_binding_origin(origin),
     binding_rebinding(p, "1", _, _, b),
     expr_binding(p, b, "STORE", tgt),
     assign_pair(p, tgt, val),
@@ -468,6 +532,111 @@ name_binding_method(p, b, m) :- binding_binds_method(p, b, m).
 name_binding_method(p, b, m) :- import_binds_method(p, b, m), !method_target_replaced(p, m).
 name_binding_method(p, b, m) :- binding_alias_method(p, b, m).
 name_binding_module(p, b, mod) :- import_binds_module(p, b, mod).
+name_binding_module(p, b, mod) :- binding_alias_module(p, b, mod).
+
+// ── binding_alias_module(Prov, BindingHash, ModuleHash) ──────────────────────
+// A name bound to a MODULE by an importlib call rather than by an import statement:
+//
+//     named = importlib.import_module("pkg.named")
+//     _spec = importlib.util.spec_from_file_location("core", os.path.join(HERE, "core-impl.py"))
+//     core = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(core)
+//     G = core.G
+//     class Changed:
+//         def __init__(self, repo): self.g = G(repo)     # G was untyped, so self.g was
+//         def show(self): return self.g.label(1)         # untyped, so this was [by name]
+//
+// Without this the module object had no type, so every class read off it, every
+// attribute assigned from one of those classes and every call through such an attribute
+// was a name match. The typing of `self.g = G(repo)` itself was never the gap: it
+// holds as soon as `G` names the class.
+//
+// SOUNDNESS, the same argument as binding_alias_type: symtable reports ONE binding site
+// for the name (bindingCount = "1"), and the value names the module by a LITERAL: a dotted
+// name that is an analysed module's qualified name, or a file name that is a module's file
+// in the loading file's own directory. A name computed at run time, a literal that names
+// no analysed module, and a name bound twice all give no row, and the calls through them
+// stay unresolved rather than guessed.
+binding_alias_module(p, b, mod) :-
+    binding_decl(p, _, _, _, origin, b), alias_binding_origin(origin),
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    importlib_loaded_module(p, val, mod).
+
+// import_module("a.b"): the literal IS the module's qualified name.
+importlib_loaded_module(p, call, mod) :-
+    expr_node(p, "CALL", _, f, call), py_importlib_import_by_name(f, pos),
+    expr_parent(p, call, "ARGUMENT", pos, a),
+    expr_node(p, "LITERAL", _, q, a), q != "",
+    module_decl(p, _, q, _, mod).
+// module_from_spec(spec): the module the spec's file defines.
+importlib_loaded_module(p, call, mod) :-
+    expr_node(p, "CALL", _, f, call), py_importlib_module_from_spec(f, pos),
+    expr_parent(p, call, "ARGUMENT", pos, a),
+    importlib_spec_value(p, a, mod).
+
+// The spec, written inline or held in a name bound once to it.
+importlib_spec_value(p, a, mod) :- importlib_spec_module(p, a, mod).
+importlib_spec_value(p, a, mod) :-
+    expr_binding(p, rb, ctx, a), ctx != "STORE",
+    binding_lookup(p, rb, b),
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    importlib_spec_module(p, val, mod).
+
+// The path argument of a spec call: spec_from_file_location's own, or the path handed to
+// the SourceFileLoader that spec_from_loader is given.
+importlib_spec_path(p, spec, pe) :-
+    expr_node(p, "CALL", _, f, spec), py_importlib_spec_path_arg(f, pos),
+    expr_parent(p, spec, "ARGUMENT", pos, pe).
+importlib_spec_path(p, spec, pe) :-
+    expr_node(p, "CALL", _, f, spec), py_importlib_spec_loader_arg(f, pos),
+    expr_parent(p, spec, "ARGUMENT", pos, ld),
+    expr_node(p, "CALL", _, lf, ld), py_importlib_loader_path_arg(lf, lpos),
+    expr_parent(p, ld, "ARGUMENT", lpos, pe).
+
+// The file name a path expression ENDS in, when it is written: the LAST argument of
+// os.path.join, or the right operand of pathlib's `/`. A literal in any earlier position
+// is a directory component, and taking it would name the wrong file.
+importlib_later_arg(p, e, pos) :-
+    expr_parent(p, e, "ARGUMENT", pos, _),
+    expr_parent(p, e, "ARGUMENT", pos2, _),
+    to_number(pos2) > to_number(pos).
+importlib_path_literal(p, e, lit) :-
+    expr_node(p, "CALL", _, j, e), py_path_join_function(j),
+    expr_parent(p, e, "ARGUMENT", pos, le),
+    expr_node(p, "LITERAL", _, lit, le), lit != "",
+    !importlib_later_arg(p, e, pos).
+importlib_path_literal(p, e, lit) :-
+    expr_node(p, "BINARY_OPERATION", _, _, e),
+    expr_operator(p, op, e), py_path_join_operator(op),
+    expr_parent(p, e, "OPERAND_RIGHT", _, le),
+    expr_node(p, "LITERAL", _, lit, le), lit != "".
+
+// The module whose file is that name, in the LOADING file's directory: the directory is
+// what `os.path.dirname(__file__)` or `Path(__file__).parent` computes, and it is the only
+// directory a written file name can be resolved against without running the program. So
+// the target's path is <loader's directory> + <literal>, the literal starting at a path
+// component boundary, and the rest of the loader's path having no further "/".
+importlib_spec_module(p, spec, mod) :-
+    importlib_spec_path(p, spec, pe),
+    importlib_path_literal(p, pe, lit),
+    expr_scope(p, _, lm, spec), module_file(p, lf, lm),
+    module_file(p, tf, mod), mod != lm,
+    strlen(tf) > strlen(lit),
+    substr(tf, strlen(tf) - strlen(lit), strlen(lit)) = lit,
+    d = substr(tf, 0, strlen(tf) - strlen(lit)),
+    substr(d, strlen(d) - 1, 1) = "/",
+    strlen(lf) > strlen(d),
+    substr(lf, 0, strlen(d)) = d,
+    !contains("/", substr(lf, strlen(d), strlen(lf) - strlen(d))).
+importlib_spec_module(p, spec, mod) :-
+    importlib_spec_path(p, spec, pe),
+    importlib_path_literal(p, pe, lit),
+    expr_scope(p, _, lm, spec), module_file(p, lf, lm),
+    module_file(p, lit, mod), mod != lm,
+    !contains("/", lf).
 
 // ── expr_names_type(Prov, ExprHash, TypeHash) ────────────────────────────────
 // This expression NODE denotes a class. nameContext != "STORE" excludes assignment

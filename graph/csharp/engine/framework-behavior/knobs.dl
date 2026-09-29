@@ -338,3 +338,51 @@ cs_framework_save_hook("SaveChangesCanceled"). cs_framework_save_hook("SaveChang
 cs_framework_save_hook("ThrowingConcurrencyException"). cs_framework_save_hook("ThrowingConcurrencyExceptionAsync").
 cs_framework_callback("SaveChangesInterceptor", n, "orm_hook") :- cs_framework_save_hook(n).
 cs_framework_callback("ISaveChangesInterceptor", n, "orm_hook") :- cs_framework_save_hook(n).
+// EF Core: a command interceptor runs around every command the context sends.
+cs_framework_command_hook("ReaderExecuting").   cs_framework_command_hook("ReaderExecutingAsync").
+cs_framework_command_hook("ReaderExecuted").    cs_framework_command_hook("ReaderExecutedAsync").
+cs_framework_command_hook("NonQueryExecuting"). cs_framework_command_hook("NonQueryExecutingAsync").
+cs_framework_command_hook("NonQueryExecuted").  cs_framework_command_hook("NonQueryExecutedAsync").
+cs_framework_command_hook("ScalarExecuting").   cs_framework_command_hook("ScalarExecutingAsync").
+cs_framework_command_hook("ScalarExecuted").    cs_framework_command_hook("ScalarExecutedAsync").
+cs_framework_command_hook("CommandFailed").     cs_framework_command_hook("CommandFailedAsync").
+cs_framework_callback("DbCommandInterceptor", n, "orm_hook") :- cs_framework_command_hook(n).
+cs_framework_callback("IDbCommandInterceptor", n, "orm_hook") :- cs_framework_command_hook(n).
+// ASP.NET Core: an endpoint filter runs around every endpoint it is added to, and a
+// factory-activated middleware around every request.
+cs_framework_callback("IEndpointFilter", "InvokeAsync", "framework_hook").
+cs_framework_callback("IMiddleware", "InvokeAsync", "framework_hook").
+
+// ── PIPELINE REGISTRATION (pipelines.dl) ───────────────────────────────────
+// cs_pipeline_register(Method, ReceiverMember, Form): a call that puts a component into a
+// framework pipeline, whose hooks (cs_framework_callback above) the framework then runs.
+// ReceiverMember "*" is any receiver; otherwise the receiver must be a member access of
+// that name (`options.Interceptors.Add<T>()`: a bare `Add` is every list in the program).
+// Form "type" is the call's type argument, `AddEndpointFilter<T>()`; "value" is an
+// argument whose type is known, `AddEndpointFilter(new T(..))`,
+// `AddInterceptors(sp.GetRequiredService<T>())`.
+cs_pipeline_register("AddHostedService", "*", "type").
+cs_pipeline_register("AddEndpointFilter", "*", "type").
+cs_pipeline_register("AddEndpointFilter", "*", "value").
+cs_pipeline_register("UseMiddleware", "*", "type").
+cs_pipeline_register("AddInterceptor", "*", "type").          // a gRPC client's builder
+cs_pipeline_register("AddInterceptor", "*", "value").
+cs_pipeline_register("Add", "Interceptors", "type").          // a gRPC server's options
+cs_pipeline_register("Add", "Interceptors", "value").
+cs_pipeline_register("AddInterceptors", "*", "value").        // an EF Core context's options
+// What a registered component WRAPS, beyond being called: (Method, ReceiverMember, Scope).
+// "route": the endpoint it is added to, or every endpoint of the route group it is added
+// to (nested groups too). "grpc_host": every rpc of every service the same file maps
+// with cs_grpc_map_service, which is where a host both configures AddGrpc and maps.
+cs_pipeline_wraps("AddEndpointFilter", "*", "route").
+cs_pipeline_wraps("Add", "Interceptors", "grpc_host").
+cs_grpc_map_service("MapGrpcService").
+// EF Core runs every save interceptor added with AddInterceptors when a context saves:
+// the synchronous hooks on SaveChanges, the Async ones on SaveChangesAsync.
+cs_ef_interceptor_register("AddInterceptors").
+cs_ef_save_call("SaveChanges", "sync").
+cs_ef_save_call("SaveChangesAsync", "async").
+// the framework bases a DbContext is written against
+cs_ef_context_base("DbContext").
+cs_ef_context_base("IdentityDbContext").
+cs_ef_context_base("IdentityUserContext").

@@ -104,6 +104,33 @@ def prune_checks():
         open(os.path.join(root, 'app/out/calc.py'), 'a').write('\ndef audit():\n    return 3\n')
         c = ax_fresh.changes(root, table)
         check("prune: an edit under app/out/ makes the graph stale", c and c[0] == ['app/out/calc.py'], c)
+        # SINGLE-FILE COMPONENTS (#1744): an edit to a .vue / .svelte / .astro file makes a JavaScript or TypeScript graph
+        # stale, and a new one is an added file. The control: a template, a stylesheet or a doc beside them stays unwatched,
+        # and a component alone does not make a repository count as JavaScript or TypeScript
+        for lang in ('javascript', 'typescript'):
+            root = os.path.join(work, 'sfc-' + lang)
+            for f, body in (('src/lib.js', 'export function lazyHelper() {}\nexport function newHelper() {}\n'),
+                            ('src/views/Home.vue', "<script setup>import { lazyHelper } from '../lib.js';</script>\n"
+                                                   "<template><span>{{ lazyHelper() }}</span></template>\n"),
+                            ('src/List.svelte', '<script>let n = 1;</script>\n'), ('src/pages/index.astro', '---\n---\n'),
+                            ('src/index.html', '<div></div>\n'), ('src/app.css', 'a {}\n'), ('README.md', '# x\n')):
+                write(root, f, body)
+            got = {os.path.relpath(p, root) for p in ax_fresh.watched(root, lang)}
+            check(f"prune: {lang} watches .vue, .svelte and .astro components, not the .html, .css or .md beside them",
+                  got == {'src/lib.js', 'src/views/Home.vue', 'src/List.svelte', 'src/pages/index.astro'}, sorted(got))
+            table = dict(lang=lang, lang_auto=True, src='', files=ax_fresh.snapshot(root, lang, root))
+            with open(os.path.join(root, 'src/views/Home.vue'), 'w') as fh:
+                fh.write("<script setup>import { lazyHelper, newHelper } from '../lib.js';</script>\n"
+                         "<template><span>{{ lazyHelper() }}{{ newHelper() }}</span></template>\n")
+            write(root, 'src/views/About.vue', '<template><p></p></template>\n')
+            write(root, 'src/index.html', '<div>changed</div>\n')
+            c = ax_fresh.changes(root, table)
+            check(f"prune: {lang}: an edited .vue makes the graph stale and a new one is added; an edited .html does neither",
+                  c == (['src/views/Home.vue'], ['src/views/About.vue'], []), c)
+        only = os.path.join(work, 'sfc-only')
+        write(only, 'src/App.vue', '<script>export default {}</script>\n')
+        n = {l: sum(1 for p in ax_fresh.watched(only, l) if p.endswith(ax_fresh.SOURCE[l])) for l in ('javascript', 'typescript')}
+        check("prune: a repository of .vue files alone counts no JavaScript or TypeScript source", n == {'javascript': 0, 'typescript': 0}, n)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

@@ -12,7 +12,9 @@ the behaviour it is about, so a failure says what broke rather than which number
 One check needs no graph and is its own script:
 
     python3 tests/surfaces.py            every dispatched verb is documented on --help, SKILL.md and MCP
-    python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape
+    python3 tests/fastpath.py            the hooks' SQL fast path agrees with the rules, shape by shape, on a small
+                                         Python case by default; --lang java|csharp|typescript for the others
+                                         (typescript needs the TypeScript engine; indexes, so it needs the engine)
     python3 tests/directive.py           the PreToolUse directive hook keeps its promises (never blocks,
                                          never raises, silent without a graph, once per session across
                                          repositories, and names the verb for a declared name it is searched for)
@@ -31,9 +33,14 @@ One check needs no graph and is its own script:
                                          directly, through an npm-style symlink to bin/axiomcode.js, on the SDK-free
                                          fallback, and from .mcp.json, .codex-plugin/mcp.json and .cursor-plugin
                                          as each host starts it
+    python3 tests/mixed_separators.py    the verb dispatcher finds its own folder when $0 mixes / and \, as the MCP
+                                         server starts it on Windows (every MCP tool call failed there from 0.1.3)
     python3 tests/manifests.py           every agent's manifest (Claude, Codex, Cursor, Gemini) names the same
                                          plugin and points at files that exist, the way that agent resolves
                                          them, and Gemini's skill and Cursor's rule are current copies
+    python3 tests/mcp_docs.py            every MCP argument SKILL.md, reference/*.md (both copies), AGENTS.md and
+                                         rules/axiomcode.mdc document is one the tool they name takes, read from the server's
+                                         own tools/list (no graph, no engine)
     python3 tests/mcp_first.py           the description, the install block and the orient and directive hooks name the
                                          MCP tool before the shell verb, and still carry the shell verb for a host
                                          without the server (#1425; indexes one case, so it needs the engine)

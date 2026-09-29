@@ -483,6 +483,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `ctor_delegate` | java | `this(…)` / `super(…)` inside a constructor. |
 | `anon_new` | java | `new X() { … }` — an anonymous class creation. |
 | `event` | java | Synthesised: the publishEvent call site to a listener it runs (tier event_dispatch). Not a written call to that method. |
+| `entity_callback` | java | Synthesised: a call that writes an entity (`repository.save(e)`, `em.persist(e)`, `delete(e)`) to a JPA lifecycle callback it runs (tier event_dispatch). Not a written call to that method. |
 | `record_accessor` | java | Synthesised: a record pattern `case Pair(var l, var r)` calls each accessor. Not a written call; the site is the pattern expression. |
 | `resource_close` | java | Synthesised: a try-with-resources resource `try (var w = open())` is closed when the block exits, so its close() is called. Not a written call; the site is the resource local. |
 | `FUNCTION_CALL` | typescript | `f(…)` — a bare callee. |
@@ -511,6 +512,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `DYNAMIC_CODE_CALL` | javascript | `eval(…)` / `new Function(…)` — unknowable by construction. |
 | `DYNAMIC_IMPORT_CALL` | javascript | `import(…)` — a module load that is also a site. |
 | `JSX_ELEMENT` | javascript | `<Component …/>` — the renderer runs the component (a function component, or a class component's constructor and `render`) with the element's attributes as its props. Engine-authored: no written call; the site is the JSX element expression. An intrinsic tag (`<div/>`) is no site. |
+| `JSX_ATTRIBUTE` | javascript | `<form onSubmit={submit}>`, `<UserForm action={create}/>` — a function handed over as a JSX attribute, on any tag; always tier callback_registered. Engine-authored: the site is the attribute. |
 | `SIMPLE_CALL` | python | `f(…)` — a bare name. |
 | `METHOD_CALL` | python | `obj.m(…)`. |
 | `CHAINED_CALL` | python | `a.b().c(…)` — the receiver is itself a call. |
@@ -554,7 +556,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `fan_capped` | javascript, java, csharp | More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java and C#: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count. |
 | `callback_registered` | javascript, typescript | The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`), which may invoke it. Not the site's own callee; a reachability edge, labelled so it is never read as a resolved call. |
 | `event_dispatch` | javascript | `x.emit('name')` reaching a handler registered by `x.on('name', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one. |
-| `event_dispatch` | java | A Spring application event: `publishEvent(e)` reaching each listener (`@EventListener`, `@TransactionalEventListener`, `ApplicationListener<E>.onApplicationEvent`) whose declared event type e's static type is, or is a subtype of. Added beside the publishEvent boundary row, never in place of it (call-edge-generation/event_dispatch.dl). |
+| `event_dispatch` | java | A Spring application event: `publishEvent(e)` reaching each listener (`@EventListener`, `@TransactionalEventListener`, `ApplicationListener<E>.onApplicationEvent`) whose declared event type e's static type is, or is a subtype of. Added beside the publishEvent boundary row, never in place of it (call-edge-generation/event_dispatch.dl). Also a JPA entity write (`save`, `persist`, `merge`, `delete` on a repository or EntityManager) reaching the `@PrePersist`/`@PreUpdate`/`@PreRemove`-style callbacks of the written entity's type and of the listeners `@EntityListeners` names on it or a superclass (kind entity_callback; call-edge-generation/entity_lifecycle.dl). |
 | `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
 
 **`call_edges.callee_provenance` values**

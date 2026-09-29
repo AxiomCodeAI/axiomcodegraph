@@ -156,8 +156,8 @@ with tempfile.TemporaryDirectory() as work:
           rc3 == 0 and first and said_gemini(out3, 'AfterTool') == first, out3[:160])
 
     # PreToolUse: Cursor's preToolUse output has no context field, so the directive stays silent there.
-    rc, out = fire('direct.py', original('PreToolUse', 'Grep', {'pattern': 'greet'}, repo, 'd1'))
-    rc2, out2 = fire('direct.py', cursor('preToolUse', 'Grep', {'pattern': 'greet'}, repo, 'd2'), cursor=True)
+    rc, out = fire('direct.py', original('PreToolUse', 'Grep', {'pattern': r'greet\('}, repo, 'd1'))
+    rc2, out2 = fire('direct.py', cursor('preToolUse', 'Grep', {'pattern': r'greet\('}, repo, 'd2'), cursor=True)
     check('direct: the original host hears the directive', rc == 0 and 'impact' in said_original(out), out[:160])
     check('direct: Cursor hears nothing, since preToolUse cannot carry context', rc2 == 0 and out2 == '', out2[:160])
 

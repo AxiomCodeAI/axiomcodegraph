@@ -243,7 +243,11 @@ export class TsConfigResolver {
         ts.sys,
         path.dirname(configPath),
         undefined,
-        configPath
+        configPath,
+        undefined,
+        // `.vue` components are the program's files too, as vue-tsc reads it:
+        // without this `include: ["src/**/*.vue"]` claims nothing.
+        [{ extension: '.vue', isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }]
       );
       result = {
         configPath,

@@ -53,7 +53,10 @@
 # --grep (context, path, impact, test-impact) prints the answer's sites one per line, as grep does: `path:line: <the code
 # on that line>  [resolved | one of a set | by name | text | hop N | test]`, the first 30 (--grep-limit N) and a count of
 # the rest, then whether it was verified and its bound. The MCP tools answer this way by default; full=True is the prose.
-case "$0" in */*) H="${0%/*}";; *) H=.;; esac; H="$(cd "${H:-/}" && pwd)"   # no `dirname`: see bin/axiomcode
+# ON WINDOWS $0 CAN MIX SEPARATORS: the MCP server joins its script path onto AXIOMCODE_PLUGIN_ROOT with os.path.join,
+# C:/.../plugins/axiomcode\skills\axiomcode\scripts\axiomcode. Splitting that on '/' alone lands on .../plugins, and
+# every verb then runs a helper that is not there. `dirname` split on either; so does this, as bin/axiomcode does.
+H="${0//\\//}"; case "$H" in */*) H="${H%/*}";; *) H=.;; esac; H="$(cd "${H:-/}" && pwd)"   # no `dirname`: see bin/axiomcode
 
 # PYTHON UNDER ANOTHER NAME (#1331). Every verb runs `python3`, which a python.org install on Windows does not
 # provide, and which on a desktop Windows is the Store placeholder. Started from node (the `axiomcode` command, the
