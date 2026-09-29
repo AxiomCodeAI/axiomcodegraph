@@ -47,10 +47,57 @@ cfg_registered_type(t, kind) :- xml_container_class(kind, t, _).
 cfg_registered_type(t, "config_handler") :- config_class_ref(fmt, k, _, t, "client"),
     fmt != "annotation", cfg_key_expects_class(k).
 
+// … a type an ANNOTATION registers: @WebServlet / @WebFilter / @WebListener, exactly as
+// their web.xml twins; a JPA @Converter; a JAX-RS @Provider (knobs.dl (6b)).
+cfg_registered_type(t, kind) :- ann_on_type("client", _, n, t), cfg_registering_type_ann(n, kind).
+// … a class an annotation ARGUMENT names, for the arguments that mean "instantiate this":
+// @EntityListeners(Audit.class), @Convert(converter = PriceConverter.class). Keyed on the
+// annotation AND the argument, so an arbitrary @Foo(Bar.class) still registers nothing.
+cfg_registered_type(t, kind) :- ann_arg(prov, a, arg, _, "CLASS_REFERENCE", _),
+    cfg_registering_class_arg(n, arg, kind), cfg_ann_name_of(prov, a, n),
+    cfg_ann_class_arg(prov, a, arg, t), type_decl("client", _, _, _, _, _, t).
+cfg_ann_name_of(prov, a, n) :- ann_on_type(prov, a, n, _).
+cfg_ann_name_of(prov, a, n) :- ann_on_field(prov, a, n, _, _).
+cfg_ann_name_of(prov, a, n) :- ann_on_method(prov, a, n, _, _).
+// … a class registered IN CODE with the servlet container, by a class literal or an
+// instance: ctx.addServlet("orders", OrderServlet.class), ctx.addFilter("a", new F()),
+// ctx.addListener(L.class). The receiver has to be typed as a registrar (knobs.dl (6b)).
+cfg_registered_type(t, kind) :- cfg_servlet_registration(name, kind), call_site(call, name, recv),
+    servlet_registrar_recv(recv), call_arg(call, _, arg), registered_arg_type(arg, t).
+// … and Spring Boot's new ServletRegistrationBean<>(new OrderServlet(), "/orders").
+cfg_registered_type(t, kind) :- cfg_servlet_registration_bean(bn, kind),
+    object_creation_named(e, bn), expr_child("client", e, "ARGUMENT", arg),
+    registered_arg_type(arg, t).
+object_creation_named(e, bn) :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, v, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    cfg_servlet_registration_bean(bn, _), v = bn.
+object_creation_named(e, bn) :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, v, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    cfg_servlet_registration_bean(bn, _), v = cat(bn, "<>").
+// the type an argument hands over: X.class, or new X(..)
+registered_arg_type(arg, t) :- java_expression("CLASS_LITERAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q, _, _, _, _, _, _, arg),
+    java_type(_, q, _, _, _, _, _, _, _, _, _, _, _, t).
+registered_arg_type(arg, t) :- object_creation_type_resolves("client", arg, _, t).
+// a receiver typed as ServletContext (or a Jetty handler), whether the type is staged as a
+// library or known only by its written name
+servlet_registrar_recv(recv) :- recv_type_simple(recv, n), cfg_servlet_registrar_type(n).
+// recv_type_simple(Expr, SimpleName): an expression typed by a library or external type of
+// that simple name, for the few framework names a rule asks about (typed_simple_demand).
+typed_simple_demand(n) :- cfg_servlet_registrar_type(n).
+typed_simple_demand(n) :- cfg_jaxrs_client_owner(n).
+recv_type_simple(e, n) :- typed_simple_demand(n), lib_type(n, _, _, _, _, _, _, _, _, _, _, _, _, t),
+    expr_type("lib", e, t).
+recv_type_simple(e, n) :- typed_simple_demand(n), x = cat("external:", n), expr_type("external", e, x).
+recv_type_simple(e, n) :- typed_simple_demand(n), expr_type("external", e, x),
+    strlen(x) > strlen(n) + 1,
+    substr(x, max(0, strlen(x) - strlen(n) - 1), min(strlen(n) + 1, strlen(x))) = cat(".", n).
+
 // (1) callbacks on a registered type — by name …
 config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
     java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
     cfg_container_callback_name(name).
+// … and by the per-kind name list (a JPA converter's convertTo*, a JAX-RS provider's filter).
+config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    cfg_registered_callback_name(kind, name).
 config_entry_point(m, "spring_factories", t) :- cfg_registered_type(t, "spring_factories"),
     java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
     cfg_factories_callback_name(name).
@@ -71,8 +118,30 @@ config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
 config_entry_point(m, kind, t) :- xml_lifecycle_method(t, mname, kind),
     method_name_in_type(mname, t, m), method_owner("client", _, m).
 
+// (3b) the annotation twin of (3): @Bean(initMethod = "start", destroyMethod = "stop")
+// names `start` and `stop` on the type the @Bean method builds.
+config_entry_point(m, kind, fm) :- cfg_factory(prov, a, fm, _), ann_arg(prov, a, arg, mname, _, _),
+    cfg_bean_lifecycle_arg(arg, kind), mname != "", cfg_factory_type(fm, t),
+    method_name_in_type(mname, t, m), method_owner("client", _, m).
+
 // (4) annotation-driven container callbacks that annotation_flow.dl does not cover.
 config_entry_point(m, "lifecycle", m) :- ann_on_method(_, _, n, m, _), cfg_lifecycle_ann(n).
+// JPA entity callbacks, on an entity, a mapped superclass or an @EntityListeners class.
+config_entry_point(m, "orm_hook", m) :- ann_on_method(_, _, n, m, _), cfg_jpa_callback_ann(n).
+// A JAX-RS @QueryParam / @PathParam / … parameter of a client type T: the runtime builds
+// it with T.valueOf(String), T.fromString(String) or new T(String).
+jaxrs_param_type(t) :- ann_on_param(_, _, n, p, _), cfg_jaxrs_param_ann(n),
+    method_param_type_resolves("client", p, _, t).
+config_entry_point(m, "framework_hook", t) :- jaxrs_param_type(t),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, "1", _, _, _, m),
+    cfg_jaxrs_param_factory(name), string_param_0(m).
+config_entry_point(m, "framework_hook", t) :- jaxrs_param_type(t),
+    method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m),
+    java_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "1", _, _, _, m),
+    string_param_0(m).
+string_param_0(m) :- java_method_parameter(_, "0", m, _, tn, _, _, _, _, _, _, _, _),
+    jaxrs_string_type(tn).
+jaxrs_string_type("String"). jaxrs_string_type("java.lang.String").
 config_entry_point(m, "scheduled", m) :- ann_on_method(_, _, n, m, _), cfg_scheduled_ann(n).
 config_entry_point(m, "queue", m)     :- ann_on_method(_, _, n, m, _), cfg_listener_ann(n).
 // … and an ApplicationListener<E> implementation's onApplicationEvent, which Spring calls
@@ -115,6 +184,21 @@ config_entry_point(m, kind, t) :- cfg_stub_base(base, kind),
     java_method(name, _, _, _, _, _, _, base, _, _, _, _, _, _, _, _, _, pc, _, _, _, _),
     name != "",
     java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, m).
+// ...and when protoc ran at build time, the ImplBase is an external type with no declared methods
+// to test an override against. The service's own rpc-shaped methods are the handlers
+// (framework-behavior/destinations.dl, grpc_ext_handler; #1548).
+config_entry_point(m, "grpc_service", t) :- grpc_ext_handler(t, _, _),
+    java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    grpc_rpc_shaped(m).
+
+// (6b) A REGISTERED type's method marked @Override whose supertype is known only by its
+// written name (the framework API is not in the analysed library set): it overrides the
+// framework's declaration, so the framework calls it. A JAX-RS ContainerRequestFilter's
+// filter(..), an ExceptionMapper's toResponse(..).
+config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
+    type_parent(t, x), external_type(x),
+    ann_on_method(_, _, "Override", m, t),
+    method_kind("client", "INSTANCE_METHOD", _, m).
 
 // (7) A REGISTERED type's overrides, generalised. cfg_registered_type covers web.xml
 // and config-named handlers; clause (1) matched a knob name list or a LIBRARY supertype.
