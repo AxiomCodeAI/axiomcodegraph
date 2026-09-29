@@ -2,6 +2,11 @@
 
 The full rules behind `axiomcode impact`. `SKILL.md` has the calling convention and an example; this is why each row says what it says, and what it is measured at.
 
+**Read-only:** `--no-refresh` (MCP `impact`: `refresh=false`, or `AXIOMCODE_NO_REFRESH=1`) answers from the graph as it is and
+never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph that is out of
+date (files edited since, or built by another axiomcode) starts a background rebuild with this axiomcode's engine and
+says so on the answer's first line, with the reason.
+
 
 `axiomcode impact <target>`, the target written as it appears in the code and its kind read from the index, never guessed:
 `Owner.method` · `method` · `file.java:123` (a method), `Owner.field` · `CONSTANT` · `Enum.MEMBER` (a field), `Type` (a class /

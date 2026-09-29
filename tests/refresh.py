@@ -311,6 +311,15 @@ def main(argv):
                                    env=dict(env, AXIOMCODE_REFRESH_INTERVAL='3'))
             try:
                 time.sleep(1.5)
+                # the server's own start-up check starts a refresher too: wait for it (and any a query left running) to let
+                # go of the lock, or under load it is that one, not the timer, that finds the edit below
+                import fcntl
+                deadline = time.time() + 120
+                while time.time() < deadline:
+                    fd = os.open(os.path.join(repo, '.axiomcode', 'refresh.lock'), os.O_RDWR | os.O_CREAT, 0o644)
+                    try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); break
+                    except OSError: time.sleep(0.3)
+                    finally: os.close(fd)
                 open(f, 'a').write('\n// edited in an editor\n' if lang not in ('python',) else '\n# edited in an editor\n')
                 deadline = time.time() + 300
                 while time.time() < deadline and 'found by the timer' not in meta().get('refresh_reason', ''): time.sleep(0.5)

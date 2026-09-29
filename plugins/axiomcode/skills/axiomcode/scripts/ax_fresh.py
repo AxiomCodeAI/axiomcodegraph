@@ -33,7 +33,8 @@ the previous graph. Three pieces:
                                                the build's first line: the engine and parser it uses and where they came
                                                from; exit 3 when the checkout's own engine parts dangle (never built over)
 
-Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off; AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
+Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off (a query verb's --no-refresh, and the MCP tools' refresh=false,
+set it for that one query: a read-only answer from the graph as it is, still saying which edits it predates); AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
 waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) makes it wait for the refresh whatever it
 takes, up to AXIOMCODE_FRESH_MAX (default 600); AXIOMCODE_BUILD_WAIT
@@ -780,6 +781,62 @@ def refresh_off(repo):
     of this tree to compare with"""
     return bool(os.environ.get('AXIOMCODE_NO_REFRESH')) and not os.environ.get('AXIOMCODE_GRAPH') and has_graph(repo)
 
+# ── READ-ONLY QUERIES, AND WHAT A HOOK MAY REBUILD ─────────────────────────────────────────────────────────────────────
+# A query was a silent writer: asked from a graph that the installed axiomcode would build differently (another engine,
+# other rules, files edited since), it started a background rebuild and the next answer came from a graph nobody asked
+# for. A graph built with a checkout's own engine and measured was overwritten that way by a read (a query, or a hook
+# firing on a shell command that only read). Now:
+#   - `--no-refresh` on every query verb (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) answers from the
+#     graph as it is: nothing is rebuilt, and the answer still says which edits it predates;
+#   - a query that DOES start a rebuild says so on its first line, with the reason and that flag (started_line);
+#   - a hook, and the MCP server's own timer, never rebuild a graph another axiomcode built (engine_change): the hook
+#     says so once per session instead (hook_kick). An edit over a graph this axiomcode built still refreshes as before.
+NO_REFRESH_HOW = "pass --no-refresh (MCP refresh=false, or AXIOMCODE_NO_REFRESH=1) to query without rebuilding"
+
+def engine_label(repo):
+    """'<version> at <path>' of the engine a rebuild here would use, or 'the installed one'"""
+    e = current_engine(repo)
+    if not e: return 'the installed one'
+    try: v = json.load(open(os.path.join(e, 'package.json'))).get('version', '?')
+    except (OSError, ValueError): v = '?'
+    return f"{v} at {os.path.normpath(e)}"
+
+def started_line(repo, s, running=False):
+    """the first line of an answer whose query started a background rebuild: why, with what, and how not to. running:
+    the rebuild was already running (a hook's, the timer's, another query's), and may replace the graph all the same"""
+    files = edited(s)
+    # the edited files are named on the answer's last line (note), where each row in them is also marked: counted here
+    why = s.get('engine') or (f"{len(files)} file(s) edited since it was built" if files else 'the graph is out of date')
+    lead = ('a background rebuild of the graph is already running' if running else
+            'this query started a background rebuild of the graph')
+    return (f"graph refresh: {lead} with engine {engine_label(repo)} ({why}); this answer is from the graph as it was, "
+            f"and {'that rebuild may replace' if running else 'the rebuild replaces'} it; {NO_REFRESH_HOW}")
+
+def refresher_running(repo):
+    """a refresher (the worker kick starts) holds its lock: whatever the query does, a rebuild may replace the graph"""
+    p = os.path.join(repo, '.axiomcode', 'refresh.lock')
+    if not os.path.exists(p): return False
+    fd = os.open(p, os.O_RDWR)
+    try: return not _flock(fd, False)
+    finally: os.close(fd)                                     # closing drops a lock this probe took
+
+def running_line(repo, s): return started_line(repo, s, running=True)
+
+def hook_kick(repo, trigger, session=''):
+    """what a hook (and the MCP server's timer) runs in place of kick: '' after starting the refresher as kick does, or,
+    for a graph another axiomcode built (engine_change), nothing started and one line to say so, once per session and
+    difference ('' when it was said already). A graph a newer axiomcode built is never rebuilt anyway (newer_build)"""
+    if not enabled(repo): return ''
+    held = engine_change(repo)
+    if not held:
+        kick(repo, trigger); return ''
+    key = f"{session}|{held}"
+    if read_state(repo).get('hook_held') == key: return ''
+    write_state(repo, hook_held=key)
+    return (f"graph refresh: {held}; the hooks do not rebuild a graph another axiomcode built, so it is kept as it is. "
+            f"`axiomcode index` rebuilds it with engine {engine_label(repo)}, and so does a query, which says so on its first "
+            f"line; {NO_REFRESH_HOW}")
+
 def kick(repo, trigger='an edit'):
     """start the worker and return at once; a no-op without a graph (the FIRST build takes minutes and is
     the caller's decision, see ax_contract.ensure_graph) or when one is already running"""
@@ -895,10 +952,12 @@ def wait(repo, seconds):
         if time.time() >= end: return s
         time.sleep(0.5)
 
-def wait_baseline(repo, seconds):
+def wait_baseline(repo, seconds, hook=False):
     """for `changed` and `test-impact`: when HEAD moved since the baseline was set, start the refresher and wait for it
-    to move the baseline (0.2 s when no file changed, a build of HEAD's text when the tree is dirty). '' or a note."""
+    to move the baseline (0.2 s when no file changed, a build of HEAD's text when the tree is dirty). '' or a note.
+    hook: asked by a hook, which never rebuilds a graph another axiomcode built (hook_kick)"""
     if not enabled(repo) or not base_moved(repo): return ''
+    if hook and engine_change(repo): return ''
     if newer_build(repo):
         return (f"graph refresh: HEAD moved since the baseline was set ({head(repo)[:10]}), and the graph was built by a newer "
                 "axiomcode, which this one does not rebuild: the baseline stays where it was, so this answer also counts what the "
@@ -957,7 +1016,7 @@ def note(s, marked=None, named=None, off=False):
     if s.get('state') not in ('stale', 'building'): return first
     if s.get('engine'):
         # BUILT BY ANOTHER AXIOMCODE: every row may differ from what this version answers, so none is marked; the line says so
-        if off: says = "refresh is OFF (AXIOMCODE_NO_REFRESH is set), so nothing rebuilds it; `axiomcode index` does"
+        if off: says = "refresh is OFF (--no-refresh, or AXIOMCODE_NO_REFRESH is set), so nothing rebuilds it; `axiomcode index` does"
         elif s.get('failed'): says = "the rebuild FAILED" + (f" — {s['failed_reason']}" if s.get('failed_reason') else '') + f" (see {s['failed']})"
         else: says = "rebuilding in the background; --fresh waits for the rebuild"
         first = (first + '\n' if first else '') + f"graph refresh: {s['engine']}; {says} — this answer is from that graph, " \
@@ -976,7 +1035,7 @@ def note(s, marked=None, named=None, off=False):
         return first + (f"graph refresh: this answer is from that graph, which predates edits to {head}" +
                         (rows if marked is not None else '; read those files for their current text'))
     if off:
-        return first + (f"graph refresh: OFF (AXIOMCODE_NO_REFRESH is set), no refresh is running — this answer is from a graph that "
+        return first + (f"graph refresh: OFF (--no-refresh, or AXIOMCODE_NO_REFRESH is set), no refresh is running — this answer is from a graph that "
                 f"predates edits to {head}" + (rows if marked is not None else '; read those files for their current text') +
                 "; `axiomcode index` rebuilds it")
     if s.get('failed'):
@@ -1175,7 +1234,9 @@ def query(repo, verb, argv, fresh=False):
         return with_note(n)
     s = status(repo)
     if s['state'] == 'unknown':
-        if not off: kick(repo, 'a query')
+        if not off and kick(repo, 'a query') and '--json' not in argv:
+            print("graph refresh: this query started a background rebuild (the graph predates the file table, so what it was "
+                  f"built from is not known); this answer is from the graph as it was; {NO_REFRESH_HOW}", flush=True)
         passthrough()
     if s['state'] in ('fresh', 'no graph') or not behind(s):
         # a build that published this tree's main graph and is solving the others (#1555): the answer is current and is
@@ -1184,7 +1245,9 @@ def query(repo, verb, argv, fresh=False):
         return with_note(note(s))
     # a graph a newer axiomcode built is never rebuilt here: no refresh is started or waited for, as with refresh off
     hold = off or bool(s.get('newer'))
-    if not s.get('failed') and not hold: kick(repo, 'a query')
+    started = not s.get('failed') and not hold and kick(repo, 'a query')
+    # a refresher already running (a hook's, the timer's, another query's) replaces this graph all the same: said too
+    running = not started and not s.get('failed') and not hold and refresher_running(repo)
     as_json = '--json' in argv
     if fresh and not s.get('failed') and not hold:
         left = expected_left(repo)
@@ -1223,8 +1286,13 @@ def query(repo, verb, argv, fresh=False):
                                         **({'built_with': s['built_with']} if s.get('built_with') else {}),
                                         **({'failed': s['failed']} if s.get('failed') else {}),
                                         **({'named_in_edits': [dict(name=a, file=b) for a, b in missed]} if missed else {}))
+                if started: obj['freshness']['rebuild_started'] = started_line(repo, s)
+                elif running: obj['freshness']['rebuild_running'] = running_line(repo, s)
                 marked = json.dumps(obj, indent=1, ensure_ascii=False) + '\n'
         except ValueError: pass
+    # A QUERY THAT STARTED A REBUILD SAYS SO FIRST: the answer is from the graph as it was, and the rebuild replaces that
+    # graph. Said last (on stderr, after the rows) it was missed, and a graph that had been measured was gone
+    elif (started or running) and not fresh: sys.stdout.write((started_line if started else running_line)(repo, s) + '\n')
     sys.stdout.write(marked); sys.stdout.flush()
     msg = note(s, n, named=missed, off=off)
     if msg: print(msg, file=sys.stderr)

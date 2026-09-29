@@ -32,7 +32,7 @@ From the shell the same shape is `--grep` (`--grep-limit N`); without it the ans
 | "how does A reach B" · "everything that reaches X" | `axiomcode path A B` · `axiomcode path '*' X` |
 | "what did my edit touch" · "which tests do I run" | `axiomcode changed --impact` · `axiomcode test-impact` |
 | "is it safe to delete X" | `axiomcode impact X --delete` |
-| the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` (drawn from the existing graph in seconds; a stale one is rebuilt first with the flags it was indexed with; prints the page's absolute path) · `axiomcode install` |
+| the graph as a page for a human · this repo should prefer the graph, once | `axiomcode graph` (drawn from the existing graph in seconds; a stale one is rebuilt first with the flags it was indexed with, or drawn as it is with `--no-refresh`; prints the page's absolute path) · `axiomcode install` |
 
 Rules that decide whether an answer means anything:
 
@@ -45,6 +45,13 @@ Rules that decide whether an answer means anything:
   progress, and answers from a graph that includes every edit.
   A manual `index` with different flags rebuilds a worse graph over the good one. A bare `index`, the background
   refresh and `graph` keep the `--lang` (and `--src`, `--library`) the graph was indexed with; pass `--lang` to change it.
+- **To read without rebuilding, pass `--no-refresh`** on any query verb (MCP `context`, `path`, `impact`,
+  `changed`, `test_impact`, `graph`: `refresh=false`; `AXIOMCODE_NO_REFRESH=1` for a whole shell): the answer comes
+  from the graph as it is, nothing is rebuilt, and rows in edited files are still marked. Use it on a graph you built
+  on purpose (another engine, a measured baseline): without it, a query on a graph that is out of date starts a
+  background rebuild with this axiomcode's engine, and the answer's FIRST line says so
+  (`graph refresh: this query started a background rebuild ...`) with the reason. The hooks never rebuild a graph
+  another axiomcode built; they say so once per session.
 - A repo in several languages is indexed in all of them, one graph each, and every query asks each graph; calls
   are not followed from one language to another. `--lang` restricts it, `--src src` narrows it; `--library <roots>` so calls into dependencies
   resolve (without it they are `ambiguous_unknown` — do not quote that resolution rate).

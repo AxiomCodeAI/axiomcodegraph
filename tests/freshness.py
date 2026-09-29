@@ -276,8 +276,9 @@ def engine_checks():
         t0 = time.time()
         r = subprocess.run([sys.executable, driver, SCRIPTS, repo, 'impact', '--', sys.executable, '-c', f"print({ROWS!r})"],
                            capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k not in ('AXIOMCODE_NO_REFRESH', 'AXIOMCODE_FRESH')})
+        first, _, rest = r.stdout.partition('\n')
         check(f"engine: a query answers from the old graph at once ({time.time() - t0:.1f}s), rows unmarked, and says it is rebuilding",
-              r.stdout.strip() == ROWS.strip() and 'graph built by an older axiomcode (engine' in r.stderr and 'rebuilding in the background' in r.stderr
+              first.startswith('graph refresh: this query started a background rebuild') and rest.strip() == ROWS.strip() and 'graph built by an older axiomcode (engine' in r.stderr and 'rebuilding in the background' in r.stderr
               and time.time() - t0 < 10, (r.stdout, r.stderr))
         os.environ['AXIOMCODE_ENGINE'] = e1
         t = dict(table, built_by=dict(by, impact='1')); json.dump(t, open(tp, 'w'))
@@ -385,6 +386,139 @@ def newer_checks():
         shutil.rmtree(work, ignore_errors=True)
 
 
+# ── read-only ─────────────────────────────────────────────────────────────────────────────────────────────────────
+# a stand-in verb as in DRIVER, with kick recorded in <repo>/kicked, so a check can tell whether a rebuild was started
+DRIVER_KICKS = r"""
+import os, sys
+sys.path.insert(0, sys.argv[1]); import ax_fresh
+def kick(repo, *a, **k):
+    if os.environ.get('KICK_BUSY'): return False           # a refresher already holds the lock: kick starts nothing
+    open(os.path.join(repo, 'kicked'), 'a').write('x\n'); return True
+ax_fresh.kick = kick
+sys.exit(ax_fresh.query(os.path.realpath(sys.argv[2]), sys.argv[3], sys.argv[5:], fresh=bool(os.environ.get('AXIOMCODE_FRESH'))))
+"""
+
+
+def read_only_checks():
+    """a query that starts a background rebuild says so on its answer's FIRST line, with the reason and how to prevent it;
+    --no-refresh (AXIOMCODE_NO_REFRESH=1, MCP refresh=false) answers from the graph as it is and starts none. The hooks and
+    the MCP timer never rebuild a graph another axiomcode built, and a hook says so once per session. The near-miss: a
+    graph this axiomcode built with a file edited since is still refreshed by a query, and by a hook, as before"""
+    work = tempfile.mkdtemp(prefix='axiomcode-readonly-'); saved = os.environ.get('AXIOMCODE_ENGINE')
+    try:
+        e1 = fake_engine(os.path.join(work, 'e1'), version='1.0.0'); os.environ['AXIOMCODE_ENGINE'] = e1
+        driver = os.path.join(work, 'driver.py'); open(driver, 'w').write(DRIVER_KICKS)
+
+        def repo_of(name, foreign):
+            repo = fake_repo(work, name, build_seconds='300 0'); os.remove(os.path.join(repo, '.axiomcode/refresh.json'))
+            if foreign:   # built with another engine: a checkout's own, say, which the installed one would rebuild differently
+                tp = os.path.join(repo, '.axiomcode/out/files.json'); t = json.load(open(tp))
+                t['built_by'].update(engine=os.path.join(work, 'checkout'), engine_version='1.0.0', engine_hash='0' * 40, engine_stat='0' * 40)
+                json.dump(t, open(tp, 'w'))
+            return repo
+
+        def query(repo, *extra, **env):
+            e = {k: v for k, v in os.environ.items() if k not in ('AXIOMCODE_NO_REFRESH', 'AXIOMCODE_FRESH', 'AXIOMCODE_GRAPH')}
+            e.update(AXIOMCODE_FRESH_WAIT='0', **env)
+            try: os.remove(os.path.join(repo, 'kicked'))
+            except OSError: pass
+            verb = [sys.executable, '-c', "import sys; print(sys.argv[1])", json.dumps(dict(direct=[dict(at='shop/api.py:5')])) if '--json' in extra else ROWS]
+            r = subprocess.run([sys.executable, driver, SCRIPTS, repo, 'impact', '--', *verb, *extra], capture_output=True, text=True, env=e, timeout=60)
+            return r.stdout, r.stderr, os.path.exists(os.path.join(repo, 'kicked'))
+
+        # ── a graph another engine built ──
+        repo = repo_of('foreign', True)
+        reason = ax_fresh.engine_change(repo)
+        check("read-only: a graph another engine built is one this axiomcode would rebuild", reason.startswith('graph built by an older axiomcode (engine 1.0.0 00000000 -> '), reason)
+        out, err, kicked = query(repo)
+        first, _, rest = out.partition('\n')
+        check("read-only: a query that starts a rebuild says so on its FIRST line: that it started one, with which engine, why, and the flag that prevents it",
+              kicked and first.startswith('graph refresh: this query started a background rebuild of the graph with engine 1.0.0 at ' + os.path.normpath(e1))
+              and reason in first and '--no-refresh' in first and 'refresh=false' in first and 'AXIOMCODE_NO_REFRESH=1' in first
+              and rest.strip() == ROWS.strip(), (out, err))
+        out, err, kicked = query(repo, AXIOMCODE_NO_REFRESH='1')
+        check("read-only: with AXIOMCODE_NO_REFRESH=1 (what --no-refresh sets) nothing is rebuilt, the answer is the verb's own, and the note says refresh is off",
+              not kicked and out.strip() == ROWS.strip() and 'this query started' not in out + err and reason in err and '--no-refresh' in err, (out, err))
+        out, err, kicked = query(repo, '--json')
+        fr = (json.loads(out) if out.strip().startswith('{') else {}).get('freshness', {})
+        check("read-only: --json stays one JSON document, and carries the same line as freshness.rebuild_started",
+              kicked and fr.get('rebuild_started', '').startswith('graph refresh: this query started a background rebuild'), (out, err))
+
+        # ── the near-miss: a graph this axiomcode built, a file edited since ──
+        repo = repo_of('edited', False)
+        check("read-only: control: the same engine is not another axiomcode", ax_fresh.engine_change(repo) == '', ax_fresh.engine_change(repo))
+        open(os.path.join(repo, 'shop/api.py'), 'a').write('\ndef audit(items):\n    return total(items)\n')
+        out, err, kicked = query(repo)
+        first, _, rest = out.partition('\n')
+        check("read-only: control: a query on a stale graph this axiomcode built still refreshes it, and says so first (the edits counted, the rows marked)",
+              kicked and first.startswith('graph refresh: this query started a background rebuild') and '1 file(s) edited since it was built' in first
+              and 'shop/api.py' not in first and 'shop/api.py:5   - calls it' + ax_fresh.MARK in rest and 'predates edits to shop/api.py' in err, (out, err))
+        # a refresher this query did not start (a hook's, the timer's) is running: the graph is replaced all the same
+        import fcntl
+        lf = os.open(os.path.join(repo, '.axiomcode', 'refresh.lock'), os.O_RDWR | os.O_CREAT, 0o644); fcntl.flock(lf, fcntl.LOCK_EX)
+        try: out, err, kicked = query(repo, KICK_BUSY='1')
+        finally: os.close(lf)
+        first, _, rest = out.partition('\n')
+        check("read-only: a query that finds a rebuild already running says so first, as one that may replace the graph it answers from",
+              not kicked and first.startswith('graph refresh: a background rebuild of the graph is already running') and 'may replace it' in first
+              and '--no-refresh' in first and 'shop/api.py:5   - calls it' + ax_fresh.MARK in rest, (out, err))
+        out, err, kicked = query(repo, KICK_BUSY='1')
+        check("read-only: control: no refresher running and none started, no such line", not kicked and not out.startswith('graph refresh:'), (out, err))
+        out, err, kicked = query(repo, AXIOMCODE_NO_REFRESH='1')
+        check("read-only: control: with refresh off the same query starts nothing and still marks the edited file's rows",
+              not kicked and not out.startswith('graph refresh:') and 'shop/api.py:5   - calls it' + ax_fresh.MARK in out and 'graph refresh: OFF' in err, (out, err))
+
+        # ── the dispatcher: --no-refresh on every query verb sets AXIOMCODE_NO_REFRESH for it ──
+        shim = os.path.join(work, 'shim'); os.makedirs(shim)
+        open(os.path.join(shim, 'python3'), 'w').write('#!/bin/sh\necho "NO_REFRESH=${AXIOMCODE_NO_REFRESH:-} $*"\n'); os.chmod(os.path.join(shim, 'python3'), 0o755)
+        env = {k: v for k, v in os.environ.items() if k != 'AXIOMCODE_NO_REFRESH'}; env['PATH'] = shim + os.pathsep + env.get('PATH', '')
+        said = {}
+        for verb in ('context', 'path', 'impact', 'changed', 'test-impact', 'graph'):
+            args = {'context': ['a task'], 'path': ['A', 'B'], 'impact': ['X']}.get(verb, [])
+            on = subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode'), verb, *args, repo, '--no-refresh'], capture_output=True, text=True, env=env).stdout
+            off = subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode'), verb, *args, repo], capture_output=True, text=True, env=env).stdout
+            said[verb] = (on, off)
+        check("read-only: `--no-refresh` on each query verb (context, path, impact, changed, test-impact, graph) sets AXIOMCODE_NO_REFRESH and is not passed on as an argument",
+              all('NO_REFRESH=1 ' in on and '--no-refresh' not in on for on, _ in said.values()), said)
+        check("read-only: control: without it the verbs run with refresh on", all(o and 'NO_REFRESH=1' not in o for _, o in said.values()), said)
+
+        # ── the hooks ──
+        calls = []; real = ax_fresh.kick
+        ax_fresh.kick = lambda repo, *a, **k: calls.append(repo) or True
+        try:
+            repo = repo_of('hook-foreign', True)
+            n1 = ax_fresh.hook_kick(repo, 'the PostToolUse hook after Bash', session='s1')
+            n2 = ax_fresh.hook_kick(repo, 'the PostToolUse hook after Bash', session='s1')
+            n3 = ax_fresh.hook_kick(repo, 'the PostToolUse hook after Bash', session='s2')
+            check("read-only: a hook never rebuilds a graph another axiomcode built, and says so, with the reason and how to rebuild it",
+                  not calls and reason.split(' (')[0] in n1 and 'the hooks do not rebuild' in n1 and '`axiomcode index`' in n1 and '--no-refresh' in n1, (calls, n1))
+            check("read-only: it says so once per session, and again in a new one", n2 == '' and n3 == n1, (n2, n3))
+            repo = repo_of('hook-edited', False)
+            open(os.path.join(repo, 'shop/api.py'), 'a').write('\n# edited\n')
+            n = ax_fresh.hook_kick(repo, 'the PostToolUse hook after Edit', session='s1')
+            check("read-only: control: a hook still refreshes a stale graph this axiomcode built, saying nothing", calls == [repo] and n == '', (calls, n))
+            calls.clear(); os.environ['AXIOMCODE_NO_REFRESH'] = '1'
+            n = ax_fresh.hook_kick(repo, 'the PostToolUse hook after Edit', session='s1')
+            check("read-only: AXIOMCODE_NO_REFRESH=1 turns the hooks' refresh off too", not calls and n == '', (calls, n))
+        finally:
+            ax_fresh.kick = real; os.environ.pop('AXIOMCODE_NO_REFRESH', None)
+        # the refresh hook end to end, on a shell command that only read: the note comes back as context, and no worker starts
+        repo = repo_of('hook-e2e', True)
+        ev = dict(hook_event_name='PostToolUse', tool_name='Bash', tool_input=dict(command='cat shop/api.py'), cwd=repo, session_id='e2e')
+        hook = os.path.join(ROOT, 'plugins', 'axiomcode', 'hooks', 'refresh.py')
+        env = {k: v for k, v in os.environ.items() if k not in ('AXIOMCODE_NO_REFRESH', 'CURSOR_VERSION')}
+        h = subprocess.run([sys.executable, hook], input=json.dumps(ev), capture_output=True, text=True, env=env, cwd=repo, timeout=30)
+        ctx = (json.loads(h.stdout) if h.stdout.strip().startswith('{') else {}).get('hookSpecificOutput', {}).get('additionalContext', '')
+        check("read-only: the refresh hook after a read-only shell command keeps a graph another axiomcode built, and says so as context",
+              h.returncode == 0 and 'the hooks do not rebuild' in ctx and not os.path.exists(os.path.join(repo, '.axiomcode', 'refresh.log')), (h.stdout, h.stderr))
+        h = subprocess.run([sys.executable, hook], input=json.dumps(ev), capture_output=True, text=True, env=env, cwd=repo, timeout=30)
+        check("read-only: and the second time in that session it is silent", h.returncode == 0 and not h.stdout.strip(), h.stdout)
+    finally:
+        if saved is None: os.environ.pop('AXIOMCODE_ENGINE', None)
+        else: os.environ['AXIOMCODE_ENGINE'] = saved
+        shutil.rmtree(work, ignore_errors=True)
+
+
 # ── named ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 NOT_FOUND = "nothing named 'audit' in the graph, and nothing close to it."
 
@@ -453,10 +587,22 @@ def mcp_checks():
           len(seen) == 4 and all('--fresh' in s for s in seen[:3]) and '--fresh' not in seen[3], seen)
     check("mcp: an answer's --fresh is written as the parameter", 'fresh=True' in m.mcp_words('ask again with --fresh to wait'),
           m.mcp_words('ask again with --fresh to wait'))
+    tools = ('axiomcode_context', 'axiomcode_path', 'axiomcode_impact', 'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph')
+    check("mcp: every query tool takes refresh", all('refresh' in m.PARAMS.get(t, []) for t in tools), {t: m.PARAMS.get(t) for t in tools})
+    seen.clear()
+    fn('axiomcode_impact')(['X'], refresh=False); fn('axiomcode_path')('A', 'B', refresh=False); fn('axiomcode_context')('t', refresh=False)
+    fn('axiomcode_changed')(refresh=False); fn('axiomcode_test_impact')(refresh=False); fn('axiomcode_graph')(refresh=False)
+    fn('axiomcode_impact')(['X']); fn('axiomcode_changed')(); fn('axiomcode_graph')()
+    check("mcp: refresh=false passes --no-refresh to the CLI, and only when asked",
+          len(seen) == 9 and all('--no-refresh' in s for s in seen[:6]) and not any('--no-refresh' in s for s in seen[6:]), seen)
+    w = m.mcp_words('pass --no-refresh (MCP refresh=false) to query without rebuilding')
+    check("mcp: an answer's --no-refresh is written as refresh=False", 'refresh=False' in w and '--no-refresh' not in w, w)
+    check("mcp: the CLI's no_refresh is refused, naming refresh", 'refresh' in (m.unknown_arguments('axiomcode_impact', {'no_refresh': True}) or ''),
+          m.unknown_arguments('axiomcode_impact', {'no_refresh': True}))
 
 
 if __name__ == '__main__':
-    prune_checks(); marks_checks(); wait_checks(); engine_checks(); newer_checks(); named_checks(); mcp_checks()
+    prune_checks(); marks_checks(); wait_checks(); engine_checks(); newer_checks(); read_only_checks(); named_checks(); mcp_checks()
     bad = [n for n, ok in RESULTS if not ok]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed" + (f"; FAILED: {len(bad)}" if bad else ''))
     sys.exit(1 if bad or not RESULTS else 0)

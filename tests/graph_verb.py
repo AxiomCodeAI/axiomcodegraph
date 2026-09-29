@@ -99,7 +99,14 @@ def main(argv):
 
         # an edit: the graph is stale, and is rebuilt as it was indexed
         with open(os.path.join(repo, 'app', 'shop', 'orders.py'), 'a') as f: f.write('\n\ndef refund_order(n):\n    return -order_total(n)\n')
-        g = sh(repo, 'bash', AX, 'graph', repo, env=env)
+        # read-only first: --no-refresh (and AXIOMCODE_NO_REFRESH=1, which this env sets) draws the stale graph as it is
+        stamp = (os.path.realpath(db), os.stat(os.path.realpath(db)).st_mtime_ns)
+        g = sh(repo, 'bash', AX, 'graph', repo, '--no-refresh', env=env)
+        check(g.returncode == 0 and 'refresh off (--no-refresh): drawn from the graph as it is' in g.stdout
+              and 'predates edits to 1 file(s)' in g.stdout and (os.path.realpath(db), os.stat(os.path.realpath(db)).st_mtime_ns) == stamp,
+              'stale: --no-refresh draws the graph as it is, says it is out of date, and never rebuilds it', g.stdout + g.stderr)
+        # the near-miss: asked without it (and with no AXIOMCODE_NO_REFRESH), the stale graph is rebuilt as it was indexed
+        g = sh(repo, 'bash', AX, 'graph', repo, env={k: v for k, v in env.items() if k != 'AXIOMCODE_NO_REFRESH'})
         html = open(page).read() if os.path.exists(page) else ''
         check(g.returncode == 0 and 'refund_order' in html and 'rebuilt (--lang python --src app)' in g.stdout,
               'stale: the graph is rebuilt with the --lang and --src it was indexed with, and the page shows the edit', g.stdout + g.stderr)
