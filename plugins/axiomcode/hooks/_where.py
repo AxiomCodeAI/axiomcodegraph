@@ -29,7 +29,8 @@ import json, os, re, shlex, time
 BY_EXT = {'.py': ('python',), '.pyi': ('python',), '.java': ('java',), '.cs': ('csharp',),
           '.ts': ('typescript',), '.tsx': ('typescript',), '.mts': ('typescript',), '.cts': ('typescript',),
           '.js': ('javascript', 'typescript'), '.jsx': ('javascript', 'typescript'),
-          '.mjs': ('javascript', 'typescript'), '.cjs': ('javascript', 'typescript')}
+          '.mjs': ('javascript', 'typescript'), '.cjs': ('javascript', 'typescript'),
+          '.vue': ('javascript',), '.svelte': ('javascript',), '.astro': ('javascript',)}
 # THE ONE TABLE OF WHAT A HOOK CALLS SOURCE. Each hook kept its own regex or tuple of extensions, and each drifted:
 # the edit hooks had no `.cs`, so a C# edit got no graph line while a C# read did. Every hook asks these instead.
 SOURCE_EXT = tuple(BY_EXT)
