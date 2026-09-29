@@ -683,8 +683,59 @@ function readPathAliases(configPath: string): PathAliases {
   if (options.paths !== undefined) {
     aliases.paths = options.paths;
     aliases.pathsBasePath = options.pathsBasePath;
+  } else {
+    const generated = frameworkDefaultAliases(read.config, path.dirname(configPath));
+    if (generated !== undefined) {
+      aliases.paths = generated;
+      aliases.pathsBasePath = path.dirname(configPath);
+    }
   }
   return aliases;
+}
+
+/**
+ * The aliases a framework's GENERATED config would have supplied, when the project's
+ * config `extends` (or `references`) one that a checkout does not contain.
+ *
+ * SvelteKit writes `.svelte-kit/tsconfig.json` and Nuxt `.nuxt/tsconfig*.json` at
+ * dev/build time; the project's own config only points at them, so without this every
+ * `$lib/api` or `~/utils/price` import was UNRESOLVED_MISSING (#1756). The mapping is the
+ * framework's default one: SvelteKit `$lib` → `src/lib`; Nuxt `~`, `@` → the source dir
+ * (`app/` first, as Nuxt 4 lays it out, then the root) and `~~`, `@@` → the root. A
+ * generated config that IS present is read as written, and a project `paths` wins.
+ */
+function frameworkDefaultAliases(config: unknown, configDirectory: string): ts.MapLike<string[]> | undefined {
+  const { extends: extended, references } = (config ?? {}) as { extends?: unknown; references?: unknown };
+  const named = [
+    ...(Array.isArray(extended) ? extended : [extended]),
+    ...(Array.isArray(references) ? references.map((r) => (r as { path?: unknown } | null)?.path) : []),
+  ].filter((p): p is string => typeof p === 'string');
+  for (const pointed of named) {
+    const target = path.resolve(configDirectory, pointed);
+    // `./.nuxt/tsconfig.app.json`, `./.nuxt/tsconfig` (extension implied), or a
+    // `references` directory, which means its tsconfig.json
+    const namesFile = path.basename(target).startsWith('tsconfig');
+    const configFile = !namesFile ? path.join(target, 'tsconfig.json')
+      : target.endsWith('.json') ? target : `${target}.json`;
+    const generatedDirectory = path.dirname(configFile);
+    if (fs.existsSync(configFile) || path.dirname(generatedDirectory) !== configDirectory) {
+      continue;
+    }
+    const framework = path.basename(generatedDirectory);
+    if (framework === '.svelte-kit') {
+      return { '$lib': ['./src/lib'], '$lib/*': ['./src/lib/*'] };
+    }
+    if (framework === '.nuxt') {
+      const source = ['./app', '.'];
+      const root = ['.'];
+      const under = (dirs: string[]) => dirs.map((d) => `${d}/*`);
+      return {
+        '~': source, '~/*': under(source), '@': source, '@/*': under(source),
+        '~~': root, '~~/*': under(root), '@@': root, '@@/*': under(root),
+      };
+    }
+  }
+  return undefined;
 }
 
 /**
