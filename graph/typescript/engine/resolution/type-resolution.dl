@@ -685,7 +685,8 @@ ref_name_is_container("IteratorObject").
 // `(await client.get()).body` — the receiver is the AWAITED type, not the Promise.
 // `async` functions make this ubiquitous, and typing the receiver as Promise instead
 // resolves every such call to `then`/`catch` or to nothing at all.
-ref_awaited_target(ref, prov, t) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+ref_awaited_target(ref, prov, t) :- ref_promise_value(ref, prov, t).
+ref_promise_value(ref, prov, t) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
     ref_name_is_promise(tn),
     type_ref_parent(rp, ref, "0", child),
     ref_type_target(child, prov, t).

@@ -59,8 +59,23 @@ callback_arg(ce, argpos, lm) :- expr_child("client", ce, "ARGUMENT", argpos, lam
 // parameter, which needs no guard: TypeScript forbids a callback with more parameters
 // than its target signature, so a lambda parameter's position can never reach it.
 callee_fn_param_ref(callee, argpos, fref) :- param_decl(_, _, argpos, _, callee, p),
-    param_type_ref(_, fref, p),
-    type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, fref).
+    param_type_ref(_, pref, p),
+    fn_type_under(pref, fref).
+
+// …AND WHERE THE FUNCTION TYPE IS WRAPPED. An optional callback is written
+// `onfulfilled?: ((value: T) => R) | undefined | null` — `Promise.then`, `catch`,
+// `finally`, and every library that copies the lib's style. The parser lays that out
+// UNION → PARENTHESIZED → FUNCTION_TYPE, so a rule that asks for FUNCTION_TYPE on the
+// parameter's own reference never saw it, and every `p.then(u => u.m())` left `u`
+// untyped. The compiler takes the contextual type from the non-nullish member of the
+// union; the other members (`undefined`, `null`) are not function types and add nothing.
+fn_type_under(r, r) :- type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, r).
+fn_type_under(r, f) :- type_ref(_, "UNION", _, _, _, _, _, r),
+    type_ref_parent(_, r, _, c),
+    fn_type_under(c, f).
+fn_type_under(r, f) :- type_ref(_, "PARENTHESIZED", _, _, _, _, _, r),
+    type_ref_parent(_, r, _, c),
+    fn_type_under(c, f).
 
 fn_param_tvar(fref, k, pname) :- type_ref_parent(_, fref, k, child),
     type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, child),
@@ -214,6 +229,50 @@ lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
     owner_declares_param(callee, pname),
     ref_element_target(rref, prov, t),
     param_decl(_, _, k, _, lm, lp).
+
+// (e) …AND WHERE NO STANDARD LIBRARY IS STAGED. Every clause above reads the callee's
+// signature, so each needs `Array.map` / `Promise.then` as a DECLARATION — and a default
+// index stages no library root, so the call has no candidate and `r.all().map(u =>
+// u.display())` left `u` untyped while `for (const u of r.all())` over the same receiver
+// resolved: the loop takes its element off the receiver's own reference, not off a lib.
+// This is that route for the callbacks one of whose parameters IS the element: the
+// receiver's declared reference names the container and its element, which is all the
+// compiler uses here. Where a library IS staged the clauses above derive the same type,
+// so this adds nothing there.
+//
+// The lib's callbacks that receive the element, and the parameter position it arrives at:
+// first for the iteration callbacks of Array, ReadonlyArray, Set and the iterator helpers,
+// second for `reduce` / `reduceRight`, whose first is the accumulator. ref_element_target
+// only answers for a container reference, so a user class with its own `map` is never
+// typed through this.
+builtin_element_callback("forEach", "0").
+builtin_element_callback("map", "0").
+builtin_element_callback("flatMap", "0").
+builtin_element_callback("filter", "0").
+builtin_element_callback("some", "0").
+builtin_element_callback("every", "0").
+builtin_element_callback("find", "0").
+builtin_element_callback("findIndex", "0").
+builtin_element_callback("findLast", "0").
+builtin_element_callback("findLastIndex", "0").
+builtin_element_callback("reduce", "1").
+builtin_element_callback("reduceRight", "1").
+lambda_param_type(lp, prov, t) :- call_site("client", _, name, _, recv, ce, _),
+    builtin_element_callback(name, k),
+    callback_arg(ce, "0", lm),
+    expr_decl_ref(recv, rref),
+    ref_element_target(rref, prov, t),
+    param_decl(_, _, k, _, lm, lp),
+    !param_type_ref(_, _, lp).
+// …and `promise.then(v => …)`: the fulfilled value is the Promise's type argument. Keyed
+// on the reference NAMING Promise / PromiseLike (ref_promise_value), never on
+// ref_awaited_target, whose identity clause would type a user class's own `then`.
+lambda_param_type(lp, prov, t) :- call_site("client", _, "then", _, recv, ce, _),
+    callback_arg(ce, "0", lm),
+    expr_decl_ref(recv, rref),
+    ref_promise_value(rref, prov, t),
+    param_decl(_, _, "0", _, lm, lp),
+    !param_type_ref(_, _, lp).
 
 // ── and type the uses inside the body ───────────────────────────────────────
 // The arrow's parameter has no annotation, so param_type is empty for it and this adds

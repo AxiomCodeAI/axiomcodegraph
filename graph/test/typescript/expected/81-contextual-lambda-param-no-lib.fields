@@ -1,0 +1,3 @@
+known_edge	read	Repo#all() -> Repo#users
+known_edge	read	Repo#one() -> Repo#pending
+known_edge	read	Repo#readonlyAll() -> Repo#users

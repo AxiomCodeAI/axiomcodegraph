@@ -1,0 +1,7 @@
+81-contextual-lambda-param-no-lib [types]
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    1.0000   (7 of 7 the compiler resolved)
+  sites 27   resolved 21 (77.8%)
+  tiers ambiguous_unknown=6  known_edge=21
+  contexts METHOD_PARAM=11  METHOD_RETURN=4  OBJECT_CREATION_TYPE=2  TYPE_ARGUMENT=4  TYPE_ELEMENT=6
+  not scored: 6 rows whose target is not a client declaration

@@ -1,0 +1,4 @@
+value	use#<function-type>@71:12 -> use#<arrow>@79
+value	use#<function-type>@74:11 -> use#<arrow>@82
+value_call	use#Lazy.map -> use#<arrow>@82
+value_call	use#Lazy.then -> use#<arrow>@79
