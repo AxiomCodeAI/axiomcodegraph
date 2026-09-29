@@ -54,3 +54,4 @@ remote_edge	remote-edge.csv
 remote_unserved	remote-unserved.csv
 remote_unsent	remote-unsent.csv
 remote_undetermined	remote-undetermined.csv
+dispatch_assumes_closed_world	assumption-dispatch-closed-world.csv

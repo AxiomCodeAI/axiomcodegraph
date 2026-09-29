@@ -215,6 +215,7 @@ What produced this bundle: one key/value row per fact about the run (language, e
 | `client_ir` | all | Path of the client IR directory the engine read. |
 | `library_roots` | all | Comma-separated library IR roots staged as the type oracle; empty for a client-only run. |
 | `dispatch_cap` | all | Fan-width cap on virtual dispatch in effect; `off` when uncapped. |
+| `dispatch_closed_world` | all | `on` when the dispatch fan was narrowed to types the analysed code constructs (a closed-world premise; each dropped edge is an assumption row); `off` otherwise. Read by TypeScript. |
 | `jdk_depth` | all | Platform-library hop cap (engine-ii). |
 | `lib_depth` | all | External-library hop cap; `uncapped` when unset. |
 | `engine_ii` | all | `on` when the library-frontier forward chain (engine-ii) was included; `off` for a client-only solve. |

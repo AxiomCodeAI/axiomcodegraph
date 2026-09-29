@@ -380,6 +380,7 @@
 .decl literal_contains_method_nested(c0:symbol, c1:symbol)
 // ── executor knobs (written by run-souffle.sh for every language; unread here) ──
 .decl dispatch_cap(c0:symbol)
+.decl dispatch_closed_world(c0:symbol)
 .decl jdk_max_depth(c0:number)
 .decl lib_max_depth(c0:number)
 .decl taint_gating(c0:symbol)
