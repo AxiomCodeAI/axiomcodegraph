@@ -714,6 +714,7 @@
 .decl sat_can_meet(c0:symbol,c1:symbol)
 .decl sat_client_type(c0:symbol)
 .decl sat_holder_module(c0:symbol,c1:symbol)
+.decl sat_member_hidden(c0:symbol)
 .decl sat_meet_open(c0:symbol,c1:symbol)
 .decl sat_meet_pair(c0:symbol,c1:symbol)
 .decl sat_meets_trivially(c0:symbol,c1:symbol)
@@ -721,3 +722,4 @@
 .decl sat_module_reach(c0:symbol,c1:symbol)
 .decl sat_source_method(c0:symbol,c1:symbol,c2:symbol)
 .decl sat_target_method(c0:symbol,c1:symbol,c2:symbol)
+.decl sat_visible_source_method(c0:symbol,c1:symbol)

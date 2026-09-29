@@ -139,6 +139,21 @@ sat_arity_conflict(s, t) :- sat_covered(s, t, name),
     sat_target_method(t, name, tm),
     method_max_arity(tm, _),
     !sat_arity_ok(s, t, name).
+// A `private` or `protected` method never satisfies an interface member of its name: the
+// compiler rejects the assignment ("property is private in type S but not in type T"),
+// so a class whose only method of that name is hidden is not a conformer. A covered name
+// the class also declares visibly (or as a field) is left alone.
+sat_member_hidden("PRIVATE_ACCESS").
+sat_member_hidden("PROTECTED_ACCESS").
+sat_member_hidden("PRIVATE_NAME_ACCESS").
+sat_visible_source_method(s, name) :- sat_source_method(s, name, m),
+    method_access(_, acc, m),
+    !sat_member_hidden(acc).
+sat_arity_conflict(s, t) :- sat_covered(s, t, name),
+    sat_source_method(s, name, m),
+    method_access(_, acc, m),
+    sat_member_hidden(acc),
+    !sat_visible_source_method(s, name).
 
 // ── type_satisfies(SourceTypeHash, TargetTypeHash) ──────────────────────────
 // Every required member covered, and no covered method that could not be called with

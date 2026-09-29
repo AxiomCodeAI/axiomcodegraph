@@ -6,6 +6,7 @@ known_edge	OBJECT_CREATION_TYPE	0	bus [EXPRESSION] -> Bus
 known_edge	OBJECT_CREATION_TYPE	0	duck [EXPRESSION] -> FileReader
 known_edge	OBJECT_CREATION_TYPE	0	duck [EXPRESSION] -> NetReader
 known_edge	OBJECT_CREATION_TYPE	0	duck-pub [EXPRESSION] -> Duck
+known_edge	OBJECT_CREATION_TYPE	0	duck-pub [EXPRESSION] -> Hidden
 known_edge	OBJECT_CREATION_TYPE	0	duck-pub [EXPRESSION] -> Relay
 known_edge	OBJECT_CREATION_TYPE	0	pub [EXPRESSION] -> Real
 known_edge	OBJECT_CREATION_TYPE	0	pub [EXPRESSION] -> Relay
