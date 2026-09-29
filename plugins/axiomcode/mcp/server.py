@@ -132,8 +132,9 @@ def run(args, cwd=None, timeout=900):
         return (f"axiomcode {args[0] if args else ''} did not answer within {timeout} s. Nothing was changed; "
                 f"see {os.path.join(repo, '.axiomcode', 'build.log')} if a build was running, and ask again.")
     out = (r.stdout or '') + (('\n' + r.stderr.strip()) if r.returncode and r.stderr.strip() else '')
-    # an answer given from a graph that predates some edit says so, and names the files (#1305)
-    if not r.returncode: out += ''.join('\n' + l for l in (r.stderr or '').splitlines() if l.startswith('graph refresh:'))
+    # an answer given from a graph that predates some edit says so, and names the files (#1305); one given from a graph a
+    # fallback engine built, in place of the checkout's own, names that engine
+    if not r.returncode: out += ''.join('\n' + l for l in (r.stderr or '').splitlines() if l.startswith(('graph refresh:', 'graph built by:')))
     return mcp_words(out.strip()) or f"(no output, exit {r.returncode})"
 
 # SITES, ONE PER LINE, BY DEFAULT. When the answer is a list of sites (who uses it, the hops of a chain, where a task
