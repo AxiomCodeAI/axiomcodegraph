@@ -12,8 +12,8 @@ Each behaviour has a near-miss control that must keep today's answer:
       control                    a function added to an existing file keeps its own line
   a copy without git             a refusal naming what to pass, not invented "added" declarations
       control                    the same copy with a named file: every declaration in it counts, and its tests are named
-  a changed fixture              named as outside the index, with the test file that names it; the command holds only
-                                 the graph's language's test modules, and another language's tests are counted, not listed
+  a changed fixture              named as outside the index; it lies in a tree a test reads by path, so it is case data
+                                 for that test, with that test's own pytest line; files inside the tree are its data
       control                    a data file no test names: said so, never "no change"
   a parameter edit in a package  every target `changed` prints is answered by `impact`, and test-impact resolves it
       control                    the same target under a prefix nothing declares is still refused
@@ -121,14 +121,15 @@ def main():
         check(rc == 0 and 'tests/test_pricing.py' in out, 'test-impact --range selects the tests of the branch edit', out)
         check('test_stock' not in out, "test-impact --range does not select the tests of upstream's commit", out)
         check('tests/test_newmod.py' in out, 'a new test file is itself a test to run', out)
-        check("named as 'case.json' by: tests/test_cases.py" in out, 'the test that loads the changed fixture is named', out)
-        run = [l for l in out.split('\n') if 'with the tests above:' in l]
-        check(len(run) == 1 and 'pytest ' in run[0] and 'tests/test_cases.py' in run[0], 'the text tier adds its Python test to the pytest line', out)
+        # the fixture lies in a tree tests/test_cases.py reads by path (HERE, 'cases'): case data for that test
+        check("case data for tests/test_cases.py" in out, 'the test that loads the changed fixture is named', out)
+        run = [l.strip() for l in out.split('\n') if l.strip().startswith('pytest ') and 'tests/test_cases.py' in l]
+        check(len(run) == 1, "the fixture's reading test gets its own pytest line", out)
         check(run and not any(x in run[0] for x in ('.java', '.cs', 'helper.py')),
               "the pytest line holds no other language's file and no module pytest does not collect", out)
-        check('CaseLoader.java' not in out and 'CaseLoader.cs' not in out and "another language name them too" in out,
-              "another language's test files are counted, not listed: that language's graph answers for them", out)
-        check(any(l.startswith('next: run pytest') and '.java' not in l and '.cs' not in l for l in out.split('\n')),
+        check('CaseLoader.java' not in out and 'CaseLoader.cs' not in out and "named as 'case.json'" not in out,
+              "files inside the fixture tree that name it are its data, not its readers, and no name match lists them", out)
+        check(any(l.startswith('next: run') and 'pytest' in l and '.java' not in l and '.cs' not in l for l in out.split('\n')),
               'next: runs the Python tests only', out)
         check('page 1 of' not in out, 'no page footer', out)
 

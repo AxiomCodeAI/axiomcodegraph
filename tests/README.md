@@ -98,6 +98,14 @@ One check needs no graph and is its own script:
     python3 tests/script_tests.py        a script-style test (a test-tree file run as a program, no framework) is selected by
                                          test-impact with the command its project runs it by, beside a framework test that keeps
                                          its own; a helper and a runner's setup file are not (indexes two cases, needs the engine)
+    python3 tests/case_runner.py         a changed file under a case runner's cases/ (tests/cases/<lang>/<case>/, graph/test/
+                                         <lang>/cases/<case>/) and a golden named for a case map to that runner's command for
+                                         the one case, a rule file under graph/<lang>/ to graph/test/<lang>/run-tests.sh; a
+                                         program started through its dispatcher is credited to the test that starts it; controls:
+                                         a real pytest file beside the cases keeps pytest, a fixture's own test is not selected;
+                                         a fixture tree of any name maps to the script or test that reads it by path, a golden
+                                         to the test that opens it, and a shared data-file name (case.json) is no name match
+                                         (indexes one repository, needs the engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

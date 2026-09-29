@@ -299,7 +299,7 @@ def next_test_impact(text):
     # When a text tier adds the tests that load a changed fixture, it prints the command(s) for both after
     # "with the tests above:", and the first command alone left those tests out of the step an agent takes: the
     # LAST such block wins, with every command that continues it
-    ms = list(re.finditer(r'^\s*(with the tests above: )?((?:\(cd \S+ && )?(?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pnpm|yarn|bun|node|tsx|pytest|python -m pytest|python manage\.py test|python -m unittest|python(?= \S+\.py$)|dotnet|go) [^\n]+)$', text, re.M))
+    ms = list(re.finditer(r'^\s*(with the tests above: )?((?:\(cd \S+ && )?(?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pnpm|yarn|bun|node|tsx|pytest|python -m pytest|python manage\.py test|python -m unittest|python(?= \S+\.py$)|python3(?= \S+\.py\b)|bash(?= \S+\.sh\b)|dotnet|go) [^\n]+)$', text, re.M))
     if not ms: return ''
     last = max((i for i, m in enumerate(ms) if m.group(1)), default=0)
     cmds = [m.group(2).strip() for m in ms[last:]]
