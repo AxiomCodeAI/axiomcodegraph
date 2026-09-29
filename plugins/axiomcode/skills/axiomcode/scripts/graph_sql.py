@@ -549,6 +549,54 @@ TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
 EACH_TABLE = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
 
 
+# A SCRIPT TEST: a file under the test tree that calls no test framework and is run as a program — `test/run.js`
+# calling `runCase(...)` at top level, a `tests/check.py` with its own main guard. Its module IS the test: impact walked
+# to it and labelled it [test], then counted "0 of 0", and test-impact said no test reaches the change. A file that
+# declares a framework test is its runner's; one that exports (a helper), sits in a fixture or support directory, or
+# is a runner's setup or config file is not run on its own. Nor is test DATA: the inputs a test reads (a case
+# directory, a fixture project with its own src/, a corpus) and the tooling beside the tests (tools/, bin/, a harness)
+# lie under a test tree too, and on one repository they were two thirds of what the rule matched before it said so.
+PY_SCRIPT_MAIN = re.compile(r'^if\s+__name__\s*==\s*[\'"]__main__[\'"]\s*:', re.M)
+JS_EXPORTS = re.compile(r'^\s*(?:export\s|module\.exports\b|exports\.[\w$]+\s*=)', re.M)
+JS_FRAMEWORK = re.compile(r'(?<![\w$.])(?:describe|it|test|bench|suite|context)\s*(?:\.\s*\w+\s*)*\(')
+JS_SCRIPT_EXT = ('.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx')
+NOT_A_SCRIPT = re.compile(r'(^|/)(fixtures?|__fixtures__|__mocks__|mocks?|helpers?|support|utils?|setup|tools?|bin|harness'
+                          r'|test-?data|test_data|data|cases|corpus|samples?|examples?|resources|projects?|node_modules|vendor)(/|$)'
+                          r'|(^|/)(tests?|specs?|__tests__)/(.+/)?src/'
+                          r'|(^|/)[^/]*(setup|config|conftest|globals?|\.d)\.[^/]+$', re.I)
+
+
+def script_test_file(rel, text):
+    """whether the test-tree file `rel`, with source `text`, is a script test: run as a program, no framework."""
+    if not rel or not text or NOT_A_SCRIPT.search(rel): return False
+    if rel.endswith('.py'):
+        return PY_SCRIPT_MAIN.search(text) is not None
+    if rel.endswith(JS_SCRIPT_EXT):
+        return not JS_EXPORTS.search(text) and not JS_FRAMEWORK.search(text)
+    return False
+
+
+# Being a script test says it is a test (counted, selected), not what runs it. Only a file that guards its own entry
+# (`require.main === module`, `import.meta.main`, `__name__ == '__main__'`) says it is meant to run under its bare
+# interpreter; an unguarded one with no package script or usage line naming it is said to be run by nothing (#1570),
+# never handed to an interpreter the project may not have (tsx).
+JS_SCRIPT_MAIN = re.compile(r'\brequire\.main\s*===?\s*module\b|\bmodule\s*===?\s*require\.main\b|\bimport\.meta\.main\b')
+
+
+def script_main_guard(rel, text):
+    """whether the script test `rel` guards its own entry, so its interpreter is the command that runs it"""
+    if not text: return False
+    if rel.endswith('.py'): return PY_SCRIPT_MAIN.search(text) is not None
+    return rel.endswith(JS_SCRIPT_EXT) and JS_SCRIPT_MAIN.search(text) is not None
+
+
+def script_tests(rows, text_of, tm):
+    """the module symbols among `rows` ((id, kind, file) of is_test symbols) that are script tests; a file holding a
+    test in `tm` is its framework's, never a script"""
+    tm_files = {f for i, k, f in rows if i in tm}
+    return {i for i, k, f in rows if k == 'module' and f not in tm_files and script_test_file(f, text_of(f))}
+
+
 def _test_sets(q, lines=None, rel=None):
     """test_method and fixture, the same two sets the exporter builds — the distinction the whole test layer rests on.
 
@@ -593,6 +641,9 @@ def _test_sets(q, lines=None, rel=None):
             L = lines(f)
             if ln - 1 < len(L) and TEST_REGISTRAR.search(L[ln - 1]): tm.add(sid)
             elif any(tf == f and a <= ln <= b for tf, a, b in tables): tm.add(sid)
+        rows = q("""SELECT id, kind, file FROM symbols WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL""")
+        st = script_tests([tuple(r) for r in rows], lambda f: '\n'.join(lines(f)), tm)
+        tm |= st; fx -= st
     return tm, fx
 
 

@@ -60,6 +60,7 @@ TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import graph_sql
 
 
 def run(script, args):
@@ -1429,6 +1430,10 @@ def js_plan(repo, files):
         cmd = _script_for(repo, pkg, f[len(pkg) + 1:] if pkg else f)
         if cmd:
             singles.append((pkg, cmd))
+        elif graph_sql.script_test_file(f, t := _read(os.path.join(repo, f), 400_000)) and graph_sql.script_main_guard(f, t):
+            # a script test no package script or usage line names runs under its interpreter only when it guards its
+            # own entry; an unguarded one is named as run by nothing (#1570), never a guessed framework or interpreter
+            singles.append(('', f"{'npx tsx' if f.endswith(('.ts', '.mts', '.cts', '.tsx')) else 'node'} {shlex.quote(f)}"))
         else:
             unrun.append(f)
     def cd(pkg, cmd):
@@ -1439,6 +1444,12 @@ def js_plan(repo, files):
         if (pkg, c) not in seen:
             seen.add((pkg, c)); cmds.append(cd(pkg, c))
     return cmds, unrun
+
+
+def script_command(repo, rel):
+    """the command a script test is run by, the one this command prints for it (impact labels the test with it)"""
+    plan = py_plan if rel.endswith('.py') else js_plan
+    return "\n".join(plan(repo, [rel])[0]) or None
 
 
 def print_unrun(lang, repo, files):
@@ -1826,7 +1837,7 @@ def main(argv):
     # A row the answer named that carries no owner still has to reach the reader. Dropping it for being
     # malformed is how a selection gets quietly shorter, which is the one failure this command exists to
     # prevent — the same shape as a dropped edge or an answer that could not be parsed.
-    ownerless = [r for r in tests.values() if not r.get('owner') and r.get('at')]
+    ownerless = [r for r in tests.values() if not r.get('owner') and r.get('at') and not r.get('script')]   # a script is its file
     run_files = sorted(set(files) | set(edited))
     lang = (changed.get('lang') or '').lower() or _guess_lang(run_files or changed_files)
     # the graph `impact` answered from, asked again for which selected classes are abstract (command_for)
