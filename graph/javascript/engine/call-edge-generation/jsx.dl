@@ -59,12 +59,21 @@ jsx_loader_name("lazy").
 jsx_loader_name("dynamic").
 jsx_loader_name("loadable").
 jsx_component_loader(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n, _, _, _, w, _, _), jsx_loader_name(n).
+// A Vue DEFINER — `defineComponent({ setup() {…} })` (Nuxt: `defineNuxtComponent`): the
+// tag invokes the options object's `setup` with its props, or its `render` when there is
+// no setup; a render function setup returns is reached from setup's body. The function
+// form, `defineComponent((props) => () => …)`, is argument 0 itself, as for memo. Named by
+// the definer, so the same object handed to any other call stays out.
+jsx_vue_definer_name("defineComponent").
+jsx_vue_definer_name("defineNuxtComponent").
+jsx_vue_definer(w) :- expr_kind(_, "CALL", _, w), call_site("client", _, n, _, _, _, w, _, _), jsx_vue_definer_name(n).
 
 // jsx_holds(Expr, Call) — the wrapper or loader call an expression holds, followed the
 // ways a component reaches a tag: the call itself, a const initialised with it, a named
 // or default import of an export that holds it, and a re-export of one.
 jsx_holds(w, w) :- jsx_component_wrapper(w).
 jsx_holds(w, w) :- jsx_component_loader(w).
+jsx_holds(w, w) :- jsx_vue_definer(w).
 jsx_holds(e, w) :- expr_binding(_, v, e), jsx_var_holds(v, w).
 jsx_var_holds(v, w) :- var_init(_, _, e, v), !var_binding_form(_, "OBJECT_PATTERN", v), !var_binding_form(_, "ARRAY_PATTERN", v),
     jsx_holds(e, w).
@@ -97,6 +106,16 @@ jsx_call_renders(w, k, i) :- jsx_loader_settles(w, "obj", o), prop_value("obj", 
 jsx_call_renders(w, k, i) :- jsx_loader_settles(w, k, i), jsx_component_kind(k).
 jsx_component_kind("func").
 jsx_component_kind("ctor").
+// A Vue definer: the options object's `setup`, else its `render` — one target, not both.
+// "Has a setup" is read off the literal's own keys, not the value layer, which this
+// relation feeds.
+jsx_call_renders(w, "func", m) :- jsx_vue_definer(w), call_arg(w, 0, a), expr_value(a, "obj", o),
+    prop_value("obj", o, "setup", "func", m).
+jsx_call_renders(w, "func", m) :- jsx_vue_definer(w), call_arg(w, 0, a), expr_value(a, "obj", o),
+    !jsx_vue_has_setup(o), prop_value("obj", o, "render", "func", m).
+jsx_call_renders(w, "func", f) :- jsx_vue_definer(w), call_arg(w, 0, a), expr_value(a, "func", f).
+jsx_vue_has_setup(o) :- expr_kind(_, "OBJECT_LITERAL", _, o), expr_child(_, o, "PROPERTY_KEY", _, key), expr_name(_, "setup", key).
+jsx_vue_has_setup(o) :- literal_owns_method(o, m), method_decl(_, "setup", _, _, _, _, _, m).
 
 // ── jsx_renders(Element, Component) — the callables the element runs ───────
 // A function component (a constructor FUNCTION is callable_value's "ctor" half).
