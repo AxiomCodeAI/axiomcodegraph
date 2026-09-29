@@ -1,2 +1,4 @@
+nominal	pub#Pub.publish -> pub#Real.publish
 structural	duck#Reader.read -> duck#FileReader.read
 structural	duck#Reader.read -> duck#NetReader.read
+structural	pub#Pub.publish -> duck-pub#Duck.publish

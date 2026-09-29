@@ -17,10 +17,14 @@
 //
 // Keeping it off the primary path is deliberate. It is the one relation in this
 // engine that could FABRICATE rather than over-approximate, because it is name-based
-// and does not compare member TYPES; a class with a `read()` that takes different
-// arguments would still be counted as satisfying `Readable`. That is acceptable for
-// widening a prune-only test and for a labelled reachability fan; it would not be
-// acceptable as the answer to "what does this call resolve to".
+// and does not compare member TYPES; a class with a `read(s: string)` would still be
+// counted as satisfying `Readable { read(n: number) }`. Two cheap tests keep the worst
+// of it out: a method that needs MORE arguments than the target passes is rejected
+// (sat_arity_conflict), and a class no code can ever hand to the interface's slot is
+// not an implementor (sat_can_meet). That is acceptable for widening a prune-only test
+// and for a labelled reachability fan; it would not be acceptable as the answer to
+// "what does this call resolve to", and a consumer never treats the `structural` basis
+// as a declared contract.
 //
 // ── THE SOUNDNESS ARGUMENT, STATED ──────────────────────────────────────────
 // Direction: SOURCE is assignable to TARGET when the source has a member for every
@@ -98,13 +102,53 @@ sat_covered(s, t, name) :- sat_pair_seed(s, t),
 sat_cover_count(s, t, n) :- sat_pair_seed(s, t),
     n = count : { sat_covered(s, t, _) }.
 
+// ── sat_arity_conflict(Source, Target) — a shared name that cannot be called the same way
+// A NAME MATCH IS NOT A MEMBER MATCH. `publish(name, payload)` shares a name with the
+// interface's `publish(envelope)` and is not assignable to it: a method that needs more
+// arguments than the target's signature passes is rejected by the compiler, whatever
+// the types. So a covered METHOD name conflicts when no source method of that name
+// needs at most as many arguments as some target method of that name takes. Fewer
+// required parameters is fine (`read()` satisfies `read(n: number)`), and so is an
+// optional or rest parameter. Only a pair where BOTH sides have arity facts can conflict:
+// a member without them (a field holding a function) is left to the name test.
+sat_target_method(t, name, m) :- target_required_member(t, name),
+    scope_sibling(t, sib),
+    declared_method(sib, name, "false", m).
+sat_target_method(t, name, m) :- target_required_member(t, name),
+    group_of(t, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, "false", m).
+sat_source_method(s, name, m) :- sat_pair_seed(s, _),
+    scope_sibling(s, sib),
+    declared_method(sib, name, "false", m).
+sat_source_method(s, name, m) :- sat_pair_seed(s, _),
+    group_of(s, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, "false", m).
+sat_arity_ok(s, t, name) :- sat_covered(s, t, name),
+    sat_source_method(s, name, sm),
+    sat_target_method(t, name, tm),
+    method_min_arity(sm, lo),
+    method_max_arity(tm, hi),
+    lo <= hi.
+sat_arity_conflict(s, t) :- sat_covered(s, t, name),
+    sat_source_method(s, name, sm),
+    method_min_arity(sm, _),
+    sat_target_method(t, name, tm),
+    method_max_arity(tm, _),
+    !sat_arity_ok(s, t, name).
+
 // ── type_satisfies(SourceTypeHash, TargetTypeHash) ──────────────────────────
-// Every required member covered. `k > 0` excludes the empty interface, which
+// Every required member covered, and no covered method that could not be called with
+// the target's arguments. `k > 0` excludes the empty interface, which
 // everything satisfies and which therefore carries no information — admitting it
 // would make every class an implementor of every marker interface in the tree.
 type_satisfies(s, t) :- sat_cover_count(s, t, k),
     target_required_count(t, k),
-    k > 0.
+    k > 0,
+    !sat_arity_conflict(s, t).
 
 // A nominal implements clause is satisfaction too, and it is the authoritative kind:
 // the programmer asserted it and the compiler checked it. Included here so consumers
@@ -121,7 +165,8 @@ structural_implementor(t, s) :- type_satisfies(s, t),
     satisfaction_target(t),
     s != t,
     !target_has_nominal_implementor(t),
-    !sat_cross_program(s, t).
+    !sat_cross_program(s, t),
+    sat_can_meet(s, t).
 
 // ── sat_cross_program(Source, Target) — a shape match no value can cross (#1574) ──
 // A CLIENT GLOBAL belongs to one program (module-graph.dl). A class in ANOTHER program
@@ -204,7 +249,51 @@ structural_implementor(t, s) :- type_satisfies(s, t),
     target_has_nominal_implementor(t),
     !implementors(t, s),
     type_instantiated(s, _),
-    !sat_cross_program(s, t).
+    !sat_cross_program(s, t),
+    sat_can_meet(s, t).
+
+// ── sat_can_meet(Source, Target) — can a value of the class ever reach the interface's slot
+// A SHAPE MATCH BETWEEN TWO CODEBASES THAT NEVER MEET IS NOT A CONFORMANCE. In a monorepo
+// one service's event bus and another service's publisher interface share a method name,
+// and nothing in either program can hand the one to the other. For an instance of S to
+// flow into a slot typed T, some code has to see both: S's own module, or a module that
+// uses S as a value (`new S()`, `useClass: S`), must import T's module, directly or
+// through other modules and re-exports. Admitted without the walk:
+//   * S and T in one tsconfig program, or in one module — the program sees both;
+//   * T a library interface, or either side in a global script — no import is needed
+//     to see it, so the import graph proves nothing.
+// A program-level dependency is deliberately NOT enough: a test that boots two services
+// together makes each app depend on the other, and every name the two share would come
+// back. The import walk runs only for the pairs left, from the modules that hold S.
+sat_meet_pair(s, t) :- type_satisfies(s, t),
+    satisfaction_target(t),
+    s != t,
+    !implementors(t, s).
+sat_client_type(t) :- type_module("client", _, t).
+sat_meets_trivially(s, t) :- sat_meet_pair(s, t), type_program(s, p), type_program(t, p).
+sat_meets_trivially(s, t) :- sat_meet_pair(s, t), type_module("client", m, s), type_module("client", m, t).
+sat_meets_trivially(s, t) :- sat_meet_pair(s, t), !sat_client_type(t).
+sat_meets_trivially(s, t) :- sat_meet_pair(s, t), type_module("client", m, s), module_is_global("client", m).
+sat_meets_trivially(s, t) :- sat_meet_pair(s, t), type_module("client", m, t), module_is_global("client", m).
+sat_meet_open(s, t) :- sat_meet_pair(s, t), !sat_meets_trivially(s, t).
+
+sat_holder_module(s, m) :- sat_meet_open(s, _), type_module("client", m, s).
+sat_holder_module(s, m) :- sat_meet_open(s, _),
+    expr_referenced("client", "TYPE", s, e),
+    expr_module("client", m, e).
+sat_module_dep(a, b) :- import_binding("client", _, _, _, a, h),
+    import_target_module(h, "client", b).
+sat_module_dep(a, b) :- export_decl("client", _, _, _, a, h),
+    export_target_module(h, "client", b).
+sat_module_reach(m, m) :- sat_holder_module(_, m).
+sat_module_reach(o, b) :- sat_module_reach(o, a),
+    sat_module_dep(a, b).
+
+sat_can_meet(s, t) :- sat_meets_trivially(s, t).
+sat_can_meet(s, t) :- sat_meet_open(s, t),
+    sat_holder_module(s, o),
+    type_module("client", mt, t),
+    sat_module_reach(o, mt).
 
 // ── satisfaction_unmeasured(TargetTypeHash, Name) ───────────────────────────
 // EVERY SUPPRESSION COUNTABLE. A required member of a tested interface that NO

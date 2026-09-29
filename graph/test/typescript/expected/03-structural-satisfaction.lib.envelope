@@ -1,3 +1,5 @@
+nominal	pub#Pub.publish -> pub#Real.publish
 structural	duck#Reader.read -> duck#FileReader.read
 structural	duck#Reader.read -> duck#NetReader.read
 structural	lib:io#Closeable.close -> duck#FileReader.close
+structural	pub#Pub.publish -> duck-pub#Duck.publish
