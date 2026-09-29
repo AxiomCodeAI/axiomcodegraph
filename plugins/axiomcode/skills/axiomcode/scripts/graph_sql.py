@@ -576,6 +576,20 @@ def script_test_file(rel, text):
     return False
 
 
+# Being a script test says it is a test (counted, selected), not what runs it. Only a file that guards its own entry
+# (`require.main === module`, `import.meta.main`, `__name__ == '__main__'`) says it is meant to run under its bare
+# interpreter; an unguarded one with no package script or usage line naming it is said to be run by nothing (#1570),
+# never handed to an interpreter the project may not have (tsx).
+JS_SCRIPT_MAIN = re.compile(r'\brequire\.main\s*===?\s*module\b|\bmodule\s*===?\s*require\.main\b|\bimport\.meta\.main\b')
+
+
+def script_main_guard(rel, text):
+    """whether the script test `rel` guards its own entry, so its interpreter is the command that runs it"""
+    if not text: return False
+    if rel.endswith('.py'): return PY_SCRIPT_MAIN.search(text) is not None
+    return rel.endswith(JS_SCRIPT_EXT) and JS_SCRIPT_MAIN.search(text) is not None
+
+
 def script_tests(rows, text_of, tm):
     """the module symbols among `rows` ((id, kind, file) of is_test symbols) that are script tests; a file holding a
     test in `tm` is its framework's, never a script"""

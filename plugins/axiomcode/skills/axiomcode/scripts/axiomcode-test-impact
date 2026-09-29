@@ -1430,8 +1430,9 @@ def js_plan(repo, files):
         cmd = _script_for(repo, pkg, f[len(pkg) + 1:] if pkg else f)
         if cmd:
             singles.append((pkg, cmd))
-        elif graph_sql.script_test_file(f, _read(os.path.join(repo, f), 400_000)):
-            # a script test no package script or usage line names runs under its interpreter, never a guessed framework
+        elif graph_sql.script_test_file(f, t := _read(os.path.join(repo, f), 400_000)) and graph_sql.script_main_guard(f, t):
+            # a script test no package script or usage line names runs under its interpreter only when it guards its
+            # own entry; an unguarded one is named as run by nothing (#1570), never a guessed framework or interpreter
             singles.append(('', f"{'npx tsx' if f.endswith(('.ts', '.mts', '.cts', '.tsx')) else 'node'} {shlex.quote(f)}"))
         else:
             unrun.append(f)

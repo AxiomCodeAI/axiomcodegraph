@@ -1,3 +1,5 @@
 const { shout } = require('../lib/text');
 
-console.log(shout('smoke'));
+if (require.main === module) {
+  console.log(shout('smoke'));
+}
