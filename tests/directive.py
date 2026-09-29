@@ -121,6 +121,14 @@ with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as oth
     check('CONTROL: a name declared in more than a handful of places says nothing about which one, and is not named',
           rc == 0 and out == '', f'out={out[:120]}')
 
+    rc, out, _ = fire(repo, 'Grep', {'pattern': r'^\.work ref|\.work\b'}, session='s3')
+    check('CONTROL: a lowercase word behind a dot alone (`\\.json`, a Datalog `.decl`) is an extension or a directive, not named',
+          rc == 0 and out == '', f'out={out[:120]}')
+
+    rc, out, _ = fire(repo, 'Grep', {'pattern': r'\.work\('}, session='s10')
+    check('the same word called behind a dot (`.work(`) is a name, and is told',
+          rc == 0 and ctx(out) and 'src/util.py:1' in ctx(out), f'out={out[:200]}')
+
     rc, out, _ = fire(repo, 'Grep', {'pattern': 'def render(', 'path': 'lib'}, session='s9')
     check('the declaration inside the searched path is the one named, not the first in the repository',
           rc == 0 and ctx(out) and 'lib/view.py:5' in ctx(out) and 'src/' not in ctx(out), f'out={out[:200]}')

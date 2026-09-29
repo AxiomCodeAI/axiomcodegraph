@@ -68,11 +68,12 @@ def identifiers(pat):
             if COMMON.fullmatch(n) or re.fullmatch(r'[A-Z0-9_]+', n) or n in out:
                 continue          # a keyword or a CONSTANT_SHAPED word is not a callable's name
             # a plain lowercase word (`once`, `path`, `session`) is as likely prose or a flag as a name, unless THAT
-            # word is written as code: `locate\(`, `def locate`, `.locate`, `function render`. Code elsewhere in the
-            # pattern does not count: in `expr_child("client"` the name is expr_child, and client is a string.
+            # word is written as code: `locate\(`, `def locate`, `obj.locate(`, `function render`. Code elsewhere in the
+            # pattern does not count: in `expr_child("client"` the name is expr_child, and client is a string. A dot
+            # alone is not code either: `\.json` is an extension and `\.decl` a Datalog directive.
             if n.islower() and '_' not in n and not (
                     re.match(r'\\?\(', br[m.end():])
-                    or re.search(r'(\b(def|function|fn|func|void|class)\s+|\\?\.|::|->)$', br[:m.start()])):
+                    or re.search(r'(\b(def|function|fn|func|void|class)\s+|::|->)$', br[:m.start()])):
                 continue
             out.append(n)
     return out[:6]
