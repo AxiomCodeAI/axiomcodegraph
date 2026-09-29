@@ -26,7 +26,7 @@ CLI = os.path.join(ROOT, 'bin', 'axiomcode')
 LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 TOOLS = {'axiomcode_index', 'axiomcode_context', 'axiomcode_path', 'axiomcode_impact',
-         'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph'}
+         'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph', 'axiomcode_diff'}
 # every verb whose prose is paged (ax_pages.install) ends a long answer with "ask for page=2 (MCP)", so its tool has
 # to accept one: a footer that points at a parameter the tool does not have strands the agent on page 1 (#1202)
 PAGED = {'axiomcode_context', 'axiomcode_path', 'axiomcode_impact', 'axiomcode_changed', 'axiomcode_test_impact'}
