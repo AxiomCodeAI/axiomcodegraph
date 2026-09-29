@@ -102,13 +102,13 @@ jobs:
           fi
           echo "id=$run" >> "$GITHUB_OUTPUT"
           echo "shipping the build of CI run $run ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run)"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: engines-*
           path: artifacts
           run-id: ${{ steps.run.outputs.id }}
           github-token: ${{ github.token }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: code-graph-tgz
           path: artifacts/tgz
