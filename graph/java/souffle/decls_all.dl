@@ -463,6 +463,7 @@
 .decl lib_dispatch_width_low(c0:symbol,c1:number)
 .decl lib_wide_dispatch(c0:symbol)
 .decl dispatch_cap(c0:symbol)
+.decl dispatch_closed_world(c0:symbol)
 .decl field_final(c0:symbol)
 .decl field_init_new_type(c0:symbol,c1:symbol)
 .decl field_multi_new(c0:symbol)

@@ -25,6 +25,8 @@
 #
 # Engine options:
 #   --dispatch-cap <N|off>   --lib-depth <N>   --jdk-depth <N>   --taint <on|off>
+#   --closed-world <on|off>  narrow the dispatch fan to constructed types (TypeScript), recording
+#                            each dropped edge as an assumption row
 #
 # Commands:
 #   parser <src-dir> <ir-dir> [--version V] [--exclude-tests]
@@ -195,7 +197,7 @@ case "$cmd" in
       --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;;
       --library) libs="$2"; shift 2;; --progress) progress="$2"; shift 2;;
       --version|--slug) version="$2"; shift 2;; --exclude-tests) popts+=(--exclude-tests); shift;;
-      --intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
+      --intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint|--closed-world) rest+=("$1" "$2"); shift 2;;
       --debug) rest+=(--debug); shift;;
       --*) die "unknown option $1 (try --help)";;
       *) pos+=("$1"); shift;; esac; done

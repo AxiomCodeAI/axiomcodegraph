@@ -919,11 +919,18 @@ parent_up(q, a, b, "protocol") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d
 // (`imports()` in axiomcode-impact, per language). Only a target that resolves to a file IN THIS REPOSITORY is
 // kept: a stdlib or third-party import names no file here and is dropped rather than guessed.
 .decl imports_fact(f:symbol, g:symbol)                            .input imports_fact
+// ASKED FOR, NOT PRECOMPUTED (#1033). `import_hop` only ever reads the files that import a module the change
+// reaches, so the closure is walked backwards from those files and nowhere else. The whole-project closure this
+// replaces was the same for every question and quadratic to build (imports_file joined to itself): on a
+// 3.6k-file TypeScript graph it was 1.2M rows and 27 s of a 38 s solve, the flat floor under every `impact`.
+.decl import_goal(g:symbol)
+import_goal(g) :- up_running(_, mod, _), kind(mod, "module"), decl_file(mod, g).
 .decl imports_file(f:symbol, g:symbol)
-imports_file(f, g) :- imports_fact(f, g).
+imports_file(f, g) :- import_goal(g), imports_fact(f, g).
 // and transitively: a test file imports the module that imports the settings object. The chain is what makes
-// the rule worth anything — the file that breaks is almost never the file the test names.
-imports_file(f, h) :- imports_file(f, g), imports_file(g, h), f != h.
+// the rule worth anything — the file that breaks is almost never the file the test names. Linear in the chain:
+// any path of imports from f to g with f != g yields the pair, the same set the self-join derived.
+imports_file(f, g) :- imports_fact(f, h), imports_file(h, g), f != g.
 .output fw_edge
 
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────

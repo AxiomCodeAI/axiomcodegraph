@@ -384,6 +384,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'run', column: 'key', value: 'client_ir', languages: 'all', meaning: 'Path of the client IR directory the engine read.' },
   { table: 'run', column: 'key', value: 'library_roots', languages: 'all', meaning: 'Comma-separated library IR roots staged as the type oracle; empty for a client-only run.' },
   { table: 'run', column: 'key', value: 'dispatch_cap', languages: 'all', meaning: 'Fan-width cap on virtual dispatch in effect; `off` when uncapped.' },
+  { table: 'run', column: 'key', value: 'dispatch_closed_world', languages: 'all', meaning: '`on` when the dispatch fan was narrowed to types the analysed code constructs (a closed-world premise; each dropped edge is an assumption row); `off` otherwise. Read by TypeScript.' },
   { table: 'run', column: 'key', value: 'jdk_depth', languages: 'all', meaning: 'Platform-library hop cap (engine-ii).' },
   { table: 'run', column: 'key', value: 'lib_depth', languages: 'all', meaning: 'External-library hop cap; `uncapped` when unset.' },
   { table: 'run', column: 'key', value: 'engine_ii', languages: 'all', meaning: '`on` when the library-frontier forward chain (engine-ii) was included; `off` for a client-only solve.' },
