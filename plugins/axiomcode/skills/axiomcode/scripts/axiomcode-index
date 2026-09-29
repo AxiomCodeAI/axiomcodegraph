@@ -18,7 +18,7 @@ to --src). The language's IR is read through the ADAPTER table below — header 
 positions — mirroring graph/bundle/languages.ts. When the IR is absent the index degrades: symbols
 come from methods/types alone, refs/literals/comments are empty, and index_meta says so.
 """
-import csv, os, re, sqlite3, sys, time, glob, collections
+import csv, os, re, sqlite3, sys, time, glob, collections, functools
 csv.field_size_limit(10**9)
 INDEX_VERSION = '5'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
                          # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding); the query
@@ -41,8 +41,10 @@ if not os.path.isdir(IR):
     cands = glob.glob(os.path.join(GDIR, 'out', '.intermediate', 'ir', LANG)) + glob.glob(os.path.join(GDIR, 'ir'))
     IR = cands[0] if cands else ''
 HAVE_IR = bool(IR and os.path.isdir(IR))
+@functools.lru_cache(maxsize=None)
 def rel(p):
-    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src"""
+    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src. Cached: a file's
+    path is asked once per row that lives in it, and realpath costs a stat per path component each time"""
     if not p: return p
     a = p if os.path.isabs(p) else os.path.join(SRC, p)
     a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
@@ -146,7 +148,7 @@ A = {
  'csharp': dict(
     modules=dict(file='all-csharp-modules.csv', id='csModuleUniqueHash', filePath='filePath'),
     # a member's name (`obj.Count`, `this.value`) is in potentialQualifiedName; a bare name is in literalValue
-    expr=dict(file='all-csharp-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'csModuleLinkHash'),
+    expr=dict(file='all-csharp-expressions.csv', id='csExpressionUniqueHash', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'csModuleLinkHash'),
               refKinds={'NAME_REFERENCE', 'MEMBER_ACCESS'}, entityKind='referencedEntityKind',
               # `_o.Limit` is a MEMBER_ACCESS row AND a NAME_REFERENCE child `Limit` in the MEMBER_NAME role: one access,
               # stored once, as the qualified access it is (#1445). Kept twice, the child was a BARE reference, and a bare
@@ -155,8 +157,21 @@ A = {
               # the literal TYPE column is literalKind here, not literalType as in java/typescript/python
               litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
-    # type references carry no module link of their own; the owner hash resolves through the bundle's types
-    typeRefs=dict(file='all-csharp-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'ownerLinkHash')),
+    # type references carry no module link of their own. The owner is a type only for a base-list reference; for
+    # `M<T>()`, `new T()`, a parameter, a return or a field it is the expression, method, parameter or field, so
+    # the owner hash resolves through every row kind that can own one (see `owners` below)
+    typeRefs=dict(file='all-csharp-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('owners', 'ownerLinkHash')),
+    # (file, id column) of every row kind a type reference's ownerLinkHash can name. Each reaches its module in at
+    # most two hops: its own csModuleLinkHash, or the method, type, attribute or owner that holds it (a parameter, a
+    # property, an event, a type parameter, the `typeof(T)` argument of an attribute), which has one. An EXPRESSION
+    # owner (`M<T>()`, `new T()`) is not listed: the expression table is the largest in the IR and the reference pass
+    # below already reads it, so it records those owners' modules as it goes (`expr_module`)
+    owners=(('all-csharp-types.csv', 'csTypeUniqueHash'), ('all-csharp-methods.csv', 'csMethodUniqueHash'),
+            ('all-csharp-method-parameters.csv', 'csMethodParameterUniqueHash'), ('all-csharp-fields.csv', 'csFieldUniqueHash'),
+            ('all-csharp-properties.csv', 'csPropertyUniqueHash'), ('all-csharp-events.csv', 'csEventUniqueHash'),
+            ('all-csharp-type-parameters.csv', 'csTypeParameterUniqueHash'), ('all-csharp-variables.csv', 'csVariableUniqueHash'),
+            ('all-csharp-attributes.csv', 'csAttributeUniqueHash'),
+            ('all-csharp-usings.csv', 'csUsingUniqueHash'), ('all-csharp-attribute-arguments.csv', 'csAttributeArgumentUniqueHash')),
     # [Attribute] on a method or type. Arguments live in a second file, which is empty on every fixture
     # available here, so it is not mapped rather than guessed: a decoration with no argument text is
     # still the decoration, and a wrong `args` mapping would be silently empty in the same way
@@ -428,7 +443,35 @@ def file_of(r, d):
     if via and via[0] == 'modules': return rel(modules.get(r.get(via[1], ''), ''))
     if via and via[0] == 'types':
         t = types.get(r.get(via[1], '')); return rel(t['file_path']) if t else ''
+    if via and via[0] == 'owners': return rel(modules.get(owner_module().get(r.get(via[1], ''), ''), ''))
     return ''
+_owner_module = None
+def owner_module():
+    """owner hash -> module hash, over every row kind in A['owners']: the row's own module link, else the module of
+    the method, type or owner that holds it (C# column names: only C# declares owners). Built once, on first use,
+    after the reference pass has filled `expr_module`. A row is kept only when a type reference names it, or when it
+    is a method, a type or an attribute (the second hop's targets)."""
+    global _owner_module
+    if _owner_module is not None: return _owner_module
+    tr = A.get('typeRefs') or {}
+    via = (tr.get('fileVia') or ('', ''))[1]
+    wanted = {r.get(via) for r in rows(tr['file'])} if tr else set()
+    mod, up = dict(expr_module), {}
+    for fname, idcol in A.get('owners') or ():
+        hop = idcol in ('csTypeUniqueHash', 'csMethodUniqueHash', 'csAttributeUniqueHash')
+        for r in rows(fname):
+            h = r.get(idcol)
+            if not h or not (hop or h in wanted): continue
+            if r.get('csModuleLinkHash'): mod[h] = r['csModuleLinkHash']
+            else:
+                p = r.get('csMethodLinkHash') or r.get('csTypeLinkHash') or r.get('ownerLinkHash') or r.get('parentAttributeHash')
+                if p: up[h] = p
+    for _ in range(2):                                   # a type parameter's owner is a method or a type: two hops at most
+        for h, p in list(up.items()):
+            if p in mod: mod[h] = mod[p]; del up[h]
+            elif p in up: up[h] = up[p]
+    _owner_module = mod
+    return mod
 for d in A['decls']:
     for r in rows(d['file']):
         if d.get('only') and not d['only'](r): continue
@@ -455,7 +498,12 @@ mname = e.get('memberName'); child_ek = {}
 if mname:   # the member-name child's entity kind, for the access that stands for it (the parent's own is UNKNOWN until resolved)
     for r in rows(e['file']):
         if r.get(mname['role']) == mname['value'] and r.get(mname['parent']): child_ek[r[mname['parent']]] = r.get(e['entityKind'], '')
+# the expressions that own a type reference (see A['owners']): their module, taken on this pass rather than a second one
+expr_module = {}; tr_exprs = set()
+if A.get('owners') and e.get('id'):
+    _tr = A['typeRefs']; tr_exprs = {r.get(_tr['fileVia'][1]) for r in rows(_tr['file']) if r.get(_tr['ownerKind']) == 'EXPRESSION'}
 for r in rows(e['file']):
+    if tr_exprs and r.get(e['id']) in tr_exprs: expr_module[r[e['id']]] = r.get(e['fileVia'][1], '')
     k = r.get(e['kind'], '')
     if mname and r.get(mname['role']) == mname['value'] and r.get(mname['parent']): continue
     if k in e['refKinds']:
