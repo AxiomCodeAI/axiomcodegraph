@@ -1,0 +1,10 @@
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       handlers.js:4:40  METHOD_CALL filter  receiver_untyped
+unresolved       store.js:10:14  FUNCTION_CALL h  callee_untyped
+unresolved       store.js:15:10  COMPUTED_CALL   dynamic
+unresolved       store.js:20:10  COMPUTED_CALL   dynamic
+unresolved       store.js:39:27  COMPUTED_CALL   dynamic
+value_callee     store.js:10:14  h  local
+value_callee     store.js:15:10  handlers[type]  computed
+value_callee     store.js:20:10  cli.commands[argv[0]]  computed
+value_callee     store.js:39:27  this[verb]  computed

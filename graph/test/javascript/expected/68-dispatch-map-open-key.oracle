@@ -1,0 +1,4 @@
+store.js:24:40 METHOD_CALL ADD  EXACT  handlers.js:3:1
+store.js:27:43 COMPUTED_CALL   EXACT  handlers.js:4:1
+store.js:41:23 CONSTRUCTOR_CALL Router  SYNTHESIZED_OK  
+# defects: 0

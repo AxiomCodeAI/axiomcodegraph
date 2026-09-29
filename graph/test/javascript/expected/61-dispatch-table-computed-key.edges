@@ -6,7 +6,8 @@ main.js:22:18 FUNCTION_CALL has  ->  known_edge  main.js:10:13 <arrow>
 main.js:23:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:7:1 fromA
 main.js:23:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:8:1 fromB
 main.js:23:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:9:1 deep
-main.js:30:10 COMPUTED_CALL table[prop]  ->  dynamic_terminal  -
+main.js:30:10 COMPUTED_CALL table[prop]  ->  multi_inferred  main.js:7:1 fromA
+main.js:30:10 COMPUTED_CALL table[prop]  ->  multi_inferred  main.js:8:1 fromB
 main.js:38:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:7:1 fromA
 main.js:38:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:9:1 deep
 main.js:44:10 FUNCTION_CALL chosen  ->  multi_inferred  main.js:8:1 fromB

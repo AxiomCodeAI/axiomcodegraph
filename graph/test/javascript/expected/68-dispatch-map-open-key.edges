@@ -1,0 +1,17 @@
+handlers.js:4:40 METHOD_CALL state.filter  ->  ambiguous_unknown  -
+handlers.js:4:40 METHOD_CALL state.filter  ->  callback_registered  handlers.js:4:53 <arrow>
+store.js:10:14 FUNCTION_CALL h  ->  multi_inferred  handlers.js:3:1 addItem
+store.js:10:14 FUNCTION_CALL h  ->  multi_inferred  handlers.js:4:1 removeItem
+store.js:10:14 FUNCTION_CALL h  ->  multi_inferred  handlers.js:5:68 <arrow>
+store.js:15:10 COMPUTED_CALL handlers[type]  ->  multi_inferred  handlers.js:3:1 addItem
+store.js:15:10 COMPUTED_CALL handlers[type]  ->  multi_inferred  handlers.js:4:1 removeItem
+store.js:15:10 COMPUTED_CALL handlers[type]  ->  multi_inferred  handlers.js:5:68 <arrow>
+store.js:20:10 COMPUTED_CALL cli.commands[argv[0]]  ->  multi_inferred  handlers.js:7:1 runBuild
+store.js:20:10 COMPUTED_CALL cli.commands[argv[0]]  ->  multi_inferred  handlers.js:8:1 runServe
+store.js:24:40 METHOD_CALL handlers.ADD  ->  known_edge  handlers.js:3:1 addItem
+store.js:27:43 COMPUTED_CALL handlers['REMOVE']  ->  known_edge  handlers.js:4:1 removeItem
+store.js:32:47 COMPUTED_CALL handlers[KEY]  ->  known_edge  handlers.js:3:1 addItem
+store.js:39:27 COMPUTED_CALL this[verb]  ->  dynamic_terminal  -
+store.js:41:23 CONSTRUCTOR_CALL Router  ->  implicit_constructor  -
+store.js:47:37 COMPUTED_CALL steps[i]  ->  multi_inferred  store.js:45:1 addItem2
+store.js:47:37 COMPUTED_CALL steps[i]  ->  multi_inferred  store.js:46:1 removeItem2

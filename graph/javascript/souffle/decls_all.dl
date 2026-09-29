@@ -292,6 +292,11 @@
 .decl swallowed_read(c0:symbol, c1:symbol)
 .decl partial_dispatch(c0:symbol)
 .decl partial_dispatch_target(c0:symbol, c1:symbol)
+// the same read with no default beside it, called: one of the literal's functions
+.decl open_read(c0:symbol, c1:symbol)
+.decl open_dispatch_target(c0:symbol, c1:symbol)
+.decl open_dispatch(c0:symbol)
+.decl open_dispatch_width(c0:symbol, c1:number)
 .decl binary_op_passes_value(c0:symbol)
 .decl var_value(c0:symbol, c1:symbol, c2:symbol)
 .decl assignment_op_writes_value(c0:symbol)
