@@ -13,6 +13,7 @@ repository's call graph FIRST, through the `axiomcode_*` MCP tools:
     axiomcode_test_impact  which tests the edit in front of you has to run
     axiomcode_index        build the graph, when .axiomcode/out/graph.sqlite is absent
     axiomcode_graph        draw the graph as one interactive HTML page, for a person
+    axiomcode_diff         what changed between two graphs of one tree (before/after), by name and line
 
 **Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again
 in the graph (the `verified:` line) — do not re-derive it by grepping. Every answer ends with `next:`, the

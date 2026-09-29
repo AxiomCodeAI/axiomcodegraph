@@ -308,6 +308,11 @@ def axiomcode_graph(repo: str = ".", out: str = '') -> str:
     """Draw the graph as one interactive HTML page, for a person: every language the repository was indexed in, at <repo>/.axiomcode/graph/graph.html or out=<folder|page.html>. Drawn from the existing graph when it is up to date (seconds, no engine run); a graph that is out of date is rebuilt first with the --lang, --src and --library it was indexed with, never for a language the index left out; with no graph yet the repository is indexed first. Answers with what it drew, in prose, and the page's absolute path."""
     return run(['graph', repo] + (['--out', out] if out else []))
 
+@srv.tool()
+def axiomcode_diff(graph_a: str, graph_b: str, file: str = '', lang: str = '', limit: int = 40, as_json: bool = False) -> str:
+    """What changed between two graphs of the SAME tree, e.g. one tree copied and indexed before and after an engine or rules change: call edges added, removed, retiered (same callee, another tier) or re-targeted (a site whose callees changed), entry points with their reason, remote and framework edges, config bindings and symbols, and the call edges per tier (A -> B). graph_a / graph_b: a graph.sqlite, or an indexed directory (every language graph in it, paired by language). Rows are matched by file, line, column, qualified name and callee, never by id (ids hash the index directory), so one tree indexed at two paths diffs to nothing. Neither graph is rebuilt. file keeps the rows with a file containing it; limit: rows per section (default 40, 0 for all; the counts are always of the whole diff); as_json=True gives every row."""
+    return run(['diff', graph_a, graph_b] + (['--file', file] if file else []) + (['--lang', lang] if lang else []) + ['--limit', str(limit)] + (['--json'] if as_json else []))
+
 if __name__ == '__main__':
     # catch up on whatever changed while no session was running (#1305): started, never waited on
     try:

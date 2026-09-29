@@ -24,6 +24,9 @@ One check needs no graph and is its own script:
     python3 tests/refresh.py             the graph refreshes itself after an edit in every language: a query sees the
                                          edit, `changed` answers the same before and after, a burst costs one rebuild
                                          and queries during it answer (#1305; builds real graphs, needs the engine)
+    python3 tests/diff_verb.py           `axiomcode diff` matches two graphs of one tree by file, line, name and callee, never
+                                         by id: one tree indexed at two paths diffs to nothing, one added call is exactly one
+                                         row, in Python, Java and C# (builds real graphs, needs the engine)
     python3 tests/graph_verb.py          `axiomcode graph` draws the existing graph and rebuilds a stale one with the flags it
                                          was indexed with; no rebuild path (refresh, repair, bare index) solves a language an
                                          explicit --lang left out (builds real graphs, needs the engine)

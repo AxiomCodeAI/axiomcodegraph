@@ -40,6 +40,12 @@
 #       which tests actually have to run for this edit: the test files that reach any changed declaration, with the
 #       chain, so a selection can be checked rather than trusted. Conservative by design — a test reached only
 #       through an edge the graph does not encode (reflection, a service loader) will NOT appear.
+#   axiomcode diff <graphA> <graphB> [--file <path fragment>] [--lang <lang>] [--limit N] [--json]
+#       what changed between two graphs of the same tree (graph.sqlite paths, or two indexed copies of it): call edges
+#       added, removed, retiered or re-targeted, entry points with their reason, remote and framework edges, config
+#       bindings and symbols, with a summary line of counts per tier. Rows are matched by file, line, qualified name and
+#       callee, never by id (ids hash the index directory), so one tree indexed at two paths diffs to nothing. Reads both
+#       graphs as they are: neither is rebuilt or refreshed.
 #   axiomcode help [<verb>]
 #       every verb with what it does; with a verb, that verb's own usage, printed from the script that implements it.
 #   axiomcode install [<repo>] [--remove] [--print]
@@ -160,6 +166,7 @@ case "$cmd" in
   changed) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   test-impact|tests) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" ${ARGS[@]+"${ARGS[@]}"} ;;
+  diff)   exec python3 "$H/axiomcode-diff" ${ARGS[@]+"${ARGS[@]}"} ;;
   install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
   --verbs) verbs ;;                      # what this dispatcher answers to; bin/axiomcode asks, so the two cannot drift
   ""|-h|--help|help) if [ ${#ARGS[@]} -gt 0 ]; then verbhelp "${ARGS[0]}"; else helptext; fi ;;
