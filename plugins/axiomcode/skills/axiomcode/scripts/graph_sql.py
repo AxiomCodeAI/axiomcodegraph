@@ -2635,10 +2635,13 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
             ids_ = [a for (a, nm, _k) in by_tid.get(t, ()) if nm == an] if t else []
             if not ids_: continue
             aph = ','.join('?' * len(ids_))
-            for c, f_, l_ in q(f"""SELECT e.caller_id, s.file_path, s.start_line
+            # a generated builder / fluent setter is not a read door (gen_setter, impact.dl)
+            rids = [a for a in ids_ if not (role_ == 'read' and _gen_setter(a))]
+            rph = ','.join('?' * len(rids))
+            for c, f_, l_ in (q(f"""SELECT e.caller_id, s.file_path, s.start_line
                                    FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
-                                   WHERE e.callee_method_id IN ({aph}) AND e.callee_provenance='client'
-                                   ORDER BY s.start_line""", *ids_):
+                                   WHERE e.callee_method_id IN ({rph}) AND e.callee_provenance='client'
+                                   ORDER BY s.start_line""", *rids) if rids else ()):
                 verb = 'reads' if role_ == 'read' else 'writes'
                 rows.append((c, verb, f'{verb} it through {an}()', 'resolved', rel(f_) if f_ else '', l_ or 0))
             de += [(c, a) for c, a in q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
@@ -2749,6 +2752,7 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
         gen, _src = gen_of(q, owners, code) if owners else ({}, {})
         if gen:
             sites = named_sites(q)
+            by_tid_ = _members(q)[4]
             tnames = dict(q("SELECT id, name FROM symbols WHERE id IN ({})".format(','.join('?' * len(owners))),
                             *owners))
             for f_ in fids:
@@ -2766,10 +2770,27 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                             if k == 'new': continue
                             rows.append((c, role, why, 'by name', rel(sf) if sf else '', sl or 0))
                 if w & {'builder', 'fluent'}:
+                    # the setter the engine resolved (#1409), and whether it is modelled at all (gen_modelled)
+                    sids = [a for (a, nm, _k) in by_tid_.get(t_, ()) if nm == n_ and _gen_setter(a)]
+                    if sids:
+                        sph = ','.join('?' * len(sids))
+                        for c, f_, l_, ti in q(f"""SELECT e.caller_id, s.file_path, s.start_line, e.tier
+                                                  FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
+                                                  WHERE e.callee_method_id IN ({sph})
+                                                    AND e.callee_provenance='client'
+                                                  ORDER BY s.start_line""", *sids):
+                            rows.append((c, 'writes', f'sets it through the generated builder / fluent {n_}()',
+                                         'one of a set' if ti == 'multi_inferred' else 'resolved',
+                                         rel(f_) if f_ else '', l_ or 0))
                     for c, k, sf, sl in sites.get(n_, ()):
                         if k == 'new': continue
-                        rows.append((c, 'writes', f'sets it through the generated builder / fluent {n_}()',
-                                     'by name', rel(sf) if sf else '', sl or 0))
+                        if sids:
+                            rows.append((c, 'uses', f'calls a same-named {n_}() that the engine did not place on '
+                                                    f"this type's builder or accessors",
+                                         'by name', rel(sf) if sf else '', sl or 0))
+                        else:
+                            rows.append((c, 'writes', f'sets it through the generated builder / fluent {n_}()',
+                                         'by name', rel(sf) if sf else '', sl or 0))
                 if 'fluent_read' in w:
                     for c, k, sf, sl in sites.get(n_, ()):
                         if k == 'new': continue
@@ -2848,11 +2869,21 @@ def _holds(q, t, tname, lines):
 
 def _accessors(n):
     """`accessor(fl,an,role)` — the names a convention would give this field, exactly as the exporter derives
-    them: the bean pair, the fluent name, and the same name without a leading underscore."""
+    them: the bean pair, the wither, the fluent name, the same name without a leading underscore, and for a
+    boolean named `isX` the setter and wither without the `is` (#1404)."""
     cap = n[:1].upper() + n[1:]
-    out = [('get' + cap, 'read'), ('is' + cap, 'read'), ('set' + cap, 'write'), (n, 'read')]
+    out = [('get' + cap, 'read'), ('is' + cap, 'read'), ('set' + cap, 'write'), ('with' + cap, 'write'), (n, 'read')]
     if n.startswith('_') and len(n) > 1: out.append((n.lstrip('_'), 'read'))
+    if _IS_PREFIXED.match(n): out += [('set' + n[2:], 'write'), ('with' + n[2:], 'write')]
     return out
+
+
+_IS_PREFIXED = re.compile(r'^is[A-Z]')
+
+
+def _gen_setter(a):
+    """`gen_setter(a)`: a GENERATED one-argument member: a builder or fluent setter when named like the field."""
+    return bool(a) and a.startswith('generated:') and a.endswith('/1')
 
 
 def _qualifiers(code, f, l, n):

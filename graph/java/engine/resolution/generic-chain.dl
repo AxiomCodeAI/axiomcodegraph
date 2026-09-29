@@ -129,10 +129,134 @@ type_fixes_super(sub, super, superParam, argType) :-
     java_type_reference(k, _, _, _, _, sref, pos, "1", _, _, _, _, _, _, _, _, _, argRef),
     k != "TYPE_VARIABLE",
     type_ref_resolves(_, argRef, argType).
+// class_tvar_binding(Type, Super, SuperParam, Arg): as seen from Type, Super's parameter is
+// Arg. Seeded by the clause that fixes it, then carried two ways (#1478, #1412):
+//   UP, through a supertype that passes its own variable straight on. `ChainStub extends
+//   Mid<ChainStub>`, `Mid<S> extends Base<S>`: Mid.S = ChainStub, so Base.S = ChainStub.
+//   Binding only the direct parent lost `withTimeout`'s S, declared on Base, and the call
+//   after it; one level (`DirectStub extends Base<DirectStub>`) resolved.
+//   DOWN, to every subtype of the type that fixed it: a subclass of OrderService inherits
+//   Base.M = OrderMapper exactly as OrderService does.
+// Bounded by the hierarchy (a finite DAG), and seeded only where a clause writes a concrete
+// argument, so a type that passes a variable through adds nothing by itself.
+class_tvar_binding(sub, super, superParam, argType) :- type_fixes_super(sub, super, superParam, argType).
+class_tvar_binding(sub, super2, p2, argType) :- class_tvar_binding(sub, super1, p1, argType),
+    super_tvar_rename(super1, super2, p2, p1).
+class_tvar_binding(sub2, super, p, argType) :- class_tvar_binding(sub, super, p, argType),
+    type_parent(sub2, sub), sub2 != sub.
+
 // a receiver whose type fixes a supertype parameter carries that binding.
 expr_arg_binding(recv, super, superParam, argType) :-
     expr_type(_, recv, subType),
-    type_fixes_super(subType, super, superParam, argType).
+    class_tvar_binding(subType, super, superParam, argType).
+
+// ── THE RECEIVER IS IMPLICIT: an inherited member typed as the superclass's variable (#1412) ──
+// `class OrderService extends Base<OrderMapper>` calling `getMapper().findClosed()` or
+// `mapper.findOpen()`: the member is Base's, typed M, and the receiver is `this`, which no
+// clause above sees because nothing is written at the call. The binding is the enclosing
+// type's own, from its extends clause. The field form was worse than unresolved: M, read as
+// a class name nothing declares, became an external type and the call a library boundary on
+// `external:M` (external-types.dl now refuses a type variable's name).
+expr_type(prov, call, argType) :- call_unqualified(call, _),
+    applicable_candidate(call, callee),
+    java_method_ret_tvar(callee, owner, tv),
+    expr_ultimate_type("client", call, encl),
+    class_tvar_binding(encl, owner, tv, argType),
+    type_prov(argType, prov).
+expr_type(prov, call, argType) :- call_unqualified(call, _),
+    applicable_candidate(call, callee),
+    lib_method_ret_tvar(callee, owner, tv),
+    expr_ultimate_type("client", call, encl),
+    class_tvar_binding(encl, owner, tv, argType),
+    type_prov(argType, prov).
+
+// field_tvar(Field, OwnerType, TypeVariable): a field declared as its owner's type
+// variable. The parser writes a field's variable as a CLASS reference carrying the name
+// (the TYPE_VARIABLE kind appears in method signatures), so both encodings are read.
+// java_type_reference (18): 0 kind 1 context 2 typeRegistryLinkHash 7 depth 8 typeName
+//   10 typeVariableName 15 ownerHash 16 ownerKind
+field_tvar(field, owner, tv) :- java_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, field),
+    java_type_reference("CLASS", "FIELD_TYPE", _, _, _, _, _, "0", tv, _, _, _, _, _, _, field, "FIELD", _),
+    java_type_parameter(tv, _, _, _, _, _, owner, _).
+field_tvar(field, owner, tv) :- java_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, field),
+    java_type_reference("TYPE_VARIABLE", "FIELD_TYPE", _, _, _, _, _, "0", _, _, tv, _, _, _, _, field, "FIELD", _),
+    java_type_parameter(tv, _, _, _, _, _, owner, _).
+field_tvar(field, owner, tv) :- lib_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, field),
+    lib_type_reference("CLASS", "FIELD_TYPE", _, _, _, _, _, "0", tv, _, _, _, _, _, _, field, "FIELD", _),
+    lib_type_parameter(tv, _, _, _, _, _, owner, _).
+field_tvar(field, owner, tv) :- lib_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, field),
+    lib_type_reference("TYPE_VARIABLE", "FIELD_TYPE", _, _, _, _, _, "0", _, _, tv, _, _, _, _, field, "FIELD", _),
+    lib_type_parameter(tv, _, _, _, _, _, owner, _).
+
+// a bare inherited field: the enclosing type's binding for its declaring type's variable.
+expr_type(prov, e, argType) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc),
+    java_field(name, _, _, _, _, _, _, _, anc, _, _, _, _, field),
+    field_tvar(field, anc, tv),
+    class_tvar_binding(encl, anc, tv, argType),
+    type_prov(argType, prov).
+expr_type(prov, e, argType) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc),
+    lib_field(name, _, _, _, _, _, _, _, anc, _, _, _, _, field),
+    field_tvar(field, anc, tv),
+    class_tvar_binding(encl, anc, tv, argType),
+    type_prov(argType, prov).
+// `this.mapper` / `svc.mapper`: the same, keyed on the qualifier's type.
+expr_type(prov, e, argType) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    type_ancestor(qtype, anc),
+    java_field(name, _, _, _, _, _, _, _, anc, _, _, _, _, field),
+    field_tvar(field, anc, tv),
+    class_tvar_binding(qtype, anc, tv, argType),
+    type_prov(argType, prov).
+expr_type(prov, e, argType) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    type_ancestor(qtype, anc),
+    lib_field(name, _, _, _, _, _, _, _, anc, _, _, _, _, field),
+    field_tvar(field, anc, tv),
+    class_tvar_binding(qtype, anc, tv, argType),
+    type_prov(argType, prov).
+
+// ── A GENERIC METHOD'S OWN VARIABLE, BOUND BY A CLASS LITERAL (#1547) ───────────────────────
+// `static <T> T get(Class<T> type)`, called `Beans.get(OrderStore.class).save("a")`: T is the
+// METHOD's type parameter, and the only place it is fixed is the argument. Every clause above
+// binds a CLASS's parameters from a receiver, so the call had no type and `save` was
+// unresolved: the service-locator lookup (`getBean(X.class)`, `getMapper(X.class)`). The
+// binding is sound where it applies: the argument IS `Class<X>`, so T is X.
+// Only a class literal written at the call binds; a Class-typed variable does not.
+mtvar_ret(m, tv) :- java_type_reference("TYPE_VARIABLE", "METHOD_RETURN", _, _, _, _, _, "0", _, _, tv, _, _, _, _, m, "METHOD", _),
+    tv != "", java_method_type_parameter(tv, _, _, _, _, _, _, m, _, _).
+mtvar_ret(m, tv) :- lib_type_reference("TYPE_VARIABLE", "METHOD_RETURN", _, _, _, _, _, "0", _, _, tv, _, _, _, _, m, "METHOD", _),
+    tv != "", lib_method_type_parameter(tv, _, _, _, _, _, _, m, _, _).
+
+// mtvar_class_param(Method, TypeVariable, Position): parameter Position is `Class<TypeVariable>`.
+mtvar_class_param(m, tv, pos) :- java_method_parameter(_, pos, m, _, _, _, _, _, _, _, _, _, param),
+    java_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", "Class", _, _, _, _, _, _, param, "METHOD_PARAM", cref),
+    java_type_reference("TYPE_VARIABLE", _, _, _, _, cref, "0", "1", _, _, tv, _, _, _, _, _, _, _).
+mtvar_class_param(m, tv, pos) :- lib_method_parameter(_, pos, m, _, _, _, _, _, _, _, _, _, param),
+    lib_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", "Class", _, _, _, _, _, _, param, "METHOD_PARAM", cref),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, cref, "0", "1", _, _, tv, _, _, _, _, _, _, _).
+
+// class_literal_type(Expr, Prov, Type): the type a class literal names.
+class_literal_type(e, "client", t) :- java_expression("CLASS_LITERAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pqn, _, _, _, _, _, _, e),
+    pqn != "", java_type(_, pqn, _, _, _, _, _, _, _, _, _, _, _, t).
+class_literal_type(e, "lib", t) :- java_expression("CLASS_LITERAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pqn, _, _, _, _, _, _, e),
+    pqn != "", lib_type(_, pqn, _, _, _, _, _, _, _, _, _, _, _, t).
+class_literal_type(e, prov, t) :- java_expression("CLASS_LITERAL", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, pqn, _, _, _, _, _, _, e),
+    name != "", !type_qname_known(pqn),
+    expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    type_resolves_in_file(prov, name, file, t).
+
+expr_type(prov, call, t) :- java_expression("CLASS_LITERAL", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lit),
+    applicable_candidate(call, callee),
+    mtvar_ret(callee, tv),
+    mtvar_class_param(callee, tv, pos),
+    class_literal_type(lit, prov, t).
 
 // ── NESTED generics (c4): `List<Box<Dog>> l; l.get(0).get()`. type_arg_binding only binds
 // TOP-LEVEL (depth-1) args, so the inner Box.T=Dog is lost. arg_ref_at keys on the PARENT
