@@ -111,6 +111,14 @@
 //   usefixtures_scope(p, n)           a usefixtures marker no declaration carries: a module's `pytestmark` (p is that
 //                                     file) or the ini option (p is the directory holding the ini file)
 .decl usefixtures_scope(p:symbol, n:symbol)                       .input usefixtures_scope
+//   cs_data_source(m, tn, n)          C# test m's [MemberData] / [TestCaseSource] / [DynamicData] names member n of type
+//                                     tn ("" = the test's own class and its bases)
+//   cs_data_type(m, tn)               C# test m's [ClassData(typeof(tn))] / [TestCaseSource(typeof(tn))]
+//   cs_fixture_type(t, xn)            xUnit builds type xn before each test of class t (IClassFixture<xn>, or a
+//                                     collection whose definition is ICollectionFixture<xn>)
+.decl cs_data_source(m:symbol, tn:symbol, n:symbol)               .input cs_data_source
+.decl cs_data_type(m:symbol, tn:symbol)                           .input cs_data_type
+.decl cs_fixture_type(t:symbol, xn:symbol)                        .input cs_fixture_type
 .decl kind(s:symbol, k:symbol)                                    .input kind
 .decl decl_file(s:symbol, f:symbol)                               .input decl_file
 .decl lex_parent(inner:symbol, outer:symbol)                       .input lex_parent
@@ -989,10 +997,39 @@ test_hit(q, m, d, c) :- reach(q, c, d), kind(c, "class"), scope(c, s), member(s,
 // ...except a callable written INSIDE a test method (a C# or Java lambda, a local function): it belongs to that test,
 // not to its type. Owned by the class, a `mock.Setup(s => ...)` or `Func<int> f = () => ...` in one test carried its
 // callees to every test of the class as [fixture], and the test holding it lost its own route (#1556).
-test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), !in_test_body(c), decl_file(c, f), is_test_file(f).
+test_hit(q, m, d, c) :- reach(q, c, d), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), !test_method(c), !injected_fixture(c), !in_test_body(c), decl_file(c, f), is_test_file(f), !cs_decl(c).
 .decl in_test_body(c:symbol)
 in_test_body(c) :- lex_in(m, c), test_method(m), !test_method(c).
 test_hit(q, m, d, c) :- reach(q, c, d), owner(c, _), in_test_body(c), lex_in(m, c), test_method(m).
+// C#: A MEMBER OF A TEST CLASS SERVES THE TESTS THE RUNNER OR A CALL LINKS IT TO, NOT EVERY TEST OF THE CLASS (#1499).
+// xUnit, NUnit and MSTest run a test class's constructor and its set-up and tear-down members (the fixture rule
+// above), its IDisposable / IAsyncLifetime members (cs_lifecycle below), the data source a test's attribute names
+// (uses_fixture), and a callable written inside the test (in_test_body above). Any other member runs when something
+// calls it, and C# calls are recorded edges, so a test that calls a helper reaches the change through it on its own
+// route. Crediting a helper to every test of its class listed tests that never call it, as [fixture]: a [MemberData]
+// source on the test's own class was credited to every test of the class, not to the one that names it. A member
+// nothing calls or names credits no test.
+.decl cs_decl(c:symbol)
+cs_decl(c) :- decl_file(c, f), match(".*[.]cs", f).
+// the members an xUnit runner calls around every test of their class by the interface the class implements, which no
+// decoration marks: IAsyncLifetime's InitializeAsync / DisposeAsync and IDisposable.Dispose. A change one of them
+// reaches fails each of those tests. The decorated set-up and tear-down members are `fixture` already.
+.decl cs_lifecycle(c:symbol)
+cs_lifecycle(c) :- cs_decl(c), owner(c, t), !test_method(c), member(t, c, n, _), (n = "InitializeAsync" ; n = "DisposeAsync" ; n = "Dispose").
+test_hit(q, m, d, c) :- reach(q, c, d), cs_lifecycle(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
+// xUnit builds a class fixture (IClassFixture<X>) or a collection fixture (ICollectionFixture<X>, joined through the
+// collection's name) before the tests of each class that names it, and disposes it after: X's constructors and
+// lifecycle members run for those tests, though X declares no test and no call site names it (#1498). So does a
+// member of X that nothing in the graph calls: an override the framework base calls (a WebApplicationFactory's
+// CreateHost / ConfigureWebHost, which builds the application every such test talks to). A member of X that a test
+// calls on the injected instance is carried by that call instead. A fixture type no test class names reaches no test.
+.decl cs_fixture_member(c:symbol, x:symbol)
+cs_fixture_member(c, x) :- cs_decl(c), owner(c, x), kind(c, "constructor").
+cs_fixture_member(c, x) :- cs_decl(c), owner(c, x), member(x, c, n, _), (n = "InitializeAsync" ; n = "DisposeAsync" ; n = "Dispose").
+cs_fixture_member(c, x) :- cs_decl(c), owner(c, x), member(x, c, _, _), !cs_called(c).
+.decl cs_called(c:symbol)
+cs_called(c) :- edge(a, c, t), t != "defines", a != c.
+test_hit(q, m, d, c) :- reach(q, c, d), cs_fixture_member(c, x), typ(x, xn, _), cs_fixture_type(t, xn), cs_decl(t), scope(t, s), member(s, m, _, _), test_method(m).
 // A helper no type owns is scoped by the innermost declaration that lexically encloses it: a
 // `describe` callback holds its own helpers and its own tests, not a sibling block's; a module holds
 // its file, which is the file rule kept where it was right. TypeScript has no other scope to use --
@@ -1061,6 +1098,14 @@ uses_fixture(m, fx) :- usefixtures_scope(p, n), decl_file(m, f), file_scope(f, p
                        fixture_scope(fx, n, q), file_scope(f, q), m != fx.
 uses_fixture(m, fx) :- runs_before(m, fx), test_method(m).
 uses_fixture(m, fx) :- autouse_fixture(fx), fixture_scope(fx, _, p), decl_file(m, f), file_scope(f, p), test_method(m), m != fx.
+// A C# data attribute names the member that supplies a parameterized test's rows, and the runner calls it for that
+// test only (#1499): [MemberData(nameof(Rows))] in the test's class or a class it extends or is nested in, and
+// [MemberData(nameof(Cases.Rows), MemberType = typeof(Cases))] (NUnit's [TestCaseSource(typeof(C), nameof(X))] and
+// MSTest's [DynamicData(nameof(X), typeof(C))] alike) in the type it names. [ClassData(typeof(C))] builds C and
+// enumerates it: every callable C declares serves that test.
+uses_fixture(m, fx) :- cs_data_source(m, "", n), test_method(m), owner(m, u), scope(t, u), member(t, fx, n, _), fx != m, !test_method(fx).
+uses_fixture(m, fx) :- cs_data_source(m, tn, n), tn != "", test_method(m), typ(t, tn, _), cs_decl(t), member(t, fx, n, _), fx != m, !test_method(fx).
+uses_fixture(m, c) :- cs_data_type(m, tn), test_method(m), typ(t, tn, _), cs_decl(t), owner(c, t), c != m, !test_method(c).
 // a fixture may request another fixture, and then both run before the test
 uses_fixture(m, g) :- uses_fixture(m, fx), uses_fixture(fx, g), m != g.
 test_hit(q, m, d, fx) :- reach(q, fx, d), uses_fixture(m, fx), test_method(m).
@@ -1092,7 +1137,10 @@ stub_near(q, a) :- stub_near(q, b), edge(a, b, _).
 .decl test_stub(q:symbol, m:symbol)
 test_stub(q, m) :- stub_near(q, m), test_method(m).
 test_stub(q, m) :- stub_near(q, fx), fixture(fx), !test_method(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
-test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), !in_test_body(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f).
+test_stub(q, m) :- stub_near(q, c), !test_method(c), !fixture(c), !in_test_body(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m), decl_file(c, f), is_test_file(f), !cs_decl(c).
+// C#: a stub written in a helper or a lambda is walked up to the test that calls or holds it by the rules above; only a
+// lifecycle member is credited to every test of its class, as the test_hit rules do (#1556)
+test_stub(q, m) :- stub_near(q, c), cs_lifecycle(c), !fixture(c), owner(c, t), scope(t, s), member(s, m, _, _), test_method(m).
 .output test_stub
 
 // ── bound from outside the source ──────────────────────────────────────────────────────────────────────────────

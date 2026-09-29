@@ -908,8 +908,93 @@ class Impact:
         L = self.code(s['file']); pat = re.compile(rf'\b{re.escape(name)}\b')
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
+    # ── C# TEST LINKS THE RUNNER MAKES, which no call site records ──────────────────────────────────────────────
+    # An xUnit / NUnit / MSTest test class runs only its lifecycle members before or after each test; any other
+    # member runs when something calls it (a recorded edge) or when a test's DATA attribute names it. Two links are
+    # written in attribute arguments and base lists, which the graph keeps as names only (a C# decoration's text is
+    # `@MemberData`, without its arguments), so they are read from the source here and joined as rules:
+    #   cs_data_source(m, tn, n)  test m's [MemberData] / [TestCaseSource] / [DynamicData] names member n, of type tn
+    #                             ("" when the attribute names no type: the test's own class and its bases)
+    #   cs_data_type(m, tn)       test m's [ClassData(typeof(C))] or [TestCaseSource(typeof(C))]: C supplies the rows
+    #   cs_fixture_type(t, xn)    xUnit builds xn before the tests of class t: `t : IClassFixture<xn>`, or t is in a
+    #                             [Collection("n")] whose [CollectionDefinition("n")] class is `ICollectionFixture<xn>`
+    # Types are written as simple names and joined to `typ` by name in the rules.
+    CS_DATA_ATTR = re.compile(r'^(MemberData|TestCaseSource|DynamicData|ClassData)(Attribute)?$')
+    CS_FIXTURE_BASE = re.compile(r'\bI(Class|Collection)Fixture\s*<\s*([A-Za-z_][\w.]*)')
+
+    def cs_attr_args(self, file, line, name):
+        """the argument text of attribute `name` written at file:line, read to its closing parenthesis (at most 8
+        lines on), or None when the line does not hold it"""
+        L = self.lines(file)
+        if not (0 < line <= len(L)): return None
+        text = '\n'.join(L[line - 1:line + 7])
+        m = re.search(rf'\b{re.escape(name)}(?:Attribute)?\s*\(', text)
+        if not m: return None
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {'(': 1, ')': -1}.get(text[i], 0); i += 1
+        return text[m.end():i - 1] if not depth else None
+
+    @staticmethod
+    def cs_split_args(s):
+        out, depth, cur = [], 0, ''
+        for ch in s:
+            if ch in '(<[{': depth += 1
+            elif ch in ')>]}': depth -= 1
+            if ch == ',' and depth == 0: out.append(cur.strip()); cur = ''
+            else: cur += ch
+        if cur.strip(): out.append(cur.strip())
+        return out
+
+    def cs_test_links(self, g, tm, W):
+        simple = lambda s: re.sub(r'<.*$', '', s.strip()).split('.')[-1]
+        src, typ_, fixt = set(), set(), set()
+        decs = collections.defaultdict(list)
+        for r in (g.q("SELECT owner_id, name, file, line FROM decorations WHERE file LIKE '%.cs'") if g.has('decorations') else []):
+            if r['owner_id'] in g.sym and r['file'] and r['line']:
+                decs[r['owner_id']].append((simple(r['name'] or ''), r['file'], r['line']))
+        for m in tm:
+            for n, f, l in decs.get(m, ()):
+                if not self.CS_DATA_ATTR.match(n): continue
+                args = self.cs_attr_args(f, l, n)
+                if args is None: continue
+                name, tn = None, ''
+                for a in self.cs_split_args(args):
+                    kv = re.match(r'^(\w+)\s*=\s*(.*)$', a, re.S)
+                    if kv and kv.group(1) != 'MemberType': continue      # DisableDiscoveryEnumeration = true, ...
+                    v = kv.group(2) if kv else a
+                    t = re.fullmatch(r'typeof\s*\(\s*([\w.<>, ]+?)\s*\)', v.strip())
+                    s = re.fullmatch(r'nameof\s*\(\s*([\w.]+)\s*\)', v.strip()) or re.fullmatch(r'@?"([A-Za-z_]\w*)"', v.strip())
+                    if t and not tn: tn = simple(t.group(1))
+                    elif s and name is None: name = s.group(1).split('.')[-1]
+                if name: src.add((m, tn, name))
+                elif tn: typ_.add((m, tn))
+        # fixture types: a class's own base list, and a collection's definition joined by the collection's name
+        def header(i):
+            sy = g.sym[i]; L = self.lines(sy['file'])
+            a = sy['line']; b = min(len(L), a + 8, sy.get('end_line') or a + 8)
+            return re.split(r'[{;]', '\n'.join(L[a - 1:b]), 1)[0] if 0 < a <= len(L) else ''
+        coll_def, coll_of = collections.defaultdict(set), collections.defaultdict(set)
+        for i, sy in g.sym.items():
+            if not (sy.get('type_id') and not sy.get('method_id') and (sy.get('file') or '').endswith('.cs') and sy.get('line')): continue
+            h = header(i); ds = decs.get(i, ())
+            for n, f, l in ds:
+                if n in ('Collection', 'CollectionDefinition'):
+                    args = self.cs_attr_args(f, l, n)
+                    k = re.search(r'"([^"]+)"', args or '') or re.search(r'nameof\s*\(\s*([\w.]+)\s*\)', args or '')
+                    if k: (coll_def if n == 'CollectionDefinition' else coll_of)[k.group(1).split('.')[-1] if 'nameof' in k.group(0) else k.group(1)].add(i)
+            for kind, xn in self.CS_FIXTURE_BASE.findall(h):
+                if kind == 'Class': fixt.add((i, simple(xn)))
+                else: fixt.add(('collection:' + i, simple(xn)))
+        for key, ds in coll_def.items():
+            for d in ds:
+                for (h, xn) in [x for x in fixt if x[0] == 'collection:' + d]:
+                    for t in coll_of.get(key, ()): fixt.add((t, xn))
+        W('cs_data_source', sorted(src)); W('cs_data_type', sorted(typ_))
+        W('cs_fixture_type', sorted(x for x in fixt if not x[0].startswith('collection:')))
+
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '47'        # 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '51'        # 51: cs_data_source, cs_data_type, cs_fixture_type, the C# test links a runner makes from a data attribute or a class/collection fixture (#1498, #1499); 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1289,6 +1374,7 @@ class Impact:
         fx = [i for i, s in g.sym.items() if s['is_test'] and i not in scripts and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or _gs.is_fixture_callable(s['name'], decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
         W('runs_before', sorted(self.wide_fixtures(tm, decs)))
+        self.cs_test_links(g, set(tm), W)
         # ── which fixture runs before which test, when nothing calls it ────────────────────────────────────────
         # pytest hands a fixture to a test BY THE NAME OF A PARAMETER, and the fixture that serves a whole directory
         # is declared in `conftest.py`, which is not the test's file and is imported by nothing. Neither end is a call
