@@ -781,6 +781,7 @@
 .decl grpc_ext_handler(c0:symbol,c1:symbol,c2:symbol)
 // framework entry points and HTTP destinations (#1400 #1410 #1428-#1430 #1456-#1458 #1463 #1464)
 .decl cfg_jpa_callback_ann(c0:symbol)
+.decl jpa_callback_owner(c0:symbol)
 .decl cfg_jaxrs_param_ann(c0:symbol)
 .decl cfg_jaxrs_param_factory(c0:symbol)
 .decl cfg_servlet_registrar_type(c0:symbol)
