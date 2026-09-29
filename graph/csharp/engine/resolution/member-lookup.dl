@@ -43,7 +43,8 @@ member_cand(prov, gk, n, kind, mem, d) :-
 // The chain may cross into a staged library.
 member_cand("client", gk, n, kind, mem, d) :-
     type_base_chain("client", gk, bgk, d),
-    type_member_name("lib", bgk, n, kind, mem).
+    type_member_name("lib", bgk, n, kind, mem),
+    !lib_member_inaccessible(mem).
 
 // AND THE RECEIVER'S OWN TYPE MAY BE THE LIBRARY'S. `void M(Greeter g) => g.Hello()`
 // asks member_lookup("client", <lib group>, "Hello"), and the members of that group
@@ -52,7 +53,8 @@ member_cand("client", gk, n, kind, mem, d) :-
 // client simply holding one. Without it a call on a library-typed receiver resolves
 // to nothing even with the library staged and its name resolved.
 member_cand("client", gk, n, kind, mem, 0) :-
-    type_member_name("lib", gk, n, kind, mem).
+    type_member_name("lib", gk, n, kind, mem),
+    !lib_member_inaccessible(mem).
 
 // AND THE LIBRARY TYPE'S OWN BASE CHAIN. The clause above is distance 0 only, so
 // a client site saw a staged type's own members and none it inherits -- and the
@@ -64,7 +66,28 @@ member_cand("client", gk, n, kind, mem, 0) :-
 // invisible. That is most of `object`: ToString, Equals, GetHashCode, GetType.
 member_cand("client", gk, n, kind, mem, d) :-
     type_base_chain("lib", gk, bgk, d),
-    type_member_name("lib", bgk, n, kind, mem).
+    type_member_name("lib", bgk, n, kind, mem),
+    !lib_member_inaccessible(mem).
+
+// ── A LIBRARY MEMBER THE CLIENT CANNOT ACCESS IS NOT A MEMBER TO IT ─────────
+// The three clauses above cross from client code into a staged library, and C#
+// member lookup removes every member that is not accessible at the site before it
+// picks the nearest one (spec 12.5). A `private`, `internal` or `private protected`
+// member of another assembly is never accessible from the client, so it neither
+// resolves a client access nor hides anything: inside `Gadget : WidgetBase`, the
+// unqualified `Limits` in `Limits.Allow(n)` is the client's own class `Limits`, not
+// the library base's `internal List<int> Limits` (#1538). Without it the inherited
+// internal member won the simple-name lookup and the call went to a library getter.
+// `protected` and `protected internal` stay: a derived client type may use them.
+// InternalsVisibleTo is not modelled; an assembly that grants it is rare, and the
+// cost there is a missed edge, not a wrong one.
+lib_member_inaccessible(m) :- lib_cs_method(_, _, _, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m), cs_access_outside_assembly_denied(a).
+lib_member_inaccessible(p) :- lib_cs_property(_, _, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, p), cs_access_outside_assembly_denied(a).
+lib_member_inaccessible(f) :- lib_cs_field(_, _, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f), cs_access_outside_assembly_denied(a).
+lib_member_inaccessible(ev) :- lib_cs_event(_, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, ev), cs_access_outside_assembly_denied(a).
+cs_access_outside_assembly_denied("PRIVATE").
+cs_access_outside_assembly_denied("INTERNAL").
+cs_access_outside_assembly_denied("PRIVATE_PROTECTED").
 
 // ── AN EXPLICIT INTERFACE IMPLEMENTATION IS EXCLUDED ────────────────────────
 // It is not a member of the declaring type. Removed from the candidate set rather

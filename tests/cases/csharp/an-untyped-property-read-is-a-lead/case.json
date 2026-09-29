@@ -1,0 +1,16 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a property read on a receiver the engine could not type is still a site, offered by name, as a method call on the same receiver is (#1441)",
+   "run": ["impact", "WidgetOptions.get_MaxCount"],
+   "want": ["[resolved] WidgetService.BoxLimit   src/Widgets.cs:13", "[by name] WidgetService.Limit   src/Widgets.cs:11"],
+   "avoid": ["src/Widgets.cs:14"]},
+  {"why": "a write to it is a setter lead, not a getter one",
+   "run": ["impact", "WidgetOptions.set_MaxCount"],
+   "want": ["[by name] WidgetService.Raise   src/Widgets.cs:14"],
+   "avoid": ["src/Widgets.cs:11"]},
+  {"why": "the untyped read is a path lead too",
+   "run": ["path", "WidgetService.Limit", "WidgetOptions.get_MaxCount"], "expect_error": true,
+   "want": ["`get_MaxCount` called in WidgetService.Limit at src/Widgets.cs:11"]},
+  {"why": "control: a property of another name is not reached by the read of MaxCount",
+   "run": ["impact", "WidgetOptions.get_MinCount"],
+   "avoid": ["WidgetService.Limit", "WidgetService.BoxLimit"]}]}

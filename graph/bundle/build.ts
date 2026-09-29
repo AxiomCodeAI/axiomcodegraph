@@ -529,6 +529,13 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       }
     }
   }
+  // a site the IR writes no name for, where the engine derived the accessor it calls (#1441)
+  if (A.raw.siteNames) {
+    for (const [site, name] of await readSource(rawDir, A.raw.siteNames)) {
+      const row = sites.get(site as string);
+      if (row) fill(row, 3, nul(name as string));
+    }
+  }
   // a site keyed on a type (Python METACLASS_CREATION) is positioned at the class declaration
   for (const row of sites.values()) {
     if (row[5] !== null) continue;

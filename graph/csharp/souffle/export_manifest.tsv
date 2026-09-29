@@ -40,3 +40,5 @@ type_ancestor_type	resolution-type-ancestor-type.csv
 override_pair	resolution-virtual-override.csv
 framework_edge	framework-edge.csv
 field_access	field-access.csv
+site_unresolved_member	site-unresolved-member.csv
+ctor_implicit_type	ctor-implicit-type.csv

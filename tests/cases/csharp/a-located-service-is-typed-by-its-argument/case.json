@@ -1,0 +1,16 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a call on what GetRequiredService<T>() returns is a call on T, though the locator is in a package the run was not given (#1471)",
+   "run": ["impact", "Worker.Start"],
+   "want": ["[resolved] Program.<Main>$   src/Program.cs:11   — calls it"],
+   "avoid": ["[by name] Program.<Main>$   src/Program.cs:11", "change is local"]},
+  {"why": "GetService<T>() is typed the same way",
+   "run": ["impact", "Worker.Stop"],
+   "want": ["[resolved] Program.<Main>$   src/Program.cs:13   — calls it"]},
+  {"why": "a local holding the located interface reaches its implementation",
+   "run": ["impact", "NightlyJob.Run"],
+   "want": ["Program.<Main>$   src/Program.cs:10"],
+   "avoid": ["[by name] Program.<Main>$   src/Program.cs:10"]},
+  {"why": "control: a type the locator was not asked for is not reached by the call on Worker",
+   "run": ["impact", "Other.Start"],
+   "avoid": ["[resolved] Program.<Main>$"]}]}
