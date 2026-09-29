@@ -1,0 +1,4 @@
+── entry_point (3) ──
+  exported_from_entry_module globals#setTimeout   globals.d.ts:19
+  unimported_module globals#<module>   globals.d.ts:1
+  unimported_module widget#<module>   widget.ts:1

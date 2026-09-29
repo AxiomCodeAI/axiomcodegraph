@@ -1,0 +1,20 @@
+ambient_terminal	FUNCTION_CALL	Widget#now(number[]) @L40 -> globals#setTimeout(() =,number)
+ambient_terminal	FUNCTION_CALL	Widget#wire(Target) @L24 -> globals#setTimeout(() =,number)
+ambiguous_unknown	METHOD_CALL	Widget#now(number[]) @L40 -> -
+ambiguous_unknown	METHOD_CALL	Widget#start(number[]) @L18 -> -
+ambiguous_unknown	METHOD_CALL	Widget#wire(Target) @L24 -> -
+callback_registered	FUNCTION_CALL	Widget#wire(Target) @L24 -> Widget#onHover()
+callback_registered	METHOD_CALL	Widget#relay(Widget,number[]) @L29 -> Widget#handle(number)
+callback_registered	METHOD_CALL	Widget#start(number[]) @L18 -> Widget#handle(number)
+callback_registered	METHOD_CALL	Widget#start(number[]) @L19 -> Widget#handle(number)
+callback_registered	METHOD_CALL	Widget#tap(Target) @L34 -> Widget#<arrow@34>()
+callback_registered	METHOD_CALL	Widget#wire(Target) @L23 -> Widget#onClick()
+known_edge	METHOD_CALL	Widget#<arrow@34>() @L34 -> Widget#onTap()
+known_edge	METHOD_CALL	Widget#now(number[]) @L41 -> Array#forEach((v: T) =,unknown)
+known_edge	METHOD_CALL	Widget#now(number[]) @L42 -> Array#forEach((v: T) =,unknown)
+known_edge	METHOD_CALL	Widget#relay(Widget,number[]) @L29 -> Array#forEach((v: T) =,unknown)
+known_edge	METHOD_CALL	Widget#start(number[]) @L18 -> Array#forEach((v: T) =,unknown)
+known_edge	METHOD_CALL	Widget#start(number[]) @L19 -> Array#map((v: T) =,unknown)
+known_edge	METHOD_CALL	Widget#tap(Target) @L34 -> Target#addEventListener(string,() =)
+known_edge	METHOD_CALL	Widget#wire(Target) @L23 -> Target#addEventListener(string,() =)
+known_edge	PROPERTY_READ	Widget#now(number[]) @L42 -> Widget#current()

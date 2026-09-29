@@ -1,0 +1,2 @@
+known_edge	read	Widget#handle(number) -> Widget#scale
+known_edge	read	Widget#now(number[]) -> Widget#label
