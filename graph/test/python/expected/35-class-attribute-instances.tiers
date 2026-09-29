@@ -1,0 +1,25 @@
+distinct call sites emitted: 10
+
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      2 rows      2 sites  ambiguous_unknown
+      2 rows      2 sites  boundary_lib
+      6 rows      6 sites  known_edge
+
+--- edge rows by call kind ---
+      6  METHOD_CALL
+      4  SIMPLE_CALL
+
+--- unresolved reasons ---
+      2  no_rule
+
+--- the engine's own conservation ledger ---
+     10  _total_sites
+      2  ambiguous_unknown
+      2  boundary_lib
+      6  known_edge
+
+--- reconciling rows against the conserved site count ---
+  edge rows                                  10
+  minus extra rows from multi-target sites    0
+  = tier/site pairs                          10
+  engine's conserved site total              10
