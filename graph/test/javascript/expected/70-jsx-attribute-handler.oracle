@@ -1,0 +1,3 @@
+LoginForm.jsx:13:53 FUNCTION_CALL label  EXACT  LoginForm.jsx:5:1
+LoginForm.jsx:14:33 FUNCTION_CALL label  EXACT  LoginForm.jsx:5:1
+# defects: 0
