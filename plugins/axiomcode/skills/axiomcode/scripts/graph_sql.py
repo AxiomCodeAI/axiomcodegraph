@@ -266,6 +266,21 @@ def _at(q, ids):
     return out
 
 
+# THE ROWS A HOOK LISTS, WHICHEVER PATH ANSWERED. The hooks take `direct` from impact_shaped below when it answers and
+# from `axiomcode-impact --json` when it declines. The rules also put `alongside` rows in `direct` (a sibling of the
+# same type, a type declared in the same file): no call, no reference, only that a fix touching one often touches the
+# other. impact_shaped never makes them, so the same edit listed them among "reads / uses it" when the rules answered
+# and not when the fast path did: on a Java method with no caller, 1 row against 3. They are not uses, and a hook's
+# line is read as "what breaks", so neither path lists them there. `axiomcode impact` still prints them under their
+# own heading, and --json still carries them in `direct`.
+HOOK_HIDDEN = frozenset({'alongside'})
+
+
+def hook_direct(j):
+    """the `direct` rows of an impact answer (either path's dict) that a hook lists: all but the HOOK_HIDDEN tiers."""
+    return [x for x in (j or {}).get('direct', []) if x.get('certainty') not in HOOK_HIDDEN]
+
+
 def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
     """the same dict shape `hooks/changes.py` already formats from `axiomcode impact --json`, so the hook's
     presentation is untouched by the swap. `reached` and `tests` are lists because the formatter takes len() of
