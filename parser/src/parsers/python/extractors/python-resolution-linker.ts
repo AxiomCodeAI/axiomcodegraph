@@ -102,6 +102,14 @@ export interface ResolutionInput {
 // set of a language's builtins drifts the moment the language adds one.
 const CALLABLE_BUILTINS: ReadonlySet<string> = PYTHON_BUILTIN_NAMES;
 
+// The kinds a module-level `def` can take, whichever its body makes it.
+const MODULE_FUNCTION_KINDS: ReadonlySet<PythonMethodKind> = new Set([
+  PythonMethodKind.FUNCTION,
+  PythonMethodKind.ASYNC_FUNCTION,
+  PythonMethodKind.GENERATOR,
+  PythonMethodKind.ASYNC_GENERATOR,
+]);
+
 /**
  * NOTE: the HAS_GETATTR / HAS_SETATTR escape-hatch check was removed along with
  * `hasEscapeHatch`, which nothing called. The reasoning is worth keeping: a
@@ -202,7 +210,13 @@ export class PythonResolutionLinker {
       for (const method of module.methods) {
         // Module-level functions only: a method belongs to its class, not to the
         // module namespace.
-        if (method.getPyTypeLinkHash() === '' && method.getMethodKind() === PythonMethodKind.FUNCTION) {
+        // An `async def`, a generator and an async generator at module level are module
+        // functions too: their kind names what a call returns, not where they live. Left
+        // out, `from m import job` got no entity, so a value use of `job` in another
+        // module was an IMPORT reference that impact never counted (#1525). A nested def
+        // of those kinds has an enclosing member and stays out.
+        if (method.getPyTypeLinkHash() === '' && method.getEnclosingMemberLinkHash() === ''
+            && MODULE_FUNCTION_KINDS.has(method.getMethodKind())) {
           add(method.getName(), method);
         }
       }

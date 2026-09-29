@@ -1,0 +1,10 @@
+ambiguous_unknown	METHOD_CALL	shop.models.audit_via_class -> -
+ambiguous_unknown	METHOD_CALL	shop.models.kind_via_class -> -
+boundary_lib	SIMPLE_CALL	shop.models.Order.<classbody> -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	shop.models.Order.__init__ -> builtin:object.__init__
+known_edge	METHOD_CALL	main.run -> shop.models.OrderManager.open_orders
+known_edge	METHOD_CALL	shop.models.list_via_class -> shop.models.OrderManager.open_orders
+known_edge	METHOD_CALL	shop.models.list_via_instance -> shop.models.OrderManager.open_orders
+known_edge	METHOD_CALL	shop.models.list_via_subclass -> shop.models.OrderManager.open_orders
+known_edge	SIMPLE_CALL	main.run -> shop.models.list_via_class
+known_edge	SIMPLE_CALL	shop.models.list_via_instance -> shop.models.Order.__init__
