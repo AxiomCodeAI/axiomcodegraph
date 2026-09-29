@@ -4,7 +4,6 @@ value_call	pipeline#<arrow>@43 -> steps#widen
 value_call	pipeline#<arrow>@46 -> steps#square
 value_call	pipeline#runByKey -> steps#narrow
 value_call	pipeline#runByKey -> steps#widen
-value_call	pipeline#runByName -> steps#narrow
 value_call	pipeline#runFrozen -> steps#square
 value_call	pipeline#runImported -> steps#halve
 value_call	pipeline#runIndexed -> steps#narrow
