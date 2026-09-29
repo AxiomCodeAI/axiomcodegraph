@@ -20,7 +20,8 @@ import { isJsComponentFile, sfcScriptText } from '@/utils/javascript';
  *
  *   - each inline `<script>` block's body, verbatim, at its own line and column;
  *   - one top-level statement per template reference, on the line it is written:
- *       `<Child/>` and `<my-child>`  -> `Child();` / `MyChild();`  (a JSX tag is a call too)
+ *       `<Child/>` and `<my-child>`  -> `Child(/*<tag>*\/);` / `MyChild(/*<tag>*\/);`
+ *                                       (a JSX tag is a call too; see VUE_TAG_MARKER)
  *       `@ping="onPing"`             -> `onPing();`   (Vue calls a bare handler)
  *       `@ping="count++; log(x)"`    -> `count++; log(x);`
  *       `:x="fmt(y)"`, `v-if="ok"`   -> `(fmt(y));`
@@ -318,7 +319,7 @@ function readTag(
   const tagName = nameMatch[1]!;
   const component = componentBinding(tagName);
   if (component !== undefined) {
-    emit(lt + 1, `${component}();`);
+    emit(lt + 1, `${component}(${VUE_TAG_MARKER});`);
   }
   let i = lt + nameMatch[0].length;
   while (i < end) {
@@ -403,6 +404,27 @@ function attributeReference(
     return;
   }
   emit(valueStart, `(${value});`);
+}
+
+/**
+ * Written inside a tag's call, `Child(/*<tag>*\/)`: what makes the call a TAG
+ * rather than a template expression that calls a function, so it is recorded as
+ * a component render (a JSX tag's call kind) and resolves the way `<Child/>` in
+ * TSX does, default imports of components included.
+ */
+export const VUE_TAG_MARKER = '/*<tag>*/';
+
+/** Whether `call` is a template tag of a `.vue` component's virtual script. */
+export function isVueTemplateTag(call: ts.Node): boolean {
+  if (!ts.isCallExpression(call) || call.arguments.length !== 0) {
+    return false;
+  }
+  const sf = call.getSourceFile();
+  if (!isVueFile(sf.fileName)) {
+    return false;
+  }
+  const text = sf.text;
+  return text.slice(call.expression.end, call.end).replace(/\s/g, '') === `(${VUE_TAG_MARKER})`;
 }
 
 /** The binding a tag names, or `undefined` for an HTML element or a Vue built-in. */

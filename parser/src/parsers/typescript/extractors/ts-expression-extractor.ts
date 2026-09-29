@@ -16,6 +16,7 @@ import { TsTypeRefContext, TsReferenceOwnerKind } from '@/enums/typescript/type-
 import { nodeId } from '@/parsers/typescript/extractors/ts-binder';
 import { TsTypeReferenceExtractor } from '@/parsers/typescript/extractors/ts-type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
+import { isVueTemplateTag } from '@/utils/vue-sfc';
 
 /**
  * Emits `ts_expression` and `ts_call_site` — schema §4.14, §4.15.
@@ -985,6 +986,11 @@ function callKindOf(node: ts.Node, callee: ts.Node | undefined): TsCallKind {
     return callee && ts.isPropertyAccessExpression(callee)
       ? TsCallKind.METHOD_CALL
       : TsCallKind.JSX_COMPONENT_CALL;
+  }
+  // A `.vue` template tag, `<Child/>`, is written into the virtual script as a
+  // marked call; it is the same render a JSX tag is.
+  if (isVueTemplateTag(node) && callee && ts.isIdentifier(callee)) {
+    return TsCallKind.JSX_COMPONENT_CALL;
   }
   // Checked before the callee shape, because `@a.b.Get("/x")` is a decorator
   // call first and a property-access callee second. Which one wins decides

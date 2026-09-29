@@ -302,6 +302,8 @@
 .decl jsx_vue_definer_name(c0:symbol)
 .decl jsx_vue_definer(c0:symbol)
 .decl jsx_vue_has_setup(c0:symbol)
+.decl jsx_vue_module(c0:symbol)
+.decl jsx_vue_default_renders(c0:symbol)
 .decl lib_boundary_reason(c0:symbol,c1:symbol)
 .decl lib_capped()
 .decl lib_export_relative_base(c0:symbol,c1:symbol)

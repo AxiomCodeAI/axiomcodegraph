@@ -1,0 +1,10 @@
+ambiguous_unknown	FUNCTION_CALL	components/MyWidget.vue#<module-init>() @L2 -> -
+ambiguous_unknown	JSX_COMPONENT_CALL	views/Parent.vue#<module-init>() @L13 -> -
+known_edge	FUNCTION_CALL	components/Child.vue#<module-init>() @L4 -> components/Child.vue#childLocal()
+known_edge	FUNCTION_CALL	components/Legacy.vue#data() @L3 -> components/Legacy.vue#legacyInit()
+known_edge	FUNCTION_CALL	components/MyWidget.vue#<module-init>() @L5 -> components/MyWidget.vue#widgetLabel()
+known_edge	FUNCTION_CALL	components/store#<module-init>() @L2 -> components/store#storeInit()
+known_edge	JSX_COMPONENT_CALL	views/Parent.vue#<module-init>() @L10 -> components/MyWidget.vue#<module-init>()
+known_edge	JSX_COMPONENT_CALL	views/Parent.vue#<module-init>() @L11 -> components/Legacy.vue#<module-init>()
+known_edge	JSX_COMPONENT_CALL	views/Parent.vue#<module-init>() @L12 -> components/badge#Badge()
+known_edge	JSX_COMPONENT_CALL	views/Parent.vue#<module-init>() @L9 -> components/Child.vue#<module-init>()

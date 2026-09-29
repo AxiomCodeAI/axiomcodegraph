@@ -1,8 +1,8 @@
 ambiguous_unknown	METHOD_CALL	child#format(number) @L10 -> -
 known_edge	FUNCTION_CALL	Comp.vue#<module-init>() @L10 -> Comp.vue#sfcHelper()
-known_edge	FUNCTION_CALL	Comp.vue#<module-init>() @L10 -> child#Child({ msg: string })
 known_edge	FUNCTION_CALL	Comp.vue#<module-init>() @L11 -> Comp.vue#onSave(number)
 known_edge	FUNCTION_CALL	Comp.vue#<module-init>() @L11 -> child#format(number)
 known_edge	FUNCTION_CALL	TemplateFirst.vue#<module-init>() @L3 -> TemplateFirst.vue#shown()
-known_edge	FUNCTION_CALL	TemplateFirst.vue#<module-init>() @L3 -> child#MyBadge()
 known_edge	FUNCTION_CALL	TemplateFirst.vue#<module-init>() @L5 -> TemplateFirst.vue#onInput()
+known_edge	JSX_COMPONENT_CALL	Comp.vue#<module-init>() @L10 -> child#Child({ msg: string })
+known_edge	JSX_COMPONENT_CALL	TemplateFirst.vue#<module-init>() @L3 -> child#MyBadge()

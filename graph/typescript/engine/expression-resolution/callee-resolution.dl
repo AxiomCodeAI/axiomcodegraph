@@ -706,6 +706,24 @@ expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _
     import_binding("client", "DEFAULT", cn, _, mod, ih),
     import_target_module(ih, "client", mod2),
     jsx_default_export_renders(mod2, m).
+// A Vue single-file component, `import Child from "./Child.vue"` rendered as `<Child/>`
+// (a tag of a `.vue` template, or JSX). Its script is the module's top-level code — a
+// `<script setup>` body runs once per instance, and the virtual script the parser reads
+// writes the component's template there too — so the tag reaches the module initializer.
+// A `<script setup>` component has no default export at all; one whose default export
+// renders (a wrapper, above) is reached through that export instead.
+jsx_vue_module(mod) :- module_decl("client", _, _, fp, _, mod),
+    match(".*[.]vue", fp).
+jsx_vue_default_renders(mod) :- jsx_default_export_renders(mod, _).
+expr_call_candidate(ce, init) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    !callee_names_local(ce),
+    import_binding("client", "DEFAULT", cn, _, mod, ih),
+    import_target_module(ih, "client", mod2),
+    jsx_vue_module(mod2),
+    !jsx_vue_default_renders(mod2),
+    module_init("client", init, mod2).
 // A LOADER — `lazy(() => import("./Settings"))`, Next.js `dynamic(...)`, `loadable(...)`.
 // Argument 0 is not the component: it returns a module, or a promise of one, and what
 // renders is the component that settles out of it.
