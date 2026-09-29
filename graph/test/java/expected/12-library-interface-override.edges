@@ -5,6 +5,7 @@ boundary_lib	method	LibIfaceOverride#viaFunction(Function,String) -> external:ja
 boundary_lib	method	LibIfaceOverride#viaLibrarySort(List) -> external:java.util.List.sort
 boundary_lib	method	LibIfaceOverride.ByLength#probe(String) -> external:String.length
 boundary_lib	method	LibIfaceOverride.Shouty#mark(String) -> external:String.toUpperCase
+callback_registered	callback	LibIfaceOverride#viaLibrarySort(List) -> LibIfaceOverride.ByLength#compare(String,String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaComparator(Comparator,String,String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaFunction(Function,String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaLibrarySort(List)

@@ -1,0 +1,17 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a constructor starting two lines under its type's header: its new header is its own line, not `class OrderService {`, so an added parameter reads as added (#1465)",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-ctor.java", "--file", "src/pkg/OrderService.java"],
+   "want": ["signature  OrderService.OrderService", "+zone"],
+   "avoid": ["-repo", "return type / modifiers", "OrderService(repo)"]},
+  {"why": "a body edit inside a method written on one line is a body change, not a header change (#1387)",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-oneline.java", "--file", "src/pkg/OrderService.java"],
+   "want": ["body       OrderService.total"],
+   "avoid": ["signature  OrderService.total", "header text changed"]},
+  {"why": "control: the same edit in a method whose body spans lines is a body change too",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-multiline.java", "--file", "src/pkg/OrderService.java"],
+   "want": ["body       OrderService.count"],
+   "avoid": ["signature  OrderService.count"]},
+  {"why": "control: a return type edited on a one-line method is still a signature change",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-oneline-ret.java", "--file", "src/pkg/OrderService.java"],
+   "want": ["signature  OrderService.total", "int → public long"]}]}

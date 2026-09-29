@@ -88,7 +88,7 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 # it obtained itself, so an added proxied annotation does not apply") — the differential test caught that immediately.
 # `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
 # not, for EVERY target kind. What is left is the layer only a field or type target can reach.
-_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'type_alias', 'jsx_props', 'jsx_tag', 'discriminant', 'keyed_literal', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
+_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'sigtype', 'persist_field', 'type_alias', 'jsx_props', 'jsx_tag', 'discriminant', 'keyed_literal', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
               'base_name', 'field_type', 'reexport', 'reexport_from', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
 # `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
@@ -755,7 +755,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '41'          # 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '44'          # 44: sigtype, a parameter / return position type_use resolves to a type, read before the textuse grep (#1422), and persist_field, the properties a persistence query reads (#1461); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1000,6 +1000,18 @@ class Impact:
                     if c: trs.append((c, r['name'], r['context'], r['file'], r['line']))
                 else: trf.add((r['file'], r['name'], r['context']))
         W('typeref', trs); W('typeref_file', sorted(trf))
+        # a signature position the engine RESOLVED to a type (#1422): Java writes no line into type_refs, so typeref above
+        # holds none of its parameter / return uses, and the textuse grep then called each one `text`
+        sig = set()
+        if g.has('type_use'):
+            for r in g.q("""SELECT DISTINCT owner_method_id, type_id, context, depth FROM type_use
+                            WHERE owner_method_id IS NOT NULL AND type_id IS NOT NULL
+                              AND context IN ('METHOD_PARAM', 'METHOD_RETURN')"""):
+                sig.add((r['owner_method_id'], r['type_id'], r['context'], int(r['depth'] or 0)))
+        W('sigtype', sorted(sig))
+        # the properties each persistence query reads (framework-behavior/persistence.dl): a derived repository method,
+        # an @Query or named query's text, a whole-entity select (#1461, #1462)
+        W('persist_field', [tuple(r) for r in g.q("SELECT DISTINCT c0, c1, c2 FROM ext_persistence_field")] if g.has('ext_persistence_field') else [])
         # an identifier-shaped literal is a name in some other namespace (a serialized field, a map key, a bean
         # qualifier). A PATH-shaped one is the other half of a registration: the URL a test asks for is a string in
         # the test and a string in the handler's decoration, and nothing else in the graph connects the two. It is
@@ -1746,6 +1758,27 @@ def tests_outside_src(g, cap=20000):
 STRING_TEXT = []                                    # (repo, target, --in, why): targets answered by text too (ax_text.py)
 
 
+# WHAT A NAME WRITTEN AS A STRING BINDS, in the target's own language (#1487): a Python function's name in a string is
+# a key or a registration, never a bean qualifier, and "not by the Java name" misread every non-Java answer.
+STRING_BINDS = {
+    '.java': 'a topic, a route, a key, a bean qualifier bind by string, not by the Java name',
+    '.cs':   'a route, a key, a handler or a service name bind by string, not by the C# name',
+    '.py':   'a key, a route, a signal, a registration or a getattr bind by string, not by the Python name',
+    '':      'a topic, a route, a key or a registration binds by string, not by the name in the code',
+}
+
+
+def target_ext(g, pay):
+    """the source extension of a target's first declaration ('' for a language the table does not word). A method or
+    type target carries symbol ids, a field target the symbol rows themselves"""
+    for t in (pay if isinstance(pay, list) else [pay]):
+        f = t.get('file') if isinstance(t, dict) else (g.sym.get(t) or {}).get('file') if isinstance(t, str) else None
+        if f:
+            ext = os.path.splitext(f)[1]
+            return '.py' if ext == '.pyi' else ext if ext in STRING_BINDS else ''
+    return ''
+
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; as_json = '--json' in args; kind = None
     # --tests lists the tests grouped by rung and file; --tests-only prints that section and nothing else;
@@ -2255,12 +2288,12 @@ def main(argv):
     # and the verified / bound lines that qualify it, are printed
     _stdout = sys.stdout
     if tests_only: sys.stdout = io.StringIO()
-    for k, lab, _ in targets:
+    for k, lab, pay in targets:
         if k in ('method', 'field', 'type'):
             nm = lab.split()[-1].split('(')[0].split('.')[-1]
             n = len(g.q("SELECT 1 FROM literals WHERE value = ?", nm)) if g.has('literals') else 0
             d = len(g.q("SELECT 1 FROM decorations WHERE text LIKE ?", f'%"{nm}"%')) if g.has('decorations') else 0
-            if n + d > 1: print(f"  the name {nm} is also written as a string in {n + d} place(s) (a topic, a route, a key, a bean qualifier bind by string, not by the Java name): ask for it quoted, `impact '\"{nm}\"'`, to get those")
+            if n + d > 1: print(f"  the name {nm} is also written as a string in {n + d} place(s) ({STRING_BINDS.get(target_ext(g, pay), STRING_BINDS[''])}): ask for it quoted, `impact '\"{nm}\"'`, to get those")
             break
     if contract:
         nm = sum(1 for _, why in contract if 'name match' in why)

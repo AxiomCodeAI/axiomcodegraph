@@ -266,6 +266,17 @@ class Changed:
             elif ch == '=' and h[k + 1:k + 2] == '>' and depth == 0 and seen: return h[:k].rstrip()
         return h
     @staticmethod
+    def before_block_body(h):
+        """a header's text up to the `{` that opens its body: the first brace at bracket depth 0 after the parameter list
+        opened. Read on the text with strings blanked (same length), so a brace in an annotation's route template is not
+        it; a header with no parameter list (a type, a property) is returned whole"""
+        code = strip_code(h); depth = 0; seen = False
+        for k, ch in enumerate(code):
+            if ch in '([': depth += 1; seen = seen or ch == '('
+            elif ch in ')]': depth = max(0, depth - 1)
+            elif ch == '{' and depth == 0 and seen: return h[:k].rstrip()
+        return h
+    @staticmethod
     def lambda_header(line):
         """the parameter list of the lambda written on a line, as text: `lambda x, y:` (Python), `(x, y) =>` / `x =>`
         (C#, Java's `->`); None when the line holds no lambda header"""
@@ -420,12 +431,22 @@ class Changed:
                     # the new header: from the mapped line, the first line holding the name, to its end
                     for s in range(max(1, na - 2), min(len(NL), na + 6) + 1):
                         # read with comments blanked: a comment line above the header that mentions the name is not it
-                        if re.search(rf'\b{re.escape(n)}\b', strip_code(NL[s - 1], strings=False, hash_comments=is_py)):
+                        code = strip_code(NL[s - 1], strings=False, hash_comments=is_py)
+                        # a constructor's name is its type's: the type's own header (`class OrderService {`) two lines
+                        # above is not the constructor's new header (#1465)
+                        if k in ('constructor', 'method', 'function') and re.search(rf'\b(class|interface|enum|record|struct)\s+{re.escape(n)}\b', code): continue
+                        if re.search(rf'\b{re.escape(n)}\b', code):
                             nh_raw = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); nh = uncomment(NL[s - 1:self.header_end(NL, s)]); break
                 # AN EXPRESSION BODY IS NOT HEADER. `int Count() => xs.Count(x => x > 0);` is one line, and read to its `;`
                 # the whole body was header text: an edit inside the lambda it holds came back as a signature change
                 body_arrow = self.before_expression_body
                 oh, oh_raw, nh, nh_raw = body_arrow(oh), body_arrow(oh_raw), body_arrow(nh), body_arrow(nh_raw)
+                # A BLOCK BODY ON THE HEADER'S LINE IS NOT HEADER EITHER. `public int total() { return 42; }` is one line,
+                # and read to its line the whole body was header text: `return 42;` to `return 43;` came back as a
+                # signature change (#1387)
+                if not is_py:
+                    body_brace = self.before_block_body
+                    oh, oh_raw, nh, nh_raw = body_brace(oh), body_brace(oh_raw), body_brace(nh), body_brace(nh_raw)
                 # the header may start on an annotation line: its arguments are not a parameter list, and its text is
                 # not a return type. Read the signature from the first line that is not a decoration
                 sig = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()

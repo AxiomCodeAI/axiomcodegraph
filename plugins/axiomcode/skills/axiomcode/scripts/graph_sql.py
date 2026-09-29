@@ -2161,6 +2161,8 @@ def keyed_literals(q, code, at, values):
     return sorted(set(rows))
 
 
+SIG_CTX_WORDS = {'METHOD_PARAM': 'a parameter', 'METHOD_RETURN': 'the return type'}
+
 def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     """`direct(q,c,role,why,cert,f,l)` for a TYPE target — who instantiates it, calls into it, names it.
 
@@ -2181,7 +2183,8 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     holder = typeref_holder(at, aspans, {i for (i,) in q("SELECT id FROM symbols WHERE kind = 'module'")}
                             if aspans else set())
     def trefs(n): return q("SELECT name, file, line, context FROM type_refs WHERE line > 0 AND name = ?", n)
-    over, todo = set(), []                                  # alias_over(q, a), and the aliases still to expand
+    over, todo = set(), []
+    sig_resolved = set()                                    # callables whose signature type_use resolves to it (273b)                                  # alias_over(q, a), and the aliases still to expand
 
     # ── a type the container INJECTS (rule 186) ────────────────────────────────────────────────────────────
     #   direct(q,c,"uses",cat("receives it by dependency injection (",kind,") — …"),"resolved","",0)
@@ -2308,9 +2311,23 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
                 c = holder(f, l)
                 if c and c not in inside: rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l))
                 if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
+        # 273b — a signature the engine RESOLVED to this type (#1422): `type_use` holds each parameter, return and
+        # type-argument position with the type it names. Java writes no line into type_refs, so rule 273 matched none of
+        # them and 274 below grepped the same signature and called it `text`, "may be a same-named other thing".
+        #   direct(q,c,"uses",cat("names it in its signature (",ctx,")"),"resolved","",0)
+        #     :- target(q,"type",t,_), type_use(_,t,ctx,depth,_,_,c,_,_,_), sig_ctx(ctx), !inside_target(q,c)
+        if _has(q, 'type_use'):
+            for c, ctx, depth in q("""SELECT DISTINCT owner_method_id, context, depth FROM type_use
+                                      WHERE type_id = ? AND owner_method_id IS NOT NULL
+                                        AND context IN ('METHOD_PARAM', 'METHOD_RETURN')""", t):
+                if not c or c in inside: continue
+                sig_resolved.add(c)
+                what = SIG_CTX_WORDS.get(ctx, ctx.lower())
+                if depth and int(depth) > 0: what = f"a type argument of {what}"
+                rows.append((c, 'uses', f'names it in its signature ({what})', 'resolved', '', 0))
         # 274 — the name in the text of a file the parser gave no line for
         for c, nm, f, l in textuse:
-            if nm == n and c not in inside:
+            if nm == n and c not in inside and c not in sig_resolved:
                 rows.append((c, 'uses', 'names it (a signature or a declaration)', 'text', f, l))
     # the ALIAS HOP (#784): a type alias whose right-hand side names the target, directly or through another such
     # alias, and everything that names the alias. `function finalize(s: DraftState)` breaks when MapState changes
@@ -2474,6 +2491,12 @@ def _declares(q, t):
     memo[t] = out
     return out
 
+
+PERSIST_WORDS = {
+    'direct':     'its persistence query names the property: a rename breaks the query when it is parsed, not the compile',
+    'nested':     'its persistence query reads it through an association path',
+    'projection': 'its persistence query selects the whole entity, which loads this column',
+}
 
 def direct_for_field(q, fids, at, code, lines, inside, rel):
     """`direct` for a FIELD target — 33 rules, the largest kind. A field has no call edges of its own, so almost
@@ -2763,6 +2786,16 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                     for c, k, sf, sl in sites.get(tnames.get(t_) or '', ()):
                         rows.append((c, 'writes', 'passes it to the generated constructor', 'by name',
                                      rel(sf) if sf else '', sl or 0))
+    # a persistence query that names the property (#1461, #1462): a repository method whose derived name or query
+    # text reads it, or a whole-entity select that loads it. Renaming the property breaks the query when it is parsed,
+    # not the compile, and no call or reference connects them.
+    #   direct(q,m,"reads",w,"resolved","",0) :- target(q,"field",fl,_), persist_field(m,fl,how), persist_words(how,w),
+    #     !inside_target(q,m)
+    if _has(q, 'ext_persistence_field'):
+        fph = ','.join('?' * len(fids))
+        for m, how in q(f"SELECT DISTINCT c0, c2 FROM ext_persistence_field WHERE c1 IN ({fph})", *fids):
+            if m in inside or how not in PERSIST_WORDS: continue
+            rows.append((m, 'reads', PERSIST_WORDS[how], 'resolved', '', 0))
     # a barrel that re-exports the field's name (rule 397)
     fnames = {r[1] for r in (field_rec(q, f_) for f_ in fids) if r and r[1]}
     rows += reexport_rows(q, fnames, code, rel)
