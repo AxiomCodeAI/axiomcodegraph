@@ -40,6 +40,12 @@
 // scope-correct rather than global — which is what keeps `Item` in two different modules
 // from collapsing into one answer.
 type_name_in_module(p, mod, n, t) :- module_member_type(p, mod, n, t).
+// A module-level name bound once to a class by ASSIGNMENT (`G = mod.G`, `Alias = Base`):
+// `def __init__(self, g: G)` names that class, exactly as the call `G(repo)` does.
+type_name_in_module(p, mod, n, t) :-
+    module_init(p, _, modScope, mod),
+    binding_decl(p, n, modScope, _, origin, b), n != "", alias_binding_origin(origin),
+    binding_alias_type(p, b, t).
 type_name_in_module(p, mod, n, t) :-
     module_init(p, _, modScope, mod),
     import_scope(p, modScope, mod, i),

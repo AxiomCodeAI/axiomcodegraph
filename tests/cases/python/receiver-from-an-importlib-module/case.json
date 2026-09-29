@@ -1,0 +1,10 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "an attribute assigned in __init__ from a class read off an importlib-loaded module (`P = module_from_spec(spec_from_loader(..., SourceFileLoader(..., os.path.join(HERE, 'graph-core.py'))))`, then `G, H = P.G, P.H`) has that class's type in every method, and so does a parameter annotated with the alias",
+   "run": ["impact", "G.lambda_label"],
+   "want": ["[resolved] Changed.file_changes", "[resolved] Impact.show"],
+   "avoid": ["[by name] Changed.file_changes", "[by name] Impact.show"]},
+  {"why": "near miss: an attribute reassigned to a different class in another method holds either, so the call is one of a set, never a single resolved edge",
+   "run": ["impact", "H.lambda_label"],
+   "want": ["Rebound.show"],
+   "avoid": ["[resolved] Rebound.show", "Changed.file_changes", "Impact.show"]}]}
