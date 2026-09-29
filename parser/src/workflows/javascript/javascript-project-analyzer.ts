@@ -30,7 +30,7 @@ import { EntityUtils } from '@/utils/entity-utils';
 import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 import { JsRelationWriter } from '@/workflows/javascript/js-relation-writer';
 import {
-  isJavaScriptSourceFile, isJsComponentFile, sfcScriptText, stripJsExtension,
+  isJavaScriptSourceFile, stripJsExtension,
 } from '@/utils/javascript';
 import { JsBlockRegistry } from '@/analysis-types/javascript/JsBlockRegistry';
 import { JsCallSiteRegistry } from '@/analysis-types/javascript/JsCallSiteRegistry';
@@ -50,7 +50,7 @@ import { JsTypeReferenceRegistry } from '@/analysis-types/javascript/JsTypeRefer
 import { JsTypeRegistry } from '@/analysis-types/javascript/JsTypeRegistry';
 import { JsVariableRegistry } from '@/analysis-types/javascript/JsVariableRegistry';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
-import { isVueFile, scriptTextOf, vueComponentLanguage } from '@/utils/vue-sfc';
+import { scriptTextOf } from '@/utils/vue-sfc';
 
 /**
  * Each relation's header, from its registry, so an EMPTY relation still writes
@@ -432,22 +432,18 @@ export class JavaScriptProjectAnalyzer {
             SkippedFileReason.READ_ERROR, String(error));
           continue;
         }
-        if (isJsComponentFile(path.basename(file))) {
-          // only the component's JavaScript, at its own lines; markup and non-JavaScript blocks are blanked
-          const script = sfcScriptText(file, sourceText);
-          if (script.blocks.length > 0 && !script.blocks.some((block) => block.kept)) {
-            this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-              SkippedFileReason.EMPTY_CONTENT,
-              `single-file component with no JavaScript to read: ${script.blocks.map((block) =>
-                `<script lang=${block.lang}> at line ${block.line}`).join(', ')}`);
-            continue;
-          }
-          sourceText = script.text;
+        // A component is read once, by `scriptTextOf`: a `.vue` as its virtual
+        // script, a `.svelte`/`.astro` as its JavaScript blocks. One with nothing
+        // this analyzer can read (a lang="ts" Vue script is the TypeScript one's) is a recorded skip.
+        const script = scriptTextOf(file, sourceText);
+        if (script.unread !== undefined) {
+          this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
+            SkippedFileReason.EMPTY_CONTENT, script.unread);
+          continue;
         }
         const governing = governingByFile.get(file)!;
         let facts: JsFileFacts;
         try {
-          const script = scriptTextOf(file, sourceText);
           facts = extractJavaScriptFile({
             absoluteFilePath: file,
             filePath: toRelative(pathAnchor, file),
@@ -734,16 +730,6 @@ function toRelative(anchor: string, absolutePath: string): string {
 }
 
 /**
- * A `.vue` component whose inline script is JavaScript (a missing `lang` is
- * JavaScript). One with a TypeScript script is the TypeScript analyzer's, and
- * one with no script has nothing to read.
- */
-function isJavaScriptVueComponent(file: string): boolean {
-  const language = vueComponentLanguage(file);
-  return language === 'js' || language === 'jsx';
-}
-
-/**
  * A module's qualified name: the relative path with its extension removed.
  *
  * Cutting at the last dot gave `pkg/a.js` for `pkg/a.js.flow`, so a qualified
@@ -855,8 +841,8 @@ function collectJavaScriptFiles(
       if (entry.name === 'package.json') {
         packageJsonsSeen.add(full);
       }
-      if (isJavaScriptSourceFile(entry.name)
-        || (isVueFile(entry.name) && isJavaScriptVueComponent(full))) {
+      // `.vue`, `.svelte` and `.astro` included: `scriptTextOf` decides what each one holds for JavaScript
+      if (isJavaScriptSourceFile(entry.name)) {
         out.push(full);
       }
     }
