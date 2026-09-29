@@ -1,0 +1,25 @@
+app.jsx:12:25 FUNCTION_CALL defineComponent  ->  ambiguous_unknown  -
+app.jsx:12:25 FUNCTION_CALL defineComponent  ->  callback_registered  app.jsx:12:43 setup
+app.jsx:12:53 FUNCTION_CALL leaf  ->  known_edge  app.jsx:5:1 leaf
+app.jsx:14:26 FUNCTION_CALL defineComponent  ->  ambiguous_unknown  -
+app.jsx:14:26 FUNCTION_CALL defineComponent  ->  callback_registered  app.jsx:14:44 render
+app.jsx:14:55 FUNCTION_CALL renderLeaf  ->  known_edge  app.jsx:6:1 renderLeaf
+app.jsx:16:22 FUNCTION_CALL defineComponent  ->  ambiguous_unknown  -
+app.jsx:16:22 FUNCTION_CALL defineComponent  ->  callback_registered  app.jsx:16:38 <arrow>
+app.jsx:16:51 FUNCTION_CALL fnLeaf  ->  known_edge  app.jsx:7:1 fnLeaf
+app.jsx:18:24 FUNCTION_CALL defineComponent  ->  ambiguous_unknown  -
+app.jsx:18:24 FUNCTION_CALL defineComponent  ->  callback_registered  app.jsx:18:42 setup
+app.jsx:18:24 FUNCTION_CALL defineComponent  ->  callback_registered  app.jsx:18:85 render
+app.jsx:18:52 FUNCTION_CALL bothLeaf  ->  known_edge  app.jsx:8:1 bothLeaf
+app.jsx:21:22 FUNCTION_CALL makeStore  ->  ambiguous_unknown  -
+app.jsx:21:22 FUNCTION_CALL makeStore  ->  callback_registered  app.jsx:21:34 setup
+app.jsx:21:44 FUNCTION_CALL storeLeaf  ->  known_edge  app.jsx:9:1 storeLeaf
+app.jsx:26:7 JSX_ELEMENT <SetupVue />  ->  known_edge  app.jsx:12:43 setup
+app.jsx:27:7 JSX_ELEMENT <RenderVue />  ->  known_edge  app.jsx:14:44 render
+app.jsx:28:7 JSX_ELEMENT <FnVue />  ->  known_edge  app.jsx:16:38 <arrow>
+app.jsx:29:7 JSX_ELEMENT <BothVue />  ->  known_edge  app.jsx:18:42 setup
+app.jsx:30:7 JSX_ELEMENT <DefVue />  ->  known_edge  def.jsx:6:34 setup
+app.jsx:31:7 JSX_ELEMENT <Store />  ->  ambiguous_unknown  -
+def.jsx:6:16 FUNCTION_CALL defineComponent  ->  ambiguous_unknown  -
+def.jsx:6:16 FUNCTION_CALL defineComponent  ->  callback_registered  def.jsx:6:34 setup
+def.jsx:6:44 FUNCTION_CALL defLeaf  ->  known_edge  def.jsx:3:1 defLeaf
