@@ -131,6 +131,27 @@ def prune_checks():
         write(only, 'src/App.vue', '<script>export default {}</script>\n')
         n = {l: sum(1 for p in ax_fresh.watched(only, l) if p.endswith(ax_fresh.SOURCE[l])) for l in ('javascript', 'typescript')}
         check("prune: a repository of .vue files alone counts no JavaScript or TypeScript source", n == {'javascript': 0, 'typescript': 0}, n)
+        # EXTENSION CASE (#1771): the JavaScript parser reads Main.JS and Up.VUE and the C# parser reads Calc.CS, so an edit
+        # to one makes the graph stale and they count as source. The control: the TypeScript, Python and Java parsers match
+        # an extension exactly, so Main.TS, calc.PY and Calc.JAVA stay unwatched and uncounted
+        upper = os.path.join(work, 'upper')
+        for f in ('src/lib.js', 'src/Main.JS', 'src/views/Up.VUE', 'src/Old.Mjs', 'src/Main.TS', 'src/calc.PY',
+                  'src/Calc.JAVA', 'src/Calc.CS'):
+            write(upper, f, 'x\n')
+        want = {'javascript': {'src/lib.js', 'src/Main.JS', 'src/views/Up.VUE', 'src/Old.Mjs'}, 'typescript': {'src/lib.js'},
+                'python': set(), 'java': set(), 'csharp': {'src/Calc.CS'}}
+        for lang, files in want.items():
+            got = {os.path.relpath(p, upper) for p in ax_fresh.watched(upper, lang)}
+            check(f"prune: {lang} watches an upper-case extension exactly when its parser reads one", got == files, sorted(got))
+        table = dict(lang='javascript', lang_auto=True, src='', files=ax_fresh.snapshot(upper, 'javascript', upper))
+        write(upper, 'src/Main.JS', 'third();\n'); write(upper, 'src/views/Up.VUE', 'third();\n'); write(upper, 'src/Main.TS', 'y\n')
+        c = ax_fresh.changes(upper, table)
+        check("prune: javascript: an edit to Main.JS or Up.VUE makes the graph stale; one to Main.TS does not",
+              c == (['src/Main.JS', 'src/views/Up.VUE'], [], []), c)
+        n = {l: sum(1 for p in ax_fresh.watched(upper, l) if ax_fresh.has_ext(l, os.path.basename(p), ax_fresh.SOURCE[l]))
+             for l in ax_fresh.SOURCE}
+        check("prune: Main.JS and Calc.CS count as source; Main.TS, calc.PY, Calc.JAVA and Up.VUE do not",
+              n == {'java': 0, 'typescript': 0, 'python': 0, 'javascript': 3, 'csharp': 1}, n)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
