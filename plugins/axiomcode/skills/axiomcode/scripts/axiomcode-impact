@@ -275,6 +275,12 @@ class Impact:
         """a configuration key: what the engine's framework extension bound it into. An unknown key stops with what is known —
         a key is never answered as a by-name match on code, which is what makes a wrong answer look like an answer."""
         g = self.g
+        # `build.sh`, `decls_all.dl`, `schema.sql` read as a key too: a file no graph reads is not a key, and the code that
+        # names it is what was asked (the [approx] rows ax_text.py prints after this refusal)
+        ours = ax_text.unindexed_file(g.repo, s)
+        if ours:
+            die(f"'{s}' is a file no graph reads as source ({', '.join(ours[:3])}{' …' if len(ours) > 3 else ''}): it has no "
+                f"declaration and no call edge.\n  The code that names it follows, found as text and placed in its declaration.")
         any_cfg = sum(g.q(f"SELECT count(*) FROM {t}")[0][0] for t in ('ext_config_affects_method', 'ext_config_binding', 'ext_config_key_ref') if g.has(t))
         if not any_cfg:
             die(f"'{s}' looks like a configuration key, and this graph has no configuration facts (the engine's framework extension\n"
