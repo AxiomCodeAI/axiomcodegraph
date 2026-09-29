@@ -87,6 +87,7 @@
 .decl variable_reassigned(c0:symbol)
 .decl call_passes_function(c0:symbol)
 .decl live_export_variable(c0:symbol, c1:symbol)
+.decl this_type_open(c0:symbol)
 
 // ── containment/ownership.dl ──
 .decl call_caller_method(c0:symbol, c1:symbol)
