@@ -1,0 +1,211 @@
+{
+ "lang": "python",
+ "src": "src",
+ "checks": [
+  {
+   "why": "invoke calls a parameter: the callee can be any function handed to it, so path says unknown and names the site",
+   "run": [
+    "path",
+    "invoke",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`cb()` in invoke at src/handlers.py:23 — the callee is a parameter"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "run_list calls a loop variable",
+   "run": [
+    "path",
+    "run_list",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`f()` in run_list at src/handlers.py:28 — the callee is a loop variable"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "dispatch calls an element of a collection (table[key]())",
+   "run": [
+    "path",
+    "dispatch",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "in dispatch at src/handlers.py:32 — the callee is a computed member"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "via_local calls a local that holds whatever a lookup returned",
+   "run": [
+    "path",
+    "via_local",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`fn()` in via_local at src/handlers.py:37 — the callee is a local"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "fire calls a local holding getattr(self, f'on_{event}'): the site is named, and the target is not called independent",
+   "run": [
+    "path",
+    "Machine.fire",
+    "Machine.on_go"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`hook()` in Machine.fire at src/handlers.py:44 — the callee is an attribute looked up by a name computed at run time"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: getattr(self, 'on_' + event)() is resolved through its literal prefix, so it is a chain, not an unknown",
+   "run": [
+    "path",
+    "Machine.fire_now",
+    "Machine.on_go"
+   ],
+   "want": [
+    "Machine.fire_now → Machine.on_go: 1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent"
+   ]
+  },
+  {
+   "why": "assess calls each element of a stored collection of callables inside a comprehension",
+   "run": [
+    "path",
+    "Scoring.assess",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`scorer()` in Scoring.assess at src/handlers.py:58 — the callee is a loop variable"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "run calls a function stored in a field by the constructor",
+   "run": [
+    "path",
+    "Hooked.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`cb()` in Hooked.run at src/handlers.py:66 — the callee is a function stored in a field"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "the reverse question is the same connection: the value call is on the other side",
+   "run": [
+    "path",
+    "alpha",
+    "invoke"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "`cb()` in invoke"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: a function that calls nothing stays independent",
+   "run": [
+    "path",
+    "pure",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a call on an imported module's member names a library function, not a value",
+   "run": [
+    "path",
+    "joins",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: cls(...) in a classmethod constructs the class, so it is not a call through a value even when the class has a library base",
+   "run": [
+    "path",
+    "Money.of",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects Money.of and alpha"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value",
+    "`cls()`"
+   ]
+  },
+  {
+   "why": "control: a resolved call is still a chain",
+   "run": [
+    "path",
+    "direct",
+    "alpha"
+   ],
+   "want": [
+    "direct → alpha: 1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent"
+   ]
+  }
+ ]
+}
