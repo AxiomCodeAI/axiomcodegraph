@@ -11,7 +11,7 @@ are in your tool list; otherwise run `<this dir>/scripts/axiomcode <verb> …` f
 verified output. `<repo>` defaults to the current directory. In Claude Code, a hook adds the graph's edges to your own
 Read / Grep results as `graph: …` lines.
 
-**Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` rows are leads, not facts.
+**Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again in the graph (the `verified:` line): do not re-derive it by grepping. Each answer ends with `next:` — the one step to take. For a CHANGE (who calls it, what breaks, which tests), read only the lines you will cite or change. To EXPLAIN how something works, the graph gives the reading order, not the explanation: read each step's body, and continue through every `⚠` (a call the graph lost). `[by name]` / `[text]` / `[approx]` rows are leads, not facts.
 
 **A list of sites comes the way grep prints it.** The MCP `impact`, `path`, `test_impact` and `context` (without
 `source` / `explain` / `from_`) answer one site per line: `path:line: <the code on that line>  [resolved · hop 2 · test …]`,
@@ -65,6 +65,7 @@ An answer's label is the **worst** rung on its route. Read it before acting on t
 | `[by key]` | joined through a registration **string** (route, signal, CLI command) — not an edge |
 | `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
 | `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
+| `[approx]` | a text match placed in the declaration that holds it (a message it raises, a table in its query, a script or file it runs or reads, through a constant one step), with that declaration's callers; comments, docstrings and tests are never placed. For a name no graph declares and a file no graph reads (`.sh`, `.sql`, templates, config): `impact build.sh`, `context "which code raises 'x'"` |
 
 Below `[sound]` / `[one of a set]` the order is a tie-break, not a measured ranking. `[sound]` means the edges
 connect, not that a test exercises the change.
