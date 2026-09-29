@@ -1286,6 +1286,15 @@ def quoted_text(argv):
         if len(s) < 4 or s.startswith('/') or s in asked: continue            # a route: the graph's route seeds answer it
         if ax_text.declared(repo, re.split(r'[.#:$]', re.sub(r'\(.*\)$', '', s))[-1]): continue
         asked.append(s)
+    # a file the task names that no graph reads (`who runs build.sh`, `what reads schema.sql`): the code that names it,
+    # placed in its declaration ([approx], ax_text.py), instead of only "not indexed: grep it directly"
+    for m in FILE_TOKEN.finditer(task_text(task)):
+        t = m.group(1)
+        if t not in asked and len(asked) < 3 and ax_text.unindexed_file(repo, t): asked.append(t)
+    # an environment variable or a constant-style key the task names bare (`who reads REDIS_URL`) and no graph declares
+    for m in re.finditer(r'(?<![\w.$-])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?![\w.$-])', task_text(task)):
+        t = m.group(1)
+        if t not in asked and len(asked) < 3 and not ax_text.declared(repo, t): asked.append(t)
     ax_text.emit(repo, asked[:3], why='quoted', rows=4)
 
 
