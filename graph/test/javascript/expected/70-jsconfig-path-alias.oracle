@@ -1,0 +1,2 @@
+app.js:11:10 FUNCTION_CALL checkB  EXACT  lib/check.js:5:1
+# defects: 0

@@ -138,6 +138,7 @@ def _route_links(q, sf, lits, tf):
         chains.setdefault((s[0], s[1], s[2]) if s[2] is not None else s, []).append(s)
     out, owned, own_line = {}, set(), {}
     verbs = {}                             # (file, line) -> {HTTP verb: first column}, for registrations' wording
+    read, handlers = _source_reader(q), None
     for links in chains.values():
         links.sort(key=lambda s: (s[3], s[4] or 0))
         taken, prev_end, prev_path = set(), None, None
@@ -145,6 +146,22 @@ def _route_links(q, sf, lits, tf):
             lo = a if prev_end is None else prev_end
             own = [(l, i, v) for l in range(lo, b + 1) for i, v in enumerate(lits.get((f, l), ()))
                    if isinstance(v, str) and v.startswith('/') and (l, i) not in taken]
+            args = _own_args(read(f), a, _ac, b, col) if short.lower() in ROUTE_VERB else None
+            if args is not None:
+                # THE CALL'S OWN ARGUMENTS, READ FROM THE SOURCE. A path literal on the same line is not evidence:
+                # `checkD(request.cookies.get('t')) … redirect('/login')` put redirect's path on the `get`, and
+                # `axios.get('/api/items').then(renderItems)` is a request that hands nothing to anyone. The path must
+                # be one of this call's arguments, and a call named for an HTTP method must also hand over something
+                # that can be called: a function, a declared name, a wrapper call, an array of those
+                mine = [(s, l) for s, _t, l in args if s]
+                own = [(l, i, v) for l, i, v in own if (v, l) in mine][:1] or [(l, -1, s) for s, l in mine[:1]]
+                if handlers is None:
+                    handlers = _Handlers(q, read, sf)
+                hands = _any3(_hands_over(t, handlers, f, read(f)) for s, t, _l in args if not s) \
+                    if short.lower() in HTTP_VERB else True
+                if hands is False or (hands is None and _used_as_promise(read(f), a, _ac, b, col)):
+                    prev_end, prev_path = b, None
+                    continue               # a request (a client, a Map, Headers): nothing is registered here
             if own:
                 l0, i0, path = own[0]
                 taken.add((l0, i0))
@@ -169,6 +186,213 @@ def _route_links(q, sf, lits, tf):
                 if short.lower() in HTTP_VERB and (l == b or lo == b):
                     vs = verbs.setdefault((f, l), {}); vs[short.upper()] = min(vs.get(short.upper(), col or 0), col or 0)
     return out, verbs, own_line
+
+
+def _source_reader(q):
+    """file -> [line] as indexed, from the repository index_meta names; None where it cannot be read. A graph
+    whose source is not there (copied elsewhere, or read without its tree) keeps the line-only reading."""
+    import os
+    roots = []
+    if _has(q, 'index_meta'):
+        roots = [v for k in ('repo', 'source_dir') for (v,) in q("SELECT value FROM index_meta WHERE key = ?", k) if v]
+    cache = {}
+
+    def read(f):
+        if f not in cache:
+            cache[f] = None
+            for p in ([f] if os.path.isabs(f or '') else [os.path.join(r, f) for r in roots if f]):
+                try:
+                    with open(p, errors='replace') as h: cache[f] = h.read().split('\n'); break
+                except OSError:
+                    pass
+        return cache[f]
+    return read
+
+
+def _blank(t):
+    """t with the insides of string literals and comments blanked (same length, quotes kept)"""
+    out, i, n = list(t), 0, len(t)
+    while i < n:
+        c = t[i]
+        if c in '\'"`':
+            j = i + 1
+            while j < n and t[j] != c and (c == '`' or t[j] != '\n'):
+                if t[j] == '\\': out[j] = ' '; j += 1
+                if j < n and t[j] != '\n': out[j] = ' '
+                j += 1
+            i = j + 1
+        elif t.startswith('//', i):
+            j = t.find('\n', i); j = n if j < 0 else j
+            for k in range(i, j): out[k] = ' '
+            i = j
+        elif t.startswith('/*', i):
+            j = t.find('*/', i + 2); j = n if j < 0 else j + 2
+            for k in range(i, j):
+                if t[k] != '\n': out[k] = ' '
+            i = j
+        else:
+            i += 1
+    return ''.join(out)
+
+
+def _own_args(L, a, ac, b, bc):
+    """[(path or None, argument text, line)] of the call site's OWN argument list — the last one, ending at its end
+    column — or None when the source does not hold a call there (not readable, or edited since it was indexed)."""
+    if not L or not bc or not ac or b > len(L) or a < 1:
+        return None
+    chunk = [L[a - 1][ac - 1:]] + L[a:b] if b > a else [L[a - 1][ac - 1:bc - 1]]
+    if b > a: chunk[-1] = chunk[-1][:bc - 1]
+    text = '\n'.join(chunk); blank = _blank(text)
+    close = len(blank) - 1
+    if close < 0 or blank[close] != ')':
+        return None
+    d, j = 0, close
+    while j >= 0:
+        if blank[j] in _CLOSE: d += 1
+        elif blank[j] in _OPEN:
+            d -= 1
+            if d == 0: break
+        j -= 1
+    if j < 0:
+        return None
+    out = []
+    for lo, hi in _split_args(blank, j + 1, close):
+        t = text[lo:hi].strip()
+        # the path argument: a string beginning with `/` written in it outside any bracket — `'/items'`, and the
+        # prefixed `path + '/:id'` a resource helper composes — never one inside a nested call's own arguments. A route
+        # written as one options object (`fastify.route({ method: 'DELETE', url: '/items/:id', handler })`) holds its
+        # path as a property value of that object, one bracket in
+        path, at, d = None, lo + len(text[lo:hi]) - len(text[lo:hi].lstrip()), 0
+        obj = t.startswith('{')
+        for k in range(lo, hi):
+            c = blank[k]
+            if c in _OPEN: d += 1
+            elif c in _CLOSE: d -= 1
+            elif c in '\'"`' and (d == 0 or (obj and d == 1 and blank[:k].rstrip().endswith(':'))):
+                # a template may put a base URL first: `${env.API_URL}/auth/register` registers `/auth/register`
+                m = re.match(r'([\'"`])(/[^\'"`\n]*)\1|`(?:\$\{[^}`]*\})+(/[^`\n]*)`', text[k:hi])
+                if m: path, at = m.group(2) or m.group(3), k
+                if m or d == 0: break
+        out.append((path, t, a + text.count('\n', 0, at)))
+    return out
+
+
+_NOT_CALLABLE = {'field', 'const', 'var', 'variable', 'param', 'parameter', 'typeparam', 'module', 'type', 'enum',
+                 'enum_member', 'property', 'local'}
+
+
+class _Handlers:
+    """What a route call's argument is checked against: `names` (name -> {kind: {file}} of every declaration), the
+    names of callables the engine says return a function, and — read once per const, from its initializer — whether a
+    const holds a function (`const h = catchAsync(…)`) or data (`const opts = { headers: {} }`)."""
+
+    def __init__(self, q, read, sf):
+        self.q, self.read, self.sf, self.names, self.consts, self.held = q, read, sf, {}, {}, {}
+        if _has(q, 'symbols'):
+            for n, k, f, l in q("SELECT name, kind, file, line FROM symbols WHERE name IS NOT NULL"):
+                self.names.setdefault(n, {}).setdefault(k or '', set()).add(f)
+                if k == 'const' and l: self.consts.setdefault(n, set()).add((f, l))
+        self.returns_fn = set()
+        if _has(q, 'symbols'):
+            for w, _m in returned_functions(q):
+                self.returns_fn.update(n for (n,) in q("SELECT name FROM symbols WHERE method_id = ? AND name IS NOT NULL", w))
+
+    def holds_fn(self, n, files=None):
+        """a const `n` (declared in one of `files`, or anywhere) holds a function; kept when no declaration of it can be
+        read, as before its initializer was looked at"""
+        decls = sorted((f, l) for f, l in self.consts.get(n, ()) if files is None or f in files)
+        readable = [(f, l, n) for f, l in decls if self.read(f)]
+        if not readable:
+            return True
+        key = tuple(readable)
+        if key not in self.held:
+            # a module a const requires may export the handler itself: `const h = require('./h'); app.get('/x', h)`
+            required = any(re.search(rf'(?<![\w$.]){re.escape(n)}\s*=\s*require\s*\(', (self.read(f) or [''])[l - 1])
+                           for f, l, _n in readable if 0 < l <= len(self.read(f)))
+            fns, _w, _a = const_values(self.q, self.read, readable, self.sf)
+            self.held[key] = required or bool(fns)
+        return self.held[key]
+
+
+def _names_handler(t, h, f, L):
+    """a written name `h` or `a.b.h` is a handler: `h` a function or method; a member of a module this file imports
+    (`users.signup`, `exports.signup = …` declares nothing); `this.h` a property of the class; or a const holding a
+    function (a wrapped handler, `const h = catchAsync(…)`) this file declares or imports. The same name as a parameter,
+    a local, a field of a type, some other module's `data` (`api.post('/discussions', data)`) or a const holding data
+    (`const opts = { headers: {} }`, `cfg.options`) is the request's data."""
+    parts = re.split(r'\s*\??\.\s*', t)
+    kinds = h.names.get(parts[-1], {})
+    if any(k not in _NOT_CALLABLE for k in kinds):
+        return True
+    here = parts[0]
+    # a call site's file is relative to the indexed source root and a declaration's to the repository (`--src src`:
+    # `requests.js` and `src/requests.js`), so "this file" is the declaration's file ending in the site's
+    mine = lambda fs: {x for x in fs if f and (x == f or x.endswith('/' + f))}
+    if len(parts) > 1 and here == 'this':
+        return any(mine(fs) for k, fs in kinds.items() if k in ('const', 'field', 'property'))
+    n = re.escape(here)
+    imported = bool(re.search(r'\bimport\b[^;]*?\b%s\b[^;]*?\bfrom\b|\b%s\b[^=;\n]*=\s*require\s*\(' % (n, n),
+                              '\n'.join(L or ())))
+    if len(parts) > 1:
+        return imported and ('const' not in kinds or h.holds_fn(parts[-1]))
+    if mine(kinds.get('const', ())):
+        return h.holds_fn(parts[-1], mine(kinds['const']))
+    return imported and 'const' in kinds and h.holds_fn(parts[-1])
+
+
+def _any3(vs):
+    """True if one is, else None if one is unknown, else False"""
+    vs = list(vs)
+    return True if True in vs else (None if None in vs else False)
+
+
+def _hands_over(t, h, f=None, L=None):
+    """True when the argument text can be something a router calls: a function, a name declared as a handler, a call
+    that makes one (a wrapper handed a function or handler, a callable the engine says returns a function), an array of
+    those. False for the request's data: a string, a number, an object, `new X()`, an `await`, a name that is not a
+    handler (a parameter, a local, a const holding data), or a call of this repository's own callable handed only data
+    (`buildConfig()`: the engine read its body and saw no function returned). None for a library call handed only data:
+    `JSON.stringify(x)` and `swaggerUi.setup(specs)` read alike, and the call's own use tells them apart."""
+    t = t.strip()
+    if not t or t[0] in '\'"`{' or t[0].isdigit() or re.match(r'(new|await|true|false|null|undefined)\b', t):
+        return False
+    if t.startswith('...') or _fn_literal(t):
+        return True
+    if t.startswith('[') and t.endswith(']'):
+        b = _blank(t)
+        return _any3(_hands_over(t[lo:hi], h, f, L) for lo, hi in _split_args(b, 1, len(b) - 1))
+    if _CHAIN.fullmatch(t):
+        return _names_handler(t, h, f, L)
+    m = re.match(rf'({_IDENT}(?:\s*\??\.\s*{_IDENT})*)\s*\(', t)
+    if m:
+        # a call: `wrap(async (req, res) => …)`, `asyncHandler(listItems)`, curried `wrap(opts)(fn)` or a factory the
+        # engine says returns a function hands one over
+        callee = re.split(r'\s*\??\.\s*', m.group(1))[-1]
+        if callee in h.returns_fn:
+            return True
+        b, k = _blank(t), m.end() - 1
+        while k < len(t) and b[k] == '(':
+            e = _match(b, k)
+            if _any3(_hands_over(t[lo:hi], h, f, L) for lo, hi in _split_args(b, k + 1, e - 1)):
+                return True
+            k = e
+            while k < len(t) and t[k] in ' \t': k += 1
+        # only a bare `f(…)` is this repository's own by its name: `swaggerUi.setup(specs)` is the library's `setup`,
+        # whatever else of that name the repository declares
+        own = '.' not in m.group(1) and any(k_ not in _NOT_CALLABLE for k_ in h.names.get(callee, {}))
+        return False if own else None
+    return True                           # a conditional, an expression not read further: kept
+
+
+def _used_as_promise(L, a, ac, b, bc):
+    """the call's result is awaited or chained with `.then` / `.catch` / `.finally`: a request's promise — a router's
+    registration returns the router, never awaited or thenned"""
+    if not L or not ac or not bc or b > len(L) or a < 1:
+        return False
+    if re.search(r'\bawait\s*$', L[a - 1][:ac - 1]):
+        return True
+    rest = '\n'.join([L[b - 1][bc - 1:]] + L[b:b + 2])
+    return bool(re.match(r'\s*\??\.\s*(then|catch|finally)\s*\(', rest))
 
 
 # A CONST HOLDING A WRAPPED HANDLER — `const h = catchAsync(async (req, res) => …)`, then `router.get('/a', h)` — is a

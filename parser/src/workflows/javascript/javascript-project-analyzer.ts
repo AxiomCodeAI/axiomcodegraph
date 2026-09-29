@@ -29,7 +29,9 @@ import {
 import { EntityUtils } from '@/utils/entity-utils';
 import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 import { JsRelationWriter } from '@/workflows/javascript/js-relation-writer';
-import { isJavaScriptSourceFile, stripJsExtension } from '@/utils/javascript';
+import {
+  isJavaScriptSourceFile, stripJsExtension,
+} from '@/utils/javascript';
 import { JsBlockRegistry } from '@/analysis-types/javascript/JsBlockRegistry';
 import { JsCallSiteRegistry } from '@/analysis-types/javascript/JsCallSiteRegistry';
 import { JsCommentRegistry } from '@/analysis-types/javascript/JsCommentRegistry';
@@ -48,6 +50,7 @@ import { JsTypeReferenceRegistry } from '@/analysis-types/javascript/JsTypeRefer
 import { JsTypeRegistry } from '@/analysis-types/javascript/JsTypeRegistry';
 import { JsVariableRegistry } from '@/analysis-types/javascript/JsVariableRegistry';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
+import { scriptTextOf } from '@/utils/vue-sfc';
 
 /**
  * Each relation's header, from its registry, so an EMPTY relation still writes
@@ -259,6 +262,7 @@ export class JavaScriptProjectAnalyzer {
       ? '' : realPathOf(path.resolve(options.baseMservPath));
     const pathAnchor = pathAnchorFor(rootDir, baseMservPath);
     const packageJson = new PackageJsonResolver();
+    const pathAliases = new PathAliasResolver();
     // The union of every root's files, by absolute path. A monorepo root and its
     // packages both claim the same files, and extracting one twice would mint
     // identical primary keys and DOUBLE the row count rather than colliding.
@@ -428,6 +432,15 @@ export class JavaScriptProjectAnalyzer {
             SkippedFileReason.READ_ERROR, String(error));
           continue;
         }
+        // A component is read once, by `scriptTextOf`: a `.vue` as its virtual
+        // script, a `.svelte`/`.astro` as its JavaScript blocks. One with nothing
+        // this analyzer can read (a lang="ts" Vue script is the TypeScript one's) is a recorded skip.
+        const script = scriptTextOf(file, sourceText);
+        if (script.unread !== undefined) {
+          this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
+            SkippedFileReason.EMPTY_CONTENT, script.unread);
+          continue;
+        }
         const governing = governingByFile.get(file)!;
         let facts: JsFileFacts;
         try {
@@ -436,7 +449,8 @@ export class JavaScriptProjectAnalyzer {
             filePath: toRelative(pathAnchor, file),
             baseMservPath: baseMservPath,
             moduleQualifiedName: toProjectRelative(file),
-            sourceText,
+            sourceText: script.text,
+            scriptKind: script.scriptKind,
             serviceVersionLinkHash,
             moduleSystem: governing.moduleSystem,
             moduleSystemSource: governing.moduleSystemSource,
@@ -444,7 +458,7 @@ export class JavaScriptProjectAnalyzer {
               ? ''
               : toRelative(pathAnchor, governing.packageJsonPath),
             packageName: governing.packageName,
-            compilerOptions: compilerOptionsFor(governing.moduleSystem),
+            compilerOptions: compilerOptionsFor(governing.moduleSystem, pathAliases.aliasesFor(file)),
             projectModuleHashes,
             toProjectRelative,
           });
@@ -597,13 +611,131 @@ export class JavaScriptProjectAnalyzer {
  * here. A parser running two resolvers and comparing them is doing resolution
  * work, which is exactly what `js_import.resolverAgreement` was deleted for.
  */
-function compilerOptionsFor(moduleSystem: string): ts.CompilerOptions {
+function compilerOptionsFor(moduleSystem: string, aliases: PathAliases): ts.CompilerOptions {
   return {
     allowJs: true,
     target: ts.ScriptTarget.ESNext,
     module: moduleSystem === 'ESM' ? ts.ModuleKind.NodeNext : ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    ...aliases,
   };
+}
+
+/** The alias half of a `jsconfig.json` / `tsconfig.json`: nothing else of it is read. */
+type PathAliases = Partial<Pick<ts.CompilerOptions, 'baseUrl' | 'paths' | 'pathsBasePath'>>;
+
+/**
+ * The `compilerOptions.paths` / `baseUrl` that govern a file, from the nearest
+ * `tsconfig.json` or `jsconfig.json` above it (`tsconfig.json` first, as editors do).
+ *
+ * Next.js, Remix, Nuxt and Vite projects import their own code as `@/lib/x` or
+ * `~/models/x` through that mapping, and the bundler honours it. Without it every
+ * such import was UNRESOLVED_MISSING, so a plain imported function was called
+ * "by name". `extends` is followed by `ts.parseJsonConfigFileContent`; the directory
+ * listing it would do for `include` is skipped, since only the options are wanted.
+ */
+class PathAliasResolver {
+  private readonly byDirectory = new Map<string, PathAliases>();
+
+  aliasesFor(file: string): PathAliases {
+    return this.inDirectory(path.dirname(file));
+  }
+
+  private inDirectory(directory: string): PathAliases {
+    const cached = this.byDirectory.get(directory);
+    if (cached !== undefined) {
+      return cached;
+    }
+    let aliases: PathAliases | undefined;
+    for (const name of ['tsconfig.json', 'jsconfig.json']) {
+      const configPath = path.join(directory, name);
+      if (fs.existsSync(configPath)) {
+        aliases = readPathAliases(configPath);
+        break;
+      }
+    }
+    if (aliases === undefined) {
+      const parent = path.dirname(directory);
+      aliases = parent === directory ? {} : this.inDirectory(parent);
+    }
+    this.byDirectory.set(directory, aliases);
+    return aliases;
+  }
+}
+
+function readPathAliases(configPath: string): PathAliases {
+  const read = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (read.error !== undefined || read.config === undefined) {
+    return {};
+  }
+  const host: ts.ParseConfigHost = {
+    useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+    readDirectory: () => [],
+    fileExists: ts.sys.fileExists,
+    readFile: ts.sys.readFile,
+  };
+  const { options } = ts.parseJsonConfigFileContent(read.config, host, path.dirname(configPath),
+    undefined, configPath);
+  const aliases: PathAliases = {};
+  if (options.baseUrl !== undefined) {
+    aliases.baseUrl = options.baseUrl;
+  }
+  if (options.paths !== undefined) {
+    aliases.paths = options.paths;
+    aliases.pathsBasePath = options.pathsBasePath;
+  } else {
+    const generated = frameworkDefaultAliases(read.config, path.dirname(configPath));
+    if (generated !== undefined) {
+      aliases.paths = generated;
+      aliases.pathsBasePath = path.dirname(configPath);
+    }
+  }
+  return aliases;
+}
+
+/**
+ * The aliases a framework's GENERATED config would have supplied, when the project's
+ * config `extends` (or `references`) one that a checkout does not contain.
+ *
+ * SvelteKit writes `.svelte-kit/tsconfig.json` and Nuxt `.nuxt/tsconfig*.json` at
+ * dev/build time; the project's own config only points at them, so without this every
+ * `$lib/api` or `~/utils/price` import was UNRESOLVED_MISSING (#1756). The mapping is the
+ * framework's default one: SvelteKit `$lib` → `src/lib`; Nuxt `~`, `@` → the source dir
+ * (`app/` first, as Nuxt 4 lays it out, then the root) and `~~`, `@@` → the root. A
+ * generated config that IS present is read as written, and a project `paths` wins.
+ */
+function frameworkDefaultAliases(config: unknown, configDirectory: string): ts.MapLike<string[]> | undefined {
+  const { extends: extended, references } = (config ?? {}) as { extends?: unknown; references?: unknown };
+  const named = [
+    ...(Array.isArray(extended) ? extended : [extended]),
+    ...(Array.isArray(references) ? references.map((r) => (r as { path?: unknown } | null)?.path) : []),
+  ].filter((p): p is string => typeof p === 'string');
+  for (const pointed of named) {
+    const target = path.resolve(configDirectory, pointed);
+    // `./.nuxt/tsconfig.app.json`, `./.nuxt/tsconfig` (extension implied), or a
+    // `references` directory, which means its tsconfig.json
+    const namesFile = path.basename(target).startsWith('tsconfig');
+    const configFile = !namesFile ? path.join(target, 'tsconfig.json')
+      : target.endsWith('.json') ? target : `${target}.json`;
+    const generatedDirectory = path.dirname(configFile);
+    if (fs.existsSync(configFile) || path.dirname(generatedDirectory) !== configDirectory) {
+      continue;
+    }
+    const framework = path.basename(generatedDirectory);
+    if (framework === '.svelte-kit') {
+      return { '$lib': ['./src/lib'], '$lib/*': ['./src/lib/*'] };
+    }
+    if (framework === '.nuxt') {
+      const source = ['./app', '.'];
+      const root = ['.'];
+      const under = (dirs: string[]) => dirs.map((d) => `${d}/*`);
+      return {
+        '~': source, '~/*': under(source), '@': source, '@/*': under(source),
+        '~~': root, '~~/*': under(root), '@@': root, '@@/*': under(root),
+      };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -760,6 +892,7 @@ function collectJavaScriptFiles(
       if (entry.name === 'package.json') {
         packageJsonsSeen.add(full);
       }
+      // `.vue`, `.svelte` and `.astro` included: `scriptTextOf` decides what each one holds for JavaScript
       if (isJavaScriptSourceFile(entry.name)) {
         out.push(full);
       }

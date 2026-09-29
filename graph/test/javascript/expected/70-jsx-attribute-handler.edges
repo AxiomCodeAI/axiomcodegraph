@@ -1,0 +1,10 @@
+LoginForm.jsx:11:11 JSX_ATTRIBUTE onSubmit={submit}  ->  callback_registered  LoginForm.jsx:8:18 <arrow>
+LoginForm.jsx:12:29 JSX_ATTRIBUTE onClick={logout}  ->  callback_registered  LoginForm.jsx:4:1 logout
+LoginForm.jsx:13:53 FUNCTION_CALL label  ->  known_edge  LoginForm.jsx:5:1 label
+LoginForm.jsx:14:13 JSX_ATTRIBUTE onMouseEnter={() => label()}  ->  callback_registered  LoginForm.jsx:14:27 <arrow>
+LoginForm.jsx:14:33 FUNCTION_CALL label  ->  known_edge  LoginForm.jsx:5:1 label
+LoginForm.jsx:15:17 JSX_ATTRIBUTE action={createUser}  ->  callback_registered  actions.js:1:1 createUser
+LoginForm.jsx:15:7 JSX_ELEMENT <UserForm action={createUser} />  ->  known_edge  UserForm.jsx:1:1 UserForm
+LoginForm.jsx:8:27 METHOD_CALL e.preventDefault  ->  ambiguous_unknown  -
+UserForm.jsx:2:16 JSX_ATTRIBUTE action={action}  ->  callback_registered  actions.js:1:1 createUser
+main.jsx:2:21 JSX_ELEMENT <LoginForm count={1} />  ->  known_edge  LoginForm.jsx:7:1 LoginForm

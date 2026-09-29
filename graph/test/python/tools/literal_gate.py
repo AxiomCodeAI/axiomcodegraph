@@ -79,7 +79,11 @@ REASON_HEADS = ("call_unresolvable(", "site_reason(", "expr_type_untypable(",
                 # framework hop -- the registration decorator, the dispatch method, the
                 # route table, the marker -- are catalogues in config-resolution/knobs.dl,
                 # which is the one file a reviewer reads to see every name assumed.
-                "framework_edge(", "framework_unjoined(")
+                "framework_edge(", "framework_unjoined(",
+                # unresolved_value_callee's second column is `binding`: WHAT the callee of an
+                # unresolved call is ("parameter", "loop_variable", "field", ...), the same words
+                # the JavaScript rules write. Written into the output and never joined on.
+                "unresolved_value_callee(")
 
 
 GROUND_FACT = re.compile(r'^[a-z_]+\((?:\s*"[^"]*"\s*,?)+\)\.\s*$')

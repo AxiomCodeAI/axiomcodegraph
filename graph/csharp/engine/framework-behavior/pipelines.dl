@@ -1,0 +1,133 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · PIPELINES  (a component registered into a framework pipeline)
+//
+//     group.AddEndpointFilter<ClinicFilter>();                // ASP.NET runs InvokeAsync
+//     services.AddGrpc(o => o.Interceptors.Add<Errors>());    // gRPC runs UnaryServerHandler
+//     options.AddInterceptors(new AuditInterceptor());        // EF runs SavingChangesAsync
+//     await db.SaveChangesAsync();                            // ...here
+//
+// The registration names the component's TYPE (or hands over an instance) and never
+// its hook, so no call site names InvokeAsync, UnaryServerHandler or SavingChangesAsync.
+// entry-points.dl already says the framework calls them; nothing said WHO put them where
+// they are called, so `impact` on the hook had no caller and `path` from a save to the
+// interceptor found no chain.
+//
+// Three facts, each ADDED beside what the resolution phases derived:
+//   1. the registration site calls every hook of the registered type. A call_chain_edge
+//      of tier `callback_registered` (a component handed over and run by whoever holds
+//      it): consumers rank it below a resolved call and print it as `registered`.
+//   2. an EF save calls the save hooks of every interceptor the project registers with
+//      AddInterceptors. Tier `event_dispatch`, as a mediator's Send reaching its handler
+//      (dispatch.dl): same call stack, no call site names the hook.
+//   3. a filter or a server interceptor WRAPS the endpoints it is added to: the endpoint
+//      depends on it (a request to the endpoint runs it first). framework_edge(Endpoint,
+//      Hook, Mechanism, Detail, Confidence), the relation python/ emits for the same kind
+//      of hop, which impact reads as a `framework` dependent of the hook. Not a call.
+//
+// Every framework name is a knob (knobs.dl: cs_pipeline_register, cs_pipeline_wraps,
+// cs_ef_*), over the cs_framework_callback table that names each base's hooks.
+// ============================================================================
+
+// ── the registration sites ──────────────────────────────────────────────────
+pl_site(e, mn, rm) :- csite("client", e), call_callee_name("client", e, mn), cs_pipeline_register(mn, rm, _),
+    rm = "*".
+pl_site(e, mn, rm) :- csite("client", e), call_callee_name("client", e, mn), cs_pipeline_register(mn, rm, _),
+    rm != "*", call_receiver_expr("client", e, r), expr_kind("client", r, "MEMBER_ACCESS"),
+    expr_member_name_child("client", r, nm), expr_written_name("client", nm, rm).
+
+// the registered type: the call's own type argument...
+pl_registers(e, gk) :- pl_site(e, mn, rm), cs_pipeline_register(mn, rm, "type"),
+    type_ref_owner("client", tr, e, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_resolves("client", tr, gk).
+// ...or the type of an argument: `new T(..)`, a typed local, parameter or field, and
+// `sp.GetRequiredService<T>()`, whose type is its type argument.
+pl_registers(e, gk) :- pl_site(e, mn, rm), cs_pipeline_register(mn, rm, "value"), http_arg(e, _, a),
+    expr_type("client", a, gk).
+pl_registers(e, gk) :- pl_site(e, mn, rm), cs_pipeline_register(mn, rm, "value"), http_arg(e, _, a),
+    csite("client", a), call_callee_name("client", a, f), cs_di_resolve(f),
+    type_ref_owner("client", tr, a, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_resolves("client", tr, gk).
+
+// ── the hooks of a registered type ──────────────────────────────────────────
+// A method the framework calls on the type because of the base it derives from
+// (entry-points.dl, cs_framework_type), declared on the type or, when the type does not
+// declare one of that name, inherited from the project's own base.
+pl_hook_name(gk, mn) :- pl_registers(_, gk), cs_framework_type(gk, bn), cs_framework_callback(bn, mn, _),
+    !contains("*", mn), !contains("<", mn).
+pl_own_hook(gk, mn, m) :- pl_hook_name(gk, mn), method_in_type("client", gk, m), method_name("client", m, mn).
+pl_has_own(gk, mn) :- pl_own_hook(gk, mn, _).
+pl_hook(gk, m) :- pl_own_hook(gk, _, m).
+pl_hook(gk, m) :- pl_hook_name(gk, mn), !pl_has_own(gk, mn), type_ancestor("client", gk, agk),
+    method_in_type("client", agk, m), method_name("client", m, mn).
+
+// 1. the registration site reaches the hooks
+call_chain_edge(e, from, "-", m, "client", "callback_registered", kind) :- pl_registers(e, gk), pl_hook(gk, m),
+    call_from("client", e, from), from != m, invocation_site("client", e, kind).
+
+// ── 2. an EF save runs the registered save interceptors ─────────────────────
+pl_ef_interceptor(gk) :- pl_site(e, mn, _), cs_ef_interceptor_register(mn), pl_registers(e, gk).
+pl_async_name(n) :- cs_framework_save_hook(n), strlen(n) > 5, substr(n, strlen(n) - 5, 5) = "Async".
+pl_save_hook(m, "async") :- pl_ef_interceptor(gk), pl_hook(gk, m), method_name("client", m, n),
+    cs_framework_save_hook(n), pl_async_name(n).
+pl_save_hook(m, "sync") :- pl_ef_interceptor(gk), pl_hook(gk, m), method_name("client", m, n),
+    cs_framework_save_hook(n), !pl_async_name(n).
+
+// a context: a type deriving from a DbContext base, directly or through the project's own
+pl_context(gk) :- cs_framework_type(gk, bn), cs_ef_context_base(bn).
+// A save: SaveChanges(Async) on a context, `db.SaveChangesAsync()`, `SaveChanges()`
+// inside one, `base.SaveChangesAsync()` in its override...
+pl_save_call(e, how) :- call_callee_name("client", e, n), cs_ef_save_call(n, how), call_recv_type("client", e, gk),
+    pl_context(gk).
+pl_save_call(e, how) :- call_callee_name("client", e, n), cs_ef_save_call(n, how), call_is_base("client", e),
+    expr_ultimate_type_group("client", e, gk), pl_context(gk).
+// ...and through the project's own abstraction over it: `IUnitOfWork.SaveChangesAsync`,
+// which a context implements by inheriting DbContext's. The call resolves to the
+// abstraction's method, which is not a context's own: a context that overrides the save
+// is reached through the dispatch hop and its own `base.` call above.
+// (Read off the resolution relations, not call_chain_edge, which this adds to.)
+pl_save_target(e, mm) :- call_callee_name("client", e, n), cs_ef_save_call(n, _), client_calls_client("client", e, "client", mm).
+pl_save_target(e, mm) :- call_callee_name("client", e, n), cs_ef_save_call(n, _), call_names_bodiless(e, mm).
+pl_save_call(e, how) :- call_callee_name("client", e, n), cs_ef_save_call(n, how), pl_save_target(e, mm),
+    method_name("client", mm, n), method_owner("client", ot, mm), type_group("client", ot, ogk), !pl_context(ogk),
+    pl_context(cgk), type_ancestor("client", cgk, ogk).
+
+call_chain_edge(e, from, "-", m, "client", "event_dispatch", kind) :- pl_save_call(e, how), pl_save_hook(m, how),
+    call_from("client", e, from), from != m, invocation_site("client", e, kind).
+
+// ── 3. what a filter or server interceptor wraps ────────────────────────────
+pl_wrap_site(e, sc) :- pl_site(e, mn, rm), cs_pipeline_wraps(mn, rm, sc).
+
+// "route": walk back from a builder expression through locals and fluent calls to the
+// endpoint (MapGet..) or route group (MapGroup) it configures, as group_prefix does in
+// destinations.dl.
+pl_map_call(e) :- map_call(e, _).
+pl_up(x, x) :- pl_wrap_site(e, "route"), call_receiver_expr("client", e, x).
+pl_up(x, x) :- map_call(e, _), call_receiver_expr("client", e, x).
+pl_up(x, x) :- map_group_call(e), call_receiver_expr("client", e, x).
+pl_up(x, z) :- pl_up(x, y), ref_denotes("client", y, "LOCAL_VARIABLE", v), var_initializer("client", v, z).
+pl_up(x, z) :- pl_up(x, y), csite("client", y), !pl_map_call(y), !map_group_call(y), call_receiver_expr("client", y, z).
+pl_anchor(x, n) :- pl_up(x, n), map_call(n, _).
+pl_anchor(x, n) :- pl_up(x, n), map_group_call(n).
+
+// the endpoints of a group, and of the groups nested in it
+pl_in_group(e, g) :- map_call(e, _), call_receiver_expr("client", e, r), pl_anchor(r, g), map_group_call(g).
+pl_in_group(e, g) :- pl_in_group(e, g2), call_receiver_expr("client", g2, r), pl_anchor(r, g), map_group_call(g).
+
+pl_wraps(h, e) :- pl_wrap_site(e, "route"), call_receiver_expr("client", e, r), pl_anchor(r, n), map_call(n, _),
+    map_handler(n, h).
+pl_wraps(h, e) :- pl_wrap_site(e, "route"), call_receiver_expr("client", e, r), pl_anchor(r, g), map_group_call(g),
+    pl_in_group(n, g), map_handler(n, h).
+
+// "grpc_host": every rpc of every service mapped in the file that registers it
+pl_grpc_mapped(mod, gk) :- csite("client", e), call_callee_name("client", e, mn), cs_grpc_map_service(mn),
+    call_module("client", e, mod),
+    type_ref_owner("client", tr, e, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_resolves("client", tr, gk).
+pl_wraps(h, e) :- pl_wrap_site(e, "grpc_host"), call_module("client", e, mod), pl_grpc_mapped(mod, gk),
+    grpc_serves(h, _), method_owner("client", t, h), type_group("client", t, gk).
+
+// the detail names the registration as written: `AddEndpointFilter`, `Interceptors.Add`
+pl_wrap_detail(e, mn) :- pl_wrap_site(e, _), pl_site(e, mn, "*").
+pl_wrap_detail(e, d) :- pl_wrap_site(e, _), pl_site(e, mn, rm), rm != "*", d = cat(rm, cat(".", mn)).
+framework_edge(h, m, "pipeline_wrap", d, "registered") :- pl_wraps(h, e), pl_registers(e, gk), pl_hook(gk, m),
+    pl_wrap_detail(e, d), h != m.

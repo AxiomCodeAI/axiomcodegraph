@@ -1,5 +1,6 @@
 call_chain_edge	call-chain-edges.csv
 call_site_unresolved	call-site-unresolved.csv
+unresolved_value_callee	unresolved-value-callee.csv
 call_chain_summary	call-chain-summary.csv
 mro_position	resolution-mro-position.csv
 mro_tie	resolution-mro-tie.csv

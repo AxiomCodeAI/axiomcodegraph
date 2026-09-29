@@ -1,0 +1,10 @@
+---
+import { fetchProducts, slugify } from '../lib/format.js';
+const products = fetchProducts();
+const slug = slugify('Home');
+---
+<h1>{slug}</h1>
+<script>
+  import { formatPrice } from '../lib/format.js';
+  document.title = formatPrice(1);
+</script>

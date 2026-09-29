@@ -41,7 +41,7 @@ Rules that decide whether an answer means anything:
   graph, names the edited files on a `graph refresh:` line, and marks every row that lies in one `(may be out of date)`
   (`"stale": true` in `--json`); unmarked rows are current. Read a marked row's file for its current text. It waits
   briefly on its own only when the answer touches an edited file and the rebuild is nearly done.
-- **Before a delete or a rename, ask with `--fresh`** (MCP `fresh=true`): it waits for the rebuild, printing its
+- **Before a delete or a rename, ask with `--fresh`** (MCP `impact`, `path` or `context` with `fresh=True`): it waits for the rebuild, printing its
   progress, and answers from a graph that includes every edit.
   A manual `index` with different flags rebuilds a worse graph over the good one. A bare `index`, the background
   refresh and `graph` keep the `--lang` (and `--src`, `--library`) the graph was indexed with; pass `--lang` to change it.
@@ -62,9 +62,11 @@ An answer's label is the **worst** rung on its route. Read it before acting on t
 | `[one of a set]` · `[dispatch]` | one of a sound target set · an instantiated override reached through its base |
 | `[defines]` · `[protocol]` · `[decorator by name]` | closure from its definer · interpreter-called method · wrapper rebinding the name |
 | `[fixture]` · `[at import]` | injected before the test body · module raised on import, test never collected |
+| `[spawns]` | the test runs the script as a child process, joined through the **path** it names — not an edge |
 | `[by key]` | joined through a registration **string** (route, signal, CLI command) — not an edge |
 | `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
 | `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
+| `[alongside]` | declared in the same type or file — no call, no reference; its own section (`alongside` in `--json`), never a dependent |
 
 Below `[sound]` / `[one of a set]` the order is a tie-break, not a measured ranking. `[sound]` means the edges
 connect, not that a test exercises the change.

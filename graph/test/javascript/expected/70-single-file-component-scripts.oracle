@@ -1,0 +1,2 @@
+main.js:5:30 FUNCTION_CALL slugify  EXACT  lib/format.js:4:1
+# defects: 0

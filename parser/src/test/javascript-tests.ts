@@ -41,7 +41,7 @@ import {
   JAVASCRIPT_CSV_FILES, JS_SKIP_DIRECTORIES, JS_SOURCE_EXTENSIONS,
 } from '@/constants/javascript-constants';
 import {
-  isFlowDeclarationFileName, isJavaScriptSourceFile, jsExtensionOf, stripJsExtension,
+  isFlowDeclarationFileName, isJavaScriptSourceFile, jsExtensionOf, sfcScriptText, stripJsExtension,
 } from '@/utils/javascript';
 import { formatCompleteness } from '@/parsers/javascript/extractors/js-ir-completeness';
 import * as JsEnums from '@/enums/javascript';
@@ -3185,6 +3185,70 @@ async function packageSpecifiersResolveUnderTheSiteConditions(): Promise<number>
 }
 
 /**
+ * A `compilerOptions.paths` alias resolves to the project file it maps to.
+ *
+ * `@/lib/x` (a jsconfig `baseUrl` + `paths`) and `~/models/x` (a tsconfig `paths`
+ * alone, `extends`-free) are how Next.js, Remix, Nuxt and Vite projects import their
+ * own code; without the mapping each was UNRESOLVED_MISSING and the call "by name".
+ * The CONTROL is a directory whose nearest jsconfig maps nothing: its `@/check` stays
+ * unresolved, as the bundler would refuse it too, and a relative import is unchanged.
+ */
+async function pathAliasesResolveThroughTheNearestConfig(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-paths-');
+  const out = scratchDir('js-gate-paths-out-');
+  const write = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  write('package.json', '{ "name": "paths-fixture", "type": "module" }');
+  write('jsconfig.json', '{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }');
+  write('src/lib/check.js', 'export function checkA() { return 1; }\n');
+  write('src/app.js', "import { checkA } from '@/lib/check'; import { checkA as b } from './lib/check.js';\n");
+  write('remix/tsconfig.json', '{ "compilerOptions": { "paths": { "~/*": ["./app/*"] } } }');
+  write('remix/app/models/note.server.js', 'export function getNote() { return 1; }\n');
+  write('remix/app/route.js', "import { getNote } from '~/models/note.server';\n");
+  write('plain/jsconfig.json', '{ "compilerOptions": { "checkJs": true } }');
+  write('plain/probe.js', "import { checkA } from '@/lib/check';\n");
+  // a config that only extends the framework's generated one, absent from a checkout (#1756)
+  write('kit/jsconfig.json', '{ "extends": "./.svelte-kit/tsconfig.json" }');
+  write('kit/src/lib/api.js', 'export function get() { return 1; }\n');
+  write('kit/src/routes/page.js', "import * as api from '$lib/api.js';\n");
+  write('other/jsconfig.json', '{ "extends": "./.config/tsconfig.json" }');
+  write('other/src/lib/api.js', 'export function get() { return 1; }\n');
+  write('other/probe.js', "import * as api from '$lib/api.js';\n");
+  await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
+  const relations = readRelations(out);
+  const imports = relations.find((r) => r.name === 'js_import');
+  const modules = relations.find((r) => r.name === 'js_module');
+  if (imports === undefined || modules === undefined || imports.header.length === 0) {
+    return fail('the paths fixture produced no js_import rows');
+  }
+  const fileOf = new Map(modules.rows.map((row) => [row[pkIndexOf(modules.header, 'js_module')] ?? '', row[modules.header.indexOf('filePath')] ?? '']));
+  const spec = imports.header.indexOf('specifier'), owner = imports.header.indexOf('ownerModuleLinkHash');
+  const resolved = imports.header.indexOf('resolvedFilePath'), outcome = imports.header.indexOf('resolutionOutcome');
+  const want: Array<[string, string, string, string]> = [
+    ['src/app.js', '@/lib/check', 'RESOLVED_PROJECT', 'src/lib/check'],
+    ['src/app.js', './lib/check.js', 'RESOLVED_PROJECT', 'src/lib/check'],
+    ['remix/app/route.js', '~/models/note.server', 'RESOLVED_PROJECT', 'remix/app/models/note.server'],
+    ['plain/probe.js', '@/lib/check', 'UNRESOLVED_MISSING', ''],
+    ['kit/src/routes/page.js', '$lib/api.js', 'RESOLVED_PROJECT', 'kit/src/lib/api'],
+    ['other/probe.js', '$lib/api.js', 'UNRESOLVED_MISSING', ''],
+  ];
+  for (const [file, specifier, wantOutcome, target] of want) {
+    const rows = imports.rows.filter((row) => fileOf.get(row[owner] ?? '') === file && row[spec] === specifier);
+    if (rows.length === 0) { failures += fail(`${file}: no js_import row for '${specifier}'`); continue; }
+    for (const row of rows) {
+      const got = (row[resolved] ?? '').replace(/\\/g, '/');
+      if (row[outcome] !== wantOutcome || got !== target) {
+        failures += fail(`${file} '${specifier}': ${row[outcome]} '${got}', want ${wantOutcome} '${target}'`);
+      }
+    }
+  }
+  return failures;
+}
+
+/**
  * A member declared under a computed name links its KEY, and a literal key names it.
  *
  * `[kRun]() {}` had an empty `name` and no link to `kRun`, so a symbol-keyed member
@@ -4855,6 +4919,12 @@ function extensionsAreDecidedInOnePlace(): number {
     ['a.json', '', false, false, 'a.json'],
     ['a.flow', '', false, false, 'a.flow'],
     ['README', '', false, false, 'README'],
+    // Single-file components: walked (their <script> blocks are read), stemmed
+    // like any module, and with no `.flow` declaration spelling.
+    ['Price.vue', '.vue', true, false, 'Price'],
+    ['List.svelte', '.svelte', true, false, 'List'],
+    ['index.astro', '.astro', true, false, 'index'],
+    ['a.vue.flow', '', false, false, 'a.vue.flow'],
   ];
   for (const [name, extension, isSource, isFlowDeclaration, stem] of CASES) {
     if (jsExtensionOf(name) !== extension) {
@@ -4886,6 +4956,26 @@ function extensionsAreDecidedInOnePlace(): number {
     }
     if (!isFlowDeclarationFileName(declaration)) {
       failures += fail(`${declaration} is not recognised as a Flow declaration file`);
+    }
+  }
+
+  // ---- 1b. a component's JavaScript keeps the file's own lines and columns;
+  // markup, a commented-out <script> and a non-JavaScript block are blanked.
+  // Each case is [name, blanked, kept, blanked, ...]: the file is the parts
+  // joined, and the extractor must see the kept parts with the rest as spaces.
+  const COMPONENTS: ReadonlyArray<readonly [string, ...string[]]> = [
+    ['a.vue', '<template>{{ f(1) }}</template>\n<script setup>', '\nf(2)\n', '</script>\n'],
+    ['a.vue', '<!-- <script>f(1)</script> -->\n<script lang="ts">\nf(2)\n</script>\n'],
+    ['a.svelte', '<script context="module">', 'g()', '</script>{g()}'],
+    ['a.astro', '---\n', 'h()\n', '---\n<p>{h()}</p>\n'],
+  ];
+  for (const [name, ...parts] of COMPONENTS) {
+    const text = parts.join('');
+    const want = parts.map((part, i) => (i % 2 === 1 ? part : part.replace(/[^\n]/g, ' '))).join('');
+    const got = sfcScriptText(name, text).text;
+    if (got !== want) {
+      failures += fail(`sfcScriptText(${name}, ${JSON.stringify(text)}) is ${JSON.stringify(got)}, `
+        + `expected ${JSON.stringify(want)}`);
     }
   }
 
@@ -7187,6 +7277,7 @@ const CHECKS: Check[] = [
   { name: 'module-edge 1:1', proves: 'every module-edge expression is pointed at by exactly one import or export, so the second pass cannot double-mint', run: moduleEdgeOneToOne },
   { name: 'call-site 1:1', proves: 'one call site per call-like expression, and require() has none because it is a module edge', run: callSiteOneToOne },
   { name: 'package specifiers resolve under the site conditions', proves: "a require() of an exports-only package resolves to its `require` build and an ES import to its `import` build, a subpath export and a main-only package either way, so a dual package links to the build the runtime loads (#601)", run: packageSpecifiersResolveUnderTheSiteConditions },
+  { name: 'path aliases resolve through the nearest config', proves: "an import through a jsconfig/tsconfig `paths` alias ('@/lib/x', '~/models/x') resolves to the project file it maps to, and a directory whose nearest config maps nothing leaves the alias unresolved", run: pathAliasesResolveThroughTheNearestConfig },
   { name: 'computed member names link their key', proves: "a member declared under a computed name links its key expression (rooted COMPUTED_NAME, bound to the key's const) and a literal key fills name, on class methods, a getter, class fields, object-literal and prototype-literal members (#598)", run: computedMemberNamesLinkTheirKey },
   { name: 'pattern binding defaults are linked', proves: "a reference to a binding declared inside a destructuring pattern with a default links the default's root expression (c35), for object, nested and array parameter patterns and a variable pattern; a top-level parameter default and a binding without one link nothing (#673)", run: patternBindingDefaultsAreLinked },
   { name: 'several roots produce one set', proves: 'overlapping discovered roots merge into one flat fact base with no file extracted twice — the failure the real entry point found and a single-root harness cannot', run: severalRootsProduceOneSet },

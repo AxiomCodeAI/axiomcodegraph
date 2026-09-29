@@ -1,0 +1,22 @@
+components/Legacy.vue:6:31 FUNCTION_CALL slugify  ->  known_edge  lib/format.js:4:1 slugify
+components/Legacy.vue:7:26 METHOD_CALL this.$emit  ->  ambiguous_unknown  -
+components/Legacy.vue:7:48 FUNCTION_CALL slugify  ->  known_edge  lib/format.js:4:1 slugify
+components/List.svelte:5:3 FUNCTION_CALL onMount  ->  ambiguous_unknown  -
+components/List.svelte:5:3 FUNCTION_CALL onMount  ->  callback_registered  components/List.svelte:5:11 <arrow>
+components/List.svelte:5:39 FUNCTION_CALL fetchProducts  ->  known_edge  lib/format.js:5:1 fetchProducts
+components/List.svelte:6:29 FUNCTION_CALL formatPrice  ->  known_edge  lib/format.js:3:1 formatPrice
+components/Price.vue:1:25 FUNCTION_CALL onClick  ->  known_edge  components/Price.vue:8:1 onClick
+components/Price.vue:1:50 FUNCTION_CALL onlyInMarkup  ->  ambiguous_unknown  -
+components/Price.vue:6:15 FUNCTION_CALL defineProps  ->  ambiguous_unknown  -
+components/Price.vue:7:15 FUNCTION_CALL computed  ->  ambiguous_unknown  -
+components/Price.vue:7:15 FUNCTION_CALL computed  ->  callback_registered  components/Price.vue:7:24 <arrow>
+components/Price.vue:7:30 FUNCTION_CALL formatPrice  ->  known_edge  lib/format.js:3:1 formatPrice
+components/Price.vue:8:22 METHOD_CALL console.log  ->  ambient_terminal  -
+lib/format.js:3:47 METHOD_CALL n.toFixed  ->  ambient_terminal  -
+lib/format.js:4:37 METHOD_CALL s.toLowerCase  ->  ambient_terminal  -
+main.js:5:1 FUNCTION_CALL createApp  ->  ambiguous_unknown  -
+main.js:5:1 METHOD_CALL createApp(Price).mount  ->  ambiguous_unknown  -
+main.js:5:30 FUNCTION_CALL slugify  ->  known_edge  lib/format.js:4:1 slugify
+pages/index.astro:3:18 FUNCTION_CALL fetchProducts  ->  known_edge  lib/format.js:5:1 fetchProducts
+pages/index.astro:4:14 FUNCTION_CALL slugify  ->  known_edge  lib/format.js:4:1 slugify
+pages/index.astro:9:20 FUNCTION_CALL formatPrice  ->  known_edge  lib/format.js:3:1 formatPrice

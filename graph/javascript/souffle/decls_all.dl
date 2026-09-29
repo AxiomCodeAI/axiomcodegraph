@@ -49,6 +49,8 @@
 .decl jsx_caller(c0:symbol, c1:symbol)
 .decl jsx_target_count(c0:symbol, c1:number)
 .decl jsx_class(c0:symbol, c1:symbol)
+.decl jsx_attribute_handler(c0:symbol, c1:symbol)
+.decl jsx_attribute_caller(c0:symbol, c1:symbol)
 .decl jsx_wrapper_name(c0:symbol)
 .decl jsx_component_wrapper(c0:symbol)
 .decl jsx_loader_name(c0:symbol)
@@ -293,6 +295,8 @@
 .decl swallowed_read(c0:symbol, c1:symbol)
 .decl partial_dispatch(c0:symbol)
 .decl partial_dispatch_target(c0:symbol, c1:symbol)
+.decl var_source(c0:symbol, c1:symbol)
+.decl swallowed_var(c0:symbol, c1:symbol)
 // the same read with no default beside it, called: one of the literal's functions
 .decl open_read(c0:symbol, c1:symbol)
 .decl open_dispatch_target(c0:symbol, c1:symbol)

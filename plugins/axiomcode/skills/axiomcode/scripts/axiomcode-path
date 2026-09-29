@@ -1589,8 +1589,13 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
            'field': 'a function stored in a field',
            'instance_member': 'a function stored on the instance from outside the class',
            'parameter_member': 'a member of a parameter', 'expression': 'computed by an expression',
+           'getattr': 'an attribute looked up by a name computed at run time',
            'imported_variable': "another module's exported variable, which that module reassigns"}
     for lx, rows in opaque:
+        # the sites that make the answer unknown, in --json too: a consumer reading only `answers` saw "no chain"
+        RESULT['value_calls'] = RESULT.get('value_calls', []) + [
+            {'side': lx, 'caller': g.disp(r['c']), 'callee': r['n'] or '', 'at': f"{g.site_file(r['f'])}:{r['ln']}",
+             'callee_is': WHY.get(r['why'], r['why'])} for r in rows[:50]]
         print(f"  {lx} reaches {len(rows)} call(s) through a value:")
         for r in rows[:4]:
             print(f"    `{r['n'] or '[…]'}()` in {g.disp(r['c'])} at {g.site_file(r['f'])}:{r['ln']} — the callee is {WHY.get(r['why'], r['why'])}")

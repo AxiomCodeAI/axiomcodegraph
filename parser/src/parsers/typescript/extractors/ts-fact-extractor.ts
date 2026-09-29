@@ -43,6 +43,7 @@ import {
   ResolutionStats,
   TsLocalResolver,
 } from '@/parsers/typescript/extractors/ts-resolution-linker';
+import { resolveVueSpecifier } from '@/utils/vue-sfc';
 
 /**
  * Extracts the whole fact spine for ONE TypeScript file.
@@ -91,6 +92,11 @@ export interface TsFileExtractionOptions {
   readonly projectModuleHashes: ReadonlyMap<string, string>;
   /** Absolute path -> project-relative path, extension stripped. */
   readonly toProjectRelative: (absolutePath: string) => string;
+  /**
+   * How `sourceText` parses, when the file's extension cannot say: a `.vue`
+   * component's virtual script is TS or TSX by its `lang`, not by its name.
+   */
+  readonly scriptKind?: ts.ScriptKind;
 }
 
 export interface TsFileFacts {
@@ -142,7 +148,7 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     options.sourceText,
     ts.ScriptTarget.Latest,
     true,
-    scriptKindFor(options.absoluteFilePath)
+    options.scriptKind ?? scriptKindFor(options.absoluteFilePath)
   );
 
   const modules = extractModules({
@@ -173,7 +179,8 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
         options.compilerOptions,
         ts.sys
       );
-      const fileName = resolved.resolvedModule?.resolvedFileName;
+      const fileName = resolved.resolvedModule?.resolvedFileName
+        ?? resolveVueSpecifier(specifier, options.absoluteFilePath);
       if (!fileName) {
         return undefined;
       }

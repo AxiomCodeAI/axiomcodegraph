@@ -59,8 +59,36 @@ callback_arg(ce, argpos, lm) :- expr_child("client", ce, "ARGUMENT", argpos, lam
 // parameter, which needs no guard: TypeScript forbids a callback with more parameters
 // than its target signature, so a lambda parameter's position can never reach it.
 callee_fn_param_ref(callee, argpos, fref) :- param_decl(_, _, argpos, _, callee, p),
-    param_type_ref(_, fref, p),
-    type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, fref).
+    param_type_ref(_, pref, p),
+    fn_type_under(pref, fref).
+
+// …AND WHERE THE FUNCTION TYPE IS WRAPPED. An optional callback is written
+// `onfulfilled?: ((value: T) => R) | undefined | null` — `Promise.then`, `catch`,
+// `finally`, and every library that copies the lib's style. The parser lays that out
+// UNION → PARENTHESIZED → FUNCTION_TYPE, so a rule that asks for FUNCTION_TYPE on the
+// parameter's own reference never saw it, and every `p.then(u => u.m())` left `u`
+// untyped. The compiler takes the contextual type from the non-nullish member of the
+// union; the other members (`undefined`, `null`) are not function types and add nothing.
+// A union of TWO function types — `((u: User) => void) | ((k: Key) => void)` — gives the
+// compiler no contextual type at all (the parameter is implicitly `any`), so the union is
+// only looked through when exactly one member is a function type.
+fn_type_under(r, r) :- type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, r).
+fn_type_under(r, f) :- type_ref(_, "UNION", _, _, _, _, _, r),
+    type_ref_parent(_, r, _, c),
+    fn_type_member(c),
+    !union_other_fn_member(r, c),
+    fn_type_under(c, f).
+fn_type_under(r, f) :- type_ref(_, "PARENTHESIZED", _, _, _, _, _, r),
+    type_ref_parent(_, r, _, c),
+    fn_type_under(c, f).
+fn_type_member(c) :- type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, c).
+fn_type_member(c) :- type_ref(_, "PARENTHESIZED", _, _, _, _, _, c),
+    type_ref_parent(_, c, _, f),
+    type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, f).
+union_other_fn_member(r, c) :- type_ref_parent(_, r, _, c),
+    type_ref_parent(_, r, _, c2),
+    c2 != c,
+    fn_type_member(c2).
 
 fn_param_tvar(fref, k, pname) :- type_ref_parent(_, fref, k, child),
     type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, child),
@@ -214,6 +242,106 @@ lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
     owner_declares_param(callee, pname),
     ref_element_target(rref, prov, t),
     param_decl(_, _, k, _, lm, lp).
+
+// (e) …AND WHERE NO STANDARD LIBRARY IS STAGED. Every clause above reads the callee's
+// signature, so each needs `Array.map` / `Promise.then` as a DECLARATION — and a default
+// index stages no library root, so the call has no candidate and `r.all().map(u =>
+// u.display())` left `u` untyped while `for (const u of r.all())` over the same receiver
+// resolved: the loop takes its element off the receiver's own reference, not off a lib.
+// This is that route for the callbacks one of whose parameters IS the element: the
+// receiver's declared reference names the container and its element, which is all the
+// compiler uses here. Where a library IS staged the clauses above derive the same type,
+// so this adds nothing there.
+//
+// The lib's callbacks that receive the element, and the parameter position it arrives at:
+// first for the iteration callbacks of Array, ReadonlyArray, Set and the iterator helpers,
+// second for `reduce` / `reduceRight`, whose first is the accumulator.
+//
+// What travels is the element's type REFERENCE, not a resolved type, so a callback over a
+// parameter that was itself typed here — `xss.forEach(xs => xs.forEach(u => …))`,
+// `p.then(us => us.map(u => …))` — reads its element off that reference in turn
+// (expr_decl_ref below). The container is recognised by NAME, so a name the program
+// declares itself — a user `class Set<T>` or `class Promise<T>` with its own `forEach` /
+// `then` — is not a built-in and is never read here (builtin_elem_ref). A type alias is
+// followed to its right-hand side, substituting the alias's own type arguments
+// (`type Alias<T> = Array<T>`, then `Alias<User>`).
+builtin_container_ref(ref) :- type_ref(_, "TYPE_REFERENCE", _, _, _, _, _, ref),
+    !type_ref_resolves("client", ref, _).
+builtin_elem_ref(ref, child) :- type_ref(rp, "ARRAY", _, _, _, _, _, ref),
+    type_ref_parent(rp, ref, _, child).
+builtin_elem_ref(ref, child) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_container(tn),
+    builtin_container_ref(ref),
+    type_ref_parent(rp, ref, "0", child).
+builtin_elem_ref(parent, x) :- ref_is_readonly_operator(parent),
+    type_ref_parent(_, parent, _, child),
+    builtin_elem_ref(child, x).
+builtin_elem_ref(ref, x) :- ref_via_alias(ref, rhs),
+    builtin_elem_ref(rhs, x).
+builtin_elem_ref(ref, a) :- ref_via_alias(ref, rhs),
+    builtin_elem_ref(rhs, x),
+    type_ref(_, "TYPE_VARIABLE", _, n, _, _, _, x),
+    type_arg_binding(ref, n, a).
+// `Map` / `ReadonlyMap`: `forEach((value, key) => …)` — the value (type argument 1) is the
+// callback's first parameter and the key (type argument 0) its second.
+builtin_map_ref(ref, argpos, child) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_map(tn),
+    builtin_container_ref(ref),
+    type_ref_parent(rp, ref, argpos, child).
+builtin_map_ref(ref, argpos, x) :- ref_via_alias(ref, rhs),
+    builtin_map_ref(rhs, argpos, x).
+ref_name_is_map("Map").
+ref_name_is_map("ReadonlyMap").
+map_callback_param("1", "0").
+map_callback_param("0", "1").
+// `Promise<T>` / `PromiseLike<T>`: `then`'s first callback receives T.
+builtin_promise_ref(ref, child) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_promise(tn),
+    builtin_container_ref(ref),
+    type_ref_parent(rp, ref, "0", child).
+builtin_promise_ref(ref, x) :- ref_via_alias(ref, rhs),
+    builtin_promise_ref(rhs, x).
+
+builtin_element_callback("forEach", "0").
+builtin_element_callback("map", "0").
+builtin_element_callback("flatMap", "0").
+builtin_element_callback("filter", "0").
+builtin_element_callback("some", "0").
+builtin_element_callback("every", "0").
+builtin_element_callback("find", "0").
+builtin_element_callback("findIndex", "0").
+builtin_element_callback("findLast", "0").
+builtin_element_callback("findLastIndex", "0").
+builtin_element_callback("reduce", "1").
+builtin_element_callback("reduceRight", "1").
+lambda_param_ref(lp, c) :- call_site("client", _, name, _, recv, ce, _),
+    builtin_element_callback(name, k),
+    callback_arg(ce, "0", lm),
+    expr_decl_ref(recv, rref),
+    builtin_elem_ref(rref, c),
+    param_decl(_, _, k, _, lm, lp),
+    !param_type_ref(_, _, lp).
+lambda_param_ref(lp, c) :- call_site("client", _, "forEach", _, recv, ce, _),
+    callback_arg(ce, "0", lm),
+    expr_decl_ref(recv, rref),
+    builtin_map_ref(rref, argpos, c),
+    map_callback_param(argpos, k),
+    param_decl(_, _, k, _, lm, lp),
+    !param_type_ref(_, _, lp).
+// …and `promise.then(v => …)`: the fulfilled value is the Promise's type argument. Keyed
+// on the reference NAMING Promise / PromiseLike, never on ref_awaited_target, whose
+// identity clause would type a user class's own `then`.
+lambda_param_ref(lp, c) :- call_site("client", _, "then", _, recv, ce, _),
+    callback_arg(ce, "0", lm),
+    expr_decl_ref(recv, rref),
+    builtin_promise_ref(rref, c),
+    param_decl(_, _, "0", _, lm, lp),
+    !param_type_ref(_, _, lp).
+lambda_param_type(lp, prov, t) :- lambda_param_ref(lp, c),
+    ref_type_target(c, prov, t).
+// The parameter's reference is its declared reference, as an annotation's would be.
+expr_decl_ref(e, c) :- expr_referenced("client", "PARAMETER", p, e),
+    lambda_param_ref(p, c).
 
 // ── and type the uses inside the body ───────────────────────────────────────
 // The arrow's parameter has no annotation, so param_type is empty for it and this adds

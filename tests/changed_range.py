@@ -15,12 +15,14 @@ Each behaviour has a near-miss control that must keep today's answer:
   a changed fixture              named as outside the index, with the test file that names it; the command holds only
                                  the graph's language's test modules, and another language's tests are counted, not listed
       control                    a data file no test names: said so, never "no change"
+  a parameter edit in a package  every target `changed` prints is answered by `impact`, and test-impact resolves it
+      control                    the same target under a prefix nothing declares is still refused
 
 Each run builds a real graph in a throwaway git repository (Python, so the rules compile once and are cached).
 
     python3 tests/changed_range.py
 """
-import os, shutil, subprocess, sys, tempfile
+import json, os, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX = os.path.join(ROOT, 'bin', 'axiomcode')
@@ -154,6 +156,43 @@ def main():
         check('data/lookup.csv' in out and 'no test names data/lookup.csv' in out, 'control: an unnamed data file is reported as unnamed', out)
         check('no changed declaration the graph can name' not in out, "control: it does not read as 'nothing to test'", out)
         sh(repo, 'git', 'checkout', '-q', '--', '.')
+
+        # EVERY TARGET `changed` PRINTS IS ONE `impact` ANSWERS. A parameter edit is handed over as `pkg.Owner.m(p)`;
+        # impact's prefix check read the parameter's payload one level deep, found no name, and refused it as
+        # "matches no package", and test-impact then said the declaration "could not be resolved to a graph symbol"
+        pk = os.path.join(work, 'pk'); os.makedirs(pk)
+        PR = ('class Pricer:\n    def price(self, q, r):\n        total = q * 2 + r\n        return total\n\n'
+              '    def discount(self, q: int):\n        return q - 1\n\n    def tax(self, q):\n        return q\n')
+        TP = ('from shop.pricing import Pricer\n\n\ndef test_price():\n    assert Pricer().price(2, 0) == 4\n\n\n'
+              'def test_discount():\n    assert Pricer().discount(2) == 1\n\n\ndef test_tax():\n    assert Pricer().tax(2) == 2\n')
+        for rel, text in {'shop/__init__.py': '', 'shop/pricing.py': PR, 'tests/__init__.py': '', 'tests/test_pricing.py': TP,
+                          '.gitignore': '.axiomcode/\n'}.items(): write(pk, rel, text)
+        sh(pk, 'git', 'init', '-q', '-b', 'main'); sh(pk, 'git', 'add', '-A'); sh(pk, *G, 'commit', '-qm', 'base')
+        # a parameter removed, one retyped, one added; the graph is then built at the new commit, as after a refresh
+        write(pk, 'shop/pricing.py', PR.replace('q, r)', 'q)').replace(' + r', '').replace('q: int', 'q: float').replace('tax(self, q)', 'tax(self, q, rate=0)'))
+        write(pk, 'tests/test_pricing.py', TP.replace('price(2, 0)', 'price(2)'))
+        sh(pk, 'git', 'add', '-A'); sh(pk, *G, 'commit', '-qm', 'edit')
+        built = sh(pk, AX, 'index', '.', '--lang', 'python', env=env)
+        check(built.returncode == 0, 'the packaged graph builds', built.stdout + built.stderr)
+        r = sh(pk, AX, 'changed', '.', '--range', 'HEAD~1..HEAD', '--json', env=env)
+        try: targets = [e['target'] for e in json.loads(r.stdout)['changed'] if e.get('target')]
+        except Exception: targets = []
+        check(any('(' in t and t.count('.') >= 3 for t in targets), 'changed hands over a package-qualified parameter target', r.stdout + r.stderr)
+        for t in dict.fromkeys(targets):
+            r2, o2 = ax(pk, 'impact', t, '.')
+            check(r2 == 0 and 'matches no package' not in o2, f'the printed target {t} is answered by impact', o2)
+        rc, out = ax(pk, 'changed', '.', '--range', 'HEAD~1..HEAD', '--impact')
+        check('matches no package' not in out and 'change: parameter q of Pricer.discount' in out and 'did not resolve' not in out,
+              'changed --range --impact answers the parameter edit instead of refusing it', out)
+        rc, out = ax(pk, 'test-impact', '.', '--range', 'HEAD~1..HEAD')
+        check('could not be resolved' not in out and 'test_discount' in out and 'test_tax' in out,
+              "test-impact --range selects the parameter edits' tests, and resolves every declaration it read", out)
+        rc, out = ax(pk, 'impact', 'shop.pricing.Pricer.price:total', '.')
+        check(rc == 0 and 'local total' in out, 'a qualified Owner.m:local passes the prefix check', out)
+        # control: a prefix nothing declares is still refused, for a parameter and for a local
+        for t in ('zzz.qqq.Pricer.discount(q)', 'zzz.qqq.Pricer.price:total'):
+            rc, out = ax(pk, 'impact', t, '.')
+            check(rc != 0 and "'zzz.qqq' matches no package" in out, f'control: a fabricated prefix is still refused ({t})', out)
 
         # a copy without git
         copy = os.path.join(work, 'copy')

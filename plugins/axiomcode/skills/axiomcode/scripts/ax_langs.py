@@ -34,7 +34,9 @@ def graphs(repo):
 # graph's when there is one (the parser gives it to that front end), else TypeScript's, which reads JavaScript too
 BY_EXT = {'.py': ('python',), '.pyi': ('python',), '.java': ('java',), '.cs': ('csharp',),
           '.ts': ('typescript',), '.tsx': ('typescript',), '.mts': ('typescript',), '.cts': ('typescript',),
-          '.js': ('javascript', 'typescript'), '.jsx': ('javascript', 'typescript'), '.mjs': ('javascript', 'typescript'), '.cjs': ('javascript', 'typescript')}
+          '.js': ('javascript', 'typescript'), '.jsx': ('javascript', 'typescript'), '.mjs': ('javascript', 'typescript'), '.cjs': ('javascript', 'typescript'),
+          # single-file components: only the JavaScript front end reads their <script> blocks
+          '.vue': ('javascript',), '.svelte': ('javascript',), '.astro': ('javascript',)}
 
 
 def owners(repo, files):

@@ -653,6 +653,47 @@ jsx_wrapper_renders(w, m) :- jsx_component_wrapper(w),
     expr_child("client", w, "ARGUMENT", "0", a),
     jsx_component_wrapper(a),
     jsx_wrapper_renders(a, m).
+// …or, when that argument NAMES a component defined elsewhere, what that one renders: the
+// registration idiom `import _Button from "./Button"; export const Button =
+// withInstall(_Button)`, where Button.tsx is `export default defineComponent({…})`, and
+// its local and named-import forms.
+jsx_wrapper_renders(w, m) :- jsx_component_wrapper(w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    expr_referenced("client", "VARIABLE", v, a),
+    jsx_wrapped_component(v, m).
+jsx_wrapper_renders(w, m) :- jsx_component_wrapper(w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    expr_referenced("client", "IMPORT_BINDING", ih, a),
+    import_binds(ih, _, "VARIABLE", v),
+    jsx_wrapped_component(v, m).
+jsx_wrapper_renders(w, m) :- jsx_component_wrapper(w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    expr_referenced("client", "IMPORT_BINDING", ih, a),
+    import_binding("client", "DEFAULT", _, _, _, ih),
+    import_target_module(ih, "client", mod2),
+    jsx_default_export_renders(mod2, m).
+// A Vue component, `defineComponent({ setup() {…} })` / `defineComponent({ render() {…} })`
+// (Nuxt: `defineNuxtComponent`). What the tag invokes with its props is the options
+// object's `setup`, or its `render` option when there is no setup; a render function setup
+// RETURNS is reached from setup's body, as memo's argument reaches what it defines. One
+// target, not both: the site's candidates are an overload set to arity selection, and
+// `setup(props)` beside a zero-parameter render arrow would lose one of them. The function
+// form, `defineComponent((props) => () => …)`, is argument 0 itself, as for memo. Named by
+// the definer, so the same object handed to any other call (`makeStore({ setup() {…} })`)
+// stays out.
+jsx_vue_definer_name("defineComponent").
+jsx_vue_definer_name("defineNuxtComponent").
+jsx_vue_definer(w) :- call_site("client", _, n, _, _, w, _),
+    jsx_vue_definer_name(n).
+jsx_component_wrapper(w) :- jsx_vue_definer(w).
+jsx_vue_has_setup(a) :- objlit_member_fn(a, "setup", _).
+jsx_wrapper_renders(w, m) :- jsx_vue_definer(w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    objlit_member_fn(a, "setup", m).
+jsx_wrapper_renders(w, m) :- jsx_vue_definer(w),
+    expr_child("client", w, "ARGUMENT", "0", a),
+    !jsx_vue_has_setup(a),
+    objlit_member_fn(a, "render", m).
 // A wrapper call that IS the module's default export, `export default memo(Card)`,
 // binds no variable: the tag reaches it through a default import of that module.
 jsx_default_export_renders(mod, m) :- export_decl("client", "default", _, "DEFAULT_EXPRESSION", mod, h),
@@ -665,6 +706,24 @@ expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _
     import_binding("client", "DEFAULT", cn, _, mod, ih),
     import_target_module(ih, "client", mod2),
     jsx_default_export_renders(mod2, m).
+// A Vue single-file component, `import Child from "./Child.vue"` rendered as `<Child/>`
+// (a tag of a `.vue` template, or JSX). Its script is the module's top-level code — a
+// `<script setup>` body runs once per instance, and the virtual script the parser reads
+// writes the component's template there too — so the tag reaches the module initializer.
+// A `<script setup>` component has no default export at all; one whose default export
+// renders (a wrapper, above) is reached through that export instead.
+jsx_vue_module(mod) :- module_decl("client", _, _, fp, _, mod),
+    match(".*[.]vue", fp).
+jsx_vue_default_renders(mod) :- jsx_default_export_renders(mod, _).
+expr_call_candidate(ce, init) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    !callee_names_local(ce),
+    import_binding("client", "DEFAULT", cn, _, mod, ih),
+    import_target_module(ih, "client", mod2),
+    jsx_vue_module(mod2),
+    !jsx_vue_default_renders(mod2),
+    module_init("client", init, mod2).
 // A LOADER — `lazy(() => import("./Settings"))`, Next.js `dynamic(...)`, `loadable(...)`.
 // Argument 0 is not the component: it returns a module, or a promise of one, and what
 // renders is the component that settles out of it.
