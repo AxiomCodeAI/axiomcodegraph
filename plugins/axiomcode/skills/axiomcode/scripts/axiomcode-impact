@@ -1977,8 +1977,6 @@ def main(argv):
     if IN: reached = {m: d for m, d in reached.items() if g.under_in(g.sym[m]['file'])}
     parent = collections.defaultdict(list)
     for a, b, t, q_ in res['parent_up']: parent[a].append((b, t))
-    callers_of = collections.defaultdict(set)
-    for a, b, _ in g.edges(): callers_of[b].add(a)
     prof('outputs read')
     tests = {}
     for m, d, q_ in res['test_near']:
@@ -2026,8 +2024,11 @@ def main(argv):
     # a type alias holds the hop to its users (#784) but is nothing a framework or a runner invokes
     import graph_sql
     aliases = graph_sql.type_aliases(g.q)[1]
-    ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items()
-           if (not callers_of.get(m) or g.sym[m]['is_test']) and m not in aliases]
+    # one rule with `path '*'` (P.entry_points_among): an entry_points row with its reason, or nothing resolved calls it,
+    # where a base's dispatch hop to its override is not a call (#1475, #1492). The walk up from the change starts at the
+    # direct users too: a field reader or a contract row has no edge to the seed, and is still where the change is seen
+    ent_why = P.entry_points_among(g, [m for m in {*direct_ids, *reached} if m not in aliases], {*seeds, *direct_ids})
+    ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if m in ent_why]
     inside = list({*reached, *seeds, *direct_ids})               # the direct rows are not in seed for a method target
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
@@ -2547,10 +2548,10 @@ def main(argv):
         # built in, which comes from a SET and is a function of hashing rather than of the answer. The location
         # makes it total, so the same graph prints the same list twice running.
         ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], g.loc(x[0]), x[0]))
-        print(f"    entry points ({len(ent)}: nothing resolved calls them — a framework, a runner, reflection — or a test; 0 hops = touches it directly), nearest first:")
+        print(f"    entry points ({len(ent)}: a framework enters them, for the reason given, or nothing resolved calls them — a framework, a runner, reflection — or a test; 0 hops = touches it directly), nearest first:")
         for m, d in ent[:limit]:
             decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []
-            print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}")
+            print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}{P.entry_why(ent_why.get(m))}")
         # the entry points' own overflow line, under their list: it sat inside the next section and printed only when
         # that section did
         if len(ent) > limit: print(f"      … +{len(ent) - limit} (--limit N)")
