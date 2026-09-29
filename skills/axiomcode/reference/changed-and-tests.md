@@ -3,7 +3,9 @@
 
 `axiomcode changed` maps a change onto the graph's declarations and says *how* each changed, in every language from the text:
 `signature` (parameters added / removed / renamed / retyped — `+reason`, `-x`, `zip: String → Integer` —, the return type),
-`body` (only lines inside a method), `field` (its type `String → Integer`, its name, its initializer), `type` (a header: name,
+`body` (only lines inside a method), `field` (its type `String → Integer`, its name, its initializer; `variable` for a name a
+script's top-level code assigns; a line of several statements or declarations (`a = 1; b = 2`, `int a = 1, b = 2;`,
+`a, b = 1, 2`) is compared one statement at a time, so only the one whose own statement changed is named), `type` (a header: name,
 extends / implements, type parameters), `removed`, and `added` lines outside any known declaration (listed, not analysed —
 nothing depends on new code yet). By default it reads the working tree against **the commit the graph was built from** (the
 build stamps it), so an uncommitted edit is always measured against the tree the graph describes; `--range a..b` reads two
