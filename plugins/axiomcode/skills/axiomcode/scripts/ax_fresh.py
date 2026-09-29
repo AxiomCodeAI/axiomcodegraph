@@ -42,10 +42,16 @@ H = os.path.dirname(os.path.abspath(__file__))
 # what each language's parser reads: extensions, and file names read whatever their extension. Mirrors
 # parser/src/extract.ts: Java also reads .properties / XML / YAML / Gradle / lombok.config and
 # META-INF/services; TypeScript reads JavaScript beside it and resolves through tsconfig and package.json.
+# SINGLE-FILE COMPONENTS (#1744): the web front ends read the <script> blocks of a .vue, .svelte or .astro file, so an
+# edit to one changes the graph. Left out of the table, the edit was invisible: `index` said "graph up to date" and
+# every query answered from the component's old text. Both front ends watch them, whichever reads them, since a file
+# watched that the parser skips costs only a needless rebuild. Watched, not counted: SOURCE below still decides which
+# languages a repository has, so a component alone does not add a language.
+COMPONENT_EXT = ('.vue', '.svelte', '.astro')
 EXT = {
     'java': ('.java', '.properties', '.xml', '.yml', '.yaml', '.gradle', '.kts', '.toml'),
-    'typescript': ('.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'),
-    'javascript': ('.js', '.jsx', '.mjs', '.cjs', '.vue', '.svelte', '.astro'),   # components: their <script> blocks
+    'typescript': ('.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs') + COMPONENT_EXT,
+    'javascript': ('.js', '.jsx', '.mjs', '.cjs') + COMPONENT_EXT,
     'python': ('.py', '.pyi'),
     'csharp': ('.cs', '.csproj', '.props', '.targets', '.sln'),
 }
