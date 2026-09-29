@@ -127,7 +127,14 @@ config_entry_point(m, kind, fm) :- cfg_factory(prov, a, fm, _), ann_arg(prov, a,
 // (4) annotation-driven container callbacks that annotation_flow.dl does not cover.
 config_entry_point(m, "lifecycle", m) :- ann_on_method(_, _, n, m, _), cfg_lifecycle_ann(n).
 // JPA entity callbacks, on an entity, a mapped superclass or an @EntityListeners class.
-config_entry_point(m, "orm_hook", m) :- ann_on_method(_, _, n, m, _), cfg_jpa_callback_ann(n).
+// Only those: the provider never runs a @PrePersist on any other class, so a callback
+// annotation on a class no entity names is not an entry point (it stays unreachable, and
+// call-edge-generation/entity_lifecycle.dl gives it no caller either).
+config_entry_point(m, "orm_hook", m) :- ann_on_method(_, _, n, m, _), cfg_jpa_callback_ann(n),
+    method_owner("client", t, m), jpa_callback_owner(t).
+jpa_callback_owner(t) :- ann_on_type("client", _, n, t), cfg_entity_ann(n).
+jpa_callback_owner(t) :- ann_arg(prov, a, arg, _, "CLASS_REFERENCE", _), cfg_ann_name_of(prov, a, n),
+    cfg_entity_listeners_ann(n), cfg_registering_class_arg(n, arg, _), cfg_ann_class_arg(prov, a, arg, t).
 // A JAX-RS @QueryParam / @PathParam / … parameter of a client type T: the runtime builds
 // it with T.valueOf(String), T.fromString(String) or new T(String).
 jaxrs_param_type(t) :- ann_on_param(_, _, n, p, _), cfg_jaxrs_param_ann(n),

@@ -53,6 +53,7 @@ ambiguous_unknown	SUPER_TYPE	0	app.init.BootServlet [TYPE] -> -
 ambiguous_unknown	SUPER_TYPE	0	app.init.OrderServlet [TYPE] -> -
 ambiguous_unknown	SUPER_TYPE	0	app.web.UnmappedServlet [TYPE] -> -
 ambiguous_unknown	SUPER_TYPE	0	app.web.WidgetServlet [TYPE] -> -
+known_edge	ANNOTATION_PARAM	0	app.jpa.Widget [ANNOTATION_ARGUMENT] -> app.jpa.PriceConverter
 known_edge	ANNOTATION_PARAM	0	app.jpa.Widget [ANNOTATION_ARGUMENT] -> app.jpa.Unregistered
 known_edge	ANNOTATION_PARAM	0	app.jpa.Widget [ANNOTATION_ARGUMENT] -> app.jpa.WidgetAudit
 known_edge	ANNOTATION_TYPE	0	app.jpa.Widget [ANNOTATION] -> app.jpa.Documented
