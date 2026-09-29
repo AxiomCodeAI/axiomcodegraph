@@ -82,28 +82,7 @@ def registrations(q, site_file=None):
     # the cap and joins two unrelated tests. The DEPENDENT row is still true and still printed — a test that mounts a
     # handler does depend on it — so only the key is withheld.
     tf = {f for (f,) in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")} if _has(q, 'symbols') else set()
-    out = {}
-    verbs = {}                             # (file, line) -> {HTTP verb: first column}, for the wording below
-    for name, site_kind, fp, a, b, col in q("""SELECT callee_name, kind, file_path, start_line, end_line, end_column FROM call_sites
-                                      WHERE callee_name IS NOT NULL AND start_line > 0"""):
-        f = sf(fp); b = b or a
-        if b < a or b - a > MAX_SITE_SPAN:
-            continue
-        if site_kind == 'DECORATOR_CALL':
-            continue                       # a decoration is reported as a decoration, not as a registration
-        short = (name or '').split('.')[-1]
-        paths = [v for l in range(a, b + 1) for v in lits.get((f, l), ()) if isinstance(v, str) and v.startswith('/')]
-        if short.lower() in ROUTE_VERB and paths:
-            kind, key = 'route', ('' if f in tf else paths[0])
-            why = f'registered as a {short.upper()} route "{paths[0]}" here — the router calls it, no call site does'
-        else:
-            continue                       # no evidence that this call does anything with a declaration named here
-        for l in range(a, b + 1):
-            # a route beats a plain callback on the same line: `router.use('/x', wrap(handler))` is a route site
-            if (f, l) not in out or kind == 'route':
-                out[(f, l)] = (kind, key, why)
-            if short.lower() in HTTP_VERB and (l == b or a == b):
-                vs = verbs.setdefault((f, l), {}); vs[short.upper()] = min(vs.get(short.upper(), col or 0), col or 0)
+    out, verbs, _own = _route_links(q, sf, lits, tf)
     # `router.route('/').get(h)` is two route-shaped calls on one line, and `route` said nothing about the method: the
     # line's HTTP verbs name it, in the order written. A chain registering two (`.get(a).post(b)`) names both, because
     # a line is all a reference records and it cannot say which argument list the handler sat in
@@ -113,6 +92,83 @@ def registrations(q, site_file=None):
             m = re.match(r'registered as a \w+ route (".*?") here', w)
             if m: out[(f, l)] = (k, key, f"registered as a {'/'.join(sorted(vs, key=vs.get))} route {m.group(1)} here — the router calls it, no call site does")
     return sorted((ref_at.get((f, l), ''), f, l, k, key, w) for (f, l), (k, key, w) in out.items())
+
+
+def route_site_lines(q, site_file=None):
+    """{call_site_id: line} — the line a CHAINED route link's own part is written on, for each link after the first.
+
+    A call site's start line is where its receiver starts, so the engine places the handler of `.post('/c', h3)` in
+    `router.get('/a', h1)\\n.get('/b', h2)\\n.post('/c', h3)` on the chain's first line, where the registration rows say
+    GET "/a". The `calls` fact and the SQL rows place an edge at one of these sites on this line instead, the line
+    `registrations()` labels with the link's own verb and path. Only route links move; every other site keeps its line.
+    """
+    if not _has(q, 'call_sites'):
+        return {}
+    lits = {}
+    if _has(q, 'literals'):
+        for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+            lits.setdefault((f, l), []).append(v)
+    return _route_links(q, site_file or (lambda x: x), lits, set())[2]
+
+
+def _route_links(q, sf, lits, tf):
+    """({(file, line): (kind, key, why)}, {(file, line): {HTTP verb: column}}, {call_site_id: own line}) for every
+    route registration site.
+
+    A CHAINED REGISTRATION `router.get('/a', h1).get('/b', h2).post('/c', h3)` is three call sites that all START
+    where `router` starts: each one's span covers its receiver, i.e. every call before it in the chain. Reading a
+    site's verb and path over its whole span gave each link the first link's path, and whichever link was read last
+    claimed every line. A link's OWN part begins where its receiver ends, so the chain is walked innermost first and
+    each link takes the first path its own part holds that an earlier link has not taken; a link with no path of its
+    own (`router.route('/p').get(h).put(h2)`) keeps its receiver's, which is what that API means.
+    """
+    sites = []
+    for sid, name, site_kind, fp, a, ac, b, bc in q("""SELECT id, callee_name, kind, file_path, start_line, start_column,
+                                                      end_line, end_column FROM call_sites
+                                                      WHERE callee_name IS NOT NULL AND start_line > 0"""):
+        b = b or a
+        if b < a or b - a > MAX_SITE_SPAN:
+            continue
+        if site_kind == 'DECORATOR_CALL':
+            continue                       # a decoration is reported as a decoration, not as a registration
+        sites.append((sf(fp), a, ac, b, bc, (name or '').split('.')[-1], sid))
+    chains = {}
+    for s in sites:
+        # without a start column two calls on one line cannot be told apart from a chain: each is its own chain
+        chains.setdefault((s[0], s[1], s[2]) if s[2] is not None else s, []).append(s)
+    out, owned, own_line = {}, set(), {}
+    verbs = {}                             # (file, line) -> {HTTP verb: first column}, for registrations' wording
+    for links in chains.values():
+        links.sort(key=lambda s: (s[3], s[4] or 0))
+        taken, prev_end, prev_path = set(), None, None
+        for f, a, _ac, b, col, short, sid in links:
+            lo = a if prev_end is None else prev_end
+            own = [(l, i, v) for l in range(lo, b + 1) for i, v in enumerate(lits.get((f, l), ()))
+                   if isinstance(v, str) and v.startswith('/') and (l, i) not in taken]
+            if own:
+                l0, i0, path = own[0]
+                taken.add((l0, i0))
+            else:
+                # no path of its own: the link's own part starts on the line after its receiver's, when it has one
+                l0, path = (min(lo + 1, b) if prev_end is not None else a), prev_path
+            chained, prev_end, prev_path = prev_end is not None, b, path
+            if short.lower() not in ROUTE_VERB or path is None:
+                continue                   # no evidence that this call does anything with a declaration named here
+            if chained:
+                own_line[sid] = l0
+            kind, key = 'route', ('' if f in tf else path)
+            why = f'registered as a {short.upper()} route "{path}" here — the router calls it, no call site does'
+            # a line shared by two links belongs to the verb whose own part starts on it, else to the outer link: on a
+            # chain written on one line nothing tells the links apart, and the line keeps the last verb it always had.
+            # `route(p)` registers no handler, so it never holds a line against the verbs chained onto it
+            owns = short.lower() != 'route' and (not chained or l0 > lo)
+            for l in range(lo, b + 1):
+                if (f, l) not in owned:
+                    out[(f, l)] = (kind, key, why)
+                    if owns and l == l0: owned.add((f, l))
+                if short.lower() in HTTP_VERB and (l == b or lo == b):
+                    vs = verbs.setdefault((f, l), {}); vs[short.upper()] = min(vs.get(short.upper(), col or 0), col or 0)
+    return out, verbs, own_line
 
 
 # A CONST HOLDING A WRAPPED HANDLER — `const h = catchAsync(async (req, res) => …)`, then `router.get('/a', h)` — is a
@@ -360,6 +416,18 @@ def _has(q, t):
 # Every one of those is "the framework will dispatch to this declaration when someone writes this string", which is
 # exactly what the join needs. The kind is read from the key rather than from a list of decoration names: a key that
 # begins with `/` is a route, anything else is a key, and no framework is named anywhere in this function.
+def decoration_key_strings(text):
+    """the strings a decoration's text registers its declaration under, sorted: every quoted string in it but prose.
+    A STRING WITH A SPACE IN IT IS PROSE, NOT A KEY: `@widgets.doc("Endpoint to list the widgets")`, `@Operation(summary = "List
+    the orders")`, a cron expression, a query. No route, command, signal or table name is written with one, and read as
+    a key the description was printed as what the framework dispatches on."""
+    out = set()
+    for a, b in re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''):
+        key = a or b
+        if key and not re.search(r'\s', key): out.add(key)
+    return sorted(out)
+
+
 def decoration_keys(q, site_file=None):
     """[(decl, file, line, kind, key, why)] — a declaration registered under a string by its own decoration."""
     if not _has(q, 'decorations'):
@@ -378,10 +446,7 @@ def decoration_keys(q, site_file=None):
         if owner in tests:
             continue
         short = (name or '').split('.')[-1]
-        for key in sorted(set(re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''))):
-            key = key[0] or key[1]
-            if not key:
-                continue
+        for key in decoration_key_strings(text):
             kind = 'route' if key.startswith('/') else 'key'
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')

@@ -1,3 +1,5 @@
 nominal	globals#Function.apply -> globals#CallableFunction.apply
 nominal	globals#Function.bind -> globals#CallableFunction.bind
 nominal	globals#Function.call -> globals#CallableFunction.call
+value_call	strict-bind#viaArrow -> strict-bind#<arrow>
+value_call	strict-bind#viaDeclaredFunction -> strict-bind#localFormat

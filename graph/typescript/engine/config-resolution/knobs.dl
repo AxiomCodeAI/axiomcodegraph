@@ -131,3 +131,74 @@ ts_framework_lifecycle_method("onModuleInit").         ts_framework_lifecycle_me
 ts_framework_lifecycle_method("onApplicationBootstrap").
 ts_framework_lifecycle_method("onApplicationShutdown").
 ts_framework_lifecycle_method("beforeApplicationShutdown").
+
+// ============================================================================
+// CROSS-PROCESS DESTINATIONS (framework-behavior/destinations.dl)
+//
+// The names the remote_edge rules key on. As in Java and C#, no rule there names a
+// framework: adding an HTTP client or a route decorator is a fact added here.
+// ============================================================================
+
+// ── the vocabulary of the edge itself ───────────────────────────────────────
+.decl ts_remote_transport_http(c0:symbol)
+ts_remote_transport_http("http").
+.decl ts_remote_confidence_exact(c0:symbol)
+ts_remote_confidence_exact("exact").
+// a placeholder on one end stood in for a literal on the other
+.decl ts_remote_confidence_route_shape(c0:symbol)
+ts_remote_confidence_route_shape("route_shape").
+// the verb that matches every other one: `app.all`, `@All`, a request whose method
+// is computed
+.decl ts_http_verb_any(c0:symbol)
+ts_http_verb_any("ANY").
+
+// ── ts_http_verb_name(Written, Verb) — a verb as a program spells it ─────────
+// A router method is lower case, a `method:` option is either. `all` is any verb.
+// `use` and `route` are deliberately absent: `use` mounts middleware or a router
+// under a PREFIX, which is not a route a client can name.
+.decl ts_http_verb_name(c0:symbol, c1:symbol)
+ts_http_verb_name("get", "GET").         ts_http_verb_name("GET", "GET").
+ts_http_verb_name("post", "POST").       ts_http_verb_name("POST", "POST").
+ts_http_verb_name("put", "PUT").         ts_http_verb_name("PUT", "PUT").
+ts_http_verb_name("delete", "DELETE").   ts_http_verb_name("DELETE", "DELETE").
+ts_http_verb_name("patch", "PATCH").     ts_http_verb_name("PATCH", "PATCH").
+ts_http_verb_name("head", "HEAD").       ts_http_verb_name("HEAD", "HEAD").
+ts_http_verb_name("options", "OPTIONS"). ts_http_verb_name("OPTIONS", "OPTIONS").
+ts_http_verb_name("all", "ANY").
+
+// ── ts_route_decorator_verb(Decorator, Verb) — a Nest method route ──────────
+.decl ts_route_decorator_verb(c0:symbol, c1:symbol)
+ts_route_decorator_verb("Get", "GET").         ts_route_decorator_verb("Post", "POST").
+ts_route_decorator_verb("Put", "PUT").         ts_route_decorator_verb("Delete", "DELETE").
+ts_route_decorator_verb("Patch", "PATCH").     ts_route_decorator_verb("Head", "HEAD").
+ts_route_decorator_verb("Options", "OPTIONS"). ts_route_decorator_verb("All", "ANY").
+
+// ── ts_route_prefix_decorator(Name) — a class decorator whose argument prefixes
+// every route of its methods (`@Controller('orders')`)
+.decl ts_route_prefix_decorator(c0:symbol)
+ts_route_prefix_decorator("Controller").
+
+// ── the client end ──────────────────────────────────────────────────────────
+// ts_http_fetch_function(Name): a function that sends its first argument as a URL,
+// with the verb in the `method` of its second. The platform's `fetch` is an ambient
+// global; the packages that polyfill it export the same function.
+.decl ts_http_fetch_function(c0:symbol)
+ts_http_fetch_function("fetch").
+.decl ts_http_fetch_module(c0:symbol)
+ts_http_fetch_module("node-fetch").   ts_http_fetch_module("cross-fetch").
+ts_http_fetch_module("undici").       ts_http_fetch_module("isomorphic-fetch").
+// ts_http_init_method_key(Key): the option of a request init that names the verb
+.decl ts_http_init_method_key(c0:symbol)
+ts_http_init_method_key("method").
+
+// ts_http_client_module(Specifier): a package whose default or named export is a
+// client called as `<client>.<verb>(url, …)`. Matched on the IMPORT, never on the
+// receiver's spelling: a variable that happens to be called `axios` is not one.
+.decl ts_http_client_module(c0:symbol)
+ts_http_client_module("axios").
+// ts_http_client_factory(Name): `axios.create({ baseURL })` returns a client whose
+// every URL is relative to the base
+.decl ts_http_client_factory(c0:symbol)
+ts_http_client_factory("create").
+.decl ts_http_base_url_key(c0:symbol)
+ts_http_base_url_key("baseURL").

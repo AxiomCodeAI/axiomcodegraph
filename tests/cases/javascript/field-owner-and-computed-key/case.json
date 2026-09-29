@@ -1,0 +1,125 @@
+{
+ "lang": "javascript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a field assigned in a constructor is owned by its class: `impact Store.items` answered `field items`, the owner dropped, so the answer could not say which class's field it was",
+   "run": [
+    "impact",
+    "Store.items",
+    "--kind",
+    "field"
+   ],
+   "want": [
+    "change: field Store.items",
+    "[in scope] Store.insert"
+   ],
+   "avoid": [
+    "change: field items",
+    "[in scope] Queue.push"
+   ]
+  },
+  {
+   "why": "CONTROL: the same field name on another class is that class's, and only its own method writes it",
+   "run": [
+    "impact",
+    "Queue.items",
+    "--kind",
+    "field"
+   ],
+   "want": [
+    "change: field Queue.items",
+    "[in scope] Queue.push"
+   ],
+   "avoid": [
+    "[in scope] Store.insert"
+   ]
+  },
+  {
+   "why": "a class field is owned by its class",
+   "run": [
+    "impact",
+    "Counter.count",
+    "--kind",
+    "field"
+   ],
+   "want": [
+    "change: field Counter.count"
+   ],
+   "avoid": [
+    "change: field count"
+   ]
+  },
+  {
+   "why": "`this.x` in a constructor function is a field of that function's class",
+   "run": [
+    "impact",
+    "Legacy.name",
+    "--kind",
+    "field"
+   ],
+   "want": [
+    "change: field Legacy.name",
+    "Legacy.describe"
+   ],
+   "avoid": [
+    "change: field name"
+   ]
+  },
+  {
+   "why": "a member whose key is an expression is named by the key as written: `static [Symbol.hasInstance]` displayed as `Counter.` with an empty name",
+   "run": [
+    "impact",
+    "lib.js:26"
+   ],
+   "want": [
+    "Counter.[Symbol.hasInstance]"
+   ],
+   "avoid": [
+    "Counter.   ",
+    "Counter. "
+   ]
+  },
+  {
+   "why": "and a second computed key on the same class is named by its own key",
+   "run": [
+    "impact",
+    "lib.js:29"
+   ],
+   "want": [
+    "change: Counter.[Symbol.iterator] (at lib.js:29)"
+   ],
+   "avoid": [
+    "Counter.   "
+   ]
+  },
+  {
+   "why": "a computed key is asked for by name as displayed: its dots are part of ONE segment, so `Counter.[Symbol.iterator]` is not split into `[Symbol` and `iterator]`",
+   "run": [
+    "impact",
+    "Counter.[Symbol.iterator]"
+   ],
+   "want": [
+    "change: Counter.[Symbol.iterator]   [method]"
+   ],
+   "avoid": [
+    "Counter.[Symbol.iterator] matched",
+    "declarations)",
+    "hasInstance]   [method]"
+   ]
+  },
+  {
+   "why": "CONTROL: a module-level binding keeps no owner",
+   "run": [
+    "impact",
+    "settings"
+   ],
+   "want": [
+    "change: const settings"
+   ],
+   "avoid": [
+    ".settings"
+   ]
+  }
+ ]
+}

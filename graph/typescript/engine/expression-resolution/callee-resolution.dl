@@ -39,6 +39,18 @@
 call_callee_expr(cs, ce, ne) :- call_site("client", _, _, _, _, ce, cs),
     expr_child("client", ce, "METHOD_NAME", _, ne).
 
+// ── A BARE DECORATOR IS ITS OWN CALLEE ──────────────────────────────────────
+// `@guarded` has no CALL_EXPRESSION around it: the runtime invokes the named function
+// with (target, key, descriptor), so the parser's call site points at the NAME itself,
+// and that name is also the callee position. `@timed()` keeps its ordinary shape — the
+// call is the site and `timed` its METHOD_NAME child. On a codebase that decorates most
+// public methods this was most of the compiler's sites missing from the graph (#233).
+bare_decorator_call(ce) :- call_site("client", "DECORATOR_CALL", _, _, _, ce, _),
+    expr_kind("client", k, _, ce),
+    k != "CALL_EXPRESSION".
+call_callee_expr(cs, ce, ce) :- call_site("client", "DECORATOR_CALL", _, _, _, ce, cs),
+    bare_decorator_call(ce).
+
 // A receiver type must be searchable, so every type a receiver actually takes is
 // seeded into the member-lookup scope. Bounded to types used as receivers, exactly
 // as Java bounds `lookup_type`; without it a static-qualifier receiver reached only
@@ -210,6 +222,73 @@ expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
     cn != "",
     expr_referenced("client", "VARIABLE", v, recv),
     objlit_prop_arrow(v, cn, m).
+
+// (5e) THE LITERAL A RECEIVER EVALUATES TO, HOWEVER IT GOT THERE — `api.users.list()`,
+// `userApi.fetch(id)` with `userApi` imported, `makeStore().inc()`. (5b)/(5c) join a bare
+// VARIABLE reference to its own initializer, so an API module failed on every other road
+// to the same literal: an import of the const, a property of it that is itself a literal,
+// and a factory whose unannotated return type IS the literal it returns. The compiler
+// names the literal's member on each road, because an unannotated literal's type is its
+// own shape.
+//
+// UNANNOTATED ONLY, on both the variable and the function: an annotation is the type the
+// compiler answers with (`const g: Greeter = {…}` resolves `g.greet` to Greeter.greet),
+// and (4)/(6) already reach it; the literal then implements it (value-flow.dl).
+expr_objlit(e, l) :- expr_referenced("client", "VARIABLE", v, e), var_objlit(v, l).
+expr_objlit(e, l) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, _, "VARIABLE", v),
+    var_objlit(v, l).
+// `api.users`: a property of a literal whose value is a literal
+expr_objlit(e, l) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_objlit(q, l0),
+    objlit_prop(l0, n, val),
+    literal_value_objlit(val, l).
+// `makeStore(1)`: the call's value is what its callee returns
+expr_objlit(ce, l) :- expr_kind("client", "CALL_EXPRESSION", _, ce),
+    expr_call_candidate(ce, f),
+    method_returns_objlit(f, l).
+
+var_objlit(v, l) :- var_initializer("client", _, e, v),
+    !var_type_ref(_, _, v),
+    literal_value_objlit(e, l).
+var_objlit(v, l) :- var_initializer("client", _, e, v),
+    !var_type_ref(_, _, v),
+    expr_kind("client", "CALL_EXPRESSION", _, e),
+    expr_objlit(e, l).
+
+method_returns_objlit(f, l) :- method_returns_expr(f, e),
+    expr_kind("client", _, "ROOT", e),
+    !method_return_ref(_, _, f),
+    literal_value_objlit(e, l).
+// `() => ({ … })`: a concise body is not a return statement
+method_returns_objlit(f, l) :- expr_root_context("client", "ARROW_BODY_EXPRESSION", e),
+    expr_kind("client", _, "ROOT", e),
+    expr_owner("client", "METHOD", f, _, e),
+    !method_return_ref(_, _, f),
+    literal_value_objlit(e, l).
+
+// a literal, or one written `{ … } satisfies T`, which checks the literal and keeps its type
+literal_value_objlit(e, e) :- expr_kind("client", "OBJECT_LITERAL", _, e).
+literal_value_objlit(e, l) :- expr_kind("client", "SATISFIES_EXPRESSION", _, e),
+    expr_child("client", e, "SATISFIES_OPERAND", _, x),
+    literal_value_objlit(x, l).
+
+// the literal's method or function-valued property (`get: (id) => …`, `byName: function …`)
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_objlit(recv, l),
+    objlit_member_fn(l, cn, m).
+// …or a property naming a function declared elsewhere: `{ find: getUserById }`
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_objlit(recv, l),
+    objlit_prop(l, cn, val),
+    !expr_anon_decl("client", _, val),
+    !expr_kind("client", "CALL_EXPRESSION", _, val),
+    expr_callable(val, m).
 
 // (5d) A CLASS FIELD HOLDING AN ARROW — `h.viaField(n)` where the class declares
 // `readonly viaField = (n: number) => n + 3`. field_is_callable reaches a field whose
@@ -743,7 +822,7 @@ expr_call_candidate(ce, m) :- call_site("client", ck, cn, "IDENTIFIER", recv, ce
     cn != "",
     expr_name("client", nsname, recv),
     nsname != "",
-    global_decl(nsname, "TYPE", prov, ns),
+    global_decl_wide(nsname, "TYPE", prov, ns),
     type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns),
     namespace_member(prov, ns, cn, "METHOD", m).
 call_kind_is_member_call("METHOD_CALL").

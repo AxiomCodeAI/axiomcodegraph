@@ -1,0 +1,18 @@
+shapes.js:12:18 METHOD_CALL this.cb  ->  ambient_terminal  -
+shapes.js:16:18 METHOD_CALL this.cb  ->  known_edge  shapes.js:15:37 <function-expression>
+shapes.js:20:25 METHOD_CALL this.cb  ->  ambiguous_unknown  -
+shapes.js:24:25 METHOD_CALL this.cb  ->  ambient_terminal  -
+shapes.js:28:37 METHOD_CALL self.cb  ->  ambiguous_unknown  -
+shapes.js:32:19 CONSTRUCTOR_CALL this.Ctor  ->  ambiguous_unknown  -
+shapes.js:34:13 FUNCTION_CALL debug  ->  ambiguous_unknown  -
+shapes.js:35:19 FUNCTION_CALL log  ->  ambiguous_unknown  -
+shapes.js:37:26 FUNCTION_CALL tag  ->  ambient_terminal  -
+shapes.js:38:17 FUNCTION_CALL debug  ->  ambiguous_unknown  -
+shapes.js:38:17 FUNCTION_CALL debug  ->  callback_registered  shapes.js:3:1 alpha
+shapes.js:39:34 FUNCTION_CALL wrapped  ->  ambiguous_unknown  -
+shapes.js:42:48 METHOD_CALL this.emit  ->  ambient_terminal  -
+shapes.js:43:48 METHOD_CALL this.own  ->  known_edge  shapes.js:43:13 own
+shapes.js:44:65 METHOD_CALL this.fn  ->  known_edge  shapes.js:3:1 alpha
+shapes.js:46:31 CONSTRUCTOR_CALL Own  ->  implicit_constructor  -
+shapes.js:46:49 METHOD_CALL o.run  ->  known_edge  shapes.js:43:33 run
+shapes.js:7:18 METHOD_CALL this.cb  ->  ambient_terminal  -

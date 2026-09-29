@@ -1,3 +1,5 @@
 ambiguous_unknown	DECORATOR_TYPE	0	Svc [DECORATOR] -> -
+ambiguous_unknown	METHOD_PARAM	0	Guards [METHOD_PARAM] -> -
 ambiguous_unknown	METHOD_PARAM	0	svc [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	Guards [METHOD] -> -
 ambiguous_unknown	METHOD_RETURN	0	svc [METHOD] -> -

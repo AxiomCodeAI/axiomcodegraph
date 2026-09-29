@@ -46,6 +46,8 @@ FILES = {
     'tools/pkg/calc.py': 'def add(a, b):\n    return a + b\n\n\ndef total(xs):\n    t = 0\n    for x in xs:\n        t = add(t, x)\n    return t\n',
     'tools/pkg/cli.py': 'from pkg.calc import total\n\n\ndef main():\n    return total([1, 2])\n',
     'tools/gen/make.py': 'def emit(x):\n    return x\n\n\ndef main():\n    return emit(1)\n',
+    # a directory whose name CONTAINS the scope `tools` and is not under it
+    'lib/pytools/probe.py': 'def emit(x):\n    return [x]\n',
     'src/cli.ts': 'import { run } from \'./main\'\n\nexport function main(): number {\n  return run()\n}\n',
     'jslib/package.json': '{ "name": "jslib", "version": "1.0.0", "main": "index.js" }\n',
     'jslib/index.js': 'function helper(a) {\n  return a + 1\n}\n\nfunction api(a) {\n  return helper(a) * 2\n}\n\nmodule.exports = { api }\n',
@@ -179,10 +181,37 @@ def main(argv):
         check(s.returncode == 0 and '══' not in s.stdout and 'src/' in s.stdout,
               'scope (control): --in the main graph\'s directory answers as the main graph alone', s.stdout + s.stderr)
         s = sh(repo, AX, 'context', 'add up a total', '.', '--in', 'tools/nosuch', env=quiet)
-        check(s.returncode != 0 and 'no indexed file' in s.stdout, 'scope (control): a directory no graph holds is still refused', s.stdout + s.stderr)
+        # a directory no graph holds is a typo, not a question about nothing: answered at the root, said ONCE, never one
+        # refusal menu per language (the scope another graph holds, above, is still answered from that graph)
+        check(s.returncode == 0 and s.stdout.count("no indexed file in any graph has 'tools/nosuch'") == 1
+              and 'answering at the repository root' in s.stdout and 'tools/pkg/calc.py' in s.stdout
+              and 're-run with one of these' not in s.stdout,
+              'scope: a directory no graph holds is answered at the repository root, and said once', s.stdout + s.stderr)
         s = sh(repo, AX, 'context', 'compute the area of a shape', '.', '--in', 'tools/pkg', env=quiet)
         check(s.returncode != 0 and 'none of these words appear under it' in s.stdout and 'no indexed file' not in s.stdout,
               'scope (control): a scope one graph holds, with nothing under it matching, is refused by that graph alone', s.stdout + s.stderr)
+        # #1584: `main` is declared in the typescript graph (src/cli.ts) and twice in the python one. With a scope, only
+        # the declaration under it is the target: not the other language's, and not the same language's elsewhere
+        s = sh(repo, AX, 'impact', 'main', '.', '--in', 'tools/pkg', env=quiet)
+        check(s.returncode == 0 and 'tools/pkg/cli.py' in s.stdout and 'src/cli.ts' not in s.stdout
+              and 'tools/gen/make.py' not in s.stdout and 'typescript graph' not in s.stdout,
+              'scope: impact --in picks the declaration under the scope, in the one graph that holds it', s.stdout + s.stderr)
+        s = sh(repo, AX, 'impact', 'main', '.', env=quiet)
+        check(s.returncode == 0 and 'src/cli.ts' in s.stdout and 'tools/pkg/cli.py' in s.stdout and 'tools/gen/make.py' in s.stdout,
+              'scope (control): impact without --in still answers for every declaration, in every graph', s.stdout + s.stderr)
+        s = sh(repo, AX, 'impact', 'square', '.', '--in', 'src/shape.ts', env=quiet)
+        check(s.returncode == 0 and 'area' in s.stdout and 'src/util.ts' in s.stdout,
+              'scope (control): a name declared outside the scope still answers who under it uses it', s.stdout + s.stderr)
+        # a scope that names a directory of the repository matches by prefix, not as a substring of another directory
+        s = sh(repo, AX, 'impact', 'emit', '.', '--in', 'tools', env=quiet)
+        check(s.returncode == 0 and 'tools/gen/make.py' in s.stdout and 'lib/pytools' not in s.stdout,
+              'scope: --in tools is the tools/ directory, not lib/pytools/', s.stdout + s.stderr)
+        s = sh(repo, AX, 'impact', 'emit', '.', '--in', 'pytools', env=quiet)
+        check(s.returncode == 0 and 'lib/pytools/probe.py' in s.stdout and 'tools/gen/make.py' not in s.stdout,
+              'scope (control): a scope that names no path of the repository still matches anywhere', s.stdout + s.stderr)
+        s = sh(repo, AX, 'context', 'emit a value', '.', '--in', 'tools', env=quiet)
+        check(s.returncode == 0 and 'tools/gen/make.py' in s.stdout and 'lib/pytools' not in s.stdout,
+              'scope: context --in tools keeps lib/pytools/ out too', s.stdout + s.stderr)
 
         # ── --from ────────────────────────────────────────────────────────────────────────────────────────────
         # `main` is declared in the typescript graph and twice in the python one: the flow starts where the task's

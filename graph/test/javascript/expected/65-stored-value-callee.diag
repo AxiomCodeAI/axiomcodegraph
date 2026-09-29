@@ -1,0 +1,26 @@
+import_cause     stored.js:2:14  path  builtin
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       stored.js:13:76  METHOD_CALL onReady  receiver_untyped
+unresolved       stored.js:14:48  METHOD_CALL onDone  receiver_untyped
+unresolved       stored.js:15:43  METHOD_CALL onEnd  receiver_untyped
+unresolved       stored.js:16:38  OPTIONAL_CALL onStart  receiver_untyped
+unresolved       stored.js:17:39  FUNCTION_CALL   callee_untyped
+unresolved       stored.js:18:33  FUNCTION_CALL   callee_untyped
+unresolved       stored.js:19:28  CONSTRUCTOR_CALL Function  no_target
+unresolved       stored.js:19:28  FUNCTION_CALL   no_target
+unresolved       stored.js:22:27  METHOD_CALL join  no_target
+unresolved       stored.js:23:33  METHOD_CALL trim  no_target
+unresolved       stored.js:25:35  METHOD_CALL onReady  receiver_untyped
+unresolved       stored.js:26:37  METHOD_CALL send  receiver_untyped
+unresolved       stored.js:26:37  METHOD_CALL status  receiver_untyped
+unresolved       stored.js:6:26  FUNCTION_CALL handler  no_target
+unresolved       stored.js:9:19  METHOD_CALL cb  member_absent
+value_callee     stored.js:13:76  opts.onReady  parameter_member
+value_callee     stored.js:14:48  opts.onDone  parameter_member
+value_callee     stored.js:15:43  opts.onEnd  parameter_member
+value_callee     stored.js:16:38  opts.onStart  parameter_member
+value_callee     stored.js:17:39  (c ? a : b)  expression
+value_callee     stored.js:18:33  (0, cb)  expression
+value_callee     stored.js:19:28  new Function(s)  dynamic_code
+value_callee     stored.js:6:26  handler  module_variable
+value_callee     stored.js:9:19  this.cb  field

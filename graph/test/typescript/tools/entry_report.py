@@ -96,6 +96,22 @@ def main():
         print(f"── di_edge ({len(di)}) ──")
         for status, slot, bean in sorted(di):
             print(f"  {status:11s} {slot} <- {bean}")
+    # The cross-process edge (framework-behavior/destinations.dl) is not a call either,
+    # so .edges cannot see it. Printed only when present: every other case's golden
+    # stays as it was.
+    for rel, cols in (('remote-edge', 5), ('remote-unserved', 3), ('remote-unsent', 3),
+                      ('remote-undetermined', 3)):
+        p = os.path.join(out, rel + '.csv')
+        got = set()
+        if os.path.exists(p):
+            with open(p, newline='') as fh:
+                for r in csv.reader(fh, delimiter='\t'):
+                    if len(r) >= cols:
+                        got.add(tuple(name.get(x, x).split('   ')[0] for x in r[:cols]))
+        if got:
+            print(f"── {rel.replace('-', '_')} ({len(got)}) ──")
+            for row in sorted(got):
+                print('  ' + '  '.join(row))
     return 0
 
 

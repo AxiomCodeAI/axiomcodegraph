@@ -1,0 +1,40 @@
+── entry_point (26) ──
+  bean_ctor  server/reports.controller#ReportsController.<constructor>   reports.controller.ts:6
+  exported_from_entry_module client/client#anywhere   client.ts:30
+  exported_from_entry_module client/client#audit   client.ts:27
+  exported_from_entry_module client/client#cached   client.ts:34
+  exported_from_entry_module client/client#cancelOrder   client.ts:20
+  exported_from_entry_module client/client#dailyReport   client.ts:17
+  exported_from_entry_module client/client#fetchOrder   client.ts:8
+  exported_from_entry_module client/client#invoice   client.ts:24
+  exported_from_entry_module client/client#listAll   client.ts:14
+  exported_from_entry_module client/client#placeOrder   client.ts:11
+  exported_from_entry_module server/orders#cancelWork   orders.ts:16
+  exported_from_entry_module server/orders#createOrder   orders.ts:15
+  exported_from_entry_module server/orders#getInvoice   orders.ts:17
+  exported_from_entry_module server/orders#getOrder   orders.ts:13
+  exported_from_entry_module server/orders#listOrders   orders.ts:14
+  http       server/orders#<arrow>   orders.ts:26
+  http       server/orders#createOrder   orders.ts:15
+  http       server/orders#getInvoice   orders.ts:17
+  http       server/orders#getOrder   orders.ts:13
+  http       server/orders#listOrders   orders.ts:14
+  http       server/reports.controller#ReportsController.daily   reports.controller.ts:8
+  http       server/reports.controller#ReportsController.rebuild   reports.controller.ts:11
+  unimported_module client/axios#<module>   axios.d.ts:1
+  unimported_module client/client#<module>   client.ts:1
+  unimported_module server/orders#<module>   orders.ts:1
+  unimported_module server/reports.controller#<module>   reports.controller.ts:1
+── remote_edge (6) ──
+  client/client#cancelOrder  server/orders#<arrow>  http  /api/orders/{}  exact
+  client/client#dailyReport  server/reports.controller#ReportsController.daily  http  /api/reports/{}  exact
+  client/client#fetchOrder  server/orders#getOrder  http  /api/orders/{}  exact
+  client/client#invoice  server/orders#getInvoice  http  /api/invoices/{}  exact
+  client/client#listAll  server/orders#listOrders  http  /api/orders  exact
+  client/client#placeOrder  server/orders#createOrder  http  /api/orders  exact
+── remote_unserved (1) ──
+  client/client#audit  http  /api/audit
+── remote_unsent (1) ──
+  server/reports.controller#ReportsController.rebuild  http  /api/reports/rebuild
+── remote_undetermined (1) ──
+  client/client#anywhere  http  unresolved_destination

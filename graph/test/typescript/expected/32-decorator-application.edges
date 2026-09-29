@@ -1,1 +1,6 @@
-known_edge	DECORATOR_CALL	Svc#b() @L26 -> svc#timed()
+ambiguous_unknown	METHOD_CALL	svc#sealed(Function) @L17 -> -
+known_edge	DECORATOR_CALL	Svc#a() @L29 -> svc#guarded(unknown,string,PropertyDescriptor)
+known_edge	DECORATOR_CALL	Svc#b() @L36 -> svc#timed()
+known_edge	DECORATOR_CALL	Svc#c() @L42 -> Guards#static disposed(unknown,string,PropertyDescriptor)
+known_edge	DECORATOR_CALL	Svc#d() @L48 -> svc#guarded(unknown,string,PropertyDescriptor)
+known_edge	DECORATOR_CALL	svc#<module-init>() @L26 -> svc#sealed(Function)

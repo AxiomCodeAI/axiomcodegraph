@@ -83,7 +83,7 @@ does not restrict. Detail: `reference/context.md`.
 `src.util.square` and `src/util#square` are one name. **When you know where the declaration is, target it by `file:line`**: a
 bare name answers for EVERY declaration of that name, and two unrelated functions in different files come back as one.
 Sections: **must change with it** · **produces or writes it** · **reads or uses it** (by rung) · **reaches those**
-(transitively: what can reach a user, not where the value goes) · tests, counted by rung with the strong ones named · `verified:` · `bound:`. For the full test list ask second: `--tests-only` (grouped by rung and file), `--why` for routes, `--tests-in <file>` to narrow. A long answer comes in pages of ~2000 tokens with the whole answer's counts on every page; `--page 2` (MCP `page=2`) only when page 1's strongest rows are not enough. It finds config
+(transitively: what can reach a user, not where the value goes) · tests, counted by rung with the strong ones named · `verified:` · `bound:`. For the full test list ask second: `--tests-only` (grouped by rung and file), `--why` for routes, `--tests-in <file>` to narrow. A long answer comes in pages of ~2000 tokens with the whole answer's counts on every page; `--page 2` (MCP `page=2`) continues with the rows page 1 did not print, and says so when there is no page 2; `--page all` (MCP `page="all"`) prints every row. Ask for it only when page 1's strongest rows are not enough. It finds config
 keys, injected beans and handlers registered as values — none has a call site. Detail: `reference/impact.md`.
 
 ## changed · test-impact — from an edit

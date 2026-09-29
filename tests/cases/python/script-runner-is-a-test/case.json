@@ -1,0 +1,17 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a runner under the test tree with its own main guard and no test framework is a test: impact counts it and names the interpreter that runs it",
+   "run": ["impact", "price", "--tests"],
+   "want": ["check_prices.py (script: python tests/check_prices.py)", "test_discount.py"],
+   "avoid": ["server.py (script", "0 of"]},
+  {"why": "the same runner counts in the summary line, not only in the listing",
+   "run": ["impact", "price"],
+   "want": ["tests: 2 of 2 test method(s)"]},
+  {"why": "CONTROL: a pytest test keeps its selection, and a runner that does not reach the change is not listed",
+   "run": ["impact", "discount", "--tests"],
+   "want": ["test_discount.py"],
+   "avoid": ["check_prices"]},
+  {"why": "the script test carries its run command in --json, which test-impact builds its command from",
+   "run": ["impact", "price", "--tests", "--json"],
+   "stdout_json": true,
+   "want": ["\"script\": true", "\"run\": \"python tests/check_prices.py\""]}]}

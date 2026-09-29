@@ -1,0 +1,220 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "FieldNull.run calls a class field initialised to null and filled by a setter: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "FieldNull.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:7 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "CtorNull.run calls a field set to null in the constructor and filled by a setter: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "CtorNull.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:12 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "Fallback.run calls a field holding a parameter or a fallback function: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "Fallback.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:16 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "Static.run calls a static field a static setter fills: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "Static.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:20 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "StaticField.run calls a static class field initialised to null: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "StaticField.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:24 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "Alias.run calls a field read through an alias of this: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "Alias.run",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:28 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "Maker.make calls a constructor stored in a field: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "Maker.make",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:32 — the callee is a function stored in a field",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "callsWrapped calls a module variable holding what a library returned for a project function: the callee can be any function stored or handed to it, so path says unknown and names the site (#1675)",
+   "run": [
+    "path",
+    "callsWrapped",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "at src/shapes.js:39 — the callee is a module-level variable",
+    "not shown to be independent"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: a module variable holding what a library call returned for a string is a library function",
+   "run": [
+    "path",
+    "logs",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a module variable holding a platform function is a platform call",
+   "run": [
+    "path",
+    "tags",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: this.emit() on a class extending a library class is an inherited library method, not a field",
+   "run": [
+    "path",
+    "Bus.go",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a method call on a project instance resolves",
+   "run": [
+    "path",
+    "useOwn",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: a field holding a project function resolves, so the chain is found",
+   "run": [
+    "path",
+    "Known.run",
+    "alpha"
+   ],
+   "want": [
+    "Known.run → alpha: 1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent"
+   ]
+  }
+ ]
+}

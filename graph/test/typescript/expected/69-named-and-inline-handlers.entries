@@ -3,3 +3,6 @@
   http       routes#namedHandler   routes.ts:28
   test       routes#namedSpec   routes.ts:33
   unimported_module routes#<module>   routes.ts:1
+── remote_unsent (2) ──
+  routes#<arrow>  http  /inline
+  routes#namedHandler  http  /named

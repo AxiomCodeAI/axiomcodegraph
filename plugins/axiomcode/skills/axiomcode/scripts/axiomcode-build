@@ -244,13 +244,16 @@ LANGDIR="$REPO/.axiomcode/lang"      # one graph directory per language other th
 # file the parser reads with its hash; when none differs the graph is current whatever git says: a dirty tree whose
 # edits are already indexed is not rebuilt, and a tree edited and restored, which git calls clean against a graph built
 # from the edit, is. A commit that changed no file moves the stamp, not the graph.
-if [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
+# A GRAPH A QUERY FOUND CORRUPT (ax_fresh.quarantine leaves .axiomcode/out/corrupt) is rebuilt even though no file moved:
+# the files still match the table, so without this the build said "up to date" over a graph that could not be read.
+if [ -f "$OUT/corrupt" ]; then echo "rebuilding: $(head -1 "$OUT/corrupt")"; fi
+if [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   [ -f "$REPO/.axiomcode/engine" ] || printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine" || true
   echo "graph up to date (${LANGS//,/, }) at $OUT/graph.sqlite"; exit 0
 fi
-if [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
+if [ ! -f "$OUT/corrupt" ] && [ ! -f "$OUT/files.json" ] && [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
 # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
@@ -418,6 +421,7 @@ publish_main(){
   done
   commit_base
   rm -rf "$PREV"
+  rm -f "$OUT/corrupt" "$OUT/$LANG_ARG/graph.sqlite.corrupt"* "$LANGDIR"/*/out/graph.sqlite.corrupt*   # a sound graph replaced what was quarantined
   MAIN_DONE=1; PUBLISHING=""
   # the languages still unsolved are named in $OUT/partial: the graph is not up to date while it is there, so the next
   # build (a refresh the next query starts, or an index) builds them rather than calling the file table current

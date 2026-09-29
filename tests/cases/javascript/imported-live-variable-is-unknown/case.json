@@ -1,0 +1,148 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a named import of an exported let a setter reassigns is a live binding: path says unknown and names the site (#1708)",
+   "run": [
+    "path",
+    "fireImported",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "in fireImported at src/main.js:5 — the callee is another module's exported variable, which that module reassigns"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "the same variable through a namespace import (#1708)",
+   "run": [
+    "path",
+    "fireNs",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "in fireNs at src/main.js:6 — the callee is another module's exported variable, which that module reassigns"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "exported by an export specifier, not a declaration (#1708)",
+   "run": [
+    "path",
+    "fireSpecifier",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "in fireSpecifier at src/main.js:7 — the callee is another module's exported variable, which that module reassigns"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "renamed through a re-export (#1708)",
+   "run": [
+    "path",
+    "fireRelayed",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "in fireRelayed at src/main.js:8 — the callee is another module's exported variable, which that module reassigns"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "through a namespace of a barrel that re-exports it with export * (#1708)",
+   "run": [
+    "path",
+    "fireBarrelNs",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "in fireBarrelNs at src/main.js:9 — the callee is another module's exported variable, which that module reassigns"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "the reverse question is the same connection (#1708)",
+   "run": [
+    "path",
+    "alpha",
+    "fireImported"
+   ],
+   "expect_error": true,
+   "want": [
+    "connection is UNKNOWN, not absent",
+    "in fireImported"
+   ],
+   "avoid": [
+    "the two are independent in this graph"
+   ]
+  },
+  {
+   "why": "control: an exported let that nothing reassigns holds only its initial value",
+   "run": [
+    "path",
+    "fireFixed",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: the same unreassigned export through a namespace",
+   "run": [
+    "path",
+    "fireNsFixed",
+    "alpha"
+   ],
+   "expect_error": true,
+   "want": [
+    "the two are independent in this graph"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent",
+    "through a value"
+   ]
+  },
+  {
+   "why": "control: an exported const arrow resolves",
+   "run": [
+    "path",
+    "fireReady",
+    "ready"
+   ],
+   "want": [
+    "fireReady → ready: 1 of 1 target(s) reached"
+   ],
+   "avoid": [
+    "connection is UNKNOWN, not absent"
+   ]
+  }
+ ]
+}

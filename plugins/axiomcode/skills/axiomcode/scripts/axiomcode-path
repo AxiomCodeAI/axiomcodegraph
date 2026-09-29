@@ -33,7 +33,7 @@ look at, never as a path.
 import contextlib, io, json, os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract
+sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract, ax_text
 # The certainty table used to live here with SEVEN entries and a default of 5 for everything else. The
 # engine emits ELEVEN tiers, and the five it did not list all fell BELOW `defines` — which is not a call
 # at all — so on a JavaScript graph, where 8,916 of 25,048 traversable edges are `callback_registered`,
@@ -42,6 +42,7 @@ sys.path.insert(0, HERE); import dl_program, graph_sql, ax_edges, ax_contract
 TIER_RANK = ax_edges.TIER_RANK
 
 def die(msg, code=2): print(msg); sys.exit(code)
+UNRESOLVED = []                                     # endpoints G.resolve found nothing by, in the order refused
 
 # ── --json: the same answer, for a program ────────────────────────────────────────────────────────
 # Filled as the human output is produced, from the SAME chain objects, so the two cannot disagree:
@@ -68,6 +69,14 @@ BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIG
 # the one name a front end gives every lambda it declares (Python and C#; Java declares none): a name that says nothing
 # about WHICH lambda, so it is never a target on its own (G.lambda_label, G.lambda_target)
 LAMBDA_NAMES = {'<lambda>'}
+# a reference the parser binds to a VALUE (refs.entity_kind, as each front end spells it): the name there is a variable,
+# a parameter, a member or a function, never a type, so it is not evidence of a type the code uses without declaring
+VALUE_BINDINGS = {'VARIABLE', 'LOCAL_VARIABLE', 'GLOBAL_VARIABLE', 'FREE_VARIABLE', 'NONLOCAL_VARIABLE', 'PARAMETER',
+                  'LAMBDA_PARAMETER', 'PATTERN_BINDING', 'PATTERN_BINDING_VARIABLE', 'COMPREHENSION_VARIABLE', 'EXCEPT_VARIABLE',
+                  'QUERY_RANGE_VARIABLE', 'FIELD', 'PROPERTY', 'EVENT', 'METHOD', 'TYPE_PARAMETER', 'THIS', 'SUPER'}
+# a reference to the name as a MEMBER of something (refs.kind): `a.b.Name` names a property, not a type in scope
+MEMBER_REFS = {'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS', 'FIELD_ACCESS', 'MEMBER_ACCESS'}
+VALUE_KINDS_SHOWN ={k.lower().replace('_', ' ') for k in VALUE_BINDINGS}
 
 # ONE SPELLING FOR EVERY LANGUAGE. Each front end writes a qualified name its own way: Java and C# `pkg.Owner.m`,
 # Python `pkg.module.f`, TypeScript `src/util#square`, JavaScript `src/util.square`. canon() maps all of them onto the
@@ -108,6 +117,8 @@ class G:
         self.repo = os.path.realpath(repo or '.')
         os.environ.setdefault('AXIOMCODE_REPO', self.repo)       # which repository's recorded engine dl_program looks in
         gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(self.repo, '.axiomcode')
+        # a CORRUPT graph is moved aside and rebuilt, and the last good graph answers meanwhile (ax_contract.usable_graph)
+        gdir = ax_contract.usable_graph(self.repo, gdir)
         self.db = os.path.join(gdir, 'out', 'graph.sqlite')
         # ONE door for every verb. impact, changed, context and test-impact all load this file as a
         # module and construct this class, so a repository with no graph is handled here, once, for
@@ -117,6 +128,7 @@ class G:
         if not os.path.exists(self.db) and not ax_contract.ensure_graph(self.repo, self.db):
             die(ax_contract.no_graph(self.repo, self.db))
         self.connect()
+        ax_contract.on_corrupt(self.repo, self.db)
         if not self.has('symbols'):
             # a graph that was built but never indexed: the index is this tool's own, and adding it
             # is seconds, so asking the caller to run one more command buys nothing.
@@ -258,6 +270,11 @@ class G:
 
     # ── endpoints: exact, or a short list of what is close ───────────────────────────────────────────────────
     IN = None
+    def under_in(self, f):
+        """is file `f` under --in: by prefix when the scope names a path of the repository, else anywhere (#1584)"""
+        if not self.IN: return True
+        if getattr(self, '_in_spec', (None,))[0] != self.IN: self._in_spec = (self.IN, ax_contract.scope_spec(self.IN, self.repo))
+        return ax_contract.under_scope(f, self._in_spec[1])
     def resolve(self, sel, fragment=False):
         """-> (label, [method symbol ids]) or dies with the near misses. Same rules for every language.
 
@@ -267,7 +284,7 @@ class G:
         """
         label, ids = self._resolve(sel, fragment)
         if self.IN and not all(self.sym[i]['kind'] in ('library', 'written') for i in ids):        # a library endpoint has no file; --in applies to the other end
-            kept = [i for i in ids if self.IN in (self.sym[i]['file'] or '')]
+            kept = [i for i in ids if self.under_in(self.sym[i]['file'])]
             if not kept: die(f"{label}: none of its {len(ids)} declaration(s) is under *{self.IN}*")
             if len(kept) < len(ids): label += f" [{len(kept)} under *{self.IN}*]"
             ids = kept
@@ -302,6 +319,23 @@ class G:
                 if p == root or p.startswith(root.rstrip('/') + '/'):
                     return os.path.relpath(p, root).replace(os.sep, '/'), False
         return f.lstrip('/'), True
+    def file_lines(self, f):
+        """how many lines the indexed file `f` has on disk, or None when it cannot be read there"""
+        try:
+            with open(os.path.join(self.repo, f), 'rb') as h: return len(h.read().splitlines())
+        except OSError: return None
+
+    def line_files(self, f):
+        """-> (the indexed files a file:line's path `f` names, the --in note when the scope chose among them). The file
+        written in full, else every file `f` is a suffix of. --IN CHOOSES AMONG THEM (#1666): it was applied only after
+        the file was settled, so `index.js:2 --in packages/a` was refused with every index.js listed. Under the scope
+        one file is the answer; two or more are the refusal's list; none leaves the list whole, and says so."""
+        files = sorted({x['file'] for x in self.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
+                        if x['file'] == f or (x['file'] or '').endswith('/' + f)})
+        if f in files: return [f], ''
+        if len(files) < 2 or not self.IN: return files, ''
+        kept = [x for x in files if self.under_in(x)]
+        return (kept, f" under *{self.IN}*") if kept else (files, f", none of them under *{self.IN}*")
     def _resolve(self, sel, fragment=False):
         s = sel.strip().strip('`"\'')
         # file:line, or file:line:col as a stack trace prints it — the column never changes which callable spans the line
@@ -312,17 +346,22 @@ class G:
             # lib/ took the smallest span across BOTH files, so the answer was for whichever function at that line was
             # shorter, labelled with what was typed. The path is settled first: the file written in full, else the one
             # file it is a suffix of; two or more are listed, each with what spans the line there.
-            files = sorted({x['file'] for x in self.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
-                            if x['file'] == f or (x['file'] or '').endswith('/' + f)})
-            if f in files: files = [f]
+            files, scoped = self.line_files(f)
             if len(files) > 1:
                 rows = []
                 for fx in files[:12]:
                     at = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY end_line - line LIMIT 1", fx, ln, ln)
                     rows.append(f"  {fx}:{ln}   " + (self.disp(at[0]['id']) if at else '(top-level code)'))
                 if len(files) > 12: rows.append(f"  … +{len(files) - 12} more")
-                die(f"'{m.group(1)}' matches {len(files)} indexed files — give enough of the path to name one:\n" + '\n'.join(rows))
+                die(f"'{m.group(1)}' matches {len(files)} indexed files{scoped} — give enough of the path to name one:\n" + '\n'.join(rows))
             if files: f = files[0]
+            if scoped: s = f"{f}:{ln}"                                   # the scope chose the file: the label names it
+            # A LINE OUTSIDE THE FILE IS REFUSED (#1601). Line 0, or a line past the end — a number copied before the file
+            # was edited, or from an old stack trace — spans no callable, so it fell through to the module node and was
+            # answered as the file's top-level code, as if that line existed. The file on disk is what the reader sees.
+            if ln < 1: die(f"line {ln} is not in {f}: lines are numbered from 1")
+            n = self.file_lines(f) if files else None
+            if n is not None and ln > n: die(f"{f} has {n} line{'' if n == 1 else 's'}; line {ln} is not in it")
             # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
             # top-level code belongs to the file's module node, which is a caller like any other
             r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, ln, ln)
@@ -480,18 +519,22 @@ class G:
                 shown = ', '.join(r['display'] for r in hits[:4]) + (' …' if len(hits) > 4 else '')
                 return f"{len(ids)} declaration(s) containing '{s}' ({shown})", ids
         near = self.q("SELECT DISTINCT display FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL) AND (lower(display) = lower(?) OR lower(name) = lower(?) OR display LIKE ?) LIMIT 6", s, s.split('.')[-1], f"%{s.split('.')[-1]}%")
+        UNRESOLVED.append(s)                        # each refusal below: the [text] block searches for it (ax_text.py)
         # with candidates the advice is "pick one"; with none it has to be something else, or the line reads
         # "use one of them" pointing at an empty list
+        # a word the code WRITES but nothing declares (a local, a parameter, a property) is not a target: the methods that
+        # write it are named as leads, so the reader is not left at "nothing" when the word is right there in the code
+        leads = self.mentions(s)
         if near:
-            die(f"nothing named '{s}' in the graph. Exact names that are close: "
-                + ', '.join(r['display'] for r in near) + "\n  use one of them as written, or file:line")
+            die(f"nothing named '{s}' is declared in this graph. Exact names that are close: "
+                + ', '.join(r['display'] for r in near) + "\n  use one of them as written, or file:line" + leads)
         # the advice has to differ once the fragment form has ALREADY been tried, or it names the command just run
         if fragment:
-            die(f"no declaration in the graph contains '{s}'.\n"
+            die(f"no declaration in the graph contains '{s}'." + leads + "\n"
                 f"  a SHORTER fragment is the way in — `path {s[:max(3, len(s) - 2)]} '*'` — or a file:line from a\n"
                 f"  stack trace or an issue; and `axiomcode index` prints how many declarations the graph has at all.\n"
                 )
-        die(f"nothing named '{s}' in the graph, and nothing close to it.\n"
+        die(f"nothing named '{s}' is declared in this graph, and nothing close to it." + leads + "\n"
             f"  a SHORTER fragment is the way in — `path {s.split('.')[-1][:6] or 'name'} '*'` matches every\n"
             f"  declaration containing it — or a file:line from a stack trace or an issue.")
 
@@ -591,15 +634,29 @@ class G:
         if w: ids += w[1]; parts.append(f"new {name} at {len(self.SITES[w[1][0]])} site(s)")
         lib = self.library(s + '.*') if '.' in s else self.library(name + '.*')
         if lib: ids += lib[1]; parts.append(f"{len(lib[1])} library method(s) of {s}")
-        callers = set()
+        callers = set(); typed = bool(ids)
         if self.has('type_refs'):
             for r in self.q("SELECT file, line FROM type_refs WHERE name = ? AND line > 0", name):
-                e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", r['file'], r['line'], r['line'])
-                if e: callers.add(e[0]['id'])
+                e = self.enclosing_at(r['file'], r['line'])
+                if e: callers.add(e); typed = True
+        # A NAME IS NOT A TYPE BECAUSE IT IS WRITTEN. An identifier reference says only that the word occurs: a local
+        # `const labelOf = new Map()`, a parameter, a field. Those uses were each counted as "a use of type labelOf",
+        # so a name no declaration carries came back as a type with exact callers and a passing `verified:` line. A
+        # reference whose binding the parser names as a value is dropped. What is left makes a type only when it is bound
+        # to one, or when the parser could not say what it is bound to and the name is spelt as every one of these
+        # languages spells a type (`Path.Combine(…)` in C#, where a library class is an unbound name): a member
+        # (`process.env.Path`) or a lower-case word (`jsx`) is not. Without that evidence (no `new X`, no library
+        # method, no type position either) the resolver goes on and says nothing is declared, listing the mentions as
+        # leads (`mentions`).
         if self.has('refs'):
-            for r in self.q("SELECT file, line FROM refs WHERE name = ? AND line > 0", name):
-                e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", r['file'], r['line'], r['line'])
-                if e: callers.add(e[0]['id'])
+            for r in self.q("SELECT file, line, kind, entity_kind FROM refs WHERE name = ? AND line > 0", name):
+                if (r['entity_kind'] or '') in VALUE_BINDINGS: continue
+                e = self.enclosing_at(r['file'], r['line'])
+                if not e: continue
+                callers.add(e)
+                typed = typed or r['entity_kind'] == 'TYPE' or (name[:1].isupper() and (r['kind'] or '') not in MEMBER_REFS
+                                                                 and self.unqualified_on(r['file'], r['line'], name))
+        if not typed: return None
         if callers:
             node = f"t:{s}"
             self.sym[node] = {'id': node, 'display': f"uses of type {s}", 'file': '<written>', 'line': None, 'end_line': None, 'kind': 'written', 'owner': '', 'is_test': 0, 'name': name, 'method_id': node}
@@ -607,6 +664,33 @@ class G:
             ids.append(node); parts.append(f"referenced by name in {len(callers)} method(s)")
         if not ids: return None
         return f"type {s} (not declared here; matched: " + ', '.join(parts) + ")", ids
+    def enclosing_at(self, f, ln):
+        """the narrowest callable whose span holds file:line (not `enclosing`, which is a lambda's: two methods of one
+        name in one class, the later silently replaced the earlier and every lambda lookup died in a TypeError)"""
+        e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", f, ln, ln)
+        return e[0]['id'] if e else None
+    def unqualified_on(self, f, ln, name):
+        """the name is written on that line NOT as a member: `Path.join(…)`, not `HttpStatus.OK` / `process.env.PORT`
+        after a dot, nor `{ Bucket: … }` as an object key (a front end that records every identifier the same way does
+        not say which one is a member)"""
+        cache = self.__dict__.setdefault('_lines', {}); f = self.site_file(f)
+        if f not in cache:
+            try: cache[f] = open(os.path.join(self.repo, f), errors='replace').read().split('\n')
+            except OSError: cache[f] = None
+        L = cache[f]
+        if L is None or not 0 < ln <= len(L): return True                                   # no source to read: as before
+        return re.search(rf'(?<![.\w$]){re.escape(name)}\b(?!\s*\??:(?!:))', L[ln - 1]) is not None
+    def mentions(self, s, cap=6):
+        """the methods whose body writes the name, for a name nothing declares: leads, printed `[by name]`, never an endpoint"""
+        if not self.has('refs'): return ''
+        name = s.split('.')[-1]; seen = {}
+        for r in self.q("SELECT file, line, entity_kind FROM refs WHERE name = ? AND line > 0 ORDER BY file, line", name):
+            e = self.enclosing_at(r['file'], r['line'])
+            if e and e not in seen: seen[e] = (r['entity_kind'] or '').lower().replace('_', ' ')
+        if not seen: return ''
+        rows = [f"    [by name] {self.disp(e)}   {self.loc(e)}" + (f"   — a {k} named {name}" if k in VALUE_KINDS_SHOWN else '') for e, k in list(seen.items())[:cap]]
+        return (f"\n  the word is written in {len(seen)} method(s) — leads, not calls (no edge reaches a declaration of it):\n"
+                + '\n'.join(rows) + (f"\n    … +{len(seen) - cap}" if len(seen) > cap else ''))
     def nested_miss(self, outer, inner, mem, s):
         """why Outer$Inner.m did not resolve: which of the three parts is wrong, with the exact alternatives"""
         outers = self.q("SELECT type_id, display FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR display LIKE ? OR name = ?)", outer, f"%.{outer}", outer)
@@ -1024,11 +1108,43 @@ def framework_note(g, ids, writers=()):
     return out
 
 
+def why_no_caller(g, ids, shown=2, decls=3):
+    """`  why nothing in the graph calls X: <reason>; <reason>` for up to `decls` of the methods in `ids`: the first
+    `shown` reasons graph_sql.no_caller_reasons gives, with the line that says so. A method with no reason prints nothing."""
+    allsym = g.all_sym if hasattr(g, 'all_sym') else g.sym
+    mids = [i for i in ids if (allsym.get(i) or {}).get('method_id')]
+    src = {}
+    def lines(f):
+        if f not in src:
+            try: src[f] = open(os.path.join(g.repo, f), errors='replace').read().split('\n')
+            except OSError: src[f] = []
+        return src[f]
+    try:
+        via = graph_sql.callers_via_base(g.q, mids[:decls], lines) if mids else {}
+        why = graph_sql.no_caller_reasons(g.q, [m for m in mids[:decls] if not via.get(m)])
+    except Exception: return []
+    out = []
+    for i in mids[:decls]:
+        rs = why.get(i) or []
+        if via.get(i):
+            # a caller through an interface or base method the engine narrowed to one implementation: `impact` lists it
+            # as `calls it (via the interface)`, and the closure, which walks call edges, has no edge to start from
+            cs = sorted(via[i], key=lambda c: (allsym.get(c) or {}).get('display') or c)
+            out.append(f"  {g.disp(i)} has {len(cs)} caller(s) through the interface or base method it is declared on, which the "
+                       "closure does not walk: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in cs[:4]) + (' …' if len(cs) > 4 else '')
+                       + f"; `impact {g.disp(i)}` lists them")
+        elif rs:
+            out.append(f"  why nothing in the graph calls {g.disp(i)}: " + '; '.join(
+                graph_sql.no_caller_phrase(k, l) + (f" ({at})" if at else '') for k, l, at in rs[:shown])
+                + (f" (+{len(rs) - shown} more: `impact {g.disp(i)}`)" if len(rs) > shown else ''))
+    return out
+
+
 def closure(g, sel, upstream, limit=40, depth=40):
     g.export(); label, ids = g.resolve(sel, fragment=True)
     res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
     rows = [(m, int(d)) for m, d in (res['dist_up'] if upstream else res['dist'])['c'] if 0 < int(d) <= depth and m in g.sym]
-    if g.IN: rows = [(m, d) for m, d in rows if g.IN in (g.sym[m]['file'] or '')]        # --in: only the part of the closure under that path
+    if g.IN: rows = [(m, d) for m, d in rows if g.under_in(g.sym[m]['file'])]        # --in: only the part of the closure under that path
     if not upstream: rows = [(m, d) for m, d in rows if g.sym[m]['kind'] not in ('library', 'written')]    # downstream: library ends are listed separately, not counted as reached methods
     # second implementation: a plain BFS over the same facts, in the same direction, must give the same set and depths
     adj = collections.defaultdict(set)
@@ -1040,7 +1156,7 @@ def closure(g, sel, upstream, limit=40, depth=40):
             for y in adj.get(x, ()):
                 if y not in seen: seen[y] = d; nxt.append(y)
         fr = nxt
-    bfs = {m: dd for m, dd in seen.items() if 0 < dd <= depth and m in g.sym and (not g.IN or g.IN in (g.sym[m]['file'] or '')) and (upstream or g.sym[m]['kind'] not in ('library', 'written'))}
+    bfs = {m: dd for m, dd in seen.items() if 0 < dd <= depth and m in g.sym and g.under_in(g.sym[m]['file']) and (upstream or g.sym[m]['kind'] not in ('library', 'written'))}
     agree = bfs == dict(rows)
     word = 'can reach' if upstream else 'is reached from'
     print(f"{'everything that ' + word + ' ' if upstream else 'everything reached from '}{label}: {len(rows)} method(s) in {len({g.sym[m]['file'] for m, _ in rows})} file(s)" + (f" within {depth} hop(s)" if depth < 40 else ''))
@@ -1086,6 +1202,10 @@ def closure(g, sel, upstream, limit=40, depth=40):
         # a signal receiver or a CLI command the answer "0 methods reach it" is true of calls and false of the
         # program: the framework reaches it. Name the registration rather than leave the reader at a dead end.
         for line in (framework_note(g, ids) if upstream else []): print(line)
+        # and WHY, from the reader the hooks' `← ?` label and impact's `next:` read (graph_sql.no_caller_reasons): the
+        # first two reasons of each declaration, so `path '*' X` never says less than a Read of X does
+        if upstream:
+            for line in why_no_caller(g, ids): print(line)
         # A word that resolves to a TYPE has no outbound calls by construction — a type declares members, it does
         # not call anything — so `path <type> '*'` is empty for every type, declared or not. That is the form the
         # guide gives someone who has no name yet, and a large share of the words they will try are type-valued
@@ -1125,17 +1245,25 @@ def closure(g, sel, upstream, limit=40, depth=40):
             # which is not the line that makes the call, and a reader checking the hop wants the second. For a
             # direct caller that line is knowable exactly, so print it; beyond one hop there is no single site.
             qmark = ','.join('?' * len(ids))
+            # a chained route link (`router.get('/a', h1).post('/b', h2)`) is written on its own line, not its receiver's
+            link_line = {}
+            if any(d == 1 for _, d in np_[:limit]):
+                try:
+                    import ax_registration
+                    link_line = ax_registration.route_site_lines(g.q, g.site_file)
+                except Exception:
+                    pass
             for m, d in np_[:limit]:
                 at = ''
                 if d == 1:
-                    r = g.q("SELECT s.file_path f, s.start_line ln FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id "
-                            f"WHERE e.caller_id = ? AND e.callee_method_id IN ({qmark}) AND s.start_line IS NOT NULL "
-                            "ORDER BY s.start_line LIMIT 1", m, *ids)
+                    r = g.q("SELECT s.id sid, s.file_path f, s.start_line ln FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id "
+                            f"WHERE e.caller_id = ? AND e.callee_method_id IN ({qmark}) AND s.start_line IS NOT NULL", m, *ids)
                     if r:
-                        sf = g.site_file(r[0]['f'])
+                        ln, f = min((link_line.get(x['sid'], x['ln']), x['f'] or '') for x in r)
+                        sf = g.site_file(f)
                         # the call is nearly always written in the caller's own file, and repeating a 90-character
                         # path to say so pushes the name off the line. Same file, just the line.
-                        at = f"   — calls it at {':' if sf == (g.sym[m]['file'] or '') else sf + ':'}{r[0]['ln']}".replace('at ::', 'at :')
+                        at = f"   — calls it at {':' if sf == (g.sym[m]['file'] or '') else sf + ':'}{ln}".replace('at ::', 'at :')
                 print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}{at}")
             if len(np_) > limit: print(f"    … +{len(np_) - limit} production (--limit N)")
             if nt: print(f"    +{len(nt)} test caller(s) within 2 hop(s) — `axiomcode test-impact` names them and the command that runs them")
@@ -1228,81 +1356,47 @@ def entered_in_process(g, ids):
 # into "local", "tests: 0" or "independent" was false on exactly these declarations. The rule is one rule, with no
 # framework's names in it: every decoration counts except the short list below, which change nothing about who calls
 # the declaration (a compiler check, a nullness mark, a generated accessor, a wrapper around the same call).
-INERT_DECORATIONS = {
-    # compiler checks and documentation
-    'Override', 'SuppressWarnings', 'Deprecated', 'Serial', 'FunctionalInterface', 'SafeVarargs', 'Documented',
-    'Retention', 'Target', 'Inherited', 'Obsolete', 'Serializable', 'Flags', 'Pure', 'MethodImpl', 'AttributeUsage',
-    'Generated', 'GeneratedCode', 'CompilerGenerated', 'ExcludeFromCodeCoverage', 'DebuggerStepThrough',
-    'DebuggerNonUserCode', 'DebuggerDisplay', 'DebuggerHidden', 'CallerMemberName', 'CallerFilePath', 'CallerLineNumber',
-    'override', 'overload', 'final', 'abstractmethod', 'deprecated',
-    # nullness
-    'Nullable', 'NonNull', 'Nonnull', 'NotNull', 'CheckForNull', 'NotNullWhen', 'MaybeNullWhen', 'AllowNull', 'DisallowNull',
-    # members the compiler writes, and wrappers the caller still calls by name
-    'staticmethod', 'classmethod', 'property', 'cached_property', 'hybrid_property', 'wraps', 'lru_cache', 'cache',
-    'cached', 'memoize', 'dataclass',
-    'total_ordering', 'contextmanager', 'asynccontextmanager',
-    'Getter', 'Setter', 'Data', 'Builder', 'ToString', 'EqualsAndHashCode', 'AllArgsConstructor', 'NoArgsConstructor',
-    'RequiredArgsConstructor', 'Slf4j', 'Log4j2',
-}
-BASE_CONTEXTS = ('BASE_LIST', 'BASE_CLASS', 'SUPER_TYPE', 'IMPLEMENTS_INTERFACE')
-_NOT_A_BASE = {'object', 'Object', 'string', 'String', 'int', 'bool', 'long', 'double', 'float', 'decimal', 'byte', 'char', 'short'}
-
-def _dec_name(n):
-    n = (n or '').lstrip('@').split('(')[0].split('.')[-1]
-    return n[:-len('Attribute')] if n.endswith('Attribute') and len(n) > len('Attribute') else n
+INERT_DECORATIONS = graph_sql.INERT_DECORATIONS          # one list, read by the hooks and impact too
+BASE_CONTEXTS = graph_sql.BASE_CONTEXTS
+_dec_name = graph_sql.decoration_name
 
 def _library_bases(g, tid):
-    """the base types written on type symbol `tid` that are not declared in the graph: a library ancestor the engine
-    resolved (types.provenance <> 'client'), or a written base name no client type carries (the parser could not
-    resolve it). Only the type's OWN header: a base written on a nested type belongs to the nested type."""
-    s = g.all_sym.get(tid) if hasattr(g, 'all_sym') else g.sym.get(tid)
-    if not s: return []
-    out = []
-    if s.get('type_id') and g.has('type_ancestors') and g.has('types'):
-        out += [r[0] for r in g.q("""SELECT DISTINCT x.name FROM type_ancestors a JOIN types x ON x.id = a.ancestor_type_id
-                                     WHERE a.type_id = ? AND x.provenance <> 'client' ORDER BY x.name""", s['type_id'])]
-    if s.get('file') and s.get('line') and g.has('type_refs'):
-        end = s.get('end_line') or s['line']
-        nested = [(r[0], r[1] or r[0]) for r in g.q("""SELECT line, end_line FROM symbols WHERE file = ? AND method_id IS NULL
-                     AND type_id IS NOT NULL AND line > ? AND line <= ?""", s['file'], s['line'], end)]
-        ph = ','.join('?' * len(BASE_CONTEXTS))
-        for name, line in g.q(f"SELECT name, line FROM type_refs WHERE file = ? AND line BETWEEN ? AND ? AND context IN ({ph})",
-                              s['file'], s['line'], end, *BASE_CONTEXTS):
-            if any(a <= line <= b for a, b in nested): continue
-            simple = re.split(r'[<(\[]', name or '')[0].split('.')[-1]
-            if not simple or simple in _NOT_A_BASE: continue
-            if g.has('types') and g.q("SELECT 1 FROM types WHERE name = ? AND provenance = 'client' LIMIT 1", simple): continue
-            out.append(name)
-    return list(dict.fromkeys(out))
+    """the base types written on type symbol `tid` that are not declared in the graph (graph_sql.library_bases)"""
+    return graph_sql.library_bases(g.q, g.all_sym.get(tid) if hasattr(g, 'all_sym') else g.sym.get(tid))
 
 def unmodelled_entry(g, ids):
     """[(symbol id, signal)]: for each declaration in `ids` (a method, a field or a type) that is not a test, what says
-    something outside the code may call it with no edge in this graph -- a decoration outside INERT_DECORATIONS on it
-    or on its owner type, or a base type of its owner (of itself, for a type) the graph does not contain. A private or
-    static member is never entered through its owner's decoration or base, so only its own decorations count."""
+    something outside the code may call it with no edge in this graph -- a decoration a framework reads on it or on its
+    owner type, or a base type of its owner (of itself, for a type) the graph does not contain. For a method the signals
+    are graph_sql.no_caller_reasons, the reader the hooks' `← ?` label and path's empty-upstream note read, so the three
+    name the same thing; a wrapper (a cache, a permission check, a decorator the repository declares) is not one. A
+    private or static member is never entered through its owner's decoration or base, so only its own decorations count."""
     allsym = g.all_sym if hasattr(g, 'all_sym') else g.sym
     decs = lambda i: [n for n in dict.fromkeys(_dec_name(r[0]) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", i))
                       if n and n not in INERT_DECORATIONS] if g.has('decorations') else []
     out = []
+    mids = [i for i in ids if (allsym.get(i) or {}).get('method_id') and not allsym[i].get('is_test')]
+    why = graph_sql.no_caller_reasons(g.q, mids) if mids else {}
     for i in ids:
         s = allsym.get(i)
         if not s or s.get('is_test'): continue
+        if i in why:
+            own = s.get('owner') or ''
+            for kind, label, _at in why[i]:
+                # the decoration by its simple name here, as this signal always said it (`@on_boot`, not `@hooks.on_boot`)
+                if kind in ('registered', 'framework'): out.append((i, f"@{_dec_name(label.split(' ')[0])} on {s['display']}"))
+                elif kind == 'type decoration': out.append((i, f"@{_dec_name(label.rsplit(' on ', 1)[0])} on its type {own}"))
+                elif kind == 'base': out.append((i, f"{own} extends {label}, which the graph does not contain"))
+            continue
         for n in decs(i): out.append((i, f"@{n} on {s['display']}"))
         is_type = s.get('type_id') and not s.get('method_id')
         if is_type:
             for b in _library_bases(g, i): out.append((i, f"{s['display']} extends {b}, which the graph does not contain"))
             continue
-        if s.get('method_id') and g.has('methods'):
-            row = g.q("SELECT kind, visibility FROM methods WHERE id = ?", s['method_id'])
-            if row and (any(k in (row[0][0] or '').upper() for k in ('STATIC', 'INITIALIZER')) or (row[0][1] or '').upper() == 'PRIVATE'): continue
-            # where the language records no visibility, a leading underscore is how private is written
-            if row and not row[0][1] and re.match(r'_(?!_\w*__$)', s.get('name') or ''): continue
         own = s.get('owner')
         if not own: continue
         for r in g.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NULL AND type_id IS NOT NULL", own):
             for n in decs(r[0]): out.append((i, f"@{n} on its type {own}"))
-            if s.get('method_id') and s.get('kind') != 'constructor':
-                for b in _library_bases(g, r[0]): out.append((i, f"{own} extends {b}, which the graph does not contain"))
     return list(dict.fromkeys(out))
 
 def grep_roots(g):
@@ -1491,7 +1585,11 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   f"{grep_for(g, g.sym[unmod[0][0]]['name'])}" if unmod
              else ": the two are independent in this graph"))
     WHY = {'parameter': 'a parameter', 'loop_variable': 'a loop variable', 'local': 'a local', 'computed': 'a computed member',
-           'dynamic_code': 'code built at run time'}
+           'dynamic_code': 'code built at run time', 'module_variable': 'a module-level variable',
+           'field': 'a function stored in a field',
+           'instance_member': 'a function stored on the instance from outside the class',
+           'parameter_member': 'a member of a parameter', 'expression': 'computed by an expression',
+           'imported_variable': "another module's exported variable, which that module reassigns"}
     for lx, rows in opaque:
         print(f"  {lx} reaches {len(rows)} call(s) through a value:")
         for r in rows[:4]:
@@ -1566,11 +1664,22 @@ if __name__ == '__main__':
     if args[0] == '*' and args[1] == '*': die("one endpoint must be named: path '*' X (everything that reaches X) or path X '*' (everything X reaches)")
 
     def answer():
-        g = G(args[2] if len(args) > 2 else '.'); g.IN = IN
+        global IN
+        repo = args[2] if len(args) > 2 else '.'
+        # an --in no graph holds is answered at the root, and says so (the same rule as impact's)
+        if IN and not ax_text.held(repo, IN):
+            print(f"{ax_text.SCOPE_GONE}'{IN}' in its path — answering at the repository root instead")
+            IN = None
+        g = G(repo); g.IN = IN
         RESULT['query'] = {'from': args[0], 'to': args[1], 'repo': g.repo}
-        if args[0] == '*': return closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth)
-        if args[1] == '*': return closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth)
-        return path(g, args[0], args[1], show_all, limit, every, max_paths)
+        try:
+            if args[0] == '*': return closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth)
+            if args[1] == '*': return closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth)
+            return path(g, args[0], args[1], show_all, limit, every, max_paths)
+        except SystemExit as e:
+            # an endpoint nothing in the graph declares: what a search by hand would find, labelled [text] (ax_text.py)
+            if e.code and UNRESOLVED and not as_json: sys.stdout.flush(); ax_text.emit(repo, UNRESOLVED, IN)
+            raise
 
     if not as_json: sys.exit(answer())
     # the prose goes to a buffer, not to the caller: one code path produces both, and `prose` is

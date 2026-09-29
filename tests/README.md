@@ -90,6 +90,9 @@ One check needs no graph and is its own script:
                                          package README, else named as collected by nothing; each runner's config read
                                          as that runner reads it (vitest projects/exclude/vite.config, jest rootDir/
                                          testRegex/--config, playwright, node --test), each shape with a control (#1570; no engine)
+    python3 tests/script_tests.py        a script-style test (a test-tree file run as a program, no framework) is selected by
+                                         test-impact with the command its project runs it by, beside a framework test that keeps
+                                         its own; a helper and a runner's setup file are not (indexes two cases, needs the engine)
     python3 tests/tiers.py               every call_edges tier the schema documents is ranked, labelled and given a
                                          certainty by the frontend, so a new tier cannot read as the weakest claim
 

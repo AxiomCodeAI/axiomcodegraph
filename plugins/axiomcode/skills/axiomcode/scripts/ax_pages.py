@@ -16,24 +16,34 @@ the verb did not print its own. `--json` is never touched: a consumer parses the
 import atexit, collections, io, re, sys
 
 PAGE_BUDGET = 2000                      # tokens per page, at ~4 characters a token
-WEAK_ROW = re.compile(r'^\s{4}\[(by name|text|alongside|in scope)\]'
-                      r'|^\s{6}\s?\d+ hop\(s\)  |^\s{6}… \+')     # low-certainty users, and entry-point lists, go last
+# low-certainty users go last, under their own heading; so do the entry-point lists (a sub-heading and its hop rows),
+# which are not low-certainty and are headed as what they are
+LOW_ROW = re.compile(r'^\s{4}\[(by name|text|alongside|in scope)\]')
+ENTRY_ROW = re.compile(r'^\s{6}\s?\d+ hop\(s\)  |^\s{6}… \+|^\s{4}entry points \(')
+WEAK_ROW = re.compile(LOW_ROW.pattern + '|' + ENTRY_ROW.pattern)
 QUALIFIER = re.compile(r'^\s{0,2}(verified:|bound:|note:|next:|through a call the engine could not resolve|outside the graph:)')
 LABEL = (('reads or uses it', 'users'), ('produces or writes it', 'writers'), ('must change with it', 'contract'),
          ('reaches those', 'entry points'), ('bound from outside the source', 'non-source name matches'),
          ('tests:', 'tests'), ('depends on', 'dependencies'), ('where the work is', 'files'))
+RUNG = re.compile(r'^\s+\[([^\]]+)\]')
+COUNTED = re.compile(r'^\s+\[[^\]]+\] |^\s+\d+ hop\(s\)  ')
+# A VERB MAY MARK THE ROWS ITS DEFAULT VIEW HIDES (HIDE) AND THE LINES THAT SUMMARISE THEM (SUMM), e.g. impact's
+# "… +54 more in 21 file(s)". Page 1 is the default view: every unmarked line, summaries included. Page 2 on are the
+# rows page 1 did not print, the hidden ones included, and no summary: a later page that repeated "… +54 more"
+# under nine new rows was the answer an agent got for asking for page 2 (rated not-good in 10 of 11 calls).
+HIDE, SUMM = '\x01', '\x02'
+CAPTURING = False                       # set by install(): a verb marks rows only when this pager reads its output
 
 
-def paginate(text, page, budget, budget_flag='--budget'):
+def _views(text):
     lines = text.rstrip('\n').split('\n')
-    if page == 'all' or len(text) <= budget * 4:
-        return text
-    # AN EXPLANATION IS NOT SPLIT. Its flow is a reading order, sized when it is built (bounded steps, a code budget);
-    # split, the second half is what nobody reads — no measured run ever asked for page 2 — and it holds the later
-    # steps of the mechanism. Kept whole up to half a page over, never beyond.
-    if 'how it runs —' in text and len(text) <= budget * 6:
-        return text
-    head = []
+    capped = [l[1:] if l.startswith(SUMM) else l for l in lines if not l.startswith(HIDE)]
+    full = [l[1:] if l.startswith(HIDE) else l for l in lines if not l.startswith(SUMM)]
+    return capped, full
+
+
+def _parse(lines):
+    lines = list(lines); head = []
     # a note printed BEFORE the answer says how to read all of it (a name that merged two declarations, a name that is
     # a field and a method): it stays on top of every page instead of sinking into the footer with the qualifiers
     while lines and lines[0].startswith('note:'):
@@ -41,13 +51,81 @@ def paginate(text, page, budget, budget_flag='--budget'):
     while lines and (lines[0].startswith('change:') or (head and lines[0].startswith('  ') and not lines[0].startswith('    '))):
         head.append(lines.pop(0))
     quals = [l for l in lines if QUALIFIER.match(l)]
-    body = [l for l in lines if not QUALIFIER.match(l)]
     sections, cur = [], None                                   # a line at column 0 opens a section
-    for l in body:
+    for l in (l for l in lines if not QUALIFIER.match(l)):
         if not l.startswith(' ') or cur is None:
             cur = [l, []]; sections.append(cur)
         else:
             cur[1].append(l)
+    return head, quals, sections
+
+
+def _name(title):
+    return re.split(r' \(|:', title, maxsplit=1)[0].strip() or title.strip()
+
+
+def _layout(sections, room, keep_empty):
+    """pages of (section index, part, line): each section's strong rows first, then every section's weak rows. A
+    section with no rows is kept (its heading is its content) only when keep_empty; on a later page it is dropped."""
+    parts = []
+    for i, (title, rows) in enumerate(sections):
+        keep = [r for r in rows if not WEAK_ROW.match(r)]
+        if keep or (keep_empty and not rows): parts.append((i, 'first', keep))
+    for i, (title, rows) in enumerate(sections):
+        low = [r for r in rows if LOW_ROW.match(r)]
+        ent = [r for r in rows if ENTRY_ROW.match(r)]
+        if low: parts.append((i, 'low', low))
+        if ent: parts.append((i, 'entry', ent))
+    pages, cur, used = [], [], 0
+    for i, part, rows in parts:
+        tlen = len(sections[i][0]) + 40
+        if cur and used + tlen + (len(rows[0]) + 1 if rows else 0) > room:
+            pages.append(cur); cur, used = [], 0
+        used += tlen
+        if not rows: cur.append((i, part, None))
+        for r in rows:
+            if used + len(r) + 1 > room and cur:
+                pages.append(cur); cur, used = [], tlen
+            cur.append((i, part, r)); used += len(r) + 1
+    if cur: pages.append(cur)
+    return pages
+
+
+def _render(sections, items, whole_title):
+    """the lines of one page: a heading over each run of rows. A section's own heading (the WHOLE answer's counts)
+    heads its first rows on page 1; anywhere else the heading counts the rows printed under it, so the numbers on a
+    page add up to what the page shows."""
+    out, run = [], []
+    def flush():
+        if not run: return
+        i, part = run[0][0], run[0][1]
+        rows = [r for _, _, r in run if r is not None]
+        title = sections[i][0]
+        if not (part == 'first' and whole_title(i)):
+            n = sum(1 for r in rows if COUNTED.match(r)) or len(rows)
+            rungs = collections.Counter(m.group(1) for r in rows for m in [RUNG.match(r)] if m)
+            what = f"{n} row(s)" + (': ' + ', '.join(f"{c} {k}" for k, c in rungs.most_common()) if rungs else '')
+            title = _name(title) + {'first': f" (continued; on this page: {what})",
+                                    'low': f" — low-certainty rows (on this page: {what})",
+                                    'entry': f" — entry points (continued; on this page: {what})"}[part]
+        out.append(title); out.extend(rows); run.clear()
+    for it in items:
+        if run and (it[0], it[1]) != (run[0][0], run[0][1]): flush()
+        run.append(it)
+    flush()
+    return out
+
+
+def _rows(lines):
+    return sum(1 for l in lines if l.startswith('    '))
+
+
+def paginate(text, page, budget, budget_flag='--budget'):
+    capped, full = _views(text)
+    ctext = '\n'.join(capped) + '\n'
+    if page == 'all':
+        return '\n'.join(full) + '\n'
+    head, quals, sections = _parse(capped)
 
     def totals_for(shown):
         out = []
@@ -57,42 +135,54 @@ def paginate(text, page, budget, budget_flag='--budget'):
             out += ['    ' + r.strip() for r in rows if r.lstrip().startswith(('how sure each route', 'by hop:'))]
         return out
 
-    strong, weak = [], []
-    for title, rows in sections:
-        keep = [r for r in rows if not WEAK_ROW.match(r)]
-        low = [r for r in rows if WEAK_ROW.match(r)]
-        if keep or not low: strong.append((title, keep))
-        if low: weak.append((title + '  — low-certainty rows', low))
     fixed = sum(len(l) + 1 for l in head + quals) + sum(len(l) + 1 for l in totals_for(set())) + 400
     room = max(1500, budget * 4 - fixed)
-    pages, cur, used = [], [], 0
-    for title, rows in strong + weak:
-        for i, l in enumerate([title] + rows):
-            if used + len(l) + 1 > room and cur:
-                pages.append(cur); cur, used = [], 0
-                if i > 0: cur.append(title + '  (continued)'); used += len(title) + 13
-            cur.append(l); used += len(l) + 1
-    if cur: pages.append(cur)
-    # AN ANSWER WITH NO ROWS BEYOND ITS FIRST PAGE IS NOT PAGED: a refusal or a note list longer than a page came back as
-    # "page 1 of 2 ... 1 more page, 0 rows", a footer promising more of an answer that had none
-    if len(pages) > 1 and page == 1 and not any(l.startswith('    ') for pg in pages[1:] for l in pg):
-        return text
-    n = len(pages)
+    # PAGE 1. An answer that fits is printed as it always was. AN EXPLANATION IS NOT SPLIT: its flow is a reading
+    # order, sized when it is built; split, the second half is what nobody reads. Kept whole up to half a page over.
+    whole = len(ctext) <= budget * 4 or ('how it runs —' in ctext and len(ctext) <= budget * 6)
+    first = None if whole else _layout(sections, room, True)
+    # an answer with no rows beyond its first page is not paged: a refusal or a note list longer than a page came back
+    # as "page 1 of 2 ... 1 more page, 0 rows", a footer promising more of an answer that had none
+    if first and len(first) > 1 and not any(r and r.startswith('    ') for pg in first[1:] for _, _, r in pg):
+        whole, first = True, None
+    p1 = first[0] if first else None
+    # LATER PAGES: every row page 1 did not print, in the order of the full answer, under the section it belongs to
+    on_p1 = collections.Counter((sections[i][0], r) for i, _, r in p1 if r) if p1 else \
+        collections.Counter((t, r) for t, rows in sections for r in rows)
+    _h, _q, fsections = _parse(full)
+    rest = []
+    for title, rows in fsections:
+        left = []
+        for r in rows:
+            if on_p1[(title, r)] > 0: on_p1[(title, r)] -= 1
+            else: left.append(r)
+        rest.append([title, left])
+    later = _layout(rest, room, False) if any(rows for _, rows in rest) else []
+    n = 1 + len(later)
+    if page == 1 and (whole or n == 1):
+        return ctext if whole else '\n'.join(head + _render(sections, p1, lambda i: True) + [''] + quals) + '\n'
     if page < 1 or page > n:
+        if n == 1:
+            nr = _rows(capped)
+            return (f"page {page} does not exist: this answer has 1 page, and the answer without --page printed all of it"
+                    + (f" ({nr} row(s))" if nr else '') + "; nothing follows it\n")
         return f"page {page} does not exist: this answer has {n} page(s) at {budget_flag} {budget}\n"
-    body = pages[page - 1]; rest = totals_for({l for l in body if not l.startswith(' ')})
-    out = head + [f'page {page} of {n}:'] + body + ([''] + ['also in this answer (counts are for the whole answer):'] + rest if rest else []) + [''] + quals
+    if page == 1:
+        body = _render(sections, p1, lambda i: True)
+    else:
+        body = _render(rest, later[page - 2], lambda i: False)
+    shown = {l for l in body if not l.startswith(' ')}
+    rest_totals = totals_for(shown)
+    out = head + [f'page {page} of {n}:'] + body + ([''] + ['also in this answer (counts are for the whole answer):'] + rest_totals if rest_totals else []) + [''] + quals
 
-    def short(t):
-        weak_ = t.endswith('low-certainty rows')
-        name = next((v for k, v in LABEL if t.startswith(k)), t.split(' (')[0].split(':')[0].strip()[:40])
-        return ('[by name]/[text] ' if weak_ and name == 'users' else '') + name
-    left = pages[page:]
-    held = list(dict.fromkeys(short(re.sub(r'\s+\(continued\)$', '', l)) for pg in left for l in pg
-                              if l and not l.startswith((' ', '('))))
-    rows_left = sum(1 for pg in left for l in pg if l.startswith('    '))
-    nxt = (f"{len(left)} more page(s) left, {rows_left} row(s): {', '.join(held) or 'the rest of the rows above'} — ask for them with "
-           f"page={page + 1} (MCP) or --page {page + 1} (CLI), or all of it with --page all") if left else "this is the last page"
+    def short(i, part, secs):
+        name = next((v for k, v in LABEL if secs[i][0].startswith(k)), _name(secs[i][0])[:40])
+        return ('[by name]/[text] ' if part == 'low' and name == 'users' else '') + name
+    left = later[page - 1:]
+    held = list(dict.fromkeys(short(i, part, rest) for pg in left for i, part, _ in pg))
+    rows_left = sum(1 for pg in left for _, _, r in pg if r and r.startswith('    '))
+    nxt = (f"{len(left)} more page(s) left, {rows_left} row(s): {', '.join(held) or 'the rest of the rows above'} — ask for "
+           f"the next with --page {page + 1}, or all of it with --page all") if left else "this is the last page"
     out.append(f"page {page} of {n} (~{budget} tokens a page): {nxt}; {budget_flag} N changes the page size;"
                " narrow instead with --in <path>, --depth N or --tests-only")
     return '\n'.join(out) + '\n'
@@ -204,7 +294,7 @@ def next_test_impact(text):
     # When a text tier adds the tests that load a changed fixture, it prints the command(s) for both after
     # "with the tests above:", and the first command alone left those tests out of the step an agent takes: the
     # LAST such block wins, with every command that continues it
-    ms = list(re.finditer(r'^\s*(with the tests above: )?((?:\(cd \S+ && )?(?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pnpm|yarn|bun|node|tsx|pytest|python -m pytest|dotnet|go) [^\n]+)$', text, re.M))
+    ms = list(re.finditer(r'^\s*(with the tests above: )?((?:\(cd \S+ && )?(?:\./gradlew|gradle|mvn|\./mvnw|npx|npm|pnpm|yarn|bun|node|tsx|pytest|python -m pytest|python manage\.py test|python -m unittest|python(?= \S+\.py$)|dotnet|go) [^\n]+)$', text, re.M))
     if not ms: return ''
     last = max((i for i, m in enumerate(ms) if m.group(1)), default=0)
     cmds = [m.group(2).strip() for m in ms[last:]]
@@ -233,6 +323,8 @@ def install(verb):
         i = argv.index(flag); budget = int(argv[i + 1]); del argv[i:i + 2]
     if '--json' in argv:
         return
+    global CAPTURING
+    CAPTURING = True
     real, buf = sys.stdout, io.StringIO()
     sys.stdout = buf
 

@@ -1,0 +1,18 @@
+stored.js:11:23 METHOD_CALL this.own  ->  known_edge  stored.js:10:3 own
+stored.js:13:76 METHOD_CALL opts.onReady  ->  ambiguous_unknown  -
+stored.js:14:48 METHOD_CALL opts.onDone  ->  ambiguous_unknown  -
+stored.js:15:43 METHOD_CALL opts.onEnd  ->  ambiguous_unknown  -
+stored.js:16:38 OPTIONAL_CALL opts.onStart  ->  ambiguous_unknown  -
+stored.js:17:39 FUNCTION_CALL (c ? a : b)  ->  ambiguous_unknown  -
+stored.js:18:33 FUNCTION_CALL (0, cb)  ->  ambiguous_unknown  -
+stored.js:19:28 CONSTRUCTOR_CALL Function  ->  ambient_terminal  -
+stored.js:19:28 FUNCTION_CALL new Function(s)  ->  ambient_terminal  -
+stored.js:20:37 FUNCTION_CALL alpha  ->  known_edge  stored.js:3:1 alpha
+stored.js:21:31 FUNCTION_CALL helper  ->  known_edge  stored.js:20:16 <function-expression>
+stored.js:22:27 METHOD_CALL path.join  ->  ambient_terminal  -
+stored.js:23:33 METHOD_CALL 'abc'.trim  ->  ambient_terminal  -
+stored.js:25:35 METHOD_CALL opts.onReady  ->  ambiguous_unknown  -
+stored.js:26:37 METHOD_CALL res.status  ->  ambiguous_unknown  -
+stored.js:26:37 METHOD_CALL res.status(200).send  ->  ambiguous_unknown  -
+stored.js:6:26 FUNCTION_CALL handler  ->  ambient_terminal  -
+stored.js:9:19 METHOD_CALL this.cb  ->  ambiguous_unknown  -

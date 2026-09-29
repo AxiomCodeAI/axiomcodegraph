@@ -1,0 +1,24 @@
+import_cause     shapes.js:2:15  debug  not_staged
+import_cause     shapes.js:36:13  util  builtin
+import_cause     shapes.js:41:22  events  builtin
+package_entry    @axiomcode/code-graph  .  []  MAIN  dist/reason.js  NOT_STAGED  -> -
+unresolved       shapes.js:12:18  METHOD_CALL cb  no_target
+unresolved       shapes.js:20:25  METHOD_CALL cb  member_absent
+unresolved       shapes.js:24:25  METHOD_CALL cb  no_target
+unresolved       shapes.js:28:37  METHOD_CALL cb  member_absent
+unresolved       shapes.js:32:19  CONSTRUCTOR_CALL Ctor  member_absent
+unresolved       shapes.js:34:13  FUNCTION_CALL debug  callee_untyped
+unresolved       shapes.js:35:19  FUNCTION_CALL log  callee_untyped
+unresolved       shapes.js:37:26  FUNCTION_CALL tag  no_target
+unresolved       shapes.js:38:17  FUNCTION_CALL debug  callee_untyped
+unresolved       shapes.js:39:34  FUNCTION_CALL wrapped  callee_untyped
+unresolved       shapes.js:42:48  METHOD_CALL emit  no_target
+unresolved       shapes.js:7:18  METHOD_CALL cb  no_target
+value_callee     shapes.js:12:18  this.cb  field
+value_callee     shapes.js:16:18  this.cb  field
+value_callee     shapes.js:20:25  this.cb  field
+value_callee     shapes.js:24:25  this.cb  field
+value_callee     shapes.js:28:37  self.cb  field
+value_callee     shapes.js:32:19  this.Ctor  field
+value_callee     shapes.js:39:34  wrapped  module_variable
+value_callee     shapes.js:7:18  this.cb  field

@@ -277,6 +277,18 @@ elif tool == 'Read':
             if any(visible(x['f'], x['sl'] or x['ln']) for x in es): continue
             if e['k'] == 'module': e['ln'] = min((x['sl'] for x in es if x['sl']), default=e['ln'])   # a top level is where its call is
             if e['d'] not in {x['d'] for x in up[m]}: up[m].append(e)          # overloads of one caller are one name
+        # A CALLER THROUGH AN INTERFACE OR A BASE METHOD IS A CALLER (#1542): impact lists it, and call_edges alone does
+        # not hold it where the engine narrowed an interface-typed field to its one bean. Counted from the same reader.
+        via = _graphline.callers_via_base(con, mids, cwd)
+        if via:
+            vids = sorted({c for cs in via.values() for c in cs})
+            vrow = {r['id']: r for r in q(f"SELECT id, display d, file f, line ln, kind k FROM symbols WHERE id IN ({','.join('?' * len(vids))})", *vids)}
+            for m, cs in via.items():
+                anyup.add(m)
+                known = {e['id'] for (m_, _), es in sites.items() if m_ == m for e in es}     # already a call_edges caller
+                for c in sorted(cs, key=lambda c: (vrow[c]['d'] if c in vrow else c)):
+                    if c in vrow and c not in known and not visible(vrow[c]['f'], vrow[c]['ln']) and vrow[c]['d'] not in {x['d'] for x in up[m]}:
+                        up[m].append(dict(vrow[c], sl=None))
         dn = collections.defaultdict(list)
         for e in q(f"SELECT DISTINCT e.caller_id c, ce.id, ce.display d, ce.file f, ce.line ln FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id IN ({ph}) AND e.callee_provenance = 'client'", *ids):
             if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in dn[e['c']]}: dn[e['c']].append(e)
@@ -314,8 +326,11 @@ elif tool == 'Read':
         # a caller count of 0 says WHY where the graph knows (#1507 cluster): `←entry (http)`, `←0 resolved, 2 by name`,
         # `←? framework (@Scheduled)`. A framework-called method printed as `←0` read as dead code
         def ups(x):
-            if x['up'] or x['r']['method_id'] in anyup: return str(len(x['up']))
-            if 'zl' not in x: x['zl'] = _graphline.zero_label(con, x['r']['method_id'], x['r']['display'].rsplit('.', 1)[-1])
+            if x['up']: return str(len(x['up']))
+            # every caller is in the lines just read: `←0` there read as "nothing calls it" while a Grep of the same name
+            # said `← 1`; the count is of callers the text does not show, and here there are none to add
+            if x['r']['method_id'] in anyup: return ' callers in range'
+            if 'zl' not in x: x['zl'] = _graphline.zero_label(con, x['r']['method_id'])
             return x['zl']
         def line(x):
             r = x['r']; parts = []
@@ -417,6 +432,15 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
             # PRODUCTION CALLERS ARE NAMED BEFORE TESTS (#1507): unordered, SQLite returned them by display, so two test
             # methods took both name slots and the three production callers hid behind the count
             up = c.execute("SELECT DISTINCT cr.display d, cr.is_test t FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? ORDER BY cr.is_test, cr.display LIMIT 40", (r['method_id'],)).fetchall()
+            via = ''
+            # the callers through an interface or base method, which impact lists as `calls it (via the interface)`
+            vb = sorted(_graphline.callers_via_base(c, [r['method_id']], cwd).get(r['method_id'], ()))
+            if vb:
+                have = {x['d'] for x in up}
+                more = [x for x in c.execute(f"SELECT DISTINCT display d, is_test t FROM symbols WHERE id IN ({','.join('?' * len(vb))})", vb).fetchall() if x['d'] not in have]
+                if more:
+                    up = sorted(list(up) + more, key=lambda x: (x['t'], x['d']))[:40]
+                    via = f"; {len(more)} through the interface or base" if len(more) < len(up) else '; through the interface or base'
             nt = sum(1 for x in up if x['t'])
             # by DISPLAY, like the names printed beside it: two overloads of one callee are one name to the reader
             dn = c.execute("SELECT count(*) n FROM (SELECT DISTINCT ce.display FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND e.callee_provenance = 'client')", (r['id'],)).fetchone()['n']
@@ -424,8 +448,8 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
             tag = f"  ★ {rel_[r['id']][0]} {rel_[r['id']][1]} (which you just read)" if r['id'] in rel_ else ''
             # the tests are counted apart only below the 40-row cap: at the cap the split is not known
             callers = (f"{len(up)} (" + ', '.join(x['d'].split('.')[-1] for x in up[:2]) + (', …' if len(up) > 2 else '')
-                       + (f"; {nt} in tests" if nt and 2 < len(up) < 40 and nt < len(up) else '') + ")") if up \
-                      else _graphline.zero_label(c, r['method_id'], r['display'].rsplit('.', 1)[-1], r['is_test'])
+                       + (f"; {nt} in tests" if nt and 2 < len(up) < 40 and nt < len(up) else '') + via + ")") if up \
+                      else _graphline.zero_label(c, r['method_id'], None, r['is_test'])
             out.append(f"  {r['display']}  {path}:{r['line']}  ← {callers}  → {dn}" + (f"  ? {un}" if un else '')
                        + (f"  ⇣ {nover[r['id']]} override(s)" if nover.get(r['id']) else '')
                        + (f"  ({n_ol[r['id']]} overloads)" if n_ol.get(r['id'], 1) > 1 else '') + tag)

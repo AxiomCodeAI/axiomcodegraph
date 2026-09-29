@@ -1,0 +1,127 @@
+app.js:10:23 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+app.js:10:3 FUNCTION_CALL lazyOrDefault  ->  callback_registered  app.js:10:17 <arrow>
+app.js:10:3 FUNCTION_CALL lazyOrDefault  ->  known_edge  wrap.js:17:1 lazyOrDefault
+app.js:10:3 FUNCTION_CALL lazyOrDefault(() => new A())  ->  known_edge  wrap.js:19:10 <arrow>
+app.js:10:3 METHOD_CALL lazyOrDefault(() => new A())().aOnly  ->  known_edge  wrap.js:2:11 aOnly
+app.js:11:3 FUNCTION_CALL lazyNullish  ->  known_edge  wrap.js:22:1 lazyNullish
+app.js:11:3 FUNCTION_CALL lazyNullish()  ->  known_edge  wrap.js:24:10 <arrow>
+app.js:11:3 METHOD_CALL lazyNullish()().dfltOnly  ->  known_edge  wrap.js:4:14 dfltOnly
+app.js:15:15 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+app.js:15:3 FUNCTION_CALL plain  ->  callback_registered  app.js:15:9 <arrow>
+app.js:15:3 FUNCTION_CALL plain  ->  known_edge  wrap.js:27:1 plain
+app.js:15:3 FUNCTION_CALL plain(() => new A())  ->  known_edge  wrap.js:28:10 <arrow>
+app.js:15:3 METHOD_CALL plain(() => new A())().aOnly  ->  known_edge  wrap.js:2:11 aOnly
+app.js:16:15 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+app.js:16:3 FUNCTION_CALL plain  ->  callback_registered  app.js:16:9 <arrow>
+app.js:16:3 FUNCTION_CALL plain  ->  known_edge  wrap.js:27:1 plain
+app.js:16:3 FUNCTION_CALL plain(() => new A())  ->  known_edge  wrap.js:28:10 <arrow>
+app.js:16:3 METHOD_CALL plain(() => new A())().replacedOnly  ->  ambiguous_unknown  -
+app.js:17:22 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+app.js:17:3 FUNCTION_CALL otherWritten  ->  callback_registered  app.js:17:16 <arrow>
+app.js:17:3 FUNCTION_CALL otherWritten  ->  known_edge  wrap.js:31:1 otherWritten
+app.js:17:3 FUNCTION_CALL otherWritten(() => new A(), null)  ->  known_edge  wrap.js:33:10 <arrow>
+app.js:17:3 METHOD_CALL otherWritten(() => new A(), null)().aOnly  ->  known_edge  wrap.js:2:11 aOnly
+app.js:18:22 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+app.js:18:3 FUNCTION_CALL otherWritten  ->  callback_registered  app.js:18:16 <arrow>
+app.js:18:3 FUNCTION_CALL otherWritten  ->  known_edge  wrap.js:31:1 otherWritten
+app.js:18:3 FUNCTION_CALL otherWritten(() => new A(), null)  ->  known_edge  wrap.js:33:10 <arrow>
+app.js:18:3 METHOD_CALL otherWritten(() => new A(), null)().replacedOnly  ->  ambiguous_unknown  -
+app.js:4:14 FUNCTION_CALL swapped  ->  callback_registered  app.js:4:22 <arrow>
+app.js:4:14 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+app.js:4:28 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+app.js:5:3 FUNCTION_CALL sw  ->  known_edge  wrap.js:9:10 <arrow>
+app.js:5:3 METHOD_CALL sw().replacedOnly  ->  known_edge  wrap.js:3:18 replacedOnly
+app.js:6:3 FUNCTION_CALL sw  ->  known_edge  wrap.js:9:10 <arrow>
+app.js:6:3 METHOD_CALL sw().aOnly  ->  ambiguous_unknown  -
+app.js:7:3 FUNCTION_CALL lazyGuard  ->  known_edge  wrap.js:12:1 lazyGuard
+app.js:7:3 FUNCTION_CALL lazyGuard(undefined)  ->  known_edge  wrap.js:14:10 <arrow>
+app.js:7:3 METHOD_CALL lazyGuard(undefined)().replacedOnly  ->  known_edge  wrap.js:3:18 replacedOnly
+app.js:8:19 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+app.js:8:3 FUNCTION_CALL lazyGuard  ->  callback_registered  app.js:8:13 <arrow>
+app.js:8:3 FUNCTION_CALL lazyGuard  ->  known_edge  wrap.js:12:1 lazyGuard
+app.js:8:3 FUNCTION_CALL lazyGuard(() => new A())  ->  known_edge  wrap.js:14:10 <arrow>
+app.js:8:3 METHOD_CALL lazyGuard(() => new A())().aOnly  ->  known_edge  wrap.js:2:11 aOnly
+app.js:9:3 FUNCTION_CALL lazyOrDefault  ->  known_edge  wrap.js:17:1 lazyOrDefault
+app.js:9:3 FUNCTION_CALL lazyOrDefault()  ->  known_edge  wrap.js:19:10 <arrow>
+app.js:9:3 METHOD_CALL lazyOrDefault()().dfltOnly  ->  known_edge  wrap.js:4:14 dfltOnly
+many.js:11:3 FUNCTION_CALL s21  ->  known_edge  wrap.js:9:10 <arrow>
+many.js:11:3 METHOD_CALL s21().replacedOnly  ->  known_edge  wrap.js:3:18 replacedOnly
+many.js:12:3 FUNCTION_CALL s21  ->  known_edge  wrap.js:9:10 <arrow>
+many.js:12:3 METHOD_CALL s21().aOnly  ->  ambiguous_unknown  -
+many.js:3:13 FUNCTION_CALL swapped  ->  callback_registered  many.js:3:21 <arrow>
+many.js:3:13 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:3:27 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:3:49 FUNCTION_CALL swapped  ->  callback_registered  many.js:3:57 <arrow>
+many.js:3:49 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:3:63 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:3:85 FUNCTION_CALL swapped  ->  callback_registered  many.js:3:93 <arrow>
+many.js:3:85 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:3:99 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:4:13 FUNCTION_CALL swapped  ->  callback_registered  many.js:4:21 <arrow>
+many.js:4:13 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:4:27 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:4:49 FUNCTION_CALL swapped  ->  callback_registered  many.js:4:57 <arrow>
+many.js:4:49 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:4:63 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:4:85 FUNCTION_CALL swapped  ->  callback_registered  many.js:4:93 <arrow>
+many.js:4:85 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:4:99 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:5:13 FUNCTION_CALL swapped  ->  callback_registered  many.js:5:21 <arrow>
+many.js:5:13 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:5:27 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:5:49 FUNCTION_CALL swapped  ->  callback_registered  many.js:5:57 <arrow>
+many.js:5:49 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:5:63 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:5:85 FUNCTION_CALL swapped  ->  callback_registered  many.js:5:93 <arrow>
+many.js:5:85 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:5:99 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:6:13 FUNCTION_CALL swapped  ->  callback_registered  many.js:6:21 <arrow>
+many.js:6:13 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:6:27 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:6:49 FUNCTION_CALL swapped  ->  callback_registered  many.js:6:57 <arrow>
+many.js:6:49 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:6:63 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:6:85 FUNCTION_CALL swapped  ->  callback_registered  many.js:6:93 <arrow>
+many.js:6:85 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:6:99 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:7:13 FUNCTION_CALL swapped  ->  callback_registered  many.js:7:21 <arrow>
+many.js:7:13 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:7:27 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:7:49 FUNCTION_CALL swapped  ->  callback_registered  many.js:7:57 <arrow>
+many.js:7:49 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:7:63 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:7:85 FUNCTION_CALL swapped  ->  callback_registered  many.js:7:93 <arrow>
+many.js:7:85 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:7:99 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:8:13 FUNCTION_CALL swapped  ->  callback_registered  many.js:8:21 <arrow>
+many.js:8:13 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:8:27 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:8:49 FUNCTION_CALL swapped  ->  callback_registered  many.js:8:57 <arrow>
+many.js:8:49 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:8:63 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:8:85 FUNCTION_CALL swapped  ->  callback_registered  many.js:8:93 <arrow>
+many.js:8:85 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:8:99 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:9:13 FUNCTION_CALL swapped  ->  callback_registered  many.js:9:21 <arrow>
+many.js:9:13 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:9:27 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:9:49 FUNCTION_CALL swapped  ->  callback_registered  many.js:9:57 <arrow>
+many.js:9:49 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:9:63 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+many.js:9:85 FUNCTION_CALL swapped  ->  callback_registered  many.js:9:93 <arrow>
+many.js:9:85 FUNCTION_CALL swapped  ->  known_edge  wrap.js:7:1 swapped
+many.js:9:99 CONSTRUCTOR_CALL A  ->  implicit_constructor  -
+wrap.js:13:44 CONSTRUCTOR_CALL Replaced  ->  implicit_constructor  -
+wrap.js:14:16 FUNCTION_CALL fn  ->  ambient_terminal  -
+wrap.js:14:16 FUNCTION_CALL fn  ->  multi_inferred  app.js:8:13 <arrow>
+wrap.js:18:21 CONSTRUCTOR_CALL Dflt  ->  implicit_constructor  -
+wrap.js:19:16 FUNCTION_CALL fn  ->  known_edge  app.js:10:17 <arrow>
+wrap.js:23:16 CONSTRUCTOR_CALL Dflt  ->  implicit_constructor  -
+wrap.js:24:16 FUNCTION_CALL fn  ->  ambiguous_unknown  -
+wrap.js:28:16 FUNCTION_CALL fn  ->  multi_inferred  app.js:15:9 <arrow>
+wrap.js:28:16 FUNCTION_CALL fn  ->  multi_inferred  app.js:16:9 <arrow>
+wrap.js:32:15 CONSTRUCTOR_CALL Replaced  ->  implicit_constructor  -
+wrap.js:33:16 FUNCTION_CALL fn  ->  multi_inferred  app.js:17:16 <arrow>
+wrap.js:33:16 FUNCTION_CALL fn  ->  multi_inferred  app.js:18:16 <arrow>
+wrap.js:8:14 CONSTRUCTOR_CALL Replaced  ->  implicit_constructor  -
+wrap.js:9:16 FUNCTION_CALL fn  ->  ambiguous_unknown  -

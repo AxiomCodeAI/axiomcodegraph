@@ -1,8 +1,7 @@
-oracle=19 engine=9 agree=9 missing=10 (known 10, NEW 0) extra=0
+oracle=19 engine=10 agree=10 missing=9 (known 9, NEW 0) extra=0
   known    pipeline#<arrow@43>(?) -> steps#widen(Node)
   known    pipeline#<arrow@46>(?,?) -> steps#square(Node)
   known    pipeline#runByKey(Node,'grow' | 'shrink') -> steps#widen(Node)
-  known    pipeline#runByName(Node) -> steps#narrow(Node)
   known    pipeline#runFrozen(Node) -> steps#square(Node)
   known    pipeline#runImported(Node) -> steps#halve(Node)
   known    pipeline#runIndexed(Node,number) -> steps#widen(Node)

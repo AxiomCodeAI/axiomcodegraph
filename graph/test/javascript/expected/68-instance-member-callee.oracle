@@ -1,0 +1,4 @@
+index.js:17:18 METHOD_CALL own  EXACT  index.js:16:3
+index.js:22:31 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
+index.js:7:23 METHOD_CALL assign  LIB_AMBIENT_OK  
+# defects: 0

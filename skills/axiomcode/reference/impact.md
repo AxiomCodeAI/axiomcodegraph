@@ -77,11 +77,16 @@ line and names the constructor query to run; take that suggestion before acting 
   builder calls, constructor calls (declared or generated), and the **holders** — a type with a field of the target's type, where
   that holder is constructed or deserialized (`Holder.class` handed to a deserializer or a framework: reflection produces the
   field's value there, through the generated setters). A field's declared or generated setter, a generated constructor.
+- **why nothing in the graph calls it**: printed where no production caller was found: every reason, strongest first, from
+  the one reader the hooks' `← ?` label and path's empty-upstream note use (`graph_sql.no_caller_reasons`): an entry point, a
+  test, a decoration that registers it under a key, a decoration a framework reads (a wrapper such as a cache, a permission
+  check or a decorator the repository declares is never one), a library method it overrides, the call sites that write its
+  name on an untyped receiver, a library base of its type, a decoration on its type. `next:` follows the same order.
 - **reads or uses it** — every callable whose text uses the declaration, grouped by *why* (calls it, reads it, instantiates it,
   names it in a signature, uses a member imported from it, …) and by *how sure*: `[resolved]` an edge the engine resolved (a call
   — `[one of a set]` when it is a multi_inferred target set —, an override, a subtype, a constructor; a call written against
   the interface or base method this one implements is a direct row too, worded `calls it (via the interface)` or `(via the
-  base class)`, and `[resolved]` only when nothing else can run there); `[in scope]` a reference by
+  base class)`, and `[resolved]` only when nothing else can run there; the Read and Grep hooks count the same callers); `[in scope]` a reference by
   that name inside the owner type, a subtype or a nested type; `[by name]` a reference by that name elsewhere — the receiver was
   not typed, so it may be a same-named other thing — including a read written through a variable from a callable with no
   owner type at all, which is what a module-level function in Python or JavaScript is; `[text]` the name found in the source where the parser records no line (Java

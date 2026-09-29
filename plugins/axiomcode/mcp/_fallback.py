@@ -31,8 +31,9 @@ def _schema_for(ann, default):
     if origin in (list, typing.List):
         args = typing.get_args(ann)
         return {"type": "array", "items": {"type": _JSON_TYPE.get(args[0], "string") if args else "string"}}
-    if origin is not None:                      # Optional[X] / Union[...] -> first concrete arg
+    if origin is not None:                      # Optional[X] -> X; Union[X, Y] -> anyOf, as the SDK advertises it
         args = [a for a in typing.get_args(ann) if a is not type(None)]
+        if len(args) > 1: return {"anyOf": [_schema_for(a, default) for a in args]}
         return _schema_for(args[0], default) if args else {"type": "string"}
     return {"type": _JSON_TYPE.get(ann, "string")}
 
@@ -51,6 +52,8 @@ _CHECK = {"string": lambda v: isinstance(v, str),
 
 
 def _conforms(value, schema):
+    if "anyOf" in schema:
+        return any(_conforms(value, x) for x in schema["anyOf"])
     if not _CHECK.get(schema["type"], lambda v: True)(value):
         return False
     return schema["type"] != "array" or all(_conforms(x, schema["items"]) for x in value)
@@ -69,7 +72,8 @@ def _invalid(spec, nullable, arguments):
         if want is None:
             errors.append(f"{k}: unexpected argument")
         elif not (v is None and k in nullable) and not _conforms(v, want):
-            shown = want["type"] + (f" of {want['items']['type']}" if want["type"] == "array" else "")
+            shown = (" or ".join(x["type"] for x in want["anyOf"]) if "anyOf" in want else
+                     want["type"] + (f" of {want['items']['type']}" if want["type"] == "array" else ""))
             errors.append(f"{k}: expected {shown}, got {type(v).__name__} {json.dumps(v)[:60]}")
     return f"invalid arguments for {spec['name']}: " + "; ".join(errors) if errors else None
 

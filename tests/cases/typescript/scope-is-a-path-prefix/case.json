@@ -1,0 +1,29 @@
+{
+ "lang": "typescript",
+ "checks": [
+  {
+   "why": "a scope that names a directory of the repository is that directory: --in tools is tools/, not src/devtools/ whose name contains it (#1584)",
+   "run": ["context", "seed the rows", "--in", "tools"],
+   "want": ["tools/seed.ts"],
+   "avoid": ["src/devtools/seed.ts"]
+  },
+  {
+   "why": "impact --in answers for the declaration under the scope, not a same-named one in a directory whose name contains it (#1584)",
+   "run": ["impact", "seedRows", "--in", "tools"],
+   "want": ["tools/seed.ts"],
+   "avoid": ["src/devtools/seed.ts", "startApp"]
+  },
+  {
+   "why": "control: a scope that names no path of the repository still matches anywhere in a path, as it always did",
+   "run": ["impact", "seedRows", "--in", "devtools"],
+   "want": ["src/devtools/seed.ts"],
+   "avoid": [" tools/seed.ts"]
+  },
+  {
+   "why": "control: a parent directory holds everything below it",
+   "run": ["context", "seed the rows", "--in", "src"],
+   "want": ["src/devtools/seed.ts"],
+   "avoid": [" tools/seed.ts"]
+  }
+ ]
+}

@@ -1,0 +1,6 @@
+stored.js:11:23 METHOD_CALL own  EXACT  stored.js:10:3
+stored.js:19:28 CONSTRUCTOR_CALL Function  LIB_AMBIENT_OK  
+stored.js:20:37 FUNCTION_CALL alpha  EXACT  stored.js:3:1
+stored.js:21:31 FUNCTION_CALL helper  EXACT  stored.js:20:16
+stored.js:23:33 METHOD_CALL trim  LIB_AMBIENT_OK  
+# defects: 0

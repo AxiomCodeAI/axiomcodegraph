@@ -50,9 +50,11 @@ lookup_scope(s) :- ref_shape_target(_, s).
 group_of(t, g) :- type_group(_, g, t).
 
 // ── scope_sibling(Scope, SiblingScope) — the merged entity ──────────────────
-// Every declaration that shares this one's group, including itself. For a shape,
-// itself alone.
-scope_sibling(t, t2) :- group_of(t, g), group_of(t2, g).
+// Every declaration that shares this one's group, including itself — except one from
+// another program that cannot see this declaration's file (module-graph.dl, #1574). For
+// a shape, itself alone.
+scope_sibling(t, t2) :- group_of(t, g), group_of(t2, g),
+    !merge_sibling_cut(t, t2).
 scope_sibling(s, s) :- ref_shape_target(_, s).
 
 // ============================================================================
@@ -227,7 +229,7 @@ field_is_callable(scope, name, m) :- field_in_scope(scope, name, _, f),
 // only declared_method / scope_sibling / ancestor_of_merged_group, all of which sit
 // below the expr_type fixpoint, so the negation stratifies even though lookup_scope
 // does not.
-object_prototype_member(name, m) :- global_decl("Object", "TYPE", _, ot),
+object_prototype_member(name, m) :- global_decl_wide("Object", "TYPE", _, ot),
     scope_sibling(ot, sib),
     declared_method(sib, name, "false", m).
 member_declared_anywhere(scope, name, st) :- scope_sibling(scope, sib),
@@ -298,12 +300,12 @@ method_in_scope(scope, name, "false", f) :- var_enclosing_type(prov, scope, v),
 //
 // Guarded on the name resolving to a real global TYPE, so a project declaring its own
 // `CallableFunction` does not get the language's members grafted on by name alone.
-callable_function_member(name, m) :- global_decl("CallableFunction", "TYPE", _, ft),
+callable_function_member(name, m) :- global_decl_wide("CallableFunction", "TYPE", _, ft),
     scope_sibling(ft, sib),
     declared_method(sib, name, "false", m).
 callable_function_declares(name) :- callable_function_member(name, _).
 
-plain_function_member(name, m) :- global_decl("Function", "TYPE", _, ft),
+plain_function_member(name, m) :- global_decl_wide("Function", "TYPE", _, ft),
     scope_sibling(ft, sib),
     declared_method(sib, name, "false", m).
 

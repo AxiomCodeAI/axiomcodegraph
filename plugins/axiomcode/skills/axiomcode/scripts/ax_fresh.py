@@ -438,6 +438,57 @@ def relink(repo, locked=False, say=True):
     if say: print(msg, file=sys.stderr)
     return msg
 
+def graph_corrupt(db, thorough=False):
+    """why the graph at db cannot be read ('' when it can). A disk that filled mid-write, a copy cut short or a crash can
+    leave graph.sqlite malformed, and every verb then died in a Python traceback (`file is not a database`, `database disk
+    image is malformed`) instead of saying what was wrong. The probe is cheap (the schema is read, as every verb reads it
+    first); only when it fails, or with `thorough` (a verb that hit an error mid-answer), is quick_check asked, since on a
+    large graph it reads every page. An empty file is not corrupt: it is a graph that was never indexed."""
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    except sqlite3.Error as e: return str(e)
+    try:
+        try:
+            con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            if not thorough: return ''
+        except sqlite3.OperationalError as e:
+            if 'locked' in str(e) or 'unable to open' in str(e): return ''   # busy or gone, not malformed
+            first = str(e)
+        except sqlite3.DatabaseError as e: first = str(e)
+        else: first = ''
+        try:
+            bad = [r[0] for r in con.execute("PRAGMA quick_check(3)").fetchall() if r[0] != 'ok']
+        except sqlite3.DatabaseError as e: return first or str(e)
+        return first or '; '.join(bad)
+    finally: con.close()
+
+def quarantine(repo, db, why):
+    """move a corrupt graph out of the way so the next build replaces it rather than reads it, and mark the repository so
+    that build cannot take the unchanged files for an up-to-date graph (axiomcode-build reads .axiomcode/out/corrupt). A
+    pointer's TARGET is moved and the pointer left dangling, which every verb already treats as a graph to repair (a
+    rebuild that keeps the baseline). Returns where the corrupt file went, or '' when it could not be moved."""
+    real = os.path.realpath(db); dst = real + '.corrupt'
+    try:
+        os.replace(real, dst)
+        for ext in ('-wal', '-shm', '-journal'):
+            if os.path.exists(real + ext): os.replace(real + ext, dst + ext)
+    except OSError: dst = ''
+    try:
+        os.makedirs(out_dir(repo), exist_ok=True)
+        with open(os.path.join(out_dir(repo), 'corrupt'), 'w') as f: f.write(f"{db}: {why}\n")
+    except OSError: pass
+    return dst
+
+def last_good_graph(repo):
+    """a graph directory that can still answer when the current graph is corrupt: the baseline graph a refresh kept
+    (.axiomcode/base, or base/lang/<lang> for another language), when it reads cleanly. It describes an earlier tree, so
+    an answer from it must say so. None when there is none."""
+    root = os.path.join(repo, '.axiomcode', 'base')
+    d = os.path.join(root, 'lang', graph_lang()) if graph_lang() else root
+    db = os.path.join(d, 'out', 'graph.sqlite')
+    return d if os.path.isfile(db) and os.path.getsize(db) and not graph_corrupt(db) else None
+
 def graph_lang():
     """the language whose graph a verb reads when it is not the main one (AXIOMCODE_GRAPH_LANG, set by the dispatcher
     as it asks each language's graph in turn), else ''"""

@@ -1,0 +1,25 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	client/client#<module-init>() @L33 -> -
+ambiguous_unknown	FUNCTION_CALL	client/client#anywhere(string) @L30 -> -
+ambiguous_unknown	FUNCTION_CALL	client/client#cancelOrder(string) @L20 -> -
+ambiguous_unknown	FUNCTION_CALL	client/client#fetchOrder(string) @L8 -> -
+ambiguous_unknown	FUNCTION_CALL	client/client#listAll() @L14 -> -
+ambiguous_unknown	METHOD_CALL	client/client#cached() @L34 -> -
+callback_registered	METHOD_CALL	server/orders#<module-init>() @L20 -> server/orders#getOrder()
+callback_registered	METHOD_CALL	server/orders#<module-init>() @L22 -> server/orders#listOrders()
+callback_registered	METHOD_CALL	server/orders#<module-init>() @L23 -> server/orders#createOrder()
+callback_registered	METHOD_CALL	server/orders#<module-init>() @L24 -> server/orders#getInvoice()
+callback_registered	METHOD_CALL	server/orders#<module-init>() @L26 -> server/orders#<arrow@26>()
+known_edge	DECORATOR_CALL	ReportsController#daily() @L8 -> server/reports.controller#Get(string)
+known_edge	DECORATOR_CALL	ReportsController#rebuild() @L11 -> server/reports.controller#Post(string)
+known_edge	DECORATOR_CALL	server/reports.controller#<module-init>() @L6 -> server/reports.controller#Controller(string)
+known_edge	FUNCTION_CALL	server/orders#<arrow@26>() @L26 -> server/orders#cancelWork()
+known_edge	METHOD_CALL	client/client#<module-init>() @L23 -> HttpStatic#create({ baseURL?: string })
+known_edge	METHOD_CALL	client/client#audit() @L27 -> HttpInstance#get(string,unknown)
+known_edge	METHOD_CALL	client/client#dailyReport(string) @L17 -> HttpInstance#get(string,unknown)
+known_edge	METHOD_CALL	client/client#invoice(string) @L24 -> HttpInstance#get(string,unknown)
+known_edge	METHOD_CALL	client/client#placeOrder(unknown) @L11 -> HttpInstance#post(string,unknown,unknown)
+known_edge	METHOD_CALL	server/orders#<module-init>() @L20 -> server/orders#get(string,unknown)
+known_edge	METHOD_CALL	server/orders#<module-init>() @L22 -> server/orders#get(string,unknown)
+known_edge	METHOD_CALL	server/orders#<module-init>() @L23 -> server/orders#post(string,unknown)
+known_edge	METHOD_CALL	server/orders#<module-init>() @L24 -> server/orders#get(string,unknown)
+known_edge	METHOD_CALL	server/orders#<module-init>() @L26 -> server/orders#delete(string,unknown)

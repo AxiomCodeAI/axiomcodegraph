@@ -1,0 +1,2 @@
+known_edge	METHOD_RETURN	0	api [METHOD] -> Greeter
+known_edge	VARIABLE_TYPE	0	api [VARIABLE] -> Greeter

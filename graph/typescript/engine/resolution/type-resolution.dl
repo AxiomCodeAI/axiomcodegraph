@@ -615,6 +615,15 @@ ref_element_target(ref, prov, t) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, 
     ref_name_is_container(tn),
     type_ref_parent(rp, ref, "0", child),
     ref_type_target(child, prov, t).
+// `Record<K, V>` read by key — `makers[kind](n)` — yields V, which is type argument 1,
+// not 0, so it is kept off the container list: iterating a Record does not compile, and
+// the list's promise is argument 0.
+ref_element_target(ref, prov, t) :- type_ref(rp, "TYPE_REFERENCE", _, "Record", _, _, _, ref),
+    type_ref_parent(rp, ref, "1", child),
+    ref_type_target(child, prov, t).
+ref_element_shape(ref, sh) :- type_ref(rp, "TYPE_REFERENCE", _, "Record", _, _, _, ref),
+    type_ref_parent(rp, ref, "1", child),
+    ref_shape_target(child, sh).
 ref_name_is_container("Array").
 ref_name_is_container("ReadonlyArray").
 ref_name_is_container("Iterable").

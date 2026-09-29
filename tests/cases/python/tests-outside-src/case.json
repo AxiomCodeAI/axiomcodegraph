@@ -1,0 +1,13 @@
+{"lang": "python", "src": "app",
+ "checks": [
+  {"why": "the index read only --src app, and the test that calls price sits in tests/ outside it: 0 tests is said to be unseen, with the file",
+   "run": ["impact", "price"],
+   "want": ["tests: 0 of", "NOT SEEN: the graph was indexed with --src app", "tests/test_price.py"]},
+  {"why": "the same fact reaches --json, which test-impact reads",
+   "run": ["impact", "price", "--json"],
+   "stdout_json": true,
+   "want": ["\"tests_outside_src\"", "tests/test_price.py"]},
+  {"why": "near miss: a change a test inside --src reaches is counted, and the outside tree is not raised",
+   "run": ["impact", "discount"],
+   "want": ["tests: 1 of"],
+   "avoid": ["NOT SEEN"]}]}
