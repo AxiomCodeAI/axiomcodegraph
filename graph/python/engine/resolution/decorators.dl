@@ -64,12 +64,20 @@ decorator_transparent("CACHED_PROPERTY").
 decorator_transparent("CONTEXTMANAGER").
 decorator_transparent("DATACLASS").
 decorator_transparent("DEPRECATED").
+// pydantic's @validate_call validates, then calls the def; @computed_field marks a
+// property for serialization and a read still runs the getter. Both call through, and
+// as unknown decorators they removed the def from lookup: a caller of a validated
+// function fell to by-name and a computed field had no reader (#1534).
+decorator_transparent("VALIDATE_CALL").
+decorator_transparent("COMPUTED_FIELD").
 
 // ── decorator_elides_hop(BuiltinKind) — transparent, but through a wrapper ───
 decorator_elides_hop("LRU_CACHE").
 decorator_elides_hop("CACHED_PROPERTY").
 decorator_elides_hop("CONTEXTMANAGER").
 decorator_elides_hop("DEPRECATED").
+decorator_elides_hop("VALIDATE_CALL").
+decorator_elides_hop("COMPUTED_FIELD").
 
 // ── decorator_opaque(Prov, DecoratorHash) ────────────────────────────────────
 // replacesTarget=true AND the builtinKind is not in the modelled set. `@audit("child")`
