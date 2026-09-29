@@ -65,6 +65,13 @@
 .decl jsx_call_renders(c0:symbol, c1:symbol, c2:symbol)
 .decl jsx_loader_settles(c0:symbol, c1:symbol, c2:symbol)
 .decl jsx_component_kind(c0:symbol)
+.decl jsx_connect_call(c0:symbol, c1:symbol)
+.decl jsx_connect_props(c0:symbol, c1:symbol, c2:symbol)
+.decl jsx_connect_class_props(c0:symbol, c1:symbol, c2:symbol)
+.decl jsx_context_create(c0:symbol)
+.decl jsx_context_tag(c0:symbol, c1:symbol)
+.decl jsx_context_value(c0:symbol, c1:symbol, c2:symbol)
+.decl jsx_context_reader_name(c0:symbol)
 
 // ── call-edge-generation/calls.dl ──
 .decl method_prov(c0:symbol, c1:symbol)
