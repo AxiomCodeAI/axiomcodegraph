@@ -533,7 +533,10 @@ jobs:
           command -v souffle && { echo "::error::this runner has souffle; the gate would not prove anything"; exit 1; }
           export CODEGRAPH_TGZ="$(ls "$PWD"/artifacts/tgz/*.tgz)"
           for lang in java typescript python javascript csharp; do
-            case_dir="$(ls -d graph/test/$lang/cases/*/src | head -1)"
+            # A glob, not ls | head: under pipefail, head exiting early SIGPIPEs ls and fails the step.
+            cases=(graph/test/"$lang"/cases/*/src)
+            case_dir="${cases[0]}"
+            [ -d "$case_dir" ] || { echo "::error::no $lang case under graph/test/$lang/cases"; exit 1; }
             echo "::group::$lang ($case_dir)"
             bash .github/scripts/e2e-install.sh artifacts/engines "$PLATFORM" "$lang" "$case_dir"
             echo "::endgroup::"
