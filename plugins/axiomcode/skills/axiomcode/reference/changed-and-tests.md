@@ -1,5 +1,11 @@
 # changed, test-impact, and the edit hooks
 
+**Read-only:** `changed` and `test-impact` take `--no-refresh` too (MCP `refresh=false`): when HEAD moved since the
+baseline was set they then answer against the baseline as it is instead of starting a rebuild to move it. The edit
+hooks never rebuild a graph another axiomcode built (a build stamp naming another engine, other rules or another
+IMPACT_VERSION): they keep it and say so once per session; `axiomcode index` or a query without `--no-refresh`
+rebuilds it, the query saying so on its first line.
+
 
 `axiomcode changed` maps a change onto the graph's declarations and says *how* each changed, in every language from the text:
 `signature` (parameters added / removed / renamed / retyped — `+reason`, `-x`, `zip: String → Integer` —, the return type),

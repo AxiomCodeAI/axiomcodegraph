@@ -3,20 +3,20 @@
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
-#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh] [--grep]
+#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh] [--no-refresh] [--grep]
 #       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name
 #       to ask about yet. Deterministic: task terms scored against the graph's vocabulary by inverse document
 #       frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop.
 #       --in is repeatable and takes a list, and several are COMBINED, not intersected, so a change that
 #       spans two roots is answerable in one call.
 #       Ends by saying what it could not see. Every other verb needs a name you already have; this one does not.
-#   axiomcode graph [<repo>] [--out <folder | page.html>]
+#   axiomcode graph [<repo>] [--out <folder | page.html>] [--no-refresh]
 #       the graph as one page, every language the repository was indexed in. Drawn from the existing graph when it is up
 #       to date (seconds, no engine run); rebuilt first only when a source file changed, and then with the --lang, --src
 #       and --library it was indexed with, never for a language the index left out; indexed first when there is none.
 #       Prints what it drew and the page's absolute path: <repo>/.axiomcode/graph/graph.html, or --out (a folder gets
 #       <folder>/<repo>.html, a .html path is used as given). The page embeds the sources, so a node opens its code.
-#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json] [--fresh] [--grep]
+#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json] [--fresh] [--no-refresh] [--grep]
 #       the shortest chain of calls from A to B per reached target, and with --every all the routes; through what?
 #       '*' as one endpoint: path '*' X = everything that can reach X, with the entry points among them; path X '*' = everything X reaches. Endpoints exactly as written in the code: Owner.method,
 #       method (free function or any owner), Type (all its methods), file.ts:123, file.py. Datalog over the graph; every
@@ -24,19 +24,19 @@
 #       Every hop carries the LINE THE CALL IS WRITTEN ON, how certain the edge is, and what kind of call it is —
 #       an invocation, a construction, a constructor chain, a super call, a decorator, a property access, a method
 #       reference — in one vocabulary across all five languages. A hop that is not a call is marked and not counted.
-#   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k] [--fresh] [--grep]
+#   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k] [--fresh] [--no-refresh] [--grep]
 #       what has to be looked at again when a declaration changes: a method, a field / constant / enum member, a type, a
 #       parameter (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), Type.<init> / Type.<clinit>. Prints what
 #       must change with it (overrides, subtypes), what directly touches it with WHY and how sure ([resolved] / [in scope] /
 #       [by name] / [text]), the transitive callers by hop with the entry points and tests, and the unresolved-site bound.
 #       --kind takes method|field|type|param|typeparam|var|config, and the language's own word for the same thing
 #       (class / interface / enum / namespace, const / enum_member / variable, function / constructor).
-#   axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact] [--json]
+#   axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact] [--json] [--no-refresh]
 #       which declarations an edit changed and HOW (signature: params added / removed / retyped, return type; field: its type,
 #       name, initializer; type header; body only; removed; added) — the working tree against the commit the graph was built
 #       from, or a branch's commits (--range a..b reads from `git merge-base a b`) — each with the target `impact` takes;
 #       --impact runs impact on all of them as one change set. Without git, name the files.
-#   axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why] [--grep]
+#   axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why] [--no-refresh] [--grep]
 #       which tests actually have to run for this edit: the test files that reach any changed declaration, with the
 #       chain, so a selection can be checked rather than trusted. Conservative by design — a test reached only
 #       through an edge the graph does not encode (reflection, a service loader) will NOT appear.
@@ -56,6 +56,11 @@
 # language's, the one with the most files, first). --lang restricts it to one language or a comma list, the first the main one;
 # --src limits the analysed tree (e.g. src); --library names dependency roots. --fresh (context, path, impact) waits for
 # a refresh in flight and answers from the new graph; without it an answer from a graph older than an edit marks its rows.
+# --no-refresh (every query verb: context, path, impact, changed, test-impact, graph; MCP refresh=false) is a READ-ONLY
+# query: the answer comes from the graph as it is and no rebuild is started, as AXIOMCODE_NO_REFRESH=1 does for a whole
+# shell; it still says which edits the graph predates. Without it a query on a graph that is out of date (files edited
+# since, or built by another axiomcode) starts a background rebuild with the engine this axiomcode uses, and says so on
+# the answer's first line. The hooks never rebuild a graph another axiomcode built; they say so once per session.
 # --grep (context, path, impact, test-impact) prints the answer's sites one per line, as grep does: `path:line: <the code
 # on that line>  [resolved | one of a set | by name | text | hop N | test]`, the first 30 (--grep-limit N) and a count of
 # the rest, then whether it was verified and its bound. The MCP tools answer this way by default; full=True is the prose.
@@ -113,6 +118,7 @@ while [ $# -gt 0 ]; do
     --src) export AXIOMCODE_SRC="$2"; shift 2 ;;
     --library) export AXIOMCODE_LIBRARY="$2"; shift 2 ;;
     --fresh) export AXIOMCODE_FRESH=1; shift ;;
+    --no-refresh) export AXIOMCODE_NO_REFRESH=1; shift ;;
     --grep) GREP=1; shift ;;
     --grep-limit) GREP=1; GREP_LIMIT="$2"; shift 2 ;;
     *) ARGS+=("$1"); shift ;;

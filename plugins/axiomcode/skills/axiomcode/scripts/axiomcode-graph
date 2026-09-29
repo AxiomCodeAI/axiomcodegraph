@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """axiomcode graph — the graph of a codebase as one interactive page.
 
-  axiomcode graph [<repo>] [--out <folder | page.html>]
+  axiomcode graph [<repo>] [--out <folder | page.html>] [--no-refresh]
   axiomcode graph [<repo>] --lang <lang>[,<lang>…] [--src <subdir>] [--library <root>[,<root>…]] [--out …]
 
 With no flags the page is drawn from the graph `axiomcode index` built, and the engine does not run:
@@ -11,6 +11,8 @@ With no flags the page is drawn from the graph `axiomcode index` built, and the 
     only the languages the index chose are solved and no graph appears for a language it left out.
   - there is no graph yet: the repository is indexed first (every language present, or the flags given).
 Flags given here are a request for that graph, as `axiomcode index` takes them.
+--no-refresh (MCP refresh=false, or AXIOMCODE_NO_REFRESH=1) is read-only: the page is drawn from the graph that is there
+even when it is out of date, and the graph is never rebuilt; the answer says how many files it predates.
 
 A repository indexed in several languages is drawn in all of them, on one page. The command prints what it drew as
 prose, and the page's absolute path last. `axiomcode graph export [<repo>]` writes the page from the graph as it is,
@@ -277,6 +279,10 @@ def build(repo, page, library=None):
     if c is not None and not any(c) and not ax_fresh.graph_broken(repo):
         return export(repo, page, how=f"graph up to date ({langs}): drawn from it, no rebuild.")
     n = sum(len(x) for x in c) if c else 0
+    if os.environ.get('AXIOMCODE_NO_REFRESH') and not ax_fresh.graph_broken(repo):
+        # READ-ONLY (--no-refresh, MCP refresh=false, AXIOMCODE_NO_REFRESH=1): the graph there is drawn as it is, and said
+        return export(repo, page, how=f"refresh off (--no-refresh): drawn from the graph as it is, not rebuilt ({langs})"
+                                      + (f"; it predates edits to {n} file(s) since it was built" if n else '') + ".")
     flags = ' '.join(f for f in (('--lang ' + t['lang']) if not t.get('lang_auto', True) else 'every language present',
                                  ('--src ' + t['src_arg']) if t.get('src_arg') else '', ('--library ' + t['library']) if t.get('library') else '') if f)
     print(f"the graph is out of date ({n} file(s) changed since it was built): rebuilding it as it was indexed ({flags}) …" if n else

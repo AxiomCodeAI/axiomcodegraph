@@ -1,5 +1,10 @@
 # path — the endpoint grammar and what it cannot find
 
+**Read-only:** `--no-refresh` (MCP `path`: `refresh=false`, or `AXIOMCODE_NO_REFRESH=1`) answers from the graph as it is and
+never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph that is out of
+date (files edited since, or built by another axiomcode) starts a background rebuild with this axiomcode's engine and
+says so on the answer's first line, with the reason.
+
 
 - **Start here when you do not have a name yet.** A bare word — one that names nothing exactly, with `'*'` at the
   other end — is every declaration CONTAINING it, listed with the count so a wide word is visibly wide, so

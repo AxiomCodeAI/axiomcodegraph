@@ -6,8 +6,13 @@ nothing usable, the graph never touched again.
 
 ```
 axiomcode context "<the task, in your own words>" [<repo>] [--in <path>] [--budget N] [--source]
-                  [--explain | --no-explain] [--from <name>]…
+                  [--explain | --no-explain] [--from <name>]… [--no-refresh]
 ```
+
+**Read-only:** `--no-refresh` (MCP `context`: `refresh=false`, or `AXIOMCODE_NO_REFRESH=1`) answers from the graph as it is and
+never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph that is out of
+date (files edited since, or built by another axiomcode) starts a background rebuild with this axiomcode's engine and
+says so on the answer's first line, with the reason.
 
 Deterministic — no model, no embedding index, no network. The task text is split into content terms
 (stopwords dropped, camelCase and snake_case split); every symbol is scored against them — exact name,

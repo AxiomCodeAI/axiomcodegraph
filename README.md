@@ -334,7 +334,10 @@ a session sits idle. The graph records when and why it was built in `index_meta`
 `AXIOMCODE_NO_REFRESH=1` turns the rebuilds off, not the check: an answer from a graph older than an edit still
 ends with a `graph refresh: OFF` line naming the files it predates. When a name asked about finds nothing and an
 edit since the graph was built writes that name, the line says so, since the declaration may simply be too new
-for the graph. The log is `.axiomcode/refresh.log`.
+for the graph. `--no-refresh` on any query verb (MCP `refresh=false`) does the same for one query: a read-only answer
+from the graph as it is. A query that does start a rebuild says so on its answer's first line, with the reason. The
+hooks and the MCP server's timer never rebuild a graph another axiomcode built (another engine, other rules or another
+`IMPACT_VERSION` in its build stamp); a hook says so once per session. The log is `.axiomcode/refresh.log`.
 
 ## Graph output
 

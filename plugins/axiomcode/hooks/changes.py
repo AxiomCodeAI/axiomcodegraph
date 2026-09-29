@@ -147,7 +147,7 @@ elif event in ('PostToolUse', 'UserPromptSubmit'):
     import ax_fresh
     # a commit, a merge or a pull since the baseline was set: let it follow HEAD first (0.2 s when no file changed),
     # or every committed edit is reported again as changed
-    try: ax_fresh.wait_baseline(cwd, 8)
+    try: ax_fresh.wait_baseline(cwd, 8, hook=True)          # never a rebuild of a graph another axiomcode built
     except Exception: pass
     bg = ax_fresh.baseline_graph(cwd)
     if bg: os.environ['AXIOMCODE_GRAPH'] = bg

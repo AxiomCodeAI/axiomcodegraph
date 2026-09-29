@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
-"""axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path>] [--json]   is there a chain of calls from A to B, and through what?
+"""axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path>] [--json] [--fresh] [--no-refresh]   is there a chain of calls from A to B, and through what?
    axiomcode path --selftest <lang>                                 the engine's own expected edges, replayed through this tool
+
+--no-refresh (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) is a read-only query: it answers from the
+graph as it is and never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph
+that is out of date (files edited since, or built by another axiomcode) starts a background rebuild with this
+axiomcode's engine, and the answer's first line says so, why, and how to prevent it.
 
 An endpoint is anything that names code, written the way it appears in the code — resolved EXACTLY, never guessed:
     Owner.method   Owner.Inner.method   method (a free function, or that name under any owner)   Type (every method it declares)

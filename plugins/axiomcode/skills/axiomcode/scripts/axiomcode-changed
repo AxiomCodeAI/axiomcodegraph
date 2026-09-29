@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
-"""axiomcode changed [<repo>] [<file>… [--whole]] [--range <a>..<b> | --staged] [--old <text-file> --new <text-file> --file <path>] [--impact] [--json]
+"""axiomcode changed [<repo>] [<file>… [--whole]] [--range <a>..<b> | --staged] [--old <text-file> --new <text-file> --file <path>] [--impact] [--json] [--no-refresh]
    which declarations an edit changed, and HOW — then (--impact) what that reaches.
+
+--no-refresh (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) is a read-only query: it answers from the
+graph as it is and never starts a rebuild; rows in files edited since are still marked. Without it, a query on a graph
+that is out of date (files edited since, or built by another axiomcode) starts a background rebuild with this
+axiomcode's engine, and the answer's first line says so, why, and how to prevent it.
 
 The graph describes the tree as it was when it was built (the build stamps the commit). An edit is read against that version:
 by default the working tree against the tree the graph was indexed from (its commit plus any edits uncommitted at index time; the commit, then HEAD, for a graph that did not record one), `--range a..b` two commits, `--staged` the
