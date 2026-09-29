@@ -125,6 +125,59 @@ def grep(repo, needle, word):
     return hits
 
 
+# ── a phrase written with a value between its words ────────────────────────────────────────────────────────────────
+# A message is rarely written as the words an agent reads: `f"no graph holds '{name}' under the root"` (Python),
+# `$"no graph holds '{name}' under the root"` (C#), `String.format("no graph holds '%s' under the root", name)` or
+# `"no graph holds '" + name + "' under the root"` (Java). Searched as one literal run of text, "holds under the root"
+# is on no line, and the answer said "no line of the repository's files writes it". So a phrase of several words that no
+# line writes as asked is searched again with each gap between two words allowed to hold an interpolation (a {..}
+# hole, a %s / %1$s / %(name)s placeholder, a " + expr + " concatenation), quoted or not; and, when that finds nothing
+# either, with one of its inner words standing for such a hole (the agent quoted the message with a value in it). Both stay
+# on one line, and a gap holds only whitespace and interpolations: two literals that happen to hold the words apart
+# (`log("stock level"); ... ; warn("is negative")`) are not one phrase.
+_Q = r'(?:\\?["\'`])?'
+_SLOT = (r'(?:\{[^{}\n]{1,60}\}'                                        # {scope} {0} {x:N2} {x!r}
+         r'|%(?:\(\w+\))?[-#+ 0,(]*\d*(?:\.\d+)?[a-zA-Z]|%\d+\$[a-zA-Z]'   # %s %-5d %(name)s %1$s
+         r'|["\']\s*\+\s*[^"\'\n;]{1,60}?\s*\+\s*["\']'               # " + scope + "
+         r'|["\']\s*\+\s*["\'])')                                        # "a " + " b": one message in two pieces
+_HOLE = _Q + _SLOT + _Q
+_GAP = r'(?:\s|' + _HOLE + r')+'
+
+
+def _words(needle):
+    ws = needle.split()
+    return ws if len(ws) >= 2 and sum(1 for w in ws if re.search(r'\w', w)) >= 2 else []
+
+
+def phrase_patterns(needle):
+    """[(compiled pattern, how it differs from the phrase as asked)] to try in turn for a phrase no line writes as
+    asked: its words with an interpolation allowed in each gap, then (three words or more) one inner word standing for one"""
+    ws = _words(needle)
+    if not ws: return []
+    out = [(re.compile(_GAP.join(re.escape(w) for w in ws)), 'with an interpolation between its words')]
+    if len(ws) >= 3:
+        # an inner word only: the words at both ends stay literal, so the phrase is still anchored on what was asked
+        alts = [_GAP.join(_HOLE if j == i else re.escape(w) for j, w in enumerate(ws)) for i in range(1, len(ws) - 1)]
+        out.append((re.compile('|'.join(f'(?:{a})' for a in alts)), 'with an interpolation in place of one word'))
+    return out
+
+
+def grep_phrase(repo, needle, have=()):
+    """-> ([(file, line, text)], pattern, how) for the first of phrase_patterns(needle) that some line other than those
+    in `have` (the lines that write it as asked) matches, else ([], None, ''). The lines are found by the two longest
+    words (any variant keeps one of them), then matched whole"""
+    pats = phrase_patterns(needle)
+    if not pats: return [], None, ''
+    keys = sorted({re.sub(r'^\W+|\W+$', '', w) for w in _words(needle)} - {''}, key=len, reverse=True)[:2]
+    cand = {}
+    for k in keys:
+        for h in grep(repo, k, False): cand[(h[0], h[1])] = h
+    for pat, how in pats:
+        hits = [h for _k, h in sorted(cand.items()) if h not in have and pat.search(h[2])]
+        if hits: return hits, pat, how
+    return [], None, ''
+
+
 class Places:
     """the declaration that holds a line, in whichever graph holds its file"""
     def __init__(self, repo):
@@ -357,8 +410,10 @@ class Lexed:
         return 'code'
 
     def best(self, rel, line, text, needle, word):
-        """the kind of the most code-like occurrence of `needle` on the line: a string or code beats a comment"""
-        pat = re.compile((r'(?<!\w)' + re.escape(needle) + r'(?!\w)') if word else re.escape(needle))
+        """the kind of the most code-like occurrence of `needle` (a string, or a compiled pattern) on the line: a string
+        or code beats a comment"""
+        pat = needle if isinstance(needle, re.Pattern) else \
+            re.compile((r'(?<!\w)' + re.escape(needle) + r'(?!\w)') if word else re.escape(needle))
         got = [self.at(rel, line, m.start()) for m in pat.finditer(text)]
         if not got or got[0] is None: return None
         for want in ('string', 'code', 'doc', 'comment'):
@@ -371,7 +426,7 @@ def _cut(t, n):
     return t if len(t) <= n else t[:n - 3] + '…'
 
 
-def approx(repo, hits, needle, word, filelike, places, lex, rows=ROWS):
+def approx(repo, hits, needle, word, filelike, places, lex, rows=ROWS, pat=None, how=''):
     """-> ([printed lines], the hits they answer). A hit is answered here when it sits in code of an indexed, non-test
     file, inside a declaration: in a string literal when the name asked is a file (its path, as the code writes it), in
     a string or in code otherwise. A comment, a docstring, a test and a file no graph reads stay [text] rows"""
@@ -379,7 +434,7 @@ def approx(repo, hits, needle, word, filelike, places, lex, rows=ROWS):
     for h in hits:
         f, ln, t = h
         if places.lang(f) not in APPROX_LANGS or places.is_test(f): continue
-        k = lex.best(f, ln, t, needle, word)
+        k = lex.best(f, ln, t, pat or needle, word)
         if k is None or k in ('comment', 'doc'): continue
         if filelike and k != 'string': continue
         d = places.decl(f, ln)
@@ -427,7 +482,7 @@ def approx(repo, hits, needle, word, filelike, places, lex, rows=ROWS):
     ordered = sorted(found.items(), key=lambda kv: (min(_RANK[verb(r)] for r in kv[1]['rows']), kv[0][0], kv[1]['rows'][0][0]))
     out = []
     if ordered or typed:
-        out.append(f"[approx] the code that {'names the file' if filelike else 'holds'} '{needle}': found as text, placed in its "
+        out.append(f"[approx] the code that {'names the file' if filelike else 'holds'} '{needle}'{f' ({how})' if how else ''}: found as text, placed in its "
                    f"declaration by the graph; approximate, not call edges ({len(ordered) + len(typed)} declaration(s)):")
     for (f, disp), v in ordered[:rows]:
         rs = sorted(v['rows'], key=lambda r: (_RANK[verb(r)], r[0]))
@@ -508,25 +563,32 @@ def block(repo, asked, scope=None, why='unresolved', rows=ROWS):
     for a in dict.fromkeys(asked):
         tries = needles(a)
         if not tries: continue
-        hits, used = [], None
-        for n, w in tries:
+        hits, used, pat, how = [], None, None, ''
+        for i, (n, w) in enumerate(tries):
             hits = grep(repo, n, w); used = (n, w)
+            if i == 0 and not w and _words(n):
+                # a message written with a value between its words (an f-string, $"...", String.format, a concatenation).
+                # Searched even when some line writes it as asked: that line is often a doc or an issue quoting the
+                # message, and the code that prints it is the line with the hole
+                extra, p2, h2 = grep_phrase(repo, n, set(hits))
+                if extra: hits, pat, how = hits + extra, p2, h2
             if hits: break
         places = places or Places(repo); lex = lex or Lexed(repo)
+        at = pat or used[0]                   # what to look for on a matched line: the phrase, or the pattern that found it
         if why == 'string' and hits:
             # a STRING in a source file is written quoted; the same word bare there is an identifier (a field, a local)
             # and another question. A file no graph reads keeps every mention: a YAML value is written bare. Inside a
             # longer literal it is still the string (a table in "SELECT id FROM orders")
             quoted = re.compile(r'["\'`]' + re.escape(used[0]) + r'["\'`]')
             hits = [h for h in hits if quoted.search(h[2]) or not places.graph_file(h[0])[0]
-                    or lex.best(h[0], h[1], h[2], used[0], used[1]) == 'string']
+                    or lex.best(h[0], h[1], h[2], at, used[1]) == 'string']
         under = ''
         if scope:
             inside = [h for h in hits if scope in h[0]]
             if inside: hits = inside; under = f", under {scope}"
             elif hits: under = f"; none under {scope}, so these are from the whole repository"
         n, w = used
-        also = f" (as '{n}')" if n != tries[0][0] else ''
+        also = f" (as '{n}')" if n != tries[0][0] else (f" ({how})" if how else '')
         # a name that reads as a file: the files whose path holds it come first, which is what the search by hand was for
         paths = []
         if _FILE_LIKE.search(tries[0][0]) and ' ' not in tries[0][0]:
@@ -542,7 +604,7 @@ def block(repo, asked, scope=None, why='unresolved', rows=ROWS):
         # the code that holds it, placed in its declaration with what reaches that ([approx]); the rest stay [text]. A file
         # no graph reads is also answered the other way round: the declarations the file itself names
         ours = unindexed_file(repo, tries[0][0])
-        ap, taken = approx(repo, hits, n, w, bool(ours), places, lex, rows) if hits else ([], set())
+        ap, taken = approx(repo, hits, n, w, bool(ours), places, lex, rows, pat, how) if hits else ([], set())
         if ours and not ap:
             ap.append(f"[approx] no code outside the tests names '{n}' in a string literal: nothing the graph holds is seen "
                       f"to run, read or write {', '.join(ours[:3])} (a path built from pieces is not seen)")
@@ -572,7 +634,7 @@ def block(repo, asked, scope=None, why='unresolved', rows=ROWS):
             where = places.of(f, ln)
             if where != 'not indexed':
                 # why this line is not an [approx] row: said, so a comment or a test is not read as the answer
-                k = lex.best(f, ln, t, n, w)
+                k = lex.best(f, ln, t, at, w)
                 tag = {'comment': 'a comment', 'doc': 'a docstring'}.get(k) or ('a test' if places.is_test(f) else '')
                 if tag: where = f"{where} · {tag}" if where else tag
             t = t.strip()
@@ -580,7 +642,8 @@ def block(repo, asked, scope=None, why='unresolved', rows=ROWS):
             lines.append(f"    [text] {f}:{ln}" + (f"   {where}" if where else '') + f"   | {t}")
         rest = len(hits) - min(len(order), rows)
         if rest > 0:
-            lines.append(f"    … +{rest} more line(s): git grep -n{'w' if w else ''} -F -e '{n}'")
+            lines.append(f"    … +{rest} more line(s): git grep -n{'w' if w else ''} -F -e '{n}'" if not pat else
+                         f"    … +{rest} more line(s): git grep -nP -e '{pat.pattern}'")
     if not lines: return ''
     if approxed: lines.append("next: [approx] rows are text placed in the declaration that holds it, not resolved edges: read the "
                               "evidence line, then `impact <that declaration>` for what a change reaches")
