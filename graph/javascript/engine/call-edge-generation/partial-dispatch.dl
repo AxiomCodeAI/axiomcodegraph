@@ -58,12 +58,27 @@ swallowed_read(e, i) :- expr_kind(_, "ELEMENT_ACCESS", _, e),
     expr_kind(_, "BINARY", _, key), expr_operator(_, op, key), default_op(op),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "obj", i).
 
+// ── the variable a site calls through, and every value written into it ─────
+// Its initializer and each assignment (`h = d`, `h ??= d`, `h ||= d`).
+var_source(v, e) :- var_init(_, _, e, v).
+var_source(v, e) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_binding(_, v, tgt), expr_child(_, a, "ASSIGNMENT_VALUE", _, e).
+// A default BY REASSIGNMENT: `let h = t[k]; if (!h) h = d;`, `h ??= d`, or the other
+// way round. The variable holds the open read and something else, so the value layer
+// sees only the something else and asserts it; the read is swallowed all the same.
+swallowed_var(v, i) :- var_source(v, e), open_read(e, i), var_source(v, o), o != e.
+// A default written INTO the variable: `const h = t[k] || d`, or `h = t[k] || d`.
+swallowed_var(v, i) :- var_source(v, e), expr_child(_, e, _, _, o), swallowed_read(o, i).
+
 // ── partial_dispatch(CallExpr) ─────────────────────────────────────────────
-// The site invokes such a read: written at the site, or one hop through the const
-// it was assigned to, which is how both real shapes are written.
+// The site invokes such a read: written at the site (`t[k]()`, or the default itself
+// as the callee, `(t[k] || d)()`, whose parentheses the parser drops), or through the
+// variable it was stored in.
 partial_dispatch(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), swallowed_read(c, _).
 partial_dispatch(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
-    expr_binding(_, v, c), var_init(_, _, ie, v), expr_child(_, ie, _, _, o), swallowed_read(o, _).
+    expr_child(_, c, _, _, o), swallowed_read(o, _).
+partial_dispatch(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
+    expr_binding(_, v, c), swallowed_var(v, _).
 // `resolvers[<default>](...)`: the parser puts the object under RECEIVER and the key
 // under COMPUTED_KEY on the call itself, with no ELEMENT_ACCESS node of its own.
 partial_dispatch(ce) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
@@ -75,8 +90,9 @@ partial_dispatch(ce) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
 partial_dispatch_target(ce, m) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
     swallowed_read(c, i), prop_value("obj", i, _, "func", m).
 partial_dispatch_target(ce, m) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
-    expr_binding(_, v, c), var_init(_, _, ie, v), expr_child(_, ie, _, _, o),
-    swallowed_read(o, i), prop_value("obj", i, _, "func", m).
+    expr_child(_, c, _, _, o), swallowed_read(o, i), prop_value("obj", i, _, "func", m).
+partial_dispatch_target(ce, m) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c),
+    expr_binding(_, v, c), swallowed_var(v, i), prop_value("obj", i, _, "func", m).
 partial_dispatch_target(ce, m) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
     expr_child(_, ce, "COMPUTED_KEY", _, key),
     expr_kind(_, "BINARY", _, key), expr_operator(_, op, key), default_op(op),

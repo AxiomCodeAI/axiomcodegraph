@@ -1,0 +1,40 @@
+main.js:14:34 FUNCTION_CALL (table[k] || deep)  ->  multi_inferred  main.js:7:1 fromA
+main.js:14:34 FUNCTION_CALL (table[k] || deep)  ->  multi_inferred  main.js:8:1 fromB
+main.js:14:34 FUNCTION_CALL (table[k] || deep)  ->  multi_inferred  main.js:9:1 deep
+main.js:17:39 FUNCTION_CALL (k in table ? table[k] : deep)  ->  multi_inferred  main.js:7:1 fromA
+main.js:17:39 FUNCTION_CALL (k in table ? table[k] : deep)  ->  multi_inferred  main.js:8:1 fromB
+main.js:17:39 FUNCTION_CALL (k in table ? table[k] : deep)  ->  multi_inferred  main.js:9:1 deep
+main.js:23:10 FUNCTION_CALL h  ->  multi_inferred  main.js:7:1 fromA
+main.js:23:10 FUNCTION_CALL h  ->  multi_inferred  main.js:8:1 fromB
+main.js:23:10 FUNCTION_CALL h  ->  multi_inferred  main.js:9:1 deep
+main.js:30:10 FUNCTION_CALL h  ->  multi_inferred  main.js:7:1 fromA
+main.js:30:10 FUNCTION_CALL h  ->  multi_inferred  main.js:8:1 fromB
+main.js:30:10 FUNCTION_CALL h  ->  multi_inferred  main.js:9:1 deep
+main.js:37:10 FUNCTION_CALL h  ->  multi_inferred  main.js:7:1 fromA
+main.js:37:10 FUNCTION_CALL h  ->  multi_inferred  main.js:8:1 fromB
+main.js:37:10 FUNCTION_CALL h  ->  multi_inferred  main.js:9:1 deep
+main.js:41:40 FUNCTION_CALL (remote[k] || deep)  ->  multi_inferred  main.js:9:1 deep
+main.js:41:40 FUNCTION_CALL (remote[k] || deep)  ->  multi_inferred  table.js:1:1 fromC
+main.js:41:40 FUNCTION_CALL (remote[k] || deep)  ->  multi_inferred  table.js:2:1 fromD
+main.js:45:10 FUNCTION_CALL h  ->  multi_inferred  main.js:9:1 deep
+main.js:45:10 FUNCTION_CALL h  ->  multi_inferred  table.js:1:1 fromC
+main.js:45:10 FUNCTION_CALL h  ->  multi_inferred  table.js:2:1 fromD
+main.js:49:39 FUNCTION_CALL (table['a'] || deep)  ->  multi_inferred  main.js:7:1 fromA
+main.js:49:39 FUNCTION_CALL (table['a'] || deep)  ->  multi_inferred  main.js:9:1 deep
+main.js:55:10 FUNCTION_CALL h  ->  multi_inferred  main.js:8:1 fromB
+main.js:55:10 FUNCTION_CALL h  ->  multi_inferred  main.js:9:1 deep
+main.js:62:10 FUNCTION_CALL h  ->  multi_inferred  main.js:7:1 fromA
+main.js:62:10 FUNCTION_CALL h  ->  multi_inferred  main.js:9:1 deep
+main.js:66:43 FUNCTION_CALL (k || deep)  ->  ambient_terminal  -
+main.js:66:43 FUNCTION_CALL (k || deep)  ->  multi_inferred  main.js:9:1 deep
+main.js:69:1 FUNCTION_CALL inlineOr  ->  known_edge  main.js:14:1 inlineOr
+main.js:70:1 FUNCTION_CALL inlineTernary  ->  known_edge  main.js:17:1 inlineTernary
+main.js:71:1 FUNCTION_CALL reassigned  ->  known_edge  main.js:20:1 reassigned
+main.js:72:1 FUNCTION_CALL nullishAssigned  ->  known_edge  main.js:27:1 nullishAssigned
+main.js:73:1 FUNCTION_CALL readAssigned  ->  known_edge  main.js:34:1 readAssigned
+main.js:74:1 FUNCTION_CALL importedInline  ->  known_edge  main.js:41:1 importedInline
+main.js:75:1 FUNCTION_CALL importedReassigned  ->  known_edge  main.js:42:1 importedReassigned
+main.js:76:1 FUNCTION_CALL inlineLiteralKey  ->  known_edge  main.js:49:1 inlineLiteralKey
+main.js:77:1 FUNCTION_CALL reassignedDotted  ->  known_edge  main.js:52:1 reassignedDotted
+main.js:78:1 FUNCTION_CALL reassignedPlain  ->  known_edge  main.js:59:1 reassignedPlain
+main.js:79:1 FUNCTION_CALL inlineDefaultOnly  ->  known_edge  main.js:66:1 inlineDefaultOnly

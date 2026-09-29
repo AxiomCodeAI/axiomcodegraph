@@ -295,6 +295,8 @@
 .decl swallowed_read(c0:symbol, c1:symbol)
 .decl partial_dispatch(c0:symbol)
 .decl partial_dispatch_target(c0:symbol, c1:symbol)
+.decl var_source(c0:symbol, c1:symbol)
+.decl swallowed_var(c0:symbol, c1:symbol)
 // the same read with no default beside it, called: one of the literal's functions
 .decl open_read(c0:symbol, c1:symbol)
 .decl open_dispatch_target(c0:symbol, c1:symbol)
