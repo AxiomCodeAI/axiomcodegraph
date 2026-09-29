@@ -20,5 +20,19 @@
    "want": ["registered as a POST route \"/items\"", "src/routes.js:11"]},
   {"why": "CONTROL: `delete` is also Map.delete, and a router's delete handing over a declared function is still a route",
    "run": ["impact", "removeItem", "--kind", "method"],
-   "want": ["registered as a DELETE route \"/items/:id\"", "src/routes.js:12"]}
+   "want": ["registered as a DELETE route \"/items/:id\"", "src/routes.js:12"]},
+  {"why": "CONTROL: a route written as one options object keeps its path, a property value inside the object",
+   "run": ["impact", "deleteItem", "--kind", "method"],
+   "want": ["route \"/items/:id\"", "src/plugin.js:7"]},
+  {"why": "a `get` whose only argument is an object of data hands over nothing: readItem is not a GET route",
+   "run": ["impact", "readItem", "--kind", "method"],
+   "want": ["src/plugin.js:8"],
+   "avoid": ["route"]},
+  {"why": "CONTROL: a mock server's handler under a base-URL template keeps its route: the path is the template's own after `${...}`",
+   "run": ["impact", "registerUser", "--kind", "method"],
+   "want": ["route \"/auth/register\"", "src/mocks.js:8"]},
+  {"why": "`api.patch(`/users/profile`, data)` hands over a parameter that shares its name with another module's const: data, not a handler",
+   "run": ["impact", "readProfile", "--kind", "method"],
+   "want": ["updateProfile", "src/api.js:5"],
+   "avoid": ["route"]}
  ]}

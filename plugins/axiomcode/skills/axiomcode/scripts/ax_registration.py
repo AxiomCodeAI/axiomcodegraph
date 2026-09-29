@@ -156,8 +156,8 @@ def _route_links(q, sf, lits, tf):
                 mine = [(s, l) for s, _t, l in args if s]
                 own = [(l, i, v) for l, i, v in own if (v, l) in mine][:1] or [(l, -1, s) for s, l in mine[:1]]
                 if handlers is None:
-                    handlers = {n for (n,) in q("SELECT DISTINCT name FROM symbols WHERE name IS NOT NULL")} if _has(q, 'symbols') else set()
-                if short.lower() in HTTP_VERB and not any(_hands_over(t, handlers) for s, t, _l in args if not s):
+                    handlers = _handler_names(q)
+                if short.lower() in HTTP_VERB and not any(_hands_over(t, handlers, f, read(f)) for s, t, _l in args if not s):
                     prev_end, prev_path = b, None
                     continue               # a request (a client, a Map, Headers): nothing is registered here
             if own:
@@ -257,23 +257,60 @@ def _own_args(L, a, ac, b, bc):
     for lo, hi in _split_args(blank, j + 1, close):
         t = text[lo:hi].strip()
         # the path argument: a string beginning with `/` written in it outside any bracket — `'/items'`, and the
-        # prefixed `path + '/:id'` a resource helper composes — never one inside a nested call's own arguments
+        # prefixed `path + '/:id'` a resource helper composes — never one inside a nested call's own arguments. A route
+        # written as one options object (`fastify.route({ method: 'DELETE', url: '/items/:id', handler })`) holds its
+        # path as a property value of that object, one bracket in
         path, at, d = None, lo + len(text[lo:hi]) - len(text[lo:hi].lstrip()), 0
+        obj = t.startswith('{')
         for k in range(lo, hi):
             c = blank[k]
             if c in _OPEN: d += 1
             elif c in _CLOSE: d -= 1
-            elif c in '\'"`' and d == 0:
-                m = re.match(r'([\'"`])(/[^\'"`\n]*)\1', text[k:hi])
-                if m: path, at = m.group(2), k
-                break
+            elif c in '\'"`' and (d == 0 or (obj and d == 1 and blank[:k].rstrip().endswith(':'))):
+                # a template may put a base URL first: `${env.API_URL}/auth/register` registers `/auth/register`
+                m = re.match(r'([\'"`])(/[^\'"`\n]*)\1|`(?:\$\{[^}`]*\})+(/[^`\n]*)`', text[k:hi])
+                if m: path, at = m.group(2) or m.group(3), k
+                if m or d == 0: break
         out.append((path, t, a + text.count('\n', 0, at)))
     return out
 
 
-def _hands_over(t, names):
-    """the argument text can be something a router calls: a function, a name the graph declares, a call (a wrapper or a
-    middleware factory), an array of those. A string, a number, an object, `new X()` or a name nothing declares (a
+_NOT_CALLABLE = {'field', 'const', 'var', 'variable', 'param', 'parameter', 'typeparam', 'module', 'type', 'enum',
+                 'enum_member', 'property', 'local'}
+
+
+def _handler_names(q):
+    """name -> {kind: {file}} of every declaration, for telling a handler handed over by name from the request's data"""
+    names = {}
+    if _has(q, 'symbols'):
+        for n, k, f in q("SELECT name, kind, file FROM symbols WHERE name IS NOT NULL"):
+            names.setdefault(n, {}).setdefault(k or '', set()).add(f)
+    return names
+
+
+def _names_handler(t, names, f, L):
+    """a written name `h` or `a.b.h` is a handler: `h` a function or method; a member of a module this file imports
+    (`users.signup`, `exports.signup = …` declares nothing); `this.h` a property of the class; or a const (a wrapped
+    handler, `const h = catchAsync(…)`) this file declares or imports. The same name as a parameter, a local, a field
+    of a type or some other module's `data` (`api.post('/discussions', data)`) is the request's data."""
+    parts = re.split(r'\s*\??\.\s*', t)
+    kinds = names.get(parts[-1], {})
+    if any(k not in _NOT_CALLABLE for k in kinds):
+        return True
+    here = parts[0]
+    if len(parts) > 1 and here == 'this':
+        return any(f in fs for k, fs in kinds.items() if k in ('const', 'field', 'property'))
+    n = re.escape(here)
+    imported = bool(re.search(r'\bimport\b[^;]*?\b%s\b[^;]*?\bfrom\b|\b%s\b[^=;\n]*=\s*require\s*\(' % (n, n),
+                              '\n'.join(L or ())))
+    if len(parts) > 1:
+        return imported
+    return f in kinds.get('const', ()) or (imported and 'const' in kinds)
+
+
+def _hands_over(t, names, f=None, L=None):
+    """the argument text can be something a router calls: a function, a name declared as a handler, a call (a wrapper or
+    a middleware factory), an array of those. A string, a number, an object, `new X()` or a name that is not one (a
     parameter, a local: the request's data) is not."""
     t = t.strip()
     if not t or t[0] in '\'"`{' or t[0].isdigit() or re.match(r'(new|true|false|null|undefined)\b', t):
@@ -282,9 +319,9 @@ def _hands_over(t, names):
         return True
     if t.startswith('[') and t.endswith(']'):
         b = _blank(t)
-        return any(_hands_over(t[lo:hi], names) for lo, hi in _split_args(b, 1, len(b) - 1))
+        return any(_hands_over(t[lo:hi], names, f, L) for lo, hi in _split_args(b, 1, len(b) - 1))
     if _CHAIN.fullmatch(t):
-        return re.split(r'\s*\??\.\s*', t)[-1] in names
+        return _names_handler(t, names, f, L)
     return True                           # a call, a conditional, an `await`: not read further, and kept
 
 
