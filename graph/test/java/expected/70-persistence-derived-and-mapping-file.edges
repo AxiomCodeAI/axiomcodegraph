@@ -1,0 +1,7 @@
+ambiguous_unknown	method	testcases.derived.InvoiceDao#byNothing() -> -
+ambiguous_unknown	method	testcases.derived.InvoiceDao#byStatus(String) -> -
+ambiguous_unknown	method	testcases.derived.InvoiceDao#byTotal(long) -> -
+boundary_lib	method	testcases.derived.InvoiceDao#byNothing() -> external:jakarta.persistence.EntityManager.createNamedQuery
+boundary_lib	method	testcases.derived.InvoiceDao#byStatus(String) -> external:jakarta.persistence.EntityManager.createNamedQuery
+boundary_lib	method	testcases.derived.InvoiceDao#byTotal(long) -> external:jakarta.persistence.EntityManager.createNamedQuery
+known_edge	method	testcases.derived.WidgetRepository#findByColorTwice(String) -> testcases.derived.WidgetRepository#findByColor(String)

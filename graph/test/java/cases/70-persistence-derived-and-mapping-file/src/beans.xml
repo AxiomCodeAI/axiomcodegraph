@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans">
+  <!-- control: a real SpEL value in a Spring bean file stays a declared unknown -->
+  <bean id="invoiceDao" class="testcases.derived.InvoiceDao">
+    <property name="zone" value="#{systemProperties['user.timezone']}"/>
+  </bean>
+</beans>

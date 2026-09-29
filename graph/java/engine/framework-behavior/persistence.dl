@@ -47,6 +47,17 @@ jpa_entity_field(t, fname, f) :- jpa_entity(t), type_ancestor(t, sup),
 // type with its own arguments, so no special handling of the container is needed.
 jpa_named_query(name, text, t) :- ann_on_type("client", a, n, t), cfg_query_ann(n),
     ann_arg("client", a, "name", name, _, _), ann_arg("client", a, "query", text, _, _).
+// … and in a mapping file: `<named-query name="…"><query>…</query></named-query>` in
+// META-INF/orm.xml (or any mapping file the unit lists). The parser already holds the
+// element, its name attribute and the child's text; the declaring "type" is the element,
+// since a mapping-file query belongs to the persistence unit rather than to a class. The
+// JPQL is the child's text exactly as it is for the annotation's `query` argument, so the
+// entity and property rules below read both the same way. A <named-native-query> is SQL,
+// which names tables rather than entities, and is left to report no_entity_in_query.
+orm_named_query(name, text, nq) :- xml_elem("client", tag, _, _, _, _, nq), cfg_orm_named_query_elem(tag),
+    xml_attr("client", "name", raw, nq, _), cfg_clean(raw, name), name != "",
+    xml_elem("client", "query", _, text, nq, _, _), text != "".
+jpa_named_query(name, text, nq) :- orm_named_query(name, text, nq).
 
 // ── uses: em.createNamedQuery("…") / em.createQuery("…") ────────────────────
 // Gated on the receiver's declared type, for the same reason a broker send is: the
@@ -99,6 +110,75 @@ persistence_query(m, "inline", "-", text) :- query_call(_, m, "inline", text).
 persistence_query(m, "spring_data", "-", text) :- ann_on_method("client", a, n, m, _),
     cfg_method_query_ann(n), cfg_query_arg(arg), ann_arg("client", a, arg, text, _, _).
 
+// ── Spring Data: a DERIVED query, where the method NAME is the query ────────
+// `List<Widget> findByColorAndLabelStartingWith(String c, String p)` on an interface
+// extending a repository base carries no text at all: the framework parses the name at
+// start-up, and a property the name spells that the entity does not have fails there.
+// So renaming Widget.color breaks findByColor exactly as it breaks an @Query naming
+// `w.color`, and it is recorded the same way: persistence_query (kind "derived", the
+// method name as its text), persistence_entity, and one persistence_field per property.
+//
+// The entity is the repository base's FIRST type argument (`JpaRepository<Widget, Long>`),
+// read from the written extends clause because the base is normally not staged; the
+// base is recognised by the same suffix knob that makes the interface a proxy bean
+// (cfg_repository_base_suffix, di.dl). The entity need not carry @Entity: a document
+// store's repository derives its queries the same way.
+//
+// The NAME: a subject prefix (cfg_derived_query_prefix: find, read, get, query, search,
+// stream, count, exists, delete, remove), anything up to the first `By` after it
+// (`Distinct`, `Top10`, `All`), then the criteria. A property is matched where a
+// criterion can start (right after that `By`, an `And`, an `Or` or an `OrderBy`) as
+// the capitalised property name, followed by the end of the name, `_` or another
+// capital (an operator such as `StartingWith`, the next `And`, a nested path). Where
+// two properties match at one place the LONGER one is the property (`labelText` over
+// `label`), as Spring's own parser resolves it. A method carrying @Query is not
+// derived: the annotation's text wins, and the rule above already reads it.
+repo_entity(repo, e) :- type_super_ref_h(repo, sn, sref), cfg_repo_name_matches(sn),
+    type_decl(_, _, _, _, "INTERFACE_TYPE", _, repo),
+    java_type_reference(_, _, _, _, _, sref, "0", "1", _, _, _, _, _, _, _, _, _, argRef),
+    type_ref_resolves(_, argRef, e), java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, e).
+repo_entity_field(e, fname, f) :- repo_entity(_, e),
+    java_field(fname, _, _, _, _, _, _, _, e, _, _, _, _, f).
+repo_entity_field(e, fname, f) :- repo_entity(_, e), type_ancestor(e, sup),
+    java_field(fname, _, _, _, _, _, _, _, sup, _, _, _, _, f).
+// the capitalised property name, as it is spelled inside a method name
+repo_field_cap(e, cap, f) :- repo_entity_field(e, fname, f), strlen(fname) > 0,
+    cfg_upper(substr(fname, 0, 1), up), cap = cat(up, substr(fname, 1, strlen(fname) - 1)).
+repo_field_cap(e, fname, f) :- repo_entity_field(e, fname, f), strlen(fname) > 0,
+    cfg_is_upper_char(substr(fname, 0, 1)).
+
+has_method_query_ann(m) :- ann_on_method("client", _, n, m, _), cfg_method_query_ann(n).
+derived_candidate(m, name, e, p) :- repo_entity(repo, e),
+    java_method(name, _, _, _, _, _, _, repo, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", _, _, _, _, m),
+    cfg_derived_query_prefix(p), strlen(name) > strlen(p) + 2,
+    substr(name, 0, strlen(p)) = p, !has_method_query_ann(m).
+derived_by_at(m, i) :- derived_candidate(m, name, _, p),
+    i = range(strlen(p), strlen(name) - 1), substr(name, i, 2) = "By".
+derived_criteria(m, e, crit) :- derived_candidate(m, name, e, _),
+    b = min i : derived_by_at(m, i), b + 2 < strlen(name),
+    crit = substr(name, b + 2, strlen(name) - b - 2).
+// where a criterion may start: the beginning, or after And / Or / By (OrderBy), at a capital
+derived_start(m, 0) :- derived_criteria(m, _, _).
+derived_start(m, j) :- derived_criteria(m, _, crit), derived_joiner(w),
+    j = range(1, strlen(crit)), j >= strlen(w), substr(crit, j - strlen(w), strlen(w)) = w,
+    cfg_is_upper_char(substr(crit, j, 1)).
+derived_joiner("And"). derived_joiner("Or"). derived_joiner("By").
+// a property spelled at a start, and ending where a property name can end
+derived_match(m, j, n, f) :- derived_start(m, j), derived_criteria(m, e, crit),
+    repo_field_cap(e, cap, f), n = strlen(cap), j + n <= strlen(crit),
+    substr(crit, j, n) = cap, derived_ends(crit, j + n).
+derived_ends(crit, k) :- derived_criteria(_, _, crit), k = strlen(crit).
+derived_ends(crit, k) :- derived_criteria(_, _, crit), k = range(1, strlen(crit)),
+    cfg_is_upper_char(substr(crit, k, 1)).
+derived_ends(crit, k) :- derived_criteria(_, _, crit), k = range(1, strlen(crit)),
+    substr(crit, k, 1) = "_".
+derived_longest(m, j, n) :- derived_match(m, j, _, _), n = max l : derived_match(m, j, l, _).
+
+persistence_query(m, "derived", "-", name) :- derived_criteria(m, _, _),
+    derived_candidate(m, name, _, _).
+persistence_entity(m, e) :- derived_criteria(m, e, _).
+pf_derived(m, f) :- derived_longest(m, j, n), derived_match(m, j, n, f).
+
 // ── what the query text names ───────────────────────────────────────────────
 // No JPQL parser: an entity is recognised where a query can introduce one, and the
 // candidate set is only the @Entity types, so the test is both cheap and specific.
@@ -108,7 +188,7 @@ persistence_query(m, "spring_data", "-", text) :- ann_on_method("client", a, n, 
 // start, in the middle and at the end. Both delimiters are required: measured on a real
 // codebase, matching " FROM Pet" without the trailing space also matched
 // " FROM PetType", and the blast radius of PetType.name then included Pet.name.
-query_padded(text, p) :- persistence_query(_, _, _, text), p = cat(" ", cat(text, " ")).
+query_padded(text, p) :- persistence_query(_, kind, _, text), kind != "derived", p = cat(" ", cat(text, " ")).
 query_names_type(text, name) :- query_padded(text, p), jpa_entity(t),
     java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, t), jpa_intro(kw),
     contains(cat(" ", cat(kw, cat(name, " "))), p).
@@ -117,7 +197,7 @@ jpa_intro("JOIN "). jpa_intro("join "). jpa_intro("Join ").
 jpa_intro("UPDATE "). jpa_intro("update "). jpa_intro("Update ").
 jpa_intro("INTO "). jpa_intro("into ").
 
-persistence_entity(m, t) :- persistence_query(m, _, _, text), query_names_type(text, name),
+persistence_entity(m, t) :- persistence_query(m, kind, _, text), kind != "derived", query_names_type(text, name),
     java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, t), jpa_entity(t).
 
 // A property is named with a dot after its alias — `o.customerId`. The dot is what
@@ -141,6 +221,7 @@ pf_nested(m, f) :- persistence_entity(m, t), persistence_query(m, _, _, text),
     mid != fname, jpa_after(d),
     contains(cat(".", cat(mid, cat(".", cat(fname, d)))), p).
 // A property read directly SOMEWHERE is direct, even if it also appears nested.
+pf_any(m, f) :- pf_derived(m, f).
 pf_direct(m, f) :- pf_any(m, f), !pf_nested(m, f).
 persistence_field(m, f, "direct") :- pf_direct(m, f).
 persistence_field(m, f, "nested") :- pf_nested(m, f), !pf_direct(m, f).

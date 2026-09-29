@@ -130,6 +130,9 @@ cfg_xml_class_elem("listener-class"). cfg_xml_class_elem("resource-class").
 cfg_xml_class_elem("provider-class"). cfg_xml_class_elem("handler-class").
 cfg_xml_class_elem("ejb-class").      cfg_xml_class_elem("mapper-class").
 // (c) the element that DEFINES a bean (its class comes from cfg_xml_class_attr)
+// a document root under which `#{...}` is a bound statement parameter, not a Spring
+// expression (MyBatis mapper XML; xml-wiring.dl)
+cfg_xml_param_marker_root("mapper").
 cfg_xml_bean_elem("bean").            cfg_xml_bean_elem("alias").
 
 // ── (8) XML: attributes naming a METHOD the container invokes ────────────────
@@ -342,6 +345,9 @@ cfg_client_type_ann("RegisterRestClient").   // MicroProfile
 // ── (10) PERSISTENCE: a query is a reference to a schema ────────────────────
 cfg_entity_ann("Entity").         cfg_entity_ann("MappedSuperclass").
 cfg_query_ann("NamedQuery").      cfg_query_ann("NamedNativeQuery").
+// the same declarations in a mapping file (META-INF/orm.xml): the element carries the name
+// attribute and a <query> child holding the text.
+cfg_orm_named_query_elem("named-query"). cfg_orm_named_query_elem("named-native-query").
 
 // the EntityManager-like receivers that make a call a query, for the same reason a
 // broker send is gated on its template: `createQuery` is not a rare method name.
@@ -356,6 +362,13 @@ cfg_query_method("createNativeQuery", "inline").
 // and there is no call site anywhere (Spring Data, and Micronaut Data's @Query).
 cfg_method_query_ann("Query").    cfg_method_query_ann("NativeQuery").
 cfg_query_arg("value").           cfg_query_arg("query").
+// the subject keywords a Spring Data DERIVED query method name opens with; the criteria
+// follow the first `By` after it (framework-behavior/persistence.dl).
+cfg_derived_query_prefix("find").   cfg_derived_query_prefix("read").
+cfg_derived_query_prefix("get").    cfg_derived_query_prefix("query").
+cfg_derived_query_prefix("search"). cfg_derived_query_prefix("stream").
+cfg_derived_query_prefix("count").  cfg_derived_query_prefix("exists").
+cfg_derived_query_prefix("delete"). cfg_derived_query_prefix("remove").
 // ── (15) CONDITIONS: an annotation that decides whether a bean EXISTS ────────
 // A bean the container did not create has no methods that run, so a condition is
 // the difference between a live filter chain and a dead one. Three families, kept

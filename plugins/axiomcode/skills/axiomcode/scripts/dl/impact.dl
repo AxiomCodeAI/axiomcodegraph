@@ -119,6 +119,8 @@
 .decl field_type(fl:symbol, n:symbol)                             .input field_type
 .decl target(q:symbol, k:symbol, s:symbol, x:symbol)              .input target
 .decl textuse(c:symbol, n:symbol, f:symbol, l:number)             .input textuse
+.decl sigtype(c:symbol, t:symbol, ctx:symbol, d:number)          .input sigtype
+.decl persist_field(m:symbol, fl:symbol, how:symbol)             .input persist_field
 .decl importuse(c:symbol, n:symbol, f:symbol, l:number)           .input importuse
 .decl inside_target(q:symbol, c:symbol)                           .input inside_target
 //   config(key, m, why)               a configuration key the engine bound to a method (@Value, @ConfigurationProperties, a .yml/.properties key)
@@ -627,7 +629,22 @@ direct(q, c, "uses", cat("renders <", tag, ">, whose attributes are checked agai
 // LiteralNode and never writes the name, so an added required property breaks it
 direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "'"), "by name", f, l) :- target(q, "type", t, _), discriminant(t, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
 direct(q, c, "produces", cat("builds an object literal with the tag ", k, ": '", v, "' of ", sn, ", which extends it"), "by name", f, l) :- target(q, "type", t, _), extends(s, t), typ(s, sn, _), discriminant(s, k, v), keyed_literal(c, k, v, f, l), !inside_target(q, c).
-direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c).
+// a persistence query that names the property (#1461, #1462): a derived repository method name, @Query / named-query
+// text, or a whole-entity select that loads it. No call or reference connects them; the rename fails when it is parsed.
+.decl persist_words(how:symbol, w:symbol)
+persist_words("direct", "its persistence query names the property: a rename breaks the query when it is parsed, not the compile").
+persist_words("nested", "its persistence query reads it through an association path").
+persist_words("projection", "its persistence query selects the whole entity, which loads this column").
+direct(q, m, "reads", w, "resolved", "", 0) :- target(q, "field", fl, _), persist_field(m, fl, how), persist_words(how, w), !inside_target(q, m).
+// a signature the engine RESOLVED to the type (#1422): a parameter, a return, or a type argument of either. Java's
+// type_refs carry no line, so no typeref row held these, and the textuse grep below labelled each one `text`
+.decl sig_words(ctx:symbol, w:symbol)
+sig_words("METHOD_PARAM", "a parameter"). sig_words("METHOD_RETURN", "the return type").
+.decl sig_resolved(q:symbol, c:symbol)
+sig_resolved(q, c) :- target(q, "type", t, _), sigtype(c, t, _, _), !inside_target(q, c).
+direct(q, c, "uses", cat("names it in its signature (", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, 0), sig_words(ctx, w), !inside_target(q, c).
+direct(q, c, "uses", cat("names it in its signature (a type argument of ", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, d), d > 0, sig_words(ctx, w), !inside_target(q, c).
+direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c), !sig_resolved(q, c).
 direct(q, c, "uses", cat("uses ", n, ", imported from it"), "by name", f, l) :- target(q, "type", _, _), importuse(c, n, f, l), !inside_target(q, c).
 direct(q, c, "reads", cat("calls the generated getter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "get"), field(fl, t, _, _, _), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).
 direct(q, c, "writes", cat("calls the generated setter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "set"), field(fl, t, _, _, _), accessor(fl, an, "write"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).

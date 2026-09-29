@@ -1,0 +1,13 @@
+{"lang": "java", "src": ".",
+ "checks": [
+  {"why": "a derived repository method is a reader of the property its name spells (#1461)",
+   "run": ["impact", "Widget.color", "--kind", "field"],
+   "want": ["WidgetRepository.findByColor", "its persistence query names the property", "WidgetRepository.findDistinctByColorAndLabelTextOrderByIdDesc"],
+   "avoid": ["WidgetRepository.countByLabelStartingWith", "WidgetRepository.byColorName"]},
+  {"why": "control: the longer property wins, so label is not read by the method that spells labelText",
+   "run": ["impact", "Widget.label", "--kind", "field"],
+   "want": ["WidgetRepository.countByLabelStartingWith", "WidgetRepository.byLabel"],
+   "avoid": ["findDistinctByColorAndLabelTextOrderByIdDesc   "]},
+  {"why": "a named query declared in orm.xml reads the property its JPQL names (#1462)",
+   "run": ["impact", "Order.status", "--kind", "field"],
+   "want": ["OrderDao.byStatus", "its persistence query names the property"]}]}

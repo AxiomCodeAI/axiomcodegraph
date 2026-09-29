@@ -103,8 +103,15 @@ xml_prop_value_key(ownerElem, propName, key, default) :-
     cfg_placeholder(v, key, default).
 
 // A SpEL expression in XML is a declared blind spot: `#{...}` can name anything.
+// Not in a document whose ROOT element says `#{...}` means something else: in a MyBatis
+// <mapper>, `#{id}` is a bound parameter, a property of the statement's parameter object,
+// and nothing Spring evaluates (cfg_xml_param_marker_root). The parser classifies every
+// `#{...}` as SPEL_EXPRESSION whatever the document, and on a mapper-heavy project those
+// rows outnumbered every real unknown.
+xml_param_marker_file(f) :- xml_elem("client", tag, _, _, "", f, _), cfg_xml_param_marker_root(tag).
 config_unresolved("xml", vh, expr, "spel_expression") :-
-    xml_vref("client", expr, "SPEL_EXPRESSION", _, _, _, vh).
+    xml_vref("client", expr, "SPEL_EXPRESSION", _, owner, _, vh),
+    xml_elem("client", _, _, _, _, f, owner), !xml_param_marker_file(f).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. CONTAINER REGISTRATIONS (web.xml and friends)
