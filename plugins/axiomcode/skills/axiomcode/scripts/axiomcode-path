@@ -641,6 +641,11 @@ class G:
         # prefix, not a type from outside: answering for every reference to that short name is a different question
         if '.' in s and self.q("SELECT 1 FROM symbols WHERE name = ? AND (method_id IS NOT NULL OR type_id IS NOT NULL) AND kind NOT IN ('library', 'written') LIMIT 1", name):
             return None
+        # nor is one whose QUALIFIER is a type the client declares: `Controller.Details` asks for a member of that type,
+        # and the type has none of that name. The uses of some other `Details` (a component, a library class written
+        # bare) are not uses of it, and answering for them turned a typo into "the two are independent"
+        if '.' in s and self.q("SELECT 1 FROM symbols WHERE name = ? AND type_id IS NOT NULL AND method_id IS NULL AND kind NOT IN ('library', 'written') LIMIT 1", s.split('.')[-2]):
+            return None
         w = self.written('new ' + name)
         if w: ids += w[1]; parts.append(f"new {name} at {len(self.SITES[w[1][0]])} site(s)")
         lib = self.library(s + '.*') if '.' in s else self.library(name + '.*')
