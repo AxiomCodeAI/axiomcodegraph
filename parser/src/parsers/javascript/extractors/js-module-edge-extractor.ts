@@ -28,6 +28,7 @@ import {
   isRequireCall,
   pointOf,
 } from '@/utils/javascript';
+import { resolveVueSpecifier } from '@/utils/vue-sfc';
 
 /**
  * `js_import` and `js_export`, minted in a **second pass from expression rows**.
@@ -1199,7 +1200,10 @@ class JsModuleEdgeExtractor {
       undefined,
       m
     ).resolvedModule?.resolvedFileName;
-    const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined);
+    // tsc resolves no `.vue` import itself (its extensions are fixed), so a
+    // component in this program is looked up by path.
+    const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined)
+      ?? resolveVueSpecifier(specifier, this.options.absoluteFilePath);
     if (resolved === undefined) {
       return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
     }

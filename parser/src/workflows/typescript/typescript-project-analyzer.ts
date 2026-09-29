@@ -33,6 +33,12 @@ import { EntityUtils } from '@/utils/entity-utils';
 import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 import { stripTsExtension } from '@/parsers/typescript/ts-module-paths';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
+import {
+  isVueFile,
+  resolveVueSpecifier,
+  scriptTextOf,
+  vueComponentLanguage,
+} from '@/utils/vue-sfc';
 
 /**
  * Walks a TypeScript repository, extracts the fact spine, and exports it as TSV.
@@ -303,6 +309,7 @@ export class TypeScriptProjectAnalyzer {
         continue;
       }
       const governing = configResolver.resolve(file);
+      const script = scriptTextOf(file, sourceText);
       let facts: TsFileFacts;
       try {
         facts = extractTypeScriptFile({
@@ -310,7 +317,8 @@ export class TypeScriptProjectAnalyzer {
           filePath: toRelative(pathAnchor, file),
           baseMservPath: options.baseMservPath,
           moduleQualifiedName: toProjectRelative(file),
-          sourceText,
+          sourceText: script.text,
+          scriptKind: script.scriptKind,
           serviceVersionLinkHash,
           tsConfigPath: governing.configPath === ''
             ? ''
@@ -622,11 +630,12 @@ function filesOfRootProgram(
     }
     // No parent pointers and no type nodes needed: this pass only reads
     // specifiers, so the cheapest possible parse is the right one.
-    const sf = ts.createSourceFile(current, text, ts.ScriptTarget.Latest, false,
-      current.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const script = scriptTextOf(current, text);
+    const sf = ts.createSourceFile(current, script.text, ts.ScriptTarget.Latest, false,
+      script.scriptKind ?? (current.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS));
     for (const specifier of importSpecifiersOf(sf)) {
       const resolved = ts.resolveModuleName(specifier, current, rootOptions, ts.sys)
-        .resolvedModule?.resolvedFileName;
+        .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, current);
       if (resolved === undefined) {
         continue;
       }
@@ -763,13 +772,24 @@ function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): str
         }
         continue;
       }
-      if (TS_SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))) {
+      if (TS_SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))
+        || (isVueFile(entry.name) && isTypeScriptVueComponent(full))) {
         out.push(full);
       }
     }
   };
   walk(dir);
   return out;
+}
+
+/**
+ * A `.vue` component whose inline script is TypeScript. One with a JavaScript
+ * script (or none) is not this program's: the JavaScript analyzer reads the
+ * former, and the latter has nothing to read.
+ */
+function isTypeScriptVueComponent(file: string): boolean {
+  const language = vueComponentLanguage(file);
+  return language === 'ts' || language === 'tsx';
 }
 
 function toRelative(rootDir: string, file: string): string {
