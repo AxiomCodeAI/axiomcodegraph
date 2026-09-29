@@ -1349,6 +1349,37 @@ def entered_in_process(g, ids):
     order = {i: n for n, i in enumerate(ids)}
     return sorted(out.items(), key=lambda x: order.get(x[0], 0))
 
+# the verbs that name an HTTP send and nothing else, whatever client library spells them
+REQUEST_VERBS = ('request', 'urlopen', 'fetch')
+
+def request_sends(g, ids):
+    """[(caller, verb, file, line)] — the sends among `ids`' call sites the graph did not follow into client code:
+    unresolved, or ending in a library. A verb resolved to a method in the graph is that method, and the walk
+    already went through it."""
+    out = []; ids = [i for i in ids if i in g.sym]
+    vq = ','.join('?' * len(REQUEST_VERBS)); tq = ','.join('?' * len(g.TERMINAL_TIERS))
+    for k in range(0, len(ids), 900):
+        part = ids[k:k + 900]; q = ','.join('?' * len(part))
+        out += [(r['c'], r['n'], r['f'], r['ln']) for r in g.q(
+            f"""SELECT DISTINCT s.caller_id c, s.callee_name n, s.file_path f, s.start_line ln FROM call_sites s
+                WHERE s.caller_id IN ({q}) AND s.callee_name IN ({vq})
+                  AND (s.id IN (SELECT call_site_id FROM unresolved_sites)
+                       OR s.id IN (SELECT call_site_id FROM call_edges WHERE tier IN ({tq})))""",
+            *part, *REQUEST_VERBS, *g.TERMINAL_TIERS)]
+    return sorted(set(out), key=lambda r: (g.site_file(r[2]), r[3] or 0))
+
+def routes_over(g, ids):
+    """the methods among `ids` that serve an HTTP request: route entry points"""
+    mid = {g.sym[i]['method_id']: i for i in ids if i in g.sym and g.sym[i].get('method_id')}
+    keys = list(mid); out = []
+    if not g.has('entry_points'): return out
+    for k in range(0, len(keys), 900):
+        part = keys[k:k + 900]; q = ','.join('?' * len(part))
+        out += [mid[r[0]] for r in g.q(f"SELECT DISTINCT method_id FROM entry_points WHERE method_id IN ({q})"
+                                         " AND reason IN ('http', 'url')", *part)]
+    order = {i: n for n, i in enumerate(ids)}
+    return sorted(set(out), key=lambda i: order.get(i, 0))
+
 # AN UNMODELLED ENTRY: A SIGNAL THAT SOMETHING OUTSIDE THE CODE CALLS A DECLARATION, WHICH THE ENGINE DID NOT TURN INTO AN
 # EDGE OR AN ENTRY POINT. A decoration the rules do not know (a listener, a hook, a validator, a registration), or a
 # base type the graph does not contain (a library class the declaration's owner extends, which the parser could not
@@ -1534,12 +1565,49 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             print(f"  {ly} is entered from outside the graph in the same process, as such a call can do: "
                   + ', '.join(f"{g.disp(m)} ({why}) {g.loc(m)}" for m, why in entered[:3])
                   + (f" … +{len(entered) - 3}" if len(entered) > 3 else ''))
+    # A REQUEST IS A CALL INTO ANOTHER PROCESS, AND A ROUTE IS WHERE IT LANDS. The rule above leaves routes out on
+    # purpose: an in-process library call cannot enter one. An HTTP request can, and the engine links the two only
+    # where it can read both ends of the destination; a client whose path goes through a helper stays unlinked, and
+    # "independent" was printed for a client and the service method its request reaches. The send is named by its
+    # verb, the handful that mean nothing but a request (`get`, `post`, `send` also mean a dict, a router, a queue).
+    # The route's own call into the service is often unresolved too (a dependency the framework injects), so the
+    # walk up from the other side also follows an unresolved call that names a method on the way, as the by-name
+    # search above does; it is built only when a send was found.
+    sends = []; rby = None
+    if not (remote_found or lib_side):
+        for (xs, lx), (ys, ly) in (((A_, la), (B_, lb)), ((B_, lb), (A_, la))):
+            own, rest = closure_of(xs, adj)
+            sites = request_sends(g, own + rest)
+            if not sites: continue
+            if rby is None:
+                rby = collections.defaultdict(set, {k: set(v) for k, v in radj.items()})
+                by_name = collections.defaultdict(list)
+                for i, sy in g.sym.items():
+                    if sy.get('method_id') and sy.get('name'): by_name[sy['name']].append(i)
+                for c, n in g.q("SELECT u.caller_id, s.callee_name FROM unresolved_sites u JOIN call_sites s ON s.id = u.call_site_id"):
+                    for m in by_name.get(n, ()): rby[m].add(c)
+            up = [i for i in ys if i in g.sym]; seen = set(up); fr = list(up)     # nearest first: the route named is
+            while fr:                                                             # the one closest to the other side
+                fr = [y for y in dict.fromkeys(y for x in fr for y in rby.get(x, ())) if y not in seen and y in g.sym]
+                seen.update(fr); up += fr
+            routes = routes_over(g, up)
+            if routes: sends.append((lx, ly, sites, routes))
+        for lx, ly, sites, routes in sends:
+            RESULT['requests'] = RESULT.get('requests', []) + [
+                {'side': lx, 'caller': g.disp(c), 'callee': n, 'at': f"{g.site_file(f)}:{ln}"} for c, n, f, ln in sites[:50]]
+            print(f"  {lx} sends a request the graph does not follow: "
+                  + ', '.join(f"`{n}()` in {g.disp(c)} at {g.site_file(f)}:{ln}" for c, n, f, ln in sites[:3])
+                  + (f" … +{len(sites) - 3}" if len(sites) > 3 else ''))
+            print(f"  {ly} is served over HTTP: "
+                  + ', '.join(f"{g.disp(m)} {g.loc(m)}" for m in routes[:3])
+                  + (f" … +{len(routes) - 3}" if len(routes) > 3 else '')
+                  + " — the request may be what reaches it")
     # A CALL WHOSE CALLEE IS A VALUE CAN LAND ANYWHERE (#1649). `cb()` on a parameter, `f()` on a loop variable,
     # `table[k]()`: nothing about the name narrows the target, so the by-name search above finds no lead and
     # "independent" was printed for a start that hands control to whatever it was given. The engine marks such a
     # site (`unresolved_value_callee`); one in either side's closure makes the connection unknown, not absent.
     opaque = []
-    if not (remote_found or lib_side) and g.has('ext_unresolved_value_callee'):
+    if not (remote_found or lib_side or sends) and g.has('ext_unresolved_value_callee'):
         for xs, lx in ((A_, la), (B_, lb)):
             seen = {i for i in xs if i in g.sym and g.sym[i]['kind'] not in ('library', 'written')}; fr = list(seen)
             while fr:
@@ -1562,7 +1630,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     # a claim about the model and not the code. An endpoint the engine already made an entry point is modelled, and
     # the library-call rule above decides it.
     unmod = []
-    if not (remote_found or keyed or lib_side or opaque):
+    if not (remote_found or keyed or lib_side or sends or opaque):
         called = {y for ys in adj.values() for y in ys}
         eps = set()
         ends = [i for i in list(B_) + list(A_) if i in g.sym and g.sym[i]['kind'] not in ('library', 'written') and i not in called]
@@ -1577,6 +1645,8 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   " does: NOT independent" if keyed
              else " — but a library called above can reach the other at run time (an event, a callback, a hook) with no"
                   " call edge to record it: NOT shown to be independent" if lib_side
+             else " — but a request sent above may reach a route over the other (an HTTP hop the graph did not link):"
+                  " NOT shown to be independent" if sends
              else f" — but {' and '.join(lx for lx, _ in opaque)} make{'s' if len(opaque) == 1 else ''} a call whose callee is a"
                   f" value, not a name (below): any function passed, stored or exported may be what it calls, so the"
                   f" connection is UNKNOWN, not absent" if opaque

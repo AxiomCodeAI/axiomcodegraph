@@ -227,6 +227,11 @@ def next_path(text):
     if 'which is the key it is registered under' in text:
         return ("next: the start writes the key the other is registered under (named above), so a framework connects "
                 "them and no call does; the `impact … --tests` command printed there follows that hop")
+    if 'an HTTP hop the graph did not link' in text:
+        m = re.search(r'sends a request the graph does not follow: `[^`]*` in \S+ at (\S+:\d+)', text)
+        return ("next: not shown to be independent — " + (f"read {m.group(1)}, " if m else "read the request named above, ")
+                + "find the path and method it sends, and compare them with the routes named above; a route that serves "
+                  "them is the connection")
     if 'NOT shown to be independent' in text:
         return ("next: no chain of calls; the library calls named above are where one could continue: read the body "
                 "that makes them — one that publishes, schedules or registers what the entered method handles connects "
