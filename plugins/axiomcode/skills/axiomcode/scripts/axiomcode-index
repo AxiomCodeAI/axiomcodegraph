@@ -446,6 +446,10 @@ for r in rows(e['file']):
         refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, r.get(e['entityKind'], '')))
     elif k in e['litKinds'] and r.get(e['litType'][0]) == e['litType'][1]:
         v = (r.get(e['litValue']) or '')
+        # C# keeps the source token, and the IR writer RFC4180-quotes a field holding a double quote, so `"Fee"` arrived
+        # as `"""Fee"""` and was stored `""Fee""`: no key, route or member name written in a C# string ever matched
+        if LANG == 'csharp' and len(v) > 1 and v[0] == '"' == v[-1] and '""' in v: v = v[1:-1].replace('""', '"')
+        if LANG == 'csharp' and len(v) > 2 and v[0] in '@$' and v[-1] == '"': v = v.lstrip('@$')   # @"verbatim", $"interpolated"
         if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
         if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0)))
 c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?)", lits)

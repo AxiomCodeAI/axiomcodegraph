@@ -11,8 +11,13 @@
 // about which method is the handler.
 // ============================================================================
 
-// main: a static Main, and the method top-level statements compile to
-entry_point(m, "main") :- method_name("client", m, "Main"), method_modifier("client", m, "static").
+// main: a static Main of a shape C# accepts as an entry point (void, int, Task or Task<int>,
+// with no parameter or one string[]), and the method top-level statements compile to
+entry_point(m, "main") :- method_name("client", m, "Main"), method_modifier("client", m, "static"), cs_main_shape(m).
+cs_main_shape(m) :- method_name("client", m, "Main"), method_return_type_name("client", m, rt), cs_main_return(rt),
+    method_paramc("client", m, "0").
+cs_main_shape(m) :- method_name("client", m, "Main"), method_return_type_name("client", m, rt), cs_main_return(rt),
+    method_paramc("client", m, "1"), param_decl("client", m, "0", _, p), param_type_name("client", p, _, pt), cs_main_param(pt).
 entry_point(m, "main") :- method_is_top_level_entry("client", m).
 
 // test: a test method, and the set-up and tear-down around it
