@@ -24,7 +24,9 @@ import { JsScopeNode, nodeKey } from '@/parsers/javascript/extractors/js-symbol-
 import {
   enclosingVariableDeclaration,
   isDynamicImportCall,
+  isJsComponentFile,
   isNodeBuiltinSpecifier,
+  isRelativeSpecifier,
   isRequireCall,
   pointOf,
 } from '@/utils/javascript';
@@ -1188,6 +1190,14 @@ class JsModuleEdgeExtractor {
     // none; a bundler-only ES module that spells `./lib` for `./lib/index.js` gets
     // the CommonJS-mode answer as a fallback rather than nothing, since the file it
     // means is not in doubt.
+    // `./Price.vue`: the compiler's resolver knows no component extension, so the
+    // file the relative path names is the answer when the analyzer walked it.
+    if (isRelativeSpecifier(specifier) && isJsComponentFile(path.basename(specifier))) {
+      const named = realPathOfResolved(path.resolve(path.dirname(this.options.absoluteFilePath), specifier));
+      if (this.options.projectModuleHashes.has(named)) {
+        return { filePath: this.options.toProjectRelative(named), outcome: JsImportResolutionOutcome.RESOLVED_PROJECT };
+      }
+    }
     const requireLike = form === JsImportForm.REQUIRE_CALL || form === JsImportForm.CREATE_REQUIRE
       || (form === JsImportForm.JSDOC_IMPORT_TYPE && this.options.moduleSystem !== 'ESM');
     const mode = requireLike ? ts.ModuleKind.CommonJS : ts.ModuleKind.ESNext;

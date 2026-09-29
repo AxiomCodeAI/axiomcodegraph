@@ -41,7 +41,7 @@ import {
   JAVASCRIPT_CSV_FILES, JS_SKIP_DIRECTORIES, JS_SOURCE_EXTENSIONS,
 } from '@/constants/javascript-constants';
 import {
-  isFlowDeclarationFileName, isJavaScriptSourceFile, jsExtensionOf, stripJsExtension,
+  isFlowDeclarationFileName, isJavaScriptSourceFile, jsExtensionOf, sfcScriptText, stripJsExtension,
 } from '@/utils/javascript';
 import { formatCompleteness } from '@/parsers/javascript/extractors/js-ir-completeness';
 import * as JsEnums from '@/enums/javascript';
@@ -4855,6 +4855,12 @@ function extensionsAreDecidedInOnePlace(): number {
     ['a.json', '', false, false, 'a.json'],
     ['a.flow', '', false, false, 'a.flow'],
     ['README', '', false, false, 'README'],
+    // Single-file components: walked (their <script> blocks are read), stemmed
+    // like any module, and with no `.flow` declaration spelling.
+    ['Price.vue', '.vue', true, false, 'Price'],
+    ['List.svelte', '.svelte', true, false, 'List'],
+    ['index.astro', '.astro', true, false, 'index'],
+    ['a.vue.flow', '', false, false, 'a.vue.flow'],
   ];
   for (const [name, extension, isSource, isFlowDeclaration, stem] of CASES) {
     if (jsExtensionOf(name) !== extension) {
@@ -4886,6 +4892,26 @@ function extensionsAreDecidedInOnePlace(): number {
     }
     if (!isFlowDeclarationFileName(declaration)) {
       failures += fail(`${declaration} is not recognised as a Flow declaration file`);
+    }
+  }
+
+  // ---- 1b. a component's JavaScript keeps the file's own lines and columns;
+  // markup, a commented-out <script> and a non-JavaScript block are blanked.
+  // Each case is [name, blanked, kept, blanked, ...]: the file is the parts
+  // joined, and the extractor must see the kept parts with the rest as spaces.
+  const COMPONENTS: ReadonlyArray<readonly [string, ...string[]]> = [
+    ['a.vue', '<template>{{ f(1) }}</template>\n<script setup>', '\nf(2)\n', '</script>\n'],
+    ['a.vue', '<!-- <script>f(1)</script> -->\n<script lang="ts">\nf(2)\n</script>\n'],
+    ['a.svelte', '<script context="module">', 'g()', '</script>{g()}'],
+    ['a.astro', '---\n', 'h()\n', '---\n<p>{h()}</p>\n'],
+  ];
+  for (const [name, ...parts] of COMPONENTS) {
+    const text = parts.join('');
+    const want = parts.map((part, i) => (i % 2 === 1 ? part : part.replace(/[^\n]/g, ' '))).join('');
+    const got = sfcScriptText(name, text).text;
+    if (got !== want) {
+      failures += fail(`sfcScriptText(${name}, ${JSON.stringify(text)}) is ${JSON.stringify(got)}, `
+        + `expected ${JSON.stringify(want)}`);
     }
   }
 

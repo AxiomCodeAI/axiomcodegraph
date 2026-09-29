@@ -29,7 +29,9 @@ import {
 import { EntityUtils } from '@/utils/entity-utils';
 import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 import { JsRelationWriter } from '@/workflows/javascript/js-relation-writer';
-import { isJavaScriptSourceFile, stripJsExtension } from '@/utils/javascript';
+import {
+  isJavaScriptSourceFile, isJsComponentFile, sfcScriptText, stripJsExtension,
+} from '@/utils/javascript';
 import { JsBlockRegistry } from '@/analysis-types/javascript/JsBlockRegistry';
 import { JsCallSiteRegistry } from '@/analysis-types/javascript/JsCallSiteRegistry';
 import { JsCommentRegistry } from '@/analysis-types/javascript/JsCommentRegistry';
@@ -428,6 +430,18 @@ export class JavaScriptProjectAnalyzer {
           this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
             SkippedFileReason.READ_ERROR, String(error));
           continue;
+        }
+        if (isJsComponentFile(path.basename(file))) {
+          // only the component's JavaScript, at its own lines; markup and non-JavaScript blocks are blanked
+          const script = sfcScriptText(file, sourceText);
+          if (script.blocks.length > 0 && !script.blocks.some((block) => block.kept)) {
+            this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
+              SkippedFileReason.EMPTY_CONTENT,
+              `single-file component with no JavaScript to read: ${script.blocks.map((block) =>
+                `<script lang=${block.lang}> at line ${block.line}`).join(', ')}`);
+            continue;
+          }
+          sourceText = script.text;
         }
         const governing = governingByFile.get(file)!;
         let facts: JsFileFacts;

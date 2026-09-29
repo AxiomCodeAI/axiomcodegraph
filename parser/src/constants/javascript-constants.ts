@@ -99,6 +99,19 @@ export const JS_DEFAULT_EXPORT_NAME = 'default';
 export const JS_SOURCE_EXTENSIONS = ['.js', '.jsx', '.mjs', '.cjs'] as const;
 
 /**
+ * Single-file components: markup files whose JavaScript lives in `<script>`
+ * blocks (Vue, Svelte, Astro) or, for Astro, in the `---` frontmatter fence.
+ *
+ * They were not walked at all, so every call inside them was absent, nothing
+ * recorded the absence, and `impact` on a helper they call said it was used
+ * only where it was declared. The analyzer reads only their JavaScript: the rest
+ * of the file is blanked to whitespace so every line and column stays the one on
+ * disk (see `sfcScriptText`). Kept apart from `JS_SOURCE_EXTENSIONS` because
+ * they have no `.flow` spelling and are never plain JavaScript.
+ */
+export const JS_COMPONENT_EXTENSIONS = ['.vue', '.svelte', '.astro'] as const;
+
+/**
  * Directories that contain JavaScript but are never the project under analysis.
  *
  * `node_modules` and `bower_components` are excluded by NAME, not as a scale

@@ -1,4 +1,4 @@
-import { JS_SOURCE_EXTENSIONS } from '@/constants/javascript-constants';
+import { JS_COMPONENT_EXTENSIONS, JS_SOURCE_EXTENSIONS } from '@/constants/javascript-constants';
 
 /**
  * What counts as a platform module, in one place.
@@ -129,7 +129,96 @@ export function jsExtensionOf(fileName: string): string {
   // table, which is the argument for having written one: the function was in use
   // at eight call sites and every one of them happened to pass a `.js` family
   // name, so nothing else would ever have shown it.
-  return (JS_SOURCE_EXTENSIONS as readonly string[]).includes(extension) ? extension : '';
+  if ((JS_SOURCE_EXTENSIONS as readonly string[]).includes(extension)) {
+    return extension;
+  }
+  // A component has no `.flow` spelling: `a.vue.flow` is not a declaration file.
+  return base === name && (JS_COMPONENT_EXTENSIONS as readonly string[]).includes(extension)
+    ? extension
+    : '';
+}
+
+/** Is this a single-file component (`.vue`, `.svelte`, `.astro`), by name? */
+export function isJsComponentFile(fileName: string): boolean {
+  return (JS_COMPONENT_EXTENSIONS as readonly string[]).includes(jsExtensionOf(fileName));
+}
+
+/** One `<script>` block of a single-file component, as {@link sfcScriptText} read it. */
+export interface SfcScriptBlock {
+  /** 1-based line of the block's opening tag. */
+  readonly line: number;
+  /** The `lang` attribute, lower-cased; '' when there is none. */
+  readonly lang: string;
+  /** Whether its body was kept as JavaScript. */
+  readonly kept: boolean;
+}
+
+/**
+ * The JavaScript of a single-file component, at the offsets it has on disk.
+ *
+ * Every character outside a JavaScript `<script>` body (and, for `.astro`, the
+ * leading `---` frontmatter fence) becomes a space; line breaks are kept. The
+ * text is the same length as the file, so every line and column the extractor
+ * records is the file's own, and a reader opening `Price.vue:6` sees the call.
+ *
+ * A block whose `lang` is not JavaScript (`ts`, `typescript`, `coffee`) is
+ * blanked like markup: the JavaScript front end cannot read it, and parsing it
+ * as JavaScript would invent a wrong tree rather than an honest absence. The
+ * blocks come back so the caller can say what was left out. `<script>` inside
+ * an HTML comment is markup too.
+ */
+export function sfcScriptText(
+  fileName: string,
+  text: string
+): { text: string; blocks: SfcScriptBlock[] } {
+  const keep: Array<[number, number]> = [];
+  const blocks: SfcScriptBlock[] = [];
+  const lineAt = (offset: number): number => text.slice(0, offset).split('\n').length;
+  let from = 0;
+  if (jsExtensionOf(fileName) === '.astro') {
+    // The frontmatter: a `---` line before anything else but whitespace, up to the next `---` line.
+    const open = /^\s*---[ \t]*\r?\n/.exec(text);
+    if (open !== null) {
+      const bodyStart = open[0].length;
+      const close = /^---[ \t]*$/m.exec(text.slice(bodyStart));
+      if (close !== null) {
+        keep.push([bodyStart, bodyStart + close.index]);
+        from = bodyStart + close.index + close[0].length;
+        blocks.push({ line: lineAt(open.index), lang: '', kept: true });
+      }
+    }
+  }
+  const tag = /<!--[\s\S]*?-->|<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+  tag.lastIndex = from;
+  for (let match = tag.exec(text); match !== null; match = tag.exec(text)) {
+    if (match[0].startsWith('<!--')) {
+      continue;
+    }
+    const attributes = match[1] ?? '';
+    const lang = (/\blang\s*=\s*["']?([\w-]+)/i.exec(attributes)?.[1] ?? '').toLowerCase();
+    const type = (/\btype\s*=\s*["']?([\w/+.-]+)/i.exec(attributes)?.[1] ?? '').toLowerCase();
+    const javascript = ['', 'js', 'javascript', 'jsx'].includes(lang)
+      && ['', 'module', 'text/javascript', 'application/javascript'].includes(type);
+    const bodyStart = match.index + match[0].indexOf('>') + 1;
+    const bodyEnd = bodyStart + (match[2] ?? '').length;
+    if (javascript) {
+      keep.push([bodyStart, bodyEnd]);
+    }
+    blocks.push({ line: lineAt(match.index), lang: lang || type, kept: javascript });
+  }
+  const out: string[] = [];
+  let at = 0;
+  const blank = (end: number): void => {
+    out.push(text.slice(at, end).replace(/[^\r\n]/g, ' '));
+    at = end;
+  };
+  for (const [start, end] of keep) {
+    blank(start);
+    out.push(text.slice(start, end));
+    at = end;
+  }
+  blank(text.length);
+  return { text: out.join(''), blocks };
 }
 
 /**

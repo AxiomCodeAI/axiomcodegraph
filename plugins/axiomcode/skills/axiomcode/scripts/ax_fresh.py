@@ -45,7 +45,7 @@ H = os.path.dirname(os.path.abspath(__file__))
 EXT = {
     'java': ('.java', '.properties', '.xml', '.yml', '.yaml', '.gradle', '.kts', '.toml'),
     'typescript': ('.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'),
-    'javascript': ('.js', '.jsx', '.mjs', '.cjs'),
+    'javascript': ('.js', '.jsx', '.mjs', '.cjs', '.vue', '.svelte', '.astro'),   # components: their <script> blocks
     'python': ('.py', '.pyi'),
     'csharp': ('.cs', '.csproj', '.props', '.targets', '.sln'),
 }
