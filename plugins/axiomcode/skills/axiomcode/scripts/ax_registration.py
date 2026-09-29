@@ -570,16 +570,56 @@ def _has(q, t):
 # Every one of those is "the framework will dispatch to this declaration when someone writes this string", which is
 # exactly what the join needs. The kind is read from the key rather than from a list of decoration names: a key that
 # begins with `/` is a route, anything else is a key, and no framework is named anywhere in this function.
-def decoration_key_strings(text):
-    """the strings a decoration's text registers its declaration under, sorted: every quoted string in it but prose.
+# NOT EVERY QUOTED STRING IN A DECORATION IS WHAT IT REGISTERS THE DECLARATION UNDER (#1413). Three shapes carry a
+# string that no caller will ever write to reach the declaration, and each was printed as "registered under" and then
+# followed: a method that merely returned the same word was listed as reaching the change.
+#   1. a decoration that names a WARNING or a status, and registers nothing: `@SuppressWarnings("unchecked")`,
+#      `[SuppressMessage(...)]`, `@Deprecated(since = "2")`, `[Obsolete("...")]`, `@Generated("tool")`. A language-level
+#      table (the compilers' own annotations and the analysers' suppressions), not a framework list.
+_NOT_A_REGISTRAR = re.compile(r'^(Suppress\w*|Deprecated|Obsolete|Generated|SafeVarargs|FunctionalInterface)$')
+#   2. a KEYWORD argument that configures the registration rather than naming it: `mode="before"`, `methods=["GET"]`,
+#      `tags=["orders"]`, `method = "byShelf"`. A positional string is the key (`@router.post("/orders")`,
+#      `@receiver("order_created")`); a keyword one is only when the keyword says it names the thing registered.
+_KEY_KEYWORD = re.compile(r'^(value|values|path|paths|name|names|topics?|topic_?pattern|queues?|destinations?|channels?|'
+                          r'subjects?|commands?|events?|signals?|routes?|patterns?|urls?|uri|endpoint|keys?|routing_?key|'
+                          r'binding_?key|alias(es)?|rule|address|mapping)$', re.I)
+#   3. a string that names a MEMBER OF A TYPE THE SAME DECORATION NAMES: `@SelectProvider(type = StockSql.class,
+#      method = "byShelf")` points at StockSql.byShelf; it is a reference to that method, not a key for this one.
+#      Only decided with the graph (`names_member(type, name)`); without it the string is kept.
+_STRING = re.compile(r'"([^"]{1,120})"|\'([^\']{1,120})\'')
+_KEYWORD_BEFORE = re.compile(r'(\w+)\s*[=:]\s*[\[{(]?\s*(?:(?:"[^"]*"|\'[^\']*\')\s*,\s*)*$')
+_TYPE_ARG = re.compile(r'(?<![\w."\'$])([A-Z][\w$]*)(?:\s*\.\s*class)?(?=\s*[,)\]}])')
+
+
+def decoration_key_strings(text, name=None, names_member=None):
+    """the strings a decoration's text registers its declaration under, sorted: every quoted string in it but prose,
+    and but the three shapes above (a non-registering decoration `name`, a configuring keyword, a member reference).
     A STRING WITH A SPACE IN IT IS PROSE, NOT A KEY: `@widgets.doc("Endpoint to list the widgets")`, `@Operation(summary = "List
     the orders")`, a cron expression, a query. No route, command, signal or table name is written with one, and read as
     a key the description was printed as what the framework dispatches on."""
+    if name and _NOT_A_REGISTRAR.match(name.split('.')[-1].lstrip('@[')):
+        return []
+    t = text or ''
+    types = _TYPE_ARG.findall(_STRING.sub('""', t)) if names_member else []
     out = set()
-    for a, b in re.findall(r'"([^"]{1,120})"|\'([^\']{1,120})\'', text or ''):
-        key = a or b
-        if key and not re.search(r'\s', key): out.add(key)
+    for m in _STRING.finditer(t):
+        key = m.group(1) or m.group(2)
+        if not key or re.search(r'\s', key): continue
+        kw = _KEYWORD_BEFORE.search(t[:m.start()].replace('"""', '"'))
+        if kw and not _KEY_KEYWORD.match(kw.group(1)): continue
+        if any(names_member(ty, key) for ty in types): continue
+        out.add(key)
     return sorted(out)
+
+
+def member_names(q):
+    """names_member for decoration_key_strings, read from the graph: does a type of this simple name declare a member
+    of that name"""
+    pairs = set()
+    if _has(q, 'symbols'):
+        for owner, n in q("SELECT owner, name FROM symbols WHERE owner IS NOT NULL AND method_id IS NOT NULL"):
+            if owner and n: pairs.add((owner.split('.')[-1], n))
+    return lambda ty, key: (ty.split('.')[-1], key) in pairs
 
 
 def decoration_keys(q, site_file=None):
@@ -594,13 +634,14 @@ def decoration_keys(q, site_file=None):
     # edges from one `@ValueSource` of resource paths. A route handler, a signal receiver or a CLI command is
     # production code; nothing is lost by declining to read a test's own decoration as a registration.
     tests = {r[0] for r in q("SELECT id FROM symbols WHERE is_test = 1")} if _has(q, 'symbols') else set()
+    members = member_names(q)
     out = []
     for owner, name, text, f, l in q("""SELECT owner_id, name, text, file, line FROM decorations
                                         WHERE text IS NOT NULL AND text <> '' AND owner_id IS NOT NULL"""):
         if owner in tests:
             continue
         short = (name or '').split('.')[-1]
-        for key in decoration_key_strings(text):
+        for key in decoration_key_strings(text, name, members):
             kind = 'route' if key.startswith('/') else 'key'
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')

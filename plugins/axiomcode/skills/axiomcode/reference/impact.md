@@ -174,8 +174,10 @@ line and names the constructor query to run; take that suggestion before acting 
   file, `--tests-only` prints only that, `--why` adds each test's shortest chain to the change, and `--tests-in <path>` narrows
   the listing (not the closure) to test files containing it. Listing all of them with their chains by default was 169k
   characters for a hub method — 435 tests, 433 of them on weak routes (#1194). `--json` carries the full list. A test counts when
-  its own body reaches the change **or a fixture its framework runs first does** (a constructor, a static initializer, `@Before*`,
-  `setUp` — a convention table, printed as such), **or it names the key the change is registered under** (below).
+  its own body reaches the change **or a fixture its framework runs before or after it does** (a constructor, a static
+  initializer, `@Before*`, `@After*`, `setUp`, `tearDown`, MSTest's `[TestInitialize]` / `[TestCleanup]`: a convention table,
+  printed as such; a teardown that throws fails the test too), **or it names the key the change is registered under** (below).
+  A `test*` method that overrides a supertype's (a `TestWatcher`'s `testFailed`) is a callback, not a test.
   `--in <path>` and `--depth N` bound it; `--json` is the same answer as data.
 - **a registration key is a hop** — a route handler, a signal receiver, a CLI command and a table entry are one shape: the
   declaration is registered under a STRING and whoever wants it writes that string, not its name. `@router.post("/orders")`
@@ -185,7 +187,10 @@ line and names the constructor query to run; take that suggestion before acting 
   in the graph and nothing joined them, so a test that drove the app through its framework reached nothing — which is most
   of what a service's suite does. The two spellings of a path are matched segment by segment (`/orders/o-1/price` against
   `/orders/{order_id}/price`, `<int:id>`, `:id`), never normalised. It is **not** an edge the engine resolved and is never
-  shown as one: the hop is `[by key]`, and a literal can be a same-valued other thing.
+  shown as one: the hop is `[by key]`, and a literal can be a same-valued other thing. Only what the decoration registers
+  under is a key: a positional string, or a keyword that names it (`path=`, `name=`, `topics=`, `queues=` ...). A configuring
+  keyword (`mode="before"`, `methods=["GET"]`), a suppression (`@SuppressWarnings("unchecked")`) and a string naming a member
+  of a type the same decoration names (`@SelectProvider(type = Sql.class, method = "byShelf")`) are not keys.
 - **a stub on a mock is NOT a hop** — `when(repo.find(1))`, `verify(repo).save(x)`, `doReturn(v).when(repo).find(1)`,
   `mock.Setup(r => r.Find(1))`, `mock.Verify(...)`, `sub.Received().Find(1)`, `sub.Find(1).Returns(v)`: the engine
   resolves the call to the declared method, which is right about the name and wrong about execution, since the receiver

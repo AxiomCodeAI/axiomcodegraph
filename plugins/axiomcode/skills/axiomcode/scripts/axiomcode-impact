@@ -142,24 +142,11 @@ def merge_reasons(why, others):
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS', 'MEMBER_ACCESS'}   # MEMBER_ACCESS: C# (#1445)
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
-# the fixtures a test framework runs before a test, own or inherited: a language-neutral convention table, printed as such
-FIXTURE_DECOR = re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', re.I)
-FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}   # `init` / `before` alone are ordinary helper names: they count as a fixture only with the decoration
-TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|Fact|Theory|it|test)$')
-# The `test*` NAMING convention carries the condition that the class is a test class -- JUnit 3 reads
-# it on a TestCase subclass, pytest only on a class matching python_classes (`Test*`). Read without
-# that condition it takes in a `@Bean` method of a nested @Configuration class and a method of a
-# Python class named anything at all, neither of which a runner ever invokes as a test (#1181).
-# Matched with search, not fullmatch: a mixin or base that only CONCRETE subclasses run -- 
-# `RFC2616PolicyTestMixin`, `StorageTestMixin`, `TestBase` -- declares real tests, collected
-# through a subclass named Test*. Anchoring the name dropped every one of them.
-TEST_OWNER = re.compile(r'(Test|Spec|ITCase)')
-# a decoration that says the method is a dependency the framework builds, not a test. A pytest `@fixture` is one
-# whatever its name: `def test_image()` under it is built for the tests that request it, never collected (#1531).
-NON_TEST_DECOR = re.compile(r'^(Bean|Configuration|Component|Provides|Produces|TestConfiguration|fixture)$')
-# a file the runner imports for its fixtures and hooks and never collects tests from
-NON_TEST_FILE = re.compile(r'(^|/)conftest\.py$')
-RET_TYPE = re.compile(r'\)\s*:\s*(.+)$')
+# the fixtures a test framework runs before or after a test, own or inherited, and what a test is: ONE classification,
+# graph_sql's, so the SQL answers and these facts cannot disagree (#1417 tear-down, #1419 an override is no named test,
+# #1502 [TestInitialize] is a fixture). `init` / `before` alone are ordinary helper names: a fixture only with the decoration.
+import graph_sql as _gs
+FIXTURE_NAMES = _gs.FIXTURE_NAMES
 # a URL path as a router accepts it: path-absolute (RFC 3986 §3.3) with no whitespace and no quote in it. A path
 # parameter — `{id}`, `<int:id>`, `:id`, `*` — is left exactly as written: its spelling is per framework, and the
 # join matches the two spellings against each other rather than normalising either into the other
@@ -888,6 +875,18 @@ class Impact:
                 m = re.match(r'\s*([A-Za-z0-9_.\-]+)\s*[:=]', line)
                 if m and ckey(m.group(1)) in keys: out.append((ckey(m.group(1)), rel, i))
         return out
+    def written_key(self, rel, line, canon):
+        """the key as the settings file writes it at `line`, when it is a spelling of `canon`; else `canon`"""
+        try: text = (self.lines(rel) or [])[int(line) - 1]
+        except (IndexError, ValueError, TypeError, OSError): return canon
+        m = re.match(r'\s*([A-Za-z0-9_.\-]+)\s*[:=]', text or '')
+        return m.group(1) if m and ckey(m.group(1)) == canon else canon
+    def spell_keys(self, out):
+        """each `defines or overrides the key` row of extbind carries the key as written at its line (written_key)"""
+        if out and out.get('extbind'):
+            out['extbind'] = [[f, l, self.written_key(f, l, n), how, *rest] if how == 'defines or overrides the key' else [f, l, n, how, *rest]
+                              for f, l, n, how, *rest in out['extbind']]
+        return out
     def param_declared(self, mid, p):
         s = self.g.sym[mid]; L = self.lines(s['file'])
         head = ' '.join(L[s['line'] - 1: min(s['end_line'], s['line'] + 6)]).split('{')[0]
@@ -904,7 +903,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '46'        # 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '47'        # 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1251,20 +1250,9 @@ class Impact:
         W('reexport_from', star)
         decs = collections.defaultdict(set)
         for r in (g.q("SELECT owner_id, name FROM decorations") if g.has('decorations') else []): decs[r[0]].add(r[1].split('.')[-1])
-        def named_test(i, s):
-            # the naming convention, with the condition it actually carries: no owning type (a bare
-            # pytest function, a module-level `function testX()`), or a type that is a test class.
-            if not s['name'].startswith(('test', 'it')): return False
-            if any(NON_TEST_DECOR.match(d) for d in decs.get(i, ())): return False
-            if NON_TEST_FILE.search(s.get('file') or ''): return False
-            own = (s.get('owner') or '').split('.')[-1]
-            if own and not TEST_OWNER.search(own): return False
-            # JUnit 3 reads the convention on `public void testX()`. A method that DECLARES a return
-            # type and it is not void is a helper the tests call -- `private Method[] testFoo()`.
-            # Languages whose signatures declare no return type are unaffected by this.
-            r = RET_TYPE.search(s.get('signature') or '')
-            return not r or r.group(1).strip() in ('void', 'Unit', 'None')
-        tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function') and (any(TEST_DECOR.search(d) for d in decs.get(i, ())) or named_test(i, s))]
+        # a test decoration, or the test* naming convention under the condition it carries (graph_sql.is_test_callable)
+        tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function')
+              and _gs.is_test_callable(s['name'], decs.get(i, ()), s.get('owner'), s.get('file'), s.get('signature'))]
         # a vitest / jest / mocha test is an ANONYMOUS callable handed to it(…) / test(…) / bench(…): on one TypeScript
         # project 6,661 of the 7,723 callables in test files are <arrow> and exactly 2 carried a name the rule above
         # accepts, so the whole test layer was empty. The registrar on the declaration's own line names it as a test.
@@ -1292,7 +1280,7 @@ class Impact:
         scripts = graph_sql.script_tests([(i, s['kind'], s.get('file')) for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s.get('file')],
                                          lambda f: '\n'.join(self.lines(f)), set(tm))
         tm += sorted(scripts)
-        fx = [i for i, s in g.sym.items() if s['is_test'] and i not in scripts and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
+        fx = [i for i, s in g.sym.items() if s['is_test'] and i not in scripts and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or _gs.is_fixture_callable(s['name'], decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
         W('runs_before', sorted(self.wide_fixtures(tm, decs)))
         # ── which fixture runs before which test, when nothing calls it ────────────────────────────────────────
@@ -1658,7 +1646,7 @@ class Impact:
                     d = os.environ['AXIOMCODE_DUMP_SOLVE']; os.makedirs(d, exist_ok=True)
                     with open(os.path.join(d, re.sub(r'[^A-Za-z0-9_.-]', '_', str(QS)[:60]) + '.json'), 'w') as fh:
                         json.dump(_sql, fh)
-                return _sql
+                return self.spell_keys(_sql)
         # AXIOMCODE_BACKEND=1 says which side answered, so a parity run can tell a real match from both arms
         # falling back to the same rules — a type target scored "identical" six times while SQL never ran.
         if os.environ.get('AXIOMCODE_BACKEND'): print('backend=datalog', file=sys.stderr)
@@ -1683,6 +1671,10 @@ class Impact:
                     if p[0] in QS: rows.append(p[1:] + [p[0]])                               # … + the query id, so each row says which target it came from
                 out[n] = rows
             self.solve_store(D, key, out)
+        # A KEY IS QUOTED AS IT IS WRITTEN AT THAT LINE (#1477). The join matches a settings line on the canonical form
+        # (ckey: `batch_size`, `batch-size` and `batchSize` are one property), so the row carries that form; printed
+        # as is, `app.orders.batch_size` was quoted as `app.orders.batchsize`, a spelling no file holds.
+        self.spell_keys(out)
         out['_targets'] = QS
         # AXIOMCODE_DUMP_SOLVE=<dir>: record what the rules derived, so the SQL port can be developed and diffed
         # against real output without re-running a 26 s query for every iteration.
@@ -2721,7 +2713,7 @@ def main(argv):
     sure = [m for m, c in test_cert.items() if c == 'sound' and tests[m][0] <= 3]
     weak_tests = [m for m in tests if m not in sure_set]
     sys.stdout = _stdout
-    print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
+    print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before or after them: constructor, static initializer, @Before*/@After*/setUp/tearDown)" if tests else ''))
     if out_src[1]:
         print(f"    NOT SEEN: the graph was indexed with --src {out_src[0]}, and {len(out_src[1])} test file(s) lie outside it ("
               + ', '.join(out_src[1][:3]) + (f" … +{len(out_src[1]) - 3}" if len(out_src[1]) > 3 else '')
@@ -2916,10 +2908,41 @@ def main(argv):
     prod_users = {c for c, role, why, cert, loc, n in D if cert in STRONG_DIRECT and not _is_t(c)}
     prod_reach = sorted((m for m in reached if m in sure_set and not _is_t(m)), key=lambda m: (reached[m], g.loc(m)))
     lone = not prod_users and not prod_reach
+    # WHAT NAMES THE DECLARATION BY A STRING, READ FOR A TYPE AS FOR A METHOD (#1411, #1420). Three kinds of evidence
+    # no call edge carries, each of which a delete breaks at RUN time and the compiler never sees:
+    #   own_decs   its own decorations, with their lines: `@WebServlet("/widgets")` on a class registers it as much as
+    #              `@GetMapping` on a method does. Only a method's were read, so every annotated class said "no decoration".
+    #   qual_lits  a string equal to a type's QUALIFIED name: `ctx.addServlet("orders", "app.OrdersServlet")`,
+    #              Class.forName, a reflective loader. A binding, not a lead: the name is written in full.
+    #   ann_refs   an annotation string naming a method, `Class#method` (JUnit's @MethodSource, @EnabledIf, @DisabledIf
+    #              resolve it by reflection) or the bare name. Annotation arguments are in no `literals` row, so the
+    #              method-body literal check could not see them. `Class#method` with this method's own class is a
+    #              binding; a bare name may be a same-named other method, so it is a lead.
+    tgt_syms = [(k, t) for k, _l, pay in targets if k in ('method', 'type') for t in (pay if isinstance(pay, list) else []) if t in g.sym]
+    own_decs = sorted({(r[0].split('.')[-1], g.site_file(r[1]) if r[1] else '', r[2] or 0) for _k, t in tgt_syms
+                       for r in (g.q("SELECT name, file, line FROM decorations WHERE owner_id = ?", t) if g.has('decorations') else [])})
+    qual_lits, ann_refs, ann_bound = [], [], []
+    for k, t in tgt_syms:
+        s_ = g.sym[t]; qn = (s_.get('qualified_name') or '').replace('$', '.')
+        if k == 'type' and qn and qn != s_['name'] and g.has('literals'):
+            qual_lits += [(g.site_file(r[0]), r[1]) for r in g.q("SELECT file, line FROM literals WHERE replace(value, '$', '.') = ?", qn)]
+        if k != 'method' or not g.has('decorations'): continue
+        n_ = s_['name']; own = (s_.get('owner') or '').split('.')[-1]; own_q = qn.rsplit('.', 1)[0] if '.' in qn else ''
+        for oid, txt, f_, l_ in g.q("SELECT owner_id, text, file, line FROM decorations WHERE text LIKE ?", f'%{n_}%'):
+            if oid == t: continue
+            for v in re.findall(r'"([^"\s]{1,200})"', txt or ''):
+                cls, sep, mem = v.replace('$', '.').rpartition('#')
+                mem = mem.split('(')[0]
+                if mem != n_: continue
+                at = (g.site_file(f_) if f_ else '', l_ or 0)
+                if sep and cls and (cls in (own, own_q) or (own_q and cls.endswith('.' + own) and own_q.endswith(cls))): ann_bound.append(at)
+                elif not cls: ann_refs.append(at)
+    qual_lits = sorted(set(qual_lits)); ann_bound = sorted(set(ann_bound)); ann_refs = sorted(set(ann_refs) - set(ann_bound))
+    bind_locs = [f"{f_}:{l_}" for f_, l_ in qual_lits + ann_bound if f_]
     # a green line over an empty set would be printed exactly where the answer is least trustworthy: say what was checked
     if want_delete:
         # is it safe to delete? every reason it is not, and — when there is none — what the graph cannot vouch for
-        names = {g.sym[t]['name'] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) if t in g.sym}
+        names = {g.sym[t]['name'] for _k, t in tgt_syms}
         # THE MEMBERSHIP HERE IS EXACTLY WHAT IT WAS. Every row now labelled `registered` or `capped set`
         # was labelled `resolved` before, and a hand-off is a reason NOT to delete — something holds the
         # reference. Letting the new label fall out of this list would turn "something still uses this" into
@@ -2928,7 +2951,7 @@ def main(argv):
                  or x[3] in ('registered', 'capped set', 'framework')]    # a task's producer, a signal's sender (#1509)
         weak = [x for x in D if x[3] in ('one of a set', 'by name', 'text', 'in scope')]
         lits = [r for n_ in names for r in g.q("SELECT file, line FROM literals WHERE value = ?", n_)] if g.has('literals') else []
-        decs = sorted({r[0].split('.')[-1] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", t)})
+        decs = [f"{n_} ({f_}:{l_})" if f_ and l_ else n_ for n_, f_, l_ in own_decs]
         # an override the engine put in dispatch_candidates is a caller too: the base's callers land here at run time
         ov = [r['d'] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) if t in g.sym and g.sym[t].get('method_id')
               for r in (g.q("""SELECT DISTINCT b.display d FROM dispatch_candidates dc JOIN symbols b ON b.method_id = dc.base_method_id JOIN symbols c ON c.method_id = dc.candidate_method_id
@@ -2979,6 +3002,8 @@ def main(argv):
         # A FILE THE INDEX DOES NOT READ AS SOURCE CAN STILL LOAD IT (#1388). A spring.factories entry, a services file,
         # a mapper XML: the rows were printed under "bound from outside the source" and then left out of the verdict,
         # which read "nothing" for a class Spring instantiates at startup only because such a file names it.
+        if qual_lits: why.append(f"{len(qual_lits)} string(s) name it in full, so something loads it by that name: " + ', '.join(f"{f_}:{l_}" for f_, l_ in qual_lits[:4]) + (' …' if len(qual_lits) > 4 else ''))
+        if ann_bound: why.append(f"{len(ann_bound)} annotation string(s) name it as Class#method, which a runner or framework resolves by reflection at RUN time: " + ', '.join(f"{f_}:{l_}" for f_, l_ in ann_bound[:4]) + (' …' if len(ann_bound) > 4 else ''))
         if ext_strong: why.append(f"{len(ext_strong)} site(s) in {len({f for f, *_ in ext_strong})} file(s) outside the source {'define' if all(x[3].startswith('defines') for x in ext_strong) else 'name'} it ([text] above), so deleting it breaks them at RUN time")
         # AN ENTRY POINT IS CALLED BY A FRAMEWORK, AND SO IS AN UNMODELLED ONE (#1446). The entry-point line above said
         # a framework invokes it, and this verdict then printed the one for a class nothing registers, word for word.
@@ -2987,7 +3012,8 @@ def main(argv):
             fw_why.append(f"it is {' / '.join(ax_edges.entry_phrase(w) for w in epw[:3])} (above) — the framework calls it back, so no call site in the graph is expected")
         elif epw: fw_why.append(f"it is {'an' if epw[0][:1] in 'aeiou' else 'a'} {'/'.join(epw[:3])} entry point (above) — a framework calls it, so no call site in the graph is expected")
         if unmod: fw_why.append(f"NOT CHECKED: {unmod_sig} — a framework may call it and the graph does not model how; before deleting run: {unmod_grep}")
-        if why: print("  NOT SAFE — " + '; '.join(why) + ". They are listed above.")
+        # the string bindings (qual_lits, ann_bound) name their sites on the line itself; every other reason is a row above
+        if why: print("  NOT SAFE — " + '; '.join(why) + (". They are listed above." if calls or contract or weak or ov or ext_strong or abstract_over else "."))
         elif fw_why: print("  NOT SAFE TO ASSUME — no dependent in this graph, but " + '; '.join(fw_why) + ". Check what else the graph cannot see:")
         elif exported: print("  NOT SAFE TO ASSUME — no dependent in this graph, but it is declared " + '/'.join(exported) +
                              ": exported surface. For a library, no in-repo caller is the normal state of the public API,"
@@ -3001,12 +3027,13 @@ def main(argv):
         if outside and lone: bits.append("it extends / implements " + ', '.join(sorted({a for _o, a in outside})[:3]) + ", which the graph does not contain — that library or framework can instantiate or call it with no call site here")
         if ext_weak: bits.append(f"{len(ext_weak)} mention(s) of the name in {len({f for f, *_ in ext_weak})} file(s) outside the source ([text] above): "
                                  + ', '.join(f"{f}:{l}" for f, l, *_ in ext_weak[:4]) + (' …' if len(ext_weak) > 4 else '') + " — each may be the same word meaning something else")
+        if ann_refs: bits.append(f"{len(ann_refs)} annotation string(s) equal to the name (a method a runner or framework looks up by name? or a same-named other one): " + ', '.join(f"{f_}:{l_}" for f_, l_ in ann_refs[:4]) + (' …' if len(ann_refs) > 4 else ''))
         if decs: bits.append("decorations on it: @" + ', @'.join(decs[:5]) + " — a framework may call it with no call site, and a decorator can hand the wrapper to the caller instead of this declaration")
         if u: bits.append(f"{u} unresolved call(s) inside the impacted set")
         if tests: bits.append(f"{len(tests)} test(s) reach it")
         if stubbed: bits.append(f"{len(stubbed)} test(s) stub it on a mock or hold its type as one ([stubs it] above): deleting it breaks the stubs they write, though no body change fails them")
         for b in bits: print(f"    · {b}")
-        if not bits and not calls and not contract and not weak and not ov and not ext and not fw_why: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
+        if not bits and not calls and not contract and not weak and not ov and not ext and not fw_why and not qual_lits and not ann_bound: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
         if not vis and g.has('methods'): print("    · visibility is not recorded in this graph, so exported surface cannot be told from internal")
     # WHAT hops == 0 MEANS IS "NO ROW CLAIMS A CALL EDGE", NOT "NO ROW IS RESOLVED". The old parenthetical —
     # "every entry is by name, in scope, text, or one of a target set" — is a claim about the rows, and it is
@@ -3098,7 +3125,7 @@ def main(argv):
     # method or type target seeds with itself and what it is bound to, which is where its reading starts
     here = ((sorted(set(x for x in field_locs if x))[:2] if field_locs else [])
             or sorted({g.loc(t) for t in seeds if t in g.sym})[:2])
-    places = [x for x in dict.fromkeys(must + users) if x not in here]
+    places = [x for x in dict.fromkeys(must + users + bind_locs) if x not in here]
     ti = '; `test-impact` after the edit for the tests' if tests else ''
     lead = f"; the {weak_n} [by name]/[text] row(s) are leads — open one only if the change is to the name or the signature" if weak_n else ''
     # "LOCAL" IS A CLAIM ABOUT EVERYTHING ABOVE IT, NOT ABOUT `D` (#1388). Two things this answer prints are not rows of
