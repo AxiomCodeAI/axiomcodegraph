@@ -51,8 +51,10 @@ h, exprs = read(os.path.join(ir, 'all-javascript-expressions.csv'))
 if h:
     i = {c: h.index(c) for c in ('jsExpressionUniqueHash', 'ownerModuleLinkHash', 'startLine', 'startColumn', 'expressionKind', 'text')}
     for r in exprs:
-        # A JSX element edge is keyed on the JSX_ELEMENT expression, likewise no call site.
-        if r[i['expressionKind']] in ('PROPERTY_ACCESS', 'OPTIONAL_ACCESS', 'ELEMENT_ACCESS', 'JSX_ELEMENT'):
+        # A JSX element edge is keyed on the JSX_ELEMENT expression, likewise no call site;
+        # a handler handed over as an attribute, on the JSX_ATTRIBUTE_VALUE expression.
+        if r[i['expressionKind']] in ('PROPERTY_ACCESS', 'OPTIONAL_ACCESS', 'ELEMENT_ACCESS', 'JSX_ELEMENT',
+                                      'JSX_ATTRIBUTE_VALUE'):
             access[r[i['jsExpressionUniqueHash']]] = '%s:%s:%s %%s %s' % (
                 modfile.get(r[i['ownerModuleLinkHash']], '?'), r[i['startLine']], r[i['startColumn']],
                 r[i['text']].replace('\n', ' ')[:60])

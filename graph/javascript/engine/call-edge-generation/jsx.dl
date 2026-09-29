@@ -144,3 +144,20 @@ call_chain_edge(je, caller, "-", m, "lib", "boundary_lib", "JSX_ELEMENT") :- jsx
 // A tag that names something the value layer could not follow: a declared unknown.
 call_chain_edge(je, caller, "-", "-", "-", "ambiguous_unknown", "JSX_ELEMENT") :-
     jsx_target_count(je, 0), jsx_caller(je, caller).
+
+// ── a function handed over as an attribute ──────────────────────────────────
+// `<form onSubmit={submit}>`, `<button onClick={logout}>`, `<UserForm action={createUser}/>`
+// hands the function to the renderer or the component, which may invoke it: the same
+// hand-off as `xs.forEach(f)`, and labelled the same way, callback_registered. Without
+// it an event handler on an intrinsic tag (`<div/>` renders no project code, so the
+// props object above reaches nobody) had no incoming edge at all, and `impact submit`
+// answered that it is used only where it is declared. Emitted for every element,
+// whatever its tag renders, as a call argument is whatever the callee resolved to.
+// The site is the attribute row; a value that is not a function (`value={count}`,
+// `className="x"`) is data and gets nothing.
+jsx_attribute_handler(a, m) :- expr_kind(_, "JSX_ATTRIBUTE_VALUE", _, a),
+    expr_child(_, a, "PROPERTY_VALUE", _, v), expr_value(v, "func", m).
+jsx_attribute_caller(a, m) :- jsx_attribute_handler(a, _), expr_owner(_, m, _, a), m != "".
+jsx_attribute_caller(a, init) :- jsx_attribute_handler(a, _), expr_owner(_, "", mod, a), module_init(_, init, mod).
+call_chain_edge(a, caller, "-", m, "client", "callback_registered", "JSX_ATTRIBUTE") :-
+    jsx_attribute_handler(a, m), method_prov(m, "client"), jsx_attribute_caller(a, caller).
