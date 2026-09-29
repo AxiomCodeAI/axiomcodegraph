@@ -1,0 +1,7 @@
+known_edge	read	app.jpa.LooseConverter#convertToDatabaseColumn(Price) -> app.jpa.Price#cents
+known_edge	read	app.jpa.PriceConverter#convertToDatabaseColumn(Price) -> app.jpa.Price#cents
+known_edge	read	app.rs.WidgetResource#list(Size,Color) -> app.rs.Color#name
+known_edge	read	app.rs.WidgetResource#list(Size,Color) -> app.rs.Size#n
+known_edge	write	app.jpa.Price#<init>(long) -> app.jpa.Price#cents
+known_edge	write	app.rs.Color#<init>(String) -> app.rs.Color#name
+known_edge	write	app.rs.Size#<init>(int) -> app.rs.Size#n
