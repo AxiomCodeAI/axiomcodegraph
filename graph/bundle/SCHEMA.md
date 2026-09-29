@@ -511,6 +511,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `DYNAMIC_CODE_CALL` | javascript | `eval(…)` / `new Function(…)` — unknowable by construction. |
 | `DYNAMIC_IMPORT_CALL` | javascript | `import(…)` — a module load that is also a site. |
 | `JSX_ELEMENT` | javascript | `<Component …/>` — the renderer runs the component (a function component, or a class component's constructor and `render`) with the element's attributes as its props. Engine-authored: no written call; the site is the JSX element expression. An intrinsic tag (`<div/>`) is no site. |
+| `JSX_ATTRIBUTE` | javascript | `<form onSubmit={submit}>`, `<UserForm action={create}/>` — a function handed over as a JSX attribute, on any tag; always tier callback_registered. Engine-authored: the site is the attribute. |
 | `SIMPLE_CALL` | python | `f(…)` — a bare name. |
 | `METHOD_CALL` | python | `obj.m(…)`. |
 | `CHAINED_CALL` | python | `a.b().c(…)` — the receiver is itself a call. |
