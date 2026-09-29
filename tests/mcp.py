@@ -17,6 +17,10 @@ run one:
   .codex-plugin/mcp.json       Codex's server entry, a relative path run from the plugin directory
   .cursor-plugin/plugin.json   Cursor's own server entry, with ${CURSOR_PLUGIN_ROOT} replaced as Cursor does
 
+and a server that is already running when the install moves under it answers the next call from the new install:
+through a link retargeted at a newer build, and through a host's install record (in a config
+directory of the test's own) that names a newer version's directory (check_install_move)
+
     python3 tests/mcp.py
 """
 import json, os, shutil, subprocess, sys, tempfile, threading
@@ -226,6 +230,118 @@ def check_grep_default():
     finally:
         server.run = real
 
+class Session:
+    """one started server, called as many times as a test needs, as a client keeps it for a whole session"""
+    def __init__(self, cmd, cwd, env):
+        self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  cwd=cwd, env=env, text=True)
+        self.timer = threading.Timer(120, self.p.kill)
+        self.timer.start()
+        self.n = 0
+        self.ask('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'tests', 'version': '0'}})
+        self.p.stdin.write(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) + '\n')
+        self.p.stdin.flush()
+
+    def ask(self, method, params):
+        self.n += 1
+        self.p.stdin.write(json.dumps({'jsonrpc': '2.0', 'id': self.n, 'method': method, 'params': params}) + '\n')
+        self.p.stdin.flush()
+        for line in self.p.stdout:
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get('id') == self.n:
+                return m.get('result') or {}
+        return {}
+
+    def text(self, name, arguments):
+        return ''.join(c.get('text', '') for c in self.ask('tools/call', {'name': name, 'arguments': arguments}).get('content', []))
+
+    def close(self):
+        self.timer.cancel()
+        self.p.stdin.close()
+        self.p.wait()
+        self.p.stdout.close()
+        self.p.stderr.close()
+
+
+def check_install_move(work):
+    """The install moves while a server runs: the next call is answered by the new install's scripts, byte for byte, and
+    only when the new install's server.py differs from the running one does a warning come, on the answer's first line.
+    Each fake build's CLI prints which build it is; nothing here touches the real host config (HOME and the config
+    directory variable are the test's own)."""
+    bad = []
+    top = os.path.join(work, 'install-move')
+    home = os.path.join(top, 'home')
+    os.makedirs(home)
+
+    def build(dest, name):
+        shutil.copytree(os.path.join(ROOT, 'plugins', 'axiomcode'), dest, symlinks=True)
+        cli = os.path.join(dest, 'skills', 'axiomcode', 'scripts', 'axiomcode')
+        with open(cli, 'w') as f:
+            f.write(f'#!/usr/bin/env bash\necho "answer from {name}"\necho "IMPACT_VERSION {name}"\n')
+        os.chmod(cli, 0o755)
+        return f'answer from {name}\nIMPACT_VERSION {name}'
+
+    base = {k: v for k, v in os.environ.items() if not k.endswith('PLUGIN_ROOT') and k != 'CLAUDE_CONFIG_DIR'}
+    base.update(HOME=home, CLAUDE_CONFIG_DIR=os.path.join(top, 'claude'), AXIOMCODE_REFRESH_INTERVAL='0')
+    repo = os.path.join(top, 'repo')
+    os.mkdir(repo)
+    ask = ('axiomcode_path', {'from_': 'a', 'to': 'b', 'repo': repo})
+    warn = 'WARNING: this axiomcode MCP server is older than the install'
+
+    def expect(label, got, want, warned=False):
+        first, _, rest = got.partition('\n')
+        if warned and not (first.startswith(warn) and rest == want):
+            bad.append(f"install move, {label}: want the warning on the first line and then {want!r}, got {got[:400]!r}")
+        elif not warned and got != want:
+            bad.append(f"install move, {label}: want exactly {want!r}, got {got[:400]!r}")
+
+    # 1. A LINK TO THE INSTALL, retargeted at a newer build. The server is started through the link with no
+    # AXIOMCODE_PLUGIN_ROOT, as a host that expands nothing starts it; node resolves the link in the launcher's path.
+    a = build(os.path.join(top, 'builds', 'old', 'plugins', 'axiomcode'), 'the old build')
+    b = build(os.path.join(top, 'builds', 'new', 'plugins', 'axiomcode'), 'the new build')
+    link = os.path.join(top, 'install')
+    os.symlink(os.path.join(top, 'builds', 'old'), link)
+    s = Session(['node', os.path.join(link, 'plugins', 'axiomcode', 'mcp', 'launch.js')], repo, base)
+    try:
+        expect('link, before the move', s.text(*ask), a)
+        tmp = link + '.next'
+        os.symlink(os.path.join(top, 'builds', 'new'), tmp)
+        os.replace(tmp, link)
+        expect('link, after the move (same server.py)', s.text(*ask), b)
+        with open(os.path.join(top, 'builds', 'new', 'plugins', 'axiomcode', 'mcp', 'server.py'), 'a') as f:
+            f.write('\n# a newer server\n')
+        expect('link, after the move (newer server.py)', s.text(*ask), b, warned=True)
+    finally:
+        s.close()
+
+    # 2. A HOST THAT INSTALLS EACH VERSION INTO ITS OWN DIRECTORY and records which one is current. The near miss: a
+    # newer entry of another plugin, in another directory, is not this one's install.
+    cache = os.path.join(top, 'claude', 'plugins', 'cache', 'mkt', 'axiomcode')
+    v1, v2 = os.path.join(cache, '0.0.1'), os.path.join(cache, '0.0.2')
+    other = os.path.join(top, 'claude', 'plugins', 'cache', 'mkt', 'another', '9.9.9')
+    a = build(v1, 'version 0.0.1')
+    b = build(v2, 'version 0.0.2')
+    build(other, 'another plugin')
+    record = os.path.join(top, 'claude', 'plugins', 'installed_plugins.json')
+
+    def write_record(current):
+        with open(record, 'w') as f:
+            json.dump({'version': 2, 'plugins': {
+                'axiomcode@mkt': [{'scope': 'user', 'installPath': current, 'lastUpdated': '2026-01-0%dT00:00:00.000Z' % (1 if current == v1 else 2)}],
+                'another@mkt': [{'scope': 'user', 'installPath': other, 'lastUpdated': '2026-12-31T00:00:00.000Z'}]}}, f)
+    write_record(v1)
+    s = Session(['node', os.path.join(v1, 'mcp', 'launch.js')], repo, dict(base, AXIOMCODE_PLUGIN_ROOT=v1))
+    try:
+        expect('recorded install, before the update', s.text(*ask), a)
+        write_record(v2)
+        expect('recorded install, after the update', s.text(*ask), b)
+    finally:
+        s.close()
+    return bad
+
 
 def check(label, cmd, cwd, env=None, workdir=None, want_err=None):
     replies, err = exchange(cmd, cwd, env, workdir)
@@ -264,6 +380,8 @@ def main():
         bad += check_arguments('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo, lax=True)
         bad += check_words()
         bad += check_grep_default()
+        if os.name != 'nt':
+            bad += check_install_move(work)
         bad += check('symlinked axiomcode mcp', [link, 'mcp'], repo)
         env_note = 'python3 -S server.py (fallback, no SDK)'
         bad += check(env_note, [sys.executable, '-S', SERVER], repo)
