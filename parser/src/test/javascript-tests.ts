@@ -3210,6 +3210,13 @@ async function pathAliasesResolveThroughTheNearestConfig(): Promise<number> {
   write('remix/app/route.js', "import { getNote } from '~/models/note.server';\n");
   write('plain/jsconfig.json', '{ "compilerOptions": { "checkJs": true } }');
   write('plain/probe.js', "import { checkA } from '@/lib/check';\n");
+  // a config that only extends the framework's generated one, absent from a checkout (#1756)
+  write('kit/jsconfig.json', '{ "extends": "./.svelte-kit/tsconfig.json" }');
+  write('kit/src/lib/api.js', 'export function get() { return 1; }\n');
+  write('kit/src/routes/page.js', "import * as api from '$lib/api.js';\n");
+  write('other/jsconfig.json', '{ "extends": "./.config/tsconfig.json" }');
+  write('other/src/lib/api.js', 'export function get() { return 1; }\n');
+  write('other/probe.js', "import * as api from '$lib/api.js';\n");
   await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
   const relations = readRelations(out);
   const imports = relations.find((r) => r.name === 'js_import');
@@ -3225,6 +3232,8 @@ async function pathAliasesResolveThroughTheNearestConfig(): Promise<number> {
     ['src/app.js', './lib/check.js', 'RESOLVED_PROJECT', 'src/lib/check'],
     ['remix/app/route.js', '~/models/note.server', 'RESOLVED_PROJECT', 'remix/app/models/note.server'],
     ['plain/probe.js', '@/lib/check', 'UNRESOLVED_MISSING', ''],
+    ['kit/src/routes/page.js', '$lib/api.js', 'RESOLVED_PROJECT', 'kit/src/lib/api'],
+    ['other/probe.js', '$lib/api.js', 'UNRESOLVED_MISSING', ''],
   ];
   for (const [file, specifier, wantOutcome, target] of want) {
     const rows = imports.rows.filter((row) => fileOf.get(row[owner] ?? '') === file && row[spec] === specifier);
