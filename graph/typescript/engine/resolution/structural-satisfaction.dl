@@ -120,7 +120,41 @@ target_has_nominal_implementor(t) :- implementors(t, _).
 structural_implementor(t, s) :- type_satisfies(s, t),
     satisfaction_target(t),
     s != t,
-    !target_has_nominal_implementor(t).
+    !target_has_nominal_implementor(t),
+    !sat_cross_program(s, t).
+
+// ── sat_cross_program(Source, Target) — a shape match no value can cross (#1574) ──
+// A CLIENT GLOBAL belongs to one program (module-graph.dl). A class in ANOTHER program
+// that happens to have the global's members — production's `Pipeline.map` against a test
+// fixture's hand-written `interface Array { map }` — was counted as its implementor, so
+// every fixture `xs.map(cb)` dispatched into production code and production's own
+// `this.items.map(f)` dispatched into the fixture's classes: callback reach then spanned
+// every program in the repository. A value of the class can reach a receiver typed by
+// that global only in code that sees both, so the pair is dropped when NEITHER program
+// can see the other's file: the class's module is outside the global's program, and the
+// global's file is outside the class's. Governed-by or under-the-directory-of, the same
+// test program_sees makes, so a root `types/global.d.ts` keeps every nested package's
+// conformers, and a nested package's global keeps a root class its code may import.
+// Only pairs of two different governing tsconfigs are asked, so this is a handful of
+// prefix tests, not (modules) x (programs). A module with no tsconfig is never cut.
+path_key(p) :- module_tsconfig(_, p).
+tsconfig_dir(p, d) :- module_tsconfig(_, p), path_dir(p, d).
+sat_cross_program_pair(s, t, ms, pt, mt, ps) :- sat_pair_seed(s, t),
+    client_global_program(t, pt),
+    type_module("client", ms, s), module_tsconfig(ms, ps), ps != pt,
+    type_module("client", mt, t).
+sat_tree_ask(ms, pt) :- sat_cross_program_pair(_, _, ms, pt, _, _).
+sat_tree_ask(mt, ps) :- sat_cross_program_pair(_, _, _, _, mt, ps).
+module_in_program_tree(m, p) :- sat_tree_ask(m, p), module_tsconfig(m, p).
+module_in_program_tree(m, p) :- sat_tree_ask(m, p),
+    tsconfig_dir(p, d),
+    module_file("client", fp, m),
+    n = strlen(d),
+    strlen(fp) >= n,
+    substr(fp, 0, n) = d.
+sat_cross_program(s, t) :- sat_cross_program_pair(s, t, ms, pt, mt, ps),
+    !module_in_program_tree(ms, pt),
+    !module_in_program_tree(mt, ps).
 
 // ── …AND A CONFORMER THE PROGRAM ACTUALLY CONSTRUCTS, EVEN THEN (#428) ─────
 // The gate above is right about EVIDENCE and wrong about what it does with it. Where a
@@ -169,7 +203,8 @@ structural_implementor(t, s) :- type_satisfies(s, t),
     s != t,
     target_has_nominal_implementor(t),
     !implementors(t, s),
-    type_instantiated(s, _).
+    type_instantiated(s, _),
+    !sat_cross_program(s, t).
 
 // ── satisfaction_unmeasured(TargetTypeHash, Name) ───────────────────────────
 // EVERY SUPPRESSION COUNTABLE. A required member of a tested interface that NO

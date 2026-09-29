@@ -1,0 +1,7 @@
+82-structural-conformer-across-programs [types]
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    1.0000   (6 of 6 the compiler resolved)
+  sites 11   resolved 11 (100.0%)
+  tiers known_edge=11
+  contexts METHOD_RETURN=2  METHOD_TYPE_ARGUMENT=1  OBJECT_CREATION_TYPE=3  SUPER_TYPE=4  TYPE_ELEMENT=1
+  not scored: 0 rows whose target is not a client declaration
