@@ -394,9 +394,8 @@ class Impact:
         mfl = re.match(r'^(.+?):(\d+)(?::\d+)?$', s)
         if mfl and ('/' in mfl.group(1) or '.' in mfl.group(1)) and kind in (None, 'field', 'type'):
             f, ln = self.g.repo_file(mfl.group(1))[0], int(mfl.group(2))
-            files = sorted({x['file'] for x in self.g.q("SELECT DISTINCT file FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")
-                            if x['file'] == f or (x['file'] or '').endswith('/' + f)})
-            if f in files: files = [f]
+            files, scoped = self.g.line_files(f)                          # --in chooses among a partial path's files (#1666)
+            if scoped and len(files) == 1: s = f"{files[0]}:{ln}"
             d = self.g.decl_at_line(files[0], ln) if len(files) == 1 else None
             if d and d[0] == 'field' and kind in (None, 'field'):
                 row = self.fields.get(d[1]['rowid']) or d[1]
@@ -568,8 +567,10 @@ class Impact:
         # the one declaration a file:line could not target, and its bare name answered for every const so named
         fl = re.fullmatch(r'(.+\.\w+):(\d+)', s)
         if fl:
-            p, n = fl.group(1), int(fl.group(2))
-            return [f for f in self.fields.values() if f['line'] == n and (f['file'] == p or (f['file'] or '').endswith('/' + p))]
+            # a partial path names ONE file, as for a callable (#1599, #1666): matched against every file it ends, it took
+            # the field at that line in whichever of them had one, so `test.js:6` in 17 test.js answered for one of them
+            files, _ = self.g.line_files(self.g.repo_file(fl.group(1))[0]); n = int(fl.group(2))
+            return [f for f in self.fields.values() if f['line'] == n and f['file'] == files[0]] if len(files) == 1 else []
         parts = s.split('.'); name = parts[-1]; owner = '.'.join(parts[:-1])
         rows = [f for f in self.fields.values() if f['name'] == name and (not owner or (f['owner'] or '') == owner or (f['owner'] or '').endswith('.' + owner) or (f['qualified_name'] or '').endswith('.' + s))]
         if not rows and '.' in s:                                                     # the dotted spelling, only after the written one
