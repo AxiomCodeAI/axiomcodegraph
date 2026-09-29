@@ -73,6 +73,27 @@ def script_run(repo, rel):
         _TI = importlib.util.module_from_spec(spec); spec.loader.exec_module(_TI)
     return _TI.script_command(repo, rel)
 
+def _ti():
+    global _TI
+    if '_TI' not in globals():
+        spec = importlib.util.spec_from_loader('axtestimpact', importlib.machinery.SourceFileLoader('axtestimpact', os.path.join(HERE, 'axiomcode-test-impact')))
+        _TI = importlib.util.module_from_spec(spec); spec.loader.exec_module(_TI)
+    return _TI
+
+
+def program_starters(repo, files):
+    """{file: (the name a test starts it by, [those tests])} for the files among `files` that run as a program (a main
+    entry, a shebang, a subcommand of a dispatcher beside them): a suite that starts one as a subprocess has no call edge
+    to it, so `tests: 0` there is not 'nothing tests this'. test-impact's own text tier (loaders), so both name the same
+    tests"""
+    TI = _ti()
+    progs = {}
+    for f in files:
+        try: txt = open(os.path.join(repo, f), errors='replace').read(400_000)
+        except OSError: continue
+        if TI.PROGRAM.search(txt): progs[f] = True
+    return TI.loaders(repo, progs) if progs else {}
+
 # written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
 # export re-ran on EVERY query — the cache never hit once.
@@ -2838,6 +2859,13 @@ def main(argv):
         print(f"    {'and ' if tests else 'but '}{len(test_rows)} callable(s) in test code listed above reach it by a route this count does not credit "
               "(a runner entry it does not collect, a remote or framework hop) — treat them as tests to run: "
               + ', '.join(f"{g.disp(m)} {g.loc(m)}" for m in test_rows[:4]) + (f" … +{len(test_rows) - 4}" if len(test_rows) > 4 else ''))
+    # A PROGRAM THE SUITES START AS A SUBPROCESS (a CLI script, a hook, a subcommand its dispatcher execs): no test
+    # calls it, so the count is 0, and a reader took that as untested and ran nothing
+    if not tests:
+        for f, (needle, ts) in sorted(program_starters(g.repo, sorted({g.sym[s]['file'] for s in seeds if s in g.sym and g.sym[s].get('file')})).items()):
+            print(f"    NOT COUNTED: {f} runs as a program, and {len(ts)} test file(s) name it or the dispatcher that starts it, running it as a subprocess, which is"
+                  f" no call edge: " + ', '.join(ts[:4]) + (f" … +{len(ts) - 4}" if len(ts) > 4 else '')
+                  + f"; `axiomcode test-impact {f}` gives the commands")
     if not tests and unmod:
         print(f"    NOT CHECKED: {unmod_sig} — a framework calls it and the graph does not model how, so a test that enters "
               f"through that framework (a request, a started context, an event) reaches it with no route counted here: {unmod_grep}")

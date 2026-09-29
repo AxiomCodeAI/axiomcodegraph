@@ -47,8 +47,9 @@ REPO="$(cd "$HERE/../../.." && pwd)"
 # fresh worktree (a landing gate's, say) has none of its own and would skip with 77.
 ORACLE="${AXIOM_CS_ORACLE:-$HERE/ground-truth/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle}"
 
-WORK="${1:-}"; ONLY=""; VERBOSE=0
-shift 2>/dev/null || true
+WORK=""; ONLY=""; VERBOSE=0
+# the work dir is an optional FIRST positional argument: `--only <case>` alone (the usage above) is not one
+case "${1:-}" in ""|-*) ;; *) WORK="$1"; shift;; esac
 while [ $# -gt 0 ]; do
   case "$1" in
     --only) ONLY="$2"; shift 2;;

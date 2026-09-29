@@ -662,9 +662,12 @@ class Changed:
                 len(re.findall(r'^\s*(?:[\w<>\[\],.?]+\s+)*(?:class|interface|enum|record|struct)\s+\w', code, re.M))
         is_test = bool(re.search(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', rel, re.I)) or \
                   any(self.g.all_sym.get(d[2], {}).get('is_test') for d in callables)
+        # a new file in a fixture tree (case data a runner reads) sits under tests/ but is no test to run
+        data = case_data(self.repo, [rel]).get(rel) if is_test else None
+        if data: is_test = False
         out = [dict(kind='added', symbol=rel, id=None, file=rel, line=1, end=len(new.split('\n')), old_lines=[], target=None, new_file=True,
                     is_test=is_test, detail=f"new file, {n} declaration(s)" + ('' if decls else ' by its text (the graph does not hold it yet)')
-                    + (' — a test file: run it' if is_test else ''))]
+                    + (' — a test file: run it' if is_test else f' — {data}' if data else ''))]
         ids = [d[2] for d in callables if isinstance(d[2], (int, str)) and not str(d[2]).startswith('f:')]
         mids = {self.g.all_sym.get(i, {}).get('method_id'): i for i in ids if self.g.all_sym.get(i, {}).get('method_id') is not None}
         if mids:
@@ -717,6 +720,23 @@ def outside_note(files, suite=None):
     return (f"{len(fs)} changed file(s) outside every indexed language, so no declaration in them is analysed: "
             + ', '.join(fs[:8]) + (f' … +{len(fs) - 8}' if len(fs) > 8 else '')
             + " — `test-impact` names the tests that load them by name; an edit here is not 'no change'")
+
+def case_data(repo, files):
+    """{file: 'case data for <runner>'} for the files a case runner reads (a case directory, a fixture tree, a golden) or
+    the rules it mirrors: inputs, not tests, whatever directory they sit in (ax_caserun)"""
+    try:
+        sys.path.insert(0, HERE); import ax_caserun
+        cmds, owner = ax_caserun.plan(os.path.realpath(repo), sorted(files))
+        labels = getattr(ax_caserun.plan, 'labels', {})
+    except Exception:
+        return {}
+    out = {}
+    for c, fs in sorted(cmds.items()):
+        who = (labels.get(c) or '').replace('case data for ', '') or (c.split()[1] if len(c.split()) > 1 else c)
+        what = (f"read by {who}" if not c.startswith('#') or labels.get(c, '').startswith('case data for') else labels.get(c, who)) \
+            + ('' if c.startswith('#') else f"; run `{c}`")
+        for f in fs: out.setdefault(f, 'case data ' + what)
+    return out
 
 def held_extensions(repo):
     """the file extensions some graph of this repository holds (the main one and every per-language one)"""
@@ -866,6 +886,13 @@ def main(argv):
     # a note with a file is an addition in that file; one without is a caveat about the whole answer, and printing it
     # under `added` made "the graph is built at the newer commit …" read as a new declaration
     for f, n, _ in notes: print(f"  {'added':<10} {n}" if f else f"note: {n}")
+    # CASE DATA IS NOT A TEST: a changed file in a case directory or a fixture tree is an input its runner reads
+    cd = case_data(C.repo, {e['file'] for e in results if e.get('file') and not e.get('new_file')} | set(outside))
+    if cd:
+        by = {}
+        for f, what in sorted(cd.items()): by.setdefault(what, []).append(f)
+        for what, fs in by.items():
+            print(f"case data ({len(fs)} file(s): {', '.join(fs[:3])}{' …' if len(fs) > 3 else ''}): {what[len('case data '):]}; an input, not a test to run")
     groups = {}
     for e in results:
         if e.get('target') and (e['kind'] != 'added' or e.get('referenced')):
