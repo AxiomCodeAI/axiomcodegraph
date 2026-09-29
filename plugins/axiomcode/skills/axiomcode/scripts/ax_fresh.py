@@ -64,6 +64,17 @@ NAMES = {
     'python': ('pyproject.toml', 'setup.cfg', 'setup.py'),
     'csharp': ('global.json', 'Directory.Build.props'),
 }
+# EXTENSION CASE (#1771). The JavaScript parser matches an extension whatever its case (jsExtensionOf lower-cases the
+# name, so Main.JS and Up.VUE are read) and the C# parser reads *.CS (discoverCsFiles); the others match it exactly.
+# Matched exactly here, such a file was parsed but left out of the table: an edit to it was invisible and `index` said
+# "graph up to date". These are the extensions each parser folds; every other one stays case-sensitive, as its parser is.
+FOLD = {'javascript': frozenset(EXT['javascript']), 'csharp': frozenset({'.cs'})}
+
+def has_ext(lang, name, exts):
+    """True when the parser of `lang` takes file `name` as ending in one of `exts`"""
+    if name.endswith(exts): return True
+    fold = FOLD.get(lang)
+    return bool(fold) and name.lower().endswith(tuple(e for e in exts if e in fold))
 # TOOL OUTPUT NOBODY PARSES: what the non-source scan of `impact` (axiomcode-impact) leaves out. NOT what the file table
 # prunes: that is SKIP below, per language.
 PRUNE_ALL = {'.git', '.hg', '.svn', '.axiomcode', 'node_modules', 'bower_components', 'dist', 'build', 'out',
@@ -194,7 +205,7 @@ def watched(root, lang):
         for f in files:
             for l, exts, names in spec:
                 if l in off: continue
-                if f.endswith(exts) or f in names or (l == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
+                if has_ext(l, f, exts) or f in names or (l == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
                         or (l == 'python' and python_script(os.path.join(d, f), f)):
                     yield os.path.join(d, f); break
 
@@ -1118,7 +1129,7 @@ def main(argv):
         n = {l: 0 for l in SOURCE}
         for l in SOURCE:
             for p in watched(repo, l):
-                if p.endswith(SOURCE[l]) or (l == 'python' and python_script(p)): n[l] += 1
+                if has_ext(l, os.path.basename(p), SOURCE[l]) or (l == 'python' and python_script(p)): n[l] += 1
         print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp']); return 0
     if cmd == 'pyscripts':
         # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language
