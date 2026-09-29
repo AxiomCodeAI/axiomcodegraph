@@ -21,6 +21,7 @@ import {
   IrCompletenessReport,
 } from '@/parsers/javascript/extractors/js-ir-completeness';
 import { moduleHashFor } from '@/parsers/javascript/extractors/js-module-extractor';
+import { BUNDLER_CONFIG_NAMES, readBundlerAliases } from '@/parsers/javascript/bundler-alias-reader';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
 import {
   buildOutputDirectoriesNamedBy,
@@ -633,34 +634,82 @@ type PathAliases = Partial<Pick<ts.CompilerOptions, 'baseUrl' | 'paths' | 'paths
  * such import was UNRESOLVED_MISSING, so a plain imported function was called
  * "by name". `extends` is followed by `ts.parseJsonConfigFileContent`; the directory
  * listing it would do for `include` is skipped, since only the options are wanted.
+ *
+ * A `vite.config.*` / `webpack.config.*` with a `resolve.alias` counts as such a config
+ * too: Vite and Vue apps declare `@` → `src` only there (#1746). The NEARER of the two
+ * governs (the tsconfig-family config when both sit in one directory), so a vite app
+ * nested under a repository whose own `tsconfig.json` maps `@/*` elsewhere keeps its alias.
  */
 class PathAliasResolver {
-  private readonly byDirectory = new Map<string, PathAliases>();
+  private readonly byDirectory = new Map<string, GoverningAliases>();
+  private readonly bundlerByDirectory = new Map<string, GoverningAliases>();
 
   aliasesFor(file: string): PathAliases {
-    return this.inDirectory(path.dirname(file));
+    const directory = path.dirname(file);
+    const config = this.inDirectory(directory);
+    const bundler = this.bundlerInDirectory(directory);
+    // Both lie on one line of ancestors, so the longer directory is the nearer one.
+    if (bundler.aliases.paths === undefined) {
+      return config.aliases;
+    }
+    if (config.aliases.paths === undefined) {
+      return { ...config.aliases, ...bundler.aliases };
+    }
+    return bundler.from.length > config.from.length ? bundler.aliases : config.aliases;
   }
 
-  private inDirectory(directory: string): PathAliases {
-    const cached = this.byDirectory.get(directory);
+  private bundlerInDirectory(directory: string): GoverningAliases {
+    return this.nearest(this.bundlerByDirectory, directory, (dir) => {
+      for (const name of BUNDLER_CONFIG_NAMES) {
+        const configPath = path.join(dir, name);
+        const paths = fs.existsSync(configPath) ? readBundlerAliases(configPath) : undefined;
+        if (paths !== undefined) {
+          return { paths, pathsBasePath: dir };
+        }
+      }
+      return undefined;
+    });
+  }
+
+  private inDirectory(directory: string): GoverningAliases {
+    return this.nearest(this.byDirectory, directory, (dir) => {
+      for (const name of ['tsconfig.json', 'jsconfig.json']) {
+        const configPath = path.join(dir, name);
+        if (fs.existsSync(configPath)) {
+          return readPathAliases(configPath);
+        }
+      }
+      return undefined;
+    });
+  }
+
+  /** The first directory at or above `directory` where `read` finds a config, cached per directory. */
+  private nearest(
+    cache: Map<string, GoverningAliases>,
+    directory: string,
+    read: (dir: string) => PathAliases | undefined
+  ): GoverningAliases {
+    const cached = cache.get(directory);
     if (cached !== undefined) {
       return cached;
     }
-    let aliases: PathAliases | undefined;
-    for (const name of ['tsconfig.json', 'jsconfig.json']) {
-      const configPath = path.join(directory, name);
-      if (fs.existsSync(configPath)) {
-        aliases = readPathAliases(configPath);
-        break;
-      }
-    }
-    if (aliases === undefined) {
+    const here = read(directory);
+    let governing: GoverningAliases;
+    if (here !== undefined) {
+      governing = { aliases: here, from: directory };
+    } else {
       const parent = path.dirname(directory);
-      aliases = parent === directory ? {} : this.inDirectory(parent);
+      governing = parent === directory ? { aliases: {}, from: '' } : this.nearest(cache, parent, read);
     }
-    this.byDirectory.set(directory, aliases);
-    return aliases;
+    cache.set(directory, governing);
+    return governing;
   }
+}
+
+/** The aliases in force, and the directory of the config they came from ('' for none). */
+interface GoverningAliases {
+  aliases: PathAliases;
+  from: string;
 }
 
 function readPathAliases(configPath: string): PathAliases {

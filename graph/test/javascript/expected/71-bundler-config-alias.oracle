@@ -1,0 +1,8 @@
+legacy/webpack.config.cjs:7:13 METHOD_CALL resolve  LIB_AMBIENT_OK  
+legacy/webpack.config.cjs:8:13 METHOD_CALL join  LIB_AMBIENT_OK  
+src/utils/date.js:2:10 FUNCTION_CALL String  LIB_AMBIENT_OK  
+vite.config.js:10:18 FUNCTION_CALL fileURLToPath  LIB_AMBIENT_OK  
+vite.config.js:10:32 CONSTRUCTOR_CALL URL  LIB_AMBIENT_OK  
+vite.config.js:6:16 FUNCTION_CALL defineConfig  LIB_MISSED  
+vite.config.js:9:12 METHOD_CALL resolve  LIB_AMBIENT_OK  
+# defects: 0
