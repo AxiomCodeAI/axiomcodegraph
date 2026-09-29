@@ -403,14 +403,25 @@ for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type
 by_qname = {}
 for t in types.values():
     if t['qualified_name']: by_qname.setdefault(t['qualified_name'], t)
+# A member of a type the engine SYNTHESISED as well (a Lombok builder, `generated:pkg.Order.OrderBuilder#sku/1`) has an
+# owner no types row holds. It hangs off the nearest enclosing type that does, under the display the source would give
+# it (`Order.OrderBuilder.sku`): the owner display then names no type, and every consumer walks it up to Order the way
+# it walks up an enum constant's body, while `Order.sku`, the field, stays a different name (#1405, #1409).
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, file_path, start_line, end_line FROM methods WHERE provenance='generated'"):
     t = types.get(m['owner_type_id']) if m['owner_type_id'] else None
+    inner = ''
     if t is None and (m['id'] or '').startswith('generated:'):
         body = m['id'].split(':', 1)[1]
         q = body.split('#')[0] if '#' in body else body.rsplit('.', 1)[0]
         t = by_qname.get(q)
+        up = q
+        while t is None and '#' in body and '.' in up:
+            up, seg = up.rsplit('.', 1)
+            inner = seg + ('.' + inner if inner else '')
+            t = by_qname.get(up)
     if t is None: continue
     od = tdisplay(t['id']); fp = rel(t['file_path']); nm = m['name'] or ''
+    if inner and od: od = od + '.' + inner
     if not nm: continue
     sym.append((m['id'], nm, (od + '.' if od else '') + nm, 'method', m['qualified_name'], m['signature'],
                 fp, t['start_line'], t['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))

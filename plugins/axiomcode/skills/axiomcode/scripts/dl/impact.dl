@@ -566,14 +566,28 @@ shadowed_in(fl, n, f) :- target(_, "field", fl, _), field(fl, _, n, ff, _), name
 // claimed certainty the bundle does not record -- on a single-module library, 10 of 57 sampled accessor rows stood
 // on a call whose only tier was multi_inferred. The row itself is right either way (the caller does reach the field
 // through that accessor), so nothing is dropped; only the certainty stops being overstated.
-direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, ti, f, l), ti != "multi_inferred".
-direct(q, c, "reads", cat("reads it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, "multi_inferred", f, l).
+// A GENERATED one-argument member named like the field is its builder or fluent SETTER (`email(v)` on the synthesized
+// builder, `label(v)` under @Accessors(fluent = true)), so the fluent name's read door must not claim it: the engine
+// resolves these calls now (#1405, #1406), and each would otherwise be listed as a read.
+.decl gen_setter(a:symbol)
+gen_setter(a) :- member(_, a, _, _), match("generated:.*/1", a).
+direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), !gen_setter(a), calls(c, a, ti, f, l), ti != "multi_inferred".
+direct(q, c, "reads", cat("reads it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), !gen_setter(a), calls(c, a, "multi_inferred", f, l).
 direct(q, c, "writes", cat("writes it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, ti, f, l), ti != "multi_inferred".
 direct(q, c, "writes", cat("writes it through ", an, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, "multi_inferred", f, l).
 // a GENERATED accessor: the unresolved sites written with its name (the decoration says it exists)
 direct(q, c, "reads", cat("calls the generated getter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "get"), accessor(fl, an, "read"), named_site(c, an, k, f, l), !ctor_kind(k).
 direct(q, c, "writes", cat("calls the generated setter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "set"), accessor(fl, an, "write"), named_site(c, an, k, f, l), !ctor_kind(k).
-direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), named_site(c, n, k, f, l), !ctor_kind(k).
+// the builder / fluent setter the ENGINE resolved: the call is on this type's own builder chain or receiver (#1409)
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), member(t, a, n, _), gen_setter(a), calls(c, a, ti, f, l), ti != "multi_inferred".
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "one of a set", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), member(t, a, n, _), gen_setter(a), calls(c, a, "multi_inferred", f, l).
+// ...and a same-named call it did NOT resolve. While the engine resolves none of them (a library type, an older engine) it
+// is the only lead and stays a writer. Once it resolves one, the setter is modelled, and a same-named call left
+// unresolved is on some other chain (`UserView.newBuilder().email(e)`): a lead, not a writer (#1409).
+.decl gen_modelled(t:symbol, n:symbol)
+gen_modelled(t, n) :- member(t, a, n, _), gen_setter(a).
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), !gen_modelled(t, n), named_site(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "uses", cat("calls a same-named ", n, "() that the engine did not place on this type's builder or accessors"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), gen_modelled(t, n), named_site(c, n, k, f, l), !ctor_kind(k).
 direct(q, c, "reads", cat("reads it through the generated accessor ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, "fluent_read"), named_site(c, n, k, f, l), !ctor_kind(k).
 direct(q, c, "writes", "passes it to the generated constructor", "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "ctor"), typ(t, tn, _), named_site(c, tn, k, f, l).
 // a string literal equal to its name: a serialized name, a map key, a request parameter
