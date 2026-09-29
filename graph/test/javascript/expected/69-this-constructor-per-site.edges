@@ -1,0 +1,41 @@
+main.js:14:44 CONSTRUCTOR_CALL this.constructor  ->  multi_inferred  main.js:13:1 Shape
+main.js:14:44 CONSTRUCTOR_CALL this.constructor  ->  multi_inferred  main.js:16:1 Circle
+main.js:16:21 FUNCTION_CALL_CALL Shape.call  ->  known_edge  main.js:13:1 Shape
+main.js:17:20 METHOD_CALL Object.create  ->  ambient_terminal  -
+main.js:23:23 CONSTRUCTOR_CALL this.constructor  ->  implicit_constructor  -
+main.js:25:20 CONSTRUCTOR_CALL this.constructor  ->  implicit_constructor  -
+main.js:31:3 CONSTRUCTOR_CALL Select  ->  implicit_constructor  -
+main.js:31:3 METHOD_CALL new Select().clone  ->  known_edge  main.js:23:3 clone
+main.js:31:3 METHOD_CALL new Select().clone().exec  ->  known_edge  main.js:28:30 exec
+main.js:32:3 CONSTRUCTOR_CALL Query  ->  implicit_constructor  -
+main.js:32:3 METHOD_CALL new Query().clone  ->  known_edge  main.js:23:3 clone
+main.js:32:3 METHOD_CALL new Query().clone().exec  ->  known_edge  main.js:26:3 exec
+main.js:33:3 CONSTRUCTOR_CALL Select  ->  implicit_constructor  -
+main.js:33:3 METHOD_CALL new Select().fork  ->  known_edge  main.js:25:3 fork
+main.js:33:3 METHOD_CALL new Select().fork().exec  ->  multi_inferred  main.js:26:3 exec
+main.js:33:3 METHOD_CALL new Select().fork().exec  ->  multi_inferred  main.js:28:30 exec
+main.js:34:3 CONSTRUCTOR_CALL Sub  ->  implicit_constructor  -
+main.js:34:3 METHOD_CALL new Sub().clone  ->  known_edge  main.js:5:3 clone
+main.js:34:3 METHOD_CALL new Sub().clone().run  ->  known_edge  main.js:9:26 run
+main.js:35:3 CONSTRUCTOR_CALL Other  ->  implicit_constructor  -
+main.js:35:3 METHOD_CALL new Other().clone  ->  known_edge  main.js:5:3 clone
+main.js:35:3 METHOD_CALL new Other().clone().run  ->  known_edge  main.js:10:28 run
+main.js:36:3 CONSTRUCTOR_CALL Sub  ->  implicit_constructor  -
+main.js:36:3 METHOD_CALL new Sub().clone  ->  known_edge  main.js:5:3 clone
+main.js:36:3 METHOD_CALL new Sub().clone().clone  ->  known_edge  main.js:5:3 clone
+main.js:36:3 METHOD_CALL new Sub().clone().clone().run  ->  known_edge  main.js:9:26 run
+main.js:37:3 CONSTRUCTOR_CALL Base  ->  implicit_constructor  -
+main.js:37:3 METHOD_CALL new Base().clone  ->  known_edge  main.js:5:3 clone
+main.js:37:3 METHOD_CALL new Base().clone().run  ->  known_edge  main.js:7:3 run
+main.js:39:3 CONSTRUCTOR_CALL Sub  ->  implicit_constructor  -
+main.js:39:3 METHOD_CALL new Sub().copy  ->  known_edge  main.js:6:3 copy
+main.js:39:3 METHOD_CALL new Sub().copy().run  ->  known_edge  main.js:7:3 run
+main.js:40:3 CONSTRUCTOR_CALL Circle  ->  known_edge  main.js:16:1 Circle
+main.js:40:3 METHOD_CALL new Circle().dup  ->  known_edge  main.js:14:23 dup
+main.js:40:3 METHOD_CALL new Circle().dup().area  ->  known_edge  main.js:19:25 area
+main.js:41:3 CONSTRUCTOR_CALL Shape  ->  known_edge  main.js:13:1 Shape
+main.js:41:3 METHOD_CALL new Shape().dup  ->  known_edge  main.js:14:23 dup
+main.js:41:3 METHOD_CALL new Shape().dup().area  ->  known_edge  main.js:15:24 area
+main.js:43:1 FUNCTION_CALL main  ->  known_edge  main.js:30:1 main
+main.js:5:20 CONSTRUCTOR_CALL this.constructor  ->  implicit_constructor  -
+main.js:6:19 CONSTRUCTOR_CALL Base  ->  implicit_constructor  -

@@ -1,0 +1,29 @@
+main.js:14:44 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OVER  main.js:13:1;main.js:16:1
+main.js:16:21 FUNCTION_CALL_CALL call  EXACT  main.js:13:1
+main.js:17:20 METHOD_CALL create  LIB_AMBIENT_OK  
+main.js:23:23 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OK  
+main.js:25:20 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OK  
+main.js:31:3 CONSTRUCTOR_CALL Select  SYNTHESIZED_OK  
+main.js:31:3 METHOD_CALL clone  EXACT  main.js:23:3
+main.js:32:3 CONSTRUCTOR_CALL Query  SYNTHESIZED_OK  
+main.js:32:3 METHOD_CALL clone  EXACT  main.js:23:3
+main.js:33:3 CONSTRUCTOR_CALL Select  SYNTHESIZED_OK  
+main.js:33:3 METHOD_CALL fork  EXACT  main.js:25:3
+main.js:34:3 CONSTRUCTOR_CALL Sub  SYNTHESIZED_OK  
+main.js:34:3 METHOD_CALL clone  EXACT  main.js:5:3
+main.js:35:3 CONSTRUCTOR_CALL Other  SYNTHESIZED_OK  
+main.js:35:3 METHOD_CALL clone  EXACT  main.js:5:3
+main.js:36:3 CONSTRUCTOR_CALL Sub  SYNTHESIZED_OK  
+main.js:36:3 METHOD_CALL clone  EXACT  main.js:5:3
+main.js:37:3 CONSTRUCTOR_CALL Base  SYNTHESIZED_OK  
+main.js:37:3 METHOD_CALL clone  EXACT  main.js:5:3
+main.js:39:3 CONSTRUCTOR_CALL Sub  SYNTHESIZED_OK  
+main.js:39:3 METHOD_CALL copy  EXACT  main.js:6:3
+main.js:39:3 METHOD_CALL run  EXACT  main.js:7:3
+main.js:40:3 CONSTRUCTOR_CALL Circle  EXACT  main.js:16:1
+main.js:41:3 CONSTRUCTOR_CALL Shape  EXACT  main.js:13:1
+main.js:41:3 METHOD_CALL dup  EXACT  main.js:14:23
+main.js:43:1 FUNCTION_CALL main  EXACT  main.js:30:1
+main.js:5:20 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OK  
+main.js:6:19 CONSTRUCTOR_CALL Base  SYNTHESIZED_OK  
+# defects: 0

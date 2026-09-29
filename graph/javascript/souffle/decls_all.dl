@@ -397,6 +397,8 @@
 .decl var_regime_is_block(c0:symbol)
 .decl call_ambient_alternative(c0:symbol)
 .decl method_returns_this(c0:symbol)
+.decl returns_own_class_new(c0:symbol, c1:symbol)
+.decl own_class_new(c0:symbol, c1:symbol)
 .decl module_base_path(c0:symbol, c1:symbol, c2:symbol)
 // ── resolution/arrays.dl: a class extending Map / Set (#619) ──
 .decl coll_ctor(c0:symbol, c1:symbol)
