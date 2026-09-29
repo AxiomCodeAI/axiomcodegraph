@@ -30,7 +30,7 @@
     "@types/sax": "^1.2.7",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.7.0",
-    "vitest": "^1.0.4"
+    "vitest": "^5.0.1"
   },
   "license": "FSL-1.1-Apache-2.0"
 }
