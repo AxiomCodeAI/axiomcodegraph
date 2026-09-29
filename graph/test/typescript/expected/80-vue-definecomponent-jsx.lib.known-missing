@@ -1,0 +1,9 @@
+# Accepted gaps for 80-vue-definecomponent-jsx — each line is an edge the TypeScript compiler
+# resolves and this engine does not. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# The compiler binds a Vue tag to the library's component CONSTRUCT signature, which says
+# nothing about what renders; the engine binds it to the setup / render the options object
+# defines instead. Both were missing before that rule too.
+app#<arrow@13>() -> Component#<arrow@22>(any[])
+card#render() -> Component#<arrow@22>(any[])
