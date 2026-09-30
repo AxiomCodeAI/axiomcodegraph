@@ -32,6 +32,33 @@
    ]
   },
   {
+   "why": "the registration stays in the answer beside the consumers, said as the registration: a rename or a delete edits that line",
+   "run": [
+    "impact",
+    "SystemClock",
+    "--kind",
+    "type"
+   ],
+   "want": [
+    "Registration.AddDepot",
+    "registers it with the container (AddScoped<IClock, SystemClock>)",
+    "receives it by dependency injection"
+   ]
+  },
+  {
+   "why": "and in the one-site-per-line answer",
+   "run": [
+    "impact",
+    "SystemClock",
+    "--kind",
+    "type",
+    "--grep"
+   ],
+   "want": [
+    "src/App/Registration.cs:9"
+   ]
+  },
+  {
    "why": "another registration joins its own service's consumer only",
    "run": [
     "impact",

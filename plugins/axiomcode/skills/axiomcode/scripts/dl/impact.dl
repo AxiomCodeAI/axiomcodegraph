@@ -345,6 +345,10 @@ direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"),
 // Without it the registering annotation was one [by name] row among the text matches, and a type registered only
 // that way read as a class nothing depends on.
 direct(q, c, "uses", cat("registers it as a bean (", kind, "): the container creates it, no call site"), "resolved", "", 0) :- target(q, "type", t, _), registers(t, c, kind), !inside_target(q, c).
+// a C# service registration, `services.AddScoped<IUser, CurrentUser>()`: the method holding that line registers the
+// type with the container, which builds it for every constructor that takes the service (the `injected` rows)
+.decl di_registers(t:symbol, by:symbol, detail:symbol, f:symbol, l:number)          .input di_registers
+direct(q, c, "uses", cat("registers it with the container (", d, "): the container builds it for each constructor that takes the service, no call site"), "resolved", f, l) :- target(q, "type", t, _), di_registers(t, c, d, f, l), !inside_target(q, c).
 // a TYPE that DEFINES beans (a @Configuration class, an auto-configuration): whoever is injected with a bean one of its
 // @Bean methods defines. The factory methods are inside the target, so the method rule above never runs for them
 // and a change to the class said nothing resolved depended on it.

@@ -153,5 +153,10 @@ di_name(gk, n) :- di_reg(_, gk, _), type_group("client", t, gk), type_decl("clie
 di_name(gk, n) :- di_reg(_, _, gk), type_group("client", t, gk), type_decl("client", n, _, _, _, t).
 di_detail(e, d) :- di_reg(e, sgk, igk), call_callee_name("client", e, mn), di_name(sgk, sn), di_name(igk, im),
     d = cat(mn, cat("<", cat(sn, cat(", ", cat(im, ">"))))).
+// ...and the registration itself depends on the implementation: a rename or a delete of it
+// has to edit the `AddScoped<IUser, CurrentUser>()` line, so that line stays in the answer,
+// said as the registration it is and not as a name that happens to match.
+framework_edge(r, m, "di_register", d, "registered") :- di_reg(e, _, igk), call_from("client", e, r),
+    type_ctor("client", igk, m), di_detail(e, d), r != m.
 framework_edge(c, m, "di_inject", d, "registered") :- di_reg(e, sgk, igk), di_consumer(c, sgk), type_ctor("client", igk, m),
     di_detail(e, d), c != m, !method_in_type("client", igk, c).
