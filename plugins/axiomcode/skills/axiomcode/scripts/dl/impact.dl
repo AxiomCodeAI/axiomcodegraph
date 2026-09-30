@@ -251,6 +251,12 @@ contract(q, b, "it overrides this") :- target(q, "method", m, _), override(b, m)
 .decl implements_pair(b:symbol, m:symbol)                          .input implements_pair
 contract(q, b, "it implements this — the engine records a dispatch candidate here and no override row") :-
     target(q, "method", m, _), implements_pair(b, m), !value_pair(b, m), !override(b, m), !override(m, b), !target(q, _, b, _).
+// …and the other direction, asked of the BASE. Java's override row puts an implementation under "overrides it";
+// a structurally typed language has no such row, so an interface method's own implementations were missing from
+// its answer entirely: nothing calls them through it (the dispatch edge runs candidate -> base) and no contract
+// named them, though a change to the interface method's signature breaks every one of them.
+contract(q, m, "implements it — the engine records a dispatch candidate here and no override row") :-
+    target(q, "method", b, _), implements_pair(b, m), !value_pair(b, m), !override(b, m), !override(m, b), !target(q, _, m, _).
 // A FUNCTION STORED IN A FIELD (#1206). `value_pair(b, m)`: m flows into a field whose declared type is the
 // function type b — `this.getPath = options.getPath ?? getPath`, `fetch: T = (req) => …`. A call through the field
 // is typed to b, so its caller is a DIRECT user of m: without this row the answer said "directly touches it:

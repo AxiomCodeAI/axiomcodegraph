@@ -39,6 +39,17 @@ export interface ImportExtractorOptions {
   /** Absolute resolved path -> `ts_module` hash, for project-internal targets. */
   readonly projectModuleHashes: ReadonlyMap<string, string>;
   readonly toProjectRelative: (absolutePath: string) => string;
+  /**
+   * The walked source module a bare specifier names when its package is one this
+   * repository declares (`TsWorkspacePackages`), or `undefined`.
+   */
+  readonly resolveWorkspaceModule?: (specifier: string) => WorkspaceModule | undefined;
+}
+
+export interface WorkspaceModule {
+  readonly absolutePath: string;
+  readonly moduleHash: string;
+  readonly packageName: string;
 }
 
 export interface ImportExtractionResult {
@@ -455,6 +466,27 @@ export class TsImportExtractor {
         packageName: '',
       };
     }
+    const absolute = module ? path.normalize(module.resolvedFileName) : '';
+    const moduleHash = this.options.projectModuleHashes.get(absolute) ?? '';
+    const isNodeModules = absolute.includes(`${path.sep}node_modules${path.sep}`);
+    // A package this repository declares, imported by its name. Its entry names
+    // build output, so tsc found nothing, or a `dist` file no program walks; the
+    // source that output is built from is walked, and is what the import means.
+    // Asked only when tsc landed on no walked module and not inside `node_modules`:
+    // a real installed package keeps its own resolution.
+    if (moduleHash === '' && !isNodeModules) {
+      const workspace = this.options.resolveWorkspaceModule?.(specifier);
+      if (workspace !== undefined) {
+        return {
+          absolutePath: workspace.absolutePath,
+          relativePath: this.options.toProjectRelative(workspace.absolutePath),
+          moduleHash: workspace.moduleHash,
+          kind: TsImportResolutionKind.WORKSPACE_PACKAGE,
+          extension: path.extname(workspace.absolutePath),
+          packageName: workspace.packageName,
+        };
+      }
+    }
     if (!module) {
       // `undefined` is an honest answer, not a failure to try. It is also the
       // right answer for a wildcard ambient specifier like `"*.svg"`, which
@@ -468,9 +500,6 @@ export class TsImportExtractor {
       // is filled here whether resolution succeeded or not.
       return { ...UNRESOLVED, packageName: packageNameOf(specifier) };
     }
-    const absolute = path.normalize(module.resolvedFileName);
-    const moduleHash = this.options.projectModuleHashes.get(absolute) ?? '';
-    const isNodeModules = absolute.includes(`${path.sep}node_modules${path.sep}`);
     return {
       absolutePath: absolute,
       relativePath: this.options.toProjectRelative(absolute),
