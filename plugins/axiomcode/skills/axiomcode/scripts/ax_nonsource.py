@@ -218,6 +218,30 @@ def mapper_methods(q, ns, sid):
     return sorted({r[0] for r in own})
 
 
+# a parameter marker in a statement's SQL: `#{it.quantity}`, `${orderBy}`, `#{item.id,jdbcType=VARCHAR}`
+PARAM_MARKER = re.compile(r'[#$]\{\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)')
+_FOREACH = re.compile(r'<foreach\b([^>]*)>', re.S)
+_ATTR = lambda name: re.compile(r'(?<![\w-])' + name + r'\s*=\s*["\']([^"\']+)["\']')
+_COLLECTION, _ITEM, _PARAM_TYPE = _ATTR('collection'), _ATTR('item'), _ATTR('parameterType')
+
+
+def statement_markers(elem):
+    """[(expr, line, foreach item -> collection)] for every parameter marker inside a statement element (mapper_elements)"""
+    tag, sid, first, last, open_tag, body = elem
+    items = {}
+    for m in _FOREACH.finditer(body):
+        c, i = _COLLECTION.search(m.group(1)), _ITEM.search(m.group(1))
+        if c and i: items[i.group(1)] = c.group(1)
+    base = first + open_tag.count('\n')
+    return [(m.group(1), base + body.count('\n', 0, m.start()), items) for m in PARAM_MARKER.finditer(body)]
+
+
+def statement_param_type(elem):
+    """the `parameterType` a statement declares, or None"""
+    m = _PARAM_TYPE.search(elem[4])
+    return m.group(1) if m else None
+
+
 def statement_at(text, line):
     """(tag, id) of the statement element whose opening tag is written on `line` of a mapper XML's text, or None"""
     for e in mapper_elements(text):

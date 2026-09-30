@@ -667,6 +667,18 @@ persist_words("direct", "its persistence query names the property: a rename brea
 persist_words("nested", "its persistence query reads it through an association path").
 persist_words("projection", "its persistence query selects the whole entity, which loads this column").
 direct(q, m, "reads", w, "resolved", "", 0) :- target(q, "field", fl, _), persist_field(m, fl, how), persist_words(how, w), !inside_target(q, m).
+// A MAPPER STATEMENT'S PARAMETER PROPERTY: `#{it.quantity}` in the statement a mapper method's namespace and id
+// bind, where the path's root is typed by that method's parameters (axiomcode-impact mapper_params). MyBatis reads the
+// property by name when the statement runs, so a rename breaks the statement and not the compile. The row is the
+// method, at the marker's line in the XML.
+.decl mapper_param(m:symbol, fl:symbol, e:symbol, f:symbol, l:number) .input mapper_param
+direct(q, m, "reads", cat("its mapper statement binds it as a parameter property (#{", e, "})"), "resolved", f, l) :- target(q, "field", fl, _), mapper_param(m, fl, e, f, l), !inside_target(q, m).
+// A VALUE HANDED TO A REFLECTIVE PROPERTY COPY (`BeanUtil.copyProperties(item, ItemView.class)`): the copy reads the
+// field by name, so a rename drops the value and nothing fails. The copy INTO the type is the producer rule above
+// (`reflects on T.class`); this is the value going out. The argument is typed by its declaration's written type
+// (axiomcode-impact bean_copies), so it is `by name`.
+.decl bean_copy(c:symbol, fl:symbol, tn:symbol, n:symbol, f:symbol, l:number) .input bean_copy
+direct(q, c, "uses", cat("hands a value of ", tn, " to ", n, "(), which copies its properties by name through reflection: a rename or a retype drops the value silently"), "by name", f, l) :- target(q, "field", fl, _), bean_copy(c, fl, tn, n, f, l), !inside_target(q, c).
 // a signature the engine RESOLVED to the type (#1422): a parameter, a return, or a type argument of either. Java's
 // type_refs carry no line, so no typeref row held these, and the textuse grep below labelled each one `text`
 .decl sig_words(ctx:symbol, w:symbol)
