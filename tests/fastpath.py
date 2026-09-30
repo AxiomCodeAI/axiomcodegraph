@@ -76,10 +76,13 @@ def along_rows(d):
     return ({x['display'] for x in d.get('direct', []) if x.get('certainty') == ALONG}
             | {x['display'] for x in d.get(ALONG, [])})
 
+# A ROW IS A DECLARATION, NOT A NAME: `direct` is compared with where each row is. Every arrow of a file is `<arrow>`,
+# every module body of a basename `app.<module>`; compared as a set of names, one row located at the first arrow in the
+# table matched the rules' two rows at their own lines (the hook said "called by <arrow>" at a test the caller is not in)
 def rels(d):
     d = d or {}
     return dict(contract=sorted({x['display'] for x in d.get('contract', [])}),
-                direct=sorted({x['display'] for x in graph_sql.hook_direct(d)}),
+                direct=sorted({(x['display'], x.get('at') or '') for x in graph_sql.hook_direct(d)}),
                 reached=len(d.get('reached', [])), tests=len(d.get('tests', [])))
 
 # THE HOOK ON ONE EDIT, BOTH PATHS. The comparison above is of the dicts; this is of what the hook PRINTS, because
@@ -176,7 +179,7 @@ def main(argv=None):
                       f"rule for: fast={sorted(fa)}  rules={sorted(ra)}"); bad += 1; continue
             a, b = rels(fast), rels(j)
             # and neither path may list one of the rules' alongside rows as a dependent in a hook
-            listed = {p: sorted(ra & set(r['direct'])) for p, r in (('fast', a), ('rules', b))}
+            listed = {p: sorted(ra & {x for x, _ in r['direct']}) for p, r in (('fast', a), ('rules', b))}
             if any(listed.values()):
                 print(f"FAIL {target!r}: the rules' `alongside` rows are listed as direct uses: {listed}"); bad += 1; continue
             if a != b:

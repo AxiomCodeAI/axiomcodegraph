@@ -187,28 +187,40 @@ def impact(repo, target, depth=DEPTH, file=None):
         stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, p_).fetchall())
         con.execute("CREATE TEMP TABLE _stub(id TEXT PRIMARY KEY)")
         con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in stubs])
-        _reads = collections.defaultdict(set)
-        for d, tier, sid in q(f"""SELECT DISTINCT s.display, ce.tier, ce.call_site_id FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
+        # A CALLER IS ITS ID, NOT ITS DISPLAY. Every unnamed function of a file carries one display (`<arrow>`,
+        # `<lambda>`), and so does every module body of one basename (`app.<module>`): keyed by display, the arrow in a
+        # test and the arrow in the source that really calls this were one row, located at whichever came first in the
+        # table ("called by <arrow> event-bus.js:52" for a caller in a test file)
+        _reads = collections.defaultdict(set); _disp = {}; _sites = collections.defaultdict(list)
+        for c, d, tier, sid in q(f"""SELECT DISTINCT s.id, s.display, ce.tier, ce.call_site_id FROM call_edges ce JOIN symbols s ON s.id=ce.caller_id
                              WHERE ce.callee_method_id IN ({ph})""", ids):
-            _reads[d].add(ax_edges.direct_cert(ax_edges.STUB_TIER if sid in stubs else tier))
+            cert = ax_edges.direct_cert(ax_edges.STUB_TIER if sid in stubs else tier)
+            _reads[c].add(cert); _disp[c] = d
+            if sid: _sites[c].append((cert, sid))
         # …and the end a FRAMEWORK hands it over from (#1509): a task's .delay() producer, a signal's sender, a route
         # table, a Depends() default. The rules list it as a `framework` dependent, so this does too, or the hook
         # line and `impact` name different dependents for the same declaration. A direct row only, as in the rules:
         # it does not enter the walk below.
         if 'ext_framework_edge' in _tables(con):
-            for (d,) in q(f"""SELECT DISTINCT s.display FROM ext_framework_edge f JOIN symbols s ON s.id=f.c0
+            for c, d in q(f"""SELECT DISTINCT s.id, s.display FROM ext_framework_edge f JOIN symbols s ON s.id=f.c0
                                 WHERE f.c1 IN ({ph}) AND f.c0 <> f.c1""", ids):
-                _reads[d].add('framework')
-        read_cert = {d: ax_edges.best_cert(cs) for d, cs in _reads.items()}
-        reads = sorted(_reads)
+                _reads[c].add('framework'); _disp[c] = d
+        read_cert = {c: ax_edges.best_cert(cs) for c, cs in _reads.items()}                 # by caller id
+        # where each caller is located: its call sites of its surest certainty, as the rules pick (lowest of those)
+        sites = {c: [s_ for ct, s_ in v if ct == read_cert[c]] for c, v in _sites.items()}
+        read_ids = sorted(_reads, key=lambda c: (_disp[c] or '', c))
+        reads = [_disp[c] for c in read_ids]
         # reads / uses it, by name: a site naming this method whose receiver the engine could not type. The parser
         # records callee_name and the bundle indexes it, so this is a lookup and not an inference.
         short = target.rsplit('.', 1)[-1]
         if at_line(target.strip()):                                  # file:line: the name its declaration carries
             short = (q("SELECT name FROM symbols WHERE id=?", (ids[0],)).fetchone() or [short])[0]
-        byname = sorted({r[0] for r in q(
-            """SELECT DISTINCT s.display FROM call_sites cs JOIN unresolved_sites us ON us.call_site_id=cs.id
-               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=? AND cs.id NOT IN (SELECT id FROM _stub)""", (short,))} - set(reads))
+        _bn = {}
+        for c, d, sid in q("""SELECT DISTINCT s.id, s.display, cs.id FROM call_sites cs JOIN unresolved_sites us ON us.call_site_id=cs.id
+               JOIN symbols s ON s.id=cs.caller_id WHERE cs.callee_name=? AND cs.id NOT IN (SELECT id FROM _stub)""", (short,)):
+            if c in _reads: continue
+            _bn[c] = d; sites.setdefault(c, []).append(sid)
+        byname_ids = sorted(_bn, key=lambda c: (_bn[c] or '', c)); byname = [_bn[c] for c in byname_ids]
         # the two counts. Each edge table joins in its OWN recursive branch so SQLite drives them by index; building
         # one combined edge CTE first scans all 608k edges per call (1.89 s against 0.02 s for the same answer).
         # THE DISPATCH HOP IS NARROWED, the same way the RULES narrow it. `edge.facts` is written by
@@ -276,10 +288,12 @@ def impact(repo, target, depth=DEPTH, file=None):
         if param:
             # the rules put the declaring method in `direct` as "declares it" — it is the declaration the edit
             # is inside, so omitting it under-reports by the one row the caller is certain to care about
-            own = sorted({r[0] for r in q(f"SELECT display FROM symbols WHERE id IN ({ph})", ids) if r[0]})
-            reads = sorted(set(reads) | set(own))
-            byname = sorted(set(byname) - set(reads))
-        return dict(target=target, overloads=len(ids), contract=contract, reads=reads, read_cert=read_cert, byname=byname,
+            own = {r[0]: r[1] for r in q(f"SELECT id, display FROM symbols WHERE id IN ({ph})", ids) if r[1]}
+            _disp.update(own)
+            read_ids = sorted(set(read_ids) | set(own), key=lambda c: (_disp[c] or '', c)); reads = [_disp[c] for c in read_ids]
+            byname_ids = [c for c in byname_ids if c not in own]; byname = [_bn[c] for c in byname_ids]
+        return dict(target=target, overloads=len(ids), contract=contract, reads=reads, read_ids=read_ids, read_cert=read_cert,
+                    byname=byname, byname_ids=byname_ids, sites=sites,
                     reached=max(0, n - len(ids)), tests=t, test_names=test_names, test_ids=sorted(tset), depth=depth)
     finally:
         con.close()
@@ -321,19 +335,31 @@ def impact_shaped(repo, target, depth=DEPTH, tests_shown=3, file=None):
         # only the rows that get PRINTED need a location: the formatter shows 4 per line. Resolving file:line for
         # every display cost 5.7 s against 1.7 s on a target with 739 callers, to fill in text nobody sees.
         SHOWN = 8
-        every = r['contract'][:SHOWN] + r['reads'][:SHOWN] + r['byname'][:SHOWN]
         at = {}
-        if every:
-            for i in range(0, len(every), 400):
-                chunk = every[i:i + 400]
-                for d, f, ln in q(f"SELECT display, file, line FROM symbols WHERE display IN ({','.join('?'*len(chunk))})", chunk):
-                    if d not in at and f: at[d] = f"{f}:{ln or 0}"
-        def mk(d, role, cert):
+        # a contract row is a display (an override has a name of its own); a caller is located by its id, since an
+        # unnamed function or a module body shares its display with every other one (impact above)
+        for d, f, ln in (q(f"SELECT display, file, line FROM symbols WHERE display IN ({','.join('?' * len(r['contract'][:SHOWN]))})",
+                           r['contract'][:SHOWN]) if r['contract'] else ()):
+            if d not in at and f: at[d] = f"{f}:{ln or 0}"
+        # …at its LOWEST CALL SITE, the line the rules print (axiomcode-impact: the first site, of the surest certainty),
+        # in the caller's own file (a site is written in its caller; Java stores the site's path absolute); a row with
+        # no site (a framework hand-off) at its declaration
+        ids_ = r['read_ids'][:SHOWN] + r['byname_ids'][:SHOWN]
+        decl = {i: (f, ln) for i, f, ln in (q(f"SELECT id, file, line FROM symbols WHERE id IN ({','.join('?' * len(ids_))})", ids_) if ids_ else ()) if f}
+        by_site = {s_: i for i in ids_ for s_ in r['sites'].get(i, ())}
+        low = {}
+        for j in range(0, len(by_site), 400):
+            chunk = list(by_site)[j:j + 400]
+            for sid, ln in q(f"SELECT id, start_line FROM call_sites WHERE id IN ({','.join('?' * len(chunk))})", chunk):
+                if ln and int(ln) > 0: low[by_site[sid]] = min(int(ln), low.get(by_site[sid], int(ln)))
+        at_id = {i: f"{f}:{low.get(i) or ln or 0}" for i, (f, ln) in decl.items()}
+        def mk(d, i, role, cert):
             why = ('calls a method of this name (receiver not typed)' if cert == 'by name'
                    else ax_edges.DIRECT_WHY.get(cert, 'calls it'))
-            return dict(display=d, role=role, certainty=cert, at=at.get(d, ''), why=why)
+            return dict(display=d, role=role, certainty=cert, at=at_id.get(i, ''), why=why)
         rc = r.get('read_cert') or {}
-        direct = [mk(d, 'uses', rc.get(d, 'resolved')) for d in r['reads']] + [mk(d, 'uses', 'by name') for d in r['byname']]
+        direct = [mk(d, i, 'uses', rc.get(i, 'resolved')) for d, i in zip(r['reads'], r['read_ids'])] + \
+                 [mk(d, i, 'uses', 'by name') for d, i in zip(r['byname'], r['byname_ids'])]
         tests = [dict(display=d, owner=d.rsplit('.', 1)[0] if '.' in d else d, name=d.rsplit('.', 1)[-1])
                  for d in r.get('test_names', [])[:tests_shown]]
         tests += [dict(display='', owner='', name='')] * max(0, r['tests'] - len(tests))
