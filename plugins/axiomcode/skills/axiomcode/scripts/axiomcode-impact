@@ -2052,7 +2052,7 @@ class Impact:
             if os.environ.get('AXIOMCODE_SQL_STRICT') and _sql is None:
                 die("AXIOMCODE_SQL_STRICT: no SQL rule for target kind(s) " + ','.join(sorted({k for _, k, _, _ in T})))
             if _sql is not None:
-                self.mapper_scope(T, _sql); self.field_bindings(T, _sql)
+                self.mapper_scope(T, _sql); self.field_bindings(T, _sql); self.event_scope(_sql)
                 if os.environ.get('AXIOMCODE_BACKEND'): print('backend=sql', file=sys.stderr)
                 shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
                 if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
@@ -2084,7 +2084,7 @@ class Impact:
                     if p[0] in QS: rows.append(p[1:] + [p[0]])                               # … + the query id, so each row says which target it came from
                 out[n] = rows
             self.solve_store(D, key, out)
-        self.mapper_scope(T, out); self.field_bindings(T, out)
+        self.mapper_scope(T, out); self.field_bindings(T, out); self.event_scope(out)
         # A KEY IS QUOTED AS IT IS WRITTEN AT THAT LINE (#1477). The join matches a settings line on the canonical form
         # (ckey: `batch_size`, `batch-size` and `batchSize` are one property), so the row carries that form; printed
         # as is, `app.orders.batch_size` was quoted as `app.orders.batchsize`, a spelling no file holds.
@@ -2168,6 +2168,89 @@ class Impact:
                             r = [r[0], r[1], r[2], self.MAPPER_STATEMENT, *r[4:]]
             keep.append(r)
         out['extbind'] = keep
+        return out
+
+    # the publisher types of graph/java/engine/config-resolution/knobs.dl (cfg_event_publisher): a mock of one of them
+    # publishes nothing to anyone
+    EVENT_PUBLISHERS = ('ApplicationEventPublisher', 'ApplicationContext', 'ConfigurableApplicationContext',
+                        'AbstractApplicationContext', 'GenericApplicationContext', 'AnnotationConfigApplicationContext',
+                        'WebApplicationContext', 'ConfigurableWebApplicationContext', 'ApplicationEventMulticaster',
+                        'SimpleApplicationEventMulticaster')
+    def mocks_publisher(self, rel):
+        """does the Java test file rel replace the event publisher with a mock: a @Mock / @MockBean / @MockitoBean field
+        of a publisher type, or mock(<publisher>.class)? A @Spy or a real context publishes, and is not one."""
+        if not (rel or '').endswith('.java'): return False
+        c = self._mock_pub = getattr(self, '_mock_pub', {})
+        if rel not in c:
+            try: t = open(os.path.join(self.g.repo, rel), errors='replace').read()
+            except OSError: t = ''
+            names = '|'.join(self.EVENT_PUBLISHERS)
+            c[rel] = bool(re.search(r'@(?:Mock|MockBean|MockitoBean)\b(?:\([^)]*\))?\s+(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|protected|public|final|static)\s+)*'
+                                    rf'(?:[\w.]+\.)?(?:{names})\s+\w+\s*[;=]', t)
+                          or re.search(rf'\b(?:mock|Mockito\.mock)\(\s*(?:[\w.]+\.)?(?:{names})\.class\b', t))
+        return c[rel]
+    def event_scope(self, out):
+        """AN EVENT REACHES ONLY THE LISTENERS THAT CAN RUN WHERE IT IS PUBLISHED. The engine's event_dispatch edge joins a
+        publishEvent call to every listener whose declared type the event fits, which is right for the application.
+        A TEST is credited through it only when the listener would run in that test:
+          - not when the test's file replaces the publisher with a mock (a Mockito @Mock or mock(...) of
+            ApplicationEventPublisher or an application context, a Spring @MockBean): the mock multicasts nothing;
+          - not when the listener is declared in a build module the test's module cannot see (pom.xml / build.gradle
+            dependencies, ax_modules): the listener is not on the test's classpath.
+        A test is dropped only when every route from it to the change crosses such a hop: the shortest routes the rules
+        read back are tried first, then any route over the graph's edges within the same depth."""
+        pu = out.get('parent_up') or []
+        if not any(r[2] == 'event_dispatch' for r in pu): return out
+        g = self.g
+        import ax_modules
+        mods = self._modules = getattr(self, '_modules', None) or ax_modules.Modules(g.repo)
+        fileof = lambda m: (g.sym.get(m) or {}).get('file') or ''
+        down = collections.defaultdict(lambda: collections.defaultdict(list))            # q -> a -> [(b, tier)]
+        for a, b, t, q_ in pu: down[q_][a].append((b, t))
+        ends = collections.defaultdict(set)
+        for m, d, q_ in out.get('reach') or []:
+            if str(d) == '0': ends[q_].add(m)
+        for r in out.get('seed_byname') or []: ends[r[-1]].add(r[0])
+        full = [None]
+        def forward():
+            if full[0] is None:
+                full[0] = collections.defaultdict(list)
+                try:
+                    for l in open(os.path.join(g.facts, 'edge.facts')):
+                        x = l.rstrip('\n').split('\t')
+                        if len(x) >= 3: full[0][x[0]].append((x[1], x[2]))
+                except OSError: pass
+            return full[0]
+        def blocked(test, b, t):
+            if t != 'event_dispatch': return False
+            tf = fileof(test)
+            return self.mocks_publisher(tf) or not mods.sees(mods.module_of(tf), mods.module_of(fileof(b)))
+        def clean(test, starts, q_, graph, limit):
+            goal = ends[q_]; seen = set(starts); todo = [(s_, 0) for s_ in starts]
+            while todo:
+                x, d = todo.pop()
+                if x in goal: return True
+                if d >= limit: continue
+                extra = graph.get(x, ()) if graph is not None else ()
+                for b, t in list(down[q_].get(x, ())) + list(extra):
+                    if b not in seen and not blocked(test, b, t): seen.add(b); todo.append((b, d + 1))
+            return False
+        starts = collections.defaultdict(set)
+        for r in out.get('test_hit') or []: starts[(r[0], r[-1])].add(r[2] or r[0])
+        drop = set()
+        for (m, q_), st in starts.items():
+            if clean(m, st, q_, None, 40): continue
+            if clean(m, st, q_, forward(), 40): continue
+            drop.add((m, q_))
+        if not drop: return out
+        out['test_hit'] = [r for r in out.get('test_hit') or [] if (r[0], r[-1]) not in drop]
+        out['test_near'] = [r for r in out.get('test_near') or [] if (r[0], r[-1]) not in drop]
+        out['inherited_test'] = [r for r in out.get('inherited_test') or [] if (r[1], r[-1]) not in drop]
+        # and the test method itself is no longer a reached caller: listed as an entry point that reaches the change, it
+        # was named again as "a callable in test code the count does not credit — treat it as a test to run"
+        out['reach'] = [r for r in out.get('reach') or [] if (r[0], r[-1]) not in drop]
+        out['reach_sure'] = [r for r in out.get('reach_sure') or [] if (r[0], r[-1]) not in drop]
+        out['parent_up'] = [r for r in pu if (r[0], r[-1]) not in drop]
         return out
 
     # the facts a query writes itself; every other file in its fact directory is the graph's export, linked in

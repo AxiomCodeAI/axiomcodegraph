@@ -1,0 +1,13 @@
+{"lang": "java",
+ "checks": [
+  {"why": "a listener in the app module runs only for tests whose module can load it: the app module's own real-context test, and a module depending on app transitively; not the core module's test, whose classpath does not hold the listener, and not the tests that publish through a mocked publisher",
+   "run": ["impact", "RecordStore.save", "--tests"],
+   "want": ["StoreFlowTest::storesWhatIsRecorded", "ToolsFlowTest::recordsFromADependentModule"],
+   "avoid": ["RecorderTest", "MockedPublisherTest", "LocalMockTest"]},
+  {"why": "near miss: a listener in the core module is on every module's classpath, so the core test that publishes through a real context reaches it; the mocked publishers still do not",
+   "run": ["impact", "CoreListener.onRecorded", "--tests"],
+   "want": ["RecorderTest::recordsThroughAContext", "StoreFlowTest::storesWhatIsRecorded"],
+   "avoid": ["MockedPublisherTest", "LocalMockTest"]},
+  {"why": "control: the publishing method itself is called directly by every test, mocked publisher or not",
+   "run": ["impact", "Recorder.record", "--tests"],
+   "want": ["RecorderTest::recordsThroughAContext", "MockedPublisherTest::recordsWithAMock", "LocalMockTest::recordsWithALocalMock", "ToolsFlowTest"]}]}
