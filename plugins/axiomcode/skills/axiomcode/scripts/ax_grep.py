@@ -122,6 +122,11 @@ def impact(d, code):
         if cert == 'alongside': more('alongside (no call, no reference)'); continue
         seen.add(r['id'])
         rows.append((cert, ev(site(code, r['at'], f"{TAG.get(cert, cert)}{n_sites(r)}{stale(r)}", r['display']), r)))
+    # a mapper method's own statement (its namespace and id bind it, ax_nonsource.mapper_elements) is the method's SQL:
+    # a dependent, listed with the direct rows, not a [text] lead after every test
+    for r in d.get('external', []):
+        if r.get('how') == 'is its mapper statement':
+            rows.append(('by key', site(code, r['at'], f"by key · its mapper statement{stale(r)}")))
     tests = {t['id'] for t in d.get('tests', [])}
     # a module's top level reaches it too, but its row is the file's first line (an import), which says nothing: those
     # come after the tests, so a cap spends its lines on callables and on what to run
@@ -143,6 +148,7 @@ def impact(d, code):
     # (`main`, `run`) is written in hundreds of CI files and fixtures, and listed in full they were the whole answer
     shown = 0
     for r in d.get('external', []):
+        if r.get('how') == 'is its mapper statement': continue
         if r.get('prose'): more('plain-word mentions'); continue
         if shown >= TEXT_ROWS: more('[text]'); continue
         rows.append(('text', site(code, r['at'], f"text · {r.get('how') or 'names it'}{stale(r)}"))); shown += 1

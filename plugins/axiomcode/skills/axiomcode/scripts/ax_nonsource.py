@@ -105,6 +105,150 @@ def mapper_namespace(repo, rel):
     return m.group(1).strip() if m else None
 
 
+# ── the elements of a MyBatis mapper XML, by id ──────────────────────────────────────────────────────────────
+# A statement (`<select|insert|update|delete id="m">`) under `<mapper namespace="a.b.Mapper">` IS the body of
+# a.b.Mapper.m: MyBatis binds the two by namespace plus id, and an edit to the SQL changes what the method does as
+# surely as an edit to a Java body. A `<sql id>` fragment is part of every statement that `<include refid>`s it, and a
+# `<resultMap id>` of every statement that names it in `resultMap=`, so an edit there is an edit to those statements.
+STATEMENT_TAGS = ('select', 'insert', 'update', 'delete')
+_ELEM_OPEN = re.compile(r'<(select|insert|update|delete|sql|resultMap)\b([^>]*?)(/?)>', re.S)
+_ELEM_ID = re.compile(r'(?<![\w-])id\s*=\s*["\']([^"\']+)["\']')
+_INCLUDE = re.compile(r'<include\b[^>]*?\brefid\s*=\s*["\']([^"\']+)["\']', re.S)
+_RESULT_MAP = re.compile(r'(?<![\w-])resultMap\s*=\s*["\']([^"\']+)["\']')
+
+
+def mapper_namespace_of(text):
+    """the namespace a mapper XML's own text declares, or None"""
+    m = MAPPER_NS.search(text or '')
+    return m.group(1).strip() if m else None
+
+
+def mapper_elements(text):
+    """[(tag, id, first_line, last_line, open_tag_text, body_text)] for every statement, <sql> fragment and <resultMap>
+    of a mapper XML's text, lines 1-based. An element with no id, or with no closing tag, is left out."""
+    out = []
+    for m in _ELEM_OPEN.finditer(text or ''):
+        idm = _ELEM_ID.search(m.group(2))
+        if not idm: continue
+        tag = m.group(1)
+        if m.group(3): end = m.end()
+        else:
+            close = text.find(f'</{tag}>', m.end())
+            if close < 0: continue
+            end = close + len(tag) + 3
+        first = text.count('\n', 0, m.start()) + 1
+        last = text.count('\n', 0, end) + 1
+        out.append((tag, idm.group(1), first, last, m.group(0), text[m.end():end]))
+    return out
+
+
+def _local_id(ref, ns):
+    """a refid / resultMap written as `ns.id` or as `id` inside namespace ns, as the id in that namespace; None for another namespace's"""
+    if ns and ref.startswith(ns + '.'): return ref[len(ns) + 1:]
+    return None if '.' in ref else ref
+
+
+def mapper_statement_ids(elems, ns, ids):
+    """the STATEMENT ids that `ids` (any element ids: statements, fragments, result maps) are part of, each with the
+    element it came through: {statement id: via id or None}"""
+    stmts = [e for e in elems if e[0] in STATEMENT_TAGS]
+    out = {i: None for i in ids if any(s[1] == i for s in stmts)}
+    frags = {i for i in ids if any(e[1] == i and e[0] == 'sql' for e in elems)}
+    # a fragment can include another fragment: whatever includes it includes the one it includes
+    grew = True
+    while grew:
+        grew = False
+        for e in elems:
+            if e[0] == 'sql' and e[1] not in frags and any(_local_id(r, ns) in frags for r in _INCLUDE.findall(e[5])):
+                frags.add(e[1]); grew = True
+    maps = {i for i in ids if any(e[1] == i and e[0] == 'resultMap' for e in elems)}
+    for s in stmts:
+        if s[1] in out: continue
+        inc = [x for x in (_local_id(r, ns) for r in _INCLUDE.findall(s[5])) if x in frags]
+        rm = [x for x in (_local_id(r, ns) for r in _RESULT_MAP.findall(s[4])) if x in maps]
+        if inc or rm: out[s[1]] = (inc or rm)[0]
+    return out
+
+
+def mapper_edits(old, new):
+    """what an edit of a mapper XML's text changed: (namespace, {statement id: (line, how, via)}, unplaced) where line is
+    the statement's first line in the new text (the old one for a statement the edit removed), how is 'changed',
+    'added' or 'removed', via the fragment or result map the edit was in (None for the statement itself), and unplaced
+    the number of edited lines that fall in no element with an id (the header, the namespace, a comment between
+    elements). (None, {}, 0) for a text that is not a mapper."""
+    import difflib
+    ns = mapper_namespace_of(new) or mapper_namespace_of(old)
+    if not ns: return None, {}, 0
+    ol, nl = (old or '').split('\n'), (new or '').split('\n')
+    oe, ne = mapper_elements(old or ''), mapper_elements(new or '')
+    touched_o, touched_n = set(), set()
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ol, nl, autojunk=False).get_opcodes():
+        if op == 'equal': continue
+        touched_o.update(range(i1 + 1, i2 + 1)); touched_n.update(range(j1 + 1, j2 + 1))
+    def hit(elems, lines):
+        ids, placed = set(), set()
+        for e in elems:
+            inside = {x for x in lines if e[2] <= x <= e[3]}
+            if inside: ids.add(e[1]); placed |= inside
+        return ids, placed
+    ids_o, placed_o = hit(oe, touched_o); ids_n, placed_n = hit(ne, touched_n)
+    unplaced = len(touched_n - placed_n) + len(touched_o - placed_o) if new.strip() else 0
+    out = {}
+    first_n = {e[1]: e[2] for e in ne if e[0] in STATEMENT_TAGS}
+    first_o = {e[1]: e[2] for e in oe if e[0] in STATEMENT_TAGS}
+    for sid, via in mapper_statement_ids(ne, ns, ids_n).items():
+        out[sid] = (first_n[sid], 'changed' if sid in first_o else 'added', via)
+    for sid, via in mapper_statement_ids(oe, ns, ids_o).items():
+        if sid in out: continue
+        out[sid] = (first_n[sid], 'changed', via) if sid in first_n else (first_o[sid], 'removed', via)
+    return ns, out, unplaced
+
+
+def mapper_methods(q, ns, sid):
+    """the method ids a statement `sid` under `<mapper namespace="ns">` is the SQL of: the type the namespace names
+    declares one of that name, or inherits it from a base mapper; a type the graph does not hold binds nothing.
+    `q(sql, *params)` answers from graph.sqlite."""
+    tids = [r[0] for r in q("SELECT id FROM types WHERE REPLACE(qualified_name, '$', '.') = ?", ns.replace('$', '.'))]
+    if not tids: return []
+    ph = ','.join('?' * len(tids))
+    own = q(f"SELECT id FROM methods WHERE name = ? AND owner_type_id IN ({ph})", sid, *tids)
+    if not own:
+        anc = [r[0] for r in q(f"SELECT ancestor_type_id FROM type_ancestors WHERE type_id IN ({ph})", *tids)]
+        own = q(f"SELECT id FROM methods WHERE name = ? AND owner_type_id IN ({','.join('?' * len(anc))})", sid, *anc) if anc else []
+    return sorted({r[0] for r in own})
+
+
+# a parameter marker in a statement's SQL: `#{it.quantity}`, `${orderBy}`, `#{item.id,jdbcType=VARCHAR}`
+PARAM_MARKER = re.compile(r'[#$]\{\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)')
+_FOREACH = re.compile(r'<foreach\b([^>]*)>', re.S)
+_ATTR = lambda name: re.compile(r'(?<![\w-])' + name + r'\s*=\s*["\']([^"\']+)["\']')
+_COLLECTION, _ITEM, _PARAM_TYPE = _ATTR('collection'), _ATTR('item'), _ATTR('parameterType')
+
+
+def statement_markers(elem):
+    """[(expr, line, foreach item -> collection)] for every parameter marker inside a statement element (mapper_elements)"""
+    tag, sid, first, last, open_tag, body = elem
+    items = {}
+    for m in _FOREACH.finditer(body):
+        c, i = _COLLECTION.search(m.group(1)), _ITEM.search(m.group(1))
+        if c and i: items[i.group(1)] = c.group(1)
+    base = first + open_tag.count('\n')
+    return [(m.group(1), base + body.count('\n', 0, m.start()), items) for m in PARAM_MARKER.finditer(body)]
+
+
+def statement_param_type(elem):
+    """the `parameterType` a statement declares, or None"""
+    m = _PARAM_TYPE.search(elem[4])
+    return m.group(1) if m else None
+
+
+def statement_at(text, line):
+    """(tag, id) of the statement element whose opening tag is written on `line` of a mapper XML's text, or None"""
+    for e in mapper_elements(text):
+        if e[0] in STATEMENT_TAGS and e[2] <= line <= e[2] + e[4].count('\n'): return e[0], e[1]
+    return None
+
+
 class NonSource:
     def __init__(self, repo, cache_dir, indexed, skip_dir, skip_ext):
         self.repo, self.cache_dir, self.indexed, self.skip_dir, self.skip_ext = repo, cache_dir, indexed, skip_dir, skip_ext
