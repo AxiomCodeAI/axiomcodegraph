@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path>] [--json] [--fresh] [--no-refresh]   is there a chain of calls from A to B, and through what?
+"""axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path>] [--json] [--why] [--fresh] [--no-refresh]   is there a chain of calls from A to B, and through what?
    axiomcode path --selftest <lang>                                 the engine's own expected edges, replayed through this tool
 
 --no-refresh (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) is a read-only query: it answers from the
@@ -11,6 +11,10 @@ An endpoint is anything that names code, written the way it appears in the code 
     Owner.method   Owner.Inner.method   method (a free function, or that name under any owner)   Type (every method it declares)
     file.ts:123 (the method containing that line)   file.py / dir/file.ts (every method in the file)
 A miss lists the exact names that are close and stops. It does not answer a question about a name that does not exist.
+--why adds, right after the endpoint line (or the refusal), how each endpoint name was resolved: the lookup step that
+matched (exact declaration, qualified suffix, simple name, library method, call as written, type used by name,
+fragment; or a file:line, a decoration, a file), the steps tried before it, up to five candidates with file:line, and
+why the winner won or why the name fell to "nothing named". Without it the answer is unchanged; --json gains `why`.
 
 `*` as one endpoint asks for a closure instead of a chain: path '*' X = everything that can reach X (upstream, by hop, with the
 entry points among them: tests, main, decorated handlers, and methods nothing resolved calls); path X '*' = everything X reaches (--depth N bounds either; the library calls at the ends are listed, never traversed).
@@ -295,13 +299,68 @@ class G:
         a FRAGMENT and every declaration containing it is the endpoint. That is what this tool tells a reader to do
         when a name misses — and until now the advice was circular, because the same lookup rejected the fragment too.
         """
-        label, ids = self._resolve(sel, fragment)
+        self.WHY_LAST = None
+        try: label, ids = self._resolve(sel, fragment)
+        except SystemExit:
+            self.why_log(sel); raise
         if self.IN and not all(self.sym[i]['kind'] in ('library', 'written') for i in ids):        # a library endpoint has no file; --in applies to the other end
             kept = [i for i in ids if self.under_in(self.sym[i]['file'])]
-            if not kept: die(f"{label}: none of its {len(ids)} declaration(s) is under *{self.IN}*")
-            if len(kept) < len(ids): label += f" [{len(kept)} under *{self.IN}*]"
+            if not kept:
+                self.why_log(sel, label); die(f"{label}: none of its {len(ids)} declaration(s) is under *{self.IN}*")
+            if len(kept) < len(ids):
+                label += f" [{len(kept)} under *{self.IN}*]"
+                if self.WHY_LAST: self.WHY_LAST['scope'] = f"--in {self.IN} kept {len(kept)} of its {len(ids)} declarations"
             ids = kept
+        self.why_log(sel, label)
         return label, ids
+
+    # ── --why: how each endpoint name was read ────────────────────────────────────────────────────────────────
+    # _resolve notes the step that answered, the declarations it weighed and why the answer is the one it is, or, on a
+    # miss, the steps that all found nothing. It is a note beside the answer: nothing reads it unless --why asked,
+    # and it changes no answer. WHY_LOG holds one note per endpoint, in the order they were resolved.
+    WHY_LAST = None
+    WHY_LOG = []
+    WHY_ON = False                                  # --why asked: the notes may cost a query or two more
+    # the lookups a plain name goes through, in order (a file:line, a decoration, a file and a lambda are shapes of their own)
+    NAME_STEPS = ('exact declaration', 'qualified suffix', 'simple name', 'library method', 'call as written', 'type used by name', 'fragment')
+    def why_note(self, step, ids=(), won='', rows=None, **kw):
+        """record how the name being resolved was matched; rows: [(name, file:line)] the step weighed (else the ids)"""
+        self.WHY_LAST = dict(kw, step=step, ids=list(ids), won=won, rows=rows)
+    def why_log(self, typed, label=None):
+        n = dict(self.WHY_LAST or {'step': 'no match', 'won': 'nothing in the graph answers this shape (the message above says why)'})
+        n['typed'] = typed; n['label'] = label
+        self.WHY_LOG.append(n)
+    def why_tried(self, step, s, fragment=False):
+        """the name lookups that ran, and found nothing, before `step`"""
+        steps = [x for x in self.NAME_STEPS if not (x == 'simple name' and '.' in s) and not (x == 'fragment' and not fragment)]
+        return steps[:steps.index(step)] if step in steps else steps
+    def why_rows(self, rows_or_ids, cap=5):
+        """(name, file:line) for up to `cap` declarations, and how many there were"""
+        out = []
+        for x in rows_or_ids:
+            if isinstance(x, tuple): out.append(x)
+            else: out.append((self.name(x) if x in self.sym or x in self.all_sym else str(x), self.loc(x)))
+        out = list(dict.fromkeys(out))
+        return out[:cap], len(out)
+    def why_lines(self, n):
+        """the --why block for one endpoint: at most eight lines, in plain words"""
+        rows, total = self.why_rows(n['rows'] if n.get('rows') is not None else n.get('ids') or [])
+        out = [f"  why '{n['typed']}': {n['step']}"]
+        if n.get('won'): out.append(f"    {n['won']}")
+        if n.get('tried'): out.append(f"    tried first, no match: {', '.join(n['tried'])}")
+        if n.get('scope'): out.append(f"    {n['scope']}")
+        room = 8 - len(out) - 1
+        if rows:
+            out.append(f"    considered {total}:" if total > 1 else "    considered:")
+            shown = rows[:max(1, room - (1 if total > room else 0))]
+            out += [f"      {nm}   {at}" for nm, at in shown]
+            if total > len(shown): out.append(f"      … +{total - len(shown)} more")
+        return out[:8]
+    def why_json(self, n):
+        rows, total = self.why_rows(n['rows'] if n.get('rows') is not None else n.get('ids') or [], cap=20)
+        return {'endpoint': n['typed'], 'step': n['step'], 'reason': n.get('won') or '', 'tried': n.get('tried') or [],
+                'candidates': [{'name': nm, 'at': at} for nm, at in rows], 'candidates_total': total,
+                **({'scope': n['scope']} if n.get('scope') else {})}
     def separator_collision(self, typed, rows):
         """two declarations whose names differ only in separators (`a/b#c`, `a.b/c`) are the same dotted name. Neither
         is the answer: the caller is told both, and the exact spelling of each still resolves to that one alone."""
@@ -372,6 +431,7 @@ class G:
             # A LINE OUTSIDE THE FILE IS REFUSED (#1601). Line 0, or a line past the end — a number copied before the file
             # was edited, or from an old stack trace — spans no callable, so it fell through to the module node and was
             # answered as the file's top-level code, as if that line existed. The file on disk is what the reader sees.
+            self.why_note('file and line', won=f"no declaration in the graph spans {s} (the message above says why)")
             if ln < 1: die(f"line {ln} is not in {f}: lines are numbered from 1")
             n = self.file_lines(f) if files else None
             if n is not None and ln > n: die(f"{f} has {n} line{'' if n == 1 else 's'}; line {ln} is not in it")
@@ -383,13 +443,19 @@ class G:
                 t = d[1]
                 ids = [x['id'] for x in self.q("SELECT id FROM symbols WHERE owner = ? AND file = ? AND method_id IS NOT NULL", t['display'], f)]
                 if t['id'] in self.callers_ids: ids.append(t['id'])
-                if ids: return f"{t['display']} (type at {s}: {len(ids)} methods)", ids
+                if ids:
+                    self.why_note('file and line: a type declared there', ids, f"the line is the header of type {t['display']}, so its {len(ids)} method(s) are the endpoint",
+                                  rows=[(t['display'], f"{f}:{t['line']}")])
+                    return f"{t['display']} (type at {s}: {len(ids)} methods)", ids
             if d and d[0] == 'field':                                     # a field's line: what its name answers
                 fr = d[1]; nm = f"{fr['owner']}.{fr['name']}" if fr.get('owner') else fr['name']
                 try:
                     with contextlib.redirect_stdout(io.StringIO()): label, ids = self._resolve(nm)
+                    inner = (self.WHY_LAST or {}).get('step', '')
+                    self.why_note('file and line: a field declared there', ids, f"the line declares {nm}, read as that name ({inner})",
+                                  rows=[(nm, f"{f}:{fr['line']}")] + self.why_rows(ids, 4)[0])
                     return f"{label} (field at {s})", ids
-                except SystemExit: pass
+                except SystemExit: self.why_note('file and line', won=f"no declaration in the graph spans {s} (the message above says why)")
             if r:
                 ids = [x['id'] for x in r if x['span'] == r[0]['span']]
                 # a field initializer and what it holds on its one line (`static cfg = make({ run() {…} });`) share the
@@ -403,6 +469,10 @@ class G:
                 if self.has('methods') and all(self.method_kind(i) in BODILESS_KINDS for i in ids):
                     start = {self.sym[i].get('line') for i in ids if i in self.sym}
                     ids += [x['id'] for x in r if x['id'] not in ids and self.sym.get(x['id'], {}).get('line') in start and self.method_kind(x['id']) not in BODILESS_KINDS]
+                self.why_note('file and line: the callable spanning it', ids,
+                              (f"the narrowest callable spanning line {ln}" if len(ids) == 1 else f"{len(ids)} callables share the narrowest span of line {ln}")
+                              + (f"; {len(r) - len(ids)} wider one(s) that also span it were set aside" if len(r) > len(ids) else ''),
+                              rows=self.why_rows(ids + [x['id'] for x in r if x['id'] not in ids], 5)[0])
                 return (f"{self.name(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
             # top-level code: the module body that holds the line. A Python file has two (the file's and each class
             # body's), and the first row came back whatever the line, so a module-level constant below a class was
@@ -424,7 +494,9 @@ class G:
                     " (a blank, comment or separator line — often a line number from before an edit)."
                     + ("\n  the nearest declarations:\n" + '\n'.join(near) if near else '')
                     + f"\n  ask for one of them, by name or by its line; `{t['display']}` asks about the whole type")
-            if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
+            if r:
+                self.why_note('file and line: top-level code', [r[0]['id']], f"no callable spans line {ln}; the file's top-level code holding it is the endpoint")
+                return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
             if outside: die(f"{m.group(1)} is outside the indexed repository {self.repo}: give the file relative to that root, or ask the graph of the repository it belongs to")
             die(f"no callable spans {s}")
         if s.startswith('@') and self.has('decorations'):                                # @GetMapping / @*Mapping / @Test → every method carrying it
@@ -439,14 +511,20 @@ class G:
                 if not (ty.get('file') and ty.get('line') and ty.get('end_line')): continue
                 ids += [m['id'] for m in self.q("SELECT id FROM symbols WHERE file = ? AND line >= ? AND end_line <= ? AND method_id IS NOT NULL AND kind <> 'module'", ty['file'], ty['line'], ty['end_line'])]
             ids = list(dict.fromkeys(ids))
-            if ids: return f"{s} ({len(ids)} methods)", ids
+            if ids:
+                self.why_note('decoration', ids, f"every method carrying {s}, or declared in a type carrying it")
+                return f"{s} ({len(ids)} methods)", ids
+            self.why_note('decoration', won=f"no method carries {s}")
             near = self.q("SELECT name, count(*) n FROM decorations GROUP BY name ORDER BY n DESC LIMIT 8")
             if not near: die(f"no method carries {s}, and this graph records NO decoration at all — not that the code has none."
                              " A front end that does not project decorations cannot answer a decoration endpoint; ask by name instead.")
             die(f"no method carries {s}. Decorations in this graph: " + ', '.join(f"@{x['name']} ({x['n']})" for x in near))
         if re.search(r'\.(ts|tsx|js|mjs|cjs|py|java)$', s):                             # a file → every method in it
             r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module'", s.lstrip('/'), f"%/{s.lstrip('/')}")
-            if r: return f"{s} ({len(r)} methods)", [x['id'] for x in r]
+            if r:
+                self.why_note('file name', [x['id'] for x in r], f"every method declared in a file named {s}")
+                return f"{s} ({len(r)} methods)", [x['id'] for x in r]
+            self.why_note('file name', won=f"no indexed file named {s} declares a method")
             die(f"no methods in a file named {s}")
         # the name as the agent writes it, normalised: Outer$Inner.m, Outer.Inner#m, m(int,String), pkg.Outer.Inner.m are all
         # Outer.Inner.m. Java's parser names a nested type without its outer (#667) and the index recovers most of them, so the
@@ -464,13 +542,17 @@ class G:
             want = canon(ml.group(1) or '')
             ids = [x['id'] for x in self.q("SELECT id FROM symbols WHERE name = ? AND line = ? AND method_id IS NOT NULL", f"<{ml.group(2)}>", int(ml.group(3)))
                    if not want or canon_is(self.lambda_label(x['id']).rsplit('.<', 1)[0], want)]
-            if ids: return (s if len(ids) == 1 else f"{s} ({len(ids)} declarations)"), ids
+            if ids:
+                self.why_note('lambda at a line', ids, f"the <{ml.group(2)}> that starts on line {ml.group(3)}" + (f" inside {ml.group(1)}" if ml.group(1) else ''))
+                return (s if len(ids) == 1 else f"{s} ({len(ids)} declarations)"), ids
+            self.why_note('lambda at a line', won=f"no <{ml.group(2)}> starts on line {ml.group(3)}")
             die(f"no <{ml.group(2)}> starts on line {ml.group(3)}" + (f" inside {ml.group(1)}" if ml.group(1) else '') + ": ask by file:line")
         verbatim = re.sub(r'\(.*\)$', '', s).strip()
         if '#' in verbatim:
             hit = self.q("SELECT id FROM symbols WHERE (display = ? OR qualified_name = ?) AND method_id IS NOT NULL", verbatim, verbatim)
             if hit:
                 ids = [x['id'] for x in hit]
+                self.why_note('exact declaration', ids, f"a declaration is named exactly '{verbatim}', written with its # as it is in the code")
                 return (verbatim if len(ids) == 1 else f"{verbatim} ({len(ids)} declarations)"), ids
         s = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         # EXACT SPELLING WINS. Two shapes were unreachable because a heuristic ran before the literal lookup:
@@ -482,6 +564,12 @@ class G:
         exact = self.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NOT NULL", s)
         if exact:
             ids = [x['id'] for x in exact]
+            lost = ''
+            if self.WHY_ON:
+                n = self.q("SELECT count(*) n FROM symbols WHERE method_id IS NOT NULL AND display <> ? AND (display LIKE ? OR qualified_name LIKE ?)", s, f"%.{s}", f"%.{s}")[0]['n']
+                if n: lost = f"; {n} other declaration(s) only ending in '.{s}' were not taken"
+            self.why_note('exact declaration', ids, (f"a declaration is named exactly '{s}'" if len(ids) == 1 else f"{len(ids)} declarations are named exactly '{s}': all are the endpoint")
+                          + ", and an exact name is tried before any looser step" + lost)
             return (s if len(ids) == 1 else f"{s} ({len(ids)} declarations)"), ids
         # Outer$Inner.m and Outer$1.m: the type is looked up STRUCTURALLY through the nesting table — Inner declared (at any
         # depth) inside Outer, or the 1st/2nd… anonymous class inside Outer in source order, as javac numbers them
@@ -489,53 +577,78 @@ class G:
         if mn and self.has('nesting'):
             outer, inner, mem = mn.group(2).split('.')[-1], mn.group(3), mn.group(4)
             ids = self.nested_methods(outer, inner, mem)
-            if ids: return f"{s} (nested in {outer}: {len(ids)} declaration(s))", ids
+            if ids:
+                self.why_note('nested type', ids, f"{inner} was looked up as a type declared inside {outer}, and {mem} on it")
+                return f"{s} (nested in {outer}: {len(ids)} declaration(s))", ids
+            self.why_note('nested type', won=f"no type {inner} is declared inside {outer} with a member {mem}")
             die(self.nested_miss(outer, inner, mem, s))
         # Outer$Inner / Outer$1 with no member: the nested type itself, which is every method it declares
         tn = re.match(r'^(.*?)([\w.]+)\$([\w$]+)$', s)
         if tn and self.has('nesting'):
             outer, inner = tn.group(2).split('.')[-1], tn.group(3)
             ids = self.nested_methods(outer, inner, None)
-            if ids: return f"{s} (nested in {outer}: {len(ids)} method(s))", ids
+            if ids:
+                self.why_note('nested type', ids, f"{inner} was looked up as a type declared inside {outer}: its methods are the endpoint")
+                return f"{s} (nested in {outer}: {len(ids)} method(s))", ids
+            self.why_note('nested type', won=f"no type {inner} is declared inside {outer}")
             die(self.nested_miss(outer, inner, '*', s))
         s = s.replace('$', '.')
-        parts = s.split('.'); rows = []; used = s
+        parts = s.split('.'); rows = []; used = s; how = ''
         # an owner the agent WROTE is never dropped: Owner.m that does not exist is a miss, not a search for any `m`
         for k in range(max(1, len(parts) - 1)):
             cand = '.'.join(parts[k:])
-            rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display = ? OR qualified_name = ? OR qualified_name LIKE ?", cand, cand, f"%.{cand}")
-            if not rows: rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display LIKE ? OR display LIKE ?", f"%.{cand}", f"%#{cand}")
+            rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display = ? OR qualified_name = ? OR qualified_name LIKE ?", cand, cand, f"%.{cand}"); how = 'name'
+            if not rows: rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display LIKE ? OR display LIKE ?", f"%.{cand}", f"%#{cand}"); how = 'suffix'
             # the name as written matched nothing: only then is it compared in the one dotted spelling, so a name that
             # resolved before resolves to the same declaration now, whatever a dotted lookalike elsewhere is called
             if not rows:
                 # LIKE on the last segment first: C-speed, and a superset (it folds case, `_` is a wildcard), so the Python
                 # comparison sees a handful of rows instead of every symbol (2.3 s → 0.06 s on a million)
-                rows = self.q("SELECT id, kind, display, type_id, method_id, qualified_name, file, line FROM symbols WHERE qualified_name LIKE ? AND canon_is(qualified_name, ?)", '%' + cand.rsplit('.', 1)[-1], cand)
+                rows = self.q("SELECT id, kind, display, type_id, method_id, qualified_name, file, line FROM symbols WHERE qualified_name LIKE ? AND canon_is(qualified_name, ?)", '%' + cand.rsplit('.', 1)[-1], cand); how = 'separators'
                 self.separator_collision(sel, rows)
             if rows: used = cand; break
         exact = [r for r in rows if r['display'] == used or (r['display'] or '').endswith('.' + used) and r['display'].count('.') == used.count('.') + 1] or rows
         methods = [r['id'] for r in exact if r['method_id'] and r['kind'] != 'module']
         types = [r for r in exact if r['type_id'] and not r['method_id']]
         via = '' if used == s else f" (matched as {used})"
+        if rows: self.why_suffix(s, used, how, rows, exact, methods, types)
         if methods and not types: return (s if len(methods) == 1 else f"{s} ({len(methods)} declarations)") + via, methods
         if types:                                                                        # a type → the methods it declares (+ its initializer node if it has one)
             ids = []
             for t in types:
                 ids += [r['id'] for r in self.q("SELECT id FROM symbols WHERE owner = ? AND method_id IS NOT NULL", t['display'])]
                 if t['id'] in self.callers_ids: ids.append(t['id'])
-            if ids: return f"{s} (type: {len(ids)} methods){via}", ids
+            if ids:
+                self.WHY_LAST['ids'] = ids; self.WHY_LAST['won'] += f"; a type, so its {len(ids)} method(s) are the endpoint"
+                return f"{s} (type: {len(ids)} methods){via}", ids
+            self.WHY_LAST['won'] += "; a type, but it declares no method in the graph"
             die(f"{s} is a type with no methods in the graph")
         if '.' not in s:                                                                 # a bare name → that method under any owner, or a free function
             r = self.q("SELECT id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module'", s)
-            if r: return (s if len(r) == 1 else f"{s} ({len(r)} declarations, any owner)"), [x['id'] for x in r]
+            if r:
+                self.why_note('simple name', [x['id'] for x in r], (f"nothing is named '{s}' in full; the one method with that simple name, under its owner" if len(r) == 1 else
+                                                                    f"nothing is named '{s}' in full; every method with that simple name ({len(r)}, any owner) is the endpoint"),
+                              tried=self.why_tried('simple name', s, fragment))
+                return (s if len(r) == 1 else f"{s} ({len(r)} declarations, any owner)"), [x['id'] for x in r]
         # not declared in the client code: a JDK / dependency method the code calls into (staged with --library), or the same
         # call as the parser wrote it down at an unresolved site (no staging needed) — a client declaration always wins over both
         lib = self.library(s)
-        if lib: return lib
+        if lib:
+            self.why_note('library method', lib[1], f"no client declaration is named '{s}'; it is a library method the code calls into",
+                          rows=[(self.sym[i]['display'], 'library') for i in lib[1]], tried=self.why_tried('library method', s, fragment))
+            return lib
         w = self.written(s)
-        if w: return w
+        if w:
+            sites = self.SITES.get(w[1][0], [])
+            self.why_note('call as written', w[1], f"nothing declares '{s}'; it is the name written at {len(sites)} call site(s) the engine could not resolve, matched by name only",
+                          rows=[(self.disp(r['caller_id']), f"{self.site_file(r['file_path'])}:{r['start_line']}") for r in sites], tried=self.why_tried('call as written', s, fragment))
+            return w
+        self._tu_why = ''; self._tu_cands = []
         t = self.type_use(s)                                                              # a type the code USES but does not declare: File, Path, Socket
-        if t: return t
+        if t:
+            self.why_note('type used by name', t[1], f"nothing declares '{s}'; it is spelled as a type and used by name, so the places that use it are the endpoint",
+                          rows=getattr(self, '_tu_rows', []), tried=self.why_tried('type used by name', s, fragment))
+            return t
         # THE NO-NAME-YET FORM. `path decrypt '*'` — every declaration whose name CONTAINS the word, which is how a
         # reader gets from a word in an issue to the exact names this tool otherwise insists on. Only with `'*'` at
         # the other end (a chain between two fragments would be a guess about both ends), only for a word long enough
@@ -545,10 +658,15 @@ class G:
                               AND lower(name) LIKE lower(?) ORDER BY length(display), display LIMIT 200""", f"%{s}%")
             if hits:
                 ids = [r['id'] for r in hits]
+                self.why_note('fragment', ids, f"no declaration is named '{s}'; with '*' at the other end, every declaration containing the word is the endpoint",
+                              tried=self.why_tried('fragment', s, fragment))
                 shown = ', '.join(r['display'] for r in hits[:4]) + (' …' if len(hits) > 4 else '')
                 return f"{len(ids)} declaration(s) containing '{s}' ({shown})", ids
         near = self.q("SELECT DISTINCT display FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL) AND (lower(display) = lower(?) OR lower(name) = lower(?) OR display LIKE ?) LIMIT 6", s, s.split('.')[-1], f"%{s.split('.')[-1]}%")
         UNRESOLVED.append(s)                        # each refusal below: the [text] block searches for it (ax_text.py)
+        tu = getattr(self, '_tu_why', '')
+        self.why_note('nothing named', won=tu or (f"no step matched '{s}'" + ("; the names below are close, not matches" if near else "; nothing close to it is declared")),
+                      rows=getattr(self, '_tu_cands', []) + [(r['display'], self.decl_loc(r['display'])) for r in near], tried=self.why_tried('nothing named', s, fragment), asked=s)
         # with candidates the advice is "pick one"; with none it has to be something else, or the line reads
         # "use one of them" pointing at an empty list
         # a word the code WRITES but nothing declares (a local, a parameter, a property) is not a target: the methods that
@@ -567,6 +685,34 @@ class G:
             f"  a SHORTER fragment is the way in — `path {s.split('.')[-1][:6] or 'name'} '*'` matches every\n"
             f"  declaration containing it — or a file:line from a stack trace or an issue.")
 
+    def decl_loc(self, display):
+        r = self.q("SELECT file, line FROM symbols WHERE display = ? AND (method_id IS NOT NULL OR type_id IS NOT NULL) ORDER BY file, line LIMIT 1", display)
+        return f"{r[0]['file']}:{r[0]['line']}" if r and r[0]['line'] else '?'
+    def why_suffix(self, s, used, how, rows, exact, methods, types):
+        """the --why note for the dotted-name lookup: which spelling matched, and what the narrowing set aside"""
+        win = set(methods) | {t['id'] for t in types}
+        cands = sorted(rows, key=lambda r: (r['id'] not in win, r['display'] or ''))
+        allrows = [(r['display'], self.loc(r['id']) if r['id'] in self.sym else self.decl_loc(r['display'])) for r in cands]
+        ids = [r['id'] for r in exact]
+        qn = {x['qualified_name'] for x in self.q("SELECT qualified_name FROM symbols WHERE id IN (%s)" % ','.join('?' * len(ids)), *ids)} if ids else set()
+        if used != s:
+            step, won = 'qualified suffix', (f"'{s[:len(s) - len(used) - 1]}' in front matched nothing, so it was dropped and '{used}' was looked up"
+                                             f"; the answer is for a declaration of that shorter name, wherever it is")
+        elif how == 'separators':
+            step, won = 'qualified suffix', f"no declaration is spelled '{s}'; one is, once / # and . are read as one separator"
+        elif all((r['display'] or '') == used for r in exact):
+            step, won = 'exact declaration', (f"a declaration is named exactly '{s}'" if len(exact) == 1 else f"{len(exact)} declarations are named exactly '{s}': all are the endpoint")
+        elif how == 'name' and any((r['display'] or '') == used for r in rows):
+            step, won = 'exact declaration', f"a declaration is named exactly '{s}'"
+        elif how == 'name' and used in qn:
+            step, won = 'exact declaration', f"'{s}' is the full qualified name of " + (f"{len(exact)} declarations" if len(exact) > 1 else "a declaration")
+        elif '.' not in s:
+            step, won = 'simple name', (f"nothing is named '{s}' in full; it is the simple name of one declaration, under its owner" if len(exact) == 1 else
+                                        f"nothing is named '{s}' in full; it is the simple name of {len(exact)} declarations (any owner): all are the endpoint")
+        else:
+            step, won = 'qualified suffix', f"no declaration is named '{s}' in full; {len(exact)} end in '.{s}' (the last segments of a longer qualified name)"
+        if len(exact) < len(rows): won += f"; {len(rows) - len(exact)} longer match(es) were set aside for the one(s) at the same depth"
+        self.why_note(step, list(win), won, rows=allrows, tried={'exact declaration': [], 'simple name': ['exact declaration']}.get(step, self.why_tried(step, s)))
     def nested_methods(self, outer, inner, mem):
         """methods named mem on the type(s) `inner` nested inside a type named `outer` — inner = a name (Inner, or Inner$Deeper
         as a chain) or an ordinal (1, 2 …: the n-th anonymous class in the outer, by source line)"""
@@ -658,21 +804,26 @@ class G:
         # a qualified name whose last segment the client itself declares is a declaration asked for under a wrong
         # prefix, not a type from outside: answering for every reference to that short name is a different question
         if '.' in s and self.q("SELECT 1 FROM symbols WHERE name = ? AND (method_id IS NOT NULL OR type_id IS NOT NULL) AND kind NOT IN ('library', 'written') LIMIT 1", name):
+            self._tu_why = f"'{name}' is declared here, but not under '{s.rsplit('.', 1)[0]}'; a wrong qualifier is a miss, not a use of another '{name}'"
+            if self.WHY_ON: self._tu_cands = [(r['display'], f"{r['file']}:{r['line']}") for r in self.q("SELECT display, file, line FROM symbols WHERE name = ? AND (method_id IS NOT NULL OR type_id IS NOT NULL) AND kind NOT IN ('library', 'written') ORDER BY file, line LIMIT 5", name)]
             return None
         # nor is one whose QUALIFIER is a type the client declares: `Controller.Details` asks for a member of that type,
         # and the type has none of that name. The uses of some other `Details` (a component, a library class written
         # bare) are not uses of it, and answering for them turned a typo into "the two are independent"
         if '.' in s and self.q("SELECT 1 FROM symbols WHERE name = ? AND type_id IS NOT NULL AND method_id IS NULL AND kind NOT IN ('library', 'written') LIMIT 1", s.split('.')[-2]):
+            self._tu_why = (f"'{s.split('.')[-2]}' is a type declared here and it has no member '{name}'; the uses of some other '{name}'"
+                            f" are not uses of it")
+            if self.WHY_ON: self._tu_cands = [(r['display'], f"{r['file']}:{r['line']}") for r in self.q("SELECT display, file, line FROM symbols WHERE name = ? AND type_id IS NOT NULL AND method_id IS NULL AND kind NOT IN ('library', 'written') ORDER BY file, line LIMIT 5", s.split('.')[-2])]
             return None
         w = self.written('new ' + name)
         if w: ids += w[1]; parts.append(f"new {name} at {len(self.SITES[w[1][0]])} site(s)")
         lib = self.library(s + '.*') if '.' in s else self.library(name + '.*')
         if lib: ids += lib[1]; parts.append(f"{len(lib[1])} library method(s) of {s}")
-        callers = set(); typed = bool(ids)
+        callers = set(); typed = bool(ids); self._tu_rows = []
         if self.has('type_refs'):
             for r in self.q("SELECT file, line FROM type_refs WHERE name = ? AND line > 0", name):
                 e = self.enclosing_at(r['file'], r['line'])
-                if e: callers.add(e); typed = True
+                if e: callers.add(e); typed = True; self._tu_rows.append((f"used in {self.disp(e)}", f"{r['file']}:{r['line']}"))
         # A NAME IS NOT A TYPE BECAUSE IT IS WRITTEN. An identifier reference says only that the word occurs: a local
         # `const labelOf = new Map()`, a parameter, a field. Those uses were each counted as "a use of type labelOf",
         # so a name no declaration carries came back as a type with exact callers and a passing `verified:` line. A
@@ -687,10 +838,12 @@ class G:
                 if (r['entity_kind'] or '') in VALUE_BINDINGS: continue
                 e = self.enclosing_at(r['file'], r['line'])
                 if not e: continue
-                callers.add(e)
+                callers.add(e); self._tu_rows.append((f"used in {self.disp(e)}", f"{r['file']}:{r['line']}"))
                 typed = typed or r['entity_kind'] == 'TYPE' or (name[:1].isupper() and (r['kind'] or '') not in MEMBER_REFS
                                                                  and self.unqualified_on(r['file'], r['line'], name))
-        if not typed: return None
+        if not typed:
+            self._tu_why = f"nothing declares '{s}', and '{name}' is not used as a type in the code"
+            return None
         if callers:
             node = f"t:{s}"
             self.sym[node] = {'id': node, 'display': f"uses of type {s}", 'file': '<written>', 'line': None, 'end_line': None, 'kind': 'written', 'owner': '', 'is_test': 0, 'name': name, 'method_id': node}
@@ -1917,12 +2070,32 @@ def selftest(lang):
     print(f"{lang}: {ok}/{tot} expected resolved edges found as chains ({len(cases)} cases); {engine_gaps} not in the engine's output (its suite tracks those), {len(tool_bugs)} lost by this tool")
     return 0 if not tool_bugs else 1
 
+def why_around(g, query):
+    """--why: run the query, then put a short block saying how each endpoint name was read right after the line that
+    names the endpoints (the answer's first line), or after the refusal when a name matched nothing"""
+    buf = io.StringIO(); code = None; err = None
+    with contextlib.redirect_stdout(buf):
+        try: code = query()
+        except SystemExit as e: err = e
+    text = buf.getvalue(); notes = [n for n in g.WHY_LOG if n.get('typed') != '*']
+    RESULT['why'] = [g.why_json(n) for n in notes]
+    block = [l for n in notes for l in g.why_lines(n)]
+    lines = text.split('\n')
+    if err is not None: at = len(lines) - (1 if text.endswith('\n') else 0)
+    else:
+        labels = [n['label'] for n in notes if n.get('label')]
+        at = next((i + 1 for i, l in enumerate(lines) if any(lb in l for lb in labels)), 0)
+    sys.stdout.write('\n'.join(lines[:at] + block + lines[at:]) if block else text)
+    if err is not None: raise err
+    return code
+
 if __name__ == '__main__':
     import ax_pages; ax_pages.install('path')         # pages and a next step (#1202)
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'): print(__doc__); sys.exit(0)
     if args[0] == '--selftest': sys.exit(selftest(args[1] if len(args) > 1 else 'typescript'))
     as_json = '--json' in args; args = [a for a in args if a != '--json']
+    want_why = '--why' in args; args = [a for a in args if a != '--why']
     show_all = '--all' in args; args = [a for a in args if a != '--all']
     depth = 40
     if '--depth' in args: i = args.index('--depth'); depth = int(args[i + 1]); del args[i:i + 2]
@@ -1940,12 +2113,15 @@ if __name__ == '__main__':
         if IN and not ax_text.held(repo, IN):
             print(f"{ax_text.SCOPE_GONE}'{IN}' in its path — answering at the repository root instead")
             IN = None
-        g = G(repo); g.IN = IN
+        g = G(repo); g.IN = IN; g.WHY_ON = want_why
         RESULT['query'] = {'from': args[0], 'to': args[1], 'repo': g.repo}
-        try:
+        def query():
             if args[0] == '*': return closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth)
             if args[1] == '*': return closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth)
             return path(g, args[0], args[1], show_all, limit, every, max_paths)
+        try:
+            if not want_why: return query()
+            return why_around(g, query)
         except SystemExit as e:
             # an endpoint nothing in the graph declares: what a search by hand would find, labelled [text] (ax_text.py)
             if e.code and UNRESOLVED and not as_json: sys.stdout.flush(); ax_text.emit(repo, UNRESOLVED, IN)

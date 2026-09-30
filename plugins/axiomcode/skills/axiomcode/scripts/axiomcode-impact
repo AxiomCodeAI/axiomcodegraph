@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--why] [--tests-in <path>]] [--limit N] [--page N|all] [--budget N] [--json] [--fresh] [--no-refresh]
+"""axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests | --tests-only [--tests-in <path>]] [--why] [--limit N] [--page N|all] [--budget N] [--json] [--fresh] [--no-refresh]
    what has to be looked at again when a declaration changes — and how sure each entry is.
 
 --no-refresh (MCP refresh=false; AXIOMCODE_NO_REFRESH=1 for a whole shell) is a read-only query: it answers from the
@@ -50,6 +50,9 @@ The answer has the same shape for every kind and every language:
                             COUNTED, by rung, with the strong-route ones named and the top test files; --tests lists
                             them all by rung and test file, --tests-only prints only that, --why adds each route, and
                             --tests-in <path> narrows the listing (not the closure) to test files containing it
+--why also prints, under each `change:` line, how the target name was resolved: the lookup step that matched (exact
+declaration, qualified suffix, simple name, field, type used by name, ...), up to five declarations it weighed with
+file:line, and why that one won, or why the name matched nothing. Without --why the answer is unchanged; --json gains `why`.
     bound                   the unresolved calls inside the impacted set: the graph cannot see what those reach, so the
                             set is a lower bound on the real one
 Every closure is cross-checked against a second, independent traversal over the same facts (the `verified:` line). The tool infers nothing
@@ -371,8 +374,38 @@ class Impact:
                 "\n  (the language's own words are accepted too: " + ', '.join(sorted(self.KIND_ALIAS)) + ")")
         return k
 
+    # --why: how each target name was read. _resolve notes, per kind it answers with, the step that matched and the
+    # declarations it weighed (WHY); methods() and types() keep the path finder's note for each name they looked up.
+    # Notes only: nothing reads them unless --why asked, and no answer depends on them.
+    WHY = {}; WHY_MISS = None
+    GENERIC_WHY = {'string': ('string literal', "a quoted name is looked up as text: the literals and decorations that write it"),
+                   'config': ('configuration key', "a dotted lower-case name, or Section:Key, read as a configuration key"),
+                   'decoration': ('decoration', "every declaration that carries it"),
+                   'var': ('local variable', "a local of that method, found where the method's body uses it"),
+                   'param': ('parameter', "a parameter of that method, found in its header or body"),
+                   'typeparam': ('type parameter', "a type parameter used in that declaration's body"),
+                   'clinit': ('static initialization', "the type's static initializer and field initializers"),
+                   'newconst': ('a member to be added', "a constant that does not exist yet: the switches over the type")}
+    def why_of(self, sel, k, lab, pay):
+        """the --why note for one (kind, label, payload) target, in the path finder's shape"""
+        n = self.WHY.get(k)
+        if n is None and k == 'name match' and self.g.WHY_LOG: n = self.g.WHY_LOG[-1]
+        if n is None:
+            step, won = self.GENERIC_WHY.get(k, (k, ''))
+            if k == 'method' and '(' in sel: step, won = 'signature', "the method, narrowed to the overloads whose parameters match what was written"
+            ids = [i for i in (pay if isinstance(pay, list) else []) if isinstance(i, str)]
+            n = {'step': step, 'won': won, 'ids': ids, 'rows': None}
+        return dict(n, typed=sel, label=lab)
+    def why_miss(self, sel):
+        """the --why note when a target resolved to nothing: the prefix check's, else the path finder's last refusal of it"""
+        if self.WHY_MISS: return dict(self.WHY_MISS, typed=sel, label=None)
+        base = re.sub(r'\(.*\)$', '', sel.strip().strip('`"\'')).replace('#', '.').strip('.')
+        last = self.g.WHY_LAST
+        if last and last.get('step') == 'nothing named' and last.get('asked') in (base, base.replace('$', '.').strip('.')): return dict(last, typed=sel, label=None)
+        return {'step': 'no match', 'won': 'nothing in the graph answers this target (the message above says why)', 'ids': [], 'rows': None, 'typed': sel, 'label': None}
     def resolve(self, sel, kind=None):
         kind = self.kind_arg(kind)
+        self.WHY = {}; self.WHY_MISS = None
         out = self._resolve(sel, kind)
         # a target whose leading segments match nothing is not the declaration it happens to end with
         pre = self.prefix_note(sel, out) if out else ''
@@ -383,6 +416,8 @@ class Impact:
             if self.CONFIG_RE.match(key) and (self.has_config() or not self.declared_name(key.rsplit('.', 1)[-1])):
                 # a lowercase dotted key reaching a declaration only by its tail is the key, not the code
                 return self.config_target(re.sub(r'\(.*\)$', '', sel).strip())
+            self.WHY_MISS = {'step': 'nothing named', 'won': f"'{pre}' in front matches no package, type or declaration; only the trailing '{short}' matched, so the target is refused",
+                             'tried': ['exact declaration'], 'ids': [], 'rows': [(self.g.disp(i), self.g.loc(i)) for _k, _l, p_ in out for i in (p_ if isinstance(p_, list) else []) if isinstance(i, str) and i in self.g.sym]}
             die(f"'{pre}' matches no package, type or declaration in this graph; '{sel}' was matched only by its\n"
                 f"  trailing segments, which would answer for '{short}' as if the prefix had been checked. If that is\n"
                 f"  the declaration you mean, ask for it as '{short}'; if the prefix is real, re-index the tree that\n"
@@ -426,8 +461,10 @@ class Impact:
             d = self.g.decl_at_line(files[0], ln) if len(files) == 1 else None
             if d and d[0] == 'field' and kind in (None, 'field'):
                 row = self.fields.get(d[1]['rowid']) or d[1]
+                self.WHY['field'] = {'step': 'file and line: a field declared there', 'won': f"the line declares {row['display']} and no callable of its own", 'ids': [], 'rows': [(row['display'], f"{row['file']}:{row['line']}")]}
                 return [('field', f"{row['kind']} {row['display']} (at {s})", [row])]
             if d and d[0] == 'type' and kind in (None, 'type'):
+                self.WHY['type'] = {'step': 'file and line: a type declared there', 'won': f"the line is the header of type {d[1]['display']}", 'ids': [d[1]['id']], 'rows': None}
                 return [('type', f"{d[1]['kind']} {d[1]['display']} (at {s})", [d[1]['id']])]
         # a lowercase dotted name is read as a configuration key when the graph has configuration facts, or when its last
         # segment names nothing the code declares; `util.square` ending in a real function is a declaration that missed
@@ -512,9 +549,11 @@ class Impact:
             return [('method', f"construction of {self.g.disp(tids[0])} ({len(ids)} callable(s))", ids)]
         if kind in (None, 'field'):
             rows = self.field_rows(base)
+            if rows: self.WHY['field'] = self.why_field(base, rows)
             if rows: out.append(('field', f"{rows[0]['kind']} {rows[0]['display']}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows))
         if kind in (None, 'type'):
             tids = self.types(base, soft=True)
+            if tids: self.WHY['type'] = self._why_t.get(base)
             if tids: out.append(('type', f"{self.g.sym[tids[0]]['kind']} {self.g.disp(tids[0])}" + (f" (+{len(tids)-1})" if len(tids) > 1 else ''), tids))
         # a const declared ON the line is the declaration written there: the enclosing module spans the line and a
         # function in its initializer (`const h = wrap(async (req, res) => …)`) starts on it, and neither is what was asked
@@ -544,6 +583,7 @@ class Impact:
             one = len(mids) == 1 or (len(bodied) == 1 and ':' in s)
             # a lambda is named by where it is (G.lambda_label), not by the one name every lambda carries
             if mids: nm0 = (bodied or mids)[0]; shown = self.g.name(nm0)
+            if mids and self._why_m.get(s): self.WHY['method'] = dict(self._why_m[s], ids=mids, rows=self._why_m[s].get('rows'))
             if mids: out.append(('method', (shown + (f" (at {s})" if ':' in s else '') if one else f"{s} ({len(mids)} declarations)"), mids))
         if not out:
             # an inherited member is written under the name the code uses: Sub.member, declared in a base. Answer for the
@@ -556,6 +596,9 @@ class Impact:
                     for r in anc:
                         inh = self.resolve(f"{r['d']}.{m.group(2)}", kind) if (self.field_rows(f"{r['d']}.{m.group(2)}") or self.methods(f"{r['d']}.{m.group(2)}", soft=True)) else []
                         if inh:
+                            self.WHY = {k_: {'step': 'inherited member', 'won': f"{s} is not declared in {self.g.disp(tid)}; it is inherited from {r['d']}, and that declaration is the target",
+                                             'ids': [i for i in (p_ if isinstance(p_, list) else []) if isinstance(i, str)], 'rows': None,
+                                             'tried': ['exact declaration', 'qualified suffix']} for k_, _l, p_ in inh}
                             print(f"note: {s} is not declared in {self.g.disp(tid)}; it is inherited from {r['d']}, and this is the answer for that declaration", file=sys.stderr)
                             return inh
             if kind: die(f"nothing of kind {kind} named {s} in the graph")
@@ -582,10 +625,12 @@ class Impact:
         """the path finder's resolver, restricted to method declarations whose NAME is the last segment written (a type name
         expands to its methods there; SQLite's LIKE folds case — neither is a method of that name)"""
         try:
+            self.g.WHY_LAST = None
             with contextlib.redirect_stdout(io.StringIO()) as buf: _, ids = self.g._resolve(s)
         except SystemExit:
             if soft: return []
             print(buf.getvalue(), end=''); raise
+        if self.g.WHY_LAST: self._why_m[s] = self.g.WHY_LAST
         written = re.sub(r'\(.*\)$', '', s)
         # a computed key (`Tagged.[Symbol.hasInstance]`) is one segment, dots and all
         key = re.search(r'\.(\[[^\[\]]+\])$', written)
@@ -598,14 +643,33 @@ class Impact:
         parts = s.split('.')
         for k in range(len(parts)):
             cand = '.'.join(parts[k:])
-            r = self.g.q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR qualified_name = ?)", cand, cand) or \
-                [x for x in self.g.q("SELECT id, display FROM symbols WHERE type_id IS NOT NULL AND display LIKE ?", f"%.{cand}") if x['display'].endswith('.' + cand)]
+            r = self.g.q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR qualified_name = ?)", cand, cand); how = 'exact'
+            if not r: r = [x for x in self.g.q("SELECT id, display FROM symbols WHERE type_id IS NOT NULL AND display LIKE ?", f"%.{cand}") if x['display'].endswith('.' + cand)]; how = 'suffix'
             if not r:                                                                  # the dotted spelling, only after the written one
-                r = self.g.q("SELECT id, qualified_name, file, line FROM symbols WHERE type_id IS NOT NULL AND qualified_name LIKE ? AND canon_is(qualified_name, ?)", '%' + cand.rsplit('.', 1)[-1], cand)
+                r = self.g.q("SELECT id, qualified_name, file, line FROM symbols WHERE type_id IS NOT NULL AND qualified_name LIKE ? AND canon_is(qualified_name, ?)", '%' + cand.rsplit('.', 1)[-1], cand); how = 'separators'
                 if r: self.g.separator_collision(s, r)
-            if r: return [x[0] for x in r]
+            if r:
+                self._why_t[s] = self.why_type(s, cand, how, [x[0] for x in r])
+                return [x[0] for x in r]
         if soft: return []
         die(f"no type named {s}")
+    _why_m = {}; _why_t = {}
+    def why_type(self, s, cand, how, ids):
+        if cand != s:
+            step, won = 'qualified suffix', f"'{s[:len(s) - len(cand) - 1]}' in front matched no type, so it was dropped and the type '{cand}' was looked up"
+        elif how == 'exact':
+            step, won = 'exact declaration', (f"a type is named exactly '{s}'" if len(ids) == 1 else f"{len(ids)} types are named exactly '{s}': all are the target")
+        elif how == 'suffix':
+            step, won = 'qualified suffix', f"no type is named '{s}' in full; {len(ids)} end in '.{s}'"
+        else:
+            step, won = 'qualified suffix', f"no type is spelled '{s}'; one is, once / # and . are read as one separator"
+        return {'step': step, 'won': won, 'ids': ids, 'rows': None, 'tried': [] if step == 'exact declaration' else ['exact declaration']}
+    def why_field(self, s, rows):
+        parts = s.split('.'); owner = '.'.join(parts[:-1])
+        if not owner: won = f"no owner was written: every field named '{s}' ({len(rows)})" if len(rows) > 1 else f"no owner was written: the one field named '{s}'"
+        elif all((f['owner'] or '') == owner for f in rows): won = f"a field '{parts[-1]}' declared on {owner}"
+        else: won = f"a field '{parts[-1]}' on a type whose name ends in '{owner}'"
+        return {'step': 'field', 'won': won, 'ids': [], 'rows': [(f['display'], f"{f['file']}:{f['line']}") for f in rows]}
     def field_rows(self, s):
         # `file.js:12` — the field or const DECLARED on that line. Split on `.` it named a field `js:12`, so a const was
         # the one declaration a file:line could not target, and its bare name answered for every const so named
@@ -2182,10 +2246,12 @@ def main(argv):
             # a scope this graph holds no file of: in a repository in several languages it is another language's
             # (#1584), and the dispatcher leaves a graph that says this out when any other graph holds the scope
             die(f"no indexed file has '{IN}' in its path.")
-    targets = []; scoped_in = False
+    targets = []; scoped_in = False; target_why = []; g.WHY_ON = want_why
     for a in args:
         try: rs = I.resolve(a, kind)
         except SystemExit as e:
+            # --why: how the name was looked up, and why it matched nothing, right after the refusal
+            if e.code and want_why and not as_json: print('\n'.join(g.why_lines(I.why_miss(a))))
             # nothing in the graph answers for it: say what a search by hand would find, labelled [text] (ax_text.py)
             if e.code and not as_json: sys.stdout.flush(); ax_text.emit(repo, [a], IN)
             raise
@@ -2217,9 +2283,12 @@ def main(argv):
             ids = [i for i in (pay if isinstance(pay, list) else []) if isinstance(i, str) and i in g.sym and g.sym[i].get('file')]
             files = sorted({g.sym[i]['file'] for i in ids})
             if k == 'method' and len(files) > 1 and not re.search(r':\d+$', a):
-                where = ', '.join(dict.fromkeys(g.loc(i) for i in sorted(ids, key=lambda i: (g.sym[i]['file'], g.sym[i].get('line') or 0))))
+                # the example is the first declaration as written, not the first id: ids hash the index directory
+                by_place = sorted(ids, key=lambda i: (g.sym[i]['file'], g.sym[i].get('line') or 0, i))
+                where = ', '.join(dict.fromkeys(g.loc(i) for i in by_place))
                 print(f"note: {a} names {len(ids)} declarations in {len(files)} files ({where}) — this answer is for all of them; "
-                      f"target one by file:line (e.g. `impact {g.loc(ids[0])}`)", file=sys.stderr if as_json else sys.stdout)
+                      f"target one by file:line (e.g. `impact {g.loc(by_place[0])}`)", file=sys.stderr if as_json else sys.stdout)
+        if want_why: target_why += [I.why_of(a, k, lab, pay) for k, lab, pay in rs]
         targets += rs
     if IN and os.environ.get('AXIOMCODE_FANOUT') == '1':
         # for ax_langs: a graph whose declarations of the name lie under --in outranks one whose lie elsewhere (#1584)
@@ -2619,9 +2688,12 @@ def main(argv):
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=by_place)],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how, **({'prose': True} if (n, f, l) in prose_hits else {})} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
-                          'test_universe': universe, **({'tests_outside_src': dict(zip(('src', 'files'), out_src))} if out_src[1] else {}), 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
+                          'test_universe': universe, **({'tests_outside_src': dict(zip(('src', 'files'), out_src))} if out_src[1] else {}), 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u,
+                          **({'why': [g.why_json(n) for n in target_why]} if want_why else {})}, indent=1))
         return 0
-    for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
+    for i, (k, lab, _) in enumerate(targets):
+        print(f"change: {lab}   [{k}]")
+        if want_why and i < len(target_why): print('\n'.join(g.why_lines(target_why[i])))
     # --tests-only: every section is still COMPUTED (the tests are derived from them) but only the tests section,
     # and the verified / bound lines that qualify it, are printed
     _stdout = sys.stdout
@@ -2716,7 +2788,10 @@ def main(argv):
     # AN UNMODELLED ENTRY (P.unmodelled_entry): a decoration the rules do not model, or a library base, on the
     # declaration or its owner. With no caller bound to it, "local", "tests: 0" and "independent" would be claims about
     # the model, not the code, and they were false on exactly these declarations: say it was not checked, and how to.
-    unmod = [(i, sig) for i, sig in P.unmodelled_entry(g, asked)]
+    # in the order the declarations are WRITTEN (file, line, then the signal): the order of `asked` follows symbol ids,
+    # which hash the index directory, so one case indexed at two paths listed the same signals in two orders
+    _at = lambda i: ((getattr(g, 'all_sym', {}).get(i) or g.sym.get(i) or {}).get('file') or '', (getattr(g, 'all_sym', {}).get(i) or g.sym.get(i) or {}).get('line') or 0)
+    unmod = sorted(((i, sig) for i, sig in P.unmodelled_entry(g, asked)), key=lambda x: (_at(x[0]), x[1], x[0]))
     unmod_name = next((((getattr(g, 'all_sym', {}).get(i) or g.sym.get(i) or {}).get('name')) for i, _ in unmod), None)
     unmod_grep = P.grep_for(g, unmod_name) if unmod_name else ''
     # a decoration on the declaration itself says a framework enters THIS member; one on its owner, or the owner's
@@ -2868,7 +2943,10 @@ def main(argv):
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
-    ext = sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])}, key=lambda x: (x[0], x[1]))
+    # (file, line) is not a total order: one line can name the method twice (`run` and `Step.run`), and the ties then
+    # fell back to the SET's order, a function of string hashing, so two runs printed the same rows in two orders.
+    # The name and how it was matched make it total.
+    ext = sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})
     # A COMMON WORD WRITTEN AS A WORD IS NOT A BINDING (ax_nonsource.py, PROSE): `note` in a template's text, `build`
     # in a CI file, a Maven `<phase>validate</phase>`. Those rows leave `ext` here, so nothing below -- the section,
     # its header count, `next:`, the --delete verdict -- reads them as a place a rename breaks; they are counted with

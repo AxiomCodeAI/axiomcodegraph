@@ -17,7 +17,21 @@
 # language's compile; until the last one is in, .axiomcode/out/building names the languages still to come.
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
+# a repository that is not there is an error, never the working directory, and nothing is built
+[ -d "${1:-.}" ] || { echo "axiomcode index: no such directory: $1 (the repository to index). Nothing was built." >&2; exit 2; }
 REPO="$(cd "${1:-.}" && pwd)"
+# --src IS RELATIVE TO THE REPOSITORY, OR ABSOLUTE AND USED AS GIVEN. An absolute --src was joined onto the repository
+# (<repo>//abs/src), a tree that is not there. One inside the repository is kept as its path relative to it, which is
+# what the file table, the stamp and the baseline's `git archive` key on; one outside it is analysed where it is.
+if [ -n "${AXIOMCODE_SRC:-}" ]; then
+  case "$AXIOMCODE_SRC" in
+    /*|[A-Za-z]:[\\/]*)
+      [ -d "$AXIOMCODE_SRC" ] || { echo "axiomcode index: no such directory: $AXIOMCODE_SRC (--src). Nothing was built." >&2; exit 2; }
+      SRC_ABS="$(cd "$AXIOMCODE_SRC" && pwd)"
+      case "$SRC_ABS" in "$REPO") AXIOMCODE_SRC=. ;; "$REPO"/*) AXIOMCODE_SRC="${SRC_ABS#"$REPO"/}" ;; *) AXIOMCODE_SRC="$SRC_ABS" ;; esac
+      export AXIOMCODE_SRC ;;
+  esac
+fi
 # THE ENGINE IS CHOSEN THE SAME WAY EVERY TIME, AND A BUILD THAT FINDS NONE SAYS WHERE IT LOOKED. The background
 # refresh runs this script from a hook, with the hook's PATH, the hook's Node and, installed from a marketplace, from a
 # plugin COPIED outside any checkout; an explicit `axiomcode index` runs it from inside the npm package. Each found an
@@ -106,7 +120,8 @@ if [ -z "${AXIOMCODE_LANG:-}" ] && [ -z "${AXIOMCODE_REINDEX:-}" ]; then
     [ -n "${AXIOMCODE_BACKGROUND:-}" ] || echo "keeping the languages this graph was indexed with (--lang $AXIOMCODE_LANG${AXIOMCODE_SRC:+ --src $AXIOMCODE_SRC}); pass --lang, or AXIOMCODE_REINDEX=1, to choose again"
   fi
 fi
-SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
+case "${AXIOMCODE_SRC:-}" in /*|[A-Za-z]:[\\/]*) SRC="$AXIOMCODE_SRC" ;; *) SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}" ;; esac
+[ -d "$SRC" ] || { echo "axiomcode index: no such directory: $SRC (--src ${AXIOMCODE_SRC:-}, under $REPO). Nothing was built." >&2; exit 2; }
 # THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
 # rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
 # the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
