@@ -1306,7 +1306,8 @@ def framework_note(g, ids, writers=()):
                 if ff == f and a <= l <= b and (best is None or (b - a) < best[0]): best = (b - a, i)
             return best[1] if best else None
         hit = []
-        for v, f, l in g.q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        # the literals, and a handler table's key where it is written through a constant (`publish(TOPICS.CREATED)`)
+        for v, f, l in ax_registration.key_writes(g.q, {r[4] for r in every if r[3] == 'table'}):
             if not isinstance(v, str): continue
             for key in ax_registration.route_candidates(v, registered):
                 if key not in keys: continue

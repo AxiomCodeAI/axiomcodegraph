@@ -903,8 +903,18 @@ reg_key_fan(k, n) :- reg_key(_, _, k), n = count : { reg_key(_, _, k) }.
 // decoration argument is not always a registration (`@ValueSource(strings = {"p"})` is test DATA). A key written
 // everywhere identifies nothing either, whichever side the fan is on, and this needs no catalogue of which
 // decorations register and which do not.
+// A HANDLER TABLE'S KEY (kind "table": `{ [TOPICS.CREATED]: onCreated }`, ax_registration.table_registrations) is a
+// message type. Its writers are the services that publish it AND the tests that publish it to drive the consumer, and a
+// suite that exercises one event type from ten tests has not made the type identify nothing: only the PRODUCTION
+// writers count against the cap. And a handler registered under the key that writes it again (to log it, to pass it
+// on) consumes that type; it is not a producer of it.
+//   test_code(c)                      c is declared in a test file
+.decl test_code(c:symbol)                                         .input test_code
+.decl table_key(k:symbol)
+table_key(k) :- reg_key(_, "table", k).
 .decl key_written(c:symbol, k:symbol)
-key_written(c, k) :- literal(c, k, _, _).
+key_written(c, k) :- literal(c, k, _, _), !table_key(k).
+key_written(c, k) :- literal(c, k, _, _), table_key(k), !test_code(c), !reg_key(c, "table", k).
 .decl key_use_fan(k:symbol, n:number)
 key_use_fan(k, n) :- key_written(_, k), n = count : { key_written(_, k) }.
 .decl key_capped(k:symbol)
@@ -921,7 +931,7 @@ key_capped(k) :- key_use_fan(k, n), key_use_cap(c), n > c.
 .decl reg_verb(b:symbol, k:symbol, v:symbol)                      .input reg_verb
 .decl lit_verb(a:symbol, k:symbol, v:symbol)                      .input lit_verb
 .decl key_join(a:symbol, b:symbol, k:symbol, w:symbol)
-key_join(a, b, k, k) :- literal(a, k, _, _), reg_key(b, _, k), a != b.
+key_join(a, b, k, k) :- literal(a, k, _, _), reg_key(b, _, k), a != b, !reg_key(a, "table", k).
 // the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
 key_join(a, b, r, w) :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b.
 .decl verb_fits(a:symbol, b:symbol, k:symbol, w:symbol)
@@ -933,11 +943,17 @@ reg_capped(k) :- reg_key_fan(k, n), key_cap(c), n > c.
 // the writers of the key as registered (an alias spelling is not counted, as before). A helper relation, not
 // `count : { verb_fits(_, b, k, k) }`: Soufflé 2.5 counts an aggregate atom with a repeated variable as 1.
 .decl exact_fit(a:symbol, b:symbol, k:symbol)
-exact_fit(a, b, k) :- verb_fits(a, b, k, k).
+exact_fit(a, b, k) :- verb_fits(a, b, k, k), !table_key(k).
+exact_fit(a, b, k) :- verb_fits(a, b, k, k), table_key(k), !test_code(a).
 .decl use_fan_for(b:symbol, k:symbol, n:number)
 use_fan_for(b, k, n) :- reg_key(b, _, k), n = count : { exact_fit(_, b, k) }.
 .decl fw_edge(a:symbol, b:symbol, how:symbol)
 fw_edge(a, b, "by key") :- verb_fits(a, b, k, _), !reg_capped(k), use_fan_for(b, k, n), key_use_cap(c), n <= c.
+// and the other direction for a HANDLER TABLE, as for `remote`: what a publisher writes is what the handler registered
+// under its type receives, so a change to the publisher's payload is a change to the handler's input. A direct row
+// only, never a seed: whoever else reaches the handler does not thereby depend on this publisher.
+direct(q, c, "uses", cat("handles what this publishes: registered in a handler table under \"", cat(k, "\" — whatever dispatches the table by that key calls it, no call does")), "by key", "", 0)
+    :- target(q, "method", m, _), fw_edge(m, c, "by key"), verb_fits(m, c, k, _), table_key(k), c != m.
 // a decorator that REBINDS THE NAME: `@audited def summarise` leaves `summarise` denoting the wrapper, so every
 // caller written with that name runs the wrapper. This one is the engine's own resolution, not a name match.
 fw_edge(a, b, "decorator") :- calls(a, m, _, _, _), decorated_name(m, b), a != b.

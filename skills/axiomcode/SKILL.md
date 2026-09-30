@@ -71,7 +71,7 @@ An answer's label is the **worst** rung on its route. Read it before acting on t
 | `[defines]` · `[protocol]` · `[decorator by name]` | closure from its definer · interpreter-called method · wrapper rebinding the name |
 | `[fixture]` · `[at import]` | injected before the test body · module raised on import, test never collected |
 | `[spawns]` | the test runs the script as a child process, joined through the **path** it names — not an edge |
-| `[by key]` | joined through a registration **string** (route, signal, CLI command) — not an edge |
+| `[by key]` | joined through a registration **string** (route, signal, CLI command, the event type a handler table is keyed by) — not an edge |
 | `[stubs it]` | a call written inside a mock's stub or verification (`when(m.f())`, `verify(m).f()`, `Setup(x => x.F())`, `Received().F()`): names it, runs none of it — never a test route, listed apart |
 | `[in scope]` · `[by name]` · `[text]` | same name in the owner's scope · same name elsewhere (may be another thing) · text only |
 | `[alongside]` | declared in the same type or file — no call, no reference; its own section (`alongside` in `--json`), never a dependent |

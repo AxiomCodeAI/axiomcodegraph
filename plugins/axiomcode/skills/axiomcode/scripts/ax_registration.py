@@ -16,6 +16,7 @@ what keeps `cache.get(key)` out of the answer. A declaration handed to anything 
 here: the reference alone says it is passed as a value (`valueref` in dl/impact.dl), and naming the receiving call as
 one that "calls it where the graph cannot follow" was wrong for every synchronous collection operation (#1166).
 """
+import collections
 import re
 
 ROUTE_VERB = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'connect', 'all', 'use', 'route'}
@@ -990,8 +991,150 @@ def route_candidates(written, registered_keys):
 
 
 def all_registrations(q, site_file=None):
-    """Every (decl, file, line, kind, key, why) this module can derive, from all three sources."""
-    return sorted(set(registrations(q, site_file) + decoration_keys(q, site_file) + value_route_registrations(q, site_file)))
+    """Every (decl, file, line, kind, key, why) this module can derive, from all four sources."""
+    return sorted(set(registrations(q, site_file) + decoration_keys(q, site_file) + value_route_registrations(q, site_file)
+                      + table_registrations(q, site_file)))
+
+
+# ── a HANDLER TABLE: a declaration registered under the KEY of the entry that holds it ──────────────────────────
+# One service publishes an event by its type (`bus.publish(TOPICS.CREATED, doc)`, `emit("doc.created", …)`); another
+# holds a table of handlers keyed by the same string (`{ [TOPICS.CREATED]: onCreated }`, `{ 'doc.created'(env) {…} }`,
+# `{"doc.created": on_created}`) and a consumer looks the handler up by the message's type (`handlers[type](env)`).
+# The graph has both ends and the lookup is a computed member, so nothing joined the publisher to the handler: impact
+# of the producing method missed every consumer, and the tests that publish the type never reached the handler.
+# It is a registration like a route: the entry's key is what the dispatcher dispatches on. Two facts are read here:
+#   the table entry   a callable DECLARED on the entry's own line, right after its key (`[K]: function …`, `[K]: (e) =>`,
+#                     `'k'(e) {`, `"k": lambda e: …`), or a callable NAMED as the entry's whole value (`[K]: onCreated,`).
+#                     A key is a string literal or a constant reference resolved to one; an entry whose value is an
+#                     array, a call's result or a schema is data, not a handler, and registers nothing.
+#   the constant      `TOPICS.CREATED` is the string its declaration gives it (`export const TOPICS = { CREATED:
+#                     'doc.created' }`, `class Topics: CREATED = "doc.created"`, `static final String CREATED = …`),
+#                     kept only when every declaration of that name agrees. A key written through a constant is a
+#                     write of the string; the constant's own declaration and another table's key position are not.
+_IDENT = r'[A-Za-z_$][\w$]*'
+_CONST_REF = rf'{_IDENT}(?:\.{_IDENT})+'
+_KEY_STR = r"""(?P<qt>['"])([^'"\\\s]{1,120})(?P=qt)"""     # named: its group number differs in each pattern
+# the start of a function value: `function`, `async (e) =>`, `e =>`, `(e) =>`, a Python `lambda`
+_FN_START = rf'(?:async\s+)?(?:function\b|lambda\b|\(|{_IDENT}\s*=>)'
+# the key of an entry that DECLARES its handler on this line: `[K]: <fn>`, `[K](…) {`, `'k': <fn>`, `'k'(…) {`, and a
+# Python dict's `Topics.K: lambda …`. Method shorthand may carry `async` / `static` / `*`.
+_ENTRY_DECL = re.compile(rf"""^\s*(?:(?:async|static|get|set)\s+|\*\s*)*(?:(?:\[\s*({_CONST_REF}|{_IDENT})\s*\]|{_KEY_STR})\s*(?::\s*{_FN_START}|\()|({_CONST_REF})\s*:\s*{_FN_START})""")
+# an entry whose WHOLE value names a handler: `[K]: onCreated,` / `'k': handlers.onCreated,` / `"k": on_created,`
+_ENTRY_REF = re.compile(rf"""^\s*(?:\[\s*({_CONST_REF}|{_IDENT})\s*\]|{_KEY_STR}|({_CONST_REF}))\s*:\s*(?:this\.|self\.)?({_IDENT}(?:\.{_IDENT})*)\s*,?\s*(?:\}}\s*[,;)]*\s*)?$""")
+# a string constant: an object literal's `K: 'v'` (one per line or several on one), and a declaration `K = 'v'`
+_CONST_ENTRY = re.compile(rf"""(?:^|[{{,])\s*({_IDENT})\s*:\s*{_KEY_STR}\s*(?=,|\}}|$)""")
+_CONST_DECL = re.compile(rf"""(?:^|\s)({_IDENT})\s*(?::\s*[\w.<>\[\]]+\s*)?=\s*{_KEY_STR}\s*[;,]?\s*$""")
+# a key POSITION, not a write: the quoted key or the constant is followed by `:` (an entry, a `case`), `(` (a method
+# shorthand) or `]` and then `:` / `(` / `=` (a computed key, a C# index initializer)
+_KEY_POS = re.compile(r'\s*(?::(?!:)|\(|\]\s*[:(=])')
+
+
+def string_constants(q, read=None):
+    """({'TOPICS.CREATED': 'doc.created', 'CREATED_TYPE': 'doc.created', …}, {(file, line)}): the string each constant
+    name denotes, where every declaration of the name agrees, and the lines that declare them (a literal there is the
+    constant's definition, not a write of its value)."""
+    if not _has(q, 'symbols'):
+        return {}, set()
+    read = read or _source_reader(q)
+    seen = collections.defaultdict(set)
+    pos = set()
+    types = {i: n for i, n in q("SELECT id, name FROM symbols WHERE id IS NOT NULL AND method_id IS NULL AND type_id IS NOT NULL")}
+    for n, f, a, b, owner, kind in q("""SELECT name, file, line, end_line, owner, kind FROM symbols
+                                        WHERE method_id IS NULL AND name IS NOT NULL AND file IS NOT NULL AND line > 0
+                                          AND kind NOT IN ('class', 'interface', 'enum', 'record', 'struct', 'module', 'type', 'namespace')"""):
+        L = read(f)
+        if not L or not re.fullmatch(_IDENT, n): continue
+        b = max(a, min(b or a, a + 400, len(L)))
+        oname = (types.get(owner) or (owner or '').split('.')[-1]) if owner else ''
+        m = _CONST_DECL.search(L[a - 1]) if a <= len(L) else None
+        if m and m.group(1) == n and b == a:
+            seen[f'{oname}.{n}' if oname else n].add(m.group(3)); pos.add((f, a))
+            continue
+        for ln in range(a, b + 1):
+            for k, _qt, v in _CONST_ENTRY.findall(L[ln - 1]):
+                seen[f'{n}.{k}'].add(v); pos.add((f, ln))
+    return {k: next(iter(vs)) for k, vs in seen.items() if len(vs) == 1}, pos
+
+
+def _entry_key(m, consts):
+    """the string a matched entry is keyed by: its literal, or the constant it names resolved; None when unknown"""
+    ref, lit, cref = m.group(1), m.group(3), m.group(4)
+    if lit: return lit
+    return consts.get(ref or cref)
+
+
+def table_registrations(q, site_file=None, consts=None):
+    """[(decl, file, line, 'table', key, why)] — a callable registered in a handler table under the entry's key.
+    An entry in a test file is a fixture's table, and is not what the application dispatches on."""
+    if not _has(q, 'symbols'):
+        return []
+    sf = site_file or (lambda x: x)
+    read = _source_reader(q)
+    consts = string_constants(q, read)[0] if consts is None else consts
+    why = lambda key: f'registered in a handler table under "{key}" here — whoever dispatches the table by that key calls it, no call site does'
+    out = set()
+    by_line = collections.defaultdict(list)
+    for i, f, l in q("""SELECT id, file, line FROM symbols WHERE method_id IS NOT NULL AND file IS NOT NULL AND line > 0
+                         AND (is_test IS NULL OR is_test = 0) AND kind NOT IN ('module', 'constructor')"""):
+        by_line[(f, l)].append(i)
+    for (f, l), ids in by_line.items():
+        L = read(f)
+        if not L or l > len(L) or len(ids) != 1: continue
+        m = _ENTRY_DECL.match(L[l - 1])
+        key = _entry_key(m, consts) if m else None
+        if key: out.add((ids[0], sf(f), l, 'table', key, why(key)))
+    # an entry whose value NAMES the handler: the declaration a name identifies uniquely, as `registrations()` requires
+    if _has(q, 'refs'):
+        once = {}
+        for n, i, c in q("""SELECT name, min(id), count(*) FROM symbols WHERE method_id IS NOT NULL AND name IS NOT NULL
+                            AND name NOT LIKE '<%' GROUP BY name"""):
+            if c == 1: once[n] = i
+        tf = {x for (x,) in q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
+        for n, f, l in q("SELECT DISTINCT name, file, line FROM refs WHERE line > 0"):
+            if n not in once or f in tf: continue
+            L = read(f)
+            if not L or l > len(L): continue
+            m = _ENTRY_REF.match(L[l - 1])
+            if not m or m.group(5).split('.')[-1] != n: continue
+            key = _entry_key(m, consts)
+            if key: out.add((once[n], sf(f), l, 'table', key, why(key)))
+    return sorted(out)
+
+
+def table_key_writes(q, keys, consts=None, cpos=None):
+    """[(value, file, line)] — where a handler-table key in `keys` is WRITTEN: a literal of it, or a constant that
+    resolves to it, outside a key position and outside the constant's own declaration. What a table's key is joined to."""
+    if not keys:
+        return []
+    read = _source_reader(q)
+    if consts is None or cpos is None:
+        consts, cpos = string_constants(q, read)
+    out = set()
+    def written(text, token):
+        for mm in re.finditer(re.escape(token), text):
+            # a constant is not the tail of a longer name (`MY_TOPICS.X`) or the head of a longer chain (`TOPICS.X.y`)
+            if token[0] not in '\'"`' and (re.match(r'[\w$]', text[mm.start() - 1:mm.start()] or ' ')
+                                         or re.match(r'[\w$.]', text[mm.end():mm.end() + 1] or ' ')): continue
+            if not _KEY_POS.match(text, mm.end()): return True
+        return False
+    if _has(q, 'literals'):
+        for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+            if v not in keys or (f, l) in cpos: continue
+            L = read(f)
+            text = L[l - 1] if L and l <= len(L) else None
+            if text is None or written(text, f"'{v}'") or written(text, f'"{v}"') or written(text, f'`{v}`'):
+                out.add((v, f, l))
+    names = collections.defaultdict(set)                       # last segment -> the constants it may end
+    for c, v in consts.items():
+        if v in keys: names[c.split('.')[-1]].add(c)
+    if names and _has(q, 'refs'):
+        for n, f, l in q("SELECT DISTINCT name, file, line FROM refs WHERE line > 0"):
+            if n not in names or (f, l) in cpos: continue
+            L = read(f)
+            if not L or l > len(L): continue
+            for c in names[n]:
+                if written(L[l - 1], c): out.add((consts[c], f, l))
+    return sorted(out)
 
 
 # ── the same join the rules make, for a caller that has no Datalog ───────────────────────────────────────────
@@ -1012,16 +1155,22 @@ def key_edges(q, at, site_file=None, cap=None, use_cap=None):
     if not _has(q, 'literals'):
         return []
     reg = collections.defaultdict(set)
-    for decl, _f, _l, _kind, key, _why in all_registrations(q, site_file):
-        if decl and key: reg[key].add(decl)
+    table = collections.defaultdict(set)                    # a handler table's key -> the declarations it registers
+    for decl, _f, _l, kind, key, _why in all_registrations(q, site_file):
+        if decl and key:
+            reg[key].add(decl)
+            if kind == 'table': table[key].add(decl)
     if not reg:
         return []
     writes = collections.defaultdict(set)
-    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+    for v, f, l in key_writes(q, set(table)):
         if not isinstance(v, str) or len(v) > 160: continue
         c = at(f, l)
-        if c: writes[v].add(c)
-    capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items() if len(cs) > use_cap}
+        if c and c not in table.get(v, ()): writes[v].add(c)
+    # the rules' table_key: a table key's writers in test files drive its handler and are not counted against it
+    tests = {i for (i,) in q("SELECT id FROM symbols WHERE is_test = 1 AND method_id IS NOT NULL")} if table else set()
+    capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items()
+                                                                if len(cs - tests if k in table else cs) > use_cap}
     out = set()
     for v, callers in writes.items():
         for key in route_candidates(v, reg):
@@ -1030,3 +1179,14 @@ def key_edges(q, at, site_file=None, cap=None, use_cap=None):
                 for d in reg[key]:
                     if c != d: out.add((c, d, key))
     return sorted(out)
+
+
+def key_writes(q, table_keys=None):
+    """[(value, file, line)] — every string a callable writes that a registration key may be joined to: the literals,
+    except that a handler table's key is written where table_key_writes says (a dotted literal or a constant, never
+    the table's own key position or the constant's declaration)."""
+    if table_keys is None:
+        table_keys = {r[4] for r in table_registrations(q)}
+    rows = [(v, f, l) for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL")
+            if v not in table_keys] if _has(q, 'literals') else []
+    return rows + table_key_writes(q, table_keys)
