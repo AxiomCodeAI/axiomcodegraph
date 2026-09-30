@@ -207,7 +207,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         results = list(ex.map(impact, decls[:3])); bodies = list(ex.map(impact, body[:3]))
-    base = (ch.get('built_at') or '')[:10]
+    base = '' if ch.get('against_index') else (ch.get('built_at') or '')[:10]    # no commit recorded: nothing to name
     if decls: lines.append(f"graph: this edit changed {len(decls)} declaration(s) in {rel}" + (f" (against the graph's commit {base})" if base and before is None else '') + " —")
     for d, j in results:
         head = f"  {d.get('label') or d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
@@ -263,6 +263,10 @@ elif tool == 'Read':
         try: against = open(os.path.join(cwd, '.axiomcode', 'out', 'indexed-tree')).read().strip() or built
         except OSError: against = built
         if against != 'nogit' and subprocess.run(['git', 'diff', '--quiet', against, '--', rel], cwd=cwd, capture_output=True).returncode == 1: stale = f" — this file changed since the graph was built at {built[:10]}: lines are the graph's, not the file's"
+        elif against == 'nogit':                                   # no commit recorded: the hash the index read it with
+            import ax_fresh
+            rec = ((ax_fresh.load_table(cwd) or {}).get('files') or {}).get(rel)
+            if rec and ax_fresh.digest(os.path.join(cwd, rel)) != rec[2]: stale = " — this file changed since the graph was indexed: lines are the graph's, not the file's"
     except Exception: pass
     if rows:
         st = load_state(); ctx = set(context_ids())
