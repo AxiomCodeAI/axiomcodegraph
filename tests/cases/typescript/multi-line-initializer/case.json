@@ -3,7 +3,7 @@
  "src": "src",
  "checks": [
   {
-   "why": "an edit on the second line of a const whose object initializer spans lines is that const's initializer, not the module's body",
+   "why": "an edit on the second line of a const whose object initializer spans lines is that const's (here its declared key's) initializer, not the module's body, and a key's value is no type",
    "run": [
     "changed",
     "{repo}",
@@ -15,11 +15,12 @@
     "src/config.ts"
    ],
    "want": [
-    "field      Settings",
-    "initializer"
+    "field      Settings.retries",
+    "initializer changed"
    ],
    "avoid": [
-    "<module>"
+    "<module>",
+    "type 3"
    ]
   },
   {
@@ -44,7 +45,7 @@
    ]
   },
   {
-   "why": "a member removed from it too",
+   "why": "a member removed from it is that key's removal, not the module's body",
    "run": [
     "changed",
     "{repo}",
@@ -56,12 +57,10 @@
     "src/config.ts"
    ],
    "want": [
-    "field      Tokens",
-    "initializer"
+    "removed    Tokens.Store"
    ],
    "avoid": [
-    "<module>",
-    "removed"
+    "<module>"
    ]
   },
   {
@@ -105,7 +104,7 @@
    ]
   },
   {
-   "why": "control: a one-line const is named as before",
+   "why": "control: an edit to a one-line const's value is still its initializer, never a rename of its key to the const's name",
    "run": [
     "changed",
     "{repo}",
@@ -117,12 +116,13 @@
     "src/config.ts"
    ],
    "want": [
-    "field      LIMIT",
-    "initializer"
+    "LIMIT",
+    "initializer changed"
    ],
    "avoid": [
     "<module>",
-    "Settings"
+    "Settings",
+    "renamed"
    ]
   },
   {

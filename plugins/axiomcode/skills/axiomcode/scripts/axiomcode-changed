@@ -776,7 +776,7 @@ class Changed:
             multi-line static initializer) was "body <module>" or "inside <type>", and test-impact seeded from every
             declaration of the module instead of the const. The narrowest field whose span holds ln after its first line
             (from it too with first=True, for an insertion after that line); None when a callable written inside the
-            initializer (an object literal's method) holds ln itself: that callable's body is its own.
+            initializer (an object literal's method, a table's lambda) holds ln itself: that callable's body is its own.
             A Python module-level name is recorded from its first binding to its last (`x = 0` at the top, `x = 5` at the
             bottom spans the file), not by its statement: there the span is the statement's own lines, while a bracket
             it opens is still open or a line ends in a backslash"""
@@ -790,7 +790,7 @@ class Changed:
                 return x[0]
             inside = lambda x: x[0] <= ln < end(x) if first else x[0] < ln <= end(x)
             fx = min((x for x in decls if x[3] in FIELD_KINDS and inside(x)), key=lambda x: end(x) - x[0], default=None)
-            inner = narrowest(ln, {'method', 'function', 'constructor'}) if fx else None
+            inner = (narrowest(ln, {'method', 'function', 'constructor'}) or narrowest(ln, None, lambdas=True)) if fx else None
             return None if inner and fx[0] <= inner[0] and inner[1] <= end(fx) else fx
         def decl_after(ln, L):
             """the declaration whose header starts within 3 lines after ln (an annotation / decorator line belongs to it)"""
@@ -1068,6 +1068,12 @@ class Changed:
                     again = still_declared(n, k, na or a)
                     detail = (f'may have changed: still assigned at line {again}' if again else
                               f'may have changed: no assignment of it near its line, but the new text still names it' if any(re.search(rf'\b{re.escape(n)}\b', x) for x in NS) else
+                              'removed or renamed')
+                # A DATA KEY OF A CONST OBJECT (`Settings.retries` in `const Settings = { retries: 3 }`) is written `key: value`:
+                # read as a typed field, `retries: 3` → `retries: 4` was "type 3, → 4,", and on a one-line const the key
+                # line's declared name (`LIMIT`) made `LIMIT.max` "renamed → LIMIT". Its value is its initializer
+                elif '.' in d and any(kk in FIELD_KINDS and dd == d.split('.')[0] for aa, bb, ii, kk, dd, nn in decls):
+                    detail = ('initializer changed' if re.search(rf'(?:^|[{{,\s])["\']?{re.escape(n)}["\']?\s*:', nline) else
                               'removed or renamed')
                 elif ot and nt and ot != nt: detail = f'type {ot} → {nt}'
                 elif nn_ and nn_ != n: detail = f'renamed → {nn_}'
