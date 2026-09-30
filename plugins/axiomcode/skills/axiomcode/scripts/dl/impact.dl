@@ -1001,6 +1001,15 @@ fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
 // test route carries the `remote` rung, so it is never read as a call chain. One direction only: a handler does
 // not depend on who sends to it.
 fw_edge(a, b, "remote") :- remote(a, b, _, _, _), a != b.
+// A SERVLET FILTER A TEST'S CONTEXT HOLDS. A filter handed to HttpSecurity in a configuration the test class loads
+// (@Import, @ContextConfiguration, a whole-application @SpringBootTest), or a filter that is a component of the
+// application, runs on every request the test sends, and no call site says so (ax_registration.filter_links). Only
+// the test methods that send a request get the hop; its own rung, `registered`, never a call chain.
+.decl filter_run(a:symbol, b:symbol, how:symbol)                  .input filter_run
+fw_edge(a, b, "filter") :- filter_run(a, b, _), a != b.
+// and the filter's own answer names who runs it, worded as a framework hop (the `framework` rule above)
+direct(q, c, "uses", cat("framework-mediated, not a call: servlet_filter via ", cat(how, " [registered]")), "framework", "", 0)
+    :- target(q, "method", m, _), filter_run(c, m, how), c != m.
 // THE PROTOCOL MEMBERS OF A TYPE YOU CONSTRUCT. `with Audit(...) as a`, `for line in audit`, `a == b`, `len(x)`,
 // `x[k]` — each runs a method, and none of them writes its name, so `__enter__`, `__iter__`, `__eq__` and their
 // siblings have no call site at all and a test that drives them looks unrelated. The one thing the graph does see
