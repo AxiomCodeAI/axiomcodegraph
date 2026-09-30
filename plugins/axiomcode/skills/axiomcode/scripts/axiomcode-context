@@ -761,7 +761,167 @@ CONTAINER = frozenset('items keys values get pop popitem append extend add updat
                       'length size isEmpty contains equals hashCode'.split())
 
 
-def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
+DISPATCH_NAMED = 6         # the registered handlers a dispatch point names; the rest are counted
+HANDOFF = {}               # (step, registration line, file) -> the declaration that registered it
+ENTRY_NOTE = {}            # entry step -> why the flow starts there, when it is not a match of the task's words
+
+
+def param_names(g, x):
+    """the parameter names of `x`, read from the text of its signature: the first balanced (...) after its name."""
+    sy = g.sym.get(x) or {}
+    if not sy.get('file') or not sy.get('line'): return set()
+    text = ' '.join(source_lines(g.repo, sy['file'])[sy['line'] - 1:sy['line'] + 3])
+    nm = sy.get('name') or ''
+    k = text.find(nm + '(') if nm and nm + '(' in text else 0
+    a = text.find('(', k)
+    if a < 0: return set()
+    depth, b = 0, a
+    for b in range(a, len(text)):
+        depth += {'(': 1, ')': -1}.get(text[b], 0)
+        if depth == 0: break
+    return set(re.findall(r'[A-Za-z_$][\w$]*', re.sub(r'=[^,)]*', '', text[a + 1:b]))) - {'self', 'this'}
+
+
+def handoffs(g, rows, project):
+    """where a registered callback HANDS ON by calling its own parameter: `function auth(req, res, next) { next(); }`
+    registered with `router.use(auth)`. The framework runs the chain, so no call edge leaves `next()`; what it runs is
+    what the same function registers after it on the same receiver with the same method (`router.use('/api', proxy)`),
+    in the order written. Returns step -> [(registration line, continuation, 'handoff', file)], FLOW_FAN at most.
+    A callback that calls no parameter (a route handler that sends the response) ends the chain and continues nowhere;
+    a registration on another receiver in the same function is another chain."""
+    regs = [r for r in rows if r['t'] == 'callback_registered' and r['m'] and project(r['m'])]
+    if not regs: return {}
+    sites = {r['id']: r for r in g.q("""SELECT DISTINCT s.id, s.caller_id, s.callee_name, s.file_path, s.start_line, s.start_column
+                                         FROM call_sites s JOIN call_edges e ON e.call_site_id = s.id
+                                         WHERE e.tier = 'callback_registered'""")}
+    def site_text(s):
+        ln = source_lines(g.repo, g.site_file(s['file_path']))
+        a = s['start_line'] or 0
+        if not 0 < a <= len(ln): return ''
+        return ' '.join([ln[a - 1][max((s['start_column'] or 1) - 1, 0):]] + ln[a:a + 5])
+    def receiver(text, name):
+        m_ = re.match(r'\s*([\w$.\[\]]*?)\s*\??\.\s*' + re.escape(name) + r'\s*\(', text)
+        return m_.group(1) if m_ else ''
+    def arg_at(text, y):
+        """where callback `y` is written among the site's arguments: its own name, or the factory that makes it
+        (`requireAuth(auth)` makes the middleware). None when it is passed through a variable (`limiter`)."""
+        p = made_by(g, y)
+        hits = [m_.start() for nm in {(g.sym.get(y) or {}).get('name'), (g.sym.get(p) or {}).get('name') if p else None}
+                if nm and not nm.startswith('<') for m_ in [re.search(r'(?<![\w$])' + re.escape(nm) + r'(?![\w$])', text)] if m_]
+        return min(hits) if hits else None
+    chain = collections.defaultdict(list)          # (registering caller, method, receiver) -> [(line, col, arg, callback, file)]
+    where = {}                                     # callback -> [(chain key, (line, col, arg))]
+    for r in regs:
+        s = sites.get(r['sid'])
+        if not s or not s['callee_name'] or s['callee_name'] in CONTAINER: continue
+        text = site_text(s)
+        key = (s['caller_id'], s['callee_name'], receiver(text, s['callee_name']))
+        pos = (s['start_line'] or 0, s['start_column'] or 0, arg_at(text, r['m']))
+        chain[key].append(pos + (r['m'], g.site_file(s['file_path'])))
+        where.setdefault(r['m'], []).append((key, pos))
+    calls = collections.defaultdict(set)           # callback -> the names it calls
+    ids = list(where)
+    for k in range(0, len(ids), 500):
+        part = ids[k:k + 500]
+        for c, nm in g.q(f"SELECT caller_id, callee_name FROM call_sites WHERE caller_id IN ({','.join('?' * len(part))})", *part):
+            if nm: calls[c].add(nm)
+    out = {}
+    for x, regd in where.items():
+        hands = calls.get(x, set()) & param_names(g, x)
+        if not hands: continue
+        nxt = []
+        for key, (l0, c0, a0) in regd:
+            # a later registration follows; an argument of the SAME call follows only when both are written there and
+            # it comes after (`use(auth, limiter)`): one passed through a variable has no place to order it by
+            nxt += [(l, y, f, key[0]) for l, c, a, y, f in sorted(chain[key], key=lambda t: (t[0], t[1], t[2] or 0))
+                    if y != x and ((l, c) > (l0, c0) or ((l, c) == (l0, c0) and a0 is not None and (a is None or a > a0)))]
+        seen, keep_ = set(), []
+        for l, y, f, by in nxt:
+            if y in seen: continue
+            seen.add(y); keep_.append((l, y, 'handoff', f))
+            HANDOFF[(y, l, f)] = by
+        if keep_: out[x] = keep_[:FLOW_FAN]
+    return out
+
+
+PRODUCE = frozenset('publish emit send forward produce enqueue broadcast'.split())
+
+
+def asked_verbs(task):
+    """the producing verbs the task is written with, any inflection: 'published', 'forwards', 'sending'."""
+    out = set()
+    for w in re.findall(r'[a-z]+', task_text(task).lower()):
+        for v in PRODUCE:
+            if w == v or (w.startswith(v[:-1] if v.endswith('e') else v) and len(w) - len(v) <= 3): out.add(v)
+    return out
+
+
+def producer_first(g, roots, seeds, task, terms):
+    """a question naming the PRODUCING side ('how are events published and dispatched') matched the bus's own
+    `publish`, and the flow started inside the bus: the code that publishes was never shown. When an entry point is
+    itself named for a verb the task asks with, the flow starts at the project code that calls it from outside its own
+    type or module — the caller matching most of the task's words — and runs through it. A root the task does not ask
+    that way stays.
+    An injected bus is often an untyped receiver (`this.bus.publish(...)`), so no edge reaches the method from the code
+    that publishes. When no resolved caller qualifies and the name is declared in few places (GAP_DECLS), a caller
+    that writes the name on an unresolved site is taken, labelled `by name`, and the method stays the next root."""
+    verbs = asked_verbs(task)
+    if not verbs: return roots
+    tset = set(terms)
+    usable = lambda c, sy: (c.get('method_id') and not c.get('is_test') and not (c.get('file') or '').startswith('<')
+                            and not (c.get('name') or '<').startswith('<')
+                            and (c.get('qualified_name') or '').rsplit('.', 1)[0] != (sy.get('qualified_name') or '').rsplit('.', 1)[0])
+    score = lambda c: len(tset & set(subtokens((c.get('display') or '') + ' ' + (c.get('file') or ''))))
+    for s in seeds:
+        sy = g.sym.get(s) or {}
+        nm = sy.get('name') or ''
+        toks = subtokens(nm)
+        if not sy.get('method_id') or not toks or toks[0] not in verbs: continue
+        cands = []
+        for r in g.q("SELECT DISTINCT caller_id c, tier t FROM call_edges WHERE callee_method_id = ?", s):
+            c = g.sym.get(r['c']) or {}
+            if usable(c, sy) and ax_edges.direct_cert(r['t']) == 'resolved':
+                cands.append((-score(c), c.get('file') or '', c.get('line') or 0, r['c'], None))
+        if not any(c_[0] for c_ in cands):
+            decls = sum(1 for x in g.sym.values() if x.get('name') == nm and x.get('method_id') and not x.get('is_test')
+                        and not (x.get('file') or '').startswith('<'))
+            if decls <= GAP_DECLS:
+                for r in g.q("""SELECT s.caller_id c, min(s.start_line) l FROM call_sites s
+                                WHERE s.callee_name = ? AND NOT EXISTS (SELECT 1 FROM call_edges e WHERE e.call_site_id = s.id
+                                                                        AND e.callee_method_id IS NOT NULL)
+                                GROUP BY s.caller_id""", nm):
+                    c = g.sym.get(r['c']) or {}
+                    if usable(c, sy): cands.append((-score(c), c.get('file') or '', c.get('line') or 0, r['c'], r['l']))
+        cands = [c_ for c_ in cands if c_[0]]      # no caller the task's words point at: which producer is a guess
+        if not cands: continue
+        _h, _f, _l, p, byname = min(cands, key=lambda c_: (c_[4] is not None,) + c_[:3])
+        if byname is None:
+            return [p] + [x for x in roots if x != s and x != p][:FLOW_ROOTS - 1]
+        ENTRY_NOTE[p] = f"calls {nm}() by name at L{byname} (receiver not typed): the producer of {g.disp(s)}, which follows"
+        return [p, s]
+    return roots
+
+
+def made_by(g, x):
+    """the function a nested function is written inside — the factory that makes a closure (`requireAuth` returning
+    the middleware) — or None for a top-level function or a class member.
+    Read from the spans, which every language records the same way (a TypeScript qualified name is flat,
+    `src/gateway#inner`): the narrowest named function whose span holds this one."""
+    sy = g.sym.get(x) or {}
+    f, a, b = sy.get('file'), sy.get('line'), sy.get('end_line') or sy.get('line')
+    if not sy.get('method_id') or not f or not a or f.startswith('<'): return None
+    if not hasattr(g, '_fn_spans'):
+        g._fn_spans = collections.defaultdict(list)
+        for i, s in g.sym.items():
+            if s.get('method_id') and s.get('line') and not (s.get('name') or '<').startswith('<'):
+                g._fn_spans[s.get('file')].append((s['line'], s.get('end_line') or s['line'], i))
+    best = None
+    for c, d, i in g._fn_spans.get(f, ()):
+        if i != x and c <= a and b <= d and (c, d) != (a, b) and (best is None or d - c < best[0]): best = (d - c, i)
+    return best[1] if best else None
+
+
+def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS, shallow=frozenset()):
     """The call flow from `roots`, in the order the calls are written. Nothing here is ranked or scored.
 
     Where a flow STARTS is the reader's decision (--from) or the entry points this verb already chose; which of a
@@ -779,11 +939,15 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     gaps = collections.defaultdict(list)           # caller -> [(line, name)]
     fan = collections.Counter()
     rows = g.q("""SELECT e.call_site_id sid, e.caller_id c, e.callee_method_id m, e.tier t, coalesce(e.callee_label, s.callee_name) n,
-                         s.start_line l, s.file_path f
+                         s.start_line l, s.file_path f, s.callee_name cn
                   FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id""")
+    project = lambda m: m in g.sym and not (g.sym[m].get('file') or '').startswith('<') and not g.sym[m].get('is_test')
+    # the fan of a site counts what a flow could show: a test's handler registered on the same bus is one more candidate
+    # of `handler(envelope)`, and six of them hid the three the project registers
     for r in rows:
-        if r['m']: fan[r['sid']] += 1
+        if r['m'] and project(r['m']): fan[r['sid']] += 1
     exits = collections.defaultdict(list)          # caller -> [(line, library call name)] that hand the flow to a library
+    wide = collections.defaultdict(dict)           # caller -> {(line, name written): [candidates]} too many to be steps
     for r in rows:
         lib = (r['t'] or '').startswith('boundary_lib') or (r['m'] in g.sym and (g.sym[r['m']].get('file') or '') == '<library>')
         if lib:
@@ -791,9 +955,14 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
             if nm and DISPATCH(nm): exits[r['c']].append((r['l'] or 0, nm, 'library call, target not followed'))
             continue
         if r['m'] and r['m'] in g.sym and r['m'] != r['c']:
-            sy = g.sym[r['m']]
-            if (sy.get('file') or '').startswith('<') or sy.get('is_test'): continue
-            if ax_edges.direct_cert(r['t']) != 'resolved' and fan[r['sid']] > FLOW_FAN: continue
+            if not project(r['m']): continue
+            if ax_edges.direct_cert(r['t']) != 'resolved' and fan[r['sid']] > FLOW_FAN:
+                # a call through a VALUE (`handler(envelope)`, `table[key].apply(...)`) whose candidates are named
+                # otherwise is a dispatch point: what runs there is what was registered, so it is named on the step.
+                # `pair[0]` matched to every `__getitem__` calls candidates of its own name, and stays unlisted.
+                if r['cn'] and r['cn'] != g.sym[r['m']].get('name') and r['t'] != 'callback_registered':
+                    wide[r['c']].setdefault((r['l'] or 0, r['cn']), []).append(r['m'])
+                continue
             out[r['c']].append((r['l'] or 0, r['m'], r['t'], r['f']))
         elif not r['m'] and r['t'] == 'ambiguous_unknown' and r['n']:
             gaps[r['c']].append((r['l'] or 0, r['n']))
@@ -809,7 +978,9 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     for b, ms in held.items():
         if len(ms) <= FLOW_FAN: out[b] += [(0, m, 'value', None) for m in ms]
     for x in out: out[x].sort(key=lambda r: r[0])
-    declared = collections.Counter((sy.get('name') or '') for sy in g.sym.values()
+    for x, hs in handoffs(g, rows, project).items():
+        out[x] += [h for h in hs if h[1] not in {y for _l, y, _t, _f in out[x]}]
+    declared =collections.Counter((sy.get('name') or '') for sy in g.sym.values()
                                    if sy.get('method_id') and not (sy.get('file') or '').startswith('<') and not sy.get('is_test'))
     for x in list(gaps):
         # a call the graph could not resolve to a name declared NOWHERE here is a library the index does not hold (a
@@ -824,6 +995,7 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     for _d in range(depth_cap):
         nxt = []
         for x in frontier:
+            if x in shallow: continue
             for _l, y, _t, _f in out.get(x, ()):
                 if y not in keep and len(keep) < max_steps:
                     keep.add(y); nxt.append(y)
@@ -837,7 +1009,7 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
             steps.append((depth, x, via, seen[x])); return
         seen[x] = sum(1 for st in steps if st[3] is None) + 1       # the printed step number
         steps.append((depth, x, via, None))
-        if depth >= depth_cap: return
+        if depth >= depth_cap or x in shallow: return
         done = set()
         for l, y, t, f in out.get(x, ()):
             if y in done or y not in keep: continue
@@ -852,6 +1024,12 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
     marks = {}
     for x in {x for _d, x, _v, again in steps if again is None}:
         m = [f"leaves the graph: {nm}() L{l} ({why})" for l, nm, why in sorted(set(exits.get(x, ())))[:2]]
+        for (l, nm), ms in sorted(wide.get(x, {}).items()):
+            ms = sorted(set(ms), key=lambda y: (g.sym[y].get('file') or '', g.sym[y].get('line') or 0))
+            names = [g.disp(y) + (f" ({g.loc(y)})" if (g.sym[y].get('name') or '<').startswith('<') else '') for y in ms]
+            m.append(f"dispatch point: {nm}() L{l} runs one of {len(ms)} registered: " + ', '.join(names[:DISPATCH_NAMED])
+                     + (f" … +{len(ms) - DISPATCH_NAMED} more" if len(ms) > DISPATCH_NAMED else '')
+                     + " — `--from <one>` follows it")
         if not any(y in keep for _l, y, _t, _f in out.get(x, ())) and not gaps.get(x) and bodiless(g, x):
             bound = text_bindings(g, [x], want_ext=('.xml', '.sql'))[:1]      # the best-proven one: a mapper of this type
             m.append("no body in the graph (interface/abstract): the flow cannot continue from here"
@@ -916,8 +1094,14 @@ def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
             head, where = f"{pad}{arrow} {g.disp(x)}", (f"called at L{l}: {src}" if src else f"called at L{l}")
             if t == 'value':
                 where = "held by the step above: assigned or passed where it is expected, so a call to it runs this"
+            if t == 'handoff':
+                by = HANDOFF.get((x, l, f))
+                where = (f"runs next: registered after it by {g.disp(by) if by else '?'} at {g.site_file(f)}:{l}"
+                         + (f": {src}" if src else '') + " — the step above hands on by calling its parameter")
         else:
-            head, where = g.disp(x), "entry point"
+            head, where = g.disp(x), "entry point" + (f" · {ENTRY_NOTE[x]}" if x in ENTRY_NOTE else '')
+        mk_by = made_by(g, x)
+        if mk_by: where += f" · made by {g.disp(mk_by)}"
         n += 1
         print(f"  {n:2} {head:60.60}  {g.loc(x)}")
         print(f"     {pad}   {where}")
@@ -1170,10 +1354,18 @@ def main(argv):
             cands += [x for x in type_members(g, [s_ for s_, _t, _sc in seeds], scored) if x not in cands]
             asked = {s_ for s_, _why in named}
             roots_ = sorted(cands, key=lambda x: x not in asked and bodiless(g, x))[:FLOW_ROOTS]
-        roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS)
+            roots_ = producer_first(g, roots_, [s_ for s_, _t, _sc in seeds], task, terms)
+        # a producer joined only by name is shown as one step: its code holds the call, and the budget goes to the
+        # mechanism the task asked about rather than to everything else the producer does
+        roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS,
+                                         shallow=frozenset(ENTRY_NOTE))
         RESULT['flow'] = [{'step': k + 1, 'depth': d, 'name': g.disp(x), 'at': g.loc(x),
                            'called_at_line': (via[0] if via else None), 'certainty': (ax_edges.direct_cert(via[1]) if via else 'entry'),
                            'repeat_of': again, 'unresolved': [f"{nm} L{l}" for l, nm in gaps.get(x, ())[:4]],
+                           'made_by': (g.disp(made_by(g, x)) if made_by(g, x) else None),
+                           'why_here': (ENTRY_NOTE.get(x) if not via else None),
+                           'registered_by': (g.disp(HANDOFF[(x, via[0], via[2])]) if via and via[1] == 'handoff'
+                                             and (x, via[0], via[2]) in HANDOFF else None),
                            'leaves_graph': (marks.get(x, []) if again is None else [])}
                           for k, (d, x, via, again) in enumerate(steps)]
         if not print_flow(g, roots, steps, gaps, bool(starts), show_source, marks):
