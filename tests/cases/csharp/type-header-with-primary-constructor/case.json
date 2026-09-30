@@ -1,0 +1,114 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "file:line on a class header that writes an empty primary constructor is the class, with every use of it",
+   "run": [
+    "impact",
+    "src/App/Settings.cs:3",
+    "--grep"
+   ],
+   "want": [
+    "class MailSettings",
+    "src/App/Uses.cs:12",
+    "src/App/Uses.cs:7"
+   ],
+   "avoid": [
+    "<primary-constructor>",
+    "the change is local"
+   ]
+  },
+  {
+   "why": "a positional record's header line asked as a type is the record",
+   "run": [
+    "impact",
+    "src/App/Settings.cs:8",
+    "--kind",
+    "type",
+    "--tests-only"
+   ],
+   "want": [
+    "OrdersTests::CancelsAnOrder"
+   ],
+   "avoid": [
+    "nothing of kind type"
+   ]
+  },
+  {
+   "why": "test-impact on a parameter added to a positional record resolves the record and selects its test",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-record.txt",
+    "--file",
+    "src/App/Settings.cs",
+    "--why"
+   ],
+   "want": [
+    "OrdersTests.CancelsAnOrder"
+   ],
+   "avoid": [
+    "could not be resolved",
+    "ReadsTheHost",
+    "MakesPlain"
+   ]
+  },
+  {
+   "why": "test-impact on a parameter added to a class's primary constructor selects the tests that use the class",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-class.txt",
+    "--file",
+    "src/App/Settings.cs",
+    "--why"
+   ],
+   "want": [
+    "OrdersTests.ReadsTheHost"
+   ],
+   "avoid": [
+    "could not be resolved",
+    "CancelsAnOrder",
+    "MakesPlain"
+   ]
+  },
+  {
+   "why": "control: file:line on a constructor written on its own line is that constructor",
+   "run": [
+    "impact",
+    "src/App/Settings.cs:12"
+   ],
+   "want": [
+    "Plain.<constructor>"
+   ]
+  },
+  {
+   "why": "near miss: an ordinary constructor's parameter edit selects that constructor's tests only",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-plain.txt",
+    "--file",
+    "src/App/Settings.cs",
+    "--why"
+   ],
+   "want": [
+    "OrdersTests.MakesPlain"
+   ],
+   "avoid": [
+    "CancelsAnOrder",
+    "ReadsTheHost"
+   ]
+  }
+ ]
+}

@@ -277,7 +277,13 @@ class G:
             if (fields and (self.is_lambda(x['id']) or s.get('name') in FIELD_OWNED_NAMES)
                     and ln <= (s.get('line') or 0) and (s.get('end_line') or 0) <= fend): continue
             if types and s.get('kind') == 'constructor' and s.get('line') == ln and (s.get('end_line') or ln) == ln: continue
-            return None                                                   # a callable of its own is written on this line
+            # A PRIMARY CONSTRUCTOR is written IN the type's header, `class Settings()` / `record Cancel(int N)`: the
+            # line is the type's, and the type's answer holds the constructor's callers (its constructions) as well as
+            # every use of the type. Taken as a callable of its own, `impact file:3` answered for the constructor alone
+            # ("the change is local" beside a DI registration and an options binding of the type), and test-impact,
+            # asking for the type there, got a refusal: "could not be resolved to a graph symbol"
+            if types and s.get('name') == '<primary-constructor>' and s.get('line') == ln: continue
+            return None                                                  # a callable of its own is written on this line
         return ('field', fields[0]) if fields else ('type', types[0])
     def name(self, i):
         """the name a reader is shown for a declaration: its display, and a lambda's place (lambda_label)"""

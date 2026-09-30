@@ -1,0 +1,13 @@
+namespace Depot.App;
+
+public class MailSettings()
+{
+    public string Host { get; set; } = "localhost";
+}
+
+public record CancelOrder(int OrderNumber);
+
+public class Plain
+{
+    public Plain(int n, int m = 0) { }
+}
