@@ -18,6 +18,13 @@ main.js:15:39 FUNCTION_CALL viaPlatform  ->  known_edge  main.js:12:1 viaPlatfor
 main.js:15:54 FUNCTION_CALL viaCtor  ->  known_edge  main.js:13:1 viaCtor
 main.js:15:65 FUNCTION_CALL viaProject  ->  known_edge  main.js:14:1 viaProject
 main.js:16:1 FUNCTION_CALL main  ->  known_edge  main.js:15:1 main
+main.js:19:16 FUNCTION_CALL walk  ->  ambiguous_unknown  -
+main.js:19:16 FUNCTION_CALL walk  ->  callback_registered  main.js:19:21 <arrow>
+main.js:19:33 FUNCTION_CALL migrate  ->  known_edge  main.js:18:1 migrate
+main.js:20:18 FUNCTION_CALL walk  ->  ambiguous_unknown  -
+main.js:21:25 METHOD_CALL walk.register  ->  ambiguous_unknown  -
+main.js:21:25 METHOD_CALL walk.register  ->  callback_registered  main.js:19:21 <arrow>
+main.js:21:48 METHOD_CALL walk.register  ->  ambiguous_unknown  -
 main.js:8:38 FUNCTION_CALL cb  ->  ambiguous_unknown  -
 main.js:9:42 METHOD_CALL items.map  ->  ambient_terminal  -
 main.js:9:42 METHOD_CALL items.map  ->  callback_registered  main.js:9:52 <arrow>

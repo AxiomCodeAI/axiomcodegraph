@@ -27,7 +27,7 @@
 
 // ── callee_value(CallExpr, K, I) — the value being invoked ─────────────────
 callee_value(ce, k, i) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
-    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i), k != "libwrap".   # what a package wrapper returns runs nothing known (callbacks.dl)
 // `f.call(o)`: f runs. But the parser classifies by NAME, so `selector.apply(node)`
 // on an object with its own `apply` method is here too — and for that reading the
 // CALLEE child (the object) is the receiver and its member is the target. Both
