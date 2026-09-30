@@ -18,6 +18,7 @@ one that "calls it where the graph cannot follow" was wrong for every synchronou
 """
 import collections
 import re
+import os
 
 ROUTE_VERB = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'connect', 'all', 'use', 'route'}
 # the verbs that name an HTTP method; `all`, `use` and `route` register or mount without naming one
@@ -717,7 +718,15 @@ def decoration_keys(q, site_file=None):
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')
             out.append((owner, sf(f) if f else '', l or 0, kind, key, why))
-    out += _prefixed_routes(q, out, sf)
+    suffix = set()
+    out += _prefixed_routes(q, out, sf, suffix)
+    # A JAVA HANDLER UNDER A TYPE PREFIX IS NOT SERVED AT ITS OWN PATH ALONE. `@RequestMapping("/auth")` on the class and
+    # `@PostMapping("/login")` on the method serve "/auth/login" and nothing else, but the method's decoration was also
+    # read as a route "/login" on its own, so any "/login" written anywhere (a security rule, a string array in a
+    # test) reached it, and a bare template such as "/{ids}" matched every one-segment path in the repository. Where
+    # the type's prefix is known, only the composed route is kept.
+    if suffix:
+        out = [r for r in out if not (r[3] == 'route' and (r[0], r[4]) in suffix)]
     return sorted(set(out))
 
 
@@ -742,7 +751,7 @@ def _join(a, b):
     return '/' + '/'.join(x.strip('/') for x in (a, b) if x and x.strip('/'))
 
 
-def _prefixed_routes(q, rows, sf):
+def _prefixed_routes(q, rows, sf, suffix=None):
     if not _has(q, 'symbols'):
         return []
     seen = {(r[0], r[4]) for r in rows}
@@ -757,12 +766,21 @@ def _prefixed_routes(q, rows, sf):
         if is_type:
             if p_: prefix[d].add(p_)
         else:
-            methods.append((owner, short, p_, f, l))
+            # a Java mapping may serve several paths (`@GetMapping(value = {"/", "/{id}"})`): each is composed
+            ps = [p_]
+            if (f or '').endswith('.java'):
+                ps = re.findall(r'"(/[^"\s]{0,120})"', text or '') or [p_]
+            for x in dict.fromkeys(ps): methods.append((owner, short, x, f, l))
     out = []
     for mid, short, p_, f, l in methods:
         d, n, o, _t = sym[mid]
         tname = (o or '').split('.')[-1]
-        for pre in sorted(prefix.get(o) or {''}):
+        pres = prefix.get(o) or {''}
+        if suffix is not None and p_ and (f or '').endswith('.java') and any(x.strip('/') for x in pres):
+            own = {_join(pre, p_) for pre in pres}
+            for raw in {p_, '/' + p_.lstrip('/')}:
+                if raw not in own: suffix.add((mid, raw))
+        for pre in sorted(pres):
             key = _join(pre, p_ or '')
             key = key.replace('[controller]', re.sub(r'Controller$', '', tname).lower()).replace('[action]', (n or '').lower())
             if key == '/' and not (pre or p_): continue
@@ -822,6 +840,56 @@ def literal_verbs(q, at, site_file=None):
         verb = min(hold)[2]
         c = at(f, l)
         if c: out.add((c, v, verb))
+    return out
+
+
+# A JAVA PATH LITERAL THAT IS NOT A REQUEST IS NOT A ROUTE KEY. `.requestMatchers("/login").permitAll()`,
+# `registry.addInterceptor(i).addPathPatterns("/**")`, `properties.setExcludes(new String[]{"/login"})` and
+# `StringUtils.isMatch("/system/**", path)` write paths, but none of them sends a request, so none of them reaches the
+# handler registered at that path: joined by key, one security config pulled 59 callables and 17 string-holding tests
+# into the impact of a service behind one controller. A literal is refused as a key when it is a pattern (holds `*`,
+# which no request path does) or when no innermost call written around it on its line is a request call (an
+# HTTP verb, MockMvc's perform / multipart, a RestTemplate or WebClient method, a URI or URL). A literal
+# written outside any call (a constant, a local later handed to a request) is kept, since its use is not visible here,
+# except the bare root "/", which such code writes for every other reason.
+_REQUEST_CALL = re.compile(r'^(get|post|put|delete|patch|head|options|perform|multipart|exchange|uri|url|'
+                           r'\w+ForObject|\w+ForEntity|postForLocation|headForHeaders|optionsForAllow|URI|URL|'
+                           r'HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|HttpHead|fromPath|fromUriString|'
+                           r'sendRedirect|getRequestDispatcher)$')
+
+
+def route_literal_refused(q, at, site_file=None):
+    """{(caller, literal, file, line)}: a Java path literal that is not the argument of a request call, so it must
+    not key-match a route (file and line as the literals table writes them)."""
+    if not (_has(q, 'literals') and _has(q, 'call_sites')):
+        return set()
+    sf = site_file or (lambda x: x)
+    calls = collections.defaultdict(list)
+    for n, f, a, b in q("SELECT callee_name, file_path, start_line, end_line FROM call_sites "
+                        "WHERE callee_name IS NOT NULL AND start_line > 0 AND file_path LIKE '%.java'"):
+        short = re.sub(r'Async$', '', (n or '').split('.')[-1].split('<')[0])
+        calls[sf(f) if f else ''].append((a, b or a, short))
+    # the call table may spell a file absolutely and the literal table relatively: matched on the trailing path too
+    by_base = collections.defaultdict(list)
+    for cf in calls: by_base[os.path.basename(cf)].append(cf)
+    def calls_in(f):
+        k = sf(f) if f else ''
+        if k in calls: return calls[k]
+        return next((calls[cf] for cf in by_base.get(os.path.basename(f or ''), ()) if cf.endswith('/' + (f or '').lstrip('/'))), ())
+    out = set()
+    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value GLOB '/*' AND file LIKE '%.java'"):
+        if not isinstance(v, str): continue
+        hold = [(b - a, -a, n) for a, b, n in calls_in(f) if a <= l <= b]
+        if '*' in v: refused = True
+        elif not hold: refused = v == '/'                                 # the bare root is a request only when one sends it
+        else:
+            # the calls on a line carry no column, so every innermost one is a candidate: a fluent request
+            # (`given().body(b).when().post("/orders")`) is a request when any of its tied innermost calls is one
+            w = min(h[0] for h in hold)
+            refused = not any(_REQUEST_CALL.match(n) for d, _a, n in hold if d == w)
+        if refused:
+            c = at(f, l)
+            if c: out.add((c, v, f, l))
     return out
 
 
@@ -1163,10 +1231,11 @@ def key_edges(q, at, site_file=None, cap=None, use_cap=None):
     if not reg:
         return []
     writes = collections.defaultdict(set)
+    refused = route_literal_refused(q, at, site_file)
     for v, f, l in key_writes(q, set(table)):
         if not isinstance(v, str) or len(v) > 160: continue
         c = at(f, l)
-        if c and c not in table.get(v, ()): writes[v].add(c)
+        if c and c not in table.get(v, ()) and (c, v, f, l) not in refused: writes[v].add(c)
     # the rules' table_key: a table key's writers in test files drive its handler and are not counted against it
     tests = {i for (i,) in q("SELECT id FROM symbols WHERE is_test = 1 AND method_id IS NOT NULL")} if table else set()
     capped = {k for k, ds in reg.items() if len(ds) > cap} | {k for k, cs in writes.items()

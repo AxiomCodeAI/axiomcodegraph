@@ -969,9 +969,12 @@ key_capped(k) :- key_use_fan(k, n), key_use_cap(c), n > c.
 .decl reg_verb(b:symbol, k:symbol, v:symbol)                      .input reg_verb
 .decl lit_verb(a:symbol, k:symbol, v:symbol)                      .input lit_verb
 .decl key_join(a:symbol, b:symbol, k:symbol, w:symbol)
-key_join(a, b, k, k) :- literal(a, k, _, _), reg_key(b, _, k), a != b, !reg_key(a, "table", k).
+// A Java path literal that sends no request (`requestMatchers("/login")`, `addPathPatterns("/**")`, a string array
+// handed to a setter) is written at no router, so it is not joined (route_lit_refused, ax_registration)
+.decl route_lit_refused(c:symbol, v:symbol, f:symbol, l:number)   .input route_lit_refused
+key_join(a, b, k, k) :- literal(a, k, f, l), !route_lit_refused(a, k, f, l), reg_key(b, _, k), a != b, !reg_key(a, "table", k).
 // the same, where the two spellings of the path differ: /orders/o-1/price written, /orders/{order_id}/price registered
-key_join(a, b, r, w) :- literal(a, w, _, _), route_alias(w, r), reg_key(b, _, r), a != b.
+key_join(a, b, r, w) :- literal(a, w, f, l), !route_lit_refused(a, w, f, l), route_alias(w, r), reg_key(b, _, r), a != b.
 .decl verb_fits(a:symbol, b:symbol, k:symbol, w:symbol)
 verb_fits(a, b, k, w) :- key_join(a, b, k, w), !reg_verb(b, k, _).
 verb_fits(a, b, k, w) :- key_join(a, b, k, w), !lit_verb(a, w, _).

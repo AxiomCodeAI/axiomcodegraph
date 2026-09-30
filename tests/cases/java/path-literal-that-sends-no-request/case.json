@@ -1,0 +1,17 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a handler under a type prefix is served at the composed route only: a bare \"/login\" in a security rule or a string array is not a request for /auth/login, and the request that sends /auth/login is",
+   "run": ["impact", "AuthController.login", "--tests"],
+   "want": ["AuthFlowTest::logsIn", "[by key]"],
+   "avoid": ["PathRulesTest", "SecurityConfig"]},
+  {"why": "a one-segment template under a prefix (/logs/{ids}) is not matched by every one-segment path in the tree, nor by a /** pattern",
+   "run": ["impact", "LogController.remove", "--tests"],
+   "want": ["LogFlowTest::removes"],
+   "avoid": ["PathRulesTest", "SecurityConfig", "LogFlowTest::checksHealth"]},
+  {"why": "near miss: a route with no type prefix is still joined to the request that sends it, and not to the security rule that names the same path",
+   "run": ["impact", "HealthController.health", "--tests"],
+   "want": ["LogFlowTest::checksHealth"],
+   "avoid": ["SecurityConfig", "PathRulesTest"]},
+  {"why": "control: a path held in a constant outside any call, then sent, still reaches its handler",
+   "run": ["impact", "LogController.list", "--tests"],
+   "want": ["LogFlowTest"]}]}
