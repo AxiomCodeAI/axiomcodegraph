@@ -82,6 +82,8 @@
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl reexport_from(f:symbol, l:number, src:symbol)               .input reexport_from
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
+// field_holder(fl, h): fl is a key of an OBJECT named h, not a member of a type (`TOPICS` of `TOPICS.CREATED`)
+.decl field_holder(fl:symbol, h:symbol)                           .input field_holder
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
 .decl faccess(c:symbol, fl:symbol, acc:symbol, tier:symbol, f:symbol, l:number) .input faccess
 .decl gen_table(d:symbol, what:symbol)                            .input gen_table
@@ -468,7 +470,10 @@ direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
 fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll),
-    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY").
+    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY"), (ek != "OBJECT_PROPERTY_KEY" ; !key_decl_at(n, f, l)).
+// the key that DECLARES another object's same-named key (`QUEUES = { CREATED: … }`) is that declaration, not a use of this one
+.decl key_decl_at(n:symbol, f:symbol, l:number)
+key_decl_at(n, f, l) :- field_holder(fl, _), field(fl, _, n, f, l).
 // an enum member is written like a type, so the parser labels the genuine reference TYPE: keep those, but only in a
 // file that can see the enum — its own directory, or a file that names the enum type somewhere
 .decl enum_member_target(q:symbol, fl:symbol)
@@ -555,7 +560,7 @@ direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, rol
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
+    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !holds_key(qn, n), !field_holder(fl, _), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // THE SAME, IN A CALLABLE THAT HAS NO OWNER TYPE. Every rule above starts at `owner(c, s)`, which in Java and
@@ -567,13 +572,25 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !holds_key(qn, n), !field_holder(fl, _), !fa_known(q, c), !const_routed(q, c, f, l).
+// A KEY OF A MODULE-LEVEL OBJECT, read behind the object's own name: `TOPICS.CREATED` reads TOPICS's key wherever it is
+// written, as `Order.TAX` reads Order's constant. The object is one value, read by its own name, so behind any OTHER
+// name (`QUEUES.CREATED`, `upstreams.workspaces`) it is another object's member, and the by-name rules above leave it
+// out (field_holder); a field of a TYPE read behind an object that holds a key of that name is left out too (holds_key)
+.decl holds_key(h:symbol, n:symbol)
+holds_key(h, n) :- field_holder(fl, h), field(fl, _, n, _, _).
+// TypeScript records the member of `TOPICS.CREATED` as a BARE name, so the qualifier decides for a bare reference too.
+// A bare name with no such qualifier is never an object's key -- a key is only ever read behind its object -- so the
+// bare rules below leave object keys out: `workspaces.close()` is a variable, not OFFSETS.workspaces
+direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, _, f, l), target(q, "field", fl, _), field(fl, t, n, _, _), field_holder(fl, h),
+    !scope(t, c), qualifier(f, l, n, h), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l).
-direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f).
+    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l), !field_holder(fl, _).
+direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f),
+    !field_holder(fl, _).
 // a bare name in a file that declares ANOTHER field of that name is that file's own: `const listAdmins = ['root']` in
 // one module and a wrapped handler of the same name in another are two declarations, and each answer carried the
 // other's readers. A function of that name declared in the file is its own the same way: `module.exports = { createUser }`

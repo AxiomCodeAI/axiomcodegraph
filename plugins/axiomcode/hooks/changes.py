@@ -176,7 +176,8 @@ if event == 'PostToolUse' and tool == 'Bash':
     moved = _graphline.base_moved_line(cwd, st)
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
     head_at = ' '.join(x for x in ('HEAD', (j.get('base_moved') or {}).get('new', '')[:10]) if x)
-    since = f"{head_at}: the commits that came in are not counted" if (AGAINST or j.get('base_moved')) else f"the graph's commit {(j.get('built_at') or '')[:10]}"
+    since = (f"{head_at}: the commits that came in are not counted" if (AGAINST or j.get('base_moved'))
+             else "the files the graph was indexed from" if j.get('against_index') else f"the graph's commit {(j.get('built_at') or '')[:10]}")
     if new:
         lines = summarize(new, f"graph: after that command, {{n}} declaration(s) changed in the working tree (against {since}) —")
         st['reported'] = list(seen | {key(d) for d in new})
@@ -189,7 +190,7 @@ elif event == 'UserPromptSubmit':
     new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
     head_at = ' '.join(x for x in ('HEAD', (j.get('base_moved') or {}).get('new', '')[:10]) if x)
     since = (f"against {head_at} (the commits that came in are not counted)" if (AGAINST or j.get('base_moved'))
-             else f"since the graph's commit {(j.get('built_at') or '')[:10]}")
+             else "since the graph was indexed" if j.get('against_index') else f"since the graph's commit {(j.get('built_at') or '')[:10]}")
     if new:
         lines = summarize(new, f"graph: {{n}} declaration(s) changed in the working tree {since} and were not reported yet —")
         st['reported'] = list(seen | {key(d) for d in new})
