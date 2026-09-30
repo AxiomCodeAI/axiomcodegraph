@@ -1,0 +1,12 @@
+repo.js:24:15 METHOD_CALL model  EXACT  repo.js:23:20
+repo.js:27:16 CONSTRUCTOR_CALL DocRepository  EXACT  repo.js:5:3
+repo.js:27:34 FUNCTION_CALL registerModels  EXACT  models.js:25:1
+repo.js:28:11 METHOD_CALL list  EXACT  repo.js:6:3
+repo.js:28:24 METHOD_CALL take  EXACT  repo.js:7:3
+repo.js:28:37 METHOD_CALL purge  EXACT  repo.js:8:3
+repo.js:28:51 METHOD_CALL due  EXACT  repo.js:9:3
+repo.js:28:63 METHOD_CALL record  EXACT  repo.js:10:3
+repo.js:28:78 METHOD_CALL save  EXACT  repo.js:11:3
+repo.js:28:91 METHOD_CALL other  EXACT  repo.js:12:3
+repo.js:29:23 CONSTRUCTOR_CALL MemoryRepository  SYNTHESIZED_OK  
+# defects: 0
