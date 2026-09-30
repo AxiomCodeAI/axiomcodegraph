@@ -19,3 +19,9 @@ public sealed class Handlers
     [Obsolete]
     public void Legacy() { }
 }
+
+// a hosted service no registration in the graph names
+public sealed class IdleWorker : BackgroundService
+{
+    protected override Task ExecuteAsync(CancellationToken t) => Task.CompletedTask;
+}
