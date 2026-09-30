@@ -18,3 +18,11 @@ function Inject(_token: string) {
 export class Consumer {
   constructor(@Inject(ROUTES.list) private readonly path: string) {}
 }
+
+export class Publisher {
+  constructor(private readonly path: string = ROUTES.list) {}
+}
+
+export function withLookup(lookup = () => ROUTES.list) {
+  return lookup();
+}

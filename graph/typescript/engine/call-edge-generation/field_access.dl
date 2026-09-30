@@ -161,14 +161,27 @@ ts_deco_expr_method(e, m) :- decorator_expr("client", e, d),
     param_decl("client", _, _, _, m, p), m != "".
 ts_deco_expr_method(c, m) :- ts_deco_expr_method(p, m), expr_child("client", p, _, _, c).
 ts_field_access_in_decorator(e) :- ts_deco_expr_method(e, _).
+// A read in a parameter's DEFAULT is its method's too: `constructor(topic = TOPICS.payments)`
+// is evaluated on every call that omits the argument, and the extractor places it in the
+// module initializer. Only there: a function written as the default keeps its own reads.
+ts_param_default_expr(e, m) :- ts_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _),
+    e != "", m != "".
+ts_param_default_expr(c, m) :- ts_param_default_expr(p, m), expr_child("client", p, _, _, c).
+ts_field_access_in_function(e) :- expr_enclosing_method(e, m), m != "", !module_init("client", m, _).
+ts_param_default_method(e, m) :- ts_param_default_expr(e, m),
+    !ts_field_access_in_function(e), !ts_field_access_in_decorator(e).
 ts_field_access_named(e) :- expr_enclosing_method(e, m), m != "".
+ts_field_access_placed(e) :- ts_field_access_named(e).
+ts_field_access_placed(e) :- ts_field_access_in_decorator(e).
+ts_field_access_placed(e) :- ts_param_default_method(e, _).
 ts_field_access_from(e, m) :- ts_field_access_site(e), ts_deco_expr_method(e, m).
+ts_field_access_from(e, m) :- ts_field_access_site(e), ts_param_default_method(e, m).
 ts_field_access_from(e, m) :- ts_field_access_site(e), expr_enclosing_method(e, m), m != "",
-    !ts_field_access_in_decorator(e).
-// ...and the MODULE itself for the residue expr_enclosing_method cannot place, which is
-// the marker call_sites.caller_id already uses in TypeScript rather than a blank. Never
-// NULL, so a site can always be attributed to the code that contains it.
-ts_field_access_from(e, mod) :- ts_field_access_site(e), !ts_field_access_named(e),
+    !ts_field_access_in_decorator(e), !ts_param_default_method(e, _).
+// ...and the MODULE itself for the residue none of those can place, which is the marker
+// call_sites.caller_id already uses in TypeScript rather than a blank. Never NULL, so a
+// site can always be attributed to the code that contains it.
+ts_field_access_from(e, mod) :- ts_field_access_site(e), !ts_field_access_placed(e),
     expr_module("client", mod, e), mod != "".
 
 // ── THE EXPORTED ROW — field_access(Site, Caller, Field, Prov, Tier, Access) ─
