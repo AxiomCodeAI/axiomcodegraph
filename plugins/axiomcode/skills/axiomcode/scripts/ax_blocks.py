@@ -16,7 +16,7 @@ places are shown and the rest counted. A verb that refuses, or finds no place, i
 import json, os, re, sqlite3, subprocess, sys
 H = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, H)
-import ax_grep
+import ax_grep, ax_front
 
 CAP = 10                 # places shown; the rest are counted
 WIDTH = 200              # a printed source line is cut here
@@ -148,7 +148,8 @@ def render(verb, doc, repo, graphs=None, text_of=None, drop=None):
 
 def verb_json(cmd):
     import ax_exec
-    r = subprocess.run(ax_exec.program(cmd + ['--json']), stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+    r = subprocess.run(ax_exec.program(cmd + ['--json']), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+    if r.stderr: sys.stderr.write(ax_front.plain(r.stderr) if ax_front.active() else r.stderr)
     try: doc = json.loads(r.stdout)
     except ValueError: doc = None
     return r, doc
@@ -485,4 +486,8 @@ def main(argv):
 
 if __name__ == '__main__':
     if len(sys.argv) < 3 or (sys.argv[1] != 'edits' and len(sys.argv) < 4): sys.exit(__doc__)
-    sys.exit(main(sys.argv[1:]))
+    # what is printed here names the four questions and index only: a note written for the full command drops the
+    # clause that names an option, and a verb is called by its front-door name (ax_front)
+    if ax_front.active(): sys.stdout = ax_front.Plain(sys.stdout); sys.stderr = ax_front.Plain(sys.stderr)
+    rc = main(sys.argv[1:]); sys.stdout.flush(); sys.stderr.flush()
+    sys.exit(rc)

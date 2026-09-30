@@ -1498,6 +1498,10 @@ def query(repo, verb, argv, fresh=False):
 def main(argv):
     if len(argv) < 2: print(__doc__); return 2
     cmd = argv[1]
+    # AT THE FRONT DOOR a note names no option and no verb the front door does not have (ax_front): the refresh line
+    # said --fresh, --no-refresh and AXIOMCODE_NO_REFRESH to a reader who can pass none of them
+    if cmd in ('query', 'baseline') and os.environ.get('AXIOMCODE_FRONT_ANSWER'):
+        import ax_front; sys.stderr = ax_front.Plain(sys.stderr)
     if cmd == 'lock':
         return 0 if _flock(int(argv[2]), '--try' not in argv) else 75
     repo = os.path.realpath(argv[2]) if len(argv) > 2 else os.getcwd()

@@ -154,6 +154,19 @@ def main():
               r.returncode == 0 and places(r.stdout) and 'shop/pricing.py:6' in r.stdout, r.stdout[:600] + r.stderr[-300:])
         check('the documented shell entry is executable', os.access(SKILL_CLI, os.X_OK))
 
+        # at the front door an answer names only the four questions and index: no option, not the full command's verbs,
+        # in the answer or in the refresh notes around it (a stale graph with refresh off prints the most of them)
+        with open(os.path.join(repo, 'shop', 'rates.py'), 'w') as f: f.write('def vat_rate():\n    return 0.3\n')
+        said = []
+        for q in (['find', 'how is the invoice total computed'], ['impact', 'vat_rate'], ['path', 'invoice', 'vat_rate'], ['impact'], ['tests']):
+            rc, out, err = cli(repo, *q, env=dict(ENV, AXIOMCODE_NO_REFRESH='1'))
+            prose = re.sub(r'(?ms)^\s*```.*?^\s*```', '', out + '\n' + err)
+            bad = re.findall(r'(?<![\w-])--[a-z][a-z-]*|\btest-impact\b|`(?:axiomcode )?(?:context|changed)\b|AXIOMCODE_[A-Z_]+|\b[a-z_]+=(?:True|False|\d)', prose)
+            said.append((' '.join(q), bad))
+        check('the front door names no option and no internal verb, in answers and in refresh notes',
+              all(not b for _q, b in said), [x for x in said if x[1]])
+        with open(os.path.join(repo, 'shop', 'rates.py'), 'w') as f: f.write(FILES['shop/rates.py'])
+
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
         got = mcp(repo, [('find', {'question': 'how is the invoice total computed'}), ('impact', {'name': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
