@@ -103,6 +103,11 @@
 .decl module_variable_from_call(c0:symbol)
 .decl variable_reassigned(c0:symbol)
 .decl call_passes_function(c0:symbol)
+.decl bound_platform_function(c0:symbol)
+.decl made_from_function(c0:symbol)
+.decl wrapper_holder_call(c0:symbol, c1:symbol)
+.decl wrapper_runs(c0:symbol, c1:symbol)
+.decl wrapper_call_target(c0:symbol, c1:symbol)
 .decl live_export_variable(c0:symbol, c1:symbol)
 .decl this_type_open(c0:symbol)
 
