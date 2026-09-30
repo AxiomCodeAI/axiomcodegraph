@@ -133,7 +133,7 @@ def body_line(db, results, repo='.'):
         cl = sorted(_concrete(db, cl))      # before the cut, so the command and the "+N more" count the same classes
     cmd = _command_for(lang, fl[:SHOWN], cl[:SHOWN], None, repo)
     more = (len({c.split('.')[-1] for c in cl}) if lang in ('java', 'csharp') and cl else len(fl)) - SHOWN
-    tail = (f"; run: {cmd}" + (f" (+{more} more: axiomcode test-impact)" if more > 0 else '')) if cmd else "; axiomcode test-impact gives the command"
+    tail = (f"; run: {cmd}" + (f" (+{more} more: tests(), `axiomcode tests`)" if more > 0 else '')) if cmd else "; tests() (`axiomcode tests`) gives the command"
     return f"graph: body edit of {what}: {n} test(s) reach it{tail}"
 
 
@@ -202,4 +202,4 @@ def base_moved_line(repo, st):
     n = git('rev-list', '--count', '--right-only', '--cherry-pick', f'{prev}...{h}').stdout.strip()
     return (f"graph: the base moved: HEAD is {h[:10]}, was {prev[:10]}" + (f" ({n} commit(s) it did not have)" if n.isdigit() else '')
             + " — a rebase, a pull, a checkout, a reset or a commit. What those commits changed is not reported as an edit;"
-            " edits are read against the file before each one. `axiomcode changed --range <base>..HEAD` reads committed work.")
+            " edits are read against the file before each one. impact(name) (`axiomcode impact <name>`) answers for a declaration they touched.")

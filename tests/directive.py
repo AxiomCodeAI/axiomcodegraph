@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as oth
     rc, out, _ = fire(repo, 'Grep', {'pattern': r'doWork\('})
     first = ctx(out)
     check('a search for a declared method is told that declaration, where it is, and the impact call for it',
-          rc == 0 and first and 'Worker.doWork' in first and 'src/Worker.java:7' in first and 'axiomcode_impact' in first
+          rc == 0 and first and 'Worker.doWork' in first and 'src/Worker.java:7' in first and 'impact(name="src/Worker.java:7")' in first
           and 'never spell the name' in first, f'out={out[:300]}')
 
     rc, out, _ = fire(repo, 'Grep', {'pattern': 'Worker'})
@@ -133,7 +133,7 @@ with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as oth
     check('the declaration inside the searched path is the one named, not the first in the repository',
           rc == 0 and ctx(out) and 'lib/view.py:5' in ctx(out) and 'src/' not in ctx(out), f'out={out[:200]}')
 
-    rc, out, _ = fire(repo, 'mcp__plugin_axiomcode_axiomcode__axiomcode_impact', {'targets': ['Worker.doWork']}, session='s4')
+    rc, out, _ = fire(repo, 'mcp__plugin_axiomcode_axiomcode__impact', {'name': 'Worker.doWork'}, session='s4')
     rc2, out2, _ = fire(repo, 'Grep', {'pattern': 'doWork'}, session='s4')
     check('an agent that already called the graph through MCP is not told about it afterwards',
           rc == 0 and out == '' and rc2 == 0 and out2 == '', f'out={out2[:120]}')

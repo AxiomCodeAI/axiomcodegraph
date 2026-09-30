@@ -88,6 +88,8 @@ export interface ModuleEdgeExtractionOptions {
   readonly toProjectRelative: (absolutePath: string) => string;
   /** Absolute paths the analysis covers, for `RESOLVED_PROJECT`. */
   readonly projectModuleHashes: ReadonlyMap<string, string>;
+  /** A bare specifier naming a package this repository declares -> its walked source module. */
+  readonly resolveWorkspaceModule?: (specifier: string) => string | undefined;
   /** Declarations by name, so an export can point at what it exports. */
   /**
    * Every declaration under a name, in source order, with its offset.
@@ -1214,20 +1216,32 @@ class JsModuleEdgeExtractor {
     // component in this program is looked up by path.
     const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined)
       ?? resolveVueSpecifier(specifier, this.options.absoluteFilePath, this.options.compilerOptions);
-    if (resolved === undefined) {
-      return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
-    }
     // BOTH SIDES CANONICAL. `projectModuleHashes` is keyed by the files the analyzer
     // walked from a root it has already resolved through its symlinks; the resolver
     // answers with the real path for a package found under `node_modules` but does NOT
     // realpath a relative specifier, so the two sides are compared as real paths and the
     // spelling of the root cannot decide the outcome any more (#795).
-    const absolute = realPathOfResolved(path.normalize(resolved));
+    const absolute = resolved === undefined ? '' : realPathOfResolved(path.normalize(resolved));
     if (this.options.projectModuleHashes.has(absolute)) {
       return {
         filePath: this.options.toProjectRelative(absolute),
         outcome: JsImportResolutionOutcome.RESOLVED_PROJECT,
       };
+    }
+    // A package this repository declares, imported by its name, whose entry names build
+    // output that was not walked (or not built): the walked source it is built from is
+    // what the import means. Never for a package installed under `node_modules`.
+    if (!absolute.includes(`${path.sep}node_modules${path.sep}`)) {
+      const workspace = this.options.resolveWorkspaceModule?.(specifier);
+      if (workspace !== undefined) {
+        return {
+          filePath: this.options.toProjectRelative(workspace),
+          outcome: JsImportResolutionOutcome.RESOLVED_PROJECT,
+        };
+      }
+    }
+    if (resolved === undefined) {
+      return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
     }
     return {
       filePath: absolute.split(path.sep).join('/'),

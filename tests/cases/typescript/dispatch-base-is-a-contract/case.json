@@ -15,5 +15,9 @@
   {"why": "a class that only matches the interface's SHAPE is a dispatch candidate, not a declared contract: its callers are still reached through the base, but the base is never 'must change - it implements this'",
    "run": ["impact", "DuckRouter.add"],
    "want": ["App.mount"],
-   "avoid": ["it implements this", "must change with it"]}
+   "avoid": ["it implements this", "must change with it"]},
+  {"why": "asked of the BASE, the same contract names its implementations: with no override row an interface method's implementers had no row at all, though a change to its signature breaks each of them. The shape-only DuckRouter stays out, as above",
+   "run": ["impact", "Router.add"],
+   "want": ["must change with it (2: bound by a contract", "LinearRouter.add", "TrieRouter.add", "implements it"],
+   "avoid": ["must change with it (3"]}
  ]}

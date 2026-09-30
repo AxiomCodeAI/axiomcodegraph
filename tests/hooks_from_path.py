@@ -121,13 +121,13 @@ with tempfile.TemporaryDirectory() as tmp:
     # it speaks once per session (stamped in the temp directory), so each check gets a session no earlier run used
     sid = lambda s: f'{s}-{os.getpid()}-{int(time.time() * 1000)}'
     d = fire(ws, sid('d1'), 'Grep', {'pattern': 'findById', 'path': app}, hook='direct.py', event='PreToolUse')
-    check('the directive speaks before a Grep by absolute path from a directory with no graph', 'axiomcode_impact' in d and 'OrderStore.java' in d, d)
+    check('the directive speaks before a Grep by absolute path from a directory with no graph', 'impact(name=' in d and 'OrderStore.java' in d, d)
     check('control: the directive is silent before a Grep of a tree with no graph',
           fire(ws, sid('d2'), 'Grep', {'pattern': 'findById', 'path': plain}, hook='direct.py', event='PreToolUse') == '')
     check('the directive is silent on a shell grep of a file that is not source',
           fire(app, sid('d3'), 'Bash', {'command': 'grep -n findById notes.md'}, hook='direct.py', event='PreToolUse') == '')
     d = fire(app, sid('d4'), 'Bash', {'command': f'grep -n findById {os.path.relpath(store, app)}'}, hook='direct.py', event='PreToolUse')
-    check('control: the directive speaks on a shell grep of a source file for a declared method', 'axiomcode_impact' in d, d)
+    check('control: the directive speaks on a shell grep of a source file for a declared method', 'impact(name=' in d, d)
 
     # ── orientation ──────────────────────────────────────────────────────────────────────────────────────
     for i in range(30):

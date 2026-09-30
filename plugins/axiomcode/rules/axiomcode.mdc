@@ -5,26 +5,21 @@ alwaysApply: true
 
 # axiomcode
 
-For any why, what or where question about code — how it works, where something lives, who calls it,
-what a change breaks, which tests an edit reaches, whether something is safe to delete — ask the
-repository's call graph FIRST, through the `axiomcode_*` MCP tools:
+For any why, what or where question about code — where something lives, who calls it, what a change
+breaks, which tests an edit reaches — ask the repository's call graph FIRST, through the axiomcode MCP tools:
 
-    axiomcode_context      where the work is, when you have a task in words and no name yet; for "how does X
-                           work", explain=True, source=True (and from_=<where it starts>) returns the call
-                           flow with each step's code
-    axiomcode_impact       what a change reaches: must-change-with-it, users, tests
-    axiomcode_path         how A reaches B, each hop verified
-    axiomcode_changed      which declarations an edit changed, and how
-    axiomcode_test_impact  which tests the edit in front of you has to run
-    axiomcode_index        build the graph, when .axiomcode/out/graph.sqlite is absent
-    axiomcode_graph        draw the graph as one interactive HTML page, for a person
-    axiomcode_diff         what changed between two graphs of one tree (before/after), by name and line
+    find(question)      where the code for a task lives, when you have a task in words and no name yet
+    impact(name)        who calls it, what a change to it reaches, and its tests;
+                        impact() with no name: the same for your uncommitted edits
+    path(start, end)    how A reaches B, every hop of the call chain
+    tests()             the tests your uncommitted edits reach, and the command that runs them
 
-**Trust the answer, and know what it is.** A `[resolved]` / `[sound]` row has already been looked up again
-in the graph (the `verified:` line) — do not re-derive it by grepping. Every answer ends with `next:`, the
-one step to take. For a CHANGE, read only the lines you will cite or change. To EXPLAIN how something
-works, the graph gives the reading order: answer from the flow's code, and read further only where a step's
-body was cut or a `⚠` marks a call the graph lost.
-`[by name]` / `[text]` rows are leads, not facts. An unresolved call means *unknown*, not *absent*.
+Without the tools, the same from the shell: `axiomcode find "<question>"`, `axiomcode impact <name>`,
+`axiomcode path <A> <B>`, `axiomcode tests`.
+
+Every answer is a numbered list of places, each with the code of the function it sits in and the line that
+matters marked `→`: answer from that code, and open a file only where a body was cut. A `resolved` place has
+already been re-checked in the graph (the `verified:` line); do not re-derive it by grepping. `by name` /
+`text` places are leads, not facts. An unresolved call means *unknown*, not *absent*.
 
 Text search is still right for a string, a comment, a config value, or a file you already know.

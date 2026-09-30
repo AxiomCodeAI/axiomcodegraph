@@ -196,8 +196,9 @@ if refused:
         # rather than restating that there was a match, which told the reader nothing about WHICH match
         _, _, hits = rest.partition('<- ')
         print(f"  {path}" + (f"   <- {hits.strip()}" if hits.strip() else ''))
-    print('  the axiomcode_context tool with in_path=<one of these> ranks the files and declarations inside it; call it '
-          'directly, no skill needs loading first (without that tool: `axiomcode context "<the task>" --in <one of these>`).')
+    print('  find(question="<the task>") (mcp__plugin_axiomcode_axiomcode__find) ranks the functions the task lands in, '
+          'each with its code; call it directly, no skill needs loading first (without that tool: '
+          '`axiomcode find "<the task>"`).')
 else:
     print("graph: where this task's own words land in the index —")
     for l in lines[:MAX_LINES]:
@@ -209,10 +210,10 @@ else:
     if 'how it runs —' in out:
         # a how-question: the flow is the answer's spine, and the call that returns it with each step's code is the
         # one to make — named here so no turn goes to loading the skill or the tool schemas first
-        print("  next: the axiomcode_context tool with source=True, from_=<where it starts> returns the call flow with each "
-              "step's code; call it directly, no skill needs loading first (without that tool: "
-              '`axiomcode context "<the question>" --source --from <where it starts>`).')
+        print('  next: find(question="<the question>") (mcp__plugin_axiomcode_axiomcode__find) returns the functions '
+              'the flow runs through, each with its code; call it directly, no skill needs loading first (without that '
+              'tool: `axiomcode find "<the question>"`).')
     else:
-        print('  a starting point, not a conclusion: next, the axiomcode_impact tool with targets=[<name>], in_path=<path> '
-              'for what a change reaches; call it directly, no skill needs loading first (without that tool: '
-              '`axiomcode impact <name> --in <path>`).')
+        print('  a starting point, not a conclusion: next, impact(name="<name>") (mcp__plugin_axiomcode_axiomcode__impact) '
+              'for who calls it, what a change reaches and its tests, each with its code; call it directly, no skill '
+              'needs loading first (without that tool: `axiomcode impact <name>`).')

@@ -32,7 +32,7 @@ The scan, walk, verbs and python checks need no engine; skip, solve and build in
 
     python3 tests/latency.py [--no-engine]
 """
-import builtins, importlib.util, json, os, shutil, subprocess, sys, tempfile, time
+import builtins, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts')
@@ -154,8 +154,10 @@ def verbs_checks():
     front = subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode'), '--verbs'], capture_output=True, text=True).stdout.split()
     r = subprocess.run(['bash', os.path.join(ROOT, 'bin', 'axiomcode'), 'no-such-verb'], capture_output=True, text=True)
     listed = next((l.split(':', 1)[1].split() for l in r.stderr.splitlines() if l.strip().startswith('ask:')), [])
-    check("verbs: bin/axiomcode knows exactly the verbs the frontend dispatches (less its `tests` alias)",
-          listed == [v for v in front if v != 'tests'], (listed, front))
+    public = re.findall(r'^\s*axiomcode ([a-z][a-z-]*)\b', subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode'), '--help'],
+                                                                         capture_output=True, text=True).stdout, re.M)
+    check("verbs: bin/axiomcode offers exactly the verbs the frontend's help advertises, and the frontend dispatches each",
+          sorted(listed) == sorted(public) and bool(public) and set(public) <= set(front), (listed, public, front))
     work = tempfile.mkdtemp(prefix='axiomcode-verbs-')
     try:
         log = os.path.join(work, 'spawned')
