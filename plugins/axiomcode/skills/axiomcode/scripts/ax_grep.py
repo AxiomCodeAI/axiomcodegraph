@@ -117,10 +117,15 @@ def impact(d, code):
         rung = {}
         for i, r in enumerate(direct): rung.setdefault(r.get('certainty'), i)
         direct = sorted(direct, key=lambda r: (rung[r.get('certainty')], not r.get('evidence')))
+    # a name match on a package's value (`request(app).get(…)`, ax_edges.library_receiver_sites) is the weakest lead:
+    # it goes after every other row, so the first page holds the callers that may really be the target's
+    libs = []
     for r in direct:
         cert = r.get('certainty') or 'resolved'
         if cert == 'alongside': more('alongside (no call, no reference)'); continue
         seen.add(r['id'])
+        if r.get('why') == ax_edges.LIBRARY_BYNAME_WHY:
+            libs.append(('library receiver', site(code, r['at'], f"{TAG.get(cert, cert)} · library receiver{n_sites(r)}{stale(r)}", r['display']))); continue
         rows.append((cert, ev(site(code, r['at'], f"{TAG.get(cert, cert)}{n_sites(r)}{stale(r)}", r['display']), r)))
     # a mapper method's own statement (its namespace and id bind it, ax_nonsource.mapper_elements) is the method's SQL:
     # a dependent, listed with the direct rows, not a [text] lead after every test
@@ -152,6 +157,7 @@ def impact(d, code):
         if r.get('prose'): more('plain-word mentions'); continue
         if shown >= TEXT_ROWS: more('[text]'); continue
         rows.append(('text', site(code, r['at'], f"text · {r.get('how') or 'names it'}{stale(r)}"))); shown += 1
+    rows += libs
     foot = []
     nt = len(d.get('tests', []))
     if 'test_universe' in d: foot.append(f"tests: {nt} of {d['test_universe']} reach it" + ("; `axiomcode test-impact` runs them" if nt else ''))

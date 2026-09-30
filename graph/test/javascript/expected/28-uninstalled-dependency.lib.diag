@@ -1,5 +1,15 @@
 import_cause     app.js:6:14  alpha/missing  staged_unreached
 import_cause     app.js:7:14  never-staged  not_staged
+import_cause     receivers.js:5:17  never-staged  not_staged
+import_cause     receivers.js:6:14  alpha/missing  staged_unreached
+library_receiver app.js:13:3  gone.anything  alpha/missing
+library_receiver app.js:14:3  nope.thing  never-staged
+library_receiver receivers.js:13:9  request(app).get  never-staged
+library_receiver receivers.js:13:9  request(app).get('/x').expect  never-staged
+library_receiver receivers.js:14:21  request(app).get  never-staged
+library_receiver receivers.js:16:3  md.get  alpha/missing
+library_receiver receivers.js:21:33  request.mocked  never-staged
+library_receiver receivers.js:23:11  request.agent  never-staged
 package_entry    alpha  .  []  MAIN  lib/index.js  RESOLVED  -> lib:lib/index.js
 package_entry    alpha  .  [import]  EXPORTS  lib/index.mjs  RESOLVED  -> lib:lib/index.mjs
 package_entry    alpha  .  [require]  EXPORTS  lib/index.js  RESOLVED  -> lib:lib/index.js
@@ -9,3 +19,16 @@ package_entry    case26-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       app.js:13:3  METHOD_CALL anything  receiver_untyped
 unresolved       app.js:14:3  METHOD_CALL thing  receiver_untyped
 unresolved       app.mjs:2:17  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       receivers.js:10:21  METHOD_CALL get  receiver_untyped
+unresolved       receivers.js:13:9  FUNCTION_CALL request  callee_untyped
+unresolved       receivers.js:13:9  METHOD_CALL expect  receiver_untyped
+unresolved       receivers.js:13:9  METHOD_CALL get  receiver_untyped
+unresolved       receivers.js:14:21  FUNCTION_CALL request  callee_untyped
+unresolved       receivers.js:14:21  METHOD_CALL get  receiver_untyped
+unresolved       receivers.js:15:14  CONSTRUCTOR_CALL Metadata  receiver_untyped
+unresolved       receivers.js:16:3  METHOD_CALL get  receiver_untyped
+unresolved       receivers.js:20:32  METHOD_CALL get  receiver_untyped
+unresolved       receivers.js:21:33  METHOD_CALL get  receiver_untyped
+unresolved       receivers.js:21:33  METHOD_CALL mocked  receiver_untyped
+unresolved       receivers.js:23:11  METHOD_CALL agent  receiver_untyped
+unresolved       receivers.js:25:10  METHOD_CALL get  member_absent

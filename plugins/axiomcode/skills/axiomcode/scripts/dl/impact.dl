@@ -5,7 +5,7 @@
 //   edge(a, b, t)                     a calls b (the path finder's facts: resolved client edges, dispatch, defines)
 //   named(n, m)                       a client callable m declared with simple name n
 //   calls(c, m, tier, f, l)           a resolved call site in c to client method m, at f:l
-//   unresolved(c, n, kind, f, l)      an unresolved site in c written n (kind: new | method), at f:l
+//   unresolved(c, n, kind, f, l)      an unresolved site in c written n (kind: new | method | stub | library), at f:l
 //   member(T, s, n, k)                symbol s named n of kind k (method, constructor, field, const, enum_member …) declared in type T
 //   owner(c, T)                       callable c is declared in type T
 //   typ(T, n, k)                      type T has simple name n and kind k (class | interface | enum | record)
@@ -420,8 +420,11 @@ direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m,
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
 // reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
 // one self-match. A recursive call needs no row either — the body is what is changing.
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", k != "library", !is_target_decl(q, c).
 direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
+// A site whose receiver the engine traced to a package's value (`request(app).get('/x')`, ax_edges.library_receiver_sites):
+// the kind "library". A row of its own, listed after the untyped-receiver matches, and no seed of the closure.
+direct(q, c, "uses", "calls a method of this name on a value a package returned or constructed: not this method, unless the package hands it back", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "library", f, l), !is_target_decl(q, c).
 
 // ── a method handed over as a VALUE, never called where it is named ──────────────────────────────────────────
 // `app.get('/orders/:id', getOrder)`, `useEffect(load)`, `items.map(format)`, `handlers = {"x": handle_x}`: the
@@ -727,7 +730,7 @@ direct(q, c, role, cat(why, " — first use runs the static initializer"), cert,
 // a PARAMETER: the method itself, its callers, (the overrides are the contract)
 direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "param", m, _).
 direct(q, c, "uses", "passes an argument for it", "resolved", f, l) :- target(q, "param", m, _), calls(c, m, _, f, l).
-direct(q, c, "uses", "calls a method of this name (receiver not typed) — its argument list must match", "by name", f, l) :- target(q, "param", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "uses", "calls a method of this name (receiver not typed) — its argument list must match", "by name", f, l) :- target(q, "param", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "library".
 
 // a TYPE PARAMETER of a type: every callable inside the type that spells it; of a method: the method. A bound reaches the uses of Type<…> too
 direct(q, c, "uses", cat("uses ", x, " in its body or signature"), "text", f, l) :- target(q, "typeparam", _, x), textuse(c, x, f, l).
@@ -862,7 +865,7 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
-seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", !seed(q, c).
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", k != "library", !seed(q, c).
 // and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
 // a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
 // registered"), and the closure stopped there: the answer named the callable that hands it over and then said the
