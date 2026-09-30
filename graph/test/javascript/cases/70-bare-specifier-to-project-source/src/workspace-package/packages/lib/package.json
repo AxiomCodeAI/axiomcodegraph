@@ -1,0 +1,8 @@
+{
+  "name": "@ws/lib",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": { "import": "./dist/index.mjs", "require": "./dist/index.js" },
+    "./sub": "./dist/sub/index.js"
+  }
+}

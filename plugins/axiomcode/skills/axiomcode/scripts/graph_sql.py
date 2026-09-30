@@ -171,6 +171,15 @@ def impact(repo, target, depth=DEPTH, file=None):
             ({r[0] for r in q(
             f"""SELECT DISTINCT s.display FROM dispatch_candidates dc JOIN symbols s ON s.method_id = dc.base_method_id
                 WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id AND s.id NOT IN ({ph})
+                  AND dc.basis <> 'structural'
+                  AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
+                                                               OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""",
+            ids + ids)} if 'dispatch_candidates' in _tables(con) else set()) |
+            # …and, asked of the base, the implementations it dispatches to ("implements it")
+            ({r[0] for r in q(
+            f"""SELECT DISTINCT s.display FROM dispatch_candidates dc JOIN symbols s ON s.method_id = dc.candidate_method_id
+                WHERE dc.base_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id AND s.id NOT IN ({ph})
+                  AND dc.basis NOT IN ('structural', 'value')
                   AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
                                                                OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""",
             ids + ids)} if 'dispatch_candidates' in _tables(con) else set()))
@@ -278,6 +287,7 @@ def impact(repo, target, depth=DEPTH, file=None):
         if dispatch:
             contract_ids |= {r[0] for r in q(f"""SELECT DISTINCT dc.base_method_id FROM dispatch_candidates dc
                 WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                  AND dc.basis <> 'structural'
                   AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
                                                                OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", ids)}
         seen_ids -= contract_ids
@@ -1755,6 +1765,14 @@ def contract_for_method(q, ids):
                             AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
                                                                          OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", *ids):
             if b not in ids: out.append((b, 'it implements this — the engine records a dispatch candidate here and no override row'))
+        # …and asked of the BASE, the implementations it dispatches to: an interface method's own implementers had
+        # no row at all where the engine keeps no override table. `value` pairs are excluded as the rules exclude them.
+        for (m,) in q(f"""SELECT DISTINCT dc.candidate_method_id FROM dispatch_candidates dc
+                          WHERE dc.base_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                            AND dc.basis NOT IN ('structural', 'value')
+                            AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
+                                                                         OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", *ids):
+            if m not in ids: out.append((m, 'implements it — the engine records a dispatch candidate here and no override row'))
     return sorted(set(out))                       # a set, for the same reason
 
 

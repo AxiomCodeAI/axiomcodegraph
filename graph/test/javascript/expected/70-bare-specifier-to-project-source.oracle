@@ -1,0 +1,9 @@
+bundler-alias/legacy/webpack.config.cjs:7:13 METHOD_CALL resolve  LIB_AMBIENT_OK  
+bundler-alias/legacy/webpack.config.cjs:8:13 METHOD_CALL join  LIB_AMBIENT_OK  
+bundler-alias/src/utils/date.js:2:10 FUNCTION_CALL String  LIB_AMBIENT_OK  
+bundler-alias/vite.config.js:10:18 FUNCTION_CALL fileURLToPath  LIB_AMBIENT_OK  
+bundler-alias/vite.config.js:10:32 CONSTRUCTOR_CALL URL  LIB_AMBIENT_OK  
+bundler-alias/vite.config.js:6:16 FUNCTION_CALL defineConfig  LIB_MISSED  
+bundler-alias/vite.config.js:9:12 METHOD_CALL resolve  LIB_AMBIENT_OK  
+jsconfig-paths/app.js:11:10 FUNCTION_CALL checkB  EXACT  jsconfig-paths/lib/check.js:5:1
+# defects: 0
