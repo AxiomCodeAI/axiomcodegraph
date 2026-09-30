@@ -45,6 +45,7 @@ TIER_RANK = {
     'runtime_observed': 1,      # seen in a runtime trace; real, but no call site stands behind it
     'multi_inferred': 1,        # several declarations fit; each one is a real candidate
     'dispatch': 2,              # a base method to an override that is actually instantiated
+    'decorated_call': 0,        # a call written with a decorated name: it runs the wrapper, which calls the decorated def
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
     'event_dispatch': 3,        # emitted here, handled there
     'remote': 5,                # a request crosses a process to its handler (remote_edge): no call site names it.
@@ -67,6 +68,7 @@ TIER_NOTE = {
     'known_edge':           'resolved to one declaration',
     'multi_inferred':       'several declarations fit; each is a real candidate',
     'dispatch':             'a base method to an override the project instantiates or loads by its dotted name',
+    'decorated_call':       'a call written with a decorated name: it runs the decorator\'s wrapper, and the wrapper calls this',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
     'event_dispatch':       'emitted here, handled there',
     'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
@@ -167,7 +169,7 @@ def legend(tiers):
 # as a value, and a capped fan-out exists precisely BECAUSE the candidate set was too large to
 # enumerate, so what is in the graph is a sample of it.
 DIRECT_CERT = {
-    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved',
+    'known_edge': 'resolved', 'decorated_call': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved',
     'implicit_constructor': 'resolved', 'written': 'resolved',
     'known_implicit_ctor': 'resolved', 'known_builtin_operator': 'resolved', 'runtime_observed': 'resolved',
     'multi_inferred': 'one of a set',
@@ -188,6 +190,7 @@ DIRECT_WHY = {
 # …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
 # value (a JavaScript callback's wording): the dependent sends it, and a framework runs the handler for what is sent.
 TIER_WHY = {
+    'decorated_call': 'calls it through its decorator: the name it writes is rebound to the decorator\'s wrapper, which calls this',
     'event_dispatch': 'sends the request or event this handles, or builds the class mock whose proxy runs this constructor — a framework runs it for what is sent here, no call site names it',
 }
 
@@ -571,3 +574,63 @@ def dispatch_live_sql(has_literals):
                " AND instr(qualified_name, '.') > 0 AND qualified_name IN (SELECT value FROM literals))") if has_literals else ""
     return ("(dc.basis = 'value' OR m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)"
             f"{by_name} OR NOT EXISTS (SELECT 1 FROM type_instantiated))")
+
+
+_LOCAL_KINDS, _SCOPE_KINDS = ('function', 'method'), ('function', 'method', 'constructor')
+
+
+def local_scopes(q, ids):
+    """{id: (file, start, end, enclosing id)} for each declaration in `ids` that is a def NESTED in another callable: the
+    rules' `local_def` (dl/impact.dl), read off the same spans `lex_parent` is (the innermost declaration whose span holds
+    it is a function, method or constructor). Its name is bound in that def only, so a reference or an untyped call
+    written with the name anywhere else names some other binding."""
+    out = {}
+    for m in ids:
+        r = q("SELECT file, line, end_line, kind FROM symbols WHERE id=?", m)
+        if not r or r[0][3] not in _LOCAL_KINDS or not r[0][0] or not r[0][1]: continue
+        f, a, b = r[0][0], r[0][1], r[0][2] or r[0][1]
+        around = [x for x in q("SELECT id, kind, line, end_line FROM symbols WHERE file=? AND line<=? AND end_line>=? AND id<>?", f, a, b, m)
+                  if x[2] and x[3] and (x[2], x[3]) != (a, b)]
+        if not around: continue
+        p = max(around, key=lambda x: (x[2], -x[3]))
+        if p[1] in _SCOPE_KINDS: out[m] = (f, p[2], p[3], p[0])
+    return out
+
+
+def sees_local(q, scope, c):
+    """c is the def `scope` (from local_scopes) encloses, or is written inside it: the rules' `c = p ; lex_in(p, c)`."""
+    f, a, b, p = scope
+    if c == p: return True
+    r = q("SELECT file, line, end_line FROM symbols WHERE id=?", c)
+    return bool(r) and r[0][0] == f and a <= (r[0][1] or 0) and (r[0][2] or r[0][1] or 0) <= b
+
+
+DECORATED_CALL = 'decorated_call'
+
+
+def decorated_calls(q, stubs=frozenset()):
+    """[(call site, caller, decorated def, raw file, line)]: a call written with the name of a def a project decorator
+    wraps. `@audited def summarise` rebinds `summarise` to what audited returned, so the engine resolves `summarise(xs)`
+    to the WRAPPER (ext_decorated_name_target holds the rebinding) and the wrapper's own `f(...)` fans out to every def
+    that decorator wraps. Read edge by edge, the caller reached the wrapper and then one of a set, and `impact summarise`
+    listed the caller as "[by name] names it as a value": the call it writes was taken for a reference. The site names
+    the decorated def and the engine resolved it to that def's wrapper, so this is the call to it, through the wrapper.
+    A site whose name matches more than one def rebound to the same wrapper keeps the one declared in its own file, and
+    is dropped when that does not settle it. Ids are the engine's method ids, as in call_edges."""
+    if not all(_t in {r[0] for r in q("SELECT name FROM sqlite_master")} for _t in ('ext_decorated_name_target', 'call_sites', 'methods')):
+        return []
+    by = collections.defaultdict(set); where = {}
+    for sid, c, d, f, l, cf, dfile in q("""SELECT e.call_site_id, e.caller_id, t.c0, s.file_path, s.start_line, sc.file, sd.file
+              FROM call_edges e JOIN call_sites s ON s.id = e.call_site_id
+              JOIN ext_decorated_name_target t ON t.c1 = e.callee_method_id AND t.c0 <> t.c1
+              JOIN methods m ON m.id = t.c0 AND m.name = s.callee_name
+              JOIN symbols sd ON sd.method_id = t.c0 LEFT JOIN symbols sc ON sc.id = e.caller_id
+              WHERE e.callee_provenance = 'client'"""):
+        if sid in stubs or not c or not d or c == d: continue
+        by[sid].add((d, dfile)); where[sid] = (c, f, l, cf)
+    out = []
+    for sid, ds in sorted(by.items()):
+        c, f, l, cf = where[sid]
+        pick = {d for d, _ in ds} if len(ds) == 1 else {d for d, df in ds if df and df == cf}
+        if len(pick) == 1: out.append((sid, c, next(iter(pick)), f, l or 0))
+    return out

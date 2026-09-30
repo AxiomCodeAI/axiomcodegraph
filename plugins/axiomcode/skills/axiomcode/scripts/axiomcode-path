@@ -941,12 +941,13 @@ class G:
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
-    # is up to date and nothing rebuilds). 5: a dispatch pair whose owner is loaded by its dotted name is kept
+    # is up to date and nothing rebuilds). 6: a call written with a decorated name reaches the def it wraps
+    # (ax_edges.decorated_calls); 5: a dispatch pair whose owner is loaded by its dotted name is kept
     # (ax_edges.dispatch_live_sql); 4: both 3s below, which landed on two branches under one number;
     # 3 (0.1.5): on one line a JavaScript anonymous callable nests only where its name does (#1598);
     # 3 (0.1.6): a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites);
     # 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
-    EXPORT_VERSION = '5'
+    EXPORT_VERSION = '6'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return
@@ -968,6 +969,9 @@ class G:
         edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'], r.get('qualified_name'))
                                          for r in self.sym.values() if r['method_id'] and r['kind'] != 'module'),
                                         ax_edges.sites_of(lambda s, p: self.q(s, *p)) if self.has('call_sites') else None)
+        # a call written with a decorated name reaches the decorated def through the decorator's wrapper (ax_edges.decorated_calls)
+        have = {(a, b) for a, b, _ in edges}
+        edges += [(c, d, ax_edges.DECORATED_CALL) for _s, c, d, _f, _l in ax_edges.decorated_calls(lambda s, *p: self.q(s, *p), stubs) if (c, d) not in have]
         # a call resolved to a base may run any instantiated override: the engine's own dispatch table
         if self.has('dispatch_candidates'):
             disp = {(r[0], r[1]) for r in self.q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id FROM dispatch_candidates dc JOIN methods m ON m.id = dc.candidate_method_id

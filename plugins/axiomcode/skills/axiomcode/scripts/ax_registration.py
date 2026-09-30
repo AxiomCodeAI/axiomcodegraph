@@ -576,7 +576,13 @@ def value_ref_rows(q, names, ids, site_file=None, at=None, lines=None):
             called.add((n, sf(fp), l))
     ek = ','.join('?' * len(CALLABLE_EK))
     rows, idset = [], set(ids)
+    import ax_edges
+    scoped = ax_edges.local_scopes(q, idset)
     for n in names:
+        # a def nested in another one is named only inside it (the rules' `out_of_scope`): kept when some target of the
+        # name is not nested, or the site is written inside the def that encloses one
+        mine = [i for i in idset if (q("SELECT name FROM symbols WHERE id=?", i) or [[None]])[0][0] == n]
+        local = [scoped[i] for i in mine if i in scoped] if mine and all(i in scoped for i in mine) else None
         # the parser's vocabulary where there is one, and the registration site where there is not: a JavaScript
         # graph's entity_kind is the access mode (READ / WRITE), so CALLABLE_EK matches nothing and only the site
         # identifies a value that is handed over
@@ -589,6 +595,8 @@ def value_ref_rows(q, names, ids, site_file=None, at=None, lines=None):
                 continue
             c = at(f, l) if at else None
             if not c or c in idset:
+                continue
+            if local and not any(ax_edges.sees_local(q, sc, c) for sc in local):
                 continue
             rows.append((c, 'uses', reg.get((f, l), _PLAIN), 'by name', f or '', l or 0))
     return rows

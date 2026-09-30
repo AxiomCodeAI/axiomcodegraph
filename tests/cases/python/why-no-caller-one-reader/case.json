@@ -10,7 +10,7 @@
    "avoid": ["@cache.memoize"]},
   {"why": "control: a function a decorator the repository declares wraps has that wrapper as its caller, so no reason is printed",
    "run": ["impact", "refresh_board"],
-   "want": ["[resolved] wrapper   src/app/decorators.py:7   — calls it"],
+   "want": ["[resolved] admins_only.wrapper   src/app/decorators.py:7   — calls it"],
    "avoid": ["why nothing in the graph calls", "decorated @admins_only"]},
   {"why": "near-miss control: a library decoration a framework reads, with no call site writing the name, is the reason on impact and path alike",
    "run": ["impact", "load_user"],

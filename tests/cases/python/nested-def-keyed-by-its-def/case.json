@@ -1,0 +1,38 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a def nested in another one is displayed under the def that encloses it, so each decorator's inner wrapper is its own name",
+   "run": ["impact", "audited.wrapper"],
+   "want": ["change: audited.wrapper", "[by name] audited"]
+  },
+  {
+   "why": "near-miss control: `return wrapper` in ANOTHER decorator names that decorator's own inner def, which is a different binding, so it is not a dependent of this one and the walk does not reach the views it wraps",
+   "run": ["impact", "app/audit.py:10", "--tests"],
+   "want": ["audited.wrapper", "test_report"],
+   "avoid": ["guarded", "test_best"]
+  },
+  {
+   "why": "a call written with a decorated name runs the decorator's wrapper, which calls the def: the call is to that def, through its decorator, not a reference to it as a value",
+   "run": ["impact", "summarise"],
+   "want": ["[resolved] report", "through its decorator"],
+   "avoid": ["names it as a value"]
+  },
+  {
+   "why": "and the test that drives that caller reaches the def on a sound route",
+   "run": ["impact", "summarise", "--tests-only"],
+   "want": ["[sound]", "test_report"]
+  },
+  {
+   "why": "path takes the hop from the caller straight to the decorated def",
+   "run": ["path", "report", "summarise"],
+   "want": ["[decorated_call] summarise"]
+  },
+  {
+   "why": "near-miss control: a caller of another def the same decorator wraps is not a caller of this one (the wrapper's own call still fans out to both, as one of a set)",
+   "run": ["impact", "summarise"],
+   "avoid": ["[resolved] count_all"]
+  }
+ ]
+}

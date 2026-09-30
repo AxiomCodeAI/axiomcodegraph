@@ -570,6 +570,10 @@ def _edges(q):
                                        FROM dispatch_candidates dc JOIN methods m ON m.id=dc.candidate_method_id
                                        WHERE m.provenance='client' AND dc.base_method_id<>dc.candidate_method_id
                                          AND """ + ax_edges.dispatch_live_sql(bool(q("SELECT 1 FROM sqlite_master WHERE name='literals'"))))}
+    # a call written with a decorated name reaches the decorated def through its wrapper (the path export's same edge)
+    e += [(c, d, ax_edges.DECORATED_CALL) for _s, c, d, _f, _l in ax_edges.decorated_calls(q, ax_edges.stub_sites(lambda s_, p_: q(s_, *p_)))
+          if (c, d) not in have]
+    have = {(a, b) for a, b, _ in e}
     if q("SELECT 1 FROM sqlite_master WHERE name='ext_fn_value_call'"):                 # g.q returns the rows (a list)
         disp |= {(r[0], r[1]) for r in q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call")}      # the route through a named holder (#1206)
     e = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in e] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]
@@ -1405,7 +1409,10 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
                   FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
                   WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
                   ORDER BY s.start_line""", *ids)]
-    if link_line: raw.sort(key=lambda r: r[4] or 0)
+    # a call written with a decorated name, through the decorator's wrapper (ax_edges.decorated_calls, the rules' same `calls` rows)
+    idset_ = set(ids); dec = [(c, d, ax_edges.DECORATED_CALL, f, l) for _s, c, d, f, l in ax_edges.decorated_calls(q, stubs) if d in idset_]
+    raw += dec
+    if link_line or dec: raw.sort(key=lambda r: r[4] or 0)
     sites = [(c, t, f, l) for c, _m, t, f, l in raw]
     bean_callers, why_of = _bean_call(q, ids, sites)
     # a call written against a base this declaration is override-equivalent to (#1542): its row replaces the plain one
@@ -1436,11 +1443,15 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
     rows += [(c, 'uses', why, cert, f, l) for c, m, why, cert, f, l, _e in via if m in idset and c not in idset]
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     seen = {r[0] for r in rows}
+    scoped = ax_edges.local_scopes(q, ids)
     for n in names:
+        mine = [i for i in ids if (q("SELECT name FROM symbols WHERE id=?", i) or [[None]])[0][0] == n]
+        local = [scoped[i] for i in mine if i in scoped] if mine and all(i in scoped for i in mine) else None
         for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
             if c in ids: continue                                            # !is_target_decl(q, c)
+            if local and not any(ax_edges.sees_local(q, sc, c) for sc in local): continue   # !out_of_scope(q, m, c)
             rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # the declaration handed over as a VALUE — a route registration, a callback — which has no call site at all
     # (the valueref / registered rules). The convention table is shared with the rules, in ax_registration.py, so

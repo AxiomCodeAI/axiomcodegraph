@@ -20,9 +20,9 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections, functools
 csv.field_size_limit(10**9)
-INDEX_VERSION = '6'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+INDEX_VERSION = '7'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
                          # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding;
-                         # v6: TypeScript class-property arrows named after their field); the query
+                         # v6: TypeScript class-property arrows named after their field; v7: a Python def nested in another displays under it); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -473,6 +473,21 @@ for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type
         sym.append((m['id'], '<module>', f"{stem}.<module>", 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if fp and TESTRE.search(fp) else 0, m['id'], None)); continue
     fp = rel(m['file_path'])
     sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+
+# A FUNCTION DEFINED INSIDE ANOTHER ONE is displayed under the def that encloses it: `require_login.wrapper`, not
+# `wrapper`. The name is local to that def, so the bare name identified nothing: every decorator in a project writes an
+# inner `wrapper`, and one display for all of them made a question about one answer for every one (a changed wrapper
+# listed the other decorators' wrappers as its dependents). The qualified name already says it (CPython's
+# `__qualname__`, `pkg.mod.require_login.<locals>.wrapper`); the display takes the enclosing def's own display, so an
+# inner def of a method reads `Owner.method.inner`. `name` stays the bare name, which is what a call site writes.
+_qn_row = {r[4]: i for i, r in enumerate(sym) if r[4] and r[11] and r[3] != 'module'}
+def _nested_display(i, seen=()):
+    r = sym[i]; qn = r[4] or ''
+    if r[9] or '.<locals>.' not in qn or (r[1] or '').startswith('<') or i in seen: return r[2]
+    p = _qn_row.get(qn.rsplit('.<locals>.', 1)[0])
+    if p is None or p in seen: return r[2]
+    return _nested_display(p, seen + (i,)) + '.' + r[1]
+sym[:] = [r[:2] + (_nested_display(i),) + r[3:] for i, r in enumerate(sym)]
 
 # ── members an annotation processor DECLARES, which no source line spells ─────────────────────────
 # Java (Lombok, a record) and C# (an auto-property) synthesise members in the engine: `methods` carries them with
