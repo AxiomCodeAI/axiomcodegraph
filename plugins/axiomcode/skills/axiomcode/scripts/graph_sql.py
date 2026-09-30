@@ -950,11 +950,15 @@ def via_base_rows(q, lines=None, stubs=frozenset(), only=None):
     carries no edge to b: that caller is a caller of b when the receiver it reads there is a field declared with b's
     type. Without it, `impact` on the interface method said nothing depended on it (#1542)."""
     if not (_has(q, 'call_edges') and _has(q, 'call_sites')): return [], set()
-    pairs = set()
+    pairs, shape_only = set(), set()
     if _has(q, 'overrides'):
         pairs |= {(b, o) for b, o in q("SELECT method_id, overriding_method_id FROM overrides")}
     if _has(q, 'dispatch_candidates'):
-        pairs |= {(b, o) for b, o in q("SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE basis <> 'value'")}
+        declared = set(pairs)
+        for b, o, basis in q("SELECT base_method_id, candidate_method_id, basis FROM dispatch_candidates WHERE basis <> 'value'"):
+            pairs.add((b, o))
+            (shape_only if basis == 'structural' else declared).add((b, o))
+        shape_only -= declared                  # a shape match nobody declared is never the one thing that runs
     down = collections.defaultdict(set)
     for b, o in pairs:
         if b and o and b != o: down[b].add(o)
@@ -1020,7 +1024,8 @@ def via_base_rows(q, lines=None, stubs=frozenset(), only=None):
             others = set(T) - {b}
             for m in subs[b]:
                 if others and m not in others: continue
-                rows.append((c, m, ax_edges.via_base_why(bk), 'resolved' if n == 1 else 'one of a set', f, l, m if m in T else b))
+                sole = n == 1 and (b, m) not in shape_only
+                rows.append((c, m, ax_edges.via_base_why(bk), 'resolved' if sole else 'one of a set', f, l, m if m in T else b))
                 sites.add((c, m, f, l))
         if typed_on or len(T) != 1: continue
         (o, t), = T.items()
@@ -1715,10 +1720,12 @@ def contract_for_method(q, ids):
     if not q("SELECT 1 FROM overrides LIMIT 1"): out += _name_match_contract(q, ids)
     # the dispatch base the engine records no override row for (#1011): read from dispatch_candidates UNFILTERED,
     # because whether a declaration implements an interface method is not a question about reachability — the rules
-    # read `implements_pair`, which is the same table without the closure's RTA filter.
+    # read `implements_pair`, which is the same table without the closure's RTA filter. A `structural` pair is a
+    # shape match nobody declared, so it is not a contract (axiomcode-impact excludes it from implements_pair too).
     if q("SELECT 1 FROM sqlite_master WHERE name='dispatch_candidates'"):
         for (b,) in q(f"""SELECT DISTINCT dc.base_method_id FROM dispatch_candidates dc
                           WHERE dc.candidate_method_id IN ({ph}) AND dc.base_method_id <> dc.candidate_method_id
+                            AND dc.basis <> 'structural'
                             AND NOT EXISTS (SELECT 1 FROM overrides o WHERE (o.method_id = dc.base_method_id AND o.overriding_method_id = dc.candidate_method_id)
                                                                          OR (o.overriding_method_id = dc.base_method_id AND o.method_id = dc.candidate_method_id))""", *ids):
             if b not in ids: out.append((b, 'it implements this — the engine records a dispatch candidate here and no override row'))

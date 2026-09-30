@@ -20,6 +20,14 @@ says so on the answer's first line, with the reason.
   written (the parser drops it, #667). A name that does not exist stops with the exact names that are close — use one
   of those, or a `file:line` from the issue or a stack trace. Built and self-tested for Java, TypeScript, Python
   and C#; JavaScript works but the engine's JavaScript output is still moving.
+- **`--why` says how each endpoint name was read** (MCP `path`: `why=True`). A block of at most eight lines per endpoint,
+  right after the answer's first line (or after the refusal when a name matched nothing): the lookup step that matched,
+  in the order they are tried (a `file:line`, a decoration, a file, then for a name: exact declaration, qualified suffix
+  (leading segments dropped when they match nothing, or the last segments of a longer qualified name), simple name,
+  library method, call as written at unresolved sites, type used by name, fragment), the steps that ran before it and
+  found nothing, up to five candidates with file:line, and why the winner won or why the name fell to "nothing named"
+  (a qualifier that is a declared type with no such member, a last segment declared under another owner). Use it when
+  an endpoint is not the declaration you meant. Without `--why` the answer is unchanged; `--json` gains a `why` list.
 - **By default the answer is ONE SHORTEST chain per reached target** — it says so on its last line. Other routes exist
   and are not listed. `--every` adds all of them: first the complete set of methods and calls that lie on *any* chain
   from a source to a target (from Datalog, polynomial — `301 methods and 935 calls` for `Parser.parse → Lexer.emit`),

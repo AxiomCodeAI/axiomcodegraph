@@ -36,3 +36,9 @@ function deliver(bus, topic) { for (const [pattern, handlers] of byPattern) { if
 function bus(ev) { on('a', onUpdated); deliver(ev, 'a'); }
 function main() { direct(); viaVar(); viaPlatform(); viaCtor(); viaProject(); check(subscribe('a.*', onUpdated)); viaTimer(); bus(new (require('events'))()); }
 main();
+// a function wrapped by a package call and kept in a const, then handed to a package registration: registered
+function migrate() { return 1; }
+const plugin = walk(async () => migrate());
+const settings = walk(42);
+function viaWrapped() { walk.register(plugin); walk.register(settings); }
+module.exports = { viaWrapped };

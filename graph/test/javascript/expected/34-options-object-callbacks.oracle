@@ -29,4 +29,5 @@ main.js:37:65 FUNCTION_CALL viaProject  EXACT  main.js:14:1
 main.js:37:79 FUNCTION_CALL check  EXACT  main.js:27:1
 main.js:37:85 FUNCTION_CALL subscribe  EXACT  main.js:25:1
 main.js:38:1 FUNCTION_CALL main  EXACT  main.js:37:1
+main.js:41:33 FUNCTION_CALL migrate  EXACT  main.js:40:1
 # defects: 0

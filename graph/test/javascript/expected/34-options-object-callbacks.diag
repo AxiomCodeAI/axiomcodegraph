@@ -29,6 +29,10 @@ unresolved       main.js:33:72  METHOD_CALL set  no_target
 unresolved       main.js:33:95  METHOD_CALL add  no_target
 unresolved       main.js:35:122  METHOD_CALL emit  no_target
 unresolved       main.js:37:131  CONSTRUCTOR_CALL   no_target
+unresolved       main.js:41:16  FUNCTION_CALL walk  callee_untyped
+unresolved       main.js:42:18  FUNCTION_CALL walk  callee_untyped
+unresolved       main.js:43:25  METHOD_CALL register  receiver_untyped
+unresolved       main.js:43:48  METHOD_CALL register  receiver_untyped
 unresolved       main.js:8:38  FUNCTION_CALL cb  callee_untyped
 unresolved       main.js:9:42  METHOD_CALL map  no_target
 value_callee     main.js:8:38  cb  parameter

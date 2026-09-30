@@ -93,6 +93,34 @@ reflective_ambient("Array").
 call_has_client_target(ce) :- expr_resolves_to_method(ce, m), method_prov(m, "client").
 call_has_client_target(ce) :- new_constructs(ce, t), type_decl("client", _, _, _, _, t).
 
+// A function WRAPPED BY A PACKAGE CALL and kept in a binding: `export const plugin = fp(async (app) => …)`,
+// `const ext = Prisma.defineExtension((client) => …)`, then `app.register(plugin)`, `client.$extends(ext)`.
+// The package returns the function it was handed, or one that runs it, and nothing in the project says
+// which, so the binding had no value and the registration reached nothing, although the same literal
+// handed to it bare is registered. The wrapping site is a value of its own, ("libwrap", site), carried
+// wherever a value goes (a const, an import, an export), and a registration handed it registers what the
+// site was handed. The site is recognised syntactically, by a callee rooted at a binding imported from a
+// package, so the value stays below the resolver's negations; a project wrapper is followed through its
+// body instead (value-flow.dl, "wrap").
+lib_rooted(e) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_import(_, imp, v),
+    import_decl(_, _, _, _, _, _, out, _, imp), import_outcome_is_package(out).
+lib_rooted(e) :- expr_kind(_, k, _, e), access_kind_reads_member(k), expr_child(_, e, "ACCESS_TARGET", _, r), lib_rooted(r).
+import_outcome_is_package("RESOLVED_EXTERNAL").
+import_outcome_is_package("UNRESOLVED_MISSING").
+access_kind_reads_member("PROPERTY_ACCESS").
+access_kind_reads_member("OPTIONAL_ACCESS").
+lib_wrap_site(s) :- call_site(_, ck, _, _, _, _, s, _, _), call_kind_is_callee_form(ck),
+    expr_child(_, s, "CALLEE", _, c), lib_rooted(c).
+lib_wrap_site(s) :- call_site(_, ck, _, "SYNTACTIC", _, _, s, _, _), call_kind_is_member_form(ck),
+    expr_child(_, s, "RECEIVER", _, r), lib_rooted(r).
+// Handed over by NAME: `register(wrap(f))` needs nothing new, since the inner site already registers f
+// from the same caller. The value is not a callee (callee-resolution.dl): what a call of it runs is still
+// unknown, and says so.
+expr_value(s, "libwrap", s) :- lib_wrap_site(s), call_arg(s, _, a), expr_value(a, "func", _).
+callback_registered(ce, m) :- invocation_site(ce, _), !call_has_client_target(ce), !reflective_site(ce),
+    call_arg(ce, _, arg), !expr_kind(_, "CALL", _, arg),
+    expr_value(arg, "libwrap", s), call_arg(s, _, a), expr_value(a, "func", m).
+
 // A listener runs with the EMITTER as `this` (`e.on('x', function () { this.other(); })`).
 this_value(m, k, i) :- event_handler(k, i, _, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _), k != "module".
 

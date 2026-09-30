@@ -1,5 +1,8 @@
-── entry_point (13) ──
+── entry_point (16) ──
   exported_from_entry_module app#atStartup   app.ts:37
+  exported_from_entry_module app#boot   app.ts:56
+  exported_from_entry_module app#bootBare   app.ts:61
+  exported_from_entry_module app#bootSettings   app.ts:66
   exported_from_entry_module app#doubled   app.ts:15
   exported_from_entry_module app#each   app.ts:43
   exported_from_entry_module app#named   app.ts:24

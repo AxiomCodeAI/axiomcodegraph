@@ -54,6 +54,13 @@ main.js:37:79 FUNCTION_CALL check  ->  known_edge  main.js:27:1 check
 main.js:37:85 FUNCTION_CALL subscribe  ->  callback_registered  main.js:26:1 onUpdated
 main.js:37:85 FUNCTION_CALL subscribe  ->  known_edge  main.js:25:1 subscribe
 main.js:38:1 FUNCTION_CALL main  ->  known_edge  main.js:37:1 main
+main.js:41:16 FUNCTION_CALL walk  ->  ambiguous_unknown  -
+main.js:41:16 FUNCTION_CALL walk  ->  callback_registered  main.js:41:21 <arrow>
+main.js:41:33 FUNCTION_CALL migrate  ->  known_edge  main.js:40:1 migrate
+main.js:42:18 FUNCTION_CALL walk  ->  ambiguous_unknown  -
+main.js:43:25 METHOD_CALL walk.register  ->  ambiguous_unknown  -
+main.js:43:25 METHOD_CALL walk.register  ->  callback_registered  main.js:41:21 <arrow>
+main.js:43:48 METHOD_CALL walk.register  ->  ambiguous_unknown  -
 main.js:8:38 FUNCTION_CALL cb  ->  ambiguous_unknown  -
 main.js:9:42 METHOD_CALL items.map  ->  ambient_terminal  -
 main.js:9:42 METHOD_CALL items.map  ->  callback_registered  main.js:9:52 <arrow>
