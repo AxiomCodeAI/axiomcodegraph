@@ -122,10 +122,12 @@ def scripts_module(name):
 PARAM = {'--in': 'in_path', '--tests-only': 'tests', '--tests': 'tests', '--tests-in': 'tests_in', '--from': 'from_',
          '--why': 'why', '--source': 'source', '--explain': 'explain', '--every': 'every', '--staged': 'staged',
          '--impact': 'impact', '--delete': 'delete', '--depth': 'depth', '--limit': 'limit', '--page': 'page',
-         '--budget': 'budget', '--kind': 'kind', '--range': 'range', '--fresh': 'fresh', '--no-refresh': 'refresh'}
+         '--budget': 'budget', '--kind': 'kind', '--range': 'range', '--fresh': 'fresh', '--no-refresh': 'refresh',
+         '--drop': 'drop', '--exact': 'exact', '--alongside': 'alongside'}
 # a CLI switch that turns a parameter OFF: `--no-refresh` is refresh=False here
 NEGATED = {'--no-refresh'}
-SWITCH = {'--tests-only', '--tests', '--why', '--source', '--explain', '--every', '--staged', '--impact', '--delete', '--fresh'}
+SWITCH = {'--tests-only', '--tests', '--why', '--source', '--explain', '--every', '--staged', '--impact', '--delete', '--fresh',
+          '--exact', '--alongside'}
 PARAMS = {}                                     # tool name -> its parameter names, filled as the tools are declared
 # a flag, and its value when what follows looks like one (<path>, 'x', N, 2, a.b, src/x) rather than prose ("no --in was given")
 _FLAG = re.compile(r"(?<![\w-])(--[a-z][a-z-]*)(?![\w-])"
@@ -143,6 +145,7 @@ def mcp_words(text):
         if not p: return m.group(0)
         if flag in SWITCH: return f"{p}=True" + (sep + val if val else '')
         if flag in NEGATED: return f"{p}=False" + (sep + val if val else '')
+        if flag == '--drop' and val: return f'{p}=["{val}"]'   # a list of rows: `--drop a.ts:3` is drop=["a.ts:3"]
         if val == 'all': return f'{p}="all"'                   # `--page all` is page="all", a string, not a name
         if val == 'N|all': return f'{p}=N or {p}="all"'
         return f"{p}={val}" if val else p
@@ -280,6 +283,23 @@ def need_repo(repo):
         raise ToolError(f"repo: no such directory: {repo}. Nothing was built or asked; pass a directory that exists "
                         f"(an absolute path), or leave repo out to use {os.getcwd()}.")
 
+# EVIDENCE FOR THE UNCERTAIN ROWS (scripts/ax_evidence.py): evidence="on" gives each of the five strongest rows that is
+# not an exact edge the line that decides it and what stands on it; "off" turns it off; empty leaves AXIOMCODE_EVIDENCE
+# (off by default) to decide. drop=[file:line] asks again without those rows, exact=True with exact edges only.
+EV_DOC = (' evidence="on"|"off": each of the 5 strongest rows that is not an exact edge ([by name], [one of a set], '
+          '[registered] …) carries the line that decides it (where its receiver or key gets its value) and how many '
+          'callables and tests are reached only through it; drop=["file:line"] asks again without those rows, exact=True '
+          'with exact edges only, alongside=True lists the `alongside` rows the evidence view counts.')
+
+def ev(evidence='', drop=(), exact=False, alongside=False):
+    e = str(evidence or '').strip().lower()
+    a = (['--evidence'] if e in ('on', '1', 'true', 'yes') else ['--no-evidence'] if e in ('off', '0', 'false', 'no') else [])
+    return a + [x for d in (drop or []) if str(d).strip() for x in ('--drop', str(d).strip())] + (['--exact'] if exact else []) + (['--alongside'] if alongside else [])
+
+def _doc(f):
+    f.__doc__ = (f.__doc__ or '') + EV_DOC
+    return f
+
 @srv.tool()
 def axiomcode_index(repo: str = ".", lang: str = '', src: str = '', library: str = '') -> str:
     """Build (or refresh) the call graph of a repository: parser → engine → <repo>/.axiomcode/out/graph.sqlite. Run once before path/impact/graph. lang: java|typescript|python|javascript|csharp when the repo mixes languages; src: subtree to analyse (e.g. src); library: comma-separated dependency roots so calls into them resolve."""
@@ -288,43 +308,48 @@ def axiomcode_index(repo: str = ".", lang: str = '', src: str = '', library: str
     return run(a)
 
 @srv.tool()
-def axiomcode_context(task: str, repo: str = ".", in_path: str = '', budget: int = 0, source: bool = False, page: Page = 1, explain: bool = False, from_: str = '', fresh: bool = False, full: bool = False, limit: int = 0, refresh: bool = True) -> str:
+@_doc
+def axiomcode_context(task: str, repo: str = ".", in_path: str = '', budget: int = 0, source: bool = False, page: Page = 1, explain: bool = False, from_: str = '', fresh: bool = False, full: bool = False, limit: int = 0, refresh: bool = True, evidence: str = '', drop: list[str] = [], exact: bool = False, alongside: bool = False) -> str:
     """[resolved]/[sound] rows are verified against the graph; the answer ends with `next:`, the one step to take. START HERE when you have a task in words and no name to ask about yet. A task that asks HOW something works ("how does X …", "explain …", or explain=True) also gets the call FLOW — every step in the order the calls are written, with ⚠ where the graph lost a call; from_ (comma-separated names) starts the flow where you choose. Pass source=True with it: each step then carries its code, so answer from that and open a file only for a step whose body was cut or a ⚠ call. Otherwise it returns the files and callables that task touches, from the problem statement alone. Deterministic — task terms scored against the graph's vocabulary by inverse document frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop. in_path accepts SEVERAL paths, comma-separated: they are combined rather than intersected, so a change spanning two roots comes back in one call. budget is how many files are listed (default 12; the ranking is the same at any budget); source=True includes the code. A long answer comes in pages; ask for page=2 only if page 1's files are not enough. Ends by saying what it could not see. Without source/explain/from_ the answer is one site per line (`path:line: code  [tag]`), capped with a count of the rest; limit=N lists more, full=True gives the prose. After an edit the answer comes at once from the last graph, rows in edited files marked (may be out of date); fresh=True waits for the rebuild. refresh=False: read-only, answers from the graph as it is and never starts a rebuild (an answer that did start one says so on its first line)."""
     need_repo(repo)
     flow = source or explain or from_.strip() or _paged(page) or budget
     a = ['context', task, repo] + grep(full or flow, limit) + (['--fresh'] if fresh else []) + (['--in', in_path] if in_path else []) + (['--budget', str(budget)] if budget else []) + (['--source'] if source else []) + _pg(page) + (['--explain'] if explain else []) + [x for n in from_.split(',') if n.strip() for x in ('--from', n.strip())]
-    return run(a + NOREF(refresh))
+    return run(a + ev(evidence, drop, exact, alongside) + NOREF(refresh))
 
 @srv.tool()
-def axiomcode_path(from_: str, to: str, repo: str = ".", every: bool = False, in_path: str = '', depth: int = 0, limit: int = 0, page: Page = 1, fresh: bool = False, full: bool = False, why: bool = False, refresh: bool = True) -> str:
+@_doc
+def axiomcode_path(from_: str, to: str, repo: str = ".", every: bool = False, in_path: str = '', depth: int = 0, limit: int = 0, page: Page = 1, fresh: bool = False, full: bool = False, why: bool = False, refresh: bool = True, evidence: str = '', drop: list[str] = [], exact: bool = False, alongside: bool = False) -> str:
     """[resolved]/[sound] rows are verified against the graph, so a change need not re-derive them by reading (to explain how something works, read each hop's body); the answer ends with `next:`, the one step to take. A chain of calls from A to B in the graph, each hop verified, or why there is none. When you have ONE concept word you can name, a bare fragment resolves to every declaration containing it, so path('decrypt', '*') answers "what is the decryption code and what does it touch". For a whole task in words, with no name at all, use axiomcode_context first. Endpoints otherwise as written in the code: Owner.method, method, Type, Outer$Inner.m, file.java:123, file.py, @Decoration, a library call as written (new File, Files.readAllBytes). '*' on one side = everything that reaches B / everything A reaches. every=True lists every route; in_path restricts to files containing it; depth bounds a closure. A long answer comes in pages, nearest routes first, with the whole answer's counts on every page; ask for page=2 only if page 1 is not enough. fresh=True: after an edit, wait for the rebuild instead of answering from the last graph with rows in edited files marked (may be out of date). The answer is one site per line, each hop at the line its call is written on (`path:line: code  [resolved · hop 1/3 → B]`); full=True gives the prose, which also says why when there is no chain. why=True adds, after the endpoint line, how each endpoint name was resolved: the lookup step that matched it (exact declaration, qualified suffix, simple name, a type used by name, ...), the declarations it weighed with file:line, and why that one won or why the name matched nothing (it gives the prose). refresh=False: read-only, answers from the graph as it is and never starts a rebuild (an answer that did start one says so on its first line)."""
     need_repo(repo)
     paged = _paged(page); full = full or why
     a = ['path', from_, to, repo] + grep(full or paged, limit) + (['--why'] if why else []) + (['--fresh'] if fresh else []) + (['--every'] if every else []) + (['--in', in_path] if in_path else []) + (['--depth', str(depth)] if depth else []) + (['--limit', str(limit)] if limit and (full or paged) else []) + (['--page', str(page)] if paged else [])
-    return run(a + NOREF(refresh))
+    return run(a + ev(evidence, drop, exact, alongside) + NOREF(refresh))
 
 @srv.tool()
-def axiomcode_impact(targets: list[str], repo: str = ".", tests: bool = False, why: bool = False, tests_in: str = '', depth: int = 0, in_path: str = '', kind: str = '', page: Page = 1, budget: int = 0, limit: int = 0, delete: bool = False, fresh: bool = False, full: bool = False, refresh: bool = True) -> str:
+@_doc
+def axiomcode_impact(targets: list[str], repo: str = ".", tests: bool = False, why: bool = False, tests_in: str = '', depth: int = 0, in_path: str = '', kind: str = '', page: Page = 1, budget: int = 0, limit: int = 0, delete: bool = False, fresh: bool = False, full: bool = False, refresh: bool = True, evidence: str = '', drop: list[str] = [], exact: bool = False, alongside: bool = False) -> str:
     """Trust it: [resolved]/[sound] rows are verified against the graph, so do not re-derive them by reading; the answer ends with `next:`, the one step to take. What has to be looked at again when a declaration changes: must-change-with-it (overrides, subtypes), everything that directly uses it (with how sure each is), everything that reaches those, and the bound (unresolved calls). The tests are always counted, by rung, with the strong-route ones named and the top test files. Ask for the full list SECOND, only if you need it: tests=True returns ONLY the tests, grouped by rung and test file (the CLI's --tests-only); why=True adds each test's route, and after each `change:` line how its target name was resolved (the lookup step that matched, the declarations weighed with file:line, why that one won or why nothing matched); tests_in narrows that listing to test files containing it. Long answers come in pages of ~2000 tokens: every page carries the counts of the WHOLE answer and the rows come strongest first, so page 1 is usually enough; page=2 continues with the rows page 1 did not print (a one-page answer says there is no page 2), page="all" gives every row. budget changes the page size. Targets as written: Owner.method, Owner.field, Type, Owner.method(param), Type<T>, Owner.method:local, or file.ts:123 (the declaration at that line). When you know where the declaration is, target it by file:line: a bare name answers for EVERY declaration of that name, and two unrelated functions in different files come back as one answer. kind: method|field|type|param|typeparam|var when a name is declared as several kinds. limit: rows shown per section (the `… +N (limit=N)` lines); delete=True adds a verdict on whether it is safe to delete. fresh=True: after an edit, wait for the rebuild (use it before a delete or a rename) instead of answering from the last graph with rows in edited files marked (may be out of date). The answer is one site per line, surest first (`path:line: code  [resolved | one of a set | by name | text | hop N | test]`), capped with a count of the rest; full=True gives the sectioned prose (why, delete, budget and page give it too). refresh=False: read-only, answers from the graph as it is and never starts a rebuild (an answer that did start one says so on its first line)."""
     need_repo(repo)
     prose = full or why or delete or _paged(page) or budget
     a = ['impact', *targets, repo] + grep(prose, limit) + (['--fresh'] if fresh else []) + (['--tests-only'] if tests else []) + (['--why'] if why else []) + (['--tests-in', tests_in] if tests_in else []) + (['--depth', str(depth)] if depth else []) + (['--in', in_path] if in_path else []) + (['--kind', kind] if kind else []) + _pg(page) + (['--budget', str(budget)] if budget else []) + (['--limit', str(limit)] if limit and prose else []) + (['--delete'] if delete else [])
-    return run(a + NOREF(refresh))
+    return run(a + ev(evidence, drop, exact, alongside) + NOREF(refresh))
 
 @srv.tool()
-def axiomcode_changed(repo: str = ".", files: list[str] = [], range: str = '', staged: bool = False, impact: bool = False, page: Page = 1, refresh: bool = True) -> str:
+@_doc
+def axiomcode_changed(repo: str = ".", files: list[str] = [], range: str = '', staged: bool = False, impact: bool = False, page: Page = 1, refresh: bool = True, evidence: str = '', drop: list[str] = [], exact: bool = False, alongside: bool = False) -> str:
     """Which declarations an edit changed and HOW — signature (parameters added / removed / retyped, return type), field (its type, name, initializer), type header, body only, removed, added (a new file is one `added` line) — the working tree against the commit the graph was built from (default), your branch's commits (range='a..b': read from `git merge-base a b`, so commits a received after you branched are not yours; a note says so when a has moved), or the index (staged=True); each with the target impact takes. When the working tree is clean but HEAD has commits of its own, it says which range=... to ask. files=[...] limits it to those files; on a copy without git (which it refuses otherwise) every declaration in a named file counts as changed. Changed files outside every indexed language (fixtures, case data, a schema) are named, never dropped. impact=True runs impact on all of them as one change set and returns its answer. refresh=False: read-only, answers from the graph as it is and never starts a rebuild (an answer that did start one says so on its first line)."""
     need_repo(repo)
     a = ['changed', repo, *files] + (['--range', range] if range else []) + (['--staged'] if staged else []) + (['--impact'] if impact else []) + _pg(page)
-    return run(a + NOREF(refresh))
+    return run(a + ev(evidence, drop, exact, alongside) + NOREF(refresh))
 
 @srv.tool()
-def axiomcode_test_impact(repo: str = ".", files: list[str] = [], range: str = '', staged: bool = False, in_path: str = '', limit: int = 0, why: bool = False, page: Page = 1, full: bool = False, refresh: bool = True) -> str:
+@_doc
+def axiomcode_test_impact(repo: str = ".", files: list[str] = [], range: str = '', staged: bool = False, in_path: str = '', limit: int = 0, why: bool = False, page: Page = 1, full: bool = False, refresh: bool = True, evidence: str = '', drop: list[str] = [], exact: bool = False, alongside: bool = False) -> str:
     """Which tests actually have to run for the edit in front of you: the test files that reach any changed declaration, with the chain, so the selection can be checked rather than trusted, and the command that runs them. Working tree by default; range='a..b' for your branch's commits (from `git merge-base a b`, so a base branch that moved on is not counted as your change); staged=True for the index; files=[...] for named files (a named file with no edit, or any on a copy without git, counts whole: the tests of everything in it). An edited test file is itself listed to run. Changed files outside every indexed language (fixtures, case data) are named with the test files that name them in their text. Conservative by design — a test reached only through an edge the graph does not encode (reflection, a service loader, a subprocess, a runtime-built case) will NOT appear, so it is a lower bound. why=True prints the chain for each. The answer is one test per line (`path:line: code  [test · resolved · hop N]`), capped with a count of the rest, and the command that runs them; limit=N lists more, full=True gives the prose. refresh=False: read-only, answers from the graph as it is and never starts a rebuild (an answer that did start one says so on its first line)."""
     need_repo(repo)
     prose = full or why or _paged(page)
     a = ['test-impact', repo, *files] + grep(prose, limit) + (['--range', range] if range else []) + (['--staged'] if staged else []) + (['--in', in_path] if in_path else []) + (['--limit', str(limit)] if limit and prose else []) + (['--why'] if why else []) + _pg(page)
-    return run(a + NOREF(refresh))
+    return run(a + ev(evidence, drop, exact, alongside) + NOREF(refresh))
 
 @srv.tool()
 def axiomcode_graph(repo: str = ".", out: str = '', refresh: bool = True) -> str:

@@ -66,7 +66,7 @@ def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges, ax_text, ax_spawn
+sys.path.insert(0, HERE); import dl_program, ax_registration, ax_edges, ax_text, ax_spawn, ax_evidence
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die, BODILESS_KINDS = P.G, P.run_dl, P.die, P.BODILESS_KINDS
@@ -2410,6 +2410,14 @@ def main(argv):
     parent = collections.defaultdict(list)
     for a, b, t, q_ in res['parent_up']: parent[a].append((b, t))
     prof('outputs read')
+    # who calls each callable, for what stands ONLY on a row (ax_evidence.only_through): built on first use, so an answer
+    # with evidence off and no --drop never pays for it
+    _callers_memo = []
+    def callers_of():
+        if not _callers_memo:
+            _callers_memo.append(collections.defaultdict(set))
+            for a, b, _ in g.edges(): _callers_memo[0][b].add(a)
+        return _callers_memo[0]
     tests = {}
     for m, d, q_ in res['test_near']:
         if m in g.sym and int(d) <= depth and int(d) < tests.get(m, (10 ** 9,))[0]:
@@ -2438,6 +2446,18 @@ def main(argv):
     stubbed = sorted({x[0] for x in res.get('test_stub', []) if x[0] in g.sym and x[0] not in tests},
                      key=lambda m: (g.sym[m]['file'] or '', g.sym[m]['display'] or '', m))
     byname_seeds = {x[0] for x in res['seed_byname'] if x[0] in g.sym}
+    # ASKED AGAIN WITHOUT SOME ROWS (--drop <file:line>, --exact; ax_evidence.py): the rows go, and with them what the
+    # answer reached ONLY through them -- the callables and tests no other dependent reaches. The rest is untouched.
+    _row = lambda x: {'id': x[0], 'at': x[4], 'certainty': x[3], 'reasons': direct_reasons.get((x[0], _grp(x[1])), [])}
+    _dropped = [x for x in D if ax_evidence.dropped(_row(x))]
+    if _dropped:
+        _keep = [x[0] for x in D if x not in _dropped and x[3] not in ('alongside', 'stubs it')] + [c for c, _ in contract]
+        _within = set(reached) | set(tests)
+        _lost = set().union(*(ax_evidence.only_through(callers_of(), _keep, x[0], _within) for x in _dropped))
+        D = [x for x in D if x not in _dropped]
+        reached = {m: d for m, d in reached.items() if m not in _lost}
+        tests = {m: v for m, v in tests.items() if m not in _lost and not (v[1] and v[1] in _lost)}
+        byname_seeds -= {x[0] for x in _dropped} - set(_keep)
     # the callers on an untyped receiver are SAMPLED in the text answer, so their order decides which are shown. Symbol
     # ids are not stable between two builds of the same tree, so ordering by id showed a different sample each build:
     # they go in source order (file, line, then name), which only an edit changes.
@@ -2679,7 +2699,7 @@ def main(argv):
         fw_grep = ("grep -rnF " + ' '.join(f"-e '\"{p_}'" for p_ in pre) + f" {P.grep_roots(g)}") if pre else \
                   ("grep -rnw " + ' '.join(f'-e "{n}"' for n in names) + f" {P.grep_roots(g)}" if names else '')
     if as_json:
-        print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
+        doc = ({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'also': contract_also.get(c, []), 'at': g.loc(c), 'for': sorted(contract_for[c])} for c, why in contract],
                           # the sort key ends in x[0], the id: two distinct anon-class methods can share a
                           # display AND every other component of the key, and without the id the order is
@@ -2700,11 +2720,19 @@ def main(argv):
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=by_place)],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how, **({'prose': True} if (n, f, l) in prose_hits else {})} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
                           'test_universe': universe, **({'tests_outside_src': dict(zip(('src', 'files'), out_src))} if out_src[1] else {}), 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u,
-                          **({'why': [g.why_json(n) for n in target_why]} if want_why else {})}, indent=1))
+                          **({'why': [g.why_json(n) for n in target_why]} if want_why else {})})
+        if ax_evidence.on() or _dropped:
+            if _dropped: doc['asked_again'] = {'note': ax_evidence.ask_again_note(), 'dropped': [g.loc(x[0]) if not x[4] else x[4] for x in _dropped]}
+            if ax_evidence.on():
+                ax_evidence.impact_doc(doc, g.repo, callers_of(), {m: fx for m, (_d, fx) in tests.items()})
+                if not ax_evidence.list_alongside() and doc.get('alongside') and any(not ax_evidence.is_exact(r['certainty']) for r in doc['direct']):
+                    doc['alongside_count'] = len(doc.pop('alongside'))
+        print(json.dumps(doc, indent=1))
         return 0
     for i, (k, lab, _) in enumerate(targets):
         print(f"change: {lab}   [{k}]")
         if want_why and i < len(target_why): print('\n'.join(g.why_lines(target_why[i])))
+    if _dropped: print(ax_evidence.ask_again_note() + f" ({len(_dropped)} row(s))")
     # --tests-only: every section is still COMPUTED (the tests are derived from them) but only the tests section,
     # and the verified / bound lines that qualify it, are printed
     _stdout = sys.stdout
@@ -2881,8 +2909,13 @@ def main(argv):
         if len(own) == 1 and own[0][0] == 'method':
             return f'grep -rn "\\.{own[0][1]}(" {P.grep_roots(g)}'
         return 'grep -rnw ' + ' '.join(f'-e "{n}"' for _, n in own) + f' {P.grep_roots(g)}'
+    _ev_view = ax_evidence.on() and not ax_evidence.list_alongside() and any(not ax_evidence.is_exact(x[3]) for x in D)
     for title, rows in groups:
         if not rows: continue
+        # with evidence on, in an answer that has an uncertain row, the `alongside` section (no call, no reference) is a
+        # count, not rows: --alongside lists them. An answer of exact rows alone is left exactly as it was.
+        if _ev_view and all(r[3] == 'alongside' for r in rows):
+            print(f"{title}: {len({c for c, *_ in rows})} callable(s) — --alongside lists them"); continue
         # PRODUCTION BEFORE TESTS. A test that reaches the target is a CONSEQUENCE of the change, not a place that
         # has to be edited, and in a well-tested tree the tests outnumber the production callers several times over.
         # Ranking by certainty alone therefore interleaved them, and since the window is finite the file that
@@ -2951,6 +2984,14 @@ def main(argv):
             tbyf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in tst if r[4])
             where = (f" in {len(tbyf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in tbyf.most_common(4)) + (' …' if len(tbyf) > 4 else '')) if tbyf else ''
             print(f"    +{len({c for c, *_ in tst})} test callable(s){where} also reach it, not listed here — `axiomcode test-impact` names them and the command that runs them (--tests lists them by file)")
+    if ax_evidence.on():
+        # THE LINE THAT DECIDES EACH UNCERTAIN ROW (ax_evidence.py), for the five strongest, with what stands on it
+        _ed = ax_evidence.impact_doc({'targets': [{'label': lab} for k, lab, _ in targets],
+                                      'direct': [{'id': c, 'display': g.disp(c), 'certainty': cert, 'at': loc} for c, role, why, cert, loc, n in D],
+                                      'contract': [{'id': c} for c, _ in contract],
+                                      'reached': [{'id': m} for m in reached], 'tests': [{'id': m} for m in tests]},
+                                     g.repo, callers_of(), {m: fx for m, (_d, fx) in tests.items()})
+        for l in ax_evidence.prose_block(_ed['direct'], _ed.get('evidence_more', 0)): print(l)
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
