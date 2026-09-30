@@ -1018,6 +1018,14 @@ class G:
             for a, b, how, where, conf in self.q(f"SELECT c0, c1, c2, c3, c4 FROM {table}"):
                 if a == b or a not in self.sym or b not in self.sym: continue
                 self.OUTSIDE.setdefault((a, b, tier), []).append((how, where, conf))
+        # a servlet filter a test's context holds, run on each request the test sends (ax_registration.filter_links)
+        try:
+            import ax_registration
+            for a, b, how in ax_registration.filter_links(self.q):
+                if a != b and a in self.sym and b in self.sym:
+                    self.OUTSIDE.setdefault((a, b, 'framework'), []).append(('servlet_filter', how, 'registered'))
+        except Exception:
+            pass
         self.EXTRA += sorted(self.OUTSIDE)
     def outside_detail(self, a, b, t):
         """what an outside-call hop is, as impact words it: `grpc at <destination> (exact)` / `fixture_injection via cart (by_name)`"""
@@ -1103,6 +1111,17 @@ def read_back(parent, q, end, srcs):
     return out[::-1]
 
 # ── verification: the printed hops against graph.sqlite, and the length against a second implementation ────────
+def outside_hop_holds(g, a, b, t):
+    """a [remote] / [framework] hop looked up again where it comes from: the engine's table, or, for a servlet filter a
+    test's context holds, the registration join itself (ax_registration.filter_links), run again on the graph"""
+    table = 'ext_remote_edge' if t == 'remote' else 'ext_framework_edge'
+    if g.has(table) and g.q(f"SELECT 1 FROM {table} WHERE c0 = ? AND c1 = ? LIMIT 1", a, b): return True
+    if t != 'framework': return False
+    import ax_registration
+    links = getattr(g, '_filter_links', None)
+    if links is None: links = g._filter_links = {(x, y) for x, y, _h in ax_registration.filter_links(g.q)}
+    return (a, b) in links
+
 def verify(g, chain, srcs, dst, adj):
     hops = [(chain[i][0], chain[i + 1][0], chain[i + 1][1]) for i in range(len(chain) - 1)]
     # A SET OF TRIPLES, not a map keyed on the pair. Two call sites in one body can reach the same
@@ -1117,7 +1136,7 @@ def verify(g, chain, srcs, dst, adj):
         if t in ('known_edge', 'multi_inferred') and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = ? LIMIT 1", a, b, t): bad.append((a, b, t))
         if t == 'library' and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = 'boundary_lib' LIMIT 1", a, b): bad.append((a, b, t))
         if t == 'written' and not any(r['caller_id'] == a for r in getattr(g, 'SITES', {}).get(b, [])): bad.append((a, b, t))
-        if t in ax_edges.OUTSIDE_CALL and not g.q(f"SELECT 1 FROM {'ext_remote_edge' if t == 'remote' else 'ext_framework_edge'} WHERE c0 = ? AND c1 = ? LIMIT 1", a, b): bad.append((a, b, t))
+        if t in ax_edges.OUTSIDE_CALL and not outside_hop_holds(g, a, b, t): bad.append((a, b, t))
     # plain BFS over the same facts: the second implementation must agree on the shortest length
     seen = {s: 0 for s in srcs}; fr = list(srcs); d = 0; found = None
     while fr and found is None:

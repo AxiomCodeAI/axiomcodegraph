@@ -49,6 +49,7 @@
 .decl py_test_name_prefix(v:symbol)
 .decl py_fixture_name_kw(v:symbol)
 .decl py_fixture_plugins_var(v:symbol)
+.decl py_fixture_value_method(v:symbol)
 .decl py_parametrize_deco(v:symbol)
 .decl py_parametrize_argnames_kw(v:symbol)
 .decl py_parametrize_indirect_kw(v:symbol)

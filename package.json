@@ -13,6 +13,7 @@
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
     "build": "npm --prefix parser run build && tsc && tsc-alias",
+    "postbuild": "node bin/axiomcode.js prepare --background || echo \"engines not prepared; the first index compiles them\"",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "schema-doc": "tsx graph/bundle/cli.ts --print-schema > graph/bundle/SCHEMA.md"

@@ -5,6 +5,7 @@
 # Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L] [--debug]
 #        run-souffle.sh --language L --print-engine-id      the canonical id of L's compiled engine
 #        run-souffle.sh --language L --emit-program FILE    the Soufflé program CI compiles for L
+#        run-souffle.sh --language L --prepare              make L's engine binary ready (packaged, cached or compiled)
 #
 # NO SOUFFLÉ NEEDED TO RUN. The rules compile to one self-contained executable that is
 # project-independent; CI builds it for every platform and publishes it on npm as
@@ -48,7 +49,7 @@ TAINT=""      # --taint on → gate lib→lib GROW on client-seeded data flow (d
 CLOSED_WORLD="" # --closed-world on → narrow the dispatch fan to types the program constructs (RTA),
               # and record every edge that drops as an assumption row. Env AXIOM_DISPATCH_CLOSED_WORLD=on.
               # Empty = the fan is every declared override (default). See #473.
-MODE="run"   # run | print-engine-id | emit-program — the last two need no IR and no souffle
+MODE="run"   # run | print-engine-id | emit-program | prepare — none but run needs IR; the id and the program need no souffle
 EMIT=""
 while [ $# -gt 0 ]; do case "$1" in
   --client-ir) CLIENT="$2"; shift 2;; --library) LIB="$2"; shift 2;;
@@ -61,6 +62,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --language) LANG_ARG="$2"; shift 2;;
   --print-engine-id) MODE="print-engine-id"; shift;;
   --emit-program) MODE="emit-program"; EMIT="$2"; shift 2;;
+  --prepare) MODE="prepare"; shift;;
   # graph.sqlite is the deliverable; csv/*.csv is a debugging view of the same core
   # tables. --debug asks for both. (An older Node with no node:sqlite writes the CSVs
   # regardless, because otherwise the run would produce no consumer-facing output.)
@@ -334,21 +336,7 @@ engine_id_of(){
   fi
   ENGINE_ID="$h"
 }
-case "$MODE" in
-  print-engine-id)
-    _pd="$(mktemp -d "${TMPDIR:-/tmp}/axiom-program.XXXXXX")" && [ -d "$_pd" ] || { echo "❌ mktemp failed" >&2; exit 1; }
-    if program_file "$_pd/program.dl" && { engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl"; }; then rm -rf "$_pd"
-    else rm -rf "$_pd"; exit 1; fi
-    printf '%s\n' "$ENGINE_ID" || exit 1
-    exit 0;;
-  emit-program) program_file "$EMIT" || exit 1; exit 0;;
-esac
-
-[ -n "${CLIENT:-}" ] && [ -n "${INT:-}" ] && [ -n "${OUT:-}" ] || { echo "usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]" >&2; exit 1; }
-FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
-# raw/ is OWNED: wiped per run so a relation that left the manifest cannot linger from an
-# earlier run and be mistaken for this one's output.
-RAW="$OUT/raw"; rm -rf "$RAW"; mkdir -p "$RAW"
+set_cache_root(){
 # Shared, machine-scoped cache root. Holds BOTH project-independent artefacts: the
 # compiled engine binary, and the staged library signature facts.
 #
@@ -370,6 +358,165 @@ else
     || CACHE_ROOT="$SRC/../.souffle-cache"
 fi
 mkdir -p "$CACHE_ROOT"
+}
+# engine_binary: the engine binary for $PROG (whose id is $ENGINE_ID), in $BIN — the packaged one, the cached one,
+# or one compiled here into the cache. Exits when there is none. Uses $INT for the generated C++.
+engine_binary(){
+# What we cache is OUR engine compiled to a native binary (souffle -g turns the .dl rules
+# into C++, c++ compiles it) — NOT the souffle tool. It depends only on the engine (rules +
+# decls) and is PROJECT-INDEPENDENT (relative .input/.output), so one binary serves every
+# project. It lives in a shared, machine-scoped cache keyed by the engine id — NOT in the
+# per-run intermediate. Default IN-REPO so a checkout is self-contained (.souffle-cache/ is
+# gitignored); point AXIOM_SOUFFLE_CACHE at a shared dir to amortise it.
+CACHE_DIR="$CACHE_ROOT"
+# -march: `native` by default, tuned for the machine that compiles and runs it. A binary
+# that is restored onto OTHER machines — a CI cache shared across hosted runners, whose CPUs
+# differ — must not be: AXIOM_ENGINE_MARCH=portable compiles for the compiler's baseline
+# target instead, as the published engines are (build-engines.yml). Any other value is
+# passed through as -march=<value>. ENGINE_ID does not cover this, so whoever shares a
+# cache across machines keys it on the setting (ci.yml does).
+case "${AXIOM_ENGINE_MARCH:-native}" in
+  portable) MARCH_FLAG=();;
+  *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
+esac
+EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
+BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
+
+# The platform string, in npm's spelling (process.platform-process.arch), because that is
+# how the engine packages are named: darwin-arm64, linux-x64, linux-arm64, win32-x64.
+engine_platform(){
+  local os arch
+  case "$(uname -s)" in
+    Linux) os=linux;; Darwin) os=darwin;; MINGW*|MSYS*|CYGWIN*) os=win32;;
+    *) echo "unsupported platform: $(uname -s)" >&2; return 1;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64) arch=x64;; arm64|aarch64) arch=arm64;;
+    *) echo "unsupported architecture: $(uname -m)" >&2; return 1;;
+  esac
+  # a bash started from an Intel python3 on an Apple Silicon Mac runs under Rosetta and reports x86_64; npm installed
+  # the arm64 engine, and an arm64 binary runs natively even from a translated process.
+  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; fi
+  printf '%s-%s\n' "$os" "$arch"
+}
+# 1. the engine package npm installed for this machine, if it was built from exactly these
+#    rules. Found by walking up from the package root the way node would, so a checkout's own
+#    node_modules and a global install both work.
+PACKAGED=""
+platform="$(engine_platform 2>/dev/null || true)"
+# this machine's package first, then the same OS's other architecture: npm installs exactly one per machine, so when
+# the first is absent the installed one is the one npm chose here.
+if [ -n "$platform" ]; then
+  case "$platform" in *-arm64) other="${platform%-arm64}-x64";; *) other="${platform%-x64}-arm64";; esac
+  for p in "$platform" "$other"; do
+    d="$PKG"
+    while [ "$d" != / ] && [ ! -d "$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$p" ]; do d="$(dirname "$d")"; done
+    if [ "$d" != / ]; then platform="$p"; break; fi
+  done
+  d="$PKG"
+  while [ "$d" != / ]; do
+    pkgdir="$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$platform"
+    if [ -d "$pkgdir" ]; then
+      have="$(tr -d '[:space:]' < "$pkgdir/$LANG_ARG/ENGINE_ID" 2>/dev/null || true)"
+      cand="$pkgdir/$LANG_ARG/axiomcode-engine-$LANG_ARG$EXE"
+      if [ "$have" = "$ENGINE_ID" ] && [ -f "$cand" ]; then PACKAGED="$cand"; chmod +x "$cand" 2>/dev/null || true
+      elif [ -n "$have" ]; then echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform holds $LANG_ARG at ${have:0:12}…, these rules are ${ENGINE_ID:0:12}… — not using it (publish a new engine version for these rules)"
+      else echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform has no $LANG_ARG engine"; fi
+      break
+    fi
+    d="$(dirname "$d")"
+  done
+fi
+
+if [ -n "$PACKAGED" ]; then
+  BIN="$PACKAGED"; echo "▶ using packaged engine $ENGINE_PACKAGE_SCOPE/engine-$platform ($LANG_ARG)"
+elif [ -x "$BIN" ]; then
+  echo "▶ reusing cached binary"
+elif command -v souffle >/dev/null 2>&1; then
+  # ONE COMPILE PER ENGINE ID, under a lock whose owner must be dead, not merely old, before
+  # another run takes it over (compile-lock.sh).
+  COMPILE_LOCK="$BIN.lock"
+  compile_lock_take "$COMPILE_LOCK"
+  trap 'compile_lock_drop "$COMPILE_LOCK"' EXIT
+fi
+if [ -z "$PACKAGED" ] && [ -x "$BIN" ] && [ -n "${COMPILE_LOCK:-}" ]; then
+  echo "▶ reusing the binary another run compiled"
+elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
+  echo "▶ compiling souffle program (cache miss)..."
+  INNER="$(find_souffle_include)"
+  # Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell
+  # the two install layouts apart, so it would pass a path that then fails at the compiler.
+  if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
+    echo "❌ soufflé is on PATH but its headers are not. Set AXIOM_SOUFFLE_INCLUDE." >&2; exit 1
+  fi
+  have="$(souffle --version 2>/dev/null | sed -n 's/^Version: *\([0-9][0-9.]*\).*/\1/p' | head -1)"
+  [ "$have" = "$SOUFFLE_VERSION" ] || echo "  ! local souffle is $have, the pinned version is $SOUFFLE_VERSION — a locally compiled engine may differ from CI's"
+  # Generate C++. souffle's "No rules/facts defined" warnings (for the intentionally
+  # unstaged lib-body relations — inert paths) aren't silenced by -w, so filter those 3-
+  # line blocks from stderr; on a real failure, dump the full log and fail. c++ -w
+  # silences the deprecation warnings in souffle's own headers. Compile to a .tmp then
+  # atomically rename, so a concurrent/aborted run never leaves a half-written binary.
+  if ! souffle -I "$SRC" -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
+    cat "$INT/.souffle-gen.log" >&2; exit 1
+  fi
+  awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
+  [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
+  CXX_PLATFORM=""
+  case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
+  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
+    rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
+  fi
+  # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
+  # land under $ENGINE_ID unless it is a whole binary built from the program that id names:
+  # the temp binary must be a non-empty executable, and the program must still hash to the id
+  # (a program or rule file that changed during the compile would otherwise be cached under
+  # the old id). Only then the atomic rename.
+  _built_id="$ENGINE_ID"
+  if [ ! -s "$BIN.tmp.$$" ] || [ ! -x "$BIN.tmp.$$" ] || ! engine_id_of "$PROG" || [ "$ENGINE_ID" != "$_built_id" ]; then
+    rm -f "$BIN.tmp.$$"
+    echo "❌ the compiled engine did not verify (program now hashes to ${ENGINE_ID:-nothing}, built as $_built_id); not caching it" >&2
+    exit 1
+  fi
+  mv -f "$BIN.tmp.$$" "$BIN"
+fi
+if [ -n "${COMPILE_LOCK:-}" ]; then compile_lock_drop "$COMPILE_LOCK"; trap - EXIT
+elif [ -z "$PACKAGED" ] && [ ! -x "$BIN" ]; then
+  echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2
+  echo "   • run \`npm install\` here — it fetches $ENGINE_PACKAGE_SCOPE/engine-<platform> for this machine (if these rules have been published), or" >&2
+  echo "   • install souffle $SOUFFLE_VERSION to compile locally (macOS: brew install souffle; Ubuntu: the .deb from souffle-lang/souffle releases)." >&2
+  exit 1
+fi
+}
+case "$MODE" in
+  print-engine-id)
+    _pd="$(mktemp -d "${TMPDIR:-/tmp}/axiom-program.XXXXXX")" && [ -d "$_pd" ] || { echo "❌ mktemp failed" >&2; exit 1; }
+    if program_file "$_pd/program.dl" && { engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl" || engine_id_of "$_pd/program.dl"; }; then rm -rf "$_pd"
+    else rm -rf "$_pd"; exit 1; fi
+    printf '%s\n' "$ENGINE_ID" || exit 1
+    exit 0;;
+  emit-program) program_file "$EMIT" || exit 1; exit 0;;
+  # The engine binary without a project: what an install or a build runs (`axiomcode prepare`), so the first index
+  # finds it cached instead of paying the C++ compile — minutes, against seconds for the index itself. The same
+  # program text, id, cache entry and lock as a run, so a run that starts meanwhile waits for this compile.
+  prepare)
+    set_cache_root
+    INT="$(mktemp -d "${TMPDIR:-/tmp}/axiom-prepare.XXXXXX")" && [ -d "$INT" ] || { echo "❌ mktemp failed" >&2; exit 1; }
+    PROG="$INT/souffle-program.dl"; _t0=$(date +%s)
+    program_file "$PROG" || { rm -rf "$INT"; exit 1; }
+    engine_id_of "$PROG" || engine_id_of "$PROG" || engine_id_of "$PROG" \
+      || { rm -rf "$INT"; echo "❌ could not compute the engine id of $PROG" >&2; exit 1; }
+    engine_binary
+    rm -rf "$INT"
+    echo "✓ $LANG_ARG engine ready in $(( $(date +%s) - _t0 )) s: $BIN"
+    exit 0;;
+esac
+
+[ -n "${CLIENT:-}" ] && [ -n "${INT:-}" ] && [ -n "${OUT:-}" ] || { echo "usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]" >&2; exit 1; }
+FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
+# raw/ is OWNED: wiped per run so a relation that left the manifest cannot linger from an
+# earlier run and be mistaken for this one's output.
+RAW="$OUT/raw"; rm -rf "$RAW"; mkdir -p "$RAW"
+set_cache_root
 START_EPOCH=$(date +%s); START_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Library roots: --library is a comma-separated list of IR roots (each with jdk-style
@@ -546,130 +693,7 @@ engine_id_of "$PROG" || engine_id_of "$PROG" || engine_id_of "$PROG" \
   || { echo "❌ could not compute the engine id of $PROG; refusing to guess a cache entry" >&2; exit 1; }
 echo "▶ engine id = $ENGINE_ID (rules + souffle $SOUFFLE_VERSION)"
 
-# What we cache is OUR engine compiled to a native binary (souffle -g turns the .dl rules
-# into C++, c++ compiles it) — NOT the souffle tool. It depends only on the engine (rules +
-# decls) and is PROJECT-INDEPENDENT (relative .input/.output), so one binary serves every
-# project. It lives in a shared, machine-scoped cache keyed by the engine id — NOT in the
-# per-run intermediate. Default IN-REPO so a checkout is self-contained (.souffle-cache/ is
-# gitignored); point AXIOM_SOUFFLE_CACHE at a shared dir to amortise it.
-CACHE_DIR="$CACHE_ROOT"
-# -march: `native` by default, tuned for the machine that compiles and runs it. A binary
-# that is restored onto OTHER machines — a CI cache shared across hosted runners, whose CPUs
-# differ — must not be: AXIOM_ENGINE_MARCH=portable compiles for the compiler's baseline
-# target instead, as the published engines are (build-engines.yml). Any other value is
-# passed through as -march=<value>. ENGINE_ID does not cover this, so whoever shares a
-# cache across machines keys it on the setting (ci.yml does).
-case "${AXIOM_ENGINE_MARCH:-native}" in
-  portable) MARCH_FLAG=();;
-  *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
-esac
-EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
-BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
-
-# The platform string, in npm's spelling (process.platform-process.arch), because that is
-# how the engine packages are named: darwin-arm64, linux-x64, linux-arm64, win32-x64.
-engine_platform(){
-  local os arch
-  case "$(uname -s)" in
-    Linux) os=linux;; Darwin) os=darwin;; MINGW*|MSYS*|CYGWIN*) os=win32;;
-    *) echo "unsupported platform: $(uname -s)" >&2; return 1;;
-  esac
-  case "$(uname -m)" in
-    x86_64|amd64) arch=x64;; arm64|aarch64) arch=arm64;;
-    *) echo "unsupported architecture: $(uname -m)" >&2; return 1;;
-  esac
-  # a bash started from an Intel python3 on an Apple Silicon Mac runs under Rosetta and reports x86_64; npm installed
-  # the arm64 engine, and an arm64 binary runs natively even from a translated process.
-  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; fi
-  printf '%s-%s\n' "$os" "$arch"
-}
-# 1. the engine package npm installed for this machine, if it was built from exactly these
-#    rules. Found by walking up from the package root the way node would, so a checkout's own
-#    node_modules and a global install both work.
-PACKAGED=""
-platform="$(engine_platform 2>/dev/null || true)"
-# this machine's package first, then the same OS's other architecture: npm installs exactly one per machine, so when
-# the first is absent the installed one is the one npm chose here.
-if [ -n "$platform" ]; then
-  case "$platform" in *-arm64) other="${platform%-arm64}-x64";; *) other="${platform%-x64}-arm64";; esac
-  for p in "$platform" "$other"; do
-    d="$PKG"
-    while [ "$d" != / ] && [ ! -d "$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$p" ]; do d="$(dirname "$d")"; done
-    if [ "$d" != / ]; then platform="$p"; break; fi
-  done
-  d="$PKG"
-  while [ "$d" != / ]; do
-    pkgdir="$d/node_modules/$ENGINE_PACKAGE_SCOPE/engine-$platform"
-    if [ -d "$pkgdir" ]; then
-      have="$(tr -d '[:space:]' < "$pkgdir/$LANG_ARG/ENGINE_ID" 2>/dev/null || true)"
-      cand="$pkgdir/$LANG_ARG/axiomcode-engine-$LANG_ARG$EXE"
-      if [ "$have" = "$ENGINE_ID" ] && [ -f "$cand" ]; then PACKAGED="$cand"; chmod +x "$cand" 2>/dev/null || true
-      elif [ -n "$have" ]; then echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform holds $LANG_ARG at ${have:0:12}…, these rules are ${ENGINE_ID:0:12}… — not using it (publish a new engine version for these rules)"
-      else echo "  ! $ENGINE_PACKAGE_SCOPE/engine-$platform has no $LANG_ARG engine"; fi
-      break
-    fi
-    d="$(dirname "$d")"
-  done
-fi
-
-if [ -n "$PACKAGED" ]; then
-  BIN="$PACKAGED"; echo "▶ using packaged engine $ENGINE_PACKAGE_SCOPE/engine-$platform ($LANG_ARG)"
-elif [ -x "$BIN" ]; then
-  echo "▶ reusing cached binary"
-elif command -v souffle >/dev/null 2>&1; then
-  # ONE COMPILE PER ENGINE ID, under a lock whose owner must be dead, not merely old, before
-  # another run takes it over (compile-lock.sh).
-  COMPILE_LOCK="$BIN.lock"
-  compile_lock_take "$COMPILE_LOCK"
-  trap 'compile_lock_drop "$COMPILE_LOCK"' EXIT
-fi
-if [ -z "$PACKAGED" ] && [ -x "$BIN" ] && [ -n "${COMPILE_LOCK:-}" ]; then
-  echo "▶ reusing the binary another run compiled"
-elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
-  echo "▶ compiling souffle program (cache miss)..."
-  INNER="$(find_souffle_include)"
-  # Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell
-  # the two install layouts apart, so it would pass a path that then fails at the compiler.
-  if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
-    echo "❌ soufflé is on PATH but its headers are not. Set AXIOM_SOUFFLE_INCLUDE." >&2; exit 1
-  fi
-  have="$(souffle --version 2>/dev/null | sed -n 's/^Version: *\([0-9][0-9.]*\).*/\1/p' | head -1)"
-  [ "$have" = "$SOUFFLE_VERSION" ] || echo "  ! local souffle is $have, the pinned version is $SOUFFLE_VERSION — a locally compiled engine may differ from CI's"
-  # Generate C++. souffle's "No rules/facts defined" warnings (for the intentionally
-  # unstaged lib-body relations — inert paths) aren't silenced by -w, so filter those 3-
-  # line blocks from stderr; on a real failure, dump the full log and fail. c++ -w
-  # silences the deprecation warnings in souffle's own headers. Compile to a .tmp then
-  # atomically rename, so a concurrent/aborted run never leaves a half-written binary.
-  if ! souffle -I "$SRC" -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
-    cat "$INT/.souffle-gen.log" >&2; exit 1
-  fi
-  awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
-  [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
-  CXX_PLATFORM=""
-  case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
-  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
-    rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
-  fi
-  # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
-  # land under $ENGINE_ID unless it is a whole binary built from the program that id names:
-  # the temp binary must be a non-empty executable, and the program must still hash to the id
-  # (a program or rule file that changed during the compile would otherwise be cached under
-  # the old id). Only then the atomic rename.
-  _built_id="$ENGINE_ID"
-  if [ ! -s "$BIN.tmp.$$" ] || [ ! -x "$BIN.tmp.$$" ] || ! engine_id_of "$PROG" || [ "$ENGINE_ID" != "$_built_id" ]; then
-    rm -f "$BIN.tmp.$$"
-    echo "❌ the compiled engine did not verify (program now hashes to ${ENGINE_ID:-nothing}, built as $_built_id); not caching it" >&2
-    exit 1
-  fi
-  mv -f "$BIN.tmp.$$" "$BIN"
-fi
-if [ -n "${COMPILE_LOCK:-}" ]; then compile_lock_drop "$COMPILE_LOCK"; trap - EXIT
-elif [ -z "$PACKAGED" ] && [ ! -x "$BIN" ]; then
-  echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2
-  echo "   • run \`npm install\` here — it fetches $ENGINE_PACKAGE_SCOPE/engine-<platform> for this machine (if these rules have been published), or" >&2
-  echo "   • install souffle $SOUFFLE_VERSION to compile locally (macOS: brew install souffle; Ubuntu: the .deb from souffle-lang/souffle releases)." >&2
-  exit 1
-fi
+engine_binary
 # --- STAGE↔SOLVE loop: solve → stage the bodies of methods reached so far → re-solve, until
 #     reachable_method stops growing. Soufflé loads facts up front and can't fetch bodies mid-
 #     solve, so the driver feeds them in reachability order. Each round loads the bodies of ALL

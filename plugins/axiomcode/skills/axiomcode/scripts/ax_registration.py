@@ -1231,3 +1231,129 @@ def key_writes(q, table_keys=None):
     rows = [(v, f, l) for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL")
             if v not in table_keys] if _has(q, 'literals') else []
     return rows + table_key_writes(q, table_keys)
+
+
+# ── a servlet filter runs on every request of a test that loads it ───────────────────────────────────────────
+# A filter has no caller in the source: the servlet container calls doFilter / doFilterInternal on every request the
+# application serves, and a Spring MockMvc or web test serves its requests through the same chain. So a test that
+# sends a request through a context holding the filter runs the filter's body, and nothing in the graph says so:
+# `test-impact` after an edit to a filter's token parsing named no test while eight web-layer tests ran it on every
+# request.
+#
+# The link is drawn only where the context is known to hold the filter, which keeps it narrow:
+#   a filter INSTANCE handed to HttpSecurity addFilter / addFilterBefore / addFilterAfter / addFilterAt (a @Bean
+#     factory's return, a `new`, or a field of the filter's type, written inside the call) is held by every context
+#     that loads the configuration class declaring that call: a test naming it in @Import, @ContextConfiguration,
+#     @SpringJUnitConfig or @SpringBootTest(classes = ...), or a @SpringBootTest with no classes (the whole
+#     application). A @WebMvcTest slice alone is not credited: which configurations it picks up depends on the Boot
+#     version, and a test that needs the security chain imports it.
+#   a filter that is itself a @Component (or another stereotype) is held by a @SpringBootTest and by a @WebMvcTest
+#     slice, which includes Filter beans, and by a test that imports it.
+# and only for the test methods that send a request: a method that writes a path-shaped literal ("/orders") or calls
+# a request method (MockMvc perform, a test client's exchange / getForEntity / ...). A test class that loads the
+# configuration but sends nothing, and a test that sends requests without loading it, are not credited.
+FILTER_BASES = {'OncePerRequestFilter', 'GenericFilterBean', 'HttpFilter', 'GenericFilter', 'AbstractAuthenticationProcessingFilter',
+                'BasicAuthenticationFilter', 'UsernamePasswordAuthenticationFilter', 'AbstractPreAuthenticatedProcessingFilter'}
+FILTER_IFACES = {'javax.servlet.Filter', 'jakarta.servlet.Filter'}
+FILTER_ENTRY = {'doFilter', 'doFilterInternal', 'shouldNotFilter', 'attemptAuthentication', 'successfulAuthentication',
+                'unsuccessfulAuthentication'}
+FILTER_ADDERS = {'addFilter', 'addFilterBefore', 'addFilterAfter', 'addFilterAt'}
+STEREOTYPES = {'Component', 'Service', 'Configuration'}
+CONFIG_LOADERS = {'Import', 'ContextConfiguration', 'SpringJUnitConfig', 'SpringJUnitWebConfig', 'SpringBootTest'}
+REQUEST_CALLS = {'perform', 'exchange', 'getForEntity', 'postForEntity', 'getForObject', 'postForObject', 'patchForObject'}
+_CLASS_TOKEN = re.compile(r'\b([A-Z][\w$]*)\b')
+
+
+def filter_links(q):
+    """[(test method id, filter method id, how)] — the test sends a request through a context that holds the filter"""
+    if not all(_has(q, t) for t in ('types', 'methods', 'type_ancestors', 'call_sites', 'decorations', 'symbols')): return []
+    # cheap first: no ancestor named like a filter, no filter (the hooks ask this on every edit, graph_sql._has_framework_hops)
+    if not q("SELECT 1 FROM type_ancestors WHERE ancestor_type_id LIKE '%Filter' LIMIT 1"): return []
+    tname, qname = {}, {}
+    for i, n, qn, prov in q("SELECT id, name, qualified_name, provenance FROM types"):
+        if prov == 'client': tname[i] = n
+        else: qname[i] = qn
+    anc = collections.defaultdict(set)
+    for t, a in q("SELECT type_id, ancestor_type_id FROM type_ancestors"): anc[t].add(a)
+    def is_filter_base(a):
+        if a in tname: return False                      # a client type: the chain continues through its own ancestors
+        qn = (qname.get(a) or a.split(':', 1)[-1]).replace('$', '.')
+        return qn in FILTER_IFACES or qn.rsplit('.', 1)[-1] in FILTER_BASES
+    filters = {t for t in tname if any(is_filter_base(a) for a in anc.get(t, ()))}
+    if not filters: return []
+    entry = collections.defaultdict(set)                  # filter type -> the methods the container calls on it
+    for mid, n, own in q("SELECT id, name, owner_type_id FROM methods WHERE owner_type_id IS NOT NULL"):
+        if n not in FILTER_ENTRY: continue
+        for f in filters:
+            if own == f or own in anc.get(f, ()): entry[f].add(mid)
+    filters = {f for f in filters if entry[f]}
+    if not filters: return []
+    by_name = collections.defaultdict(set)
+    for f in filters: by_name[tname[f]].add(f)
+    decs = collections.defaultdict(list)
+    for o, n, text in q("SELECT owner_id, name, text FROM decorations"): decs[o].append((n.split('.')[-1], text or ''))
+    # (1) handed to HttpSecurity inside a configuration class: config type -> filters it adds
+    added = collections.defaultdict(set)
+    owner_of = {mid: own for mid, own in q("SELECT id, owner_type_id FROM methods")}
+    ret = {}
+    for mid, sig, kind, own in q("SELECT id, signature, kind, owner_type_id FROM methods"):
+        if 'CONSTRUCTOR' in (kind or '') and own in filters: ret[mid] = {own}
+        elif sig and ':' in sig: ret[mid] = by_name.get(sig.rsplit(':', 1)[-1].strip(), set())
+    ph = ','.join('?' * len(FILTER_ADDERS))
+    for sid, caller, fp, l1, c1, l2, c2 in q(f"""SELECT id, caller_id, file_path, start_line, start_column, end_line, end_column
+                                                FROM call_sites WHERE callee_name IN ({ph})""", *sorted(FILTER_ADDERS)):
+        conf = owner_of.get(caller)
+        if not conf: continue
+        got = set()
+        for isid, iname, ikind in q("""SELECT id, callee_name, kind FROM call_sites WHERE file_path = ? AND id <> ?
+                                           AND (start_line > ? OR (start_line = ? AND start_column > ?))
+                                           AND (end_line < ? OR (end_line = ? AND end_column <= ?))""", fp, sid, l1, l1, c1, l2, l2, c2):
+            for (m,) in q("SELECT callee_method_id FROM call_edges WHERE call_site_id = ? AND callee_method_id IS NOT NULL", isid):
+                got |= ret.get(m, set())
+            if ikind and 'constructor' in ikind.lower(): got |= by_name.get((iname or '').split('.')[-1], set())
+        if _has(q, 'refs') and _has(q, 'fields'):
+            rel = [r[0] for r in q("SELECT file FROM symbols WHERE id = ?", caller)]
+            if rel:
+                for (n,) in q("SELECT DISTINCT name FROM refs WHERE file = ? AND line BETWEEN ? AND ? AND entity_kind = 'FIELD'", rel[0], l1, l2):
+                    for (tn,) in q("SELECT type_name FROM fields WHERE name = ? AND owner_type_id = ?", n, conf):
+                        got |= by_name.get(re.sub(r'<.*', '', tn or '').split('.')[-1], set())
+        for f in got: added[conf].add(f)
+    # (2) a filter that is a component of the application
+    component = {f for f in filters if any(n in STEREOTYPES for n, _ in decs.get(f, ()))}
+    if not added and not component: return []
+    # the test classes, and what each one's context holds (its own decorations and its client ancestors')
+    tests = collections.defaultdict(set)
+    for i, own in q("""SELECT s.id, m.owner_type_id FROM symbols s JOIN methods m ON m.id = s.method_id
+                       WHERE s.is_test = 1 AND m.owner_type_id IS NOT NULL"""): tests[own].add(i)
+    cname = {t: tname[t] for t in set(added) | component}
+    out = set()
+    for t, ms in tests.items():
+        ds = [d for x in [t] + sorted(a for a in anc.get(t, ()) if a in tname) for d in decs.get(x, ())]
+        named = {tok for n, text in ds if n in CONFIG_LOADERS for tok in _CLASS_TOKEN.findall(text.split('(', 1)[1] if '(' in text else '')}
+        whole = any(n == 'SpringBootTest' and not re.search(r'\bclasses\s*=', text) for n, text in ds)
+        mvc = any(n == 'WebMvcTest' for n, _ in ds)
+        held = {}
+        for conf, fs in added.items():
+            if whole or cname[conf] in named:
+                for f in fs: held.setdefault(f, f"added to HttpSecurity in {cname[conf]}, which the test loads")
+        for f in component:
+            if whole or mvc or cname[f] in named: held.setdefault(f, f"a {tname[f]} component the test's context holds")
+        if not held: continue
+        for m in sorted(ms):
+            if not _sends_request(q, m): continue
+            for f, how in held.items():
+                for e in entry[f]: out.add((m, e, how))
+    return sorted(out)
+
+
+def _sends_request(q, m):
+    """the test method writes a path-shaped literal inside its own span, or calls a request method"""
+    s = q("SELECT file, line, end_line FROM symbols WHERE id = ?", m)
+    if not s or not s[0][1]: return False
+    f, a, b = s[0][0], s[0][1], s[0][2] or s[0][1]
+    ph = ','.join('?' * len(REQUEST_CALLS))
+    if q(f"SELECT 1 FROM call_sites WHERE caller_id = ? AND callee_name IN ({ph}) LIMIT 1", m, *sorted(REQUEST_CALLS)): return True
+    if _has(q, 'literals'):
+        for (v,) in q("SELECT value FROM literals WHERE file = ? AND line BETWEEN ? AND ?", f, a, b):
+            if isinstance(v, str) and re.fullmatch(r'/[\w\-./{}:%]*', v): return True
+    return False

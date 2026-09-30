@@ -42,6 +42,14 @@ CODE_EXT = r'\.(java|ts|tsx|js|mjs|cjs|py|cs)$'
 def is_git(repo):
     return sh('git', 'rev-parse', '--git-dir', cwd=repo) is not None
 
+def base_table(repo):
+    """the file table a graph with no commit is diffed against: the one the last explicit index kept (base-files.json,
+    which a background refresh leaves as it is), else the current one"""
+    try: return json.load(open(os.path.join(repo, '.axiomcode', 'out', 'base-files.json')))
+    except (OSError, ValueError):
+        sys.path.insert(0, HERE); import ax_fresh
+        return ax_fresh.load_table(repo)
+
 def resolve_range(repo, rng):
     """(old rev, new rev, note) for `--range`. `a..b` means what an agent asking about ITS commits means: what b added since
     it forked from a, so the old side is `git merge-base a b`, as `a...b` already is. Diffing the two TIPS, as this did,
@@ -202,6 +210,20 @@ class Changed:
         b = os.path.join(self.repo, '.axiomcode', 'out', 'base-tree')
         b = open(b).read().strip() if os.path.exists(b) else ''
         self.base_tree = b if b and sh('git', 'cat-file', '-e', b, cwd=self.repo) is not None else self.indexed_tree
+        # NO COMMIT RECORDED: a graph built where there was no git (a mirror synced without .git, an export) stamps 'nogit'
+        # and writes no tree. Read against HEAD, every uncommitted edit the index had READ came back as changed right after
+        # it (a fresh index of a dirty mirror: 208 declarations), and in a copy without git nothing could be answered. The
+        # file table the build wrote holds each file's hash as the parser read it: a file whose bytes still match is
+        # unchanged against the graph, whatever git says; one that differs, is new or is gone is the edit (since_index).
+        self.since_index = None
+        if (not self.built_at or self.built_at == 'nogit') and not self.base_tree:
+            sys.path.insert(0, HERE); import ax_fresh
+            t = base_table(self.repo)
+            if t and t.get('files'):
+                c = ax_fresh.changes(self.repo, t)
+                if c is not None:
+                    self.since_index = set(c[0]) | set(c[1]) | set(c[2]); self.indexed_files = set(t['files'])
+                    self.index_built = float(t.get('built') or 0)
         # THE BASE MOVED UNDER THE BASELINE: a rebase, a pull, a checkout, a reset or a commit since it was set, and the
         # refresher has not caught up (it builds HEAD's text first, which takes minutes on a dirty tree, and never runs
         # with refresh off). Read against the old baseline, every change the new commits brought in (upstream's) came
@@ -419,6 +441,13 @@ class Changed:
         # dropped here, an edit to them answered "no change" and test-impact "no test can be selected", which reads as
         # "nothing to test". They are kept apart, named, and test-impact looks for the tests that load them.
         lines = [l for l in (out or '').split('\n') if l.strip()]
+        if self.since_index is not None and mode == 'worktree':
+            # no commit to diff against: the files the table says changed since the index, and a file the table does not
+            # watch (a fixture, a schema) that git lists and that was written after the index
+            def later(l):
+                try: return os.path.getmtime(os.path.join(self.repo, l)) > self.index_built
+                except OSError: return False
+            lines = sorted(self.since_index | {l for l in lines if l not in self.indexed_files and not self.is_code(l) and later(l)})
         self.outside = [l for l in lines if not self.is_code(l)]
         return [l for l in lines if self.is_code(l)]
     def is_code(self, rel):
@@ -1295,6 +1324,36 @@ class Changed:
                             target_kind='type' if k in ('class', 'interface', 'enum', 'type') else 'method'))
         if not out: out.append(dict(kind='named', symbol=rel, id=None, file=rel, line=1, end=1, old_lines=[], detail=why + '; the graph declares nothing in it', target=None))
         return out
+    def mapper_methods(self, ns, sid):
+        """the methods a statement `sid` under `<mapper namespace="ns">` is the SQL of (ax_nonsource.mapper_methods)"""
+        import ax_nonsource
+        if not self.g.has('types'): return []
+        return [i for i in ax_nonsource.mapper_methods(self.g.q, ns, sid) if i in self.g.all_sym]
+    def mapper_changes(self, rel, old, new, whole=None):
+        """A MAPPER XML's STATEMENT IS ITS METHOD'S BODY. MyBatis binds `<select id="m">` under `<mapper namespace="a.B">`
+        to a.B.m, so an edit to that SQL is a body change of a.B.m, and `test-impact` asks for the tests of a.B.m (an
+        edit to a `<sql>` fragment or a `<resultMap>` is one to every statement that includes or names it). The row sits
+        at the statement's line in the XML and targets the method. -> (entries, unplaced edited lines); ([], 0) for a
+        file that is not a mapper XML or whose namespace names no type of this graph. `whole` (a reason): the file was
+        named with no edit, so every statement in it counts."""
+        import ax_nonsource
+        if whole:
+            ns = ax_nonsource.mapper_namespace_of(new)
+            stm = {e[1]: (e[2], 'named', None) for e in ax_nonsource.mapper_elements(new) if e[0] in ax_nonsource.STATEMENT_TAGS} if ns else {}
+            unplaced = 0
+        else:
+            ns, stm, unplaced = ax_nonsource.mapper_edits(old, new)
+        if not ns: return [], 0
+        out = []
+        for sid, (line, how, via) in sorted(stm.items(), key=lambda x: (x[1][0], x[0])):
+            what = {'added': 'a statement for it was added', 'removed': 'its statement was removed', 'named': whole}.get(how, 'the SQL of its statement changed')
+            for i in self.mapper_methods(ns, sid):
+                sy = self.g.all_sym[i]
+                out.append(dict(kind='named' if how == 'named' else 'body', symbol=sy['display'], id=i, file=rel, line=line, end=line, old_lines=[],
+                                detail=f"mapper statement {ns}.{sid}: {what}" + (f" (through {via}, which it includes or maps with)" if via else ''),
+                                target=self.at_line(i) or self.qualified(i, 'method') or sy['display'], shown_target=self.qualified(i, 'method') or sy['display'],
+                                target_kind='method', mapper=True))
+        return out, unplaced
     def qualified(self, i, kind):
         if i is None: return None
         r = self.g.all_sym.get(i)
@@ -1381,7 +1440,9 @@ def main(argv):
     # function as added at line 1 and docstring words as methods. Without named files there is no answer to give: say so
     # and say what to pass. With named files, each counts whole (below).
     git = is_git(rrepo)
-    if not git and not (old_f or new_f) and not a:
+    sys.path.insert(0, HERE); import ax_fresh
+    # ...unless the graph's file table holds what the index read: an edit is a file that differs from it (Changed.since_index)
+    if not git and not (old_f or new_f) and not a and mode == 'worktree' and not (base_table(rrepo) or {}).get('files'):
         msg = NO_GIT.format(repo=rrepo)
         if as_json: print(json.dumps({'built_at': None, 'changed': [], 'notes': [], 'refused': msg, 'no_git': True}, indent=1))
         else: print(msg)
@@ -1392,7 +1453,6 @@ def main(argv):
     # A caller that already chose it (test-impact, the change hook) passes it in AXIOMCODE_GRAPH; either way it is the
     # baseline's graph, and its spans are not mapped again.
     baseline = None; fanout_empty = False
-    sys.path.insert(0, HERE); import ax_fresh
     if mode != 'range' and not (old_f or new_f):
         bg = ax_fresh.baseline_graph(rrepo); given = os.environ.get('AXIOMCODE_GRAPH')
         # the dispatcher names the CURRENT graph of the language it is asking (AXIOMCODE_GRAPH_LANG): that is not a
@@ -1412,10 +1472,31 @@ def main(argv):
     if old_f or new_f:
         if not one: die("--old/--new need --file <path in the repo>")
         rel = C.rel(one); old = open(old_f, errors='replace').read() if old_f else ''; new = open(new_f, errors='replace').read() if new_f else ''
-        r, n = C.file_changes(rel, old, new); results += r; notes += n
+        mr = C.mapper_changes(rel, old, new)[0] if not C.is_code(rel) else []
+        if mr: results += mr
+        else:
+            r, n = C.file_changes(rel, old, new); results += r; notes += n
     else:
         files = C.files(mode, rng, a)
         outside = list(C.outside)
+        # A MAPPER XML IS NOT OUTSIDE THE GRAPH: its statements are the bodies of the mapper methods their namespace and
+        # id name (mapper_changes). An edit placed in a statement, a fragment or a result map is that method's change;
+        # the file stays named as outside only when an edited line lies in no element with an id (its header, say).
+        mapped = set()
+        for f in [x for x in outside if x.lower().endswith('.xml')]:
+            if a and not git:
+                try: new = open(os.path.join(C.repo, f), errors='replace').read()
+                except OSError: continue
+                r, unplaced = C.mapper_changes(f, '', new, whole='no git base to diff against')
+            else:
+                old, new = C.texts(f, mode, rng)
+                if old == new:
+                    if not (a and whole): continue
+                    r, unplaced = C.mapper_changes(f, old, new, whole=f"no edit against {'the index' if mode == 'staged' else 'the baseline'}: the file was named")
+                else: r, unplaced = C.mapper_changes(f, old, new)
+            results += r
+            if r and not unplaced: mapped.add(f)
+        outside = [x for x in outside if x not in mapped]
         # a source file in a language no graph here holds (a .java file beside a Python-only index) is outside the index too
         held = held_extensions(C.repo)
         if held:
@@ -1439,9 +1520,13 @@ def main(argv):
         for rel in files:
             if a and not git:                                                 # a named file, no git: every declaration in it
                 results += C.whole_file(rel, 'no git base to diff against'); continue
+            since_index = C.since_index is not None and mode == 'worktree' and rel in C.since_index
+            if since_index and not git:                                       # changed since the index, no text of it before
+                results += C.whole_file(rel, 'changed since the index, and no git to diff its declarations against'); continue
             old, new = C.texts(rel, mode, rng)
             if old == new:
                 if a and whole: results += C.whole_file(rel, f"no edit against {'the index' if mode == 'staged' else 'the baseline'}: the file was named")
+                elif since_index: results += C.whole_file(rel, 'changed since the index, back to the text HEAD has: which declarations changed cannot be told')
                 continue
             if flipped and not old.strip() and new.strip():                   # a file the range adds: one line, not its decls reversed
                 results += C.new_file(rel, new, C.decl_spans(rel, mode), rel.endswith(('.py', '.pyi')) or bool(re.match(r'#![^\n]*\bpython', new)))
@@ -1470,14 +1555,16 @@ def main(argv):
     # A BASELINE THAT HOLDS EDITS (an explicit index of an edited tree, or a rebuild run as one) hides them: said, with how
     # to count them, rather than a bare "no change" over a real edit. Only when the question is the working tree as a whole
     base_note = C.baseline_note() if mode == 'worktree' and not a and not (old_f or new_f) else ''
-    base_desc = (f"working tree against {C.built_at[:10] if C.built_at and C.built_at != 'nogit' else 'HEAD'}" if mode == 'worktree' else
+    by_index = C.since_index is not None and mode == 'worktree' and not (old_f or new_f)
+    base_desc = ("working tree against the files the graph was indexed from (no commit recorded)" if by_index else
+                 f"working tree against {C.built_at[:10] if C.built_at and C.built_at != 'nogit' else 'HEAD'}" if mode == 'worktree' else
                  f"{rng} (from {C.range_old[:10]} to {C.range_new[:10]})" if mode == 'range' else mode)
     sugg_line = (f"your commits are not in the working tree: HEAD is {suggest['commits']} commit(s) ahead of {suggest['ref']} — "
                  f"ask `changed --range {suggest['range']}` (MCP range='{suggest['range']}') for them") if suggest else None
     mv = C.moved if mode in ('worktree', 'head') and not (old_f or new_f) else None
     moved_json = dict(mv, note=moved_note(mv)) if mv else None
     if as_json:
-        print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes], 'outside_index': sorted(outside),
+        print(json.dumps({'built_at': C.built_at, 'against_index': by_index, 'changed': results, 'notes': [x[1] for x in notes], 'outside_index': sorted(outside),
                           'range_base': (C.range_old if mode == 'range' else None), 'range_note': range_note, 'baseline_note': base_note,
                           'suggest_range': suggest, 'suggest_note': sugg_line, 'base_moved': moved_json}, indent=1))
         return 3 if fanout_empty else 0
@@ -1489,6 +1576,8 @@ def main(argv):
         if sugg_line: print(f"next: {sugg_line}")
         return 3 if fanout_empty else 0
     against = (f" — against HEAD {mv['new'][:10]} (the base moved: see the note)" if mv else
+               " — against the files the graph was indexed from (it recorded no commit): a file unchanged since the index is "
+               "not an edit; a changed one is read " + ("against HEAD" if git else "whole") if by_index else
                f" — against the tree the graph was indexed from at the last `axiomcode index` (commit {C.built_at[:10]} plus the edits that were uncommitted then)" if C.tree_differs
                else f" — against the graph's commit {C.built_at[:10]}" if C.built_at != 'nogit' else " — against HEAD (the graph was built before this was a git checkout)")
     named = [e for e in results if e['kind'] == 'named']; shown = [e for e in results if e['kind'] != 'named']

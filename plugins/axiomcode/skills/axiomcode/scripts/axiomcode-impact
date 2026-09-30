@@ -105,7 +105,7 @@ def program_starters(repo, files):
 # written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
 # export re-ran on EVERY query — the cache never hit once.
-PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named', 'key_cap', 'key_use_cap'}
+PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named', 'key_cap', 'key_use_cap', 'mapper_param', 'bean_copy'}
 
 # WHICH FACTS A QUESTION ACTUALLY NEEDS. Soufflé loads and joins every .input relation of the program, so a query about a
 # METHOD was reading the 4 MB reference layer that only a field or type target can use — and computing `gen`, `holds` and
@@ -117,7 +117,7 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 # it obtained itself, so an added proxied annotation does not apply") — the differential test caught that immediately.
 # `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
 # not, for EVERY target kind. What is left is the layer only a field or type target can reach.
-_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'sigtype', 'persist_field', 'type_alias', 'jsx_props', 'jsx_tag', 'discriminant', 'keyed_literal', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
+_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'sigtype', 'persist_field', 'type_alias', 'jsx_props', 'jsx_tag', 'discriminant', 'keyed_literal', 'literal', 'dec_literal', 'field', 'field_holder', 'accessor', 'faccess', 'gen_table',
               'base_name', 'field_type', 'reexport', 'reexport_from', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
 # `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
@@ -709,7 +709,21 @@ class Impact:
     PRIMITIVE = {'int','long','double','float','boolean','char','byte','short','void','String','Object'}
     def declared_params(self, mid):
         """the simple type names of mid's declared parameters, in order; None when the header cannot be read"""
-        s = self.g.sym[mid]
+        parts = self.param_parts(mid)
+        if parts is None: return None
+        out = []
+        for raw in parts:
+            w = raw.strip()
+            w = re.sub(r'^(?:final\s+|@\w+(?:\([^)]*\))?\s+)*', '', w)          # modifiers and annotations
+            w = re.sub(r'\s+[A-Za-z_$][\w$]*\s*$', '', w).strip()                 # drop the parameter NAME
+            w = re.sub(r'<.*?>', '', w)                                            # erase generic arguments
+            w = w.replace('...', '[]')
+            w = w.split('.')[-1] if '.' in w and '[' not in w else w.split('.')[-1] + ('[]' if w.endswith('[]') else '')
+            out.append(w.strip())
+        return out
+    def param_parts(self, mid):
+        """mid's declared parameters as written, split at the top-level commas; None when the header cannot be read"""
+        s = self.g.sym.get(mid) or {}
         if not s.get('line'): return None
         L = self.lines(s['file']); head = ' '.join(L[s['line'] - 1: min(s.get('end_line') or s['line'], s['line'] + 8)])
         i = head.find('(')
@@ -730,16 +744,7 @@ class Impact:
             if ch == ',' and d == 0: parts.append(cur); cur = ''
             else: cur += ch
         parts.append(cur)
-        out = []
-        for raw in parts:
-            w = raw.strip()
-            w = re.sub(r'^(?:final\s+|@\w+(?:\([^)]*\))?\s+)*', '', w)          # modifiers and annotations
-            w = re.sub(r'\s+[A-Za-z_$][\w$]*\s*$', '', w).strip()                 # drop the parameter NAME
-            w = re.sub(r'<.*?>', '', w)                                            # erase generic arguments
-            w = w.replace('...', '[]')
-            w = w.split('.')[-1] if '.' in w and '[' not in w else w.split('.')[-1] + ('[]' if w.endswith('[]') else '')
-            out.append(w.strip())
-        return out
+        return parts
     def sig_narrow(self, mids, sig, whole):
         """`Owner.m(A,B)` selects the declarations whose parameter TYPES are written that way.
         Returns (ids, note). Stops with a diagnostic rather than answering for a spelling that matches nothing."""
@@ -974,6 +979,164 @@ class Impact:
                         if path in keys: out.append((path, rel, i))
         return out
     KEYFILE_EXT = {'.properties','.yml','.yaml','.conf','.ini','.cfg','.env'}
+    MAPPER_STATEMENT = 'is its mapper statement'   # an extbind row that opens the method's own statement in its mapper's namespace (mapper_scope)
+
+    # ── a field's uses that no reference names: a mapper statement's parameter, a reflective copy, a bound key ─────
+    # Each is read from the text the index does not type (a mapper XML, the arguments of a library call), so each is
+    # written as a per-query fact for the field targets asked about and joined in dl/impact.dl (mapper_param,
+    # bean_copy), and the bound key's settings lines join extbind as a config target's do (field_config_rows).
+    # a library call that copies a bean's properties BY NAME, through reflection: BeanUtil/BeanUtils.copyProperties,
+    # hutool's toBean / copyToList / fillBean / beanToMap, Jackson's convertValue. A value of the field's type handed
+    # to one of them is read (or written) property by property, so a rename or a retype of the field silently drops it.
+    BEAN_COPIERS = ('copyProperties', 'copyToList', 'toBean', 'fillBean', 'beanToMap', 'convertValue', 'copyBean')
+    def field_types(self, fid):
+        """(field name, the type ids that hold the field: its owner and every subtype, which inherits it) for a field id"""
+        g = self.g
+        r = g.q("SELECT name, owner_type_id FROM fields WHERE id = ?", fid) if g.has('fields') else []
+        if not r or not r[0][1]: return None, set()
+        own = r[0][1]
+        subs = {x[0] for x in g.q("SELECT type_id FROM type_ancestors WHERE ancestor_type_id = ?", own)} if g.has('type_ancestors') else set()
+        return r[0][0], {own} | subs
+    def types_named(self, written):
+        """the client type ids a type name written in source or XML denotes: a qualified name exactly, a simple name when
+        exactly one type of this graph has it (two of one name are left unresolved rather than guessed)"""
+        if not written or not self.g.has('types'): return set()
+        w = re.sub(r'<.*', '', written).strip().replace('$', '.')
+        if '.' in w:
+            return {r[0] for r in self.g.q("SELECT id FROM types WHERE REPLACE(qualified_name, '$', '.') = ?", w)}
+        ids = {r[0] for r in self.g.q("SELECT id FROM types WHERE name = ? AND provenance = 'client'", w)}
+        return ids if len(ids) == 1 else set()
+    def mapper_params(self, fids):
+        """MAPPER PARAMETER PROPERTIES: `#{it.quantity}` in `<update id="reserve">` under the namespace of a
+        mapper whose `reserve(@Param("it") Item item)` takes an Item reads Item.quantity: MyBatis resolves
+        the path against the parameter object by name, when the statement runs. The root of the path is typed from the
+        mapper method's own parameters (a @Param name, the one unnamed parameter, a <foreach item> over a collection
+        parameter, or the statement's parameterType); a segment before the last is a field of the type so far. A root that
+        names nothing, or a type named twice, types nothing. -> [(method id, field id, expression, xml file, line)]"""
+        import ax_nonsource
+        want = {}
+        for fid in fids:
+            n, ts = self.field_types(fid)
+            if n and ts: want.setdefault(n, []).append((fid, ts))
+        if not want: return []
+        out = []; params = {}
+        for rel in self.nonsource_files():
+            if not rel.lower().endswith('.xml'): continue
+            text = '\n'.join(self.lines(rel))
+            if not any(n in text for n in want): continue
+            ns = ax_nonsource.mapper_namespace_of(text)
+            if not ns: continue
+            for e in ax_nonsource.mapper_elements(text):
+                if e[0] not in ax_nonsource.STATEMENT_TAGS or not any(n in e[5] for n in want): continue
+                marks = [m for m in ax_nonsource.statement_markers(e) if m[0].split('.')[-1] in want]
+                if not marks: continue
+                for mid in ax_nonsource.mapper_methods(self.g.q, ns, e[1]):
+                    if mid not in self.g.sym: continue
+                    if mid not in params: params[mid] = self.mapper_param_decls(mid)
+                    for expr, line, items in marks:
+                        held = self.marker_type(expr, items, params[mid], ax_nonsource.statement_param_type(e))
+                        for fid, ts in want[expr.split('.')[-1]]:
+                            if held & ts: out.append((mid, fid, expr, rel, line))
+        return sorted(set(out))
+    def mapper_param_decls(self, mid):
+        """[(@Param name or None, parameter name, declared type as written)] of a mapper method, from its header"""
+        out = []
+        for raw in self.param_parts(mid) or []:
+            w = raw.strip()
+            bind = re.search(r'@Param\s*\(\s*(?:value\s*=\s*)?"([^"]+)"\s*\)', w)
+            w = re.sub(r'@[\w.]+(?:\s*\([^)]*\))?\s*', '', w)
+            w = re.sub(r'^\s*final\s+', '', w)
+            m = re.match(r'(.+?)\s+([A-Za-z_$][\w$]*)\s*$', w)
+            if m: out.append((bind.group(1) if bind else None, m.group(2), m.group(1).strip()))
+        return out
+    def marker_type(self, expr, items, decls, ptype):
+        """the type ids the object that holds the LAST segment of a parameter marker may be (mapper_params)"""
+        segs = expr.split('.')
+        def elem(written):                                    # List<Sku> / Collection<Sku> / Sku[] -> Sku
+            m = re.search(r'<\s*([\w$.]+)\s*>', written)
+            return m.group(1) if m else written[:-2] if written.endswith('[]') else None
+        def param(name):
+            for bind, pname, typ in decls:
+                if bind == name or (bind is None and pname == name and len(decls) > 1): return typ
+            return None
+        root, rest = None, segs
+        if len(segs) > 1 and segs[0] in items:
+            coll = items[segs[0]]; t = param(coll)
+            if t is None and len(decls) == 1 and coll in ('list', 'collection', 'array'): t = decls[0][2]
+            root, rest = (elem(t) if t else None), segs[1:]
+        elif len(segs) > 1 and param(segs[0]):
+            root, rest = param(segs[0]), segs[1:]
+        elif len(decls) == 1 and decls[0][0] is None:
+            root = decls[0][2]
+        elif ptype:
+            root = ptype
+        ids = self.types_named(root) if root else set()
+        for s in rest[:-1]:                                    # a nested path: each segment a field of the type so far
+            if not ids: break
+            nxt = set()
+            for tid in ids:
+                anc = [tid] + [r[0] for r in self.g.q("SELECT ancestor_type_id FROM type_ancestors WHERE type_id = ?", tid)]
+                for r in self.g.q(f"SELECT type_name FROM fields WHERE name = ? AND owner_type_id IN ({','.join('?' * len(anc))})", s, *anc):
+                    nxt |= self.types_named(r[0])
+            ids = nxt
+        return ids
+    def bean_copies(self, fids):
+        """A VALUE HANDED TO A REFLECTIVE PROPERTY COPY. `BeanUtil.copyProperties(item, ItemView.class)` reads every
+        property of `item` by name: a rename of Item.quantity leaves ItemView's copy empty, and nothing fails.
+        The copy INTO a type is already a producer (`reflects on Product.class`); this is the value going OUT. An argument
+        that is a bare name is typed by the declaration of that name in the calling method (a parameter or a local) or a
+        field of its type. -> [(caller id, field id, declared type, copier name, file, line)]"""
+        g = self.g
+        if not g.has('call_sites'): return []
+        want = {}
+        for fid in fids:
+            n, ts = self.field_types(fid)
+            if ts: want[fid] = ts
+        if not want: return []
+        ph = ','.join('?' * len(self.BEAN_COPIERS))
+        out = []
+        for r in g.q(f"SELECT caller_id, callee_name, file_path, start_line FROM call_sites WHERE callee_name IN ({ph})", *self.BEAN_COPIERS):
+            c = r[0]; s = g.sym.get(c)
+            if not s or not s.get('line'): continue
+            f = g.site_file(r[2]) if r[2] else s['file']; ln = r[3] or 0
+            L = self.lines(f); text = ' '.join(L[ln - 1: ln + 2]) if 0 < ln <= len(L) else ''
+            m = re.search(rf'\b{re.escape(r[1])}\s*\(', text)
+            if not m: continue
+            args, depth, cur = [], 0, ''
+            for ch in text[m.end():]:
+                if ch in '([{<': depth += 1
+                elif ch in ')]}>':
+                    if depth == 0: break
+                    depth -= 1
+                if ch == ',' and depth == 0: args.append(cur.strip()); cur = ''
+                else: cur += ch
+            args.append(cur.strip())
+            body = '\n'.join(L[s['line'] - 1: ln])
+            for a in args:
+                a = re.sub(r'^this\.', '', a)
+                if not re.fullmatch(r'[a-z_$][\w$]*', a): continue
+                # the nearest declaration of the name above the call: `Product product = …`, `(Product product)`, `for (Product product :`
+                decl = None
+                for dm in re.finditer(rf'([A-Z][\w$.]*)(?:\s*<[^;=()]*>)?\s+{re.escape(a)}\s*[=;,):]', body): decl = dm.group(1)
+                if decl is None and s.get('owner'):
+                    fr = g.q("SELECT type_name FROM fields WHERE name = ? AND owner_type_id = (SELECT owner_type_id FROM methods WHERE id = ?)", a, s.get('method_id') or c) if g.has('fields') else []
+                    decl = fr[0][0] if fr and fr[0][0] else None
+                ids = self.types_named(decl)
+                for fid, ts in want.items():
+                    if ids & ts: out.append((c, fid, decl.split('.')[-1], r[1], f, ln))
+        return sorted(set(out))
+    def field_config_rows(self, T):
+        """A FIELD BOUND TO A CONFIGURATION KEY (@ConfigurationProperties, @Value on the field) is defined by the settings
+        line of that key: the field form of the question lists those lines as the key form does. -> [(key, file, line, q)]"""
+        g = self.g
+        if not g.has('ext_config_binding'): return []
+        out = []
+        for qq, k, fid, _x in T:
+            if k != 'field': continue
+            keys = {r[0] for r in g.q("SELECT DISTINCT c0 FROM ext_config_binding WHERE c3 = ?", fid)}
+            if not keys: continue
+            for key, f, l in self.config_key_sites({ckey(x) for x in keys}): out.append((key, f, l, qq))
+        return sorted(set(out))
     def config_key_sites(self, keys):
         """a key DEFINED or overridden in a settings file, matched on the canonical form so the spelling there
         need not be the spelling that was asked for. -> [(canonical key, file, line)]"""
@@ -1101,7 +1264,7 @@ class Impact:
         W('cs_fixture_type', sorted(x for x in fixt if not x[0].startswith('collection:')))
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '64'        # 64: nested_def, a lex_parent pair whose inner declaration opens on a later line (declarations sharing a line are siblings); 60: returned_ref, a function returned inside a tuple, list or dict display; 58: calls carries decorated_call, a call written with a decorated name to the def its wrapper calls, and valueref / the by-name rules keep a nested def to the def that encloses it; 57: a TypeScript object literal key is a ref of entity kind OBJECT_PROPERTY_KEY, kept past a bound access on its line; 56: reg_key_fact carries a handler table's entries (kind table), literal a table key written as a dotted string or through a constant, and test_code; 55: cs_data_source, cs_data_type, cs_fixture_type, the C# test links a runner makes from a data attribute or a class/collection fixture (#1498, #1499); 53: implicit_new, the type a C# `new T()` constructs where T writes no constructor (#1473); 52: test_method holds a method under a composed or derived test marker declared in the repository (a Java annotation meta-annotated @Test, a C# attribute derived from FactAttribute: #1418, #1497; 51 was the C# test-links branch's number, landed as 55); 48: sigtype, a parameter / return position type_use resolves to a type, read before the textuse grep (#1422), and persist_field, the properties a persistence query reads (#1461); 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '64'        # 64: nested_def, a lex_parent pair whose inner declaration opens on a later line (declarations sharing a line are siblings); 60: returned_ref, a function returned inside a tuple, list or dict display; 58: calls carries decorated_call, a call written with a decorated name to the def its wrapper calls, and valueref / the by-name rules keep a nested def to the def that encloses it; 57: a TypeScript object literal key is a ref of entity kind OBJECT_PROPERTY_KEY, kept past a bound access on its line; 56: reg_key_fact carries a handler table's entries (kind table), literal a table key written as a dotted string or through a constant, and test_code; 61: filter_run, a servlet filter a test's context holds (added to HttpSecurity in a configuration the test loads, or a component) and the test methods that send a request through it; 57: a TypeScript object literal key is a ref of entity kind OBJECT_PROPERTY_KEY, kept past a bound access on its line; 56: reg_key_fact carries a handler table's entries (kind table), literal a table key written as a dotted string or through a constant, and test_code; 55: cs_data_source, cs_data_type, cs_fixture_type, the C# test links a runner makes from a data attribute or a class/collection fixture (#1498, #1499); 53: implicit_new, the type a C# `new T()` constructs where T writes no constructor (#1473); 52: test_method holds a method under a composed or derived test marker declared in the repository (a Java annotation meta-annotated @Test, a C# attribute derived from FactAttribute: #1418, #1497; 51 was the C# test-links branch's number, landed as 55); 48: sigtype, a parameter / return position type_use resolves to a type, read before the textuse grep (#1422), and persist_field, the properties a persistence query reads (#1461); 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1156,6 +1319,8 @@ class Impact:
         # local to one another
         W('nested_def', sorted({(i, o) for i, o in lex if (g.sym[o].get('line') or 0) < (g.sym[i].get('line') or 0)}))
         W('imports_fact', self.imports())
+        # a servlet filter a test's context holds runs on every request that test sends (ax_registration.filter_links)
+        W('filter_run', sorted(set(ax_registration.filter_links(g.q))))
         # a test that runs a script as a child process by its path: the path is the only link (ax_spawn.py)
         mod_file = {}
         for i in sorted(mods): mod_file.setdefault(g.sym[i]['file'], i)
@@ -1179,10 +1344,13 @@ class Impact:
         mod_of = {}
         for i, sy in g.sym.items():
             if sy['kind'] == 'module' and sy.get('file'): mod_of.setdefault(sy['file'], i)
-        modules_used = set()
+        modules_used = set(); holders = []; key_names = set()
         for rid, f in self.fields.items():
             # the field's own registry hash when the index has it, so a decoration ON the field joins (#750)
             fid = f['id'] or f"f:{rid}"; t = owner_tid(f['owner'] or '', f.get('file'))
+            # a key of a module-level object (`TOPICS.CREATED`) is owned by an OBJECT, not a type: its module owns it, and
+            # the object's name is what a read of it is written behind (`TOPICS.CREATED`, `nested.depth`)
+            if not t and f['owner']: holders.append((fid, f['owner'].rsplit('.', 1)[-1])); key_names.add(f['name'])
             if not t: t = mod_of.get(f.get('file') or '')
             if not t: continue
             if t in mod_of.values(): modules_used.add(t)
@@ -1204,7 +1372,7 @@ class Impact:
                     (fid, 'init_' + f['name'], 'write'), (fid, 'get_' + cap, 'read'),
                     (fid, 'set_' + cap, 'write'), (fid, 'init_' + cap, 'write')]
             if f['name'].startswith('_') and len(f['name']) > 1: acc.append((fid, f['name'].lstrip('_'), 'read'))
-        W('member', members); W('owner', owners); W('field', fields); W('accessor', acc)
+        W('member', members); W('owner', owners); W('field', fields); W('accessor', acc); W('field_holder', sorted(set(holders)))
         # the accesses the ENGINE resolved, joined on the same id the `field` fact uses: symbols.id for a
         # field IS the bundle's fields.id. #1071 — the relation shipped populated and no rule read it, so a
         # resolved access was answered as a name match, with its read/write direction discarded.
@@ -1335,13 +1503,15 @@ class Impact:
                            for r in g.q("""SELECT DISTINCT s.caller_id, x.c1 t, s.file_path, s.start_line FROM ext_ctor_implicit_type x
                                             JOIN call_sites s ON s.id = x.c0""")] if g.has('ext_ctor_implicit_type') else [])
         refs = []; quals = []
+        # an object's key names: TypeScript records the member of `TOPICS.CREATED` as a bare name, and the qualifier
+        # written in front of it is what tells that object's key from another's
         if g.has('refs'):
             for r in g.q("SELECT name, file, line, kind, entity_kind FROM refs WHERE line > 0"):
                 c = self.at(r['file'], r['line'])
                 if not c: continue
                 rk = 'qualified' if r['kind'] in QUALIFIED_KINDS else 'bare'; ek = 'CLASS_LITERAL' if r['kind'] == 'CLASS_LITERAL' else (r['entity_kind'] or '')
                 refs.append((c, r['name'], rk, ek, r['file'], r['line']))
-                if rk == 'qualified':
+                if rk == 'qualified' or r['name'] in key_names:
                     L = self.code(r['file']); text = L[r['line'] - 1] if r['line'] <= len(L) else ''
                     for qn in re.findall(rf'([A-Za-z_$][\w$]*)\s*\.\s*{re.escape(r["name"])}\b', text): quals.append((r['file'], r['line'], r['name'], qn))
         W('ref', refs); W('qualifier', sorted(set(quals)))
@@ -1860,6 +2030,10 @@ class Impact:
         g.write('key_cap', [(int(os.environ.get('AXIOMCODE_KEY_CAP', '4')),)], F)
         g.write('key_use_cap', [(int(os.environ.get('AXIOMCODE_KEY_USE_CAP', '4')),)], F)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
+        # a field's uses no reference names (field_types and below): a mapper statement's parameter, a reflective copy
+        fids = sorted({s_ for _q, k_, s_, _x in T if k_ == 'field' and not str(s_).startswith('f:')})
+        mparams = self.mapper_params(fids) if fids else []; bcopies = self.bean_copies(fids) if fids else []
+        g.write('mapper_param', mparams, F); g.write('bean_copy', bcopies, F); prof('  per-query: mapper parameters and bean copies read')
         # Answered from graph.sqlite. Same dict, so everything below — the grouping, the
         # wording, the `verified:` check — is untouched. Returns None for a target kind it does not cover, and the
         # rules run as before. See graph_sql.solve_from_targets.
@@ -1879,13 +2053,13 @@ class Impact:
         if os.environ.get('AXIOMCODE_SQL') or no_rules:
             import graph_sql
             _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource, self.code, self.at,
-                                                inside, textuse, importuse, self.lines)
+                                                inside, textuse, importuse, self.lines, field_rows=self.field_extra_rows(T, mparams, bcopies, inside))
             # AXIOMCODE_SQL_STRICT=1: fail instead of falling back, so a coverage run can assert that a kind is
             # really answered here rather than quietly handed to the rules.
             if os.environ.get('AXIOMCODE_SQL_STRICT') and _sql is None:
                 die("AXIOMCODE_SQL_STRICT: no SQL rule for target kind(s) " + ','.join(sorted({k for _, k, _, _ in T})))
             if _sql is not None:
-                self.mapper_scope(T, _sql)
+                self.mapper_scope(T, _sql); self.field_bindings(T, _sql)
                 if os.environ.get('AXIOMCODE_BACKEND'): print('backend=sql', file=sys.stderr)
                 shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
                 if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
@@ -1917,7 +2091,7 @@ class Impact:
                     if p[0] in QS: rows.append(p[1:] + [p[0]])                               # … + the query id, so each row says which target it came from
                 out[n] = rows
             self.solve_store(D, key, out)
-        self.mapper_scope(T, out)
+        self.mapper_scope(T, out); self.field_bindings(T, out)
         # A KEY IS QUOTED AS IT IS WRITTEN AT THAT LINE (#1477). The join matches a settings line on the canonical form
         # (ckey: `batch_size`, `batch-size` and `batchSize` are one property), so the row carries that form; printed
         # as is, `app.orders.batch_size` was quoted as `app.orders.batchsize`, a spelling no file holds.
@@ -1935,6 +2109,22 @@ class Impact:
     def souffle_include(self):
         return dl_program.souffle_include()
 
+    MAPPER_PARAM_WHY = 'its mapper statement binds it as a parameter property (#{%s})'
+    BEAN_COPY_WHY = 'hands a value of %s to %s(), which copies its properties by name through reflection: a rename or a retype drops the value silently'
+    def field_extra_rows(self, T, mparams, bcopies, inside):
+        """the direct rows dl/impact.dl derives from mapper_param and bean_copy, per query id, for the SQL port"""
+        ins = set(inside); out = {}
+        for qq, k, fid, _x in T:
+            if k != 'field': continue
+            rows = [(m, 'reads', self.MAPPER_PARAM_WHY % e, 'resolved', f, l) for m, fl, e, f, l in mparams if fl == fid and (qq, m) not in ins]
+            rows += [(c, 'uses', self.BEAN_COPY_WHY % (tn, n), 'by name', f, l) for c, fl, tn, n, f, l in bcopies if fl == fid and (qq, c) not in ins]
+            if rows: out.setdefault(qq, []).extend(rows)
+        return out
+    def field_bindings(self, T, out):
+        """the settings lines of the configuration key a field target is bound to, as extbind rows (field_config_rows)"""
+        rows = self.field_config_rows(T)
+        if rows: out['extbind'] = list(out.get('extbind') or []) + [[f, str(l), k, 'defines or overrides the key', qq] for k, f, l, qq in rows]
+        return out
     def mapper_scope(self, T, out):
         """A STATEMENT ID IN A MAPPER XML IS RESOLVED INSIDE ITS NAMESPACE (#1381). `<select id="findById">` under
         `<mapper namespace="demo.user.UserMapper">` is the SQL of UserMapper.findById, and of nothing else named
@@ -1946,7 +2136,7 @@ class Impact:
         rows = out.get('extbind')
         if not rows: return out
         import ax_nonsource
-        g = self.g; ns_of = {}; accepts = {}
+        g = self.g; ns_of = {}; accepts = {}; stmt_of = {}
         methods = collections.defaultdict(list)                           # query id -> its method targets
         for r in T:
             if r[1] == 'method': methods[r[0]].append(r[2])
@@ -1975,12 +2165,20 @@ class Impact:
                 if ns is not None:
                     mids = [m for m in methods.get(qq, ()) if (g.sym.get(m) or {}).get('name') == n]
                     if mids and not any(namespaces(m) is None or norm(ns) in namespaces(m) for m in mids): continue
+                    # THE STATEMENT ITSELF, not a mention: the line opens `<select id="n">` in the namespace of the method's
+                    # owner, so it is the method's SQL, bound by namespace plus id. It is said so, and ranked with the
+                    # method's dependents rather than after every [text] lead (a mapper method stubbed in 30 tests
+                    # pushed its own statement past the cap of the one-line-per-site answer)
+                    if mids and any(namespaces(m) and norm(ns) in namespaces(m) for m in mids):
+                        if f not in stmt_of: stmt_of[f] = ax_nonsource.mapper_elements('\n'.join(self.lines(f)))
+                        if any(e[0] in ax_nonsource.STATEMENT_TAGS and e[1] == n and e[2] <= int(r[1]) <= e[2] + e[4].count('\n') for e in stmt_of[f]):
+                            r = [r[0], r[1], r[2], self.MAPPER_STATEMENT, *r[4:]]
             keep.append(r)
         out['extbind'] = keep
         return out
 
     # the facts a query writes itself; every other file in its fact directory is the graph's export, linked in
-    PER_QUERY_WRITTEN = ('nonsource', 'qual_name', 'key_cap', 'key_use_cap', 'target', 'textuse', 'importuse', 'inside_target')
+    PER_QUERY_WRITTEN = ('nonsource', 'qual_name', 'key_cap', 'key_use_cap', 'target', 'textuse', 'importuse', 'inside_target', 'mapper_param', 'bean_copy')
     SOLVE_CACHE_MAX = 200
     def solve_key(self, prog, F, D):
         """what a solve is a function of: the rules, the graph export (its stamp, and the size of each linked file, so a
@@ -2597,7 +2795,10 @@ def main(argv):
                'fan_capped': 'by name',
                # a client across a process to the handler it reaches (#1293): joined by the destination both ends
                # name, not by a call
-               'remote': 'remote'}
+               'remote': 'remote',
+               # a servlet filter the test's context holds, run on each request the test sends (ax_registration.filter_links):
+               # the container calls it, no call site does, so it is a registration like a callback's
+               'filter': 'registered'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -2713,7 +2914,7 @@ def main(argv):
             # `decorator by name` is the rules' own hop from a decorated def to the decorator it names
             # (dl/impact.dl fw_edge), asserted exactly as `decorator` is; leaving it out printed "✗ not found" on
             # every answer whose test route passes through a project decorator
-            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator', 'decorated_call', 'decorator by name', 'remote', 'spawns') for x, t in parent.get(a, [])): bad += 1
+            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines', 'by key', 'decorator', 'decorated_call', 'decorator by name', 'remote', 'spawns', 'filter') for x, t in parent.get(a, [])): bad += 1
     asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
     for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
@@ -3092,7 +3293,7 @@ def main(argv):
         byfile = collections.Counter(f for f, *_ in ext)
         print(f"bound from outside the source ({len(ext)} site(s) in {len(byfile)} file(s): a name matched in a file the index does"
               " not read as source, so the compiler is silent — nothing here fails a build; a rename or a retype breaks it at RUN time):")
-        for f, l, n, how in ext[:limit]: print(f"    [text] {f}:{l}   — {how} ({n})")
+        for f, l, n, how in ext[:limit]: print(f"    [{'by key' if how == Impact.MAPPER_STATEMENT else 'text'}] {f}:{l}   — {how} ({n})")
         if len(ext) > limit: print(f"    … +{len(ext) - limit} (--limit N)")
     if ext_prose:
         byname_p = collections.Counter(n for _f, _l, n, _h in ext_prose)
@@ -3304,7 +3505,7 @@ def main(argv):
     # and a method "in full" is only `Owner.method`, which a document or a test resource writes as readily as a
     # binding does. On the test cases themselves both matched each case's own case.json. A key is defined only in a
     # settings file; the same key spelled in any other text file is a mention, which the row's wording does not tell apart.
-    ext_strong = [x for x in ext if x[3] == 'names the type in full'
+    ext_strong = [x for x in ext if x[3] in ('names the type in full', Impact.MAPPER_STATEMENT)
                   or (x[3] == 'defines or overrides the key' and os.path.splitext(x[0])[1].lower() in Impact.KEYFILE_EXT)]
     ext_weak = [x for x in ext if x not in ext_strong]
     # WHAT "NOTHING HERE CALLS IT" IS MEASURED AGAINST: production code bound to it by an exact edge -- a strong direct
