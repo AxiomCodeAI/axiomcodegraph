@@ -143,6 +143,27 @@
     "Box.lo",
     "added      Box.high"
    ]
+  },
+  {
+   "why": "an edit on a later line of a static final initializer written over several lines is that field's, not 'inside Conf'",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/main/java/a/Conf.java",
+    "--new",
+    "{repo}/New_conf.java",
+    "--file",
+    "src/main/java/a/Conf.java"
+   ],
+   "want": [
+    "field      Conf.SETTINGS",
+    "initializer"
+   ],
+   "avoid": [
+    "inside     Conf",
+    "Conf.LIMIT"
+   ]
   }
  ]
 }

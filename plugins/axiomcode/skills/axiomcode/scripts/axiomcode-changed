@@ -769,6 +769,29 @@ class Changed:
             if not lam or (m and m[3] != 'module' and m[0] <= lam[0] and lam[1] <= m[1]): return None
             if any(k in ('field', 'const', 'enum_member', 'variable') and a <= lam[0] <= max(b, a) for a, b, i, k, d, n in decls): return None
             return lam
+        FIELD_KINDS = ('field', 'const', 'enum_member', 'variable')
+        def field_spanning(ln, first=False):
+            """A FIELD'S INITIALIZER IS THE FIELD'S, however many lines it spans. Only a field's first line was charged to
+            it, so an edit to the second line of `export const A = {\n  x: 1,\n};` (a schema object, a token table, a
+            multi-line static initializer) was "body <module>" or "inside <type>", and test-impact seeded from every
+            declaration of the module instead of the const. The narrowest field whose span holds ln after its first line
+            (from it too with first=True, for an insertion after that line); None when a callable written inside the
+            initializer (an object literal's method) holds ln itself: that callable's body is its own.
+            A Python module-level name is recorded from its first binding to its last (`x = 0` at the top, `x = 5` at the
+            bottom spans the file), not by its statement: there the span is the statement's own lines, while a bracket
+            it opens is still open or a line ends in a backslash"""
+            def end(x):
+                if not is_py: return x[1]
+                depth, j = 0, x[0]
+                while j <= len(OS):
+                    t = OS[j - 1]; depth += sum(t.count(c) for c in '([{') - sum(t.count(c) for c in ')]}')
+                    if depth <= 0 and not t.rstrip().endswith('\\'): return j
+                    j += 1
+                return x[0]
+            inside = lambda x: x[0] <= ln < end(x) if first else x[0] < ln <= end(x)
+            fx = min((x for x in decls if x[3] in FIELD_KINDS and inside(x)), key=lambda x: end(x) - x[0], default=None)
+            inner = narrowest(ln, {'method', 'function', 'constructor'}) if fx else None
+            return None if inner and fx[0] <= inner[0] and inner[1] <= end(fx) else fx
         def decl_after(ln, L):
             """the declaration whose header starts within 3 lines after ln (an annotation / decorator line belongs to it)"""
             for a, b, i, k, d, n in decls:
@@ -785,6 +808,10 @@ class Changed:
             m = narrowest(after, {'method', 'function', 'constructor'}) if after else None
             if m and m[0] <= after < self.header_end(OL, m[0]):
                 hits.setdefault(('signature', m), set()).add(after); header_ins.add((after, j1, j2))
+        # and a line inserted into a field's initializer (a member added to a multi-line object) is that field's
+        for ins in list(added):
+            fx = field_spanning(ins[0], first=True) if ins[0] and ins not in header_ins else None
+            if fx: hits.setdefault(('field', fx), set()).add(ins[0]); added.remove(ins)
         def counterpart(ln):
             """the new line an old changed line became: the most similar line of its replaced block; None when deleted"""
             if ln in removed_lines: return None
@@ -816,7 +843,7 @@ class Changed:
                 f = None
             # a lambda's lines inside a field's initializer are the field's
             elif not f: f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if k in ('field', 'const', 'enum_member', 'variable') and a < ln
-                                and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None)
+                                and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None) or field_spanning(ln)
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
             # A FUNCTION WRITTEN IN ANOTHER'S PARAMETER LIST IS PART OF THAT HEADER. A default value
             # (`clock = { millis: () => Date.now() }`) holds a callable the graph records on its own; an edit inside the
@@ -1061,7 +1088,7 @@ class Changed:
         # holds it. Never a signature, never nothing; a comment in a module's top level belongs to no declaration
         for ln in sorted(comment_only):
             x = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')), None) or \
-                next((m for m in [narrowest(ln, {'method', 'function', 'constructor'})] if m), None) or \
+                field_spanning(ln) or next((m for m in [narrowest(ln, {'method', 'function', 'constructor'})] if m), None) or \
                 narrowest(ln, {'class', 'interface', 'enum', 'type'})
             if not x or any(e.get('id') == x[2] for e in out): continue
             a, b, i, k, d, n = x
