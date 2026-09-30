@@ -408,6 +408,22 @@ class G:
             # body's), and the first row came back whatever the line, so a module-level constant below a class was
             # answered as that class's body
             r = self.q("SELECT id FROM symbols WHERE file = ? AND kind = 'module' AND method_id IS NOT NULL ORDER BY (line <= ? AND COALESCE(end_line, line) >= ?) DESC, COALESCE(end_line, line) - line LIMIT 1", f, ln, ln)
+            # A LINE INSIDE A TYPE'S BODY BUT IN NONE OF ITS MEMBERS is not top-level code. A blank or comment line between
+            # two methods — a line number copied before the file was edited — was answered as the whole file's module
+            # where a class body has no module node of its own (TypeScript, Java, C#), with no word that the line holds
+            # nothing. A Python class body IS a module node inside the type, and still answers as before.
+            ty = self.q("SELECT id, display, line, end_line FROM symbols WHERE file = ? AND type_id IS NOT NULL AND method_id IS NULL AND line < ? AND end_line > ? ORDER BY end_line - line LIMIT 1", f, ln, ln)
+            mod = self.sym.get(r[0]['id'], {}) if r else {}
+            if ty and not (r and ty[0]['line'] <= (mod.get('line') or 0) and (mod.get('end_line') or 0) <= ty[0]['end_line']):
+                t = ty[0]
+                mem = self.q("SELECT id, line, end_line FROM symbols WHERE file = ? AND line > ? AND end_line < ? AND kind <> 'module' AND (method_id IS NOT NULL OR kind IN ('field','const','enum_member','variable'))", f, t['line'], t['end_line'])
+                above = max((x for x in mem if (x['end_line'] or x['line']) < ln), key=lambda x: (x['end_line'] or x['line'], -x['line']), default=None)
+                below = min((x for x in mem if x['line'] > ln), key=lambda x: (x['line'], x['line'] - (x['end_line'] or x['line'])), default=None)
+                near = [f"  {self.name(x['id'])}   {f}:{x['line']}" for x in (above, below) if x]
+                die(f"line {ln} of {f} is inside {t['display']} ({f}:{t['line']}-{t['end_line']}) but in none of its declarations"
+                    " (a blank, comment or separator line — often a line number from before an edit)."
+                    + ("\n  the nearest declarations:\n" + '\n'.join(near) if near else '')
+                    + f"\n  ask for one of them, by name or by its line; `{t['display']}` asks about the whole type")
             if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
             if outside: die(f"{m.group(1)} is outside the indexed repository {self.repo}: give the file relative to that root, or ask the graph of the repository it belongs to")
             die(f"no callable spans {s}")
