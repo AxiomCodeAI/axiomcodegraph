@@ -1,1 +1,1 @@
-known_edge	read	client/client#dailyReport(string) -> config#reportsUrl
+known_edge	read	client/client#dailyReport(string) -> shared/config#reportsUrl
