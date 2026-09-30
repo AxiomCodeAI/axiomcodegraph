@@ -82,6 +82,8 @@
 .decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl reexport_from(f:symbol, l:number, src:symbol)               .input reexport_from
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
+// field_holder(fl, h): fl is a key of an OBJECT named h, not a member of a type (`TOPICS` of `TOPICS.CREATED`)
+.decl field_holder(fl:symbol, h:symbol)                           .input field_holder
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
 .decl faccess(c:symbol, fl:symbol, acc:symbol, tier:symbol, f:symbol, l:number) .input faccess
 .decl gen_table(d:symbol, what:symbol)                            .input gen_table
@@ -468,7 +470,15 @@ direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
 fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll),
-    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY").
+    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY"), (ek != "OBJECT_PROPERTY_KEY" ; !key_decl_at(n, f, l)), !other_field_line(q, f, l).
+// the key that DECLARES another object's same-named key (`QUEUES = { CREATED: … }`) is that declaration, not a use of this one
+.decl key_decl_at(n:symbol, f:symbol, l:number)
+key_decl_at(n, f, l) :- field_holder(fl, _), field(fl, _, n, f, l).
+// a key of a module-level const table: the line that DECLARES another table's key of the same name writes that name
+// as its own key, not a read of this one — `GATEWAY_ROUTES = { products: … }` beside `CATALOG_ROUTES = { products: … }`.
+// Only for a target owned by its module: a type's field keeps the keys written for it (`{ eventId: … } satisfies T`).
+.decl other_field_line(q:symbol, f:symbol, l:number)
+other_field_line(q, f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), kind(t, "module"), field(fl2, _, n, f, l), fl2 != fl.
 // an enum member is written like a type, so the parser labels the genuine reference TYPE: keep those, but only in a
 // file that can see the enum — its own directory, or a file that names the enum type somewhere
 .decl enum_member_target(q:symbol, fl:symbol)
@@ -555,7 +565,7 @@ direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, rol
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     owner(c, s), !scope(t, s), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
+    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !holds_key(qn, n), !field_holder(fl, _), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // THE SAME, IN A CALLABLE THAT HAS NO OWNER TYPE. Every rule above starts at `owner(c, s)`, which in Java and
@@ -567,13 +577,25 @@ direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualifie
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     !owner(c, _), !scope(t, c), qualifier(f, l, n, tn), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !fa_known(q, c), !const_routed(q, c, f, l).
+    !owner(c, _), !scope(t, c), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn), !holds_key(qn, n), !field_holder(fl, _), !fa_known(q, c), !const_routed(q, c, f, l).
+// A KEY OF A MODULE-LEVEL OBJECT, read behind the object's own name: `TOPICS.CREATED` reads TOPICS's key wherever it is
+// written, as `Order.TAX` reads Order's constant. The object is one value, read by its own name, so behind any OTHER
+// name (`QUEUES.CREATED`, `upstreams.workspaces`) it is another object's member, and the by-name rules above leave it
+// out (field_holder); a field of a TYPE read behind an object that holds a key of that name is left out too (holds_key)
+.decl holds_key(h:symbol, n:symbol)
+holds_key(h, n) :- field_holder(fl, h), field(fl, _, n, _, _).
+// TypeScript records the member of `TOPICS.CREATED` as a BARE name, so the qualifier decides for a bare reference too.
+// A bare name with no such qualifier is never an object's key -- a key is only ever read behind its object -- so the
+// bare rules below leave object keys out: `workspaces.close()` is a variable, not OFFSETS.workspaces
+direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, _, f, l), target(q, "field", fl, _), field(fl, t, n, _, _), field_holder(fl, h),
+    !scope(t, c), qualifier(f, l, n, h), !fa_known(q, c), !const_routed(q, c, f, l).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     !owner(c, _), !scope(t, c), !qualifier(f, l, n, _), !fa_known(q, c), !const_routed(q, c, f, l).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l).
-direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f).
+    owner(c, s), !scope(t, s), !declares(s, n), !const_routed(q, c, f, l), !field_holder(fl, _).
+direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), !owner(c, _), !scope(t, c), !const_routed(q, c, f, l), !shadowed_in(fl, n, f),
+    !field_holder(fl, _).
 // a bare name in a file that declares ANOTHER field of that name is that file's own: `const listAdmins = ['root']` in
 // one module and a wrapped handler of the same name in another are two declarations, and each answer carried the
 // other's readers. A function of that name declared in the file is its own the same way: `module.exports = { createUser }`
@@ -667,6 +689,18 @@ persist_words("direct", "its persistence query names the property: a rename brea
 persist_words("nested", "its persistence query reads it through an association path").
 persist_words("projection", "its persistence query selects the whole entity, which loads this column").
 direct(q, m, "reads", w, "resolved", "", 0) :- target(q, "field", fl, _), persist_field(m, fl, how), persist_words(how, w), !inside_target(q, m).
+// A MAPPER STATEMENT'S PARAMETER PROPERTY: `#{it.quantity}` in the statement a mapper method's namespace and id
+// bind, where the path's root is typed by that method's parameters (axiomcode-impact mapper_params). MyBatis reads the
+// property by name when the statement runs, so a rename breaks the statement and not the compile. The row is the
+// method, at the marker's line in the XML.
+.decl mapper_param(m:symbol, fl:symbol, e:symbol, f:symbol, l:number) .input mapper_param
+direct(q, m, "reads", cat("its mapper statement binds it as a parameter property (#{", e, "})"), "resolved", f, l) :- target(q, "field", fl, _), mapper_param(m, fl, e, f, l), !inside_target(q, m).
+// A VALUE HANDED TO A REFLECTIVE PROPERTY COPY (`BeanUtil.copyProperties(item, ItemView.class)`): the copy reads the
+// field by name, so a rename drops the value and nothing fails. The copy INTO the type is the producer rule above
+// (`reflects on T.class`); this is the value going out. The argument is typed by its declaration's written type
+// (axiomcode-impact bean_copies), so it is `by name`.
+.decl bean_copy(c:symbol, fl:symbol, tn:symbol, n:symbol, f:symbol, l:number) .input bean_copy
+direct(q, c, "uses", cat("hands a value of ", tn, " to ", n, "(), which copies its properties by name through reflection: a rename or a retype drops the value silently"), "by name", f, l) :- target(q, "field", fl, _), bean_copy(c, fl, tn, n, f, l), !inside_target(q, c).
 // a signature the engine RESOLVED to the type (#1422): a parameter, a return, or a type argument of either. Java's
 // type_refs carry no line, so no typeref row held these, and the textuse grep below labelled each one `text`
 .decl sig_words(ctx:symbol, w:symbol)
@@ -1028,6 +1062,15 @@ fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
 // test route carries the `remote` rung, so it is never read as a call chain. One direction only: a handler does
 // not depend on who sends to it.
 fw_edge(a, b, "remote") :- remote(a, b, _, _, _), a != b.
+// A SERVLET FILTER A TEST'S CONTEXT HOLDS. A filter handed to HttpSecurity in a configuration the test class loads
+// (@Import, @ContextConfiguration, a whole-application @SpringBootTest), or a filter that is a component of the
+// application, runs on every request the test sends, and no call site says so (ax_registration.filter_links). Only
+// the test methods that send a request get the hop; its own rung, `registered`, never a call chain.
+.decl filter_run(a:symbol, b:symbol, how:symbol)                  .input filter_run
+fw_edge(a, b, "filter") :- filter_run(a, b, _), a != b.
+// and the filter's own answer names who runs it, worded as a framework hop (the `framework` rule above)
+direct(q, c, "uses", cat("framework-mediated, not a call: servlet_filter via ", cat(how, " [registered]")), "framework", "", 0)
+    :- target(q, "method", m, _), filter_run(c, m, how), c != m.
 // THE PROTOCOL MEMBERS OF A TYPE YOU CONSTRUCT. `with Audit(...) as a`, `for line in audit`, `a == b`, `len(x)`,
 // `x[k]` — each runs a method, and none of them writes its name, so `__enter__`, `__iter__`, `__eq__` and their
 // siblings have no call site at all and a test that drives them looks unrelated. The one thing the graph does see

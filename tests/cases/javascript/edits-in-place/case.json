@@ -200,6 +200,27 @@
     "signature  ",
     "removed    "
    ]
+  },
+  {
+   "why": "an edit on a later line of a const whose object initializer spans lines is that const's, not the module's body",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/conf.js",
+    "--new",
+    "{repo}/new-conf.js",
+    "--file",
+    "src/conf.js"
+   ],
+   "want": [
+    "field      Settings",
+    "initializer"
+   ],
+   "avoid": [
+    "<module>",
+    "LIMIT"
+   ]
   }
  ]
 }

@@ -1,0 +1,55 @@
+{
+ "lang": "javascript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a data-valued key of an exported const object literal, through Object.freeze, is a declaration: its readers are the functions that read TOPICS.CREATED",
+   "run": ["impact", "TOPICS.CREATED"],
+   "want": ["change: field TOPICS.CREATED   [field]", "create   service.js:4"],
+   "avoid": ["nothing named", "remove", "enqueue"]
+  },
+  {
+   "why": "a same-named key of ANOTHER const object is another declaration: QUEUES.CREATED is read by enqueue only, and TOPICS.CREATED's reader is not its reader",
+   "run": ["impact", "QUEUES.CREATED"],
+   "want": ["change: field QUEUES.CREATED   [field]", "enqueue   service.js:12"],
+   "avoid": ["nothing named", "create   service.js"]
+  },
+  {
+   "why": "CONTROL: a key read behind another name (`settings.page`, `counts.page`) is another object's member, not LIMITS.page",
+   "run": ["impact", "LIMITS.page"],
+   "want": ["change: field LIMITS.page   [field]", "pageSize   service.js:16"],
+   "avoid": ["mirror", "local"]
+  },
+  {
+   "why": "a plain const object literal, and a nested literal's key, are declared under their key chain",
+   "run": ["impact", "LIMITS.nested.depth"],
+   "want": ["change: field LIMITS.nested.depth   [field]", "pageSize   service.js:16"],
+   "avoid": ["nothing named"]
+  },
+  {
+   "why": "a CommonJS const object's key is declared the same way, and a member read of it is its reader; a captured local of the same name (`api.close()`) is not",
+   "run": ["impact", "OFFSETS.api"],
+   "want": ["change: field OFFSETS.api   [field]", "apiPort   ports.cjs:12"],
+   "avoid": ["nothing named", "closeLater", "<arrow>"]
+  },
+  {
+   "why": "a function-valued key inside Object.freeze is owned by the variable, as it is in a bare literal",
+   "run": ["impact", "HANDLERS.run"],
+   "want": ["change: HANDLERS.run   [method]", "dispatch   service.js:29"],
+   "avoid": ["nothing named", "[field]"]
+  },
+  {
+   "why": "CONTROL: a function-valued key stays the method it was, not a second field",
+   "run": ["impact", "helpers.shout"],
+   "want": ["change: helpers.shout   [method]", "loud   service.js:20"],
+   "avoid": ["[field]", "more than one kind"]
+  },
+  {
+   "why": "CONTROL: an object literal inside a function body declares nothing: its key is not a module-level declaration",
+   "run": ["impact", "counts.page"],
+   "expect_error": true,
+   "want": ["the graph has no declaration for 'counts.page'"],
+   "avoid": ["change: field counts.page"]
+  }
+ ]
+}

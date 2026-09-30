@@ -1,0 +1,267 @@
+// ============================================================================
+// CALL-EDGE-GEN · A CALLBACK KEPT IN A KEYED REGISTRY  (the in-process bus)
+//
+// An in-process publish/subscribe is a class that keeps functions in a field keyed by a
+// name and runs the ones under a name when that name is published:
+//
+//     subscribe(name, fn) { (this.handlers.get(name) ?? …).add(fn); }
+//     publish(name, p)    { for (const h of this.handlers.get(name) ?? []) h(p); }
+//     bus.subscribe('order.placed', onPlaced);   …   bus.publish('order.placed', o);
+//
+// Neither end calls the other. The call inside `publish` goes through a variable the
+// registry filled, and the only rule that reached a handler from there was the function-type
+// envelope (value-flow.dl, typed_holder_signature): every function ever passed where the
+// handler type is expected became a candidate of that type's signature, so a publish on one
+// name reached the handlers of every name, and of every other registry typed the same way.
+//
+// What ties the two ends together is the KEY both callers write. So the join is made between
+// the CALLERS of the two methods, as the messaging rules join a producer to a consumer
+// (framework-behavior/destinations.dl), but in process and on the project's own class:
+//
+//   * a STORE: a method puts its function parameter into a field under its key parameter —
+//     `slot.add(fn)` / `push` / `unshift` on the slot `this.F.get(k)` or `this.F[k]` (directly,
+//     through `??`, `!`, `as`, or a variable it initialises), `this.F.set(k, fn)`, `this.F[k] = fn`;
+//   * a DISPATCH: a method reads the same field under its key parameter and CALLS what it gets —
+//     `for (const h of slot)`, a spread of the slot into an array it iterates, `slot.forEach(h => h())`.
+//     A read that calls nothing (`this.F.get(k)?.size`) is not a dispatch;
+//   * each is followed through wrappers that pass their own parameter on (`publish` forwarding the
+//     name to a private `dispatch`, from inside a closure too), and a method that subscribes each
+//     entry of an object parameter under its own key (`subscribeAll({ [K]: fn })`) registers every
+//     entry of the literal its callers pass;
+//   * a key is a string literal, a const holding one, or a member of a const object literal
+//     (`as const` too), local or imported. A key known only at run time matches every key. A constant
+//     key the dispatch ALSO looks up (`this.F.get('*')`) makes a registration under it match every
+//     publish. Not destinations.dl's rd_val, which reads more: that reader is fed by call_chain_edge
+//     (its wrapper hop) and negates inside, so an edge here built on it could not be stratified.
+//
+// The edge runs from the PUBLISH call site to the registered function, tier event_dispatch: the
+// site does not call the handler, the registry does, as the JavaScript engine records an emitter's
+// `emit` reaching an `on` handler. Receivers are not told apart: two instances of one bus class
+// share its registrations, the precision the class gives.
+//
+// And the envelope row that made every handler a candidate of the handler type is withdrawn for the
+// store's function parameter, but only where the registry has a dispatch this file recognised —
+// otherwise it is the only route there is.
+// ============================================================================
+
+.decl kr_param(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_read(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_yields(c0:symbol, c1:symbol)
+.decl kr_slot(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_adds(c0:symbol)
+.decl kr_store(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl kr_elem_holder(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_runs(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_runs_param(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_dispatch_lit(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_dispatched(c0:symbol)
+.decl kr_site_runs(c0:symbol, c1:symbol)
+.decl kr_disp(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl kr_reg(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl kr_table_elem(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_table(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_key_arg(c0:symbol)
+.decl kr_keyed(c0:symbol)
+.decl kr_keyval(c0:symbol, c1:symbol)
+.decl kr_fn(c0:symbol, c1:symbol)
+.decl kr_forwards(c0:symbol)
+.decl kr_registers(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_table_lit(c0:symbol)
+.decl kr_at(c0:symbol, c1:number, c2:number)
+.decl kr_entry(c0:symbol, c1:symbol, c2:symbol)
+.decl kr_static_key(c0:symbol, c1:symbol)
+.decl kr_computed_root(c0:symbol, c1:symbol)
+.decl kr_key_candidate(c0:symbol, c1:symbol, c2:number)
+.decl kr_entry_key(c0:symbol, c1:symbol)
+.decl kr_dispatch_site(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+.decl kr_match(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl keyed_dispatch(c0:symbol, c1:symbol)
+.decl kr_registry_param(c0:symbol)
+
+// an expression that names a parameter: (expr, the function declaring it, its position)
+kr_param(e, owner, pos) :- expr_referenced("client", "PARAMETER", p, e), param_decl("client", _, pos, _, owner, p).
+
+// ── the registry, read under a key: `this.F.get(k)`, `this.F[k]` ─────────────
+kr_read(ce, f, k) :- call_site("client", _, "get", _, recv, ce, _), recv != "", ts_field_access_target(recv, f),
+    expr_child("client", ce, "ARGUMENT", "0", k).
+kr_read(e, f, k) :- expr_kind("client", "ELEMENT_ACCESS", _, e), expr_child("client", e, "RECEIVER", _, r),
+    ts_field_access_target(r, f), expr_child("client", e, "INDEX_ARGUMENT", _, k).
+
+// kr_yields(X, Read): iterating or adding to X reaches the collection Read found: X is the read,
+// an operand `??` / `||` / `&&` may yield, a transparent wrapper, or an array spreading it
+kr_yields(e, e) :- kr_read(e, _, _).
+kr_yields(p, e) :- kr_yields(c, e), expr_child("client", p, r, _, c), expr_kind("client", "BINARY_EXPRESSION", _, p),
+    expr_operator("client", op, p), binary_op_yields_operand(op, r).
+kr_yields(p, e) :- kr_yields(c, e), expr_child("client", p, r, _, c), expr_kind("client", k, _, p),
+    expr_kind_is_transparent(k), edge_role_is_operand(r).
+kr_yields(p, e) :- kr_yields(c, e), expr_child("client", p, "SPREAD_OPERAND", _, c), expr_kind("client", "SPREAD_ELEMENT", _, p).
+kr_yields(p, e) :- kr_yields(c, e), expr_kind("client", "SPREAD_ELEMENT", _, c), expr_child("client", p, "ARRAY_ELEMENT", _, c).
+// kr_slot(X, F, K): X holds the collection registry F keeps under key expression K
+kr_slot(x, f, k) :- kr_yields(x, e), kr_read(e, f, k).
+kr_slot(x, f, k) :- expr_referenced("client", "VARIABLE", v, x), var_initializer("client", _, i, v), i != "",
+    kr_slot(i, f, k).
+
+// ── the store: (method, key parameter position, function parameter position, field) ──
+kr_adds("add").
+kr_adds("push").
+kr_adds("unshift").
+kr_store(s, kp, fp, f) :- call_site("client", _, mn, _, recv, ce, _), kr_adds(mn), recv != "",
+    kr_slot(recv, f, k), kr_param(k, s, kp),
+    expr_child("client", ce, "ARGUMENT", "0", a), kr_param(a, s, fp).
+kr_store(s, kp, fp, f) :- call_site("client", _, "set", _, recv, ce, _), recv != "", ts_field_access_target(recv, f),
+    expr_child("client", ce, "ARGUMENT", "0", k), kr_param(k, s, kp),
+    expr_child("client", ce, "ARGUMENT", "1", a), kr_param(a, s, fp).
+kr_store(s, kp, fp, f) :- expr_kind("client", "ASSIGNMENT_EXPRESSION", _, asg),
+    expr_child("client", asg, "LEFT_OPERAND", _, t), kr_read(t, f, k), kr_param(k, s, kp),
+    expr_child("client", asg, "RIGHT_OPERAND", _, a), kr_param(a, s, fp).
+
+// ── the dispatch: a method calls what the registry holds under a key ─────────
+// kr_elem_holder(H, F, K): the variable or parameter H is bound to an element of the slot
+kr_elem_holder(v, f, k) :- for_binding_iterable(v, it), kr_slot(it, f, k).
+kr_elem_holder(p, f, k) :- call_site("client", "METHOD_CALL", n, _, recv, ce, _), recv != "", kr_slot(recv, f, k),
+    array_method_element_param(n, pos), expr_child("client", ce, "ARGUMENT", "0", a),
+    expr_anon_decl("client", cb, a), param_decl("client", _, pos, _, cb, p).
+kr_elem_holder(p, f, k) :- call_site("client", "OPTIONAL_CALL", n, _, recv, ce, _), recv != "", kr_slot(recv, f, k),
+    array_method_element_param(n, pos), expr_child("client", ce, "ARGUMENT", "0", a),
+    expr_anon_decl("client", cb, a), param_decl("client", _, pos, _, cb, p).
+// (method that reads the key, field, key expression) — a call is made through the element
+kr_runs(d, f, k) :- kr_elem_holder(h, f, k), called_through(_, h), kr_read(e, f, k), expr_enclosing_method(e, d).
+// the key is a parameter: whoever calls its function names the key
+kr_runs_param(owner, pos, f) :- kr_runs(_, f, k), kr_param(k, owner, pos).
+kr_dispatched(f) :- kr_runs(_, f, _).
+// the key is a constant the dispatch also looks up (`this.F.get(ANY)`)
+kr_demand(k) :- kr_runs(_, _, k), !kr_param(k, _, _).
+kr_dispatch_lit(d, f, v) :- kr_runs(d, f, k), !kr_param(k, _, _), kr_str(k, v).
+
+// ── through wrappers ─────────────────────────────────────────────────────────
+kr_site_runs(ce, m) :- expr_resolves_to_method(ce, m).
+kr_site_runs(ce, m) :- call_runs_method(ce, m).
+// kr_disp(W, Pos, F, D): calling W with a key at Pos runs, in D, what F holds under it
+kr_disp(o, pos, f, d) :- kr_runs_param(o, pos, f), kr_runs(d, f, k), kr_param(k, o, pos).
+kr_disp(w, pos, f, d) :- kr_disp(w2, p2, f, d), kr_site_runs(oc, w2), expr_child("client", oc, "ARGUMENT", p2, a),
+    kr_param(a, w, pos), w != w2.
+// kr_reg(W, KeyPos, FnPos, F): calling W stores the function at FnPos in F under the key at KeyPos
+kr_reg(s, kp, fp, f) :- kr_store(s, kp, fp, f).
+kr_reg(w, kp2, fp2, f) :- kr_reg(s, kp, fp, f), kr_site_runs(oc, s),
+    expr_child("client", oc, "ARGUMENT", kp, ka), kr_param(ka, w, kp2),
+    expr_child("client", oc, "ARGUMENT", fp, fa), kr_param(fa, w, fp2), w != s.
+// kr_table(W, Pos, F): W stores each entry of the object at Pos under the entry's key:
+// the function it stores is `table[k]` of that parameter, directly or through a const
+kr_table_elem(x, w, tp) :- expr_kind("client", "ELEMENT_ACCESS", _, x), expr_child("client", x, "RECEIVER", _, r),
+    kr_param(r, w, tp).
+kr_table_elem(x, w, tp) :- expr_referenced("client", "VARIABLE", v, x), var_initializer("client", _, i, v), i != "",
+    kr_table_elem(i, w, tp).
+kr_table(w, tp, f) :- kr_reg(s, kp, fp, f), kr_site_runs(oc, s),
+    expr_child("client", oc, "ARGUMENT", kp, ka), !expr_kind("client", "LITERAL", _, ka),
+    expr_child("client", oc, "ARGUMENT", fp, fa), kr_table_elem(fa, w, tp).
+
+// ── the string a key expression holds (on demand) ────────────────────────────
+.decl kr_demand(c0:symbol)
+.decl kr_str(c0:symbol, c1:symbol)
+.decl kr_denotes_var(c0:symbol, c1:symbol)
+.decl kr_objlit(c0:symbol, c1:symbol)
+.decl kr_obj(c0:symbol, c1:symbol)
+.decl kr_member(c0:symbol, c1:symbol)
+kr_denotes_var(e, v) :- kr_demand(e), expr_referenced("client", "VARIABLE", v, e).
+kr_denotes_var(e, v) :- kr_demand(e), expr_referenced("client", "IMPORT_BINDING", ih, e), import_binds(ih, "client", "VARIABLE", v).
+kr_str(e, v) :- kr_demand(e), expr_kind("client", "LITERAL", _, e), expr_literal_type("client", "STRING", e),
+    expr_literal_value("client", v, e).
+// a const holding it
+kr_demand(i) :- kr_denotes_var(_, v), var_initializer("client", _, i, v), i != "".
+kr_str(e, s) :- kr_denotes_var(e, v), var_initializer("client", _, i, v), i != "", kr_str(i, s).
+// `x as const`, `x!`
+kr_demand(c) :- kr_demand(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, r, _, c),
+    edge_role_is_operand(r).
+kr_str(e, s) :- kr_demand(e), expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, r, _, c),
+    edge_role_is_operand(r), kr_str(c, s).
+// `TOPIC.created` over `const TOPIC = { created: '…' } as const`
+kr_objlit(i, i) :- expr_kind("client", "OBJECT_LITERAL", _, i).
+kr_objlit(i, l) :- expr_kind("client", k, _, i), expr_kind_is_transparent(k), expr_child("client", i, r, _, c),
+    edge_role_is_operand(r), kr_objlit(c, l).
+kr_obj(q, l) :- kr_demand(e), property_access_name(e, _), expr_child("client", e, "RECEIVER", _, q),
+    expr_referenced("client", "VARIABLE", v, q), var_initializer("client", _, i, v), kr_objlit(i, l).
+kr_obj(q, l) :- kr_demand(e), property_access_name(e, _), expr_child("client", e, "RECEIVER", _, q),
+    expr_referenced("client", "IMPORT_BINDING", ih, q), import_binds(ih, "client", "VARIABLE", v),
+    var_initializer("client", _, i, v), kr_objlit(i, l).
+kr_member(e, val) :- kr_demand(e), property_access_name(e, n), expr_child("client", e, "RECEIVER", _, q), kr_obj(q, l),
+    expr_child("client", l, "OBJECT_PROPERTY_KEY", pos, kk), expr_literal_value("client", n, kk),
+    expr_child("client", l, "OBJECT_PROPERTY_VALUE", pos, val).
+kr_demand(val) :- kr_member(_, val).
+kr_str(e, s) :- kr_member(e, val), kr_str(val, s).
+
+// ── the key a call writes ────────────────────────────────────────────────────
+kr_key_arg(a) :- kr_reg(s, kp, _, _), kr_site_runs(oc, s), expr_child("client", oc, "ARGUMENT", kp, a).
+kr_key_arg(a) :- kr_disp(w, pos, _, _), kr_site_runs(oc, w), expr_child("client", oc, "ARGUMENT", pos, a).
+kr_demand(a) :- kr_key_arg(a).
+kr_keyed(a) :- kr_key_arg(a), kr_str(a, _).
+kr_keyval(a, v) :- kr_key_arg(a), kr_str(a, v).
+kr_keyval(a, "{}") :- kr_key_arg(a), !kr_keyed(a).
+
+// the function an argument hands over where it is written: a function, an arrow, an import,
+// `this.onX`, `onX.bind(this)`, or a const holding one. A parameter passed on is not: the
+// wrapper that passes it is followed instead (kr_reg), so its callers are the registrations.
+kr_fn(x, m) :- expr_callable(x, m), !expr_kind("client", "CALL_EXPRESSION", _, x).
+kr_fn(x, m) :- method_value(x, m).
+kr_fn(x, m) :- expr_referenced("client", "VARIABLE", v, x), holder_holds_function(v, m), !kr_table_elem(x, _, _).
+// (`const fn = table[name]` inside a wrapper that files each entry is a table hop, kr_table, not a
+// registration of every entry under a key only known at run time)
+
+// a call inside a wrapper that passes its own parameter on is a hop of the wrapper, not a site
+kr_forwards(oc) :- kr_disp(w2, p2, _, _), kr_site_runs(oc, w2), expr_child("client", oc, "ARGUMENT", p2, a),
+    kr_param(a, w, pos), kr_disp(w, pos, _, _).
+
+// ── registrations: (field, key, function) ────────────────────────────────────
+kr_registers(f, kv, m) :- kr_reg(s, kp, fp, f), kr_site_runs(rc, s),
+    expr_child("client", rc, "ARGUMENT", kp, ka), kr_keyval(ka, kv),
+    expr_child("client", rc, "ARGUMENT", fp, fa), kr_fn(fa, m).
+// a table: each entry of the object literal passed (or the const it initialises)
+kr_table_lit(l) :- kr_table(w, tp, _), kr_site_runs(rc, w), expr_child("client", rc, "ARGUMENT", tp, a),
+    value_branch_lit(a, l).
+.decl value_branch_lit(c0:symbol, c1:symbol)
+value_branch_lit(a, a) :- expr_kind("client", "OBJECT_LITERAL", _, a).
+value_branch_lit(a, l) :- expr_referenced("client", "VARIABLE", v, a), var_initializer("client", _, l, v),
+    expr_kind("client", "OBJECT_LITERAL", _, l).
+kr_entry(l, pos, v) :- kr_table_lit(l), expr_child("client", l, "OBJECT_PROPERTY_VALUE", pos, v).
+kr_static_key(l, pos) :- kr_table_lit(l), expr_child("client", l, "OBJECT_PROPERTY_KEY", pos, _).
+kr_entry_key(v, kv) :- kr_entry(l, pos, v), expr_child("client", l, "OBJECT_PROPERTY_KEY", pos, kk),
+    expr_literal_value("client", kv, kk).
+// A COMPUTED key (`[TOPIC.created]: fn`) is its own root in the IR, with no link to its property
+// (the walker reaches it as COMPUTED_PROPERTY_NAME). It is the last computed-name root of the same
+// module that starts inside the literal and ends before the entry's value begins.
+kr_at(e, to_number(sl) * 100000 + to_number(sc), to_number(el) * 100000 + to_number(ec)) :-
+    expr_location("client", sl, sc, el, ec, e), (kr_table_lit(e) ; kr_entry(_, _, e) ; kr_computed_root(e, _)).
+kr_computed_root(c, mod) :- expr_root_context("client", "COMPUTED_PROPERTY_NAME", c), expr_kind("client", _, "ROOT", c),
+    expr_module("client", mod, c).
+kr_key_candidate(v, c, cs) :- kr_entry(l, pos, v), !kr_static_key(l, pos), expr_module("client", mod, l),
+    kr_computed_root(c, mod), kr_at(l, ls, le), kr_at(c, cs, ce), kr_at(v, vs, _),
+    cs > ls, ce <= vs, vs < le.
+kr_entry_key(v, kv) :- kr_key_candidate(v, c, cs), cs = max s : { kr_key_candidate(v, _, s) },
+    kr_str(c, kv).
+kr_demand(c) :- kr_key_candidate(_, c, _).
+kr_registers(f, kv, m) :- kr_table(w, tp, f), kr_site_runs(rc, w), expr_child("client", rc, "ARGUMENT", tp, a),
+    value_branch_lit(a, l), kr_entry(l, _, v), kr_entry_key(v, kv), kr_fn(v, m).
+
+// ── the join ─────────────────────────────────────────────────────────────────
+kr_dispatch_site(dc, from, f, d, kv) :- kr_disp(w, pos, f, d), kr_site_runs(dc, w), !kr_forwards(dc),
+    expr_child("client", dc, "ARGUMENT", pos, a), kr_keyval(a, kv), call_from(dc, from).
+kr_match(kd, kr, f, d) :- kr_dispatch_site(_, _, f, d, kd), kr_registers(f, kr, _), kd = kr.
+kr_match(kd, kr, f, d) :- kr_dispatch_site(_, _, f, d, kd), kr_registers(f, kr, _), kd = "{}".
+kr_match(kd, kr, f, d) :- kr_dispatch_site(_, _, f, d, kd), kr_registers(f, kr, _), kr = "{}".
+kr_match(kd, kr, f, d) :- kr_dispatch_site(_, _, f, d, kd), kr_registers(f, kr, _), kr_dispatch_lit(d, f, kr).
+keyed_dispatch(dc, m) :- kr_dispatch_site(dc, _, f, d, kd), kr_registers(f, kr, m), kr_match(kd, kr, f, d).
+
+call_chain_edge(dc, caller, "-", m, "client", "event_dispatch", kind) :- keyed_dispatch(dc, m),
+    method_prov(m, "client"), call_from(dc, caller), caller != m, invocation_site(dc, kind).
+
+// the store's function parameter, in a registry this file dispatches: the envelope row for it
+// is withdrawn (value-flow.dl, typed_holder_signature) — on the method, on each overload signature
+// a call selects instead of it, and on a wrapper that passes its own parameter on
+kr_registry_param(p) :- kr_reg(s, _, fp, f), kr_dispatched(f), param_decl("client", _, fp, _, s, p).
+kr_registry_param(p) :- kr_reg(s, _, fp, f), kr_dispatched(f), group_implementation(g, s), method_group_of(sig, g),
+    param_decl("client", _, fp, _, sig, p).
+
+// A registry's slot is a collection: `slot.add(fn)`, `slot.delete(fn)` store or drop the function and
+// never call it, as for a Map or Set the types name (value-flow.dl, collection_store_site). Without
+// the library staged the slot has no type, and every function ever subscribed was "handed" to the
+// store and reached from every caller of subscribe.
+collection_store_site(ce) :- call_site("client", _, mn, _, recv, ce, _), recv != "", mn != "forEach", kr_slot(recv, _, _).

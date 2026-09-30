@@ -20,9 +20,10 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections, functools
 csv.field_size_limit(10**9)
-INDEX_VERSION = '6'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+INDEX_VERSION = '7'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
                          # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding;
-                         # v6: TypeScript class-property arrows named after their field); the query
+                         # v6: TypeScript class-property arrows named after their field;
+                         # v7: data keys of module-level const objects declared, Object.freeze seen through); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -114,6 +115,8 @@ A = {
     # `obj.x = function …`, `{ all: (p) => … }`: named for the property, as JavaScript's are (#1585). The rows are
     # read through `ts_member_rows`, which gives them JavaScript's expression shape
     memberNames=dict(file='all-typescript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash',
+                     # no `consts`: the parser declares a const table's data keys itself, and leaves an annotated
+                     # const's keys to the type it names (`const S: Settings = {…}` reads Settings.mode)
                      vars='all-typescript-variables.csv', shape='typescript'),
     skipped='skipped-typescript-files.csv'),
  'python': dict(
@@ -150,7 +153,9 @@ A = {
     # `exports.getUser = function …`, `obj.x = () => …`, `{ all: page => … }`: the function is named for the property it
     # is the value of, the way the language's own name inference does it, and is owned by the object's variable
     memberNames=dict(file='all-javascript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash',
-                     vars='all-javascript-variables.csv'),
+                     vars='all-javascript-variables.csv',
+                     # the module-level consts whose object literal's data keys are declarations (`TOPICS.CREATED`)
+                     consts=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime', '').startswith('CONST') and not r.get('importLinkHash')),
     # `static [Symbol.hasInstance](x) {…}`: the parser leaves the name empty and links the key expression; the member is
     # named `[Symbol.hasInstance]`, as written, instead of displaying as `Tagged.` with nothing to ask for
     computedNames=dict(file='all-javascript-methods.csv', id='jsMethodUniqueHash', key='computedNameExpressionLinkHash',
@@ -322,8 +327,12 @@ def ts_member_rows(file):
         p, role, pos = up(r)
         o = dict(jsExpressionUniqueHash=i, parentExpressionLinkHash=p['tsExpressionUniqueHash'] if p else '',
                  edgeRole=TS_ROLES.get(role, role), childIndex=pos, operatorString=r.get('operatorString', ''),
-                 expressionKind={'ARROW_FUNCTION': 'FUNCTION_EXPRESSION', 'ASSIGNMENT_EXPRESSION': 'ASSIGNMENT'}.get(kind, kind),
-                 introducesDeclarationLinkHash=r.get('anonymousDeclarationHash', ''))
+                 expressionKind={'ARROW_FUNCTION': 'FUNCTION_EXPRESSION', 'ASSIGNMENT_EXPRESSION': 'ASSIGNMENT', 'CALL_EXPRESSION': 'CALL'}.get(kind, kind),
+                 introducesDeclarationLinkHash=r.get('anonymousDeclarationHash', ''),
+                 ownerModuleLinkHash=r.get('tsModuleLinkHash', ''), startLine=r.get('startLine', ''))
+        if kind == 'CALL_EXPRESSION':                 # the callee as written, the way JavaScript's `text` starts: `Object.freeze(`
+            callee = next((k for k in kids.get(i, ()) if k.get('edgeRole') == 'METHOD_NAME'), None)
+            o['text'] = (dotted(callee) or '') + '(' if callee else ''
         if role == 'OBJECT_PROPERTY_KEY' and (kind == 'IDENTIFIER_REFERENCE'
                                               or (kind == 'LITERAL' and r.get('literalType') in ('STRING', 'NUMBER'))):
             o['name'] = r.get('literalValue', '')
@@ -334,19 +343,35 @@ def ts_member_rows(file):
         out[i] = o
     return out.values(), {i: inner(i)['tsExpressionUniqueHash'] for i, r in src.items() if r.get('kind') in TS_WRAPPERS and inner(i)}
 bound_owner = {}; cls_named = {}
+data_keys = []                                       # (key, owner key chain, the const's variable row, key row): see below
 if A.get('memberNames'):
     mn = A['memberNames']; ex = {}; kids = collections.defaultdict(list)
     ts_shape = mn.get('shape') == 'typescript'
     mrows, unwrap = ts_member_rows(mn['file']) if ts_shape else (rows(mn['file']), {})
     for r in mrows:
         ex[r[mn['id']]] = r; kids[r.get('parentExpressionLinkHash', '')].append(r)
-    lit_var = {unwrap.get(r['initializerExpressionLinkHash'], r['initializerExpressionLinkHash']): r['name']
-               for r in rows(mn['vars']) if r.get('initializerExpressionLinkHash') and r.get('name')}
     DOTTED = re.compile(r'^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$')
     def key_of(parent, role, idx):
         for k in kids.get(parent, ()):
             if k.get('edgeRole') == role and (idx is None or k.get('childIndex') == idx):
                 return k
+    # `const T = Object.freeze({…})` holds the literal it is handed, as `const T = {…}` does: the variable's initializer
+    # is the CALL, and the literal it names is the call's argument. Without this the literal had no variable, so its
+    # function-valued keys lost their owner and its data keys had nothing to be declared under
+    FREEZE = re.compile(r'^Object\s*\.\s*(freeze|seal|preventExtensions)\s*\(')
+    def held_literal(i):
+        r = ex.get(i)
+        if r is not None and r.get('expressionKind') == 'CALL' and FREEZE.match(r.get('text') or ''):
+            a = next((k for k in kids.get(i, ()) if k.get('edgeRole') == 'ARGUMENT'), None)
+            a = ex.get(unwrap.get(a[mn['id']], a[mn['id']])) if a else None
+            if a is not None and a.get('expressionKind') == 'OBJECT_LITERAL': return a[mn['id']]
+        return i
+    lit_var = {}; const_lit = {}                        # literal -> variable name; literal -> variable row, module-level consts only
+    for r in rows(mn['vars']):
+        if not (r.get('initializerExpressionLinkHash') and r.get('name')): continue
+        i = held_literal(unwrap.get(r['initializerExpressionLinkHash'], r['initializerExpressionLinkHash']))
+        lit_var[i] = r['name']
+        if mn.get('consts') and mn['consts'](r): const_lit[i] = r
     def literal_owner(lit, depth=0):
         if lit.get(mn['id']) in lit_var: return lit_var[lit[mn['id']]]
         p = ex.get(lit.get('parentExpressionLinkHash', ''))
@@ -389,6 +414,28 @@ if A.get('memberNames'):
         if name:
             bound[m_] = name
             if owner: bound_owner[m_] = owner
+    # A DATA KEY OF A MODULE-LEVEL CONST OBJECT is a declaration: `export const TOPICS = Object.freeze({ CREATED: 'a.b' })`
+    # declares TOPICS.CREATED, and `bus.publish(TOPICS.CREATED)` reads it. Only a function-valued key was a declaration (a
+    # method, above), so `impact TOPICS.CREATED` answered "nothing named" and its readers were word matches. A nested
+    # literal's keys follow the key chain (`LIMITS.nested.depth`). Not declared: a function (already the method), a bare
+    # name or shorthand (`{ create }` is another declaration, not a value of its own), a computed key, and any literal a
+    # function body builds or a `let` holds -- those are values, not the module's named constants
+    def const_root(lit, depth=0):
+        if lit[mn['id']] in const_lit: return const_lit[lit[mn['id']]]
+        p = ex.get(lit.get('parentExpressionLinkHash', ''))
+        if depth > 8 or not p or lit.get('edgeRole') != 'PROPERTY_VALUE' or p.get('expressionKind') != 'OBJECT_LITERAL': return None
+        return const_root(p, depth + 1)
+    NOT_DATA = {'FUNCTION_EXPRESSION', 'CLASS_EXPRESSION', 'IDENTIFIER', 'IDENTIFIER_REFERENCE'}
+    for k in list(ex.values()) if const_lit else ():
+        if k.get('edgeRole') != 'PROPERTY_KEY' or k.get('isComputedName') == 'true' or not k.get('name'): continue
+        p = ex.get(k.get('parentExpressionLinkHash', ''))
+        if not p or p.get('expressionKind') != 'OBJECT_LITERAL': continue
+        v = key_of(p[mn['id']], 'PROPERTY_VALUE', k.get('childIndex'))
+        v = ex.get(unwrap.get(v[mn['id']], v[mn['id']])) if v else None
+        if v is None or v.get('expressionKind') in NOT_DATA: continue
+        root = const_root(p); owner = literal_owner(p) if root else None
+        if not owner: continue
+        data_keys.append((k['name'], owner, root, k))
 # ── types: display names with nesting recovered by line containment ───────────────────────────────
 types = {r['id']: dict(r) for r in c.execute("SELECT id, name, qualified_name, category, file_path, start_line, end_line, provenance FROM types")}
 byfile = {}
@@ -517,7 +564,11 @@ tq2id = {}
 for t in types.values(): tq2id.setdefault(t['qualified_name'], t['id'])
 def owner_display(qn):
     tid = tq2id.get(qn)
-    return tdisplay(tid) if tid else (qn.rsplit('.', 1)[-1] if qn else None)
+    if tid: return tdisplay(tid)
+    # an owner that is no type — a TypeScript const table, `mod/path#ROUTES.orders` — is named by what follows the
+    # module, so its key is `ROUTES.orders.list` rather than `path#ROUTES.orders.list` or `orders.list`
+    if qn and '#' in qn: return qn.rsplit('#', 1)[-1]
+    return qn.rsplit('.', 1)[-1] if qn else None
 def file_of(r, d):
     if d.get('filePath'): return rel(r.get(d['filePath'], ''))
     via = d.get('fileVia')
@@ -570,6 +621,14 @@ for d in A['decls']:
         qn = ((ot['qualified_name'] + '.' + name) if ot and ot.get('qualified_name') else None) or r.get('qualifiedName') or \
              (((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name)
         sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), qn, None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
+# the data keys of module-level const objects (collected with the member names): a field of the object, owned by the key
+# chain it is written under, so `TOPICS.CREATED` and `LIMITS.nested.depth` are names `impact` takes
+for name, od, v, k in data_keys:
+    fp = rel(modules.get(k.get('ownerModuleLinkHash', ''), '')) or rel(v.get('filePath', ''))
+    ln = int(k.get('startLine') or 0)
+    vq = v.get('qualifiedName') or v.get('potentialQualifiedName')
+    qn = f"{vq}{od[len(v['name']):]}.{name}" if vq and od.startswith(v['name']) else f"{fp}#{od}.{name}"
+    sym.append((None, name, f"{od}.{name}", 'field', qn, None, fp, ln, ln, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
 c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 
 # ── references, literals, comments ───────────────────────────────────────────────────────────────
