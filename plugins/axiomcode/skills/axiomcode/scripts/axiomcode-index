@@ -563,7 +563,11 @@ tq2id = {}
 for t in types.values(): tq2id.setdefault(t['qualified_name'], t['id'])
 def owner_display(qn):
     tid = tq2id.get(qn)
-    return tdisplay(tid) if tid else (qn.rsplit('.', 1)[-1] if qn else None)
+    if tid: return tdisplay(tid)
+    # an owner that is no type — a TypeScript const table, `mod/path#ROUTES.orders` — is named by what follows the
+    # module, so its key is `ROUTES.orders.list` rather than `path#ROUTES.orders.list` or `orders.list`
+    if qn and '#' in qn: return qn.rsplit('#', 1)[-1]
+    return qn.rsplit('.', 1)[-1] if qn else None
 def file_of(r, d):
     if d.get('filePath'): return rel(r.get(d['filePath'], ''))
     via = d.get('fileVia')
@@ -618,9 +622,12 @@ for d in A['decls']:
         sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), qn, None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
 # the data keys of module-level const objects (collected with the member names): a field of the object, owned by the key
 # chain it is written under, so `TOPICS.CREATED` and `LIMITS.nested.depth` are names `impact` takes
+# A key the parser already declared (TypeScript emits each key of a const table as a field) is not declared twice
+declared_at = {(s[6], s[7], s[1]) for s in sym if s[3] == 'field'} if data_keys else set()
 for name, od, v, k in data_keys:
     fp = rel(modules.get(k.get('ownerModuleLinkHash', ''), '')) or rel(v.get('filePath', ''))
     ln = int(k.get('startLine') or 0)
+    if (fp, ln, name) in declared_at: continue
     vq = v.get('qualifiedName') or v.get('potentialQualifiedName')
     qn = f"{vq}{od[len(v['name']):]}.{name}" if vq and od.startswith(v['name']) else f"{fp}#{od}.{name}"
     sym.append((None, name, f"{od}.{name}", 'field', qn, None, fp, ln, ln, od, 1 if fp and TESTRE.search(fp) else 0, None, None))

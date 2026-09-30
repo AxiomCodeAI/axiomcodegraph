@@ -2116,6 +2116,86 @@ export class TsDeclarationExtractor {
     }
   }
 
+  /**
+   * Each data property of a module-level const's object literal, as a field of
+   * the const: `OBJECT_LITERAL_PROPERTY`, owned by the VARIABLE row (or, for a
+   * nested literal, by the property that holds it). The owner FK's prefix is
+   * neither `TS_TYPE_` nor `TS_TYPE_REFERENCE_`, so no member-lookup rule joins
+   * it; field_access.dl reaches it through the receiver's variable instead.
+   *
+   * A function-valued property and a method are left alone: they are already
+   * methods, named `TOPICS.f` through the variable they were assigned into.
+   */
+  private emitObjectLiteralMembers(
+    literal: ts.ObjectLiteralExpression,
+    ownerHash: string,
+    ownerName: string,
+    ownerQualifiedName: string,
+    isReadonly: boolean,
+    context: EmitContext
+  ): void {
+    for (const prop of literal.properties) {
+      if (!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) {
+        continue;
+      }
+      const name = literalKeyOf(prop.name);
+      if (name === undefined) {
+        continue;
+      }
+      const value = ts.isPropertyAssignment(prop) ? prop.initializer : undefined;
+      if (value !== undefined && isFunctionValue(value)) {
+        continue;
+      }
+      const startPos = this.sf.getLineAndCharacterOfPosition(prop.getStart(this.sf));
+      const endPos = this.sf.getLineAndCharacterOfPosition(prop.end);
+      const row = new TsFieldRegistry({
+        name,
+        fieldTypeName: '',
+        fieldBaseType: '',
+        potentialQualifiedName: '',
+        isAmbiguous: false,
+        filePath: this.options.filePath,
+        startLine: startPos.line + 1,
+        endLine: endPos.line + 1,
+        tsTypeLinkHash: ownerHash,
+        ownerTypeName: ownerName,
+        ownerQualifiedName,
+        fieldAccess: TsFieldAccess.PUBLIC_ACCESS,
+        fieldModifiers: new Set(isReadonly ? [TsFieldModifier.READONLY] : []),
+        memberKind: TsMemberKind.OBJECT_LITERAL_PROPERTY,
+        tsModuleLinkHash: context.moduleHash,
+        isOptional: false,
+        hasDefiniteAssignment: false,
+        isReadonly,
+        isStatic: false,
+        indexKeyTypeName: '',
+        isTypeOnly: false,
+        memberGroupKey: EntityUtils.generateEntityHash(
+          ENTITY_IDENTIFIERS.TS_DECLARATION_GROUP,
+          `${ownerHash}||${name}||false`
+        ),
+        startColumn: startPos.character + 1,
+        endColumn: endPos.character + 1,
+        serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+      });
+      this.fields.push(row);
+      this.recordFieldPosition(ownerHash, row.getHash());
+      if (value === undefined) {
+        continue;
+      }
+      this.pendingExpressionLinks.push({
+        node: value,
+        link: (hash) => row.setInitializerExpressionLinkHash(hash),
+      });
+      // `ROUTES.orders.list`: a literal inside the table is a table of its own
+      const inner = objectTableOf(value);
+      if (inner !== undefined) {
+        this.emitObjectLiteralMembers(inner.literal, row.getHash(), name,
+          `${ownerQualifiedName}.${name}`, isReadonly || inner.isReadonly, context);
+      }
+    }
+  }
+
   emitVariable(
     declaration: ts.VariableDeclaration,
     list: ts.VariableDeclarationList | undefined,
@@ -2192,6 +2272,17 @@ export class TsDeclarationExtractor {
       node: initializer,
       link: (hash) => row.setInitializerExpressionLinkHash(hash),
     });
+    // `export const TOPICS = { orderEvents: 'orders.v1', … } as const` is how a
+    // program names its topics, routes and event types, and `TOPICS.orderEvents`
+    // is how every user reads one. Its keys were declared nowhere, so the users of
+    // one key could not be told from the users of another.
+    const table = constObjectTableOf(declaration, list, context);
+    if (table !== undefined) {
+      const name = (declaration.name as ts.Identifier).text;
+      this.emitObjectLiteralMembers(table.literal, row.getHash(), name,
+        `${context.moduleQualifiedName}#${[...context.namePath, name].join('.')}`,
+        table.isReadonly, context);
+    }
     // Each bound name gets the SAME initializer, because it is the same value:
     // `const { a } = ctx()` reads `a` out of what `ctx()` returned. Without it a
     // bound name is a declaration with a property name and nothing to apply it
@@ -3531,6 +3622,72 @@ function variableScopeKindOf(
     return TsVariableScopeKind.FUNCTION_BODY;
   }
   return TsVariableScopeKind.MODULE_SCOPE;
+}
+
+/**
+ * The object literal a module-level `const X = …` holds as a table of named
+ * values, through `as const`, `satisfies T`, parentheses and `Object.freeze(…)`.
+ * Only a `const` bound to a plain name: a `let` can be reassigned, and a
+ * destructuring has no one name to own the keys. Not an annotated one either:
+ * `const c: Config = { … }` has Config's members, which the compiler names.
+ */
+function constObjectTableOf(
+  declaration: ts.VariableDeclaration,
+  list: ts.VariableDeclarationList | undefined,
+  context: EmitContext
+): { literal: ts.ObjectLiteralExpression; isReadonly: boolean } | undefined {
+  if (!list || (list.flags & ts.NodeFlags.Const) === 0 || !ts.isIdentifier(declaration.name)
+    || declaration.initializer === undefined || declaration.type !== undefined) {
+    return undefined;
+  }
+  const scope = variableScopeKindOf(context, declaration);
+  if (scope !== TsVariableScopeKind.MODULE_SCOPE && scope !== TsVariableScopeKind.NAMESPACE_SCOPE) {
+    return undefined;
+  }
+  return objectTableOf(declaration.initializer);
+}
+
+function objectTableOf(
+  node: ts.Expression
+): { literal: ts.ObjectLiteralExpression; isReadonly: boolean } | undefined {
+  let isReadonly = false;
+  for (;;) {
+    if (ts.isParenthesizedExpression(node) || ts.isSatisfiesExpression(node)) {
+      node = node.expression;
+    } else if (ts.isAsExpression(node) && ts.isConstTypeReference(node.type)) {
+      isReadonly = true;
+      node = node.expression;
+    } else if (ts.isCallExpression(node) && node.arguments.length === 1
+      && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression)
+      && node.expression.expression.text === 'Object' && node.expression.name.text === 'freeze') {
+      isReadonly = true;
+      node = node.arguments[0]!;
+    } else {
+      break;
+    }
+  }
+  return ts.isObjectLiteralExpression(node) ? { literal: node, isReadonly } : undefined;
+}
+
+/** A key written as a name, a string or a number; a computed key is not a declaration. */
+function literalKeyOf(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)
+    || ts.isNoSubstitutionTemplateLiteral(name)) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression)) {
+    return name.expression.text;
+  }
+  return undefined;
+}
+
+function isFunctionValue(node: ts.Expression): boolean {
+  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)
+    || ts.isSatisfiesExpression(node)) {
+    node = node.expression;
+  }
+  return ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isClassExpression(node);
 }
 
 /**

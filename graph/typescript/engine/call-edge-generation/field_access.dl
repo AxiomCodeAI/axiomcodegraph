@@ -86,18 +86,43 @@ field_site_excluded(e, "method_value") :- ts_field_site_is_method(e),
     !expr_kind("client", "PROPERTY_ACCESS", "METHOD_NAME", e).
 
 // ── RESOLUTION — the three receiver-typing paths expr-type.dl already has ───
-ts_field_access_target(e, f) :- property_access_name(e, n),
+ts_field_access_typed(e, f) :- property_access_name(e, n),
     expr_child("client", e, "RECEIVER", _, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f).
-ts_field_access_target(e, f) :- property_access_name(e, n),
+ts_field_access_typed(e, f) :- property_access_name(e, n),
     expr_child("client", e, "RECEIVER", _, q),
     expr_static_type(q, _, qt),
     field_in_scope(qt, n, "true", f).
-ts_field_access_target(e, f) :- property_access_name(e, n),
+ts_field_access_typed(e, f) :- property_access_name(e, n),
     expr_child("client", e, "RECEIVER", _, q),
     expr_shape(q, qs),
     field_in_scope(qs, n, _, f).
+ts_field_access_target(e, f) :- ts_field_access_typed(e, f).
+ts_field_access_is_typed(e) :- ts_field_access_typed(e, _).
+
+// ── A KEY OF A MODULE-LEVEL CONST TABLE — `TOPICS.orderEvents` ──────────────
+// `export const TOPICS = { orderEvents: '…' } as const`: the parser declares each key
+// as an OBJECT_LITERAL_PROPERTY owned by the VARIABLE (a nested literal's keys by the
+// property holding it). The owner is no type, so none of the three joins above can
+// reach it; the receiver names the owner instead — the variable itself, an import of
+// it, a namespace import's export of it, or a key of an outer table. Only where the
+// typed lookup found nothing: `{ … } satisfies Config` is read as Config's member.
+ts_objlit_owner(q, v) :- expr_referenced("client", "VARIABLE", v, q).
+ts_objlit_owner(q, v) :- expr_referenced("client", "IMPORT_BINDING", ih, q),
+    import_binds(ih, _, "VARIABLE", v).
+ts_objlit_owner(q, v) :- property_access_name(q, n),
+    expr_child("client", q, "RECEIVER", _, r),
+    expr_namespace(r, _, m),
+    module_export(_, m, n, "VARIABLE", v).
+ts_objlit_owner(q, pf) :- ts_field_access_target(q, pf),
+    field_kind("client", "OBJECT_LITERAL_PROPERTY", _, _, pf).
+ts_field_access_target(e, f) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    ts_objlit_owner(q, o),
+    field_decl("client", n, _, o, f),
+    field_kind("client", "OBJECT_LITERAL_PROPERTY", _, _, f),
+    !ts_field_access_is_typed(e).
 
 // ── ACCESS DIRECTION ────────────────────────────────────────────────────────
 // property_written and property_write_only are accessors.dl's, and are reused rather
@@ -124,8 +149,17 @@ ts_field_access_class(e, "ambiguous_unknown") :- ts_field_access_count(e, 0).
 // The enclosing function of the ACCESS, by expr_enclosing_method, exactly as accessors.dl
 // attributes an accessor invocation: there is no call site to attribute through. Top-level
 // code is the module initializer, which that relation already supplies.
+// A read inside a METHOD'S DECORATOR is that method's: `@EventPattern(TOPICS.orderEvents)`
+// binds the handler to the topic, and the module initializer that evaluates the
+// decorator is no user of it. A decorator's expressions carry no owner hash, so the
+// subtree is walked down from the decorator's own expression.
+ts_deco_expr_method(e, m) :- decorator_expr("client", e, d), decorator_target("client", _, m, d), m != "".
+ts_deco_expr_method(c, m) :- ts_deco_expr_method(p, m), expr_child("client", p, _, _, c).
+ts_field_access_in_decorator(e) :- ts_deco_expr_method(e, _).
 ts_field_access_named(e) :- expr_enclosing_method(e, m), m != "".
-ts_field_access_from(e, m) :- ts_field_access_site(e), expr_enclosing_method(e, m), m != "".
+ts_field_access_from(e, m) :- ts_field_access_site(e), ts_deco_expr_method(e, m).
+ts_field_access_from(e, m) :- ts_field_access_site(e), expr_enclosing_method(e, m), m != "",
+    !ts_field_access_in_decorator(e).
 // ...and the MODULE itself for the residue expr_enclosing_method cannot place, which is
 // the marker call_sites.caller_id already uses in TypeScript rather than a blank. Never
 // NULL, so a site can always be attributed to the code that contains it.

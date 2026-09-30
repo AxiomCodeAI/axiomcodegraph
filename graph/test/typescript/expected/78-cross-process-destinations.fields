@@ -1,1 +1,1 @@
-ambiguous_unknown	read	client/client#dailyReport(string) -> -
+known_edge	read	client/client#dailyReport(string) -> config#reportsUrl

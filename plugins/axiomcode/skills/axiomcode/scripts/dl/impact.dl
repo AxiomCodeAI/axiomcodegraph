@@ -470,10 +470,15 @@ direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
 fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll),
-    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY"), (ek != "OBJECT_PROPERTY_KEY" ; !key_decl_at(n, f, l)).
+    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY"), (ek != "OBJECT_PROPERTY_KEY" ; !key_decl_at(n, f, l)), !other_field_line(q, f, l).
 // the key that DECLARES another object's same-named key (`QUEUES = { CREATED: … }`) is that declaration, not a use of this one
 .decl key_decl_at(n:symbol, f:symbol, l:number)
 key_decl_at(n, f, l) :- field_holder(fl, _), field(fl, _, n, f, l).
+// a key of a module-level const table: the line that DECLARES another table's key of the same name writes that name
+// as its own key, not a read of this one — `GATEWAY_ROUTES = { products: … }` beside `CATALOG_ROUTES = { products: … }`.
+// Only for a target owned by its module: a type's field keeps the keys written for it (`{ eventId: … } satisfies T`).
+.decl other_field_line(q:symbol, f:symbol, l:number)
+other_field_line(q, f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), kind(t, "module"), field(fl2, _, n, f, l), fl2 != fl.
 // an enum member is written like a type, so the parser labels the genuine reference TYPE: keep those, but only in a
 // file that can see the enum — its own directory, or a file that names the enum type somewhere
 .decl enum_member_target(q:symbol, fl:symbol)
