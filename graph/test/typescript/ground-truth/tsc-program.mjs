@@ -105,6 +105,32 @@ export function loadProgram(srcDir, libDir, toolName, programDir) {
     }
   }
 
+  // ── a WORKSPACE PACKAGE below the case root, imported by its name ───────────
+  // In a real monorepo the compiler reaches a sibling package through a node_modules
+  // link and the declarations its build wrote. A case holds neither, so the program is
+  // told where each named package's source is by the plainest convention there is: the
+  // package is `<dir>/src/index.ts`, and `<name>/x` is `<dir>/src/x`. Deliberately not
+  // the parser's rule (which reads main / types / exports): the two must agree on the
+  // answer without sharing the reasoning. A case with no nested package.json is unchanged.
+  const workspacePaths = {};
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory() && e.name !== 'node_modules') {
+        walk(p);
+      } else if (e.name === 'package.json' && d !== root) {
+        const name = JSON.parse(fs.readFileSync(p, 'utf-8')).name;
+        if (typeof name === 'string' && name !== '') {
+          workspacePaths[name] = [path.join(d, 'src', 'index.ts')];
+          workspacePaths[`${name}/*`] = [path.join(d, 'src', '*'), path.join(d, 'src', '*', 'index.ts')];
+        }
+      }
+    }
+  })(root);
+  if (Object.keys(workspacePaths).length > 0) {
+    options.paths = { ...workspacePaths, ...(options.paths ?? {}) };
+  }
+
   const program = ts.createProgram(files, options);
   const checker = program.getTypeChecker();
   // CALLERS come only from the client. TARGETS may be either, which is what makes the

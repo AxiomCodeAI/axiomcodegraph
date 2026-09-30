@@ -23,6 +23,7 @@ import {
 import { moduleHashFor } from '@/parsers/javascript/extractors/js-module-extractor';
 import { BUNDLER_CONFIG_NAMES, readBundlerAliases } from '@/parsers/javascript/bundler-alias-reader';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
+import { WorkspacePackages } from '@/parsers/typescript/workspace-packages';
 import {
   buildOutputDirectoriesNamedBy,
   extractPackageEntries,
@@ -58,6 +59,9 @@ import { scriptTextOf } from '@/utils/vue-sfc';
  * its columns. `getCsvHeader` reads no instance state — the header is a
  * constant list — which is why the prototype can answer without a row.
  */
+/** Source extensions a workspace package's entry is mapped back to, in the order they are looked for. */
+const JS_SOURCE_EXTENSIONS = ['.js', '.jsx', '.mjs', '.cjs'] as const;
+
 const HEADER_BY_FILE: Readonly<Record<string, string>> = {
   [JAVASCRIPT_CSV_FILES.MODULES]: JsModuleRegistry.prototype.getCsvHeader(),
   [JAVASCRIPT_CSV_FILES.SCOPES]: JsScopeRegistry.prototype.getCsvHeader(),
@@ -348,6 +352,20 @@ export class JavaScriptProjectAnalyzer {
     }
     const toProjectRelative = (absolutePath: string): string =>
       stripExtension(toRelative(pathAnchor, absolutePath));
+    // A sibling package imported by its name binds to the walked source its entry is
+    // built from, by the same convention as TypeScript's (`WorkspacePackages`).
+    const workspacePackages = WorkspacePackages.discover(pathAnchor, excludes);
+    const workspaceResolutions = new Map<string, string | undefined>();
+    const resolveWorkspaceModule = (specifier: string): string | undefined => {
+      if (workspacePackages.size === 0) {
+        return undefined;
+      }
+      if (!workspaceResolutions.has(specifier)) {
+        workspaceResolutions.set(specifier, workspacePackages.resolve(specifier,
+          (absolutePath) => projectModuleHashes.get(absolutePath), JS_SOURCE_EXTENSIONS)?.absolutePath);
+      }
+      return workspaceResolutions.get(specifier);
+    };
 
     // Every package this parse touched: each walk root's own `package.json`, and
     // the governing config of every file. What each exposes is a fact of the
@@ -462,6 +480,7 @@ export class JavaScriptProjectAnalyzer {
             compilerOptions: compilerOptionsFor(governing.moduleSystem, pathAliases.aliasesFor(file)),
             projectModuleHashes,
             toProjectRelative,
+            resolveWorkspaceModule,
           });
         } catch (error) {
           // An extraction error is a DEFECT, never a decision. Counted apart

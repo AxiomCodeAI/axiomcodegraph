@@ -1,3 +1,0 @@
-import_cause     other/probe.js:2:10  $lib/helper  not_staged
-package_entry    framework-alias-fixture  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
-unresolved       other/probe.js:5:10  FUNCTION_CALL helper  callee_untyped
