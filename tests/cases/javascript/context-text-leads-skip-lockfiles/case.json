@@ -1,0 +1,18 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "--in narrows the text files a context answer lists as it narrows the declarations: a JSON under the scope that names a found function is listed, a lockfile, a manifest and a config file outside it are not, and the next step stays inside the scope",
+   "run": ["context", "app wiring: createApp, config, debug output", "--in", "src/a"],
+   "want": ["text files that name these declarations", "src/a/routes.json:2", "next: read src/a/"],
+   "avoid": ["package-lock.json", "packages.lock.json", "package.json:", "config/app.json"]},
+  {"why": "--source prints each file's declarations as code instead of a name list; the answer still ends with a next step, on the first file shown",
+   "run": ["context", "app wiring: createApp and its output", "--in", "src/a", "--source"],
+   "want": ["next: answer from the code of src/a/app.js shown first above"],
+   "avoid": ["package-lock.json", "package.json:"]},
+  {"why": "without --in, a lockfile is never a text lead and a manifest's description, dependency lists and script names are not either; a manifest script command and a config file that name the function are (control: the manifest is filtered by line, not dropped)",
+   "run": ["context", "app wiring: createApp, config, debug output"],
+   "want": ["src/a/routes.json:2", "config/app.json:2", "package.json:6"],
+   "avoid": ["package-lock.json", "packages.lock.json", "package.json:4", "package.json:7", "package.json:10", "package.json:13"]},
+  {"why": "impact lists the same text files as bound from outside the source: the lockfiles and the manifest's dependency lists are not among them",
+   "run": ["impact", "debug"],
+   "want": ["src/a/routes.json", "config/app.json"],
+   "avoid": ["package-lock.json", "packages.lock.json", "package.json:7", "package.json:10"]}]}
