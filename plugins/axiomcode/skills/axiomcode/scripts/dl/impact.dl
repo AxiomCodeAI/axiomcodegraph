@@ -664,8 +664,11 @@ direct(q, m, "reads", w, "resolved", "", 0) :- target(q, "field", fl, _), persis
 sig_words("METHOD_PARAM", "a parameter"). sig_words("METHOD_RETURN", "the return type").
 .decl sig_resolved(q:symbol, c:symbol)
 sig_resolved(q, c) :- target(q, "type", t, _), sigtype(c, t, _, _), !inside_target(q, c).
-direct(q, c, "uses", cat("names it in its signature (", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, 0), sig_words(ctx, w), !inside_target(q, c).
-direct(q, c, "uses", cat("names it in its signature (a type argument of ", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, d), d > 0, sig_words(ctx, w), !inside_target(q, c).
+// a signature typeref already names at its line (the rule above, by name with a site) gets no second, lineless row
+.decl sig_at_line(q:symbol, c:symbol, ctx:symbol)
+sig_at_line(q, c, ctx) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, _, _), sig_words(ctx, _).
+direct(q, c, "uses", cat("names it in its signature (", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, 0), sig_words(ctx, w), !inside_target(q, c), !sig_at_line(q, c, ctx).
+direct(q, c, "uses", cat("names it in its signature (a type argument of ", w, ")"), "resolved", "", 0) :- target(q, "type", t, _), sigtype(c, t, ctx, d), d > 0, sig_words(ctx, w), !inside_target(q, c), !sig_at_line(q, c, ctx).
 direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c), !sig_resolved(q, c).
 direct(q, c, "uses", cat("uses ", n, ", imported from it"), "by name", f, l) :- target(q, "type", _, _), importuse(c, n, f, l), !inside_target(q, c).
 direct(q, c, "reads", cat("calls the generated getter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "get"), field(fl, t, _, _, _), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).
