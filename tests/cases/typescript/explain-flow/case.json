@@ -143,6 +143,20 @@
    "avoid": [
     "lie within 3 hops of the entry points; `--budget N` lists them"
    ]
+  },
+  {
+   "why": "a middleware that calls its `next` parameter continues into what the same app registers after it (the TypeScript graph records the registration as the JavaScript one does); the continuation names the factory that made it",
+   "run": [
+    "context",
+    "how does a site request get its session checked and relayed",
+    "--from",
+    "checkSession"
+   ],
+   "want": [
+    "⇢ relayUpstream",
+    "runs next: registered after it by mountSite",
+    "made by createRelay"
+   ]
   }
  ]
 }
