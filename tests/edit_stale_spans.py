@@ -16,6 +16,8 @@ For Python, Java and C#, on a small project indexed once, with an earlier edit t
       control: a real parameter added to that method is still a signature change;
   · a method moved below its neighbour: not removed;
   · removing a function whose name another file also declares: only this file's callers;
+  · a method renamed in place (same parameters): renamed, with the old name's callers; and so when the graph already
+    holds the new name; control: another parameter list in its place is no rename;
   · (Python) an edited import line: never a signature of the module;
   · the graph's rows and the tree it records for them disagree (a refresh raced an edit): declarations are placed by
     name and the answer says so; control: a faithful recorded tree says nothing of the kind;
@@ -177,6 +179,28 @@ for lang in only:
     out = fire(repo, c['util'], c['helper'], '')
     check(f'{lang}: removing a function lists this file\'s caller', c['mine'] in out and 'removed' in out, out)
     check(f'{lang}: ... and not the caller of the same-named function in another file', c['other'] not in out, out)
+
+    # a rename in place (same line, same parameters) is one declaration renamed, answered from the OLD name's callers
+    cnt = {'python': 'def count(self)', 'java': 'public int count()', 'csharp': 'public int Count()'}[lang]
+    ren = cnt.replace('ount(', 'ountAll(')
+    out = fire(repo, c['stale'], cnt, ren)
+    check(f'{lang}: a method renamed in place is renamed, with its callers', 'renamed' in out and 'removed' not in out and c['mine'].split('.')[-1] in out, out)
+    # the graph already holds the new name (a refresh indexed the rename): the old header's line is still that declaration
+    f = os.path.join(repo, c['stale']); t0 = open(f).read()
+    tf = tempfile.NamedTemporaryFile('w', suffix=os.path.splitext(f)[1], delete=False); tf.write(t0.replace(cnt, ren, 1)); tf.close()
+    r = subprocess.run([sys.executable, AX + '-changed', repo, '--old', tf.name, '--new', f, '--file', c['stale'], '--json'], capture_output=True, text=True, timeout=120)
+    try: kinds = [f"{e['kind']} {e['symbol']} {e.get('detail', '')}" for e in json.loads(r.stdout).get('changed', [])]
+    except ValueError: kinds = [r.stderr[-300:]]
+    check(f'{lang}: a rename the graph already holds is that declaration renamed, not a module body edit plus an added method',
+          any(k.startswith('signature') and 'renamed' in k for k in kinds) and not any(k.startswith('added') or '<module>' in k for k in kinds), kinds)
+    # control: the same method with another parameter list in its place is not a rename
+    tf2 = tempfile.NamedTemporaryFile('w', suffix=os.path.splitext(f)[1], delete=False)
+    tf2.write(t0.replace(cnt, ren.replace('()', '(int k)').replace('(self)', '(self, k)'), 1)); tf2.close()
+    r = subprocess.run([sys.executable, AX + '-changed', repo, '--old', tf2.name, '--new', f, '--file', c['stale'], '--json'], capture_output=True, text=True, timeout=120)
+    try: kinds = [f"{e['kind']} {e['symbol']} {e.get('detail', '')}" for e in json.loads(r.stdout).get('changed', [])]
+    except ValueError: kinds = [r.stderr[-300:]]
+    check(f'{lang}: control: a header with other parameters in its place is not called a rename', not any('renamed' in k for k in kinds), kinds)
+    os.unlink(tf.name); os.unlink(tf2.name)
 
     if lang == 'python':
         out = fire(repo, c['stale'], 'import os\n', 'import os, http\n')

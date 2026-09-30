@@ -22,5 +22,5 @@
    "avoid": ["PlainTests", "CountedTests"]},
   {"why": "a renamed overload still reports what the old name's callers lose, and only that overload's",
    "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new-rename.txt", "--file", "src/App/Job.cs", "--impact"],
-   "want": ["Job.Run   src/App/Job.cs:10", "→ impact src/App/Job.cs:10", "Callers.Counted"],
-   "avoid": ["Callers.Plain", "PlainTests"]}]}
+   "want": ["Job.Run   src/App/Job.cs:10", "→ impact src/App/Job.cs:10", "Callers.Counted", "renamed Run → Execute"],
+   "avoid": ["Callers.Plain", "PlainTests", "added      ", "removed    "]}]}

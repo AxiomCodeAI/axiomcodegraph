@@ -22,5 +22,5 @@
    "avoid": ["PlainTest", "CountedTest"]},
   {"why": "a renamed overload still reports what the old name's callers lose, and only that overload's",
    "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new-rename.txt", "--file", "src/app/Job.java", "--impact"],
-   "want": ["Job.run   src/app/Job.java:8", "→ impact src/app/Job.java:8", "Callers.counted"],
-   "avoid": ["Callers.plain", "PlainTest"]}]}
+   "want": ["Job.run   src/app/Job.java:8", "→ impact src/app/Job.java:8", "Callers.counted", "renamed run → execute"],
+   "avoid": ["Callers.plain", "PlainTest", "added      ", "removed    "]}]}
