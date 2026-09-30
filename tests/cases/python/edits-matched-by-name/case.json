@@ -1,0 +1,10 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a class deleted between two others is removed with every member: read by line, its `run` was paired with the next class's `run` and came back as a body edit",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new-del.txt", "--file", "pkg/fields.py"],
+   "want": ["removed    HStoreField", "removed    HStoreField.run"],
+   "avoid": ["body       HStoreField.run", "CharField", "body       Field"]},
+  {"why": "methods added to two classes are named, each on its own owner, and none is left as an unnamed insertion",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.txt", "--new", "{repo}/new-add.txt", "--file", "pkg/fields.py"],
+   "want": ["added      Field.added_one", "added      Field.added_two", "added      HStoreField.added_three"],
+   "avoid": ["new line(s)", "body       HStoreField.run", "body       Field.get_attribute"]}]}

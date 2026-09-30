@@ -1,0 +1,32 @@
+class Field:
+    default = None
+    required = False
+
+    def get_attribute(self, instance):
+        return getattr(instance, self.name)
+
+    def added_one(self):
+        return 1
+
+    def added_two(self):
+        return 2
+
+    def run(self):
+        return self.default
+
+
+class HStoreField(Field):
+    child = None
+
+    def run(self):
+        return {}
+
+    def added_three(self):
+        return 3
+
+
+class CharField(Field):
+    max_length = None
+
+    def run(self):
+        return ''

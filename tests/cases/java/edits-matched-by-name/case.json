@@ -1,0 +1,14 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "methods added between others (each with @Override, as their neighbours have) are six additions: the line diff pairs the repeated @Override and brace lines, and read by line the untouched issue and subject came back as signature changes and three of the six new methods were missed",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-added.java", "--file", "src/app/Tokens.java"],
+   "want": ["added      Tokens.isExpired", "added      Tokens.isValid", "added      Tokens.isRevoked", "added      Tokens.hasSubject", "added      Tokens.isSigned", "added      Tokens.isFresh"],
+   "avoid": ["signature  Tokens.issue", "signature  Tokens.subject", "body       Tokens.issue", "body       Tokens.subject", "Tokens.expiry"]},
+  {"why": "control: the same insertions with one real edit inside subject still report that edit, matched by name",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-added-and-body.java", "--file", "src/app/Tokens.java"],
+   "want": ["body       Tokens.subject", "added      Tokens.isFresh", "added      Tokens.isExpired"],
+   "avoid": ["signature  Tokens.issue", "body       Tokens.issue", "signature  Tokens.subject"]},
+  {"why": "a parameter renamed and retyped targets the declaration (its callers pass it), never the parameter the new text no longer has: impact reads parameters from the file as it is now and stopped with 'user is not a type in the graph'",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new-param.java", "--file", "src/app/Tokens.java", "--impact"],
+   "want": ["signature  Tokens.issue", "-user", "+userId", "→ impact src/app/Tokens.java:10", "Login.login"],
+   "avoid": ["(user)", "is not a type in the graph"]}]}

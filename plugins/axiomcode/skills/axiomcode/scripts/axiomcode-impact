@@ -726,6 +726,9 @@ class Impact:
         s = self.g.sym.get(mid) or {}
         if not s.get('line'): return None
         L = self.lines(s['file']); head = ' '.join(L[s['line'] - 1: min(s.get('end_line') or s['line'], s['line'] + 8)])
+        # a span starts at the decorations above the header: the parameter list is not an attribute's arguments (`take:
+        # ("{orderId}/cancel")` was read from `[HttpPatch("{orderId}/cancel")]`)
+        head = P.strip_decorations(head, s['file'].endswith('.cs'))
         i = head.find('(')
         if i < 0: return None
         depth = 0; j = i

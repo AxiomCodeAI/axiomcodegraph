@@ -1,0 +1,14 @@
+{"lang": "csharp", "src": "src",
+ "checks": [
+  {"why": "a parameter added to an action under a route attribute is that parameter, and the attribute's arguments are not the parameter list: read as one, the route template came back as a parameter (`-cancel`) and as a return type (`[HttpPatch → public`)",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.cs", "--new", "{repo}/new-param.cs", "--file", "src/Orders.cs", "--impact"],
+   "want": ["signature  OrdersController.CancelOrder", "+reason", "Caller.Run"],
+   "avoid": ["-cancel", "+CancelOrder", "return type", "is not a type in the graph"]},
+  {"why": "control: an edit of the route template alone is a decoration change, the signature itself unchanged",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.cs", "--new", "{repo}/new-route.cs", "--file", "src/Orders.cs"],
+   "want": ["OrdersController.CancelOrder", "decoration changed above the signature"],
+   "avoid": ["-cancel", "+reason", "return type"]},
+  {"why": "the same parameters in another order are a reorder (every positional caller breaks), not only a default removed",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.cs", "--new", "{repo}/new-reorder.cs", "--file", "src/Orders.cs"],
+   "want": ["signature  OrdersController.Total", "parameters reordered (price, quantity) → (quantity, price)"],
+   "avoid": ["(quantity)", "(price)"]}]}

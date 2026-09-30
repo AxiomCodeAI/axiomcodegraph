@@ -94,6 +94,41 @@ VALUE_BINDINGS = {'VARIABLE', 'LOCAL_VARIABLE', 'GLOBAL_VARIABLE', 'FREE_VARIABL
 MEMBER_REFS = {'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS', 'FIELD_ACCESS', 'MEMBER_ACCESS'}
 VALUE_KINDS_SHOWN ={k.lower().replace('_', ' ') for k in VALUE_BINDINGS}
 
+def strip_decorations(h, brackets=False):
+    """a header's text without the decorations written before it: `@Name`, `@a.b.Name(…)` (Java, Python, TypeScript) and,
+    with brackets (C#), `[Attr(…), Other]` groups. The arguments are skipped by bracket depth, strings included, so a
+    route template's `(`, `)` or `]` inside quotes ends nothing. Read with a flat `\\([^)]*\\)`, the arguments of
+    `[HttpPatch("{orderId}/cancel")]` were taken for the parameter list: "-cancel" and "cancel is not a type"."""
+    i, n = 0, len(h)
+    while True:
+        while i < n and h[i].isspace(): i += 1
+        if i < n and h[i] == '@' and h[i + 1:i + 2].isalpha():
+            j = i + 1
+            while j < n and (h[j].isalnum() or h[j] in '_.$'): j += 1
+            k = j
+            while k < n and h[k] == ' ': k += 1
+            if k < n and h[k] == '(': j = _skip_group(h, k)
+            i = j; continue
+        if brackets and i < n and h[i] == '[':
+            i = _skip_group(h, i); continue
+        return h[i:]
+
+def _skip_group(h, i):
+    """the index just past the bracket group opening at h[i], strings skipped"""
+    depth, n, q = 0, len(h), None
+    while i < n:
+        c = h[i]
+        if q:
+            if c == '\\': i += 2; continue
+            if c == q: q = None
+        elif c in '"\'': q = c
+        elif c in '([{': depth += 1
+        elif c in ')]}':
+            depth -= 1
+            if depth == 0: return i + 1
+        i += 1
+    return n
+
 # ONE SPELLING FOR EVERY LANGUAGE. Each front end writes a qualified name its own way: Java and C# `pkg.Owner.m`,
 # Python `pkg.module.f`, TypeScript `src/util#square`, JavaScript `src/util.square`. canon() maps all of them onto the
 # dotted form (`src.util.square`), and the resolvers match it beside the native spellings, so `util.square` or

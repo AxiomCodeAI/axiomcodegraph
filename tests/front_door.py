@@ -120,6 +120,15 @@ def main():
         check('tests: the reached test as a numbered place with its code', rc == 0 and places(out) and 'tests/test_pricing.py' in out, out[:600] + err[-300:])
         check('tests: the answer ends with the "run:" line', last[0].startswith('run:') and 'test_pricing' in last[0], last)
 
+        # a parameter renamed: the declaration is asked about, never the parameter the file no longer has
+        pr = os.path.join(repo, 'shop', 'pricing.py'); keep = open(pr).read()
+        with open(pr, 'w') as f: f.write(keep.replace('def total(prices):\n    net = sum(prices)', 'def total(items):\n    net = sum(items)'))
+        rc, out, err = cli(repo, 'impact')
+        check('impact with no name after a parameter rename: answers for the declaration, its caller among the places',
+              rc == 0 and out.startswith('your edits:') and 'total' in out.split('\n', 1)[0] and 'shop/pricing.py:10' in out
+              and 'is not a type' not in out + err, out[:600] + err[-300:])
+        with open(pr, 'w') as f: f.write(keep)
+
         # the entry SKILL.md documents for the shell is a front door too: the same shape, not the dispatcher's raw answer
         skill = open(os.path.join(SKILL_DIR, 'SKILL.md')).read() + open(os.path.join(ROOT, 'skills', 'axiomcode', 'SKILL.md')).read()
         documented = re.findall(r'`<this dir>/(\S+) <verb>`', skill)
