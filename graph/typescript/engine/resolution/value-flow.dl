@@ -406,7 +406,10 @@ ref_call_signature(r, sig) :- ref_type_target(r, _, t), call_signature_in_scope(
 
 typed_holder_signature(h, sig) :- field_type_ref("client", r, h), ref_call_signature(r, sig).
 typed_holder_signature(h, sig) :- var_type_ref("client", r, h), ref_call_signature(r, sig).
-typed_holder_signature(h, sig) :- param_type_ref("client", r, h), ref_call_signature(r, sig).
+// …except the function parameter of a method that files it in a keyed registry a dispatch reads:
+// what runs it is the publish on the same key (call-edge-generation/keyed_registry.dl), and the
+// type would hand it to every call of that type, whatever the key
+typed_holder_signature(h, sig) :- param_type_ref("client", r, h), ref_call_signature(r, sig), !kr_registry_param(h).
 
 method_dispatch_candidate(sig, m, "value") :- typed_holder_signature(h, sig),
     holder_holds_function(h, m),

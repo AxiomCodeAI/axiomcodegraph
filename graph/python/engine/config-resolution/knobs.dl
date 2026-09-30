@@ -151,6 +151,12 @@ py_fixture_name_kw("name").
 // the session, not only to the directory of the module that listed them.
 py_fixture_plugins_var("pytest_plugins").
 
+// ── py_fixture_value_method(Name): a fixture requested by name from the body ──
+// `request.getfixturevalue("admin_user")` asks the runner for the fixture at run time,
+// on the request object every test and fixture can take. The name is a string, so no
+// parameter carries the request and the fixture reached no test (#1514).
+py_fixture_value_method("getfixturevalue").
+
 // ── py_parametrize_deco(Tail) and its keywords: a value supplied DIRECTLY ────
 // `@pytest.mark.parametrize("user", [...])` passes the value in, and the fixture called
 // `user` is NOT run for that test. With `indirect=True`, or with the name in an

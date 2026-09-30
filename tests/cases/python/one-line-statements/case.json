@@ -167,6 +167,66 @@
     "variable   lo",
     "variable   j"
    ]
+  },
+  {
+   "why": "an edit inside a module-level dict written over several lines is that name's, not the module's body",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/conf.py",
+    "--new",
+    "{repo}/new_conf_mod.py",
+    "--file",
+    "src/conf.py"
+   ],
+   "want": [
+    "field      SETTINGS",
+    "initializer"
+   ],
+   "avoid": [
+    "<module>",
+    "LIMIT"
+   ]
+  },
+  {
+   "why": "and a list item added to a class attribute written over several lines is that attribute's, not the class body's",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/conf.py",
+    "--new",
+    "{repo}/new_conf_cls.py",
+    "--file",
+    "src/conf.py"
+   ],
+   "want": [
+    "field      Store.ROUTES",
+    "initializer"
+   ],
+   "avoid": [
+    "<classbody>"
+   ]
+  },
+  {
+   "why": "control: a statement between two bindings of a module-level name is not that name's (its recorded span runs from the first binding to the last)",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/script.py",
+    "--new",
+    "{repo}/new_script.py",
+    "--file",
+    "src/script.py"
+   ],
+   "want": [
+    "body       script.<module>"
+   ],
+   "avoid": [
+    "count"
+   ]
   }
  ]
 }

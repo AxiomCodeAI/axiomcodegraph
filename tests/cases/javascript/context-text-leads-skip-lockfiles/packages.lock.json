@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net8.0": {
+      "optional": { "type": "Direct", "requested": "[1.0.0, )" }
+    }
+  }
+}

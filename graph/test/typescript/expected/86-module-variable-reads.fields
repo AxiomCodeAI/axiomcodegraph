@@ -1,19 +1,20 @@
-ambiguous_unknown	read	a/src/cfg#localUse() -> -
-ambiguous_unknown	read	a/test/t#<module-init>() -> -
 ambiguous_unknown	read	a/test/t#annotated(typeof CFG) -> -
-ambiguous_unknown	read	a/test/t#inTemplate() -> -
 ambiguous_unknown	read	a/test/t#shadowed() -> -
-ambiguous_unknown	read	a/test/t#viaMember() -> -
-ambiguous_unknown	read	b/test/sibling#siblingRead() -> -
+known_edge	read	Handler#handle(unknown) -> a/src/cfg#Store
 known_edge	read	Handler#handle(unknown) -> cfg#S
 known_edge	read	Handler#handle(unknown) -> cfg#TOKENS
+known_edge	read	a/src/cfg#localUse() -> a/src/cfg#name
 known_edge	read	a/src/cfg#localUse() -> cfg#CFG
 known_edge	read	a/test/t#<module-init>() -> cfg#S
 known_edge	read	a/test/t#annotated(typeof CFG) -> cfg#CFG
 known_edge	read	a/test/t#asArgument() -> cfg#S
+known_edge	read	a/test/t#inTemplate() -> a/src/cfg#Store
+known_edge	read	a/test/t#inTemplate() -> a/src/cfg#name
 known_edge	read	a/test/t#inTemplate() -> cfg#CFG
 known_edge	read	a/test/t#inTemplate() -> cfg#TOKENS
+known_edge	read	a/test/t#viaMember() -> a/src/cfg#name
 known_edge	read	a/test/t#viaMember() -> cfg#CFG
+known_edge	read	b/test/sibling#siblingRead() -> b/src/settings#port
 known_edge	read	b/test/sibling#siblingRead() -> settings#CFG
 known_edge	read	b/test/sibling#siblingRead() -> settings#S
 known_edge	readwrite	a/src/cfg#bump() -> cfg#counter

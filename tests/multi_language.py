@@ -50,7 +50,8 @@ FILES = {
     'lib/pytools/probe.py': 'def emit(x):\n    return [x]\n',
     'src/cli.ts': 'import { run } from \'./main\'\n\nexport function main(): number {\n  return run()\n}\n',
     'jslib/package.json': '{ "name": "jslib", "version": "1.0.0", "main": "index.js" }\n',
-    'jslib/index.js': 'function helper(a) {\n  return a + 1\n}\n\nfunction api(a) {\n  return helper(a) * 2\n}\n\nmodule.exports = { api }\n',
+    'notes/steps.json': '{ "steps": ["total"] }\n',
+    'jslib/index.js':'function helper(a) {\n  return a + 1\n}\n\nfunction api(a) {\n  return helper(a) * 2\n}\n\nmodule.exports = { api }\n',
 }
 
 # a Maven project whose build wrote javadoc: target/ beside the pom.xml, and a copy committed for a docs site
@@ -212,6 +213,16 @@ def main(argv):
         s = sh(repo, AX, 'context', 'emit a value', '.', '--in', 'tools', env=quiet)
         check(s.returncode == 0 and 'tools/gen/make.py' in s.stdout and 'lib/pytools' not in s.stdout,
               'scope: context --in tools keeps lib/pytools/ out too', s.stdout + s.stderr)
+        # a directory only the MAIN graph holds, asked from every graph: another language's graph once read it as text
+        # no graph holds, listed its source files as text rows and ended on a next step outside the scope
+        s = sh(repo, AX, 'context', 'compute the area of a shape and add up a total', '.', '--in', 'src', env=quiet)
+        check(s.returncode == 0 and 'not indexed: src/' not in s.stdout and 'tools/' not in s.stdout and 'src/shape.ts' in s.stdout,
+              'scope: a directory the main graph holds is not text to the other graphs', s.stdout + s.stderr)
+        # a directory no graph holds, named by --in: its text files are listed once, and every next step stays in it
+        s = sh(repo, AX, 'context', 'which steps add up a total', '.', '--in', 'notes', env=quiet)
+        nexts = [l for l in s.stdout.splitlines() if l.startswith('next:')]
+        check(s.returncode == 0 and s.stdout.count('notes/steps.json') == 1 and nexts and all('notes/' in l for l in nexts),
+              'scope: --in a text-only directory is listed by one graph, and no next step leaves it', s.stdout + s.stderr)
 
         # ── --from ────────────────────────────────────────────────────────────────────────────────────────────
         # `main` is declared in the typescript graph and twice in the python one: the flow starts where the task's

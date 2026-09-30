@@ -504,14 +504,33 @@ def _vnum(v):
     except (TypeError, ValueError): return None
 
 def _newer(old, impact, now_e):
-    """newer_build's comparison: the table's built_by against this axiomcode's IMPACT_VERSION and engine (engine_id)"""
+    """newer_build's comparison: the table's built_by against this axiomcode's IMPACT_VERSION and engine (engine_id).
+    AHEAD ON EITHER IS NEWER. A lower IMPACT_VERSION returned '' before the engines were compared, so a graph a 0.1.8
+    engine built, read by these scripts with AXIOMCODE_ENGINE naming a 0.1.3 checkout, was called "built by an older
+    axiomcode (0.1.8 -> 0.1.3)" and rebuilt with the older engine"""
     oi, ni = _vnum(old.get('impact')), _vnum(impact)
-    if oi and ni and oi != ni:
-        return f"graph built by a newer axiomcode (IMPACT_VERSION {old.get('impact')}, this one has {impact})" if oi > ni else ''
+    if oi and ni and oi > ni:
+        return f"graph built by a newer axiomcode (IMPACT_VERSION {old.get('impact')}, this one has {impact})"
     ov, nv = old.get('engine_version'), (now_e[0] if now_e else None)
     if _vnum(ov) and _vnum(nv) and _vnum(ov) > _vnum(nv):
         return f"graph built by a newer axiomcode (engine {ov}, this one is {nv})"
     return ''
+
+def _answering():
+    """the engine checkout these scripts sit in, the one `axiomcode --version` reports; '' when they sit in none"""
+    w = H
+    while os.path.dirname(w) != w and not os.path.isfile(os.path.join(w, 'bin', 'axiomcode')): w = os.path.dirname(w)
+    return w if engine_ok(w) else ''
+
+def _whose(eng):
+    """WHICH ENGINE "THIS ONE" IS, when it is not the one answering: AXIOMCODE_ENGINE names another checkout, and a
+    rebuild here uses that one. Unsaid, "0.1.8 -> 0.1.3" read as a version going backwards under `axiomcode --version`
+    printing 0.1.8. '' when the engine compared is the checkout answering"""
+    a = _answering()
+    if not eng or not a or os.environ.get('AXIOMCODE_ENGINE') != eng or os.path.realpath(a) == os.path.realpath(eng): return ''
+    try: v = json.load(open(os.path.join(a, 'package.json'))).get('version', '?')
+    except (OSError, ValueError): v = '?'
+    return f"; compared with AXIOMCODE_ENGINE={eng}, which a rebuild here uses, not the axiomcode answering ({v} at {a})"
 
 def built_by_state(repo, t=None):
     """(older, newer): what engine_change and newer_build return, found with one look at the engine. NEVER A DOWNGRADE
@@ -532,7 +551,7 @@ def built_by_state(repo, t=None):
     langs = old.get('engine_langs')
     now_e = engine_id(eng, langs) if eng else None
     newer = _newer(old, impact, now_e)
-    if newer: return '', newer
+    if newer: return '', newer + _whose(eng)
     diff = []
     if now_e and old.get('engine_hash') and old.get('engine_stat') != now_e[2]:
         h = _seen_hash(repo, now_e)

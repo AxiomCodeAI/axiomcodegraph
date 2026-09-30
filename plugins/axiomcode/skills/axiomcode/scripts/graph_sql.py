@@ -3494,6 +3494,7 @@ def _has_framework_hops(q, at=None, site_file=None):
     try:
         import ax_registration
         if at is not None and ax_registration.key_edges(q, at, site_file): return True
+        if ax_registration.filter_links(q): return True     # fw_edge "filter": a servlet filter a test's context holds
     except Exception:
         return True                               # cannot tell: decline, because answering smaller is the failure
     try:
@@ -3519,7 +3520,7 @@ def _spawn_edges(q, lines, at):
     return sorted({(c, m, 'spawns') for c, m, _f, _l in ax_spawn.links(tf, mod_of, lines, at) if c != m})
 
 def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=None,
-                       inside=(), textuse=(), importuse=(), lines=None):
+                       inside=(), textuse=(), importuse=(), lines=None, field_rows=None):
     """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
 
     T is the target relation: (query_id, kind, symbol_id, extra). Only method targets are answered here; a
@@ -3634,6 +3635,8 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         if 'field' in by_kind:
             fids = sorted(by_kind['field'])
             d, fde = direct_for_field(q, fids, at, code, lines, ins, rel)
+            # mapper_param / bean_copy (dl/impact.dl): the caller read them from the text and hands the rows over
+            d += list((field_rows or {}).get(qq, ()))
             # alongside, through target_owner(q,t) :- target(q,"field",fl,_), field(fl,t,_,_,_)
             ftypes = set()
             for f_ in fids:

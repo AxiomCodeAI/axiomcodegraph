@@ -470,7 +470,7 @@ def newer_checks():
         repo = repo_by('newer', impact=up)
         s = ax_fresh.status(repo); want = f"graph built by a newer axiomcode (IMPACT_VERSION {up}, this one has {mine})"
         check("newer: a higher IMPACT_VERSION is a newer build, not an older one to rebuild; with no edit the graph is fresh",
-              s.get('state') == 'fresh' and s.get('newer') == want and ax_fresh.engine_change(repo) == '', s)
+              s.get('state') == 'fresh' and s.get('newer', '').startswith(want) and ax_fresh.engine_change(repo) == '', s)
         out, err, took = query(repo)
         check(f"newer: the answer comes from it at once ({took:.1f}s), unmarked, and says a newer axiomcode built it and it is not rebuilt",
               out.strip() == ROWS.strip() and want in err and 'not rebuild' in err and 'rebuilding' not in err and took < 10, (out, err))
@@ -482,24 +482,33 @@ def newer_checks():
         # an edit: still never rebuilt; the answer marks the edited file's rows, waits for nothing, and says why no refresh comes
         open(os.path.join(repo, 'shop/api.py'), 'a').write('\ndef audit(items):\n    return total(items)\n')
         s = ax_fresh.status(repo); out, err, took = query(repo)
-        check("newer: with a file edited the graph is stale, and still a newer build", s.get('state') == 'stale' and s.get('newer') == want, s)
+        check("newer: with a file edited the graph is stale, and still a newer build", s.get('state') == 'stale' and s.get('newer', '').startswith(want), s)
         check("newer: with a file edited the refresher still does not rebuild it", not worker(repo), '')
         check(f"newer: with a file edited the answer marks that file's rows, does not wait ({took:.1f}s), and names no rebuild",
               'shop/api.py:5   - calls it' + ax_fresh.MARK in out and want in err and 'predates edits to shop/api.py' in err
               and 'queued' not in err and 'rebuilding' not in err and 'waiting' not in err and took < 10, (out, err))
         w = ax_fresh.wait(repo, 5)
-        check("newer: a wait for a fresh graph returns at once rather than waiting for a rebuild that never comes", w.get('newer') == want, w)
+        check("newer: a wait for a fresh graph returns at once rather than waiting for a rebuild that never comes", (w.get('newer') or '').startswith(want), w)
         # the same IMPACT_VERSION and a later engine is newer too
         repo = repo_by('newer-engine', engine_version='1.0.1')
         check("newer: the same IMPACT_VERSION and a later engine version is a newer build",
-              ax_fresh.status(repo).get('newer') == "graph built by a newer axiomcode (engine 1.0.1, this one is 1.0.0)" and not worker(repo),
+              ax_fresh.status(repo).get('newer', '').startswith("graph built by a newer axiomcode (engine 1.0.1, this one is 1.0.0)") and not worker(repo),
               ax_fresh.status(repo))
+        # AHEAD ON EITHER IS NEWER: a later engine whose IMPACT_VERSION is lower (these scripts newer than the engine that
+        # AXIOMCODE_ENGINE names) was "built by an older axiomcode (engine 1.0.1 -> 1.0.0)" and rebuilt with the older engine
+        repo = repo_by('newer-engine-older-export', impact=down, engine_version='1.0.1', engine_hash='0' * 40, engine_stat='0' * 40)
+        s = ax_fresh.status(repo)
+        check("newer: a later engine is a newer build even with a lower IMPACT_VERSION, not an older one to rebuild",
+              s.get('newer', '').startswith("graph built by a newer axiomcode (engine 1.0.1, this one is 1.0.0)")
+              and ax_fresh.engine_change(repo) == '' and not worker(repo), s)
+        check("newer: the note says the engine compared is AXIOMCODE_ENGINE, not the axiomcode answering",
+              f"AXIOMCODE_ENGINE={e1}" in s.get('newer', '') and 'not the axiomcode answering' in s.get('newer', ''), s)
         # ── composed with the per-language key: NEVER A DOWNGRADE is decided first ──
         # a newer graph whose own language's rules differ from this engine's is still not rebuilt: that difference is
         # the newer axiomcode's, not a staleness this one can fix
         repo = repo_by('newer-own-rules', impact=up, engine_hash='0' * 40, engine_stat='0' * 40)
         check("newer: a newer build whose own language's engine files differ is still a newer build, not an older one",
-              ax_fresh.status(repo).get('newer') == want and ax_fresh.engine_change(repo) == '' and not worker(repo), ax_fresh.status(repo))
+              ax_fresh.status(repo).get('newer', '').startswith(want) and ax_fresh.engine_change(repo) == '' and not worker(repo), ax_fresh.status(repo))
         # a higher IMPACT_VERSION is not re-exported either (rewarm): that would record this older version over it
         worker(repo)
         check("newer: the refresher does not re-export a newer build's facts; the table keeps the newer IMPACT_VERSION",

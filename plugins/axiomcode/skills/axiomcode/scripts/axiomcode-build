@@ -219,6 +219,15 @@ set_base(){
 # the commit the baseline follows, written LAST: `changed` waits while it differs from HEAD, so it must not say "moved"
 # before the baseline's graph exists (keep_base_graph), or `changed` reads a baseline with no graph for it
 commit_base(){ [ -n "$GD" ] && echo "$HEAD_SHA" > "$OUT/base-commit"; return 0; }
+# THE BASELINE WITHOUT GIT (a mirror synced without .git, an export): no tree to record, so `changed` reads an edit as a
+# file whose hash differs from the table an explicit index wrote (axiomcode-changed, since_index). Kept as base-files.json,
+# since every build, a background refresh too, rewrites files.json: read from it, an edit left `changed` a minute after it
+# was made. An explicit index moves it; a refresh keeps it; a build with git has a tree and drops it.
+set_base_files(){
+  if [ -n "$GD" ]; then rm -f "$OUT/base-files.json"
+  elif [ -z "$KEEP_BASE" ] || [ ! -f "$OUT/base-files.json" ]; then [ -f "$OUT/files.json" ] && cp "$OUT/files.json" "$OUT/base-files.json"; fi
+  return 0
+}
 # THE BASELINE GRAPH. `changed`, `test-impact` and the change reports ask about an EDIT: which declarations it touched and
 # who depended on them before it, a removed method's callers included. After a background refresh the graph no longer
 # has the removed method, and its spans are in the new text. So the graph that describes the baseline is kept, moved
@@ -287,6 +296,7 @@ if [ -z "${AXIOMCODE_REINDEX:-}" ] && [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/grap
 fi
 if [ ! -f "$OUT/corrupt" ] && [ -f "$OUT/graph.sqlite" ] && [ -f "$OUT/stamp" ] && [ ! -f "$OUT/partial" ] && AXIOMCODE_ENGINE="$ENGINE" python3 "$H/ax_fresh.py" uptodate "$REPO" "$LANGS" "${AXIOMCODE_SRC:-}" "${STAMP#"$PREFIX"}"; then
   if [ "$(cat "$OUT/stamp")" != "$STAMP" ]; then echo "$STAMP" > "$OUT/stamp"; INDEXED_TREE="$OLD_INDEXED"; set_base "$OLD_INDEXED"; PREV=""; keep_base_graph; commit_base; fi
+  set_base_files
   has_symbols "$OUT/graph.sqlite" || python3 "$H/axiomcode-index" "$REPO"
   [ -f "$REPO/.axiomcode/engine" ] || printf '%s\n' "$ENGINE" > "$REPO/.axiomcode/engine" || true
   echo "graph up to date (${LANGS//,/, }) at $OUT/graph.sqlite"; exit 0
@@ -457,6 +467,7 @@ publish_main(){
   if [ -n "$OTHER_LANGS" ]; then S="${SOLVE#*,}"; for l in ${S//,/ }; do echo "$l $MODE"; done > "$PENDING"; fi   # before the pointer: the first query may follow at once
   point "$DB" || { restore; exit 1; }; rm -f "$OUT/.live.sqlite"
   if [ -f "$OUT/.files.json.new" ]; then mv "$OUT/.files.json.new" "$OUT/files.json"; else rm -f "$OUT/files.json"; fi
+  set_base_files
   # the graph now matches the files: record how long that took, and whether it included compiling the engine's rules (a
   # one-time cost a refresh does not pay, so such a duration predicts nothing). With other languages still to come this
   # is the time to the MAIN graph, which is what a query waits for.

@@ -286,6 +286,76 @@ py_parametrize_direct(req, name) :- py_parametrize_argname(req, h, name),
 py_fixture_request(req, name) :- py_fixture_param(req, name),
     !py_parametrize_direct(req, name).
 
+// A REQUEST WRITTEN IN THE BODY (#1514). `request.getfixturevalue("admin_user")` makes
+// the runner build that fixture for this test while it runs, by the same visibility
+// rules as a parameter, so it is a request like one and goes through the same scoping
+// below. Only in a requester's own body: a helper function calling it is not collected,
+// and which test calls the helper is a call edge's question, not this rule's.
+.decl py_fixture_value_call(req:symbol, e:symbol)
+py_fixture_value_call(req, e) :- py_fixture_requester(req),
+    call_decl("client", "METHOD_CALL", fn, _, e, site), py_fixture_value_method(fn),
+    call_context("client", _, req, _, _, site).
+// (a) the name written as a string literal;
+py_fixture_request(req, name) :- py_fixture_value_call(req, e),
+    call_arg(e, "0", a), expr_node("client", "LITERAL", _, name, a), name != "".
+// (b) the name a parametrize decorator on the same test hands in, the commoner form:
+//     `@parametrize("server", ["local_server", "remote_server"])` and then
+//     `request.getfixturevalue(server)` requests each listed fixture in turn. Only for a
+//     decorator with that ONE argument name, whose values are then plain strings; with
+//     several names each value is a tuple, and a value that is no literal names nothing.
+py_fixture_request(req, name) :- py_fixture_value_call(req, e),
+    call_arg(e, "0", a), expr_node("client", "NAME_REFERENCE", _, p, a),
+    py_parametrize_direct(req, p), py_parametrize_on(req, h), py_parametrize_argnames(h, p),
+    decorator_expr("client", de, h), call_arg(de, "1", vs),
+    expr_parent("client", vs, "ELEMENT", _, el),
+    expr_node("client", "LITERAL", _, name, el), name != "".
+// (c) the same with several argument names, `@parametrize("server, expected", [("local_srv",
+//     200), ...])`: each value is a tuple and the name is the element at the argument's own
+//     position, so only that column is read. The position is the number of separators
+//     before the name in the argnames string, or its place in an argnames list.
+.decl py_argnames_sep_at(h:symbol, s:symbol, i:number)
+py_argnames_sep_at(h, s, i) :- py_parametrize_argnames(h, s), py_argnames_sep(sep),
+    i = range(0, strlen(s)), substr(s, i, 1) = sep.
+.decl py_argnames_name_at(h:symbol, name:symbol, i:number)
+// A whole token: led by the string's start, a separator or a space, and followed by its
+// end, a separator or a space, so `server` is not found inside `server_url`.
+.decl py_argnames_found(h:symbol, name:symbol, i:number)
+py_argnames_found(h, p, i) :- py_fixture_value_param(h, p), py_parametrize_argnames(h, s),
+    strlen(s) > strlen(p), i = range(0, strlen(s) - strlen(p) + 1), substr(s, i, strlen(p)) = p.
+.decl py_argnames_led(h:symbol, name:symbol, i:number)
+py_argnames_led(h, p, 0) :- py_argnames_found(h, p, 0).
+py_argnames_led(h, p, i) :- py_argnames_found(h, p, i), i > 0, py_parametrize_argnames(h, s),
+    py_argnames_boundary(c), substr(s, i - 1, 1) = c.
+py_argnames_name_at(h, p, i) :- py_argnames_led(h, p, i), py_parametrize_argnames(h, s),
+    i + strlen(p) = strlen(s).
+py_argnames_name_at(h, p, i) :- py_argnames_led(h, p, i), py_parametrize_argnames(h, s),
+    i + strlen(p) < strlen(s), py_argnames_boundary(c), substr(s, i + strlen(p), 1) = c.
+.decl py_argnames_boundary(c:symbol)
+py_argnames_boundary(",").
+py_argnames_boundary(" ").
+.decl py_value_row_kind(k:symbol)
+py_value_row_kind("TUPLE").
+py_value_row_kind("LIST").
+.decl py_argnames_pos(h:symbol, name:symbol, k:number)
+py_argnames_pos(h, p, k) :- py_argnames_name_at(h, p, i), py_parametrize_argnames(h, s),
+    k = count : { py_argnames_sep_at(h, s, j), j < i }.
+// ... or, for argnames written as a list or tuple of strings, its element position there.
+py_argnames_pos(h, p, k) :- py_fixture_value_param(h, p),
+    decorator_expr("client", de, h), call_arg(de, "0", a),
+    expr_parent("client", a, "ELEMENT", ks, el), expr_node("client", "LITERAL", _, p, el),
+    k = to_number(ks).
+.decl py_fixture_value_param(h:symbol, p:symbol)
+py_fixture_value_param(h, p) :- py_fixture_value_call(req, e),
+    call_arg(e, "0", a), expr_node("client", "NAME_REFERENCE", _, p, a),
+    py_parametrize_direct(req, p), py_parametrize_on(req, h), py_parametrize_argname(req, h, p).
+py_fixture_request(req, name) :- py_fixture_value_call(req, e),
+    call_arg(e, "0", a), expr_node("client", "NAME_REFERENCE", _, p, a),
+    py_parametrize_direct(req, p), py_parametrize_on(req, h), py_argnames_pos(h, p, k),
+    decorator_expr("client", de, h), call_arg(de, "1", vs),
+    expr_parent("client", vs, "ELEMENT", _, tup), py_value_row_kind(rk), expr_node("client", rk, _, _, tup),
+    expr_parent("client", tup, "ELEMENT", to_string(k), el),
+    expr_node("client", "LITERAL", _, name, el), name != "".
+
 // (0) a fixture a CLASS declares serves the tests of that class and of its subclasses,
 //     and nothing else; for them it wins over the module's fixture of the name. Read as a
 //     plain same-module fixture it was also handed to a sibling class's tests, and the
