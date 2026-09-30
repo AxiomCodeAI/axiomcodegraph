@@ -1,0 +1,129 @@
+// ============================================================================
+// Resolution · INSTANCE STATE  (what ONE object was given, not what its class was)
+//
+// `new Bus({ validate: check })` and `b.on(handleA)` hand a callback to ONE bus. The
+// flow layer keys an instance by its class, ("inst", Bus), so `this.v` inside
+// `Bus.emit` holds every callback any bus was ever given, and the call edge
+// emit -> check is right for SOME bus. The edge is right; what is wrong is reading it
+// as "every caller of emit reaches check": a caller that emits on a bus built without
+// `validate` does not. A context-insensitive call graph cannot say that, so this file
+// says it beside the graph, as facts the impact walk reads (dl/impact.dl):
+//
+//   state_world(M, T)            callable M runs with an instance of T as its `this`:
+//                                an instance member of T, or a function nested in one
+//   state_gate(M, F, T)          every call M makes to F reaches F only through what
+//                                the receiver instance was given
+//   state_gate_alloc(T, F, S)    the allocation S (a `new T(...)` expression) is one
+//                                that was given F
+//   state_call_alloc(C, M, S)    C calls the T member M on a receiver that may be S
+//   state_call_open(C, M)        C calls M on a receiver whose allocation is unknown
+//
+// ── THE ALLOCATION VALUE ────────────────────────────────────────────────────
+// ("alloc", NewExpr) is a value of its own, carried BESIDE ("inst", T) wherever the
+// instance goes (a variable, a parameter, a field, a return, `x ?? new T()`), exactly
+// as ("wrap", site) travels beside a wrapper's closure (value-flow.dl). Nothing
+// resolves through it: members are still read off ("inst", T). It is minted only for
+// a class whose instance code CALLS A VALUE — a parameter (`f(e)`, `handler(env)`) or
+// a property of `this` that the class does not declare as a method (`this.v?.(e)`) —
+// which is the shape whose targets depend on what the instance was given. Every
+// other class carries no allocation, and so costs nothing here.
+//
+// ── WHEN A CALLBACK IS GATED ────────────────────────────────────────────────
+// F is gated in T when the only way F enters T's instance code is as an argument of
+// a call made from OUTSIDE that code on a T member (the constructor or a method) —
+// an ENTRY — and every such entry's receiver has a known allocation. It is not gated
+// (every caller keeps it, as before) when F:
+//   · is declared inside T's instance code;
+//   · is read inside that code through a name bound outside it (an import, a
+//     module-level variable, a function declaration), or returned to it by a call
+//     to a function declared outside it;
+//   · is written onto an instance of T, or onto the static side of T, from outside;
+//   · reaches T whose hierarchy has a client class above or below it, or whose own
+//     code builds another T (`new T()`, `new this.constructor()`): what one instance
+//     holds could then flow into another;
+//   · enters through an entry whose receiver's allocation is unknown.
+// The allocations are the closed-world answer the engine gives for parameters too: a
+// receiver's allocations are the `new` expressions that reach it through resolved
+// flow. A receiver with none (a documented `@param {Bus}`, a library's return) is open.
+// ============================================================================
+
+// ── the instance code of a class ────────────────────────────────────────────
+state_world(m, t) :- method_decl("client", _, k, _, "false", t, _, m), t != "", k != "STATIC_BLOCK".
+state_world(m, t) :- type_ctor("client", m, t).
+state_world(m, t) :- method_enclosing(m, e), state_world(e, t).
+state_type_declares(t, n) :- method_decl(_, n, _, _, _, t, _, _), n != "".
+
+// ── the classes whose instance code calls a value ───────────────────────────
+state_type(t) :- state_world(em, t), call_site("client", ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "THIS", _, r), n != "", !state_type_declares(t, n).
+state_type(t) :- state_world(em, t), call_site("client", ck, _, _, _, em, ce, _, _), call_kind_is_callee_form(ck),
+    expr_child(_, ce, "CALLEE", _, c), expr_param(_, _, c).
+
+// ── the allocation value, minted at `new T(...)` ────────────────────────────
+expr_value(e, "alloc", e) :- expr_kind("client", "NEW", _, e), new_constructs(e, t), state_type(t).
+state_alloc_type(s, t) :- expr_value(s, "alloc", s), new_constructs(s, t).
+
+// ── eligibility: nothing one instance holds can move into another ───────────
+state_type_mixed(t) :- state_type(t), type_super(t, s), type_decl("client", _, _, _, _, s).
+state_type_mixed(t) :- state_type(t), type_super(u, t), type_decl("client", _, _, _, _, u).
+state_type_mixed(t) :- state_type(t), state_world(em, t), expr_kind(_, "NEW", _, e), expr_owner(_, em, _, e), new_constructs(e, t).
+state_type_mixed(t) :- state_type(t), state_world(em, t), own_class_new(em, _).
+state_type_ok(t) :- state_type(t), !state_type_mixed(t).
+
+// ── entries: a call from outside the instance code onto a member of T ───────
+state_entry(t, ce) :- state_type_ok(t), expr_resolves_to_method(ce, m), state_world(m, t),
+    call_site("client", _, _, _, _, em, ce, _, _), !state_world(em, t).
+state_entry_alloc(ce, s) :- state_entry(t, ce), expr_kind(_, "NEW", _, ce), expr_value(ce, "alloc", s), state_alloc_type(s, t).
+state_entry_alloc(ce, s) :- state_entry(t, ce), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "alloc", s), state_alloc_type(s, t).
+state_entry_open(ce) :- state_entry(_, ce), !state_entry_alloc(ce, _).
+
+// What an entry's arguments carry: the values themselves and, a few levels down, what
+// their properties and elements hold (`{ validate: check }`, `[a, b]`). Depth-bounded:
+// a carry is evidence FOR gating, so a callback found deeper than this is simply not
+// counted as entering through the entry, and then it is not gated at all.
+state_carry(ce, k, i, 0) :- state_entry(_, ce), call_arg(ce, _, a), expr_value(a, k, i), k != "alloc".
+state_carry(ce, k2, i2, d + 1) :- state_carry(ce, k, i, d), d < 3, k != "func", prop_value(k, i, _, k2, i2), k2 != "alloc".
+state_carry(ce, k2, i2, d + 1) :- state_carry(ce, k, i, d), d < 3, (k = "arr" ; k = "coll"), elem_value(i, k2, i2), k2 != "alloc".
+state_enters(t, f, ce) :- state_entry(t, ce), state_carry(ce, "func", f, _).
+
+// ── leaks: F reaches the instance code some other way ───────────────────────
+// declared inside it
+state_leak(t, f) :- state_enters(t, f, _), state_world(f, t).
+// a value the instance code has from anywhere but an entry: a name bound outside it
+// (an import, a module-level variable or function, a class it constructs itself: `dep ??
+// new DefaultDep()` names DefaultDep, whose prototype holds `run`), or what a function
+// declared outside it returns. What those hold, a few levels down, is F leaking in. A
+// literal the code writes itself needs no rule: a function in it is either named (above)
+// or written inline, and then it is declared inside the instance code.
+state_outer_ref(t, e) :- state_type_ok(t), state_world(em, t), expr_owner(_, em, _, e), expr_binding(_, v, e),
+    var_owner_method(_, vm, v), !state_world(vm, t).
+state_outer_ref(t, e) :- state_type_ok(t), state_world(em, t), expr_owner(_, em, _, e), expr_binding(_, v, e),
+    !var_owner_method(_, _, v).
+state_outer_ref(t, ce) :- state_type_ok(t), state_world(em, t), expr_owner(_, em, _, ce), expr_kind(_, "CALL", _, ce),
+    expr_resolves_to_method(ce, g), !state_world(g, t).
+state_outer_carry(t, k, i, 0) :- state_outer_ref(t, e), expr_value(e, k, i), k != "alloc".
+state_outer_carry(t, k2, i2, d + 1) :- state_outer_carry(t, k, i, d), d < 3, k != "func", prop_value(k, i, _, k2, i2), k2 != "alloc".
+state_outer_carry(t, k2, i2, d + 1) :- state_outer_carry(t, k, i, d), d < 3, (k = "arr" ; k = "coll"), elem_value(i, k2, i2), k2 != "alloc".
+state_leak(t, f) :- state_enters(t, f, _), state_outer_carry(t, "func", f, _).
+// written onto an instance of T or onto T itself from outside its instance code
+state_leak(t, f) :- state_enters(t, f, _), expr_kind(_, "ASSIGNMENT", _, a), expr_owner(_, em, _, a), !state_world(em, t),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r),
+    expr_value(r, k, t), (k = "inst" ; k = "ctor"),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, "func", f).
+state_leak(t, f) :- state_enters(t, f, _), prop_value("ctor", t, _, "func", f).
+// an entry that says nothing about which instance it gives F to
+state_leak(t, f) :- state_enters(t, f, ce), state_entry_open(ce).
+
+// ── the gate ────────────────────────────────────────────────────────────────
+state_gated(t, f) :- state_enters(t, f, _), !state_leak(t, f).
+state_gate_alloc(t, f, s) :- state_gated(t, f), state_enters(t, f, ce), state_entry_alloc(ce, s).
+state_gate(m, f, t) :- state_gated(t, f), state_world(m, t), expr_resolves_to_method(ce, f),
+    call_site("client", _, _, _, _, m, ce, _, _).
+
+// ── who calls the instance code, on which allocation ────────────────────────
+state_gated_type(t) :- state_gated(t, _).
+state_call_alloc(c, m, s) :- state_gated_type(t), state_entry(t, ce), expr_resolves_to_method(ce, m),
+    call_site("client", _, _, _, _, c, ce, _, _), state_entry_alloc(ce, s).
+state_call_open(c, m) :- state_gated_type(t), state_entry(t, ce), expr_resolves_to_method(ce, m),
+    call_site("client", _, _, _, _, c, ce, _, _), state_entry_open(ce).
+state_world_of_gated(m, t) :- state_gated_type(t), state_world(m, t).
