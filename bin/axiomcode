@@ -37,6 +37,10 @@
 #                          Parse only; writes <ir-dir>/<lang>/.
 #   engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
 #                          Solve previously parsed IR.
+#   prepare [--language L[,…]] [--background]
+#                          Make each language's engine binary ready (packaged, cached, or compiled
+#                          now), so the first index does not pay the compile. `npm run build` runs it
+#                          in the background; AXIOMCODE_NO_PREPARE=1 or CI skips that.
 #   test [java|typescript|python|javascript|csharp|parser|all] [suite options]
 #                          Run the test suites.
 #   mcp                    Serve the graph to an agent as MCP tools over stdio. Any MCP client
@@ -144,7 +148,7 @@ esac
 # for `axiomcode ./src out/` and wrong for everything else: a misspelled verb used to be parsed as a
 # source tree and fail with advice about building the parser.
 case "$cmd" in
-  parser|engine|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;;
+  parser|engine|prepare|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;;
   *) [ -d "$cmd" ] || { echo "axiomcode: '$cmd' is neither a verb nor a directory." >&2
        echo "  ask:    $(public_verbs | tr '\n' ' ')" >&2
        echo "  \`axiomcode help\` for what each one does." >&2; exit 2; }
@@ -188,6 +192,37 @@ case "$cmd" in
     has --intermediate || { out=""; for i in "${!args[@]}"; do [ "${args[$i]}" = --output ] && out="${args[$((i+1))]}"; done; args+=(--intermediate "$out/.intermediate"); }
     has --library || args+=(--library "")
     bash "$ROOT/graph/pipeline/run-souffle.sh" "${args[@]}"
+    ;;
+  prepare)
+    # EVERY LANGUAGE'S ENGINE BINARY, BEFORE THE FIRST INDEX ASKS FOR IT. On a cache miss the engine is compiled to C++
+    # and built by the C++ compiler: minutes, whatever the size of the repository, while the index it serves takes
+    # seconds. Left to the first index, that cost landed on whoever indexed first after an install or a rule change,
+    # and on a query that had to build a graph. `npm run build` runs this in the background (postbuild), so an install
+    # or a refresh starts the compiles; an index that starts meanwhile waits on the same lock instead of compiling twice.
+    langs=""; bg=false
+    while [ $# -gt 0 ]; do case "$1" in
+      --language) langs="$2"; shift 2;; --background) bg=true; shift;;
+      *) die "usage: axiomcode prepare [--language L[,…]] [--background]";; esac; done
+    if [ -z "$langs" ]; then
+      for d in "$ROOT"/graph/*/engine; do [ -d "$d" ] && { d="${d%/engine}"; langs="$langs,${d##*/}"; }; done
+      langs="${langs#,}"
+    fi
+    IFS=',' read -ra want <<< "$langs"
+    for l in ${want[@]+"${want[@]}"}; do [ -d "$ROOT/graph/$l/engine" ] || die "prepare: no engine for --language=$l"; done
+    if $bg; then
+      # a CI job compiles the engines it tests itself, with its own cache and -march; a background compile there only
+      # competes with the job for the machine
+      if [ -n "${AXIOMCODE_NO_PREPARE:-}" ] || [ -n "${CI:-}" ]; then echo "▶ engines not prepared (${AXIOMCODE_NO_PREPARE:+AXIOMCODE_NO_PREPARE}${CI:+CI} is set)"; exit 0; fi
+      log="${TMPDIR:-/tmp}/axiomcode-prepare-$(id -u 2>/dev/null || echo 0).log"
+      nohup bash "$0" prepare --language "$langs" > "$log" 2>&1 < /dev/null &
+      echo "▶ preparing the engines for ${langs//,/, } in the background (log: $log)"
+      exit 0
+    fi
+    # one compile per language, side by side: each is one single-threaded compiler process of a few hundred MB
+    ncpu="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"; jobs="${AXIOM_PREPARE_JOBS:-$(( ncpu / 2 ))}"
+    [ "$jobs" -ge 1 ] 2>/dev/null || jobs=1; [ "$jobs" -le ${#want[@]} ] || jobs=${#want[@]}
+    printf '%s\n' "${want[@]}" | xargs -P "$jobs" -I{} bash -c \
+      'set -o pipefail; bash "$1" --language "$2" --prepare 2>&1 | sed "s/^/[$2] /"' _ "$ROOT/graph/pipeline/run-souffle.sh" {}
     ;;
   all)
     need_parser

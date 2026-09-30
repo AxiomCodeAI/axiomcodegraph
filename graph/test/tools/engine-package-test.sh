@@ -61,4 +61,40 @@ if run; then bad "a run with no engine package and no souffle succeeded"; else
   grep -q "npm install" "$W/log" || bad "the no-package error does not point at npm install"
 fi
 
-if [ "$fail" -eq 0 ]; then echo "engine-package: ok (packaged engine by id, stale package refused, absence explained)"; else echo "engine-package: $fail failure(s)"; exit 1; fi
+# 4-7. `--prepare` (what `axiomcode prepare` runs at build time) puts the binary where a run looks for it, so the first
+# index reuses it instead of compiling. A stub souffle and c++ stand in for the real ones: c++ "compiles" the fake
+# engine above and counts its calls. Control: a background prepare under CI compiles nothing.
+fake="$W/fake-engine"
+{ echo '#!/usr/bin/env bash'
+  echo 'while [ $# -gt 0 ]; do case "$1" in -D) D="$2"; shift 2;; -F) shift 2;; *) shift;; esac; done'
+  cut -f2 "$ROOT/graph/$lang/souffle/export_manifest.tsv" | sed 's|^|: > "$D/|; s|$|"|'; } > "$fake"
+mkdir -p "$W/stub" "$W/inc/souffle"; : > "$W/inc/souffle/CompiledSouffle.h"; : > "$W/cc-calls"
+{ echo '#!/usr/bin/env bash'
+  echo "[ \"\$1\" = --version ] && { echo 'Version: $SOUFFLE_VERSION'; exit 0; }"
+  echo 'while [ $# -gt 0 ]; do case "$1" in -g) : > "$2"; echo "// c++" > "$2"; shift 2;; *) shift;; esac; done'; } > "$W/stub/souffle"
+{ echo '#!/usr/bin/env bash'
+  echo "echo x >> '$W/cc-calls'"
+  echo 'while [ $# -gt 0 ]; do case "$1" in -o) o="$2"; shift 2;; *) shift;; esac; done'
+  echo "cp '$fake' \"\$o\"; chmod +x \"\$o\""; } > "$W/stub/c++"
+chmod +x "$W/stub/souffle" "$W/stub/c++"
+prep(){ PATH="$W/stub:$SANDBOX_PATH" AXIOM_SOUFFLE_INCLUDE="$W/inc" AXIOM_SOUFFLE_CACHE="$W/cache" bash "$RUN" --language $lang --prepare > "$W/log" 2>&1; }
+calls(){ wc -l < "$W/cc-calls" | tr -d ' '; }
+if prep; then
+  [ -x "$W/cache/souffle-engine-$lang-$id" ] || bad "prepare left no binary under the run's cache name (souffle-engine-$lang-${id:0:12}…)"
+  [ "$(calls)" = 1 ] || bad "prepare compiled $(calls) time(s), expected 1"
+  grep -q "engine ready" "$W/log" || bad "prepare did not report the engine ready"
+else bad "prepare failed:"; tail -8 "$W/log" | sed 's/^/      /'; fi
+prep || bad "a second prepare failed"
+grep -q "reusing cached binary" "$W/log" && [ "$(calls)" = 1 ] || bad "a second prepare compiled again ($(calls) compiles)"
+# the run that follows: no souffle, no package, only the prepared binary — and it is used, not recompiled
+rm -rf "$W/out"
+if run; then grep -q "reusing cached binary" "$W/log" || bad "the run after prepare did not reuse the prepared binary"
+else bad "the run after prepare failed:"; tail -8 "$W/log" | sed 's/^/      /'; fi
+# control: the build's background prepare is skipped under CI, so nothing is compiled
+rm -rf "$W/cache"
+out="$(PATH="$W/stub:$SANDBOX_PATH" CI=1 AXIOM_SOUFFLE_CACHE="$W/cache" bash "$ROOT/bin/axiomcode" prepare --language $lang --background 2>&1)"
+sleep 1
+case "$out" in *"not prepared"*) ;; *) bad "background prepare under CI did not say it was skipped: $out";; esac
+[ "$(calls)" = 1 ] && [ ! -e "$W/cache/souffle-engine-$lang-$id" ] || bad "background prepare under CI compiled anyway"
+
+if [ "$fail" -eq 0 ]; then echo "engine-package: ok (packaged engine by id, stale package refused, absence explained, prepared binary reused)"; else echo "engine-package: $fail failure(s)"; exit 1; fi
