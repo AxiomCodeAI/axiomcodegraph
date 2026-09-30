@@ -1,0 +1,170 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "an edit on the second line of a const whose object initializer spans lines is that const's (here its declared key's) initializer, not the module's body, and a key's value is no type",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_member_edited.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "field      Settings.retries",
+    "initializer changed"
+   ],
+   "avoid": [
+    "<module>",
+    "type 3"
+   ]
+  },
+  {
+   "why": "a member inserted into a multi-line `as const` object is that const's change",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_member_added.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "field      Tokens",
+    "initializer"
+   ],
+   "avoid": [
+    "<module>",
+    "new field"
+   ]
+  },
+  {
+   "why": "a member removed from it is that key's removal, not the module's body",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_member_removed.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "removed    Tokens.Store"
+   ],
+   "avoid": [
+    "<module>"
+   ]
+  },
+  {
+   "why": "a member added to an object handed to a call (a schema builder) is the const the call initializes",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_call_argument.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "field      OrderShape",
+    "initializer"
+   ],
+   "avoid": [
+    "<module>"
+   ]
+  },
+  {
+   "why": "a comment added inside the initializer is that const's, as a comment only",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_comment.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "OrderShape",
+    "comment only"
+   ],
+   "avoid": [
+    "<module>"
+   ]
+  },
+  {
+   "why": "control: an edit to a one-line const's value is still its initializer, never a rename of its key to the const's name",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_one_line.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "LIMIT",
+    "initializer changed"
+   ],
+   "avoid": [
+    "<module>",
+    "Settings",
+    "renamed"
+   ]
+  },
+  {
+   "why": "control: a method written in an object literal keeps its own body",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_method_in_object.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "body       run   src/config.ts:17"
+   ],
+   "avoid": [
+    "<module>",
+    "field      api"
+   ]
+  },
+  {
+   "why": "control: a function below the consts is its own body, not a const above it",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/config.ts",
+    "--new",
+    "{repo}/new_function.ts",
+    "--file",
+    "src/config.ts"
+   ],
+   "want": [
+    "body       total"
+   ],
+   "avoid": [
+    "<module>",
+    "field      Settings",
+    "field      LIMIT"
+   ]
+  }
+ ]
+}
