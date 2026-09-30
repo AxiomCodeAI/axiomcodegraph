@@ -842,6 +842,32 @@ def flow(g, roots, depth_cap=FLOW_DEPTH, max_steps=FLOW_STEPS):
 FLOW_SOURCE_STEPS, FLOW_SOURCE_LINES, FLOW_SOURCE_CHARS = 16, 8, 3800   # code for the earliest steps until the budget, then names only
 
 
+def type_members(g, types, scored):
+    """the methods declared inside each of `types` (symbols with no method of their own), in the order the types come:
+    within one type, the member matching the task best first, then one that calls something (a flow to show), then
+    the first declared. A member is a method whose span lies inside the type's span in the type's file, which reads the
+    same in every language."""
+    methods, kinds = collections.defaultdict(list), collections.defaultdict(list)
+    for x, sy in g.sym.items():
+        if not sy.get('line') or sy.get('is_test'): continue
+        if sy.get('method_id'):
+            if not is_synthetic(sy.get('name')): methods[sy.get('file') or ''].append(x)
+        elif sy.get('type_id'):
+            kinds[sy.get('file') or ''].append((sy['line'], sy.get('end_line') or sy['line']))
+    out = []
+    for t in types:
+        ty = g.sym.get(t) or {}
+        if ty.get('method_id') or not ty.get('type_id') or not ty.get('line'): continue
+        f, a, b = ty.get('file') or '', ty['line'], ty.get('end_line') or ty['line']
+        # a member of a type nested inside this one belongs to that type, not to this one
+        nested = [(c, d) for c, d in kinds.get(f, ()) if a < c and d <= b and (c, d) != (a, b)]
+        inner = [x for x in methods.get(f, ()) if a <= g.sym[x]['line'] <= b
+                 and not any(c <= g.sym[x]['line'] <= d for c, d in nested)]
+        inner.sort(key=lambda x: (bodiless(g, x), -(scored.get(x, (0, []))[0]), x not in g.callers_ids, g.sym[x]['line']))
+        out += [x for x in inner[:1] if x not in out]
+    return out
+
+
 def print_flow(g, roots, steps, gaps, chosen, show_source=False, marks=None):
     if not steps: return False
     print("\nhow it runs — the call flow from " + ("where you started it" if chosen else "this task's entry points")
@@ -1102,14 +1128,31 @@ def main(argv):
                   file=sys.stderr)
         if not roots_:
             # no --from: the entry points this verb already chose, the callable ones, first FLOW_ROOTS of them
-            roots_ = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')][:FLOW_ROOTS]
+            # A TYPE is not a call: a question naming classes ("how is FooRepository chosen, how does CachedFoo cache")
+            # got entry points that were all types, the flow had no root, and the answer came back with nothing in it.
+            # So a type entry point starts the flow at its own methods, after the callable entry points; and a root
+            # with a body comes before a signature, which is a flow of one step that goes nowhere — unless the task
+            # NAMES the signature, which makes it the subject wherever it is declared.
+            cands = [s_ for s_, _t, _sc in seeds if (g.sym.get(s_) or {}).get('method_id')]
+            cands += [x for x in type_members(g, [s_ for s_, _t, _sc in seeds], scored) if x not in cands]
+            asked = {s_ for s_, _why in named}
+            roots_ = sorted(cands, key=lambda x: x not in asked and bodiless(g, x))[:FLOW_ROOTS]
         roots, steps, gaps, marks = flow(g, roots_, max_steps=FLOW_SOURCE_STEPS if show_source else FLOW_STEPS)
         RESULT['flow'] = [{'step': k + 1, 'depth': d, 'name': g.disp(x), 'at': g.loc(x),
                            'called_at_line': (via[0] if via else None), 'certainty': (ax_edges.direct_cert(via[1]) if via else 'entry'),
                            'repeat_of': again, 'unresolved': [f"{nm} L{l}" for l, nm in gaps.get(x, ())[:4]],
                            'leaves_graph': (marks.get(x, []) if again is None else [])}
                           for k, (d, x, via, again) in enumerate(steps)]
-        print_flow(g, roots, steps, gaps, bool(starts), show_source, marks)
+        if not print_flow(g, roots, steps, gaps, bool(starts), show_source, marks):
+            # the entry points and files were held back because the flow was to BE the answer; with no flow they are
+            # the answer again, so they are printed, and the reader is told why there is no flow
+            print("\nno call flow: " + ("none of the entry points is a callable, or a type declaring one"
+                                         if not roots_ else "the entry points call nothing the graph resolved")
+                  + " — here are the entry points and the files around them instead; `--from <name>` starts a flow")
+            print(f"\nentry points ({len(seeds)}):")
+            for sid, term, sc in seeds:
+                print(f"    {g.disp(sid):46.46}  {g.loc(sid):34.34}  {term or 'best overall match'}")
+            budget = max(budget, 5)
 
     depth = neighbourhood(g, [s for s, _t, _sc in seeds])
     # A file can match the task by NAME and be reachable by no call at all — an enum of flags, a constants
