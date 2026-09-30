@@ -10,3 +10,11 @@ export class Handlers {
     return 1;
   }
 }
+
+function Inject(_token: string) {
+  return (_target: object, _key: string | undefined, _index: number) => undefined;
+}
+
+export class Consumer {
+  constructor(@Inject(ROUTES.list) private readonly path: string) {}
+}

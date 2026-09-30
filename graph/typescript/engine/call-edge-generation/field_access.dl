@@ -154,6 +154,11 @@ ts_field_access_class(e, "ambiguous_unknown") :- ts_field_access_count(e, 0).
 // decorator is no user of it. A decorator's expressions carry no owner hash, so the
 // subtree is walked down from the decorator's own expression.
 ts_deco_expr_method(e, m) :- decorator_expr("client", e, d), decorator_target("client", _, m, d), m != "".
+// ...and so is a read in a PARAMETER'S decorator: `constructor(@inject(TOKENS.Store) s)`
+// binds the constructor to the token. The decorator's owner is the parameter.
+ts_deco_expr_method(e, m) :- decorator_expr("client", e, d),
+    ts_decorator(_, _, "PARAMETER_DECLARATION", p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d),
+    param_decl("client", _, _, _, m, p), m != "".
 ts_deco_expr_method(c, m) :- ts_deco_expr_method(p, m), expr_child("client", p, _, _, c).
 ts_field_access_in_decorator(e) :- ts_deco_expr_method(e, _).
 ts_field_access_named(e) :- expr_enclosing_method(e, m), m != "".
