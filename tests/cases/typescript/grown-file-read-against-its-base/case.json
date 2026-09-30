@@ -1,0 +1,97 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "the graph is from a later text of the file than the base it is read against (a range, a refresh): parameters inserted into a constructor header written one per line are its signature change, not its body, and a plain parameter is no field",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/service.ts"
+   ],
+   "want": [
+    "signature  Service.<constructor>",
+    "+logger",
+    "+gateway"
+   ],
+   "avoid": [
+    "body       Service.<constructor>",
+    "removed",
+    "added      Service.logger",
+    "Traceback"
+   ]
+  },
+  {
+   "why": "methods with a TypeScript return type and an exported module function are named as added; a local inside the new function is not a field of the class, and a declaration only the later graph holds is not an overload of itself",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/service.ts"
+   ],
+   "want": [
+    "added      Service.apply",
+    "added      Service.authorize",
+    "added      reportFrom",
+    "new function",
+    "added      Service.label",
+    "added      Service.gateway"
+   ],
+   "avoid": [
+    "Service.base",
+    "overload",
+    "new line(s)",
+    "removed or renamed"
+   ]
+  },
+  {
+   "why": "an edit inside an arrow passed from a method is that method's body, not an `<arrow>` of its own",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/new.ts",
+    "--file",
+    "src/service.ts"
+   ],
+   "want": [
+    "body       Service.place"
+   ],
+   "avoid": [
+    "<arrow>"
+   ]
+  },
+  {
+   "why": "control: an edit to the constructor's body alone stays a body change, and adds nothing",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.ts",
+    "--new",
+    "{repo}/body-only.ts",
+    "--file",
+    "src/service.ts"
+   ],
+   "want": [
+    "body       Service.<constructor>"
+   ],
+   "avoid": [
+    "signature  Service",
+    "added      ",
+    "removed"
+   ]
+  }
+ ]
+}

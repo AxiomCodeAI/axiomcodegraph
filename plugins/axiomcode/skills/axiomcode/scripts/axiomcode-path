@@ -77,9 +77,10 @@ BODILESS_KINDS = {'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIG
                   'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE'}
 # of those, the ones a call through a VALUE lands on: a function type or a bare call signature, not a member of an interface
 FUNCTION_TYPE_KINDS = {'FUNCTION_TYPE_SIGNATURE', 'CALL_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE'}
-# the one name a front end gives every lambda it declares (Python and C#; Java declares none): a name that says nothing
-# about WHICH lambda, so it is never a target on its own (G.lambda_label, G.lambda_target)
-LAMBDA_NAMES = {'<lambda>'}
+# the one name a front end gives every lambda it declares (Python and C# `<lambda>`, C# `<anonymous-method>`, TypeScript
+# and JavaScript `<arrow>` / `<function-expression>`; Java declares none): a name that says nothing about WHICH lambda,
+# so it is never a target on its own (G.lambda_label, G.lambda_target)
+LAMBDA_NAMES = {'<lambda>', '<anonymous-method>', '<arrow>', '<function-expression>'}
 # what a front end synthesises ON a field's line that is the field's own, never a callable written there (G.decl_at_line):
 # the node that runs a class's field initializers, and the unnamed function an initializer holds (`cb = wrap(() => …)`),
 # which JavaScript and TypeScript name `<arrow>` / `<function-expression>` where Python and C# say `<lambda>`

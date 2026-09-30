@@ -1,0 +1,33 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a graph from a later text than the base: a parameter inserted into a constructor header is its signature change; an edit inside an arrow passed from a method is that method's body, not an `<arrow>` of its own; a new method and an exported async function are named, and a local in the function is no field of the class",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new.js",
+    "--file",
+    "src/service.js"
+   ],
+   "want": [
+    "signature  Service.<constructor>",
+    "+gateway",
+    "added      Service.pay",
+    "added      report",
+    "body       Service.get"
+   ],
+   "avoid": [
+    "removed",
+    "Service.base",
+    "Service.total",
+    "<arrow>",
+    "<function-expression>"
+   ]
+  }
+ ]
+}
