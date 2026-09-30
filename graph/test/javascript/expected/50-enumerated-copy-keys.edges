@@ -12,8 +12,6 @@ main.js:19:31 METHOD_CALL keys(obj2).forEach  ->  callback_registered  main.js:1
 main.js:20:12 FUNCTION_CALL extend  ->  known_edge  main.js:19:1 extend
 main.js:21:24 METHOD_CALL d4.alpha  ->  known_edge  main.js:7:15 alpha
 main.js:25:55 FUNCTION_CALL ownKeys  ->  ambient_terminal  -
-main.js:25:55 FUNCTION_CALL ownKeys  ->  callback_registered  main.js:7:15 alpha
-main.js:25:55 FUNCTION_CALL ownKeys  ->  callback_registered  main.js:7:42 beta
 main.js:26:12 FUNCTION_CALL assign  ->  known_edge  main.js:25:1 assign
 main.js:27:24 METHOD_CALL d5.beta  ->  known_edge  main.js:7:42 beta
 main.js:28:16 METHOD_CALL Object.getOwnPropertyNames  ->  ambient_terminal  -

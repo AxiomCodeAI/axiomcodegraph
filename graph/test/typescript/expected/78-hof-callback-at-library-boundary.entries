@@ -1,4 +1,4 @@
-── entry_point (12) ──
+── entry_point (16) ──
   exported_from_entry_module app#atStartup   app.ts:37
   exported_from_entry_module app#boot   app.ts:56
   exported_from_entry_module app#bootBare   app.ts:61
@@ -9,5 +9,9 @@
   exported_from_entry_module app#scaled   app.ts:11
   exported_from_entry_module app#useEach   app.ts:47
   exported_from_entry_module app#viaLocal   app.ts:29
+  exported_from_entry_module store#deferred   store.ts:23
+  exported_from_entry_module store#known   store.ts:16
+  exported_from_entry_module store#store   store.ts:11
   unimported_module app#<module>   app.ts:1
   unimported_module globals#<module>   globals.d.ts:1
+  unimported_module store#<module>   store.ts:1

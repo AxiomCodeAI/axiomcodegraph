@@ -28,18 +28,59 @@
 // ============================================================================
 
 // ── callback_registered(CallExpr, CallbackMethod) ───────────────────────────
-callback_registered(ce, m) :- invocation_site(ce, _), call_arg(ce, _, arg), expr_value(arg, "func", m).
+callback_registered(ce, m) :- invocation_site(ce, _), !call_has_client_target(ce), !collection_store_site(ce),
+    call_arg(ce, _, arg), expr_value(arg, "func", m).
+// A PROJECT callee's own body calls what it is handed, so the edge from outside restates
+// it — and only for a function WRITTEN at the argument. A parameter or loop variable passed
+// on holds whatever the value flow says it may, and `for (const [pattern, handlers] of map)`
+// gives the key every value too: `matches(pattern)` would register every handler.
+callback_registered(ce, m) :- invocation_site(ce, _), call_has_client_target(ce), call_arg(ce, _, arg),
+    written_function(arg, m).
+// written_function(Expr, Method): the expression names the function where it is written —
+// a function or arrow literal, a function declaration or an import of one, a variable a
+// literal initialises, a method read off a value (`this.onData`), or a call that returns
+// one (`once(memoize(f))`, `fn.bind(this)`).
+written_function(e, m) :- expr_introduces(_, m, e).
+written_function(e, m) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), function_binding_method(v, m).
+written_function(e, m) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_import(_, imp, v),
+    import_value(imp, "func", m).
+written_function(e, m) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_init(_, _, i, v),
+    written_function(i, m).
+written_function(e, m) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_value(e, "func", m).
+written_function(e, m) :- expr_kind(_, "CALL", _, e), expr_value(e, "func", m).
+// A Map or Set stores, finds and drops its argument and never calls it (`subs.add(h)`,
+// `cache.get(key)`, `seen.has(entry)`); only `forEach` runs what it is handed. The
+// function is reached where it is taken back out and called, not where it is stored.
+collection_store_site(ce) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck), mn != "forEach",
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "coll", _).
 // A function handed over as a PROPERTY of an options object (`lib({ filter: f })`,
 // `opts.resolve = f; lib(opts)`, `https.request({ createConnection: f })`,
 // `new Transform({ transform })`) is a callback too (#643): the callee reads the property
-// and invokes it, and nothing else in the project points into the function. Followed
-// two levels (`{ hooks: { visit } }`), and only across the boundary: a callee that is
-// NOT a project function (a staged library, the platform, an unknown, a dynamic call),
-// because a project callee that reads the property has the ordinary edge from inside
-// its body. Only object values carry it (below); an array, a collection, a string, a
-// module, an instance and the platform are left out.
+// and invokes it, and nothing else in the project points into the function. Only across
+// the boundary: a callee that is NOT a project function (a staged library, the platform,
+// an unknown, a dynamic call), because a project callee that reads the property has the
+// ordinary edge from inside its body.
+// Read off the SOURCE, not the value flow: the argument is an object literal or a variable
+// one initialises, and the function is WRITTEN into it — a property value, a method of the
+// literal, an assignment to a property of that variable, or the same one literal deeper
+// (`{ hooks: { visit } }`). An argument whose abstract value merely MAY be such an object
+// (a parameter, a property read, a call's result, a string key the flow over-approximated)
+// hands nothing over, nor does a member holding a parameter or loop variable:
+// `assert.equal(cfg.port, 1)`, `cache.get(key)` and `emit('error', { pattern })` would
+// otherwise register every function of every object that value might be.
 callback_registered(ce, m) :- invocation_site(ce, _), !call_has_client_target(ce), !reflective_site(ce),
-    call_arg(ce, _, arg), expr_value(arg, k, i), options_value_kind(k), options_member_func(k, i, m).
+    !collection_store_site(ce), call_arg(ce, _, arg), options_argument(arg, l), options_written_member(l, m).
+options_argument(l, l) :- expr_kind(_, "OBJECT_LITERAL", _, l).
+options_argument(arg, l) :- expr_kind(_, "IDENTIFIER", _, arg), expr_binding(_, v, arg), var_init(_, _, l, v),
+    expr_kind(_, "OBJECT_LITERAL", _, l).
+options_written_member(l, m) :- expr_kind(_, "OBJECT_LITERAL", _, l), literal_owns_method(l, m),
+    method_decl(_, _, k, _, _, _, _, m), !method_kind_is_accessor(k).
+options_written_member(l, m) :- expr_child(_, l, "PROPERTY_VALUE", _, v), options_written_value(v, m).
+options_written_member(l, m) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, t),
+    expr_kind(_, "PROPERTY_ACCESS", _, t), expr_child(_, t, "ACCESS_TARGET", _, r), expr_kind(_, "IDENTIFIER", _, r),
+    options_argument(r, l), expr_child(_, a, "ASSIGNMENT_VALUE", _, v), options_written_value(v, m).
+options_written_value(v, m) :- written_function(v, m).
+options_written_value(v, m) :- options_argument(v, l), options_written_member(l, m).
 // `Object.assign(dst, src)`, `Object.entries(o)`, `Object.setPrototypeOf(a, b)`,
 // `Reflect.ownKeys(o)`, `JSON.stringify(o)`: reflection over an object reads its
 // properties and never invokes them; an options-object edge there would be invented.
@@ -49,20 +90,6 @@ reflective_ambient("Object").
 reflective_ambient("Reflect").
 reflective_ambient("JSON").
 reflective_ambient("Array").
-// Two levels, each side materialised WITHOUT the name wildcard (#671): joining
-// prop_value with itself through `_` in the name column left neither side a
-// prefix index for the other's lookup, and on lodash (26M prop_value tuples after
-// its mixin copies every function onto every object) that one join took 43 of a
-// 51-minute solve to produce 16.8K rows. The projections below are deduplicated
-// per (object, member value), and each join is a prefix lookup.
-options_member_func(k, i, m) :- options_member_func_own(k, i, m).
-options_member_func(k, i, m) :- options_object_member(k, i, k1, i1), options_member_func_own(k1, i1, m).
-options_member_func_own(k, i, m) :- prop_value(k, i, _, "func", m).
-options_object_member(k, i, k1, i1) :- prop_value(k, i, _, k1, i1), options_value_kind(k1).
-// Object values only: an INSTANCE passed to the platform is data (`arr.push(this)`,
-// `Promise.resolve(w)`, `items.map(fn, this)`), and registering every method it has
-// would invent an edge per method at every such site.
-options_value_kind("obj").
 call_has_client_target(ce) :- expr_resolves_to_method(ce, m), method_prov(m, "client").
 call_has_client_target(ce) :- new_constructs(ce, t), type_decl("client", _, _, _, _, t).
 
