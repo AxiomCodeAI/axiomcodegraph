@@ -65,30 +65,20 @@ try:
         if r.returncode == 0 or missing not in r.stderr: bad.append(f"{verb} {args}: not refused (exit {r.returncode}): {r.stderr.strip()[:200]!r}")
         no_graph(cwd, verb)
 
-    # 3. the MCP tools: a missing repo= is refused before anything runs; an existing one, and the default, pass through
+    # 3. the MCP tools take no repository: each asks about the session's own directory, and a repo= is refused as an
+    # unknown argument before anything runs
     sys.path.insert(0, os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp'))
     import server
     seen = []
     real, server.run = server.run, (lambda args, *a, **k: seen.append(args) or 'ran')
     try:
-        calls = {'axiomcode_index': lambda r: server.axiomcode_index(repo=r),
-                 'axiomcode_context': lambda r: server.axiomcode_context('how', repo=r),
-                 'axiomcode_path': lambda r: server.axiomcode_path('a', 'b', repo=r),
-                 'axiomcode_impact': lambda r: server.axiomcode_impact(['foo'], repo=r),
-                 'axiomcode_changed': lambda r: server.axiomcode_changed(repo=r),
-                 'axiomcode_test_impact': lambda r: server.axiomcode_test_impact(repo=r),
-                 'axiomcode_graph': lambda r: server.axiomcode_graph(repo=r)}
+        calls = {'find': lambda: server.find('how'), 'path': lambda: server.path('a', 'b'),
+                 'impact': lambda: server.impact('foo'), 'tests': lambda: server.tests()}
         for name, call in calls.items():
-            seen.clear()
-            try:
-                call(missing); bad.append(f"{name}(repo=<missing>): not refused")
-            except Exception as e:
-                if missing not in str(e): bad.append(f"{name}(repo=<missing>): the error does not name the path: {e}")
-            if seen: bad.append(f"{name}(repo=<missing>): ran {seen[0]} anyway")
-            seen.clear(); call(repo)
-            if not seen or repo not in seen[0]: bad.append(f"{name}(repo=<existing>): did not run with it: {seen}")
-            seen.clear(); call('.')
-            if not seen: bad.append(f"{name}(repo='.'): did not run")
+            seen.clear(); call()
+            if not seen or seen[0][-1] != os.getcwd(): bad.append(f"{name}(): did not ask about the working directory: {seen}")
+            if not server.unknown_arguments(name, {'repo': repo}):
+                bad.append(f"{name}(repo=…): not refused")
     finally:
         server.run = real
 

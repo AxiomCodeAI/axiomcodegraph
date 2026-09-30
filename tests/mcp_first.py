@@ -33,10 +33,12 @@ def check(why, cond, detail=''):
 
 
 def tool_first(surface, text, verbs):
-    """for each verb: the MCP tool is named, the shell form is named, and the tool comes first"""
+    """for each verb: the MCP tool is named (called, `impact(`, or by its Claude Code name), the shell form is named,
+    and the tool comes first"""
     for v in verbs:
-        tool, shell = f"axiomcode_{v.replace('-', '_')}", f"`axiomcode {v}"
-        t, s = text.find(tool), text.find(shell)
+        tool, shell = f"{v}(", f"`axiomcode {v}"
+        at = [m.start() for m in re.finditer(r'(?<![\w./`-])' + v + r'\(|mcp__plugin_axiomcode_axiomcode__' + v + r'\b', text)]
+        t, s = (at[0] if at else -1), text.find(shell)
         check(f'{surface}: {v} is named as the {tool} tool', t >= 0, text[:200])
         check(f'{surface}: {v} keeps its shell form, for a host without the MCP server', s >= 0, text[:200])
         if t >= 0 and s >= 0:
@@ -58,13 +60,13 @@ skill = open(os.path.join(PLUG, 'skills', 'axiomcode', 'SKILL.md'), encoding='ut
 m = re.search(r'^description: >-\n(.*?)\n---', skill, re.S | re.M)
 check('SKILL.md has a description block', bool(m))
 if m:
-    tool_first('SKILL.md description', ' '.join(m.group(1).split()), ('context', 'impact', 'path'))
+    tool_first('SKILL.md description', ' '.join(m.group(1).split()), ('find', 'impact', 'path', 'tests'))
 
 # 2. the block `axiomcode install` writes into CLAUDE.md, beside the permission it grants
 r = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'axiomcode-install'), '--print'],
                    capture_output=True, text=True, timeout=30)
 check('install --print prints the block', r.returncode == 0 and 'BEGIN axiomcode' in r.stdout, r.stderr[-200:])
-tool_first('install block', r.stdout, ('context', 'impact', 'path'))
+tool_first('install block', r.stdout, ('find', 'impact', 'path', 'tests'))
 
 # 3. the directive before the first search for a name the graph declares
 with tempfile.TemporaryDirectory() as repo:
@@ -77,8 +79,8 @@ with tempfile.TemporaryDirectory() as repo:
     rc, said = fire('direct.py', {'hook_event_name': 'PreToolUse', 'tool_name': 'Grep',
                                   'tool_input': {'pattern': 'findOrder'}, 'cwd': repo, 'session_id': 'm1'})
     check('direct: the first search for a declared name hears the directive', rc == 0 and bool(said), f'rc={rc}')
-    # only the verbs that answer a search: changed / test-impact are about an edit, not about what a grep looks for
-    tool_first('direct', said, ('impact', 'path', 'context'))
+    # only the verbs that answer a search: tests is about an edit, not about what a grep looks for
+    tool_first('direct', said, ('impact', 'path', 'find'))
 
 # 4. the orientation on the first prompt, both branches it can reach: a change question and a how-question
 with tempfile.TemporaryDirectory() as work:
@@ -95,15 +97,15 @@ with tempfile.TemporaryDirectory() as work:
         rc, said = fire('orient.py', {'hook_event_name': 'UserPromptSubmit', 'cwd': repo, 'session_id': 'o2',
                                       'prompt': 'How does Consumer.go work, step by step?'})
         check('orient: a how-question is oriented to the flow', rc == 0 and 'next:' in said, said[:300])
-        tool_first('orient (how)', said, ('context',))
+        tool_first('orient (how)', said, ('find',))
 
 # 5. orient's third hint, for a verb that refuses without a scope: no verb refuses that way today, so it cannot be
 # fired; the order is checked in the source line that prints it.
 src = open(os.path.join(HOOKS, 'orient.py'), encoding='utf-8').read()
-i = src.find("the axiomcode_context tool with in_path=<one of these>")
+i = src.find("find(question=\"<the task>\") (mcp__plugin_axiomcode_axiomcode__find) ranks")
 check('orient (scope refused): its hint is still in the source', i >= 0)
 if i >= 0:
-    tool_first('orient (scope refused)', src[i:src.find('\n', src.find("')", i))], ('context',))
+    tool_first('orient (scope refused)', src[i:src.find("')", src.find('`axiomcode find', i))], ('find',))
 
 print(f'\n{len(checked) - len(fails)} of {len(checked)} check(s) held')
 sys.exit(1 if fails else 0)

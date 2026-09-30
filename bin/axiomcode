@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# axiomcode — build a call graph from a source tree.
+# axiomcode — ask a repository's call graph. `axiomcode --help` prints the dispatcher's help
+# (plugins/axiomcode/skills/axiomcode/scripts/axiomcode): index, find, impact, path and tests.
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERNAL COMMANDS, not advertised: the build, the engine suites and the MCP server, which
+# the dispatcher, the test suites and the agent manifests call.
 #
 # Usage:
 #   bin/axiomcode <src-dir> <out-dir> [--library <path>[,…]] [--exclude-tests] [--version V]
@@ -88,9 +92,8 @@ PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 # (`--verbs`, derived from its own dispatch table) so the two entry points cannot drift: a new
 # capability is a new row in one case statement, not a new copy here.
 QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
-# `tests` is the frontend's alias for test-impact; `test` is THIS command's engine suite. One letter
-# apart, entirely different jobs, and putting both on one command is a trap — so the alias is not
-# routed here, and the name is refused below with both readings spelled out.
+# `tests` is a query verb (the tests an edit reaches); `test` is THIS command's engine suite. The query
+# surface advertises `tests`; `test` is internal.
 # The list is read from the frontend's own dispatch table, the lines `  <verb>[|<alias>]) exec …` that its `--verbs`
 # prints, so the two entry points still cannot drift -- but read here, in this shell, instead of by a second bash, a
 # sed, a tr and two greps on every query.
@@ -100,19 +103,18 @@ load_verbs(){
   local l v x re='^  ([a-z|-]*)\) *exec '
   while IFS= read -r l || [ -n "$l" ]; do
     [[ $l =~ $re ]] || continue; v="${BASH_REMATCH[1]}"
-    for x in ${v//|/ }; do [ "$x" = tests ] || QVERBS+=("$x"); done
+    for x in ${v//|/ }; do QVERBS+=("$x"); done
   done < "$QUERY"
 }
 query_verbs(){ load_verbs; [ ${#QVERBS[@]} -gt 0 ] && printf '%s\n' "${QVERBS[@]}"; return 0; }
 is_query_verb(){ load_verbs; local x; for x in ${QVERBS[@]+"${QVERBS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
 usage(){
-  awk 'NR > 2 && /^# ─/ {exit} NR > 2' "$0" | sed 's/^# \{0,1\}//'
-  if [ -f "$QUERY" ]; then
-    echo
-    echo 'ASKING THE GRAPH — `axiomcode help <verb>` for any one of them:'
-    bash "$QUERY" --help | sed -n 's/^  \(axiomcode [a-z].*\)$/  \1/p'
-  fi
+  # the query surface is the dispatcher's own help, so the two cannot drift; the build commands above are internal
+  if [ -f "$QUERY" ]; then bash "$QUERY" --help
+  else awk 'NR > 2 && /^# ─/ {exit} NR > 2' "$0" | sed 's/^# \{0,1\}//'; fi
 }
+# the verbs the help advertises (`  axiomcode <verb>` lines), for the message a typo gets
+public_verbs(){ [ -f "$QUERY" ] && bash "$QUERY" --help | sed -n 's/^  axiomcode \([a-z][a-z-]*\).*/\1/p'; return 0; }
 die(){ echo "axiomcode: $*" >&2; exit 2; }
 need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
 
@@ -129,15 +131,14 @@ case "$cmd" in
     if [ $# -gt 1 ] && is_query_verb "$2"; then exec bash "$QUERY" help "$2"; fi ;;
   "") ;;
   # THE MCP SERVER IS THE PLUGIN'S, NOT A SECOND ONE. The package already ships plugins/axiomcode/,
-  # so an agent that is not Claude Code gets the same seven tools from one line of MCP config and
+  # so an agent that is not Claude Code gets the same four tools from one line of MCP config and
   # no plugin install. launch.js picks the interpreter and falls back to a built-in protocol
   # implementation, so nothing beyond the python3 the query verbs already need has to be installed.
   mcp) shift
        export AXIOMCODE_PLUGIN_ROOT="$ROOT/plugins/axiomcode"
        exec node "$ROOT/plugins/axiomcode/mcp/launch.js" "$@" ;;
-  tests) echo "axiomcode: 'tests' is ambiguous here — 'axiomcode test-impact' for the tests an edit needs," >&2
-         echo "           'axiomcode test' for this package's own engine suite." >&2; exit 2 ;;
-  *) if is_query_verb "$cmd"; then shift; exec bash "$QUERY" "$cmd" "$@"; fi ;;
+  # the installed command is a front door: a query asked here with no flags answers as places with their code
+  *) if is_query_verb "$cmd"; then shift; export AXIOMCODE_FRONT=1; exec bash "$QUERY" "$cmd" "$@"; fi ;;
 esac
 # A NAME THAT IS NOT A VERB AND NOT A DIRECTORY IS A TYPO, NOT A BUILD. `*) cmd=all` is convenient
 # for `axiomcode ./src out/` and wrong for everything else: a misspelled verb used to be parsed as a
@@ -145,9 +146,7 @@ esac
 case "$cmd" in
   parser|engine|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;;
   *) [ -d "$cmd" ] || { echo "axiomcode: '$cmd' is neither a verb nor a directory." >&2
-       echo "  build:  parser  engine  all  test   (or: axiomcode <src-dir> <out-dir>)" >&2
-       echo "  serve:  mcp" >&2
-       echo "  ask:    $(query_verbs | tr '\n' ' ')" >&2
+       echo "  ask:    $(public_verbs | tr '\n' ' ')" >&2
        echo "  \`axiomcode help\` for what each one does." >&2; exit 2; }
      cmd=all;;
 esac
