@@ -215,6 +215,10 @@
 .decl holder_holds_function(c0:symbol,c1:symbol)
 .decl call_runs_client_body(c0:symbol)
 .decl hof_boundary_site(c0:symbol)
+.decl collection_store_site(c0:symbol)
+.decl keyed_collection_name(c0:symbol)
+.decl collection_receiver(c0:symbol)
+.decl keyed_collection_ref(c0:symbol)
 .decl handed_function(c0:symbol,c1:symbol)
 .decl holder_wraps_handed_function(c0:symbol,c1:symbol)  // (holder, fn): the holder keeps what a library call returned, and fn was handed to that call
 .decl call_returns_data(c0:symbol)                        // the call's result is typed, and the type has no call signature

@@ -1,9 +1,33 @@
 main.js:14:32 FUNCTION_CALL localWalk  EXACT  main.js:9:1
-main.js:15:19 FUNCTION_CALL direct  EXACT  main.js:10:1
-main.js:15:29 FUNCTION_CALL viaVar  EXACT  main.js:11:1
-main.js:15:39 FUNCTION_CALL viaPlatform  EXACT  main.js:12:1
-main.js:15:54 FUNCTION_CALL viaCtor  EXACT  main.js:13:1
-main.js:15:65 FUNCTION_CALL viaProject  EXACT  main.js:14:1
-main.js:16:1 FUNCTION_CALL main  EXACT  main.js:15:1
-main.js:19:33 FUNCTION_CALL migrate  EXACT  main.js:18:1
+main.js:18:15 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
+main.js:19:14 CONSTRUCTOR_CALL Set  LIB_AMBIENT_OK  
+main.js:20:65 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:22:13 FUNCTION_CALL defineConfig  EXACT  main.js:20:1
+main.js:23:31 METHOD_CALL get  LIB_AMBIENT_OK  
+main.js:24:32 METHOD_CALL has  LIB_AMBIENT_OK  
+main.js:25:74 METHOD_CALL add  LIB_AMBIENT_OK  
+main.js:25:89 METHOD_CALL set  LIB_AMBIENT_OK  
+main.js:27:60 FUNCTION_CALL lookup  EXACT  main.js:23:1
+main.js:27:74 FUNCTION_CALL known  EXACT  main.js:24:1
+main.js:28:23 FUNCTION_CALL setTimeout  LIB_AMBIENT_OK  
+main.js:28:40 FUNCTION_CALL keep  EXACT  main.js:5:1
+main.js:28:50 METHOD_CALL forEach  LIB_AMBIENT_OK  
+main.js:32:19 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
+main.js:33:29 METHOD_CALL get  LIB_AMBIENT_OK  
+main.js:33:61 CONSTRUCTOR_CALL Set  LIB_AMBIENT_OK  
+main.js:33:72 METHOD_CALL set  LIB_AMBIENT_OK  
+main.js:35:84 FUNCTION_CALL matchesKey  EXACT  main.js:34:1
+main.js:36:20 FUNCTION_CALL on  EXACT  main.js:33:1
+main.js:36:40 FUNCTION_CALL deliver  EXACT  main.js:35:1
+main.js:37:115 FUNCTION_CALL viaTimer  EXACT  main.js:28:1
+main.js:37:127 FUNCTION_CALL bus  EXACT  main.js:36:1
+main.js:37:19 FUNCTION_CALL direct  EXACT  main.js:10:1
+main.js:37:29 FUNCTION_CALL viaVar  EXACT  main.js:11:1
+main.js:37:39 FUNCTION_CALL viaPlatform  EXACT  main.js:12:1
+main.js:37:54 FUNCTION_CALL viaCtor  EXACT  main.js:13:1
+main.js:37:65 FUNCTION_CALL viaProject  EXACT  main.js:14:1
+main.js:37:79 FUNCTION_CALL check  EXACT  main.js:27:1
+main.js:37:85 FUNCTION_CALL subscribe  EXACT  main.js:25:1
+main.js:38:1 FUNCTION_CALL main  EXACT  main.js:37:1
+main.js:41:33 FUNCTION_CALL migrate  EXACT  main.js:40:1
 # defects: 0

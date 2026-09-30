@@ -236,8 +236,22 @@ class Changed:
     def graph_text(self, rel):
         """the text of `rel` the graph's line numbers are in: the tree it was indexed from, uncommitted edits included;
         None when that was not recorded (no git, an old graph) or the file is not in it"""
-        if not self.indexed_tree: return None
-        return sh('git', 'show', f'{self.indexed_tree}:{rel}', cwd=self.repo)
+        t = sh('git', 'show', f'{self.indexed_tree}:{rel}', cwd=self.repo) if self.indexed_tree else None
+        if t is not None: return t
+        # NO RECORDED TREE (a copy without git, a graph older than the record): the file on disk is the text a graph that
+        # keeps up with edits was built from. Without it every span was placed by name in the older text, and one whose
+        # name no header there spells stayed at the graph's line, past the end of that text. anchor() checks the spans
+        # against it and falls back to placing by name when they are not in it
+        try: return open(os.path.join(self.repo, rel), errors='replace').read()
+        except OSError: return None
+    @staticmethod
+    def header_name(n, d, rel):
+        """the name a declaration's header spells. A CONSTRUCTOR IS NOT WRITTEN UNDER ITS GRAPH NAME: TypeScript, JavaScript
+        and C# record it as `<constructor>`, which no header spells, so looked for by that name a constructor was never found
+        again (its header changed: "removed"; the graph from a later text: left at the graph's line). Its header says
+        `constructor` (TypeScript, JavaScript) or its type's name (C#, Java)"""
+        if n not in ('<constructor>', '<init>', '<primary-constructor>'): return n
+        return 'constructor' if re.search(r'\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$', rel) else d.rsplit('.', 1)[0].rsplit('.', 1)[-1]
     @staticmethod
     def declares(text, n, k, is_py):
         """does this line (strings and comments blanked) DECLARE `n` as a `k`: a def / a typed method header, a class
@@ -266,7 +280,8 @@ class Changed:
         is_py = rel.endswith(('.py', '.pyi')) or bool(re.match(r'#![^\n]*\bpython[0-9.]*\b', O or ''))
         OL = O.split('\n'); OS = strip_code(O, hash_comments=is_py).split('\n')
         shaped = lambda k, n: k != 'module' and n not in P.LAMBDA_NAMES
-        def found(n, k, guess, taken):
+        def found(n, k, guess, taken, d=''):
+            n = self.header_name(n, d, rel)
             c = [j for j in range(1, len(OS) + 1) if j not in taken and self.declares(OS[j - 1], n, k, is_py)]
             return (min(c, key=lambda j: (abs(j - guess), j)), len(c) > 1) if c else (None, False)
         def starts(L, a, n):
@@ -277,9 +292,9 @@ class Changed:
         out = []; self.unsure.setdefault(rel, set())
         if G is None:
             for a, b, i, k, d, n in spans:
-                if not shaped(k, n) or starts(OS, a, n) or (rel.endswith('.cs') and re.match(r'(get|set|add|remove|init)_', n)):
+                if not shaped(k, n) or starts(OS, a, self.header_name(n, d, rel)) or (rel.endswith('.cs') and re.match(r'(get|set|add|remove|init)_', n)):
                     out.append((a, b, i, k, d, n)); continue
-                j, many = found(n, k, a, set())
+                j, many = found(n, k, a, set(), d)
                 if j is None: out.append((a, b, i, k, d, n)); self.unsure[rel].add(i); continue    # nothing better: kept, unsure
                 out.append((j, j + (b - a), i, k, d, n))
                 if many or rel in self.mismatch: self.unsure[rel].add(i)
@@ -315,7 +330,7 @@ class Changed:
             a2 = exact.get(a)
             if a2 is None:
                 if not shaped(k, n): continue                                                    # a lambda or a module whose first line is gone
-                a2, many = found(n, k, near.get(a) or a, taken)
+                a2, many = found(n, k, near.get(a) or a, taken, d)
                 if a2 is None: continue                                                          # this text does not declare it
                 if many: self.unsure[rel].add(i)
                 taken.add(a2)
@@ -405,6 +420,7 @@ class Changed:
         res = []
         for p in out:
             p = re.sub(r'=.*$', '', p).strip(); p = re.sub(r'@\w+(\([^)]*\))?\s*', '', p)
+            p = re.sub(r'^((public|private|protected|readonly|override)\s+)+(?=[A-Za-z_$][\w$]*\s*[?!]?\s*:)', '', p)   # a TypeScript parameter property
             if not p: continue
             if ':' in p: name, typ = p.split(':', 1)[0].strip(), p.split(':', 1)[1].strip()          # TS / Python: name: Type
             else:
@@ -659,6 +675,15 @@ class Changed:
             return None
         decorated = {}; stmt_pair = {}
         OK = strip_code(old, strings=False, hash_comments=is_py).split('\n'); NK = strip_code(new, strings=False, hash_comments=is_py).split('\n')
+        # A LINE INSERTED INTO A HEADER CHANGES THE SIGNATURE. A parameter list written one parameter a line gains a
+        # parameter as an inserted line, which no old line was changed for; charged to the callable as an insertion it
+        # was "body" (a constructor that gained an injected dependency), and its parameter read as an added field.
+        # The insertion is charged to the header, which is then compared old against new like an edited header line
+        header_ins = set()
+        for after, j1, j2 in added:
+            m = narrowest(after, {'method', 'function', 'constructor'}) if after else None
+            if m and m[0] <= after < self.header_end(OL, m[0]):
+                hits.setdefault(('signature', m), set()).add(after); header_ins.add((after, j1, j2))
         def counterpart(ln):
             """the new line an old changed line became: the most similar line of its replaced block; None when deleted"""
             if ln in removed_lines: return None
@@ -769,6 +794,7 @@ class Changed:
                 oh_raw = ' '.join(x.strip() for x in OL[a - 1:self.header_end(OL, a)]); oh = uncomment(OL[a - 1:self.header_end(OL, a)])
                 na = new_of.get(a) or (new_of.get(max((x for x in new_of if x < a), default=0), 0) + 1)
                 nh = nh_raw = ''
+                hn = self.header_name(n, d, rel)                                                        # `<constructor>` is spelled `constructor`
                 if na and na <= len(NL):
                     # the new header: from the mapped line, the first line holding the name, to its end
                     for s in range(max(1, na - 2), min(len(NL), na + 6) + 1):
@@ -777,8 +803,8 @@ class Changed:
                         code = strip_code(NL[s - 1], strings=False, hash_comments=is_py)
                         # a constructor's name is its type's: the type's own header (`class OrderService {`) two lines
                         # above is not the constructor's new header (#1465)
-                        if k in ('constructor', 'method', 'function') and re.search(rf'\b(class|interface|enum|record|struct)\s+{re.escape(n)}\b', code): continue
-                        if re.search(rf'\b{re.escape(n)}\b', code) and not calls_only(s):
+                        if k in ('constructor', 'method', 'function') and re.search(rf'\b(class|interface|enum|record|struct)\s+{re.escape(hn)}\b', code): continue
+                        if re.search(rf'\b{re.escape(hn)}\b', code) and not calls_only(s):
                             nh_raw = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); nh = uncomment(NL[s - 1:self.header_end(NL, s)]); break
                 # AN EXPRESSION BODY IS NOT HEADER. `int Count() => xs.Count(x => x > 0);` is one line, and read to its `;`
                 # the whole body was header text: an edit inside the lambda it holds came back as a signature change
@@ -788,7 +814,7 @@ class Changed:
                 # parameter read as removed ("signature f -self, -rel"). Declared nowhere in the new text, it is removed;
                 # declared elsewhere, what changed cannot be read from here
                 if not nh:
-                    again = still_declared(n, k, na or a)
+                    again = still_declared(hn, k, na or a)
                     if not again:
                         if not any(e['kind'] == 'removed' and e['id'] == i for e in out): entry.update(kind='removed', target=self.target(kind, d, k, n)); out.append(entry)
                         continue
@@ -807,7 +833,7 @@ class Changed:
                 op, np_ = self.params(oh_s), self.params(nh_s) if nh_s else []
                 on, nn = [x for x, _ in op], [x for x, _ in np_]
                 detail = []
-                if nh and not re.search(rf'\b{re.escape(n)}\b', nh): detail.append('renamed')
+                if nh and not re.search(rf'\b{re.escape(hn)}\b', nh): detail.append('renamed')
                 for x in on:
                     if x not in nn: detail.append(f'-{x}')
                 for x in nn:
@@ -816,7 +842,7 @@ class Changed:
                     if x == y and t1 != t2 and t1 and t2: detail.append(f'{x}: {t1} → {t2}')
                 pre_o = re.sub(r'\(.*$', '', oh_s); pre_n = re.sub(r'\(.*$', '', nh_s) if nh_s else ''
                 if nh and pre_o.split() != pre_n.split():
-                    ro = [w for w in pre_o.split() if w != n]; rn = [w for w in pre_n.split() if w != n]
+                    ro = [w for w in pre_o.split() if w != hn]; rn = [w for w in pre_n.split() if w != hn]
                     if ro != rn: detail.append('return type / modifiers: ' + ' '.join(ro) + ' → ' + ' '.join(rn))
                 if not detail and nh and re.sub(r'\s', '', oh) != re.sub(r'\s', '', nh): detail.append('header text changed (annotations / throws / generics)')
                 if detail and not decs and re.sub(r'\s', '', oh_s) == re.sub(r'\s', '', nh_s) and nh_s: detail = ['decoration changed above the signature (the signature itself is unchanged)']
@@ -910,6 +936,13 @@ class Changed:
             # "not anchored" it came back as "N new line(s) at file:518" and changed --impact / test-impact never
             # followed it. The anchor test still decides at the callable's first line, and a module is never a body
             if owner and owner[3] != 'module' and owner[0] < after < owner[1]: anchored = True
+            # A PYTHON BODY HAS NO CLOSING LINE: its last statement is the span's last line, and a statement appended
+            # after it, indented deeper than the def, is still that body ("N new line(s) inside <class>" otherwise, and
+            # the callable went untested)
+            if is_py and is_add and owner and owner[3] != 'module' and after == owner[1] and owner[0] <= len(OL):
+                first = next((NL[j - 1] for j in range(j1, j2 + 1) if NL[j - 1].strip()), '')
+                hdr = OL[owner[0] - 1]
+                if first and len(first) - len(first.lstrip()) > len(hdr) - len(hdr.lstrip()): owner = (owner[0], owner[1] + 1) + tuple(owner[2:]); anchored = True
             in_body = bool(is_add and owner and owner[0] <= after < owner[1] and anchored)
             if in_body:                                                                                       # strictly inside a callable's body: that callable changed
                 if not any(e['id'] == owner[2] for e in out):
@@ -933,6 +966,7 @@ class Changed:
                 tline = next((j for j in range(1, len(NL) + 1) if re.search(rf'\b(class|interface|enum|record|trait|struct)\s+{re.escape(t[5])}\b', NL[j - 1])), None)
             if tline: body_depth = ndepth[self.header_end(NL, tline)] if not py else len(NL[tline - 1]) - len(NL[tline - 1].lstrip()) + 4
             else: body_depth = 0
+            toplevel = set()                                                                          # names declared at the file's top level
             for j in range(j1, j2 + 1):
                 text = NL[j - 1]; st = re.sub(r'\s*(//.*|/\*.*?\*/\s*)$', '', text).strip()
                 # a line wholly inside a docstring, a string or a comment declares nothing: read as code, a docstring
@@ -940,14 +974,29 @@ class Changed:
                 if not SL[j - 1].strip(): continue
                 st = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', st)                                # `@Override public …` on one line
                 here = (ndepth[j - 1] if not py else len(text) - len(text.lstrip()))
+                # AN INSERTION CAN RUN PAST THE TYPE IT BEGAN IN: new methods at the end of a class and a function after
+                # it are one block (in Python always, having no closing line). A function at the file's top level is
+                # its own declaration, owned by no type; read at the type's body level only, it was not named at all
+                fm = t and here == 0 and body_depth > 0 and re.match(r'^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:def|function\*?)\s+([A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*\(', st)
+                if fm and not any(x[0] == fm.group(1) for x in names):
+                    names.append((fm.group(1), 'function', j)); toplevel.add(fm.group(1)); hdrs[fm.group(1)] = ' '.join(x.strip() for x in NL[j - 1:self.header_end(NL, j)]); continue
                 if here != body_depth or not st or st.startswith(('//', '*', '/*', '@', '#', 'return', 'if', 'for', 'while', 'switch', 'else', 'throw', 'new ', 'case', 'try', 'catch')): continue
                 # a file's own header lines declare nothing: `package a.b.c;` and `import a.b.C;` read as a field `c` / `C`
                 if re.match(r'(package|import|using|namespace|from|module|export\s+\*)\b', st): continue
-                tm = re.match(r'^(?:(?:public|private|protected|static|final|abstract|sealed)\s+)*(class|interface|enum|record|@interface)\s+([A-Za-z_$][\w$]*)', st)
+                # a parameter inserted into a header (header_ins) is the signature's change: it declares a field only as
+                # a TypeScript parameter property (`private readonly x: T`)
+                if (after, j1, j2) in header_ins:
+                    ty, nm = self.field_parts(st.rstrip(','))
+                    if nm and re.match(r'(public|private|protected|readonly)\b', st) and not any(x[0] == nm for x in names): names.append((nm, 'field', j))
+                    continue
+                tm = re.match(r'^(?:(?:public|private|protected|static|final|abstract|sealed|export|default|declare)\s+)*(class|interface|enum|record|@interface)\s+([A-Za-z_$][\w$]*)', st)
                 if tm: names.append((tm.group(2), tm.group(1).lstrip('@') + ' (with its members)', j)); hdrs[tm.group(2)] = st; continue
-                m = re.match(r'^(?:def|async def|function|async function)\s+([A-Za-z_$][\w$]*)\s*\(', st) or (not py and (
-                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;=]*\)\s*(?:throws[\w.,\s]+)?\s*(\{|;|$)', st) or \
-                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*$', st)))
+                # a TypeScript header writes its return type after the parameters (`f(a: A): Promise<B> {`), and a
+                # module's function is often exported (`export async function f(`): read as neither, a new method or
+                # function was "N new line(s)" with no name, and a local inside it could pass for a field
+                m = re.match(r'^(?:export\s+(?:default\s+)?)?(?:def|async def|function\*?|async function\*?)\s+([A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*\(', st) or (not py and (
+                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*\([^;=]*\)\s*(?::\s*[^;{}=]+?)?\s*(?:throws[\w.,\s]+)?\s*(\{|;|$)', st) or \
+                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*\([^;={]*$', st)))
                 if m and not re.match(r'^(if|for|while|switch|catch|synchronized|return|new|super|this|else)$', m.group(1)) and '=' not in st.split('(')[0]:
                     names.append((m.group(1), 'method', j)); hdrs[m.group(1)] = ' '.join(x.strip() for x in NL[j - 1:self.header_end(NL, j)]); continue
                 # each declaration on the line: `int a = 1; int b = 2;` and `int a = 1, b = 2;` declare two fields
@@ -964,7 +1013,7 @@ class Changed:
                     tt = typ or name                                                                  # a signature spells types only
                     out.append(re.sub(r'<.*', '', tt.split('.')[-1]).replace('...', '[]').strip())
                 return out
-            def old_has(nm, hdr):
+            def old_has(nm, hdr, t=t):
                 ht = types_of(hdr) if '(' in hdr else None
                 for a, b, i, k, d, n in decls:
                     if n != nm or (t and not d.startswith(t[4] + '.') and d != t[4] + '.' + nm and k not in ('class', 'interface', 'enum')): continue
@@ -980,14 +1029,22 @@ class Changed:
                         if ('...' in old_hdr) != ('...' in hdr): continue
                         return True
                 return False
+            decl_ids = {x[2] for x in decls}
+            t_in = t
             for nm, k, jn in names:
-                if old_has(nm, hdrs.get(nm, '')): continue
+                t = None if nm in toplevel else t_in
+                if old_has(nm, hdrs.get(nm, ''), t): continue
+                if k == 'method' and not t: k = 'function'                                              # declared at a file's top level
                 # an added method whose name already exists on this owner is an OVERLOAD: the compiler may rebind
                 # existing call sites of that name to it, and a call site records no argument types, so which of them
                 # rebind cannot be decided here. Never claim nothing depends on it
                 sib = []
                 if k in ('method', 'function', 'constructor') and t:
                     for i, sy in self.g.sym.items():
+                        # an overload is of a declaration the OLD text has: the graph can be from a later text (a range,
+                        # a refresh), where this very method is declared, and its own callers were named as the calls
+                        # an overload might take over. In this file, only what the old text declares (decls) counts
+                        if sy.get('file') == rel and i not in decl_ids: continue
                         if sy.get('method_id') and sy['name'] == nm and (sy['owner'] or '') == t[4]:
                             sib += [r[0] for r in self.g.q("SELECT DISTINCT s.display FROM call_edges e JOIN symbols s ON s.id = e.caller_id WHERE e.callee_method_id = ?", sy['method_id'])]
                 note = f'new {k}'
@@ -1003,6 +1060,7 @@ class Changed:
                         if mm and mm.group(1) not in ('if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'super', 'this'): out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{mm.group(1)}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new method', target=None)); continue
                         ty2, nm2 = self.field_parts(st2)
                         if nm2 and ty2 and st2.endswith(';') and '(' not in st2.split('=')[0]: out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{nm2}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new field', target=None))
+            t = t_in
             if not names and is_add and not in_body: adds.append((rel, f"{j2 - j1 + 1} new line(s) at {rel}:{j1}" + (f" inside {t[4]}" if t else ''), None))
         # A DECLARATION WHOSE SIGNATURE CHANGED IS NOT A NEW ONE. `added` is decided by whether the OLD text has a
         # header that matches, so editing the header itself — `def f(a)` to `def f(a, *, cap=0)`, or `def` to

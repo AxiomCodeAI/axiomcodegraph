@@ -1,4 +1,6 @@
+import_cause     main.js:17:16  assert  builtin
 import_cause     main.js:2:14  walker  not_staged
+import_cause     main.js:37:136  events  builtin
 import_cause     main.js:3:15  https  builtin
 import_cause     main.js:4:9  stream  builtin
 package_entry    options-callbacks  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
@@ -8,10 +10,29 @@ unresolved       main.js:12:86  METHOD_CALL destroy  no_target
 unresolved       main.js:12:86  METHOD_CALL on  no_target
 unresolved       main.js:12:86  METHOD_CALL request  no_target
 unresolved       main.js:13:29  CONSTRUCTOR_CALL Transform  no_target
-unresolved       main.js:19:16  FUNCTION_CALL walk  callee_untyped
-unresolved       main.js:20:18  FUNCTION_CALL walk  callee_untyped
-unresolved       main.js:21:25  METHOD_CALL register  receiver_untyped
-unresolved       main.js:21:48  METHOD_CALL register  receiver_untyped
+unresolved       main.js:18:15  CONSTRUCTOR_CALL Map  no_target
+unresolved       main.js:19:14  CONSTRUCTOR_CALL Set  no_target
+unresolved       main.js:20:65  METHOD_CALL keys  no_target
+unresolved       main.js:20:95  METHOD_CALL default  receiver_untyped
+unresolved       main.js:23:31  METHOD_CALL get  no_target
+unresolved       main.js:24:32  METHOD_CALL has  no_target
+unresolved       main.js:25:74  METHOD_CALL add  no_target
+unresolved       main.js:25:89  METHOD_CALL set  no_target
+unresolved       main.js:27:25  METHOD_CALL equal  no_target
+unresolved       main.js:27:95  FUNCTION_CALL walk  callee_untyped
+unresolved       main.js:28:23  FUNCTION_CALL setTimeout  no_target
+unresolved       main.js:28:50  METHOD_CALL forEach  no_target
+unresolved       main.js:32:19  CONSTRUCTOR_CALL Map  no_target
+unresolved       main.js:33:29  METHOD_CALL get  no_target
+unresolved       main.js:33:61  CONSTRUCTOR_CALL Set  no_target
+unresolved       main.js:33:72  METHOD_CALL set  no_target
+unresolved       main.js:33:95  METHOD_CALL add  no_target
+unresolved       main.js:35:122  METHOD_CALL emit  no_target
+unresolved       main.js:37:131  CONSTRUCTOR_CALL   no_target
+unresolved       main.js:41:16  FUNCTION_CALL walk  callee_untyped
+unresolved       main.js:42:18  FUNCTION_CALL walk  callee_untyped
+unresolved       main.js:43:25  METHOD_CALL register  receiver_untyped
+unresolved       main.js:43:48  METHOD_CALL register  receiver_untyped
 unresolved       main.js:8:38  FUNCTION_CALL cb  callee_untyped
 unresolved       main.js:9:42  METHOD_CALL map  no_target
 value_callee     main.js:8:38  cb  parameter
