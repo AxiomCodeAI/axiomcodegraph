@@ -1,0 +1,14 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "an edit to only the SpEL string of an annotation, which holds a `)` and a `,`, is a decoration change: the string does not end the annotation, so its tail is not a return type and the method's own parameters are not removed or added",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/web/Orders.java"],
+   "want": ["signature  Orders.create", "decoration changed above the signature (the signature itself is unchanged)"],
+   "avoid": ["return type", "-shopId", "+shopId", "-lines", "+lines", "+orders"]},
+  {"why": "near miss: a comma and a parenthesis inside a parameter annotation's string are not a parameter boundary, so the sort parameter is one parameter both before and after",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/web/Orders.java"],
+   "want": ["Orders.list"],
+   "avoid": ["+b", "-b\"", "+(b", "+sort", "-sort"]},
+  {"why": "control: a parameter really added below an annotation whose string holds a `)` is still read as an added parameter",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/web/Orders.java"],
+   "want": ["signature  Orders.cancel", "+reason"],
+   "avoid": ["-shopId"]}]}

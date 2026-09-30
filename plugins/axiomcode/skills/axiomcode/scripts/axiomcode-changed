@@ -474,13 +474,41 @@ class Changed:
             if t.rstrip().endswith(';') or (t.rstrip().endswith(':') and not t.strip().startswith(('case', 'default'))): return i + 1
         return start
     @staticmethod
-    def split_top(s, sep=','):
-        """`s` cut at each `sep` outside brackets; an arrow's `>` (`=>`, `->`) closes nothing"""
+    def strip_decorations(h):
+        """the text after the annotations / decorators written at its start: `@PreAuthorize("@guard.can(#id, 'x')")
+        @PostMapping("/a") public R f(…)` is `public R f(…)`. The arguments are read with their strings opaque and their
+        parentheses balanced, so a `)` or a `,` inside a SpEL expression, a route or a message does not end the
+        annotation. Read up to its first `)`, the rest of such a string was taken for the return type and the method's
+        own parameters for removed ones"""
+        code = strip_code(h, hash_comments=False); n = len(h); i = 0
+        while True:
+            j = i
+            while j < n and code[j].isspace(): j += 1
+            m = re.match(r'@(?!interface\b)[A-Za-z_$][\w$.]*', code[j:])
+            if not m: break
+            k = j + m.end(); x = k
+            while x < n and code[x].isspace(): x += 1
+            if x < n and code[x] == '(':
+                depth = 0; end = None
+                for y in range(x, n):
+                    if code[y] == '(': depth += 1
+                    elif code[y] == ')':
+                        depth -= 1
+                        if depth == 0: end = y + 1; break
+                if end is None: break                                    # unbalanced: a header cut short, left as it is
+                k = end
+            i = k
+        return h[i:].strip()
+    @staticmethod
+    def split_top(s, sep=',', mask=None):
+        """`s` cut at each `sep` outside brackets; an arrow's `>` (`=>`, `->`) closes nothing. `mask` is the same text with
+        its strings blanked (same length): a bracket or a `sep` inside a string literal is then not one"""
+        m_ = s if mask is None or len(mask) != len(s) else mask
         out = []; depth = 0; cur = ''
-        for x, ch in enumerate(s):
-            if ch in '<[({': depth += 1
-            elif ch in '>])}' and not (ch == '>' and x and s[x - 1] in '=-'): depth = max(0, depth - 1)
-            if ch == sep and depth == 0: out.append(cur); cur = ''
+        for x, (ch, mc) in enumerate(zip(s, m_)):
+            if mc in '<[({': depth += 1
+            elif mc in '>])}' and not (mc == '>' and x and m_[x - 1] in '=-'): depth = max(0, depth - 1)
+            if mc == sep and depth == 0: out.append(cur); cur = ''
             else: cur += ch
         if cur.strip(): out.append(cur)
         return out
@@ -490,18 +518,23 @@ class Changed:
         that closes it, however deep its default values nest (`clock = { now: () => Date.now() }`). A destructured
         parameter (`{ users, jwt }`, `[a, b]`) is its fields, one row each: those are the names a caller passes, and
         read as one parameter a change to one field was every field removed and added."""
-        s = header.find('(')
+        # read with its strings opaque: a `(`, `)` or `,` inside a string in a parameter's annotation
+        # (`@RequestParam(defaultValue = "a,(b")`) is not a bracket or a parameter boundary
+        code = strip_code(header, hash_comments=False)
+        if len(code) != len(header): code = header
+        s = code.find('(')
         if s < 0: return _Params()
         depth = 0; e = None
         for x in range(s, len(header)):
-            if header[x] in '([{': depth += 1
-            elif header[x] in ')]}':
+            if code[x] in '([{': depth += 1
+            elif code[x] in ')]}':
                 depth -= 1
                 if depth == 0: e = x; break
         body = header[s + 1:e] if e is not None else header[s + 1:]
+        bcode = code[s + 1:e] if e is not None else code[s + 1:]
         res = _Params()
         def one(p, into):
-            p = re.sub(r'@\w+(\([^)]*\))?\s*', '', p).strip()
+            p = re.sub(r'@\w+(\([^)]*\))?\s*', '', Changed.strip_decorations(p.strip())).strip()
             eq = re.search(r'(?<![=!<>])=(?![=>])', p)
             head, dflt = (p[:eq.start()].strip(), re.sub(r'\s+', ' ', p[eq.end():].strip())) if eq and not p.startswith(('{', '[')) else (p, '')
             if head.startswith(('{', '[')):
@@ -523,7 +556,7 @@ class Changed:
             else:
                 toks = re.findall(r'[A-Za-z_$][\w$]*', head); name = toks[-1] if toks else head; typ = head[:head.rfind(name)].strip() if toks else ''
             into.append((name.lstrip('*.').rstrip('?'), re.sub(r'\s+', ' ', typ), dflt))
-        for p in Changed.split_top(body): one(p, res)
+        for p in Changed.split_top(body, mask=bcode): one(p, res)
         return res
     @staticmethod
     def params(header):
@@ -859,7 +892,7 @@ class Changed:
         overrun_note = ('', f"{rel}: the graph's spans run past the end of this file's committed version ({len(OL)} lines): it was "
                         "indexed from a working tree with uncommitted edits, so positions here may be off; re-index "
                         "(`axiomcode index`) for exact answers", None) if overrun else None
-        sig_of = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()
+        sig_of = self.strip_decorations
         def renamed_at(a, n, k):
             """A DECLARATION RENAMED IN PLACE is the same declaration: its header line became one that declares another
             name, with the same parameters, the old name is declared nowhere in the new text and the new name nowhere in
@@ -1137,7 +1170,7 @@ class Changed:
                 # a line wholly inside a docstring, a string or a comment declares nothing: read as code, a docstring
                 # sentence at the body's indentation (`works (see below)`) was listed as an added method
                 if not SL[j - 1].strip(): continue
-                st = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', st)                                # `@Override public …` on one line
+                st = (self.strip_decorations(st) or st) if st.startswith('@') else st                                # `@Override public …` on one line
                 here = (ndepth[j - 1] if not py else len(text) - len(text.lstrip()))
                 # AN INSERTION CAN RUN PAST THE TYPE IT BEGAN IN: new methods at the end of a class and a function after
                 # it are one block (in Python always, having no closing line). A function at the file's top level is
@@ -1166,7 +1199,7 @@ class Changed:
                     names.append((m.group(1), 'method', j)); hdrs[m.group(1)] = ' '.join(x.strip() for x in NL[j - 1:self.header_end(NL, j)]); continue
                 # each declaration on the line: `int a = 1; int b = 2;` and `int a = 1, b = 2;` declare two fields
                 for s2 in ([st] if py or not st.endswith(';') else self.statements(SL[j - 1], NK[j - 1], False)):
-                    s2 = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', s2)
+                    s2 = (self.strip_decorations(s2) or s2) if s2.startswith('@') else s2
                     if py and self.targets(s2): continue                                                  # `a, b = ...` is not `<type a,> b`
                     ty, nm = self.field_parts(s2)
                     if nm and ty and '(' not in s2.split('=')[0] and not any(x[0] == nm for x in names): names.append((nm, 'field', j))
@@ -1219,7 +1252,7 @@ class Changed:
                 if 'members' in k:                                                                        # the new type's own declarations, one level deeper — its whole body in the new text
                     hj = next((j for j in range(j1, j2 + 1) if re.search(rf'\b{re.escape(nm)}\b', NL[j - 1])), j1); j = hj + 1
                     while j <= len(NL) and (ndepth[j - 1] > body_depth if not py else (not NL[j - 1].strip() or len(NL[j - 1]) - len(NL[j - 1].lstrip()) > body_depth)):
-                        st2 = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', re.sub(r'\s*(//.*|/\*.*?\*/\s*)$', '', NL[j - 1]).strip()); here2 = (ndepth[j - 1] if not py else len(NL[j - 1]) - len(NL[j - 1].lstrip())); j += 1
+                        st2 = re.sub(r'\s*(//.*|/\*.*?\*/\s*)$', '', NL[j - 1]).strip(); st2 = (self.strip_decorations(st2) or st2) if st2.startswith('@') else st2; here2 = (ndepth[j - 1] if not py else len(NL[j - 1]) - len(NL[j - 1].lstrip())); j += 1
                         if here2 != body_depth + (1 if not py else 4) or not st2 or st2.startswith(('//', '*', '/*', '@', '#', '}', '{')) or not SL[j - 2].strip(): continue
                         mm = re.match(r'^(?:async\s+)?(?:def|function)\s+([A-Za-z_$][\w$]*)\s*\(', st2) or (None if py else re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*', st2))
                         if mm and mm.group(1) not in ('if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'super', 'this'): out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{mm.group(1)}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new method', target=None)); continue
