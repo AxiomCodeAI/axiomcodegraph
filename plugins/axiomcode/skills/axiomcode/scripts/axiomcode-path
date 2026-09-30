@@ -1854,6 +1854,16 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         m, d = hits[0]; chain = read_back(res['parent_opt'], q, m, srcs)
         if not chain: continue
         bridges = [(chain[i][0], chain[i + 1][0]) for i in range(len(chain) - 1) if chain[i + 1][1] == 'by-name']
+        # A bridge whose every site calls a VALUE (a field, a variable, a parameter) is not a receiver that lacks a
+        # type: what it holds decides the callee, and the value-callee report below says so and names the site.
+        if bridges and g.has('ext_unresolved_value_callee') and all(
+                g.q("SELECT 1 FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ?"
+                    " AND s.callee_name = ? LIMIT 1", c, g.sym[m2]['name'])
+                and not g.q("SELECT 1 FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id"
+                            " WHERE s.caller_id = ? AND s.callee_name = ?"
+                            " AND s.id NOT IN (SELECT c0 FROM ext_unresolved_value_callee) LIMIT 1", c, g.sym[m2]['name'])
+                for c, m2 in bridges):
+            continue
         print(f"  {word} WOULD connect in {d} hop(s) if {len(bridges)} unresolved call(s) resolve the way their name suggests — look at:")
         for c, m2 in bridges:
             sites = g.q("SELECT s.file_path f, s.start_line ln FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ? AND s.callee_name = ?", c, g.sym[m2]['name'])
