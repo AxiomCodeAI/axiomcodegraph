@@ -89,6 +89,53 @@ type_name_cand(prov, mod, qn, ar, gk, 1) :-
     type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk),
     !type_is_top_level(prov, gk).
 
+// ── A QUALIFIED NAME RELATIVE TO AN ENCLOSING NAMESPACE ─────────────────────
+// Code in `namespace Co.UnitTests.Specs` may write `new Shop.Specs.FilterSpec()`
+// for `Co.Shop.Specs.FilterSpec`: the first segment of a qualified name is looked
+// up in the enclosing namespaces, innermost outward, like any simple name. The two
+// rank-1 clauses above only match a name written in FULL, so this spelling
+// resolved to nothing, and where the enclosing type had the same simple name the
+// site was an unknown although the qualifier says exactly which type it is.
+//
+// The qualifiers are the file's own namespaces and every dotted prefix of them,
+// whether or not a type sits in that prefix (`Co` alone often declares nothing,
+// so ns_encloses, which requires a declaring type, is not the right source).
+// Demand-driven: only written references that contain a dot are expanded.
+//
+// The INNERMOST qualifier wins, which is what the compiler does: in `Co.Tests.X`,
+// `Shop.Specs.T` is `Co.Tests.Shop.Specs.T` when that exists, before `Co.Shop.Specs.T`.
+// Rank 0, so a relative match also beats a same-spelled name read from the global
+// namespace, which is the compiler's order too (the global namespace is outermost).
+type_ns_qualifier(prov, mod, ns, l) :-
+    module_namespace_own(prov, mod, ns), ns != "", l = strlen(ns).
+type_ns_qualifier(prov, mod, p, l) :-
+    module_namespace_own(prov, mod, ns), ns != "", ns_prefix(prov, ns, p), l = strlen(p).
+
+type_qualified_written(prov, mod, w, ar) :-
+    type_ref_name(prov, tr, w), contains(".", w), !contains("::", w),
+    type_ref_argc(prov, tr, ar), type_ref_module(prov, tr, mod).
+
+type_name_rel_cand(prov, mod, w, ar, gk, l) :-
+    type_qualified_written(prov, mod, w, ar),
+    type_ns_qualifier(prov, mod, p, l),
+    qn = cat(p, cat(".", w)),
+    type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk).
+// A client file naming a staged library type relatively. Same direction as the
+// cross-provenance clauses below.
+type_name_rel_cand("client", mod, w, ar, gk, l) :-
+    type_qualified_written("client", mod, w, ar),
+    type_ns_qualifier("client", mod, p, l),
+    qn = cat(p, cat(".", w)),
+    type_decl("lib", _, qn, ar, _, t), type_group("lib", t, gk).
+
+type_name_rel_best(prov, mod, w, ar, l) :-
+    type_name_rel_cand(prov, mod, w, ar, _, _),
+    l = max x : { type_name_rel_cand(prov, mod, w, ar, _, x) }.
+
+type_name_cand(prov, mod, w, ar, gk, 0) :-
+    type_name_rel_best(prov, mod, w, ar, l),
+    type_name_rel_cand(prov, mod, w, ar, gk, l).
+
 // ── A CLIENT FILE NAMING A STAGED LIBRARY TYPE ──────────────────────────────
 // Every clause above is SINGLE-PROVENANCE: it joins a module and a declaration
 // under one `prov`, so a client module and a library namespace are never brought
