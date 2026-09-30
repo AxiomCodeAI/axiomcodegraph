@@ -1,0 +1,16 @@
+namespace Books.App;
+
+public class Journal
+{
+    private readonly string _owner;
+
+    public Journal(string owner, int year)
+    {
+        _owner = owner;
+    }
+
+    public int Page(int size, int page = 1)
+    {
+        return size * page;
+    }
+}

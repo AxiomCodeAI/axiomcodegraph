@@ -1,0 +1,16 @@
+namespace Books.App;
+
+public class Ledger
+{
+    private readonly string _owner;
+
+    public Ledger(string owner, int year, string? name = null)
+    {
+        _owner = owner;
+    }
+
+    public int Page(int size, int page = 1)
+    {
+        return size * page;
+    }
+}

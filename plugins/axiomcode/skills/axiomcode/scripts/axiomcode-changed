@@ -880,6 +880,7 @@ class Changed:
             if any(self.declares(OS[x - 1], nn, k, is_py) and plist(OK, x) == po for x in range(1, len(OS) + 1)): return None
             return (nn, j, oh, nh)
         renamed_new = set()
+        renamed_types = {}                                                                       # old type name -> new, for the rows below
         for (kind, (a, b, i, k, d, n)), lines in hits.items():
             decs = decorated.get((a, b, i, k, d, n))
             n = self.header_name(n, d, rel)
@@ -1048,7 +1049,22 @@ class Changed:
                 if decs: detail += '; decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — the framework behaviour it turns on is NOT in the graph'
                 entry['detail'] = detail; entry['target'] = d
             elif kind == 'type':
-                entry['detail'] = 'header changed (name, extends / implements, type parameters)' + ('; decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — the framework behaviour it turns on is NOT in the graph' if decs else ''); entry['target'] = d
+                # A TYPE RENAMED ON ITS HEADER: the header line and the line it became declare two names. Read as
+                # "header changed" beside an `added` new class of the new name, the one edit came back as two
+                # unrelated ones, and the rename was said nowhere
+                TYPE_HDR = r'\b(?:class|interface|enum|record|struct)\s+([A-Za-z_$][\w$]*)'
+                nt_ = None
+                for x in range(a, min(self.header_end(OL, a), len(OL)) + 1):
+                    om = re.search(TYPE_HDR, OS[x - 1])
+                    if not om: continue
+                    jx = new_of.get(x)
+                    nm_ = re.search(TYPE_HDR, NS[jx - 1]) if jx and jx <= len(NS) else None
+                    if om.group(1) == n and nm_ and nm_.group(1) != n and not still_declared(n, k, jx): nt_ = nm_.group(1)
+                    break
+                if nt_:
+                    renamed_new.add((d.rsplit('.', 1)[0] + '.' + nt_) if '.' in d else nt_)
+                    renamed_types[n] = nt_
+                entry['detail'] = (f'renamed {n} → {nt_}' if nt_ else 'header changed (name, extends / implements, type parameters)') + ('; decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — the framework behaviour it turns on is NOT in the graph' if decs else ''); entry['target'] = d
             elif kind == 'body': entry['target'] = d
             else: entry['target'] = None
             if i in unsure and entry['kind'] in ('signature', 'field', 'type') and not str(entry.get('detail', '')).startswith('may have changed'):
@@ -1156,6 +1172,14 @@ class Changed:
                     continue
                 tm = re.match(r'^(?:(?:public|private|protected|static|final|abstract|sealed|export|default|declare)\s+)*(class|interface|enum|record|@interface)\s+([A-Za-z_$][\w$]*)', st)
                 if tm: names.append((tm.group(2), tm.group(1).lstrip('@') + ' (with its members)', j)); hdrs[tm.group(2)] = st; continue
+                # A C# PROPERTY: `public string? Name { get; set; }`, `int Count => _xs.Count;`. It has neither a
+                # parameter list nor the `;` a field ends with, so it matched neither and came back as "1 new line(s)"
+                pm = None if py or not rel.endswith(('.cs', '.csx')) else re.match(
+                    r'^(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|new|required|readonly|unsafe|extern|partial)\s+)*'
+                    r'([A-Za-z_][\w.]*(?:\s*<[^(){}=]*>)?\??(?:\[\])*)\s+([A-Za-z_]\w*)\s*(\{|=>)', st)
+                if pm and pm.group(1) not in ('struct', 'namespace', 'event', 'delegate', 'operator', 'else', 'return', 'new', 'await', 'using', 'lock', 'unsafe', 'fixed', 'checked', 'unchecked') \
+                        and '(' not in st.split(pm.group(3))[0]:
+                    names.append((pm.group(2), 'property', j)); continue
                 # a TypeScript header writes its return type after the parameters (`f(a: A): Promise<B> {`), and a
                 # module's function is often exported (`export async function f(`): read as neither, a new method or
                 # function was "N new line(s)" with no name, and a local inside it could pass for a field
@@ -1240,6 +1264,15 @@ class Changed:
         out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in renamed)]
         # and a callable renamed in place is not also a new callable of the new name (renamed_at)
         out = [e for e in out if not (e['kind'] == 'added' and e['symbol'] in renamed_new)]
+        # a renamed type's members read under its new name are the old type's own members (the old type declares each)
+        if renamed_types:
+            def member_of_renamed(sym):
+                for od, nw in renamed_types.items():
+                    for base in (nw, od + '.' + nw):
+                        if sym.startswith(base + '.') and any(dd.startswith(od + '.') and nn == sym.rsplit('.', 1)[-1] for _a, _b, _i, _k, dd, nn in decls):
+                            return True
+                return False
+            out = [e for e in out if not (e['kind'] == 'added' and member_of_renamed(e['symbol']))]
         if overrun_note: adds.append(overrun_note)
         # THE TARGET NAMES THIS DECLARATION, NOT EVERY DECLARATION OF ITS NAME. `symbol` stays the short display; the
         # target impact is asked is where the declaration is (at_line), and `shown_target` keeps its name for reading.

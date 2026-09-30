@@ -1,0 +1,170 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a parameter added to a constructor is a signature change of that constructor, not its removal",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-ctor-param.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "signature  Ledger.<constructor>",
+    "+name"
+   ],
+   "avoid": [
+    "removed",
+    "added"
+   ]
+  },
+  {
+   "why": "a default value removed from a parameter is named as such",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-default-removed.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "signature  Ledger.Page",
+    "page: default 1 → (none)"
+   ],
+   "avoid": [
+    "header text changed",
+    "-page"
+   ]
+  },
+  {
+   "why": "control: a parameter renamed keeps its default, and no default change is claimed",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-param-renamed.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "-page, +index"
+   ],
+   "avoid": [
+    "default 1"
+   ]
+  },
+  {
+   "why": "a class renamed is a rename of the class and of its constructor, not a new class and a new method",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-rename.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "type       Ledger",
+    "renamed Ledger → Journal",
+    "signature  Ledger.<constructor>"
+   ],
+   "avoid": [
+    "added",
+    "removed",
+    "new method"
+   ]
+  },
+  {
+   "why": "near miss: a second class added beside the old one is still a new class",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-second-class.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "added      Journal",
+    "new class"
+   ],
+   "avoid": [
+    "renamed"
+   ]
+  },
+  {
+   "why": "a new auto-property is named as a new property",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-property.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "added      Ledger.Title",
+    "new property"
+   ],
+   "avoid": [
+    "new line(s)"
+   ]
+  },
+  {
+   "why": "control: a new field is still a new field",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-field.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "added      Ledger._count",
+    "new field"
+   ],
+   "avoid": [
+    "new property"
+   ]
+  },
+  {
+   "why": "near miss: a new method with a block body on its line is a method, not a property",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-method.txt",
+    "--file",
+    "src/App/Ledger.cs"
+   ],
+   "want": [
+    "added      Ledger.Count",
+    "new method"
+   ],
+   "avoid": [
+    "new property"
+   ]
+  }
+ ]
+}
