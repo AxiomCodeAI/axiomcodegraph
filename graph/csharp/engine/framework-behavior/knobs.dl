@@ -91,6 +91,17 @@ cs_http_map_methods("MapMethods").
 // prefix of the group each call site passes carries into the helper's MapX calls.
 cs_http_route_builder_type("RouteGroupBuilder").
 cs_http_route_builder_type("IEndpointRouteBuilder").
+// Razor Pages: a class deriving from PageModel in `<...>/Pages/<path>.cshtml.cs` serves
+// /<path> (and an Index page its folder as well; under `Areas/<A>/Pages/` the route starts
+// with /<A>). Its unnamed handler methods, OnGet/OnPost/... with or without `Async`,
+// answer the verb their name spells. A named handler (OnPostUpdate) is chosen by a
+// `handler` value this reading does not see, so it is not given the page's route.
+cs_razor_page_base("PageModel").
+cs_razor_handler("OnGet", "GET").        cs_razor_handler("OnGetAsync", "GET").
+cs_razor_handler("OnPost", "POST").      cs_razor_handler("OnPostAsync", "POST").
+cs_razor_handler("OnPut", "PUT").        cs_razor_handler("OnPutAsync", "PUT").
+cs_razor_handler("OnDelete", "DELETE").  cs_razor_handler("OnDeleteAsync", "DELETE").
+cs_razor_handler("OnPatch", "PATCH").    cs_razor_handler("OnPatchAsync", "PATCH").
 
 // ── HTTP: the client ────────────────────────────────────────────────────────
 // A receiver whose written type is HttpClient, and the verb each of its calls sends.

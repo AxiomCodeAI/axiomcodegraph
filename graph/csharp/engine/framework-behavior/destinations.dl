@@ -444,6 +444,42 @@ conv_verb(m, verb) :- conv_route(m, _), method_verb_attr(m, verb, _).
 conv_verb(m, verb) :- conv_route(m, _), !method_has_verb(m), cs_http_verb_any(verb).
 http_route_raw(m, r, verb) :- conv_route(m, r), conv_verb(m, verb).
 
+// ── the server: Razor Pages ─────────────────────────────────────────────────
+// A page is served by CONVENTION: no attribute or MapX call names its route, the file's
+// place under the Pages folder does. So a test that POSTs to /basket/index reached
+// nothing, and an edit to the page's OnPost selected none of the tests that call it.
+// The route is read from the code-behind's path, `<...>/Pages/Basket/Index.cshtml.cs`:
+// /Basket/Index, and /Basket too since Index is its folder's default page. Knobs:
+// cs_razor_page_base, cs_razor_handler.
+rp_page_direct(t) :- heritage_slot("client", t, _, bn, _, _), last_segment(bn, b), cs_razor_page_base(b).
+rp_page_type(t) :- rp_page_direct(t).
+rp_page_type(t) :- type_group("client", t, gk), type_ancestor("client", gk, agk),
+    type_group("client", t2, agk), rp_page_direct(t2).
+rp_file(t, fp) :- rp_page_type(t), type_module("client", t, mod), module_file("client", mod, fp),
+    strlen(fp) > 10, substr(fp, strlen(fp) - 10, 10) = ".cshtml.cs".
+rp_path(fp) :- rp_file(_, fp).
+// the Pages folder: the last `Pages/` that starts a path segment
+rp_pages_at(fp, 0) :- rp_path(fp), strlen(fp) >= 6, substr(fp, 0, 6) = "Pages/".
+rp_pages_at(fp, i) :- rp_path(fp), strlen(fp) >= 7, i = range(1, strlen(fp) - 5),
+    substr(fp, i, 6) = "Pages/", substr(fp, i - 1, 1) = "/".
+rp_pages_last(fp, j) :- rp_pages_at(fp, _), j = max i : rp_pages_at(fp, i).
+rp_rel(fp, r) :- rp_pages_last(fp, j), l = strlen(fp) - j - 16, l > 0, r = substr(fp, j + 6, l).
+// an area: `.../Areas/<A>/Pages/...` puts /<A> in front
+rp_area_at(fp, k) :- rp_pages_last(fp, j), j > 7, k = range(0, j - 6), substr(fp, k, 6) = "Areas/".
+rp_area(fp, a) :- rp_area_at(fp, k), rp_pages_last(fp, j), k + 6 < j - 1,
+    a = substr(fp, k + 6, j - 1 - k - 6), !contains("/", a).
+rp_has_area(fp) :- rp_area(fp, _).
+rp_prefix(fp, cat("/", a)) :- rp_area(fp, a).
+rp_prefix(fp, "") :- rp_pages_last(fp, _), !rp_has_area(fp).
+rp_route(t, p) :- rp_file(t, fp), rp_rel(fp, r), rp_prefix(fp, x), p = cat(x, cat("/", r)).
+rp_route(t, x) :- rp_file(t, fp), rp_rel(fp, "Index"), rp_prefix(fp, x), x != "".
+rp_route(t, "/") :- rp_file(t, fp), rp_rel(fp, "Index"), rp_prefix(fp, "").
+rp_route(t, p) :- rp_file(t, fp), rp_rel(fp, r), l = strlen(r), l > 6, substr(r, l - 6, 6) = "/Index",
+    rp_prefix(fp, x), p = cat(x, cat("/", substr(r, 0, l - 6))).
+rp_handler(t, m, verb) :- rp_page_type(t), method_owner("client", t, m), method_name("client", m, n),
+    cs_razor_handler(n, verb).
+http_route_raw(m, p, verb) :- rp_handler(t, m, verb), rp_route(t, p).
+
 // ── the server: minimal APIs ────────────────────────────────────────────────
 map_verb_call(e, verb) :- call_callee_name("client", e, n), cs_http_map_verb(n, verb), csite("client", e).
 map_methods_call(e) :- call_callee_name("client", e, n), cs_http_map_methods(n), csite("client", e).
