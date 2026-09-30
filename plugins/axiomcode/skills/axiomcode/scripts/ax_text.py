@@ -622,7 +622,7 @@ def block(repo, asked, scope=None, why='unresolved', rows=ROWS):
         lines.append(f"[text] {head}; the {'other ' if taken else ''}lines that write it{also} — text, not call edges "
                      f"({len(hits)} line(s) in {nfiles} file(s){under}):")
         shown, per = [], {}
-        for f, ln, t in sorted(hits, key=lambda h: (h[0], h[1])):
+        for f, ln, t in sorted(hits, key=lambda h: (h[0], h[1], h[2])):     # total: a tie on (file, line) is never left to input order
             if per.get(f, 0) >= PER_FILE: continue
             per[f] = per.get(f, 0) + 1; shown.append((f, ln, t))
         # one row per file first, so twelve rows name twelve files rather than one file twelve times

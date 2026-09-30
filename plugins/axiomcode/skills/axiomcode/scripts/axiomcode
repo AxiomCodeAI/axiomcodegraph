@@ -145,6 +145,32 @@ case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; the
 # A flag's VALUE is never the repository: `--in plugins/core` names a directory under it, and taking that for the
 # repository found no .axiomcode/lang there, so a repository in several languages was asked in its main graph alone and
 # a scope that only another language's graph holds was refused as absent.
+# A REPOSITORY THAT IS NOT THERE IS AN ERROR, NOT THE WORKING DIRECTORY. A repository argument naming no directory was
+# taken for a target (impact) or passed over, the working directory answered instead, and on one with no graph a full
+# build of it started: a parent of many projects, for minutes. The repository sits at a fixed place for most verbs
+# (index and graph: the first argument; context: after the task; path: after the two endpoints), so anything there that
+# is not a directory is refused. impact takes several targets and changed/test-impact take files, so there only an
+# argument WRITTEN as a directory is taken for one: absolute, ./ ../ ~, a trailing slash, or a path whose last part has
+# no extension, and no :line. `src/a.py`, `a.py:12` and `Owner.m` are still targets and files. The hooks call the verb
+# scripts directly with the working directory, and are not affected.
+dirlike(){ [[ "$1" =~ :[0-9]+$ ]] && return 1
+  case "$1" in /*|[A-Za-z]:[\\/]*|./*|../*|'~'*|*/|*\\) return 0;; esac
+  case "$1" in */*|*\\*) case "${1##*[/\\]}" in *.*) return 1;; esac; return 0;; esac; return 1; }
+gone(){ echo "axiomcode $cmd: no such directory: $1 (the repository to ask). Nothing was built or asked; pass a directory that exists, or leave it out to use the current one." >&2; exit 2; }
+POS=(); skip=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do
+  if [ -n "$skip" ]; then skip=""; continue; fi
+  case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out|--from-text|--top) skip=1; continue ;; -*) continue ;; esac
+  POS+=("$a")
+done
+LASTPOS=""; [ "${#POS[@]}" -gt 0 ] && LASTPOS="${POS[${#POS[@]}-1]}"
+case "$cmd" in
+  index|build) if [ "${#POS[@]}" -gt 0 ] && [ ! -d "${POS[0]}" ]; then gone "${POS[0]}"; fi ;;
+  graph) case "${POS[0]:-}" in ""|build|export|draw) ;; *) [ -d "${POS[0]}" ] || gone "${POS[0]}" ;; esac ;;
+  context) if [ "${#POS[@]}" -gt 1 ] && [ ! -d "${POS[1]}" ]; then gone "${POS[1]}"; fi ;;
+  path) if [ "${#POS[@]}" -gt 2 ] && [ ! -d "${POS[2]}" ]; then gone "${POS[2]}"; fi ;;
+  impact) if [ "${#POS[@]}" -gt 1 ] && [ ! -e "$LASTPOS" ] && dirlike "$LASTPOS"; then gone "$LASTPOS"; fi ;;
+  changed|test-impact|tests) if [ "${#POS[@]}" -gt 0 ] && [ ! -e "${POS[0]}" ] && dirlike "${POS[0]}"; then gone "${POS[0]}"; fi ;;
+esac
 FR=.; skip=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do
   if [ -n "$skip" ]; then skip=""; continue; fi
   case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out) skip=1; continue ;; esac
