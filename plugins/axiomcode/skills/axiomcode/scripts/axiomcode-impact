@@ -974,6 +974,7 @@ class Impact:
                         if path in keys: out.append((path, rel, i))
         return out
     KEYFILE_EXT = {'.properties','.yml','.yaml','.conf','.ini','.cfg','.env'}
+    MAPPER_STATEMENT = 'is its mapper statement'   # an extbind row that opens the method's own statement in its mapper's namespace (mapper_scope)
     def config_key_sites(self, keys):
         """a key DEFINED or overridden in a settings file, matched on the canonical form so the spelling there
         need not be the spelling that was asked for. -> [(canonical key, file, line)]"""
@@ -1936,7 +1937,7 @@ class Impact:
         rows = out.get('extbind')
         if not rows: return out
         import ax_nonsource
-        g = self.g; ns_of = {}; accepts = {}
+        g = self.g; ns_of = {}; accepts = {}; stmt_of = {}
         methods = collections.defaultdict(list)                           # query id -> its method targets
         for r in T:
             if r[1] == 'method': methods[r[0]].append(r[2])
@@ -1965,6 +1966,14 @@ class Impact:
                 if ns is not None:
                     mids = [m for m in methods.get(qq, ()) if (g.sym.get(m) or {}).get('name') == n]
                     if mids and not any(namespaces(m) is None or norm(ns) in namespaces(m) for m in mids): continue
+                    # THE STATEMENT ITSELF, not a mention: the line opens `<select id="n">` in the namespace of the method's
+                    # owner, so it is the method's SQL, bound by namespace plus id. It is said so, and ranked with the
+                    # method's dependents rather than after every [text] lead (a mapper method stubbed in 30 tests
+                    # pushed its own statement past the cap of the one-line-per-site answer)
+                    if mids and any(namespaces(m) and norm(ns) in namespaces(m) for m in mids):
+                        if f not in stmt_of: stmt_of[f] = ax_nonsource.mapper_elements('\n'.join(self.lines(f)))
+                        if any(e[0] in ax_nonsource.STATEMENT_TAGS and e[1] == n and e[2] <= int(r[1]) <= e[2] + e[4].count('\n') for e in stmt_of[f]):
+                            r = [r[0], r[1], r[2], self.MAPPER_STATEMENT, *r[4:]]
             keep.append(r)
         out['extbind'] = keep
         return out
@@ -3079,7 +3088,7 @@ def main(argv):
         byfile = collections.Counter(f for f, *_ in ext)
         print(f"bound from outside the source ({len(ext)} site(s) in {len(byfile)} file(s): a name matched in a file the index does"
               " not read as source, so the compiler is silent — nothing here fails a build; a rename or a retype breaks it at RUN time):")
-        for f, l, n, how in ext[:limit]: print(f"    [text] {f}:{l}   — {how} ({n})")
+        for f, l, n, how in ext[:limit]: print(f"    [{'by key' if how == Impact.MAPPER_STATEMENT else 'text'}] {f}:{l}   — {how} ({n})")
         if len(ext) > limit: print(f"    … +{len(ext) - limit} (--limit N)")
     if ext_prose:
         byname_p = collections.Counter(n for _f, _l, n, _h in ext_prose)
@@ -3291,7 +3300,7 @@ def main(argv):
     # and a method "in full" is only `Owner.method`, which a document or a test resource writes as readily as a
     # binding does. On the test cases themselves both matched each case's own case.json. A key is defined only in a
     # settings file; the same key spelled in any other text file is a mention, which the row's wording does not tell apart.
-    ext_strong = [x for x in ext if x[3] == 'names the type in full'
+    ext_strong = [x for x in ext if x[3] in ('names the type in full', Impact.MAPPER_STATEMENT)
                   or (x[3] == 'defines or overrides the key' and os.path.splitext(x[0])[1].lower() in Impact.KEYFILE_EXT)]
     ext_weak = [x for x in ext if x not in ext_strong]
     # WHAT "NOTHING HERE CALLS IT" IS MEASURED AGAINST: production code bound to it by an exact edge -- a strong direct
