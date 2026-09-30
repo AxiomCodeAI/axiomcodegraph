@@ -1,0 +1,56 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "an override whose class is loaded by its dotted path (a registry of \"pkg.mod.Class\" strings turned into classes by import_module) has no construction site, so the instantiation narrowing dropped the base -> override dispatch hop and the walk to tests stopped one hop above the change, while impact on the override listed the base's caller as one of a set. The hop is walked, and the route says it is a dispatch choice",
+   "run": [
+    "impact",
+    "limit_notice",
+    "--tests-only"
+   ],
+   "want": [
+    "test_send",
+    "dispatch"
+   ]
+  },
+  {
+   "why": "path takes the same hop, labelled as a dispatch choice",
+   "run": [
+    "path",
+    "test_send",
+    "limit_notice"
+   ],
+   "want": [
+    "[dispatch] Pager.notify",
+    "limit_notice"
+   ]
+  },
+  {
+   "why": "near-miss control: a sibling override whose class is written only as a bare word, which nothing can import, is never constructed, so its hop stays narrowed away",
+   "run": [
+    "impact",
+    "fax_notice",
+    "--tests-only"
+   ],
+   "avoid": [
+    "test_send"
+   ]
+  },
+  {
+   "why": "near-miss control: path finds no chain to the never-constructed sibling",
+   "expect_error": true,
+   "run": [
+    "path",
+    "test_send",
+    "fax_notice"
+   ],
+   "want": [
+    "no chain"
+   ],
+   "avoid": [
+    "[dispatch] Fax.notify"
+   ]
+  }
+ ]
+}

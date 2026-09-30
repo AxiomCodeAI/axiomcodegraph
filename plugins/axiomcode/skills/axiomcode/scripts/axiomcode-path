@@ -941,11 +941,12 @@ class G:
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
-    # is up to date and nothing rebuilds). 4: both 3s below, which landed on two branches under one number;
+    # is up to date and nothing rebuilds). 5: a dispatch pair whose owner is loaded by its dotted name is kept
+    # (ax_edges.dispatch_live_sql); 4: both 3s below, which landed on two branches under one number;
     # 3 (0.1.5): on one line a JavaScript anonymous callable nests only where its name does (#1598);
     # 3 (0.1.6): a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites);
     # 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
-    EXPORT_VERSION = '4'
+    EXPORT_VERSION = '5'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return
@@ -971,7 +972,7 @@ class G:
         if self.has('dispatch_candidates'):
             disp = {(r[0], r[1]) for r in self.q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id FROM dispatch_candidates dc JOIN methods m ON m.id = dc.candidate_method_id
                 WHERE m.provenance = 'client' AND dc.base_method_id <> dc.candidate_method_id
-                AND (dc.basis = 'value' OR m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated) OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+                AND """ + ax_edges.dispatch_live_sql(self.has('literals')))}
             # `value` (#1206) is exempt from the instantiation narrowing: the candidate is a function STORED in a holder, and it
             # runs whether or not its owner type is ever constructed (a method group in a static class's delegate field)
             # a hop from a base method to one of its overrides is a dispatch choice whatever tier the engine stored on it (over the

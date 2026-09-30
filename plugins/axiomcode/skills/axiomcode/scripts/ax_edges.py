@@ -66,7 +66,7 @@ UNRANKED = 10                   # an engine tier this table has not been taught 
 TIER_NOTE = {
     'known_edge':           'resolved to one declaration',
     'multi_inferred':       'several declarations fit; each is a real candidate',
-    'dispatch':             'a base method to an override the project instantiates',
+    'dispatch':             'a base method to an override the project instantiates or loads by its dotted name',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
     'event_dispatch':       'emitted here, handled there',
     'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
@@ -553,3 +553,21 @@ def site_lines(start, end, cap=40):
     start = start or 0
     if not end or end <= start or end - start > cap: return [start]
     return list(range(start, end + 1))
+
+
+def dispatch_live_sql(has_literals):
+    """The WHERE fragment (aliases `dc` = dispatch_candidates, `m` = methods) that keeps a base -> override dispatch pair
+    in the walk: the override's owner type can exist at run time. One copy for the path export and both fast-path walks,
+    so the rules and the fast path narrow alike.
+
+    Rapid type analysis keeps an override only when its owner is CONSTRUCTED somewhere (type_instantiated). A class that
+    is loaded by its dotted name is constructed with no construction site the graph can see: `"pkg.mod.Class"` in a
+    registry, turned into the class by import_module/getattr (or Class.forName, or a settings entry) and then called.
+    Dropping those overrides cut every test walk at the base's dispatch hop, while `impact` on the override itself listed
+    the base's caller as [one of a set]: the direct row and the walk disagreed about the same hop. The pair is kept, as a
+    dispatch choice like any other, when the owner's full qualified name (it must contain a dot, so a bare class name
+    written as a word does not count) is written as a string literal somewhere in the repository."""
+    by_name = (" OR m.owner_type_id IN (SELECT type_id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL"
+               " AND instr(qualified_name, '.') > 0 AND qualified_name IN (SELECT value FROM literals))") if has_literals else ""
+    return ("(dc.basis = 'value' OR m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)"
+            f"{by_name} OR NOT EXISTS (SELECT 1 FROM type_instantiated))")

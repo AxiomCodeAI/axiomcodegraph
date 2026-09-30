@@ -245,8 +245,7 @@ def impact(repo, target, depth=DEPTH, file=None):
         dispatch = 'dispatch_candidates' in _tables(con)
         if dispatch and 'methods' in _tables(con):
             # `value` pairs (#1206) are exempt: a function stored in a holder runs whether or not its owner is constructed
-            inst = ("AND (dc.basis = 'value' OR m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)"
-                    " OR NOT EXISTS (SELECT 1 FROM type_instantiated))") if 'type_instantiated' in _tables(con) else ""
+            inst = ("AND " + ax_edges.dispatch_live_sql('literals' in _tables(con))) if 'type_instantiated' in _tables(con) else ""
             con.execute(f"""CREATE TEMP TABLE _disp AS
                 SELECT DISTINCT dc.base_method_id b, dc.candidate_method_id c
                 FROM dispatch_candidates dc JOIN methods m ON m.id=dc.candidate_method_id
@@ -570,9 +569,7 @@ def _edges(q):
     disp = {(r[0], r[1]) for r in q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id
                                        FROM dispatch_candidates dc JOIN methods m ON m.id=dc.candidate_method_id
                                        WHERE m.provenance='client' AND dc.base_method_id<>dc.candidate_method_id
-                                         AND (dc.basis = 'value' OR m.owner_type_id IS NULL
-                                              OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)
-                                              OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+                                         AND """ + ax_edges.dispatch_live_sql(bool(q("SELECT 1 FROM sqlite_master WHERE name='literals'"))))}
     if q("SELECT 1 FROM sqlite_master WHERE name='ext_fn_value_call'"):                 # g.q returns the rows (a list)
         disp |= {(r[0], r[1]) for r in q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call")}      # the route through a named holder (#1206)
     e = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in e] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]
