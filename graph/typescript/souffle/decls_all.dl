@@ -216,6 +216,9 @@
 .decl call_runs_client_body(c0:symbol)
 .decl hof_boundary_site(c0:symbol)
 .decl handed_function(c0:symbol,c1:symbol)
+.decl holder_wraps_handed_function(c0:symbol,c1:symbol)  // (holder, fn): the holder keeps what a library call returned, and fn was handed to that call
+.decl call_returns_data(c0:symbol)                        // the call's result is typed, and the type has no call signature
+.decl call_result_callable(c0:symbol)
 .decl method_value(c0:symbol,c1:symbol)
 .decl method_is_accessor(c0:symbol)
 .decl called_through(c0:symbol,c1:symbol)

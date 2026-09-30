@@ -236,6 +236,34 @@ handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUM
     value_branch(a, x),
     method_value(x, m).
 
+// …AND WHAT A LIBRARY CALL WRAPPED, KEPT IN A HOLDER. `export const plugin = fp(async (app) => …)`, then
+// `app.register(plugin)`: the holder keeps what a call with no client body RETURNED, so no holder rule above
+// sees a function in it, and the registration reached nothing although the same literal handed to it bare
+// is reached. A library wrapper hands back the function it was handed, or one that runs it (`fp`,
+// `defineExtension`, `debounce`), so the function the wrapping site was handed is what the holder hands on.
+// Only a wrapping site at the library boundary: a project wrapper has a body, and what it returns is
+// followed through that body (fn_value_call, below). The const is named here or imported from the
+// module that wraps it (expr_holder), which is the usual shape: a plugin module, a registering app.
+handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+    value_branch(a, x),
+    expr_holder(x, h),
+    holder_wraps_handed_function(h, m).
+// A const's own initializer only, and only a call of a declaration, not of a value the project holds: a
+// reassignment (`state = createState(set, get)`) and a call through a parameter hand back what the project
+// function returns, which is data as often as it is the function it was handed.
+// And not a call whose result the types say is data: `setTimeout(cb)` returns a timer, `xs.filter(cb)` an
+// array, and `clearTimeout(timer)` runs nothing. A result typed with no call signature is data; an untyped
+// one (a package with no types staged) or a callable one (`fp`'s plugin type, a mock) is kept.
+holder_wraps_handed_function(h, m) :- var_initializer("client", _, e, h), e != "",
+    value_branch(e, w),
+    expr_kind("client", "CALL_EXPRESSION", _, w),
+    hof_boundary_site(w),
+    !called_through(w, _),
+    !call_returns_data(w),
+    handed_function(w, m).
+call_returns_data(w) :- expr_type(w, _, t), !call_signature_in_scope(t, _), !call_result_callable(w).
+call_result_callable(w) :- expr_shape(w, s), call_signature_in_scope(s, _).
+
 // ── method_value(Expr, Method): an INSTANCE method read as a value, not called ──
 // `xs.forEach(this.handle, this)`, `el.addEventListener('click', this.onClick)`,
 // `setTimeout(this.onHover.bind(this))`. expr_callable names a free function, an import and
