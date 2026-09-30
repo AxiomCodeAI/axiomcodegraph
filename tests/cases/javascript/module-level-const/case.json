@@ -1,0 +1,18 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "an imported const read through a member access, as an argument, or through an `export *` barrel is resolved to the declaration the import binds, not matched by name",
+   "run": ["impact", "src/consts.js:2"],
+   "want": ["[resolved] memberRead", "[resolved] throughBarrel"],
+   "avoid": ["[by name"]},
+  {"why": "the same for a const that holds a call's result, handed to a call",
+   "run": ["impact", "src/consts.js:3"],
+   "want": ["[resolved] argRead"],
+   "avoid": ["[by name"]},
+  {"why": "a bare read of an imported const",
+   "run": ["impact", "src/consts.js:1"],
+   "want": ["[resolved] topLevelUse"],
+   "avoid": ["siblingRead"]},
+  {"why": "control: a file that imports the same name from ANOTHER declaration is not a reader of this one, and that declaration keeps its own reader",
+   "run": ["impact", "src/sibling/consts.js:3"],
+   "want": ["[resolved] siblingRead"],
+   "avoid": ["memberRead", "throughBarrel"]}]}

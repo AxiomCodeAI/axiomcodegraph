@@ -166,6 +166,8 @@ export interface LanguageAdapter {
     callSites?: CallSitesIR;
     decorators?: DecoratorsIR;
     localSites?: LocalSitesIR;
+    /** field access sites that are not expressions (TypeScript: a `typeof X` type reference), positioned from this table */
+    fieldSites?: LocalSitesIR;
     /** absent where the front end writes no skipped-files report */
     skipped?: SkippedIR;
   };
@@ -277,6 +279,11 @@ const TYPESCRIPT: LanguageAdapter = {
       startLine: 'startLine', startColumn: 'startColumn',
       fileVia: { column: 'tsModuleLinkHash', through: 'modules' },
     },
+    // a module variable read in a TYPE (`typeof X`): the field_access site is the type reference
+    fieldSites: {
+      file: 'all-typescript-type-references.csv', id: 'tsTypeReferenceUniqueHash', startLine: 'startLine', endLine: 'endLine',
+      fileVia: { column: 'tsModuleLinkHash', through: 'modules' },
+    },
     skipped: { file: 'skipped-typescript-files.csv', filePath: 'filePath', reason: 'reason', detail: 'detail' },
   },
 };
@@ -337,6 +344,9 @@ const JAVASCRIPT: LanguageAdapter = {
     typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [0, 1] },
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     entryReachable: { file: 'entry-reachable.csv', columns: [0] },
+    // site, caller, variable, provenance, tier, access: a module variable an identifier reads,
+    // directly or through an import binding (the field is the variable's own hash)
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
   },
   ir: {
     // No signature and no owner qualified name: JavaScript declares neither.

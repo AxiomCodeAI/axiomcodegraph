@@ -1,3 +1,9 @@
+known_edge	read	local#drive() -> local#handlers
 known_edge	read	local#drive() -> local#jobs
+known_edge	read	local#trimName() -> local#cfg
 known_edge	read	local#trimName() -> local#name
+known_edge	read	use#callGreeter() -> api#greeter
+known_edge	read	use#callNested() -> api#api
 known_edge	read	use#callNested() -> api#users
+known_edge	read	use#callTop() -> api#api
+known_edge	read	use#keepUnrelated() -> use#unrelated

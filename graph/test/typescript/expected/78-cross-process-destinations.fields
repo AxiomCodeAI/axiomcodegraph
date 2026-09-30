@@ -1,1 +1,14 @@
+known_edge	read	client/axios#<module-init>() -> axios.d#axios
+known_edge	read	client/client#<module-init>() -> axios.d#axios
+known_edge	read	client/client#audit() -> axios.d#axios
+known_edge	read	client/client#cached() -> client#cache
+known_edge	read	client/client#dailyReport(string) -> axios.d#axios
+known_edge	read	client/client#dailyReport(string) -> config#config
 known_edge	read	client/client#dailyReport(string) -> shared/config#reportsUrl
+known_edge	read	client/client#invoice(string) -> client#billing
+known_edge	read	client/client#listAll() -> paths#ORDERS
+known_edge	read	client/client#placeOrder(unknown) -> axios.d#axios
+known_edge	read	client/client#placeOrder(unknown) -> paths#ORDERS
+known_edge	read	server/orders#<module-init>() -> orders#app
+known_edge	read	server/orders#<module-init>() -> orders#router
+known_edge	read	server/orders#<module-init>() -> paths#ORDERS

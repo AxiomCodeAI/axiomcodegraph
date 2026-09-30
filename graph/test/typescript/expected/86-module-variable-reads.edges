@@ -1,0 +1,7 @@
+known_edge	CONSTRUCTOR_CALL	Handler#handle(unknown) @L46 -> Pipe#<new>(unknown)
+known_edge	DECORATOR_CALL	Handler#handle(unknown) @L45 -> a/test/t#Route(unknown)
+known_edge	DECORATOR_CALL	Handler#handle(unknown) @L46 -> a/test/t#Body(unknown)
+known_edge	FUNCTION_CALL	a/src/cfg#<module-init>() @L4 -> a/src/cfg#mk(object)
+known_edge	FUNCTION_CALL	a/test/t#asArgument() @L10 -> a/test/t#use(unknown)
+known_edge	FUNCTION_CALL	a/test/t#callsTheFunction() @L18 -> a/src/cfg#make(number)
+known_edge	FUNCTION_CALL	a/test/t#viaMember() @L6 -> a/test/t#use(unknown)

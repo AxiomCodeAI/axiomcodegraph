@@ -47,3 +47,4 @@ state_gate_alloc	state-gate-alloc.csv
 state_call_alloc	state-call-alloc.csv
 state_call_open	state-call-open.csv
 state_world_of_gated	state-world.csv
+field_access	field-access.csv

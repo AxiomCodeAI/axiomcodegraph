@@ -44,6 +44,14 @@ def field_names(ir, prefix='typescript'):
     return out
 
 
+def module_var_names(ir, prefix='typescript'):
+    """variable hash -> (module label, name), for a module-scope variable read by name: its owner is its
+    module, labelled by the file's stem as the module initializer is (`members#<module-init>()`)."""
+    return {r['tsVariableUniqueHash']: (os.path.splitext(os.path.basename(r.get('filePath') or '?'))[0], r['name'])
+            for r in rows(f'{ir}/all-{prefix}-variables.csv')
+            if r.get('scopeKind') in ('MODULE_SCOPE', 'GLOBAL_SCOPE', 'AMBIENT_SCOPE', 'NAMESPACE_SCOPE')}
+
+
 def type_names(ir, prefix='typescript'):
     return {t['tsTypeUniqueHash']: (t.get('name') or t.get('qualifiedName') or '?')
             for t in rows(f'{ir}/all-{prefix}-types.csv')}
@@ -62,6 +70,9 @@ def main():
     ir, out = args[0], args[1]
     n = Names(ir, lib_ir)
     fields = field_names(ir)
+    # the compiler oracle scores member accesses only: a module variable's read is golden-checked, not oracle-paired
+    mvars = module_var_names(ir)
+    fields.update({k: v for k, v in mvars.items() if k not in fields})
     types = type_names(ir)
     if lib_ir and os.path.isdir(lib_ir):
         fields.update({k: v for k, v in field_names(lib_ir).items() if k not in fields})
@@ -81,7 +92,7 @@ def main():
                 f"{fields[field][0]}#{fields[field][1]}" if field in fields
                 else f"<unresolved:{field[:24]}>")
             if pairs:
-                if field == '-' or field not in fields:
+                if field == '-' or field not in fields or field in mvars:
                     continue
                 for d in (['READ'] if access == 'read' else ['WRITE'] if access == 'write'
                           else ['READ', 'WRITE']):

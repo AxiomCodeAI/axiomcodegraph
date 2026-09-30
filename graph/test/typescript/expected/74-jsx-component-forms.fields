@@ -1,6 +1,11 @@
 ambiguous_unknown	read	parts#Badge(?) -> -
 known_edge	read	Panel#render() -> Panel#props
 known_edge	read	Panel#render() -> { title: string }#title
+known_edge	read	app#App() -> app#Settings
+known_edge	read	app#App() -> parts#Field
+known_edge	read	app#App() -> parts#UserCard
+known_edge	read	app#App() -> parts#ui
+known_edge	read	app#useFactory() -> parts#factory
 known_edge	read	parts#Avatar({ src: string }) -> { src: string }#src
 known_edge	read	parts#Chip({ text: string }) -> { text: string }#text
 known_edge	read	parts#FieldImpl({ label: string },unknown) -> { label: string }#label
