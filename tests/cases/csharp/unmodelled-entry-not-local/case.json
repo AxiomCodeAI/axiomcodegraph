@@ -2,16 +2,28 @@
  "lang": "csharp",
  "checks": [
   {
-   "why": "--delete on a hosted service says a framework calls it, not the dead-code verdict (#1446)",
-   "run": ["impact", "SweepWorker", "--kind", "type", "--delete"],
-   "want": ["NOT SAFE", "it extends / implements BackgroundService, which the graph does not contain", "Program.<Main>$   src/App/Program.cs:2   — ", "names it (METHOD_TYPE_ARGUMENT)"],
+   "why": "--delete on a hosted service the graph sees no registration for says a framework calls it, not the dead-code verdict (#1446)",
+   "run": ["impact", "IdleWorker", "--kind", "type", "--delete"],
+   "want": ["NOT SAFE TO ASSUME", "it extends / implements BackgroundService, which the graph does not contain"],
    "avoid": ["· nothing", "no dependent at any certainty in this graph. Before deleting"]
   },
   {
-   "why": "--delete on the hosted service's method says the same (#1446)",
-   "run": ["impact", "SweepWorker.ExecuteAsync", "--delete"],
+   "why": "--delete on that hosted service's method says the same (#1446)",
+   "run": ["impact", "IdleWorker.ExecuteAsync", "--delete"],
    "want": ["NOT SAFE TO ASSUME", "a framework calls it"],
    "avoid": ["· nothing"]
+  },
+  {
+   "why": "a hosted service AddHostedService<T>() registers: the registration is a dependent, so the verdict is NOT SAFE and names the site",
+   "run": ["impact", "SweepWorker", "--kind", "type", "--delete"],
+   "want": ["NOT SAFE — 1 callable(s) call or receive it", "Program.<Main>$   src/App/Program.cs:2   — ", "names it (METHOD_TYPE_ARGUMENT)"],
+   "avoid": ["· nothing", "NOT SAFE TO ASSUME", "no dependent at any certainty in this graph. Before deleting"]
+  },
+  {
+   "why": "the registered hosted service's method: the registration site hands it to the framework, so it is not dead code",
+   "run": ["impact", "SweepWorker.ExecuteAsync", "--delete"],
+   "want": ["NOT SAFE — 1 callable(s) call or receive it", "[registered] Program.<Main>$   src/App/Program.cs:2"],
+   "avoid": ["· nothing", "NOT SAFE TO ASSUME"]
   },
   {
    "why": "control: a type nothing registers, with no library base, keeps the dead-code verdict",
