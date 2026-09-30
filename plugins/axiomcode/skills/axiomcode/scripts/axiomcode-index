@@ -94,6 +94,9 @@ A = {
     # a property's name (`this.pending`, `row.setX`) is in literalValue with an empty potentialQualifiedName — 36k of 60k references in the parser repo
     expr=dict(file='all-typescript-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'tsModuleLinkHash'),
               refKinds={'IDENTIFIER_REFERENCE', 'PROPERTY_ACCESS'}, entityKind='referencedEntityKind',
+              # the key of an object literal (`{ eventId: … }`) is stored with the entity kind OBJECT_PROPERTY_KEY, not
+              # UNKNOWN: it is never a property ACCESS, so an access the engine bound on the same line is not this name
+              keyRole=dict(role='edgeRole', value='OBJECT_PROPERTY_KEY'),
               litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
@@ -573,6 +576,7 @@ c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 e = A['expr']; refs = []; lits = []
 namecol = e['name'] if isinstance(e['name'], str) else dict(x.split(':') for x in e['name'])
 mname = e.get('memberName'); child_ek = {}
+kr = e.get('keyRole')
 if mname:   # the member-name child's entity kind, for the access that stands for it (the parent's own is UNKNOWN until resolved)
     for r in rows(e['file']):
         if r.get(mname['role']) == mname['value'] and r.get(mname['parent']): child_ek[r[mname['parent']]] = r.get(e['entityKind'], '')
@@ -591,6 +595,7 @@ for r in rows(e['file']):
         n = n.rsplit('.', 1)[-1]
         ek = r.get(e['entityKind'], '')
         if mname and ek in ('', 'UNKNOWN'): ek = child_ek.get(r.get(mname['id'], ''), ek) or ek
+        if kr and ek in ('', 'UNKNOWN') and r.get(kr['role']) == kr['value']: ek = kr['value']
         refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, ek))
     elif k in e['litKinds'] and r.get(e['litType'][0]) == e['litType'][1]:
         v = (r.get(e['litValue']) or '')
