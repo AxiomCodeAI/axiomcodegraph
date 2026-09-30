@@ -1,8 +1,8 @@
 78-cross-process-destinations [fields]
   precision 0.0000   (0 correct, 0 wrong)
   recall    0.0000   (0 of 1 the compiler resolved)
-  sites 1   resolved 0 (0.0%)
-  tiers ambiguous_unknown=1
-  access read=1
-  not scored: 1 rows whose target is not a client declaration
+  sites 18   resolved 17 (94.4%)
+  tiers ambiguous_unknown=1  known_edge=17
+  access read=18
+  not scored: 18 rows whose target is not a client declaration
     MISSING client/client#dailyReport(string) READ shared/config#reportsUrl

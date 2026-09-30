@@ -100,7 +100,9 @@ A = {
               litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
-    decls=[dict(file='all-typescript-variables.csv', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
+    # the variable's own hash: the engine's field_access names a module variable by it when an identifier the binder
+    # tied to it (directly, or through an import binding) reads it
+    decls=[dict(file='all-typescript-variables.csv', id='tsVariableUniqueHash', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
                 kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-fields.csv', id='tsFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
@@ -137,7 +139,7 @@ A = {
     # a `function f` or `class C` is also a binding (FUNCTION_DECLARATION_HOISTED, CLASS_TDZ), and `const { C } =
     # require('./m')` is an import in all but syntax (it carries an importLinkHash): none of them is a variable, and
     # each made the function or class it names look declared as a second kind, so `impact C` refused as ambiguous
-    decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
+    decls=[dict(file='all-javascript-variables.csv', id='jsVariableUniqueHash', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
                 kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
            # a field's owner is its class by hash (`this.x = …` in a constructor, a class field, `F.prototype.x = …`), so it
            # displays as `Store.items`, not `items`; a computed key (`[Symbol.iterator] = …`) is named by its key expression

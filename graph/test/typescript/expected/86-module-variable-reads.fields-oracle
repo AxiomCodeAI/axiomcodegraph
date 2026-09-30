@@ -1,0 +1,15 @@
+86-module-variable-reads [fields]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 8 the compiler resolved)
+  sites 21   resolved 13 (61.9%)
+  tiers ambiguous_unknown=8  known_edge=13
+  access read=19  readwrite=1  write=1
+  not scored: 21 rows whose target is not a client declaration
+    MISSING Handler#handle(unknown) READ a/src/cfg#Store
+    MISSING a/src/cfg#localUse() READ a/src/cfg#name
+    MISSING a/test/t#annotated(typeof CFG) READ a/src/cfg#name
+    MISSING a/test/t#inTemplate() READ a/src/cfg#Store
+    MISSING a/test/t#inTemplate() READ a/src/cfg#name
+    MISSING a/test/t#shadowed() READ a/test/t#name
+    MISSING a/test/t#viaMember() READ a/src/cfg#name
+    MISSING b/test/sibling#siblingRead() READ b/src/settings#port
