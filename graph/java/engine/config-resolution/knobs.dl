@@ -513,3 +513,17 @@ cfg_entity_callback_ann("PreUpdate", "update").    cfg_entity_callback_ann("Post
 cfg_entity_callback_ann("PreRemove", "remove").    cfg_entity_callback_ann("PostRemove", "remove").
 // a type annotation whose class arguments are listener classes
 cfg_entity_listeners_ann("EntityListeners").
+
+// ── (22) EXCEPTION HANDLERS: a built exception runs the @ExceptionHandler for it ──
+// A web framework hands an exception that leaves a request handler to the handler
+// method declared for its type: one in the same controller, or one in an advice class
+// for every controller. No call site names the handler
+// (call-edge-generation/exception_handlers.dl).
+//
+// cfg_exh_ann(Name): a method annotation that makes the method an exception handler
+// for the types named in cfg_exh_arg, or, with none named, for its parameter's type.
+cfg_exh_ann("ExceptionHandler").
+cfg_exh_arg("value").   cfg_exh_arg("exception").
+// cfg_exh_advice_ann(Name): a type annotation whose handlers serve every controller.
+cfg_exh_advice_ann("ControllerAdvice").
+cfg_exh_advice_ann("RestControllerAdvice").
