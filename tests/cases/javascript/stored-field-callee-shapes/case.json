@@ -241,7 +241,7 @@
     "Store.find"
    ],
    "want": [
-    "→ [multi_inferred · call @ src/shapes.js:44] Store.find"
+    "→ [known_edge · call @ src/shapes.js:44] Store.find"
    ],
    "avoid": [
     "the two are independent in this graph"
@@ -255,7 +255,7 @@
     "Store.find"
    ],
    "want": [
-    "→ [multi_inferred · call @ src/shapes.js:45] Store.find"
+    "→ [known_edge · call @ src/shapes.js:45] Store.find"
    ],
    "avoid": []
   },
