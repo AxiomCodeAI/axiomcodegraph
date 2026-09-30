@@ -1,0 +1,22 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "Python: the receiver's type is set from an __init__ parameter of its OWN class, not the same-named attribute another class in the file annotates",
+   "run": [
+    "impact",
+    "py/gateway.py:2",
+    "--evidence",
+    "--grep"
+   ],
+   "want": [
+    "py/billing.py:33: return self.gw.charge(-amount)",
+    "decided  L30: self.gw = gw  [assigned]"
+   ],
+   "avoid": [
+    "def __init__(self, gw: Gateway):  [constructor parameter"
+   ]
+  }
+ ]
+}
