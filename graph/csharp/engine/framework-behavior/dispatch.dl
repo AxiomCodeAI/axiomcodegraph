@@ -38,10 +38,31 @@ med_handler(m, bn, tn, ar) :- heritage_slot("client", t, _, bn0, ba, href), (ba 
 // A send: a dispatching method on a mediator receiver, with the request as its first
 // argument. The method decides which handler base answers it (Send: IRequestHandler,
 // Publish: INotificationHandler), so a notification Sent reaches no notification handler.
-med_send_site(e, from, bn, fan) :- msg_recv_name(e, rn), cs_med_sender_type(rn),
+med_send_direct(e, from, bn, fan) :- msg_recv_name(e, rn), cs_med_sender_type(rn),
     call_callee_name("client", e, sn), cs_med_dispatch(sn, bn, fan), call_from("client", e, from).
-med_send_arg(e, a) :- med_send_site(e, _, _, _), http_arg(e, 0, a).
+med_send_site(e, from, bn, fan) :- med_send_direct(e, from, bn, fan).
+med_send_arg(e, a) :- med_send_direct(e, _, _, _), http_arg(e, 0, a).
 msg_typed_arg(a) :- med_send_arg(_, a).
+
+// A SEND HELPER: a method that hands one of its own PARAMETERS to a send, the way a test
+// base writes `static Task<T> SendAsync<T>(IRequest<T> request) => sender.Send(request)`.
+// Inside the helper the request is typed as the interface, which names no handler (and
+// med_send_declared rightly refuses to fan an interface over every request), so every
+// test that went through the helper reached no handler: impact on a handler counted
+// 0 tests where each test sends its request by name.
+//
+// The request's type is carried to the helper's CALL SITES: a call resolved to the
+// helper is itself a send, of the same handler base, whose request is the argument at
+// the parameter's position. The edge starts at the caller, so each test reaches only the
+// handler of the request it wrote. A helper of a helper is covered by the same two rules
+// (med_send_site is recursive). A method that takes a request and does not send it is
+// not a helper: the parameter must reach a send's request position.
+med_helper(h, i, bn, fan) :- med_send_site(e, h, bn, fan), med_send_arg(e, a),
+    ref_denotes("client", a, "PARAMETER", p), param_decl("client", h, pos, _, p), i = to_number(pos).
+med_helper_call(c, from, bn, fan, i) :- med_helper(h, i, bn, fan), expr_resolves_to_method("client", c, h),
+    call_from("client", c, from), from != h.
+med_send_site(c, from, bn, fan) :- med_helper_call(c, from, bn, fan, _).
+med_send_arg(c, a) :- med_helper_call(c, _, _, _, i), http_arg(c, i, a).
 
 // A name is a BASE when some handled request type derives from it. A request declared
 // as the base (a parameter, a local) is any of them at run time: it is not matched by
