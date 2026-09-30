@@ -1,0 +1,109 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a registered implementation is injected into every constructor that takes its service",
+   "run": [
+    "impact",
+    "SystemClock",
+    "--kind",
+    "type",
+    "--grep"
+   ],
+   "want": [
+    "src/App/Consumers.cs:12",
+    "src/App/Consumers.cs:3"
+   ],
+   "avoid": [
+    "src/App/Consumers.cs:24"
+   ]
+  },
+  {
+   "why": "the row says which registration hands it over",
+   "run": [
+    "impact",
+    "SystemClock",
+    "--kind",
+    "type"
+   ],
+   "want": [
+    "receives it by dependency injection (AddScoped<IClock, SystemClock>)"
+   ]
+  },
+  {
+   "why": "another registration joins its own service's consumer only",
+   "run": [
+    "impact",
+    "IsoFormatter",
+    "--kind",
+    "type",
+    "--grep"
+   ],
+   "want": [
+    "src/App/Consumers.cs:24"
+   ],
+   "avoid": [
+    "src/App/Consumers.cs:12",
+    "src/App/Consumers.cs:3:"
+   ]
+  },
+  {
+   "why": "near miss: an implementation of the same service that no registration names is injected nowhere",
+   "run": [
+    "impact",
+    "FixedClock",
+    "--kind",
+    "type"
+   ],
+   "avoid": [
+    "receives it by dependency injection",
+    "Reporter.<constructor>"
+   ]
+  },
+  {
+   "why": "control: the constructor-level answer names the consumers as a framework hop",
+   "run": [
+    "impact",
+    "src/App/Clocks.cs:15",
+    "--grep"
+   ],
+   "want": [
+    "src/App/Consumers.cs:12",
+    "[framework]"
+   ]
+  },
+  {
+   "why": "a test that builds the consumer with a mock of the service does not run the registered implementation",
+   "run": [
+    "impact",
+    "SystemClock",
+    "--kind",
+    "type",
+    "--tests-only"
+   ],
+   "want": [
+    "ReporterWithRealClockTests::StampsWithTheSystemClock",
+    "hold as a mock (IClock)",
+    "tests: 1 of 2"
+   ]
+  },
+  {
+   "why": "control: the mocking test still reaches the consumer it builds",
+   "run": [
+    "impact",
+    "Reporter",
+    "--kind",
+    "type",
+    "--tests-only"
+   ],
+   "want": [
+    "ReporterTests::StampsWithAMockedClock",
+    "ReporterWithRealClockTests::StampsWithTheSystemClock"
+   ],
+   "avoid": [
+    "hold as a mock"
+   ]
+  }
+ ]
+}

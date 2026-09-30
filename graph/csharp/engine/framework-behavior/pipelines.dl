@@ -131,3 +131,27 @@ pl_wrap_detail(e, mn) :- pl_wrap_site(e, _), pl_site(e, mn, "*").
 pl_wrap_detail(e, d) :- pl_wrap_site(e, _), pl_site(e, mn, rm), rm != "*", d = cat(rm, cat(".", mn)).
 framework_edge(h, m, "pipeline_wrap", d, "registered") :- pl_wraps(h, e), pl_registers(e, gk), pl_hook(gk, m),
     pl_wrap_detail(e, d), h != m.
+
+// ── 4. A REGISTERED IMPLEMENTATION IS BUILT FOR EVERY CONSUMER OF ITS SERVICE ─
+// `services.AddScoped<IUser, CurrentUser>()` and `class AuditInterceptor(IUser user)`:
+// the container constructs CurrentUser to pass it to AuditInterceptor's constructor, and
+// every call AuditInterceptor makes on `user` runs CurrentUser's code. No call site says
+// so, so `impact CurrentUser` listed only the registration line, found by name. The
+// consumer's constructor depends on the implementation's: framework_edge(ConsumerCtor,
+// ImplCtor, "di_inject", "AddScoped<IUser, CurrentUser>", "registered"), which impact
+// reads as a `framework` dependent, as it reads a pipeline filter. Only where both type
+// arguments resolve and the consumer's parameter resolves to the service type itself;
+// a type with no declared constructor has no constructor to depend on and gets no edge.
+di_type_arg(e, pos, gk) :- csite("client", e), call_callee_name("client", e, n), cs_di_register(n),
+    type_ref_owner("client", tr, e, "EXPRESSION"), type_ref_context("client", tr, "METHOD_TYPE_ARGUMENT"),
+    !type_ref_parent("client", tr, _, _, _), type_ref_root_position("client", tr, pos), type_ref_resolves("client", tr, gk).
+di_reg(e, sgk, igk) :- di_type_arg(e, "0", sgk), di_type_arg(e, "1", igk), sgk != igk.
+di_consumer(ctor, sgk) :- di_reg(_, sgk, _), method_is_ctor("client", ctor), param_decl("client", ctor, _, _, p),
+    type_ref_owner("client", tr, p, "METHOD_PARAMETER"), !type_ref_parent("client", tr, _, _, _),
+    type_ref_resolves("client", tr, sgk).
+di_name(gk, n) :- di_reg(_, gk, _), type_group("client", t, gk), type_decl("client", n, _, _, _, t).
+di_name(gk, n) :- di_reg(_, _, gk), type_group("client", t, gk), type_decl("client", n, _, _, _, t).
+di_detail(e, d) :- di_reg(e, sgk, igk), call_callee_name("client", e, mn), di_name(sgk, sn), di_name(igk, im),
+    d = cat(mn, cat("<", cat(sn, cat(", ", cat(im, ">"))))).
+framework_edge(c, m, "di_inject", d, "registered") :- di_reg(e, sgk, igk), di_consumer(c, sgk), type_ctor("client", igk, m),
+    di_detail(e, d), c != m, !method_in_type("client", igk, c).
