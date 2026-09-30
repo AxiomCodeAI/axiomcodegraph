@@ -3629,7 +3629,9 @@ function variableScopeKindOf(
  * values, through `as const`, `satisfies T`, parentheses and `Object.freeze(…)`.
  * Only a `const` bound to a plain name: a `let` can be reassigned, and a
  * destructuring has no one name to own the keys. Not an annotated one either:
- * `const c: Config = { … }` has Config's members, which the compiler names.
+ * `const c: Config = { … }` has Config's members, which the compiler names —
+ * unless the annotation names no member at all (`Record<Currency, number>`,
+ * `{ [k: string]: T }`), where the literal's keys are the only declarations.
  */
 function constObjectTableOf(
   declaration: ts.VariableDeclaration,
@@ -3637,7 +3639,8 @@ function constObjectTableOf(
   context: EmitContext
 ): { literal: ts.ObjectLiteralExpression; isReadonly: boolean } | undefined {
   if (!list || (list.flags & ts.NodeFlags.Const) === 0 || !ts.isIdentifier(declaration.name)
-    || declaration.initializer === undefined || declaration.type !== undefined) {
+    || declaration.initializer === undefined
+    || (declaration.type !== undefined && !declaresNoMember(declaration.type))) {
     return undefined;
   }
   const scope = variableScopeKindOf(context, declaration);
@@ -3645,6 +3648,22 @@ function constObjectTableOf(
     return undefined;
   }
   return objectTableOf(declaration.initializer);
+}
+
+/** A map type that names no member of its own: `Record<K, V>` (through `Readonly`,
+ *  `Partial`, `Required`) or a type literal of index signatures only. */
+function declaresNoMember(type: ts.TypeNode): boolean {
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
+    const name = type.typeName.text;
+    if (name === 'Record') {
+      return true;
+    }
+    if ((name === 'Readonly' || name === 'Partial' || name === 'Required') && type.typeArguments?.length === 1) {
+      return declaresNoMember(type.typeArguments[0]!);
+    }
+    return false;
+  }
+  return ts.isTypeLiteralNode(type) && type.members.length > 0 && type.members.every(ts.isIndexSignatureDeclaration);
 }
 
 function objectTableOf(
