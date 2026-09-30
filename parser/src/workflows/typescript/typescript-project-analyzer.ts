@@ -27,6 +27,8 @@ import {
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
 import { extractTsPackageEntries } from '@/parsers/typescript/ts-package-entry-extractor';
+import { WorkspacePackages } from '@/parsers/typescript/workspace-packages';
+import { WorkspaceModule } from '@/parsers/typescript/extractors/ts-import-extractor';
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
 import { TsRelationWriter } from './ts-relation-writer';
 import { EntityUtils } from '@/utils/entity-utils';
@@ -265,6 +267,34 @@ export class TypeScriptProjectAnalyzer {
     }
     const toProjectRelative = (absolutePath: string): string =>
       stripExtension(toRelative(pathAnchor, absolutePath));
+    // A sibling package imported by its name binds to the source its entry is built
+    // from. That source may belong to another program under the same anchor, whose
+    // module hash is the same pure function of its path; a source file outside the
+    // anchor or under a skipped directory is walked by no program and binds nothing.
+    const workspacePackages = this.workspacePackagesAt(pathAnchor);
+    const sourceModuleHashOf = (absolutePath: string): string | undefined => {
+      const inProgram = projectModuleHashes.get(absolutePath);
+      if (inProgram !== undefined) {
+        return inProgram;
+      }
+      const relative = path.relative(pathAnchor, absolutePath);
+      if (relative.startsWith('..') || path.isAbsolute(relative) || /\.d\.(m|c)?ts$/.test(relative)
+        || relative.split(path.sep).some((segment) => excludes.has(segment))
+        || !fs.existsSync(absolutePath)) {
+        return undefined;
+      }
+      return moduleHashFor(toRelative(pathAnchor, absolutePath), options.baseMservPath, serviceVersionLinkHash);
+    };
+    const workspaceResolutions = new Map<string, WorkspaceModule | undefined>();
+    const resolveWorkspaceModule = (specifier: string): WorkspaceModule | undefined => {
+      if (workspacePackages.size === 0) {
+        return undefined;
+      }
+      if (!workspaceResolutions.has(specifier)) {
+        workspaceResolutions.set(specifier, workspacePackages.resolve(specifier, sourceModuleHashOf));
+      }
+      return workspaceResolutions.get(specifier);
+    };
 
     // Skips accumulate across the programs one analyzePrograms call drives; a
     // standalone analyze starts its own list.
@@ -332,6 +362,7 @@ export class TypeScriptProjectAnalyzer {
           packageName: '',
           projectModuleHashes,
           toProjectRelative,
+          resolveWorkspaceModule,
         });
       } catch (error) {
         // An extraction error is a DEFECT, never a decision. Counted apart from
@@ -536,6 +567,18 @@ export class TypeScriptProjectAnalyzer {
 
   /** Distinguishes concurrent writes within one process; the pid does the rest. */
   private writeSequence = 0;
+
+  /** The packages declared under each path anchor, found once for every program under it. */
+  private readonly workspacePackages = new Map<string, WorkspacePackages>();
+
+  private workspacePackagesAt(anchor: string): WorkspacePackages {
+    let found = this.workspacePackages.get(anchor);
+    if (found === undefined) {
+      found = WorkspacePackages.discover(anchor, new Set<string>(TS_SKIP_DIRECTORIES));
+      this.workspacePackages.set(anchor, found);
+    }
+    return found;
+  }
 
   private async exportSkippedFilesCsv(outputDir: string): Promise<void> {
     const header = ['filePath', 'baseMservPath', 'serviceVersionLinkHash', 'reason', 'detail']

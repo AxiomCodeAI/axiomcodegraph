@@ -1,0 +1,11 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a dict of type -> handler, keyed by a class constant or by the string itself: impact of the publisher lists the handler registered under the type it publishes [by key], and not the handler of another type",
+   "run": ["impact", "create", "--grep"],
+   "want": ["app/handlers.py:4", "[by key]"],
+   "avoid": ["app/handlers.py:8"]},
+  {"why": "the test that publishes the type through the service reaches the handler; a test that writes another type does not",
+   "run": ["impact", "on_created", "--tests-only"],
+   "want": ["tests/test_service.py", "by key"],
+   "avoid": ["tests/test_other.py"]}
+ ]}

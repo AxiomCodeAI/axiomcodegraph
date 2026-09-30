@@ -121,10 +121,11 @@ def directive(hits):
     named = ', '.join(f"`{h[1]}` ({h[2]}:{h[3]})" for h in hits[:3])
     # short on purpose: it is read once and then re-read on every later turn
     return (
-        f"graph: this search is for {named}. Who calls it and what a change breaks,\n"
-        f"  with the callers that never spell the name (an interface, an override, a callback, DI):\n"
-        f"  axiomcode_impact targets=[\"{at}\"] (`axiomcode impact {at}`). Also axiomcode_path (how A reaches B,\n"
-        f"  `axiomcode path A B`), axiomcode_context (a task in words, `axiomcode context \"<task>\"`). Said once this session."
+        f"graph: this search is for {named}. Who calls it and what a change breaks, each with its code,\n"
+        f"  including the callers that never spell the name (an interface, an override, a callback, DI):\n"
+        f"  impact(name=\"{at}\") (mcp__plugin_axiomcode_axiomcode__impact; shell `axiomcode impact {at}`). Also\n"
+        f"  path(start, end) for how A reaches B (`axiomcode path A B`), find(question) for a task in words\n"
+        f"  (`axiomcode find \"<task>\"`). Said once this session."
     )
 
 

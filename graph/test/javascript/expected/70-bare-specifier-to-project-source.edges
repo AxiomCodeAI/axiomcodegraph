@@ -1,0 +1,35 @@
+bundler-alias/legacy/app.js:10:3 FUNCTION_CALL loose  ->  ambiguous_unknown  -
+bundler-alias/legacy/app.js:11:10 FUNCTION_CALL trim  ->  known_edge  bundler-alias/legacy/lib/util/trim.js:1:1 trim
+bundler-alias/legacy/app.js:8:3 FUNCTION_CALL boot  ->  known_edge  bundler-alias/legacy/lib/index.js:1:1 boot
+bundler-alias/legacy/app.js:9:3 FUNCTION_CALL extra  ->  ambiguous_unknown  -
+bundler-alias/legacy/lib/util/trim.js:2:10 METHOD_CALL s.trim  ->  ambiguous_unknown  -
+bundler-alias/legacy/webpack.config.cjs:7:13 METHOD_CALL path.resolve  ->  ambient_terminal  -
+bundler-alias/legacy/webpack.config.cjs:8:13 METHOD_CALL path.join  ->  ambient_terminal  -
+bundler-alias/mapped/probe.js:5:10 FUNCTION_CALL fmtDate  ->  known_edge  bundler-alias/mapped/own/date.js:1:1 fmtDate
+bundler-alias/shared/fmt.js:2:10 METHOD_CALL n.toFixed  ->  ambiguous_unknown  -
+bundler-alias/src/pages/Home.js:10:3 FUNCTION_CALL scoped  ->  ambiguous_unknown  -
+bundler-alias/src/pages/Home.js:11:10 FUNCTION_CALL fmtDate  ->  known_edge  bundler-alias/src/utils/date.js:1:1 fmtDate
+bundler-alias/src/pages/Home.js:9:3 FUNCTION_CALL fmtMoney  ->  known_edge  bundler-alias/shared/fmt.js:1:1 fmtMoney
+bundler-alias/src/utils/date.js:2:10 FUNCTION_CALL String  ->  ambient_terminal  -
+bundler-alias/vite.config.js:10:18 FUNCTION_CALL fileURLToPath  ->  ambient_terminal  -
+bundler-alias/vite.config.js:10:32 CONSTRUCTOR_CALL URL  ->  ambient_terminal  -
+bundler-alias/vite.config.js:6:16 FUNCTION_CALL defineConfig  ->  ambiguous_unknown  -
+bundler-alias/vite.config.js:6:16 FUNCTION_CALL defineConfig  ->  callback_registered  bundler-alias/vite.config.js:6:29 <arrow>
+bundler-alias/vite.config.js:9:12 METHOD_CALL path.resolve  ->  ambient_terminal  -
+framework-alias/kit/src/routes/page.js:10:10 FUNCTION_CALL post  ->  known_edge  framework-alias/kit/src/lib/api.js:5:1 post
+framework-alias/kit/src/routes/page.js:6:10 METHOD_CALL api.get  ->  known_edge  framework-alias/kit/src/lib/api.js:1:1 get
+framework-alias/nuxt/server/api/price.js:6:10 FUNCTION_CALL formatPrice  ->  known_edge  framework-alias/nuxt/utils/price.js:1:1 formatPrice
+framework-alias/nuxt/server/api/price.js:6:27 FUNCTION_CALL viaAt  ->  known_edge  framework-alias/nuxt/utils/price.js:1:1 formatPrice
+framework-alias/nuxt4/app/pages/index.js:5:10 FUNCTION_CALL formatDate  ->  known_edge  framework-alias/nuxt4/app/utils/date.js:1:1 formatDate
+framework-alias/other/probe.js:5:10 FUNCTION_CALL helper  ->  ambiguous_unknown  -
+framework-alias/own/probe.js:5:10 FUNCTION_CALL pick  ->  known_edge  framework-alias/own/shared/util.js:1:1 pick
+jsconfig-paths/app.js:11:10 FUNCTION_CALL checkB  ->  known_edge  jsconfig-paths/lib/check.js:5:1 checkB
+jsconfig-paths/app.js:7:10 FUNCTION_CALL checkA  ->  known_edge  jsconfig-paths/lib/check.js:1:1 checkA
+jsconfig-paths/noalias/probe.js:5:10 FUNCTION_CALL checkA  ->  ambiguous_unknown  -
+jsconfig-paths/remix/app/route.js:5:10 FUNCTION_CALL getNote  ->  known_edge  jsconfig-paths/remix/app/models/note.server.js:1:1 getNote
+workspace-package/apps/app/src/main.js:10:3 FUNCTION_CALL deep  ->  known_edge  workspace-package/packages/tools/src/deep.js:1:1 deep
+workspace-package/apps/app/src/main.js:11:3 CONSTRUCTOR_CALL Bus  ->  implicit_constructor  -
+workspace-package/apps/app/src/main.js:11:3 METHOD_CALL new Bus().publish  ->  known_edge  workspace-package/packages/lib/src/index.js:6:3 publish
+workspace-package/apps/app/src/main.js:12:10 FUNCTION_CALL outside  ->  ambiguous_unknown  -
+workspace-package/apps/app/src/main.js:8:3 FUNCTION_CALL f  ->  known_edge  workspace-package/packages/lib/src/index.js:1:1 f
+workspace-package/apps/app/src/main.js:9:3 FUNCTION_CALL g  ->  known_edge  workspace-package/packages/lib/src/sub/index.js:1:1 g

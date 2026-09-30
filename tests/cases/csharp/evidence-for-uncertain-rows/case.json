@@ -1,0 +1,21 @@
+{
+ "lang": "csharp",
+ "src": ".",
+ "checks": [
+  {
+   "why": "C#: a dynamic field is why the call is a name-match; the resolved call on the typed field beside it gets nothing",
+   "run": [
+    "impact",
+    "cs/Stock.cs:5",
+    "--evidence",
+    "--grep"
+   ],
+   "want": [
+    "decided  L11: private readonly dynamic _meter;  [field \u00b7 type dynamic]"
+   ],
+   "avoid": [
+    "decided  L10"
+   ]
+  }
+ ]
+}

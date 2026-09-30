@@ -173,8 +173,8 @@ def main(argv):
         h = sh(ROOT, 'bash', AX, 'help', 'graph', env=env)
         check(h.returncode == 0 and 'axiomcode graph [<repo>]' in h.stdout and 'axiomcode-graph build' not in h.stdout and 'as it was indexed' in h.stdout,
               '`axiomcode help graph` names the verb agents call and says a stale graph is rebuilt as it was indexed', h.stdout)
-        doc = open(MCP).read(); i = doc.index('def axiomcode_graph('); doc = doc[i:i + 1200]
-        check('it was indexed with' in doc and 'absolute path' in doc, 'the MCP axiomcode_graph description says the same', doc)
+        # graph is internal: not an MCP tool (tests/surfaces.py holds the list of public verbs)
+        check('def graph(' not in open(MCP).read(), 'graph is not offered as an MCP tool', '')
     finally:
         shutil.rmtree(work, ignore_errors=True)
     print(f"\n{'FAIL' if fails else 'ok'}: {len(fails)} of the checks above failed" if fails else '\nok: every check passed')

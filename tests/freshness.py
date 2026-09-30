@@ -813,33 +813,22 @@ def mcp_checks():
     m = importlib.util.module_from_spec(spec)
     import io, contextlib
     with contextlib.redirect_stderr(io.StringIO()): spec.loader.exec_module(m)
-    check("mcp: context, path and impact take fresh", all('fresh' in m.PARAMS.get(t, []) for t in ('axiomcode_context', 'axiomcode_path', 'axiomcode_impact')),
-          {t: m.PARAMS.get(t) for t in ('axiomcode_context', 'axiomcode_path', 'axiomcode_impact')})
+    # THE SMALL SURFACE takes no options: freshness is the dispatcher's own (a query waits briefly, or answers from the
+    # last graph and says so), so no tool takes fresh or refresh, and none passes --fresh or --no-refresh
+    tools = ('find', 'impact', 'path', 'tests')
+    check("mcp: no tool takes fresh or refresh", not any(p in m.PARAMS.get(t, []) for t in tools for p in ('fresh', 'refresh'))
+          and all(t in m.PARAMS for t in tools), {t: m.PARAMS.get(t) for t in tools})
     seen = []
     m.run = lambda args, *a, **k: seen.append(args) or ''
-    fn = lambda name: getattr(m, name)
-    try:
-        fn('axiomcode_impact')(['X'], repo='.', fresh=True); fn('axiomcode_path')('A', 'B', fresh=True); fn('axiomcode_context')('t', fresh=True)
-        fn('axiomcode_impact')(['X'], repo='.')
-    except TypeError as e:
-        seen.append(str(e))
-    check("mcp: fresh=true passes --fresh to the CLI, and only when asked",
-          len(seen) == 4 and all('--fresh' in s for s in seen[:3]) and '--fresh' not in seen[3], seen)
+    m.find('t'); m.impact('X'); m.impact(); m.path('A', 'B'); m.tests()
+    check("mcp: no tool passes --fresh or --no-refresh", len(seen) == 5 and not any(a in s for s in seen for a in ('--fresh', '--no-refresh')), seen)
+    check("mcp: fresh=true is refused as an unknown argument, not dropped",
+          'fresh: unexpected argument' in (m.unknown_arguments('impact', {'name': 'X', 'fresh': True}) or ''),
+          m.unknown_arguments('impact', {'name': 'X', 'fresh': True}))
     check("mcp: an answer's --fresh is written as the parameter", 'fresh=True' in m.mcp_words('ask again with --fresh to wait'),
           m.mcp_words('ask again with --fresh to wait'))
-    tools = ('axiomcode_context', 'axiomcode_path', 'axiomcode_impact', 'axiomcode_changed', 'axiomcode_test_impact', 'axiomcode_graph')
-    check("mcp: every query tool takes refresh", all('refresh' in m.PARAMS.get(t, []) for t in tools), {t: m.PARAMS.get(t) for t in tools})
-    seen.clear()
-    fn('axiomcode_impact')(['X'], refresh=False); fn('axiomcode_path')('A', 'B', refresh=False); fn('axiomcode_context')('t', refresh=False)
-    fn('axiomcode_changed')(refresh=False); fn('axiomcode_test_impact')(refresh=False); fn('axiomcode_graph')(refresh=False)
-    fn('axiomcode_impact')(['X']); fn('axiomcode_changed')(); fn('axiomcode_graph')()
-    check("mcp: refresh=false passes --no-refresh to the CLI, and only when asked",
-          len(seen) == 9 and all('--no-refresh' in s for s in seen[:6]) and not any('--no-refresh' in s for s in seen[6:]), seen)
     w = m.mcp_words('pass --no-refresh (MCP refresh=false) to query without rebuilding')
     check("mcp: an answer's --no-refresh is written as refresh=False", 'refresh=False' in w and '--no-refresh' not in w, w)
-    check("mcp: the CLI's no_refresh is refused, naming refresh", 'refresh' in (m.unknown_arguments('axiomcode_impact', {'no_refresh': True}) or ''),
-          m.unknown_arguments('axiomcode_impact', {'no_refresh': True}))
-
 
 if __name__ == '__main__':
     prune_checks(); marks_checks(); wait_checks(); engine_checks(); per_language_checks(); newer_checks(); read_only_checks(); cap_checks(); lock_checks(); named_checks(); mcp_checks()

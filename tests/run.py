@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/run.py [<case> …] [--lang java|python|typescript|javascript] [--keep] [-v]
+"""tests/run.py [<case> …] [--lang java|python|typescript|javascript] [--keep] [-v] [--jobs N]
 
 What the plugin CLAIMS to find, checked on code that is small enough to read. Each case is a directory under
 tests/cases/<language>/<name>/ holding a tiny synthetic project and a case.json:
@@ -32,26 +32,29 @@ Four other keys a check may carry:
   and neither announces itself as a want/avoid mismatch. If anyone ever "simplifies" `pending` into a skip, that is
   the property they will have removed.
 """
-import json, os, re, shutil, subprocess, sys
+import builtins, concurrent.futures, io, json, os, re, shutil, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 AX = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode')
 args = sys.argv[1:]; keep = '--keep' in args; verbose = '-v' in args
 lang = args[args.index('--lang') + 1] if '--lang' in args else None
-only = [a for a in args if not a.startswith('-') and a not in (lang,)]
+jobs = int(args[args.index('--jobs') + 1]) if '--jobs' in args else 1
+only = [a for a in args if not a.startswith('-') and a not in (lang, str(jobs))]
 cases = []
 for l in sorted(os.listdir(os.path.join(HERE, 'cases'))):
     if lang and l != lang: continue
     d = os.path.join(HERE, 'cases', l)
     for c in sorted(os.listdir(d)):
         if os.path.isfile(os.path.join(d, c, 'case.json')) and (not only or c in only or l in only): cases.append((l, c, os.path.join(d, c)))
-fail = tot = pend = 0
-for l, name, path in cases:
+def run_case(case):
+    """one case: index it, run its checks; its output as one block and its counts, so cases can run side by side"""
+    l, name, path = case; buf = io.StringIO(); fail = tot = pend = 0
+    def print(*a, flush=False, **k): builtins.print(*a, file=buf, **k)
     print(f"… {l}/{name}", flush=True)
     spec = json.load(open(os.path.join(path, 'case.json')))
     build = ['bash', AX, 'index', path, '--lang', spec.get('lang', l)] + (['--src', spec['src']] if spec.get('src') else []) \
         + (['--library', os.path.join(path, spec['library'])] if spec.get('library') else [])   # a staged dependency root, relative to the case
     r = subprocess.run(build, capture_output=True, text=True)
-    if r.returncode: print(f"FAIL {l}/{name}: index failed: {(r.stderr or r.stdout)[-300:]}"); fail += 1; continue
+    if r.returncode: print(f"FAIL {l}/{name}: index failed: {(r.stderr or r.stdout)[-300:]}"); return buf.getvalue(), 0, 1, 0
     for stmt in spec.get('sql', []):                                  # facts a framework extension would have written
         subprocess.run(['sqlite3', os.path.join(path, '.axiomcode', 'out', 'graph.sqlite'), stmt], capture_output=True, text=True)
     for ch in spec['checks']:
@@ -97,5 +100,17 @@ for l, name, path in cases:
             print('     ' + '\n     '.join(text.strip().split('\n')[:14]))
         elif verbose: print(f"ok   {l}/{name}: {ch['why']}")
     if not keep: shutil.rmtree(os.path.join(path, '.axiomcode'), ignore_errors=True)
+    return buf.getvalue(), tot, fail, pend
+
+
+# CASES RUN SIDE BY SIDE with --jobs N: each indexes its own directory and shares nothing but the compiled rules, so the
+# first case runs alone (it compiles and caches them) and the rest run N at a time. Output is printed in case order.
+fail = tot = pend = 0
+def report(res):
+    global fail, tot, pend
+    text, t, f, p = res; sys.stdout.write(text); sys.stdout.flush(); tot += t; fail += f; pend += p
+if cases: report(run_case(cases[0]))
+with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
+    for res in ex.map(run_case, cases[1:]): report(res)
 print(f"\n{tot - fail - pend} of {tot} check(s) passed in {len(cases)} case(s)" + (f" - {pend} PENDING" if pend else '') + ('' if not fail else f" - {fail} FAILED"))
 sys.exit(1 if fail else 0)
