@@ -557,6 +557,11 @@ class Impact:
             tids = self.types(base, soft=True)
             if tids: self.WHY['type'] = self._why_t.get(base)
             if tids: out.append(('type', f"{self.g.sym[tids[0]]['kind']} {self.g.disp(tids[0])}" + (f" (+{len(tids)-1})" if len(tids) > 1 else ''), tids))
+            # the same rule as a method below: a field whose display IS the spelling (`TOKENS.OutboxRelay`, a key of a
+            # const table) wins over a type types() found only by dropping the leading segment (class OutboxRelay)
+            if tids and out[0][0] == 'field' and any(r.get('display') == base for r in out[0][2]) \
+                    and not any(self.g.sym[t]['display'] == base for t in tids):
+                out = [o for o in out if o[0] != 'type']
         # a const declared ON the line is the declaration written there: the enclosing module spans the line and a
         # function in its initializer (`const h = wrap(async (req, res) => …)`) starts on it, and neither is what was asked
         # — unless that function IS the const (`const h = async (req, res) => …` is named `h`), which stays the method.
