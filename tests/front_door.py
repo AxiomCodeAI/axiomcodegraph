@@ -32,6 +32,7 @@ FILES = {
     'shop/pricing.py': ('from shop.rates import vat_rate\n\n\n'
                         'def total(prices):\n    net = sum(prices)\n    return net * (1 + vat_rate())\n\n\n'
                         'def invoice(prices):\n    return {"total": total(prices), "net": sum(prices)}\n'),
+    'shop/db.py': 'def configure_pool():\n    return 4\n',
     'tests/__init__.py': '',
     'tests/test_pricing.py': ('from shop.pricing import invoice\n\n\n'
                               'def test_invoice_total():\n    assert abs(invoice([10])["total"] - 12) < 1e-9\n'),
@@ -119,6 +120,19 @@ def main():
         last = [l for l in out.splitlines() if l.strip()][-1:] or ['']
         check('tests: the reached test as a numbered place with its code', rc == 0 and places(out) and 'tests/test_pricing.py' in out, out[:600] + err[-300:])
         check('tests: the answer ends with the "run:" line', last[0].startswith('run:') and 'test_pricing' in last[0], last)
+
+        # an edit no test reaches is said in a sentence, never printed as the verb's JSON document
+        with open(os.path.join(repo, 'shop', 'rates.py'), 'w') as f: f.write(FILES['shop/rates.py'])
+        with open(os.path.join(repo, 'shop', 'db.py'), 'w') as f: f.write('def configure_pool():\n    return 8\n')
+        rc, out, err = cli(repo, 'tests')
+        check('tests with nothing reached: a sentence, not a JSON document', rc == 0 and not out.lstrip().startswith('{')
+              and 'no test reaches your edits' in out, out[:400])
+        with open(os.path.join(repo, 'shop', 'db.py'), 'w') as f: f.write(FILES['shop/db.py'])
+        # at the front door a word matches a word: "config" is not a part of configure_pool; the verb itself keeps the prefix
+        rc, out, err = cli(repo, 'find', 'read the config')
+        check('find matches whole words: "config" does not rank configure_pool', 'configure_pool' not in out and 'shop/db.py' not in out, out[:600])
+        r = subprocess.run(['bash', AX, 'find', 'read the config', repo], cwd=repo, capture_output=True, text=True, timeout=600, env=ENV)
+        check('CONTROL: the dispatcher run directly still matches the prefix', 'configure_pool' in r.stdout, r.stdout[:600])
 
         # a parameter renamed: the declaration is asked about, never the parameter the file no longer has
         pr = os.path.join(repo, 'shop', 'pricing.py'); keep = open(pr).read()

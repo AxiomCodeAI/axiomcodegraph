@@ -128,24 +128,49 @@ def concrete_test_classes(db, names):
 
 # How a suite is invoked, per language. Only the shapes this graph is built for; anything else prints the
 # files and lets the reader decide, which is better than inventing a command that does not run.
+def java_build(repo, files):
+    """(tool, directory) that runs a Java project's tests: the nearest build file above the first test file (else at the
+    root), pom.xml for Maven, build.gradle(.kts) for Gradle, which is run by its wrapper when the project has one. A
+    Gradle-only repository was told `mvn test`, which does not run there at all. (None, None) when no build file is found"""
+    d = os.path.dirname(files[0]) if files else ''
+    while True:
+        try: names = set(os.listdir(os.path.join(repo, d) if d else repo))
+        except OSError: names = set()
+        if 'pom.xml' in names: return 'mvn', d
+        if names & {'build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'}:
+            return ('./gradlew' if 'gradlew' in names else 'gradle'), d
+        if not d: return None, None
+        d = os.path.dirname(d)
+
+
+def java_command(repo, files, names):
+    """the command that runs the Java test classes `names` (simple names), with the project's own build tool"""
+    names = sorted(set(names))[:40]
+    tool, d = java_build(repo, files)
+    if tool in ('./gradlew', 'gradle'):
+        c = f"{tool} test " + ' '.join(f"--tests {n}" for n in names)
+        return f"(cd {shlex.quote(d)} && {c})" if d else c
+    return "mvn test -Dtest=" + ",".join(names)
+
+
 def command_for(lang, files, classes, db=None, repo='.'):
     # a runner is handed only files of its own language: a text tier can name a .cs or .ts fixture beside a Python
     # test, and `pytest Foo.cs` runs nothing the answer meant
     if lang in LANG_EXT:
         files = [f for f in files if f.endswith(LANG_EXT[lang])]
+    probe = list(files)
     if lang in ('java', 'csharp') and db:
         # a class to select by name: the test's owner, else its file's basename (a Java or C# test class is its file)
         names = classes or [os.path.splitext(os.path.basename(f))[0] for f in files]
         classes, files = concrete_test_classes(db, names)[0], []
         if not classes: return None                    # only abstract classes, and nothing extends them: nothing runs
     if lang == 'java' and classes:
-        return "mvn test -Dtest=" + ",".join(sorted({c.split('.')[-1] for c in classes})[:40])
+        return java_command(repo, probe, {c.split('.')[-1] for c in classes})
     if lang == 'java' and files:
         # A selected test whose row carries no owner would otherwise vanish from -Dtest= and the command
         # would run a SHORTER suite than the answer named, silently. A Java test class is its file's
         # basename, so the file is enough to name it, and one class too many is the safe direction here.
-        return "mvn test -Dtest=" + ",".join(sorted({os.path.splitext(os.path.basename(f))[0]
-                                                     for f in files})[:40])
+        return java_command(repo, probe, {os.path.splitext(os.path.basename(f))[0] for f in files})
     if lang == 'csharp' and classes:
         # `dotnet test` selects by filter expression, not by file: a test class is named, never pointed at.
         # FullyQualifiedName~X is a substring match, so the bare class name selects it in any namespace.

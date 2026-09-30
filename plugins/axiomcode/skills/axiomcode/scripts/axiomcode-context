@@ -62,6 +62,9 @@ EXACT, PREFIX, SUBSTR, PATH = 1000.0, 100.0, 1.0, 0.5
 PATH_TOKEN = 60.0
 TEST_PENALTY = 0.05          # demoted by 20x, never dropped: sometimes the test IS where the answer lives
 COMMON_PATH = 0.25           # a word in more than a quarter of the file paths earns no path bonus
+# the front door (the dispatcher sets AXIOMCODE_FRONT_ANSWER when it answers there): words match whole identifier parts
+WORDS = bool(os.environ.get('AXIOMCODE_FRONT_ANSWER'))
+INFLECTIONS = {'', 's', 'es', 'ed', 'd', 'ing', 'er', 'ers', 'ion', 'ions', 'ation', 'ations', 'ment', 'ments', 'ly'}
 
 
 
@@ -115,6 +118,14 @@ def score_symbols(g, terms, use_path=True):
         for t in terms:
             w = idf.get(t, 1.0)
             if nm == t or t in toks and nm == t: total += EXACT * w; matched.append(t)
+            # AT THE FRONT DOOR A WORD MATCHES A WORD. `find` takes a question in prose and no option to correct it, so
+            # a term is matched against whole identifier parts and their inflections only: read as a prefix, "post"
+            # took `postgres` and ranked CreateAPIView.post's neighbours third. The verb itself keeps its prefix tiers
+            elif WORDS and not (t in toks or any(x.startswith(t) and x[len(t):] in INFLECTIONS for x in toks)
+                                or any(t.startswith(x) and t[len(x):] in INFLECTIONS and len(x) >= 4 for x in toks)
+                                or (len(t) >= 5 and any(len(x) >= 4 and stem(x) == stem(t) for x in toks))):
+                if use_path and t in ptoks: total += PATH_TOKEN * w; matched.append(t)
+                continue
             elif nm.startswith(t) or any(x.startswith(t) for x in toks):
                 # A prefix match is only as good as how much of the token it covers. Flat-weighting it let
                 # the 3-letter term `app` (from "when the app is unmounted") score full prefix weight against
@@ -1254,11 +1265,13 @@ def main(argv):
         if sole:
             scopes = [sole]
             print(f"scope: {sole} (the only package this graph indexes; --in overrides)\n")
-        elif g.sym and not dirs_with_counts(g):
+        elif g.sym and (not dirs_with_counts(g) or (WORDS and not (rank and best_scope(rank)))):
+            # (and at the front door, where there is no option to name one: a question no scope can be picked for is
+            # asked of the whole repository, never refused)
             # every indexed file sits at the root, so the root is the one scope there is, and it narrows nothing.
             # Refusing here offered an empty menu: a correction the reader could not act on (#1345)
             flat = True
-            print("scope: the repository root (every indexed file sits there; --in overrides)\n")
+            print("scope: the whole repository\n" if WORDS else "scope: the repository root (every indexed file sits there; --in overrides)\n")
         elif rank:
             # Several candidates, and a caller holding an issue and no symbol — which is the caller this
             # verb was written for, and by construction the one who cannot name the scope. Refusing here

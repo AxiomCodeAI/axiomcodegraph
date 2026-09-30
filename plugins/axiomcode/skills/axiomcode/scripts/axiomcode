@@ -226,6 +226,10 @@ case "$cmd" in context|path|impact|test-impact|tests) [ -n "${GREP:-}" ] && G=(p
 # verb's own answer.
 B=""; FRONT="${AXIOMCODE_FRONT:-}"; [ "${AXIOMCODE_SURFACE:-}" = mcp ] && FRONT=1; [ -n "${AXIOMCODE_RAW:-}${GREP:-}" ] && FRONT=""
 if [ -n "$FRONT" ]; then for a in ${ARGS[@]+"${ARGS[@]}"}; do case "$a" in -*) FRONT="" ;; esac; done; fi
+# what is answered at the front door says so to the programs below (AXIOMCODE_FRONT_ANSWER): they then name only the four
+# questions and index, never an option, and a question with no scope is asked of the whole repository. Everything else,
+# a direct call or a flag, runs exactly as it always did
+case "$cmd" in find|impact|path|tests|test-impact) [ -n "$FRONT" ] && export AXIOMCODE_FRONT_ANSWER=1 || unset AXIOMCODE_FRONT_ANSWER ;; *) unset AXIOMCODE_FRONT_ANSWER ;; esac
 case "$cmd" in
   find) cmd=context; [ -n "$FRONT" ] && B=find ;;
   path) [ -n "$FRONT" ] && B=path ;;

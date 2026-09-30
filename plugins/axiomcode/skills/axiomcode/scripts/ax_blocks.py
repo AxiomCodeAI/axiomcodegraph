@@ -19,6 +19,9 @@ sys.path.insert(0, H)
 import ax_grep
 
 CAP = 10                 # places shown; the rest are counted
+WIDTH = 200              # a printed source line is cut here
+LONG = 1000              # a file with a line this long near a mark is generated or minified, and is not shown as code
+GENERATED_EXT = ('.html', '.htm', '.xhtml', '.svg', '.xml', '.map', '.min.js', '.min.css', '.lock', '.ipynb')
 WHOLE = 14               # a function this short is shown whole
 AROUND = 3               # else: its header, then this many lines either side of the line that matters
 FENCE = {'.py': 'python', '.java': 'java', '.ts': 'typescript', '.tsx': 'tsx', '.js': 'javascript', '.jsx': 'jsx',
@@ -64,6 +67,8 @@ def block(repo, f, marks, span, text=None):
     L = text.split('\n')
     marks = sorted(n for n in marks if 0 < n <= len(L))
     if not marks: return []
+    # GENERATED OR MINIFIED TEXT IS NOT CODE TO READ: an HTML report under docs/ was one 219 KB line, printed whole
+    if generated(f, L, marks): return []
     lo, hi = (span[1], span[2]) if span else (marks[0], marks[-1])
     lo, hi = max(1, min(lo, marks[0])), min(len(L), max(hi, marks[-1]))
     if hi - lo + 1 <= WHOLE:
@@ -75,9 +80,17 @@ def block(repo, f, marks, span, text=None):
     w = len(str(keep[-1])); out = []; prev = None
     for i in keep:
         if prev is not None and i != prev + 1: out.append(' ' * (w + 4) + '…')
-        out.append(f"{'→' if i in marks else ' '} {str(i).rjust(w)}  {L[i - 1].rstrip()}")
+        t = L[i - 1].rstrip()
+        if len(t) > WIDTH: t = t[:WIDTH - 1] + '…'                      # every printed line is capped
+        out.append(f"{'→' if i in marks else ' '} {str(i).rjust(w)}  {t}")
         prev = i
     return out
+
+
+def generated(f, L, marks):
+    """is this file's text generated or minified (a report, a bundle, a map), not code a person writes and reads"""
+    if f.lower().endswith(GENERATED_EXT): return True
+    return any(len(L[n - 1]) > LONG for n in marks if 0 < n <= len(L))
 
 
 # rows that add nothing an agent acts on: a word match offered only because nothing better was found (dropped when a
@@ -92,9 +105,14 @@ def render(verb, doc, repo, graphs=None, text_of=None, drop=None):
     code = ax_grep.Code(repo)
     rows, _rest, foot = ax_grep.VERBS[{'find': 'context', 'tests': 'test-impact'}.get(verb, verb)](doc, code)
     sites = []
+    whole = {}                                                          # a file named as a whole: no line, no code
     for _k, line in rows:
         m = SITE.match(line)
-        if m: sites.append((m.group('file'), int(m.group('line')), m.group('tag') or ''))
+        if not m: continue
+        # `f:1: (edited test file)`, `f:1: (names x)`: a row about the FILE, which line 1 does not show
+        if m.group('line') == '1' and re.fullmatch(r'\(.*\)', (m.group('code') or '').strip()):
+            whole.setdefault(m.group('file'), (m.group('code').strip('()'), m.group('tag') or '')); continue
+        sites.append((m.group('file'), int(m.group('line')), m.group('tag') or ''))
     sites = [x for x in sites if not any(w in x[2] for w in NOISE) and not (drop and drop(x[2]))]
     if any(FILLER not in t for _f, _n, t in sites): sites = [x for x in sites if FILLER not in x[2]]
     # ONE PLACE PER FUNCTION: two relevant lines of one function are one block with both marked, in the order the
@@ -106,6 +124,7 @@ def render(verb, doc, repo, graphs=None, text_of=None, drop=None):
         p = places.setdefault(key, {'f': f, 'span': span, 'marks': [], 'tags': []})
         if n not in p['marks']: p['marks'].append(n)
         t = t.split(' — ')[0].strip()           # the tag's short form: what it is, not the explanation after the dash
+        t = re.sub(r'\s*·?\s*hop None\b', '', t).strip(' ·')           # a hop count the graph does not have is not printed
         if t and t not in p['tags']: p['tags'].append(t)
     out = []
     for i, p in enumerate(list(places.values())[:CAP], 1):
@@ -116,6 +135,11 @@ def render(verb, doc, repo, graphs=None, text_of=None, drop=None):
             out.append(f"   ```{FENCE.get(os.path.splitext(p['f'])[1], '')}")
             out += ['   ' + b for b in body]
             out.append('   ```')
+    n = len(out and [x for x in out if PLACE_LINE.match(x)])
+    for f, (what, tag) in whole.items():
+        if n >= CAP: break
+        if any(p['f'] == f for p in places.values()): continue
+        n += 1; out.append(f"{n}. {f}  [{what}{' · ' + tag if tag else ''}]")
     if not out: return None
     if len(places) > CAP: out.append(f"… {len(places) - CAP} more place(s) not shown — ask a narrower question to see them")
     out += [x for x in foot if x.startswith(('run:', 'verified'))][:2]
@@ -297,6 +321,124 @@ def render_sites(repo, sites):
     return out
 
 
+def test_impact_module():
+    import importlib.machinery, importlib.util
+    spec = importlib.util.spec_from_loader('axtests', importlib.machinery.SourceFileLoader('axtests', os.path.join(H, 'axiomcode-test-impact')))
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    return m
+
+
+LANG_OF = {'.py': 'python', '.java': 'java', '.cs': 'csharp', '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript',
+           '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript'}
+
+
+def run_lines(doc, repo):
+    """RUN WHAT THE ANSWER LISTS: one `run:` line per language, built from every test the answer names (its places and
+    the files it names whole), with the project's own build tool. The verb's own command could keep fewer than it
+    listed (1 of 6 classes), or name Maven in a Gradle build"""
+    files, classes = {}, {}
+    for t in doc.get('tests', []):
+        f = (t.get('at') or '').rpartition(':')[0]
+        if not f: continue
+        l = LANG_OF.get(os.path.splitext(f)[1])
+        if not l: continue
+        files.setdefault(l, []).append(f)
+        owner = (t.get('display') or '').rsplit('.', 1)[0] if '.' in (t.get('display') or '') else ''
+        if owner and l in ('java', 'csharp'): classes.setdefault(l, []).append(owner.split('.')[-1])
+    for f in doc.get('edited_test_files', []) or []:
+        l = LANG_OF.get(os.path.splitext(f)[1])
+        if l: files.setdefault(l, []).append(f)
+    if not files: return None
+    try: T = test_impact_module()
+    except Exception: return None
+    db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
+    out = []
+    for l, fs in files.items():
+        fs = list(dict.fromkeys(fs))
+        try:
+            if l in ('java', 'csharp'):
+                # every class listed, and every test file's own class (a Java or C# test class is its file)
+                names = list(dict.fromkeys(classes.get(l, []) + [os.path.splitext(os.path.basename(f))[0] for f in fs]))
+                c = T.java_command(repo, fs, names) if l == 'java' else T.command_for(l, fs, names, None, repo)
+            else:
+                c = T.command_for(l, fs, [], None, repo)
+        except Exception:
+            c = None
+        if c: out += [f"run: {x}" for x in c.split('\n') if x.strip()]
+    return out or None
+
+
+# a web handler: where a request arrives by its route, which the graph does not follow from a client
+HANDLER = re.compile(r'@(Get|Post|Put|Patch|Delete|Request)Mapping\b|\[(Http(Get|Post|Put|Patch|Delete)|Route)\b|\.Map(Get|Post|Put|Patch|Delete|Methods)?\s*\(|'
+                     r'@(app|router|bp|blueprint|api)\.(route|get|post|put|patch|delete)\b|\bpath\s*\(\s*[\'"]|@api_view\b|\bAPIView\b|\bViewSet\b|\bControllerBase\b|@(Rest)?Controller\b')
+# a test that drives the application over HTTP
+HTTP_CLIENT = re.compile(r'\.(Get|Post|Put|Patch|Delete|Send)Async\s*\(|\bHttpClient\b|\bWebApplicationFactory\b|\bMockMvc\b|\bTestRestTemplate\b|'
+                         r'\bWebTestClient\b|\bRestAssured\b|\bgiven\(\)\s*\.|\bself\.client\.(get|post|put|patch|delete)\s*\(|\bAPIClient\b|\bTestClient\b|'
+                         r'\bclient\.(get|post|put|patch|delete)\s*\(')
+
+
+def http_note(doc, repo):
+    """ONE LINE WHEN THE EDIT IS IN A WEB HANDLER and tests drive the application over HTTP: those tests reach it through
+    a request the graph does not follow, so they are not in the answer. It says how many there are and how to find them"""
+    edited = {c.get('file') for c in doc.get('changed', []) if isinstance(c, dict) and c.get('file')}
+    edited |= {(c.get('target') or '').rpartition(':')[0] for c in doc.get('changed', []) if isinstance(c, dict)}
+    edited = {f for f in edited if f and os.path.isfile(os.path.join(repo, f))}
+    handlers = [f for f in edited if HANDLER.search(open(os.path.join(repo, f), encoding='utf-8', errors='replace').read())]
+    if not handlers: return None
+    listed = {(t.get('at') or '').rpartition(':')[0] for t in doc.get('tests', [])}
+    hits = []
+    TESTISH = re.compile(r'(^|/)(tests?|spec|__tests__)(/|$)|[Tt]ests?\.|_test\.|(^|/)test_|\.[Tt]ests?/|IntegrationTest|IT\.')
+    for l in git(repo, 'ls-files', '--cached', '--others', '--exclude-standard').splitlines()[:20000]:
+        if l in listed or not SOURCE.search(l) or not TESTISH.search(l): continue
+        try: t = open(os.path.join(repo, l), encoding='utf-8', errors='replace').read()
+        except OSError: continue
+        if HTTP_CLIENT.search(t): hits.append(l)
+    if not hits: return None
+    return (f"not traced: {len(hits)} test file(s) drive the application over HTTP ({', '.join(hits[:3])}{' …' if len(hits) > 3 else ''}); "
+            f"a request is not followed to {os.path.basename(handlers[0])}'s handler, so they are not listed above. "
+            f"Find the ones that reach it by the route the handler serves: grep the tests for that path")
+
+
+def empty_sentence(verb, doc):
+    """an answer with no place in it, said in a sentence (never the verb's JSON document)"""
+    if verb == 'tests':
+        ch = [c.get('symbol') for c in doc.get('changed', []) if isinstance(c, dict) and c.get('symbol')]
+        if not ch: return ["no edits against the commit the graph was built from, so no test is selected"]
+        out = [f"no test reaches your edits ({', '.join(ch[:4])}{' …' if len(ch) > 4 else ''}) through the graph. "
+               "That is not the same as no test covering them: a call the graph could not resolve is unknown, not absent."]
+        by_name = doc.get('same_name_only') or []
+        if by_name:
+            out.append(f"named after the changed file, not reached through the graph: {', '.join(by_name[:4])}")
+        pkg = sorted({f for fs in (doc.get('same_package_only') or {}).values() for f in fs} - set(by_name))
+        if pkg: out.append(f"in the same package, weaker still: {', '.join(pkg[:4])}{' …' if len(pkg) > 4 else ''}")
+        return out
+    if verb == 'impact':
+        t = ', '.join(x.get('label') or '' for x in doc.get('targets', []) if isinstance(x, dict)) or 'it'
+        return [f"nothing in the graph calls, reads or extends {t}. A call the graph could not resolve is unknown, not absent: "
+                "never report \"no callers\" from this alone."]
+    if verb == 'path':
+        return ["no call chain between the two in the graph. A call the graph could not resolve is unknown, not absent."]
+    return ["no place in the graph matches this question"]
+
+
+def import_sites(repo, doc):
+    """the import lines that name the target, for `impact <name>`: a rename or a delete must edit them too, and the call
+    graph has no edge for an import"""
+    names = set()
+    for t in doc.get('targets', []) if isinstance(doc.get('targets'), list) else []:
+        m = re.match(r'(?:class|interface|enum|method|function|field|type|record|struct)?\s*([\w$.]+)', (t.get('label') or '').strip()) if isinstance(t, dict) else None
+        if m: names.add(m.group(1).split('.')[-1].split('(')[0])
+    out = []
+    for n in names:
+        if not n or len(n) < 3: continue
+        for l in git(repo, 'grep', '-n', '-I', '-w', '-e', n).splitlines():
+            f, _, rest = l.partition(':'); k, _, text = rest.partition(':')
+            if k.isdigit() and SOURCE.search(f) and not f.startswith('.axiomcode/') and \
+               re.match(r'\s*(from\s+\S+\s+import|import|using|export\s*\{)\b', text):
+                out.append((f, int(k), 'imports it'))
+    return out
+
+
 def main(argv):
     verb, repo = argv[0], argv[1]
     if verb == 'edits': return edits(repo)
@@ -304,10 +446,39 @@ def main(argv):
     r, doc = verb_json(cmd)
     if not isinstance(doc, dict):
         sys.stdout.write(r.stdout); return r.returncode
+    if verb == 'find':
+        # a method called on a receiver (`file.read()`, `obj.save()`) is some type's own, not code the task has to write
+        doc['called_undeclared'] = [u for u in doc.get('called_undeclared', [])
+                                    if not re.search(rf'(?<!self)(?<!this)\.\s*{re.escape(u.get("name") or "")}\s*\(', u.get('code') or '')]
     lines = render(verb, doc, repo) if r.returncode in (0, 1) or doc.get('called_undeclared') else None
+    if lines is not None and verb == 'impact':
+        # the import lines that name it, among the places: the graph records no edge for an import
+        shown = set(re.findall(r'^\d+\. (\S+?):([\d,]+)', '\n'.join(lines), re.M))
+        have = {(f, int(n)) for f, ns in shown for n in ns.split(',')}
+        imp = [x for x in import_sites(repo, doc) if (x[0], x[1]) not in have]
+        if imp:
+            k = next((i for i, x in enumerate(lines) if not PLACE_LINE.match(x) and not x.startswith('   ')), len(lines))
+            extra = render_sites(repo, imp)
+            base = sum(1 for x in lines if PLACE_LINE.match(x))
+            extra = [re.sub(r'^(\d+)\. ', lambda m: f"{int(m.group(1)) + base}. ", x) if PLACE_LINE.match(x) else x for x in extra]
+            lines = lines[:k] + extra + lines[k:]
+    if verb == 'tests' and lines is not None:
+        rl = run_lines(doc, repo)
+        if rl: lines = [x for x in lines if not x.startswith('run:')] + rl
     if lines is None:
-        # a refusal or an answer with no place in it: the verb's own words are the answer
-        print('\n'.join(doc.get('prose') or []) or r.stdout.strip()); return r.returncode
+        # a refusal: the verb's own words are the answer; an answer with no place in it: a sentence
+        prose = doc.get('prose') or []
+        if r.returncode not in (0, 1) and prose: print('\n'.join(prose)); return r.returncode
+        lines = empty_sentence(verb, doc)
+        if verb == 'tests':
+            by_name = doc.get('same_name_only') or []
+            c = None
+            if by_name:
+                c = run_lines({'tests': [{'at': f + ':1'} for f in by_name]}, repo)
+            lines += c or []
+    if verb == 'tests':
+        note = http_note(doc, repo)
+        if note: lines = [x for x in lines if not x.startswith('run:')] + [note] + [x for x in lines if x.startswith('run:')]
     print('\n'.join(lines))
     return 0
 
