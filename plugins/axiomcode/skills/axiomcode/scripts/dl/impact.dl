@@ -448,9 +448,11 @@ valueref(q, c, f, l) :- target(q, "method", m, _), named(n, m), ref(c, n, _, ek,
 // decorator's body and nowhere else, so `return wrapper` in a different decorator names ITS own inner function. Every
 // decorator in a project writes one, and matched on the bare name each was a [by name] dependent of all the others,
 // and the walk from there reached every view any of them wrapped. The enclosing def is the innermost callable whose
-// span holds the nested one (lex_parent); the def itself and everything nested in it can still name it.
+// span holds the nested one (lex_parent), and only when it opens on a later line (nested_def): declarations that share a
+// line, as a C# auto-property's get_ and set_ do, are siblings. The def itself and everything nested in it can still name it.
+.decl nested_def(m:symbol, p:symbol)                               .input nested_def
 .decl local_def(m:symbol, p:symbol)
-local_def(m, p) :- lex_parent(m, p), kind(m, km), (km = "function" ; km = "method"), kind(p, k), (k = "function" ; k = "method" ; k = "constructor").
+local_def(m, p) :- nested_def(m, p), kind(m, km), (km = "function" ; km = "method"), kind(p, k), (k = "function" ; k = "method" ; k = "constructor").
 .decl out_of_scope(q:symbol, m:symbol, c:symbol)
 out_of_scope(q, m, c) :- target(q, "method", m, _), local_def(m, p), ref(c, n, _, _, _, _), named(n, m), c != p, !lex_in(p, c).
 out_of_scope(q, m, c) :- target(q, "method", m, _), local_def(m, p), unresolved(c, n, _, _, _), named(n, m), c != p, !lex_in(p, c).

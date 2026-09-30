@@ -591,7 +591,9 @@ def local_scopes(q, ids):
         f, a, b = r[0][0], r[0][1], r[0][2] or r[0][1]
         around = [x for x in q("SELECT id, kind, line, end_line FROM symbols WHERE file=? AND line<=? AND end_line>=? AND id<>?", f, a, b, m)
                   if x[2] and x[3] and (x[2], x[3]) != (a, b)]
-        if not around: continue
+        # a declaration that opens on the same line as one around it is a sibling written on one line (a C# auto-property's
+        # get_ and set_), not a def nested in its body: the rules' nested_def
+        if not around or any(x[2] == a for x in around): continue
         p = max(around, key=lambda x: (x[2], -x[3]))
         if p[1] in _SCOPE_KINDS: out[m] = (f, p[2], p[3], p[0])
     return out
