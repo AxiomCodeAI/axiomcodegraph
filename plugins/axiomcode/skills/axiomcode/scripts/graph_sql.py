@@ -585,23 +585,55 @@ def _rev(edges):
     return r
 
 
-def reach_from(rev, seeds, byname=(), cap=40):
+def reach_from(rev, seeds, byname=(), cap=40, gate=None):
     """up/reach: everything that can reach a seed, at its SHORTEST hop count.
     `up(q,m,0) :- seed(q,m)` · `up(q,c,1) :- seed_byname(q,c)` · `up(q,a,d+1) :- up(q,b,d), edge(a,b,_), d<cap`
     Walked a level at a time: `reach` is the MINIMUM depth, and a recursive CTE unioning on (id, depth) keeps every
-    depth a node is reached at instead, which then needs a second pass to take the min."""
-    depth = {m: 0 for m in seeds}
-    frontier = list(depth); d = 0
+    depth a node is reached at instead, which then needs a second pass to take the min.
+    `gate` (state_gate() below) is dl/impact.dl's `upg`: an edge that reaches its callee only through what one
+    instance was given is walked as (node, T, callee) through T's own code, and leaves it only for a caller whose
+    receiver may be an allocation given that callee, or whose receiver's allocation is unknown."""
+    if not gate: gate = {'gate': {}, 'world': {}, 'alloc': {}, 'calloc': {}, 'copen': set()}
+    G, world, galloc, calloc, copen = gate['gate'], gate['world'], gate['alloc'], gate['calloc'], gate['copen']
+
+    def leaves(c, a, t, f):
+        if (c, a) in copen: return True
+        return (c, a) not in calloc or bool(calloc[(c, a)] & galloc.get((t, f), set()))
+
+    depth = {m: 0 for m in seeds}; seen = {(m, None) for m in seeds}
+    frontier = list(seen); d = 0
     while frontier and d < cap:
         nxt = []
-        for b in frontier:
+        def push(a, g):
+            if (a, g) in seen: return
+            seen.add((a, g)); nxt.append((a, g))
+            if a not in depth: depth[a] = d + 1
+        for b, g in frontier:
             for a, _t in rev.get(b, ()):
-                if a not in depth: depth[a] = d + 1; nxt.append(a)
+                if g is None:
+                    ts = G.get((a, b))
+                    if not ts: push(a, None)
+                    for t in ts or ():
+                        push(a, (t, b))
+                elif g[0] in world.get(a, ()): push(a, g)
+                elif leaves(a, b, *g): push(a, None)
         if d == 0:
-            for c in byname:
-                if c not in depth: depth[c] = 1; nxt.append(c)
+            for c in byname: push(c, None)
         frontier = nxt; d += 1
     return depth
+
+
+def state_gate(q):
+    """the instance-state facts the JavaScript engine exports (resolution/instance-state.dl), shaped for reach_from"""
+    has = lambda t: q("SELECT 1 FROM sqlite_master WHERE name=?", t)
+    out = {'gate': {}, 'world': {}, 'alloc': {}, 'calloc': {}, 'copen': set()}
+    if not has('ext_state_gate'): return out
+    for a, f, t in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_gate"): out['gate'].setdefault((a, f), set()).add(t)
+    for m, t in q("SELECT DISTINCT c0, c1 FROM ext_state_world_of_gated"): out['world'].setdefault(m, set()).add(t)
+    for t, f, s in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_gate_alloc"): out['alloc'].setdefault((t, f), set()).add(s)
+    for c, m, s in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_call_alloc"): out['calloc'].setdefault((c, m), set()).add(s)
+    out['copen'] = {(c, m) for c, m in q("SELECT DISTINCT c0, c1 FROM ext_state_call_open")}
+    return out
 
 
 def parent_up(edges, depth):
@@ -3563,7 +3595,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
                            'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q) + _spawn_edges(q, lines, at); rev = _rev(E); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
+    E = _edges(q) + _spawn_edges(q, lines, at); rev = _rev(E); gate = state_gate(q); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
@@ -3803,7 +3835,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             _sde.add((c, m)); _de.append((c, m))
         out['direct_edge'] += [[c, m, qq] for c, m in _de]
         out['seed_byname'] += [[c, qq] for c in byname]
-        depth = reach_from(rev, seeds, byname)
+        depth = reach_from(rev, seeds, byname, gate=gate)
         out['reach'] += [[m, str(d), qq] for m, d in depth.items()]
         # reach_sure: the same closure from the seeds that are an exact edge only — a seed reached ONLY through a
         # by-name / text / one-of-a-set dependent is weak, and the answer says how much of itself rests on those

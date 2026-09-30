@@ -845,10 +845,44 @@ seed_byname(q, c) :- valueref(q, c, _, _), !seed(q, c).
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
 up(q, c, 1) :- seed_byname(q, c).
-up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40.
+up(q, a, d+1) :- up(q, b, d), edge(a, b, _), !state_gate(a, b, _), d < 40.
 up(q, a, d+1) :- up(q, b, d), fw_edge(a, b, _), d < 40.
+// ── WHAT ONE INSTANCE WAS GIVEN: the edge holds for some receivers only ──────────────────────────────────────────
+// `new Bus({ validate: check })` and `b.on(handleA)` give ONE bus a callback, and `Bus.emit` calls it through what
+// that bus holds. The engine's edge emit -> check is one edge for every bus, so the closure used to hand check to
+// every caller of emit: a test that emits on a bus built without `validate` reached it. The engine now says which
+// edges are of that kind and which allocations were given the callback (JavaScript resolution/instance-state.dl):
+//   state_gate(a, f, T)          every call a makes to f reaches f only through what the receiver instance holds
+//   state_world(m, T)            m runs with an instance of T as `this` (T's instance code, and what it nests)
+//   state_gate_alloc(T, f, s)    the allocation s (a `new T(...)`) was given f
+//   state_call_alloc(c, m, s)    c calls the T member m on a receiver that may be s
+//   state_call_open(c, m)        c calls m on a receiver whose allocation is unknown: it keeps every callback
+// The gate travels with the walk through T's own code (`this.deliver()` -> `this.#invoke()` -> `handler()`), and is
+// applied where the walk leaves it: a caller outside T keeps the route when one of its receivers may be an
+// allocation given f, or when the engine knows none. An edge with no call-site record (a dispatch choice) keeps it.
+.decl state_gate(a:symbol, f:symbol, t:symbol)                    .input state_gate
+.decl state_world(m:symbol, t:symbol)                             .input state_world
+.decl state_gate_alloc(t:symbol, f:symbol, s:symbol)              .input state_gate_alloc
+.decl state_call_alloc(c:symbol, m:symbol, s:symbol)              .input state_call_alloc
+.decl state_call_open(c:symbol, m:symbol)                         .input state_call_open
+.decl state_call_known(c:symbol, m:symbol)
+state_call_known(c, m) :- state_call_alloc(c, m, _).
+state_call_known(c, m) :- state_call_open(c, m).
+.decl state_exit(c:symbol, a:symbol, t:symbol, f:symbol)
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_gate_alloc(t, f, _), state_call_open(c, a).
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_call_alloc(c, a, s), state_gate_alloc(t, f, s).
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_gate_alloc(t, f, _), !state_call_known(c, a).
+// upg(q, m, T, f, d): m is reached only on the instances of T that were given f
+.decl upg(q:symbol, m:symbol, t:symbol, f:symbol, d:number)
+upg(q, a, t, f, d+1) :- up(q, f, d), state_gate(a, f, t), edge(a, f, _), d < 40.
+upg(q, c, t, f, d+1) :- upg(q, a, t, f, d), edge(c, a, _), state_world(c, t), d < 40.
+up(q, c, d+1) :- upg(q, a, t, f, d), state_exit(c, a, t, f), d < 40.
+up(q, a, d+1) :- upg(q, b, _, _, d), fw_edge(a, b, _), d < 40.
+.decl up_all(q:symbol, m:symbol, d:number)
+up_all(q, m, d) :- up(q, m, d).
+up_all(q, m, d) :- upg(q, m, _, _, d).
 .decl reach(q:symbol, m:symbol, d:number)
-reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
+reach(q, m, d) :- up_all(q, m, d), d = min x : up_all(q, m, x).
 // the chain read-back: a is one hop further from the change than b, through edge a → b
 .decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
@@ -862,7 +896,12 @@ parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_
 // shape — which is the whole argument for keeping cases beside a corpus.
 .decl up_running(q:symbol, m:symbol, d:number)
 up_running(q, m, 0) :- seed(q, m).
-up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), d < 40.
+up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), !state_gate(a, b, _), d < 40.
+// the same gate as `up` (above): a caller that leaves the instance code keeps the route only on an instance given f
+.decl up_running_g(q:symbol, m:symbol, t:symbol, f:symbol, d:number)
+up_running_g(q, a, t, f, d+1) :- up_running(q, f, d), state_gate(a, f, t), edge(a, f, "known_edge"), d < 40.
+up_running_g(q, c, t, f, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_world(c, t), d < 40.
+up_running(q, c, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_exit(c, a, t, f), d < 40.
 .decl import_hop(q:symbol, a:symbol, b:symbol)
 import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), decl_file(mod, g), imports_file(f, g),
                          decl_file(a, f), kind(a, "module"), a != mod.
