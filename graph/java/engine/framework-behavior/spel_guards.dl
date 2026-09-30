@@ -1,0 +1,89 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · SpEL BEAN REFERENCES IN METHOD ANNOTATIONS
+//
+//     @PreAuthorize("@permissions.canEdit(#orderId)")        // written here
+//     public void edit(String orderId) { … }
+//
+//     @Component class Permissions { boolean canEdit(String id) { … } }   // run from there
+//
+// Spring Security evaluates the expression through the method's proxy before (@PreAuthorize,
+// @PreFilter) or after (@PostAuthorize, @PostFilter) the method runs, and `@name` in SpEL is
+// the bean of that name. No call site names canEdit, so `path edit canEdit` said the two
+// were independent and `impact canEdit` did not list the method it guards, though a change to
+// the guard changes who may call it.
+//
+// WHY A framework_edge AND NOT A CALL. The guard is run by the container around the method,
+// not by the method: the relation python/ and csharp/ emit for the same kind of hop (a filter
+// that wraps an endpoint, pipelines.dl), read by impact as a `framework` dependent of the guard
+// and walked by path as its own hop. framework_edge(Method, Guard, "spel_bean_call",
+// "@bean.method", "registered").
+//
+// THE BEAN is resolved by name exactly as the container names it (di.dl bean_def: an explicit
+// @Component("x") / @Bean name, else the decapitalized class name), and the method on that
+// bean's type (or a type it extends) by name and by the number of arguments written in the
+// expression. When no overload of that arity exists, every method of that name is linked,
+// since the expression then names one of them in a way this does not evaluate.
+//
+// NOT MODELLED, left unlinked rather than guessed: a bean reference built at run time,
+// `#root`/`#this` receivers, a SpEL call on a variable (`#svc.check()`), and a method only a
+// library type declares.
+// ============================================================================
+
+// the annotations whose string arguments are SpEL evaluated around a method (knob)
+spel_method_ann("PreAuthorize").  spel_method_ann("PostAuthorize").
+spel_method_ann("PreFilter").     spel_method_ann("PostFilter").
+spel_method_ann("Cacheable").     spel_method_ann("CachePut").      spel_method_ann("CacheEvict").
+spel_method_ann("EventListener"). spel_method_ann("TransactionalEventListener").
+
+// every string argument of such an annotation on a client method that writes a bean reference
+spel_text(m, v) :- ann_on_method("client", a, n, m, _), spel_method_ann(n), ann_arg(_, a, _, v, _, _),
+    contains("@", v).
+
+// a method a bean's type exposes, with its parameter count
+spel_bean_method(t, mn, pc, gm) :- spel_bean_type(t), java_method(mn, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, pcs, _, _, _, gm),
+    pc = to_number(pcs).
+// inherited from a supertype only where the bean's own type does not declare it: an override is the method that runs,
+// not the interface method it implements
+spel_bean_method_own(t, mn, pc) :- java_method(mn, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, pcs, _, _, _, _),
+    pc = to_number(pcs), spel_bean_type(t).
+spel_bean_type(t) :- bean_def(_, t, _, _).
+spel_bean_method(t, mn, pc, gm) :- spel_bean_type(t), type_ancestor(t, x),
+    java_method(mn, _, _, _, _, _, _, x, _, _, _, _, _, _, _, _, _, pcs, _, _, _, gm), pc = to_number(pcs),
+    !spel_bean_method_own(t, mn, pc).
+spel_bean_method_name(t, mn) :- spel_bean_method(t, mn, _, _).
+
+// `@bean.method(` written in the text, for a bean and a method that exist
+spel_needle(v, t, b, mn, nd) :- spel_text(_, v), bean_def(b, t, _, _), contains(cat("@", cat(b, ".")), v),
+    spel_bean_method_name(t, mn), nd = cat("@", cat(b, cat(".", cat(mn, "(")))), contains(nd, v).
+
+// where each needle starts, and so where its argument list opens (o: the index after its `(`)
+spel_pos(v, 0) :- spel_needle(v, _, _, _, _).
+spel_pos(v, i + 1) :- spel_pos(v, i), i + 1 < strlen(v).
+spel_open(v, nd, i + strlen(nd)) :- spel_needle(v, _, _, _, nd), spel_pos(v, i), i + strlen(nd) <= strlen(v),
+    substr(v, i, strlen(nd)) = nd.
+
+// the number of arguments written: commas at depth 1 up to the matching `)`, with a quoted
+// SpEL string ('a, b') opaque. State: index i, depth d, commas c, ne = an argument seen, q = in quotes
+spel_scan(v, o, o, 1, 0, 0, 0) :- spel_open(v, _, o).
+spel_scan(v, o, i + 1, d, c, ne, 0) :- spel_scan(v, o, i, d, c, ne, 1), i < strlen(v), substr(v, i, 1) = "'".
+spel_scan(v, o, i + 1, d, c, ne, 1) :- spel_scan(v, o, i, d, c, ne, 1), i < strlen(v), substr(v, i, 1) != "'".
+spel_scan(v, o, i + 1, d, c, 1, 1) :- spel_scan(v, o, i, d, c, _, 0), i < strlen(v), substr(v, i, 1) = "'".
+spel_scan(v, o, i + 1, d + 1, c, 1, 0) :- spel_scan(v, o, i, d, c, _, 0), i < strlen(v), substr(v, i, 1) = "(".
+spel_scan(v, o, i + 1, d - 1, c, ne, 0) :- spel_scan(v, o, i, d, c, ne, 0), d > 1, i < strlen(v), substr(v, i, 1) = ")".
+spel_scan(v, o, i + 1, d, c + 1, 1, 0) :- spel_scan(v, o, i, d, c, _, 0), d = 1, i < strlen(v), substr(v, i, 1) = ",".
+spel_scan(v, o, i + 1, d, c, 1, 0) :- spel_scan(v, o, i, d, c, _, 0), d > 1, i < strlen(v), substr(v, i, 1) = ",".
+spel_scan(v, o, i + 1, d, c, ne, 0) :- spel_scan(v, o, i, d, c, ne, 0), i < strlen(v), substr(v, i, 1) = " ".
+spel_scan(v, o, i + 1, d, c, 1, 0) :- spel_scan(v, o, i, d, c, _, 0), i < strlen(v), ch = substr(v, i, 1),
+    ch != "'", ch != "(", ch != ")", ch != ",", ch != " ".
+spel_arity(v, o, 0) :- spel_scan(v, o, i, 1, _, 0, 0), i < strlen(v), substr(v, i, 1) = ")".
+spel_arity(v, o, c + 1) :- spel_scan(v, o, i, 1, c, 1, 0), i < strlen(v), substr(v, i, 1) = ")".
+
+// ── the edge ────────────────────────────────────────────────────────────────
+spel_call(m, t, mn, b, n) :- spel_text(m, v), spel_needle(v, t, b, mn, nd), spel_open(v, nd, o),
+    spel_arity(v, o, n).
+spel_call_fits(m, t, mn, n) :- spel_call(m, t, mn, _, n), spel_bean_method(t, mn, n, _).
+spel_guard(m, gm, b, mn) :- spel_call(m, t, mn, b, n), spel_bean_method(t, mn, n, gm).
+spel_guard(m, gm, b, mn) :- spel_call(m, t, mn, b, n), !spel_call_fits(m, t, mn, n), spel_bean_method(t, mn, _, gm).
+
+framework_edge(m, gm, "spel_bean_call", cat("@", cat(b, cat(".", mn))), "registered") :-
+    spel_guard(m, gm, b, mn), m != gm.

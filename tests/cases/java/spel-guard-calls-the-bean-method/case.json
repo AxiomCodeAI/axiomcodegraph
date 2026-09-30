@@ -1,0 +1,115 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a @PreAuthorize expression that calls @bean.method(...) links the guarded method to the bean's method, as a framework hop and not a call",
+   "run": [
+    "path",
+    "OrdersController.editProd",
+    "AuditRules.allowed"
+   ],
+   "want": [
+    "spel_bean_call",
+    "@audits.allowed"
+   ],
+   "avoid": [
+    "independent in this graph"
+   ]
+  },
+  {
+   "why": "the guard's impact names every method its expression guards, @PostFilter included, labelled framework-mediated",
+   "run": [
+    "impact",
+    "AuditRules.allowed"
+   ],
+   "want": [
+    "OrdersController.editProd",
+    "OrdersController.listAll",
+    "framework-mediated"
+   ]
+  },
+  {
+   "why": "the bean name is resolved as the container names it (a decapitalized class name), and the overload is chosen by the number of arguments written",
+   "run": [
+    "path",
+    "OrdersController.edit",
+    "PermissionGuard.canEdit"
+   ],
+   "want": [
+    "spel_bean_call",
+    "@permissionGuard.canEdit"
+   ],
+   "avoid": [
+    "independent in this graph"
+   ]
+  },
+  {
+   "why": "near miss: the one-argument overload guards the method whose expression passes one argument, not the one passing two",
+   "run": [
+    "impact",
+    "src/shop/PermissionGuard.java:7"
+   ],
+   "want": [
+    "OrdersController.edit"
+   ],
+   "avoid": [
+    "OrdersController.editProd"
+   ]
+  },
+  {
+   "why": "and the two-argument overload guards only the method passing two",
+   "run": [
+    "impact",
+    "src/shop/PermissionGuard.java:9"
+   ],
+   "want": [
+    "OrdersController.editProd"
+   ],
+   "avoid": [
+    "OrdersController.edit "
+   ]
+  },
+  {
+   "why": "near miss: a bean reference with a name no bean has links nothing, though a class of that simple name declares the method",
+   "run": [
+    "impact",
+    "AuditRules.archived"
+   ],
+   "avoid": [
+    "OrdersController.archive"
+   ]
+  },
+  {
+   "why": "near miss: the guard's name inside a role string is not a bean reference",
+   "run": [
+    "impact",
+    "PermissionGuard.canView"
+   ],
+   "avoid": [
+    "OrdersController.view"
+   ]
+  },
+  {
+   "why": "a bean's own override is the method the expression runs: it is linked, and the interface method it implements is not linked a second time",
+   "run": [
+    "impact",
+    "ReviewGuard.mayReview"
+   ],
+   "want": [
+    "OrdersController.review",
+    "framework-mediated"
+   ]
+  },
+  {
+   "why": "near miss: the interface method the bean overrides gets no framework row of its own",
+   "run": [
+    "impact",
+    "Reviewer.mayReview"
+   ],
+   "avoid": [
+    "framework-mediated"
+   ]
+  }
+ ]
+}
