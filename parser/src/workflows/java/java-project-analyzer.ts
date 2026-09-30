@@ -328,7 +328,7 @@ export class JavaProjectAnalyzer {
             ? isGradleBuildOutput(dirPath, entry.name)
             : EXCLUDED_DIRS.has(entry.name);
           if (!excluded && !entry.name.startsWith('.') && !(excludeTests && isTestDir)
-              && !isGitIgnoredDir(path.join(dirPath, entry.name))) {
+              && !isGitIgnoredDir(path.join(dirPath, entry.name), 'java')) {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForJavaFiles(subPath, files, excludeTests);
           }

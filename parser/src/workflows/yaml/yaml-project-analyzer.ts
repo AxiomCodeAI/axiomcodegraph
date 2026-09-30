@@ -167,7 +167,7 @@ export class YamlProjectAnalyzer {
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(path.join(dirPath, entry.name))) {
+          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(path.join(dirPath, entry.name), 'java')) {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForYamlFiles(subPath, files);
           }

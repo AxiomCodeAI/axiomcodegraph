@@ -236,7 +236,7 @@ export class ServicesProjectAnalyzer {
         continue;
       }
 
-      if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.') || isGitIgnoredDir(subPath)) {
+      if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.') || isGitIgnoredDir(subPath, 'java')) {
         continue;
       }
 

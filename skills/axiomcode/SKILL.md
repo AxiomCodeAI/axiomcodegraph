@@ -64,7 +64,10 @@ Example: `tests()`. It is a lower bound: a test reached only through reflection 
 
 ## index
 
-`axiomcode index` builds the graph explicitly; `--lang`, `--src` and `--library` narrow it. Never re-run it on an
+`axiomcode index` builds the graph explicitly; `--lang`, `--src` and `--library` narrow it. Without `--lang` it skips
+vendored code (`vendor/` outside Java, `wwwroot/lib`, `*.min.js`, `*.bundle.js`, and what .gitignore excludes), and a
+language with nothing else is not indexed; its output names it. `--lang` or `AXIOMCODE_INCLUDE_VENDORED=1` includes it.
+The main language's graph is published first, and its queries answer while the others build. Never re-run it on an
 existing graph: the graph rebuilds itself after edits, and an answer given before that finishes says so on a
 `graph refresh:` line.
 

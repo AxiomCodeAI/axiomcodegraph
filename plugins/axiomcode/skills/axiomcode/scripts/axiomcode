@@ -25,6 +25,9 @@
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
+#       Without --lang, vendored code is not source: a vendor/ directory (not in Java), wwwroot/lib, *.min.js and
+#       *.bundle.js are skipped, beside node_modules, build output and what .gitignore excludes, and a language left with
+#       no file or no code is not built (one line says so). --lang, or AXIOMCODE_INCLUDE_VENDORED=1, reads them.
 #   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh] [--no-refresh] [--grep]
 #       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name
 #       to ask about yet. Deterministic: task terms scored against the graph's vocabulary by inverse document

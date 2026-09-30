@@ -8,6 +8,8 @@
 #                     the main one (default: every language with files; the main one is the language with the most).
 #                     A rebuild that names no language keeps the ones an earlier --lang chose (and its --src); pass
 #                     --lang again, or AXIOMCODE_REINDEX=1, to choose again
+#   AXIOMCODE_INCLUDE_VENDORED=1  with the languages detected, read vendored code too (vendor/ outside Java, wwwroot/lib,
+#                     *.min.js, *.bundle.js); by default it is skipped, and a language with nothing else is not indexed
 #   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
 #                     dependencies are declared unknown rather than guessed
 # A repository in several languages gets one graph per language. The main language's is the one it always had,
@@ -125,8 +127,36 @@ case "${AXIOMCODE_SRC:-}" in /*|[A-Za-z]:[\\/]*) SRC="$AXIOMCODE_SRC" ;; *) SRC=
 # THE FILES OF EACH LANGUAGE, COUNTED AS THE PARSER AND THE REFRESHER SEE THEM: the parser's skip list and git's ignore
 # rules (ax_fresh.py count). A `find` with its own shorter skip list counted a generated tree the parser never reads —
 # the "typescript 15108 files" of a 431-file project — and could pick a different main language than the last build.
-read -r ja ts py js cs <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0)"
 LANG_ARG="${AXIOMCODE_LANG:-}"
+# VENDORED CODE IS NOT SOURCE when the languages are detected (ax_fresh.py vendored_dir / vendored_file): a `vendor`
+# directory (not in Java), an ASP.NET wwwroot/lib, *.min.js and *.bundle.js are neither counted nor parsed, beside what
+# each parser already skips (node_modules, dist and build output, and whatever .gitignore excludes). A language left with
+# no file, or with files that hold no code (only comments), is not indexed: a C# web application compiled the whole
+# JavaScript engine for the jQuery and bootstrap it serves, and the build then failed. An explicit --lang
+# (or AXIOMCODE_INCLUDE_VENDORED=1) reads everything, as before; a tree that is nothing but vendored code is read whole.
+unset AXIOMCODE_SKIP_VENDORED
+[ -z "$LANG_ARG" ] && [ -z "${AXIOMCODE_INCLUDE_VENDORED:-}" ] && export AXIOMCODE_SKIP_VENDORED=1
+COUNTS="$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null || echo 0 0 0 0 0)"
+read -r ja ts py js cs <<< "$(printf '%s\n' "$COUNTS" | sed -n 1p)"
+VENDOR_NOTES=()
+if [ -n "${AXIOMCODE_SKIP_VENDORED:-}" ]; then
+  read -r vja vts vpy vjs vcs <<< "$(printf '%s\n' "$COUNTS" | sed -n 2p)"
+  VK="vendor/, wwwroot/lib, *.min.js, *.bundle.js"
+  dv(){   # dv <lang> <files kept> <files vendored>:<the kept ones hold code>; sets DV, the count the language is chosen by
+    local l="$1" n="$2" v="${3%%:*}" c="${3#*:}" how="pass --lang with $1 in it, or AXIOMCODE_INCLUDE_VENDORED=1, to index it anyway"
+    DV="$n"
+    if [ "$n" = 0 ] && [ "$v" -gt 0 ]; then DV=0; VENDOR_NOTES+=("$l: not indexed: all $v of its files are vendored ($VK); $how")
+    elif [ "$n" -gt 0 ] && [ "$c" = 0 ]; then DV=0
+      if [ "$v" -gt 0 ]; then VENDOR_NOTES+=("$l: not indexed: $v vendored file(s) ($VK) and $n that hold no code, only comments; $how")
+      else VENDOR_NOTES+=("$l: not indexed: $n file(s) that hold no code, only comments; $how"); fi
+    fi; }
+  dv java "$ja" "${vja:-0:1}"; cja=$DV; dv typescript "$ts" "${vts:-0:1}"; cts=$DV; dv python "$py" "${vpy:-0:1}"; cpy=$DV
+  dv javascript "$js" "${vjs:-0:1}"; cjs=$DV; dv csharp "$cs" "${vcs:-0:1}"; ccs=$DV
+  if [ "$((cja + cts + cpy + cjs + ccs))" = 0 ]; then
+    unset AXIOMCODE_SKIP_VENDORED; VENDOR_NOTES=()     # nothing but vendored code: read it all, as before
+    read -r ja ts py js cs <<< "$(python3 "$H/ax_fresh.py" count "$SRC" 2>/dev/null | sed -n 1p || echo 0 0 0 0 0)"
+  else ja=$cja; ts=$cts; py=$cpy; js=$cjs; cs=$ccs; fi
+fi
 # EVERY LANGUAGE IN THE REPOSITORY IS INDEXED. Only the one with the most files used to be, and the rest were dropped
 # without a word: a Python edit in a TypeScript repository touched "no declaration the graph knows". LANG_ARG is the
 # main language (its graph is the one every older reader knows); LANGS is all of them, main first.
@@ -145,6 +175,7 @@ else
   LANGS="$LANG_ARG"; LANG_ARG="${LANGS%%,*}"; unset AXIOMCODE_LANG_AUTO
 fi
 unset AXIOMCODE_GRAPH_LANG               # a build writes every language's graph, never one chosen for a query
+for n in ${VENDOR_NOTES[@]+"${VENDOR_NOTES[@]}"}; do echo "$n"; done   # a language left out is named, with how to include it
 OTHER_LANGS=""; [ "$LANGS" != "$LANG_ARG" ] && OTHER_LANGS="${LANGS#*,}"
 # THE ORDER THE ENGINE SOLVES IN (#1555): the main language first, then the rest by file count, most first. Each graph is
 # published the moment its language is solved, so this is the order they become queryable in. LANGS keeps its own order:
@@ -417,8 +448,19 @@ PROGRESS="$OUT/.progress"; PENDING="$OUT/building"; rm -f "$PROGRESS" "$PENDING"
 unpend(){ grep -v "^$1 " "$PENDING" > "$PENDING.new" 2>/dev/null || true; mv -f "$PENDING.new" "$PENDING"; }
 # the engine gets its own process group (set -m), so a build that is stopped stops all of it -- the Souffle compile
 # included -- rather than leaving it running under the build lock it inherited
+# NOTHING OF IT OUTLIVES THE BUILD. The whole group gets TERM, and whatever is still there a few seconds later (a C++
+# compile of a language's rules that ignored it) KILL: a C# build's JavaScript compile was seen at full CPU half an
+# hour after `index` had returned.
 EPID=""
-stop_engine(){ if [ -n "$EPID" ] && kill -0 "$EPID" 2>/dev/null; then kill -TERM -- "-$EPID" 2>/dev/null || kill -TERM "$EPID" 2>/dev/null || true; fi; rm -f "$PROGRESS" "$PENDING" "$PENDING.new"; }
+stop_group(){ local g="$1" i=0
+  kill -TERM -- "-$g" 2>/dev/null || return 0
+  while kill -0 -- "-$g" 2>/dev/null && [ $i -lt 20 ]; do sleep 0.25; i=$((i+1)); done
+  kill -KILL -- "-$g" 2>/dev/null || true; }
+stop_engine(){ if [ -n "$EPID" ]; then stop_group "$EPID"
+    # stopped after the main graph was published: the languages it never solved are named, so the next build builds them
+    # rather than taking the file table for current
+    [ -n "$MAIN_DONE" ] && [ -s "$PENDING" ] && cut -d' ' -f1 "$PENDING" > "$OUT/partial" 2>/dev/null || true
+  fi; rm -f "$PROGRESS" "$PENDING" "$PENDING.new"; }
 trap stop_engine EXIT
 # A BUILD STOPPED ONCE ITS MAIN LANGUAGE IS SOLVED PUBLISHES THAT GRAPH FIRST. The solved main graph is most of what the
 # build cost; stopped while it was being indexed (a caller's timeout ends the whole process group, the indexer included),
@@ -439,8 +481,17 @@ shielded(){ local p rc n; set -m; "$@" & p=$!; set +m
 # an engine older than this script has no --progress and refuses an option it does not know: it gets none, and its
 # graphs are published together when it ends, as they always were
 PROG=(); grep -q -- '--progress' "$ENGINE/bin/axiomcode" 2>/dev/null && PROG=(--progress "$PROGRESS")
+# A BUILD THAT IS KILLED OUTRIGHT TAKES ITS ENGINE WITH IT. The trap above cannot run on SIGKILL, and a caller that ends
+# only this shell's process group (an agent host's timeout, an MCP server's) never reaches the engine's: it went on
+# compiling and solving with nobody left to read the graph. So the engine's group holds a watchdog that ends the group
+# when this shell is gone. It is in the engine's group, not this one, so the signal that ended the build cannot end it.
+BUILD_PID=$$
 set -m
-"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$SOLVE" ${PROG[@]+"${PROG[@]}"} ${LIB[@]+"${LIB[@]}"} < /dev/null > "$REPO/.axiomcode/build.log" 2>&1 &
+( set +m; trap - EXIT INT TERM HUP
+  ( trap - EXIT INT TERM HUP; while kill -0 "$BUILD_PID" 2>/dev/null; do sleep 1; done
+    kill -TERM 0 2>/dev/null; sleep 5; kill -KILL 0 2>/dev/null ) < /dev/null > /dev/null 2>&1 &
+  exec "$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$SOLVE" ${PROG[@]+"${PROG[@]}"} ${LIB[@]+"${LIB[@]}"}
+) < /dev/null > "$REPO/.axiomcode/build.log" 2>&1 &
 EPID=$!
 set +m
 QUEUED=(); READY=(); FAILED=(); DONE=" "; SEEN=0
@@ -538,7 +589,9 @@ while :; do
   [ "$running" = 1 ] || break
   sleep 1 || true          # a held signal ends the sleep, not the build
 done
-ENGINE_RC=0; wait "$EPID" || ENGINE_RC=$?; EPID=""
+ENGINE_RC=0; wait "$EPID" || ENGINE_RC=$?
+kill -KILL -- "-$EPID" 2>/dev/null || true   # the engine is done: its watchdog, and anything else left in its group
+EPID=""
 drain
 if [ -z "$MAIN_DONE" ]; then
   # an engine that named nothing (one without --progress, or a run that failed before solving): as before, a failure

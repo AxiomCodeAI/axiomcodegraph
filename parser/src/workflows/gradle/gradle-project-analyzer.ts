@@ -357,7 +357,7 @@ export class GradleProjectAnalyzer {
         // scripts that describe nothing about the project. It is excluded by
         // the leading-dot rule; `buildSrc` deliberately is NOT, because its
         // build script is a real fact about how the build is assembled.
-        if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(path.join(dirPath, entry.name))) {
+        if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.') && !isGitIgnoredDir(path.join(dirPath, entry.name), 'java')) {
           await this.scanForGradleFiles(path.join(dirPath, entry.name), files);
         }
       } else if (entry.isFile() && GradleScriptClassifier.isGradleFile(entry.name)) {

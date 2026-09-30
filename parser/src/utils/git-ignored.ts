@@ -18,11 +18,20 @@
  *
  * Off for a library tree (`--library`: a dependency's own .gitignore names its build output, which for a
  * dependency is the source) and with AXIOMCODE_NO_GITIGNORE=1.
+ *
+ * VENDORED CODE IS NOT THE PROJECT EITHER, when the index detected its languages. With AXIOMCODE_SKIP_VENDORED=1
+ * (set by the plugin's build when no --lang was given, unless AXIOMCODE_INCLUDE_VENDORED=1) a `vendor` directory in
+ * any language but Java (where it is a package name and third-party code arrives as jars), an ASP.NET
+ * `wwwroot/lib` (what libman and bower restore bootstrap and jQuery into), and a minified or bundled script
+ * (`*.min.js`, `*.bundle.js`) are not read. A C# web application otherwise paid a JavaScript build for the copy
+ * of jQuery it serves. An explicit --lang reads them as it always did. The plugin's file table
+ * (ax_fresh.py, vendored_dir / vendored_file) applies the same rule.
  */
 import { execFileSync } from 'child_process';
 import * as path from 'path';
 
 let ignored: ReadonlySet<string> = new Set();
+let skipVendored = false;
 
 const key = (p: string): string => {
   const r = path.resolve(p);
@@ -32,6 +41,7 @@ const key = (p: string): string => {
 /** Load the ignored directories under `root`; returns how many there are. Replaces what an earlier call loaded. */
 export function loadGitIgnored(root: string): number {
   ignored = new Set();
+  skipVendored = process.env.AXIOMCODE_SKIP_VENDORED === '1';
   if (process.env.AXIOMCODE_NO_GITIGNORE) return 0;
   let out: string;
   try {
@@ -51,9 +61,23 @@ export function loadGitIgnored(root: string): number {
 /** Forget the loaded set (a library tree is parsed with nothing skipped). */
 export function clearGitIgnored(): void {
   ignored = new Set();
+  skipVendored = false;
+}
+
+/** True when `dir` is vendored third-party code the index skips (see the header); only with AXIOMCODE_SKIP_VENDORED=1. */
+export function isVendoredDir(dir: string, language?: string): boolean {
+  if (!skipVendored) return false;
+  const name = path.basename(dir);
+  if (name === 'vendor') return language !== 'java';
+  return name === 'lib' && path.basename(path.dirname(dir)) === 'wwwroot';
+}
+
+/** True when a script file is minified or bundled output (`x.min.js`, `x.bundle.js`); only with AXIOMCODE_SKIP_VENDORED=1. */
+export function isVendoredFile(name: string): boolean {
+  return skipVendored && /\.(min|bundle)\.[cm]?js$/i.test(name);
 }
 
 /** True when git ignores the directory at `dir` (absolute, or relative to the working directory). */
-export function isGitIgnoredDir(dir: string): boolean {
-  return ignored.size > 0 && ignored.has(key(dir));
+export function isGitIgnoredDir(dir: string, language?: string): boolean {
+  return (ignored.size > 0 && ignored.has(key(dir))) || isVendoredDir(dir, language);
 }

@@ -212,6 +212,37 @@ def _timer(interval):
                 if time.time() - fresh.last_update(repo) >= interval: fresh.hook_kick(repo, 'the timer')
             except Exception: pass
 
+def run_group(argv, cwd=None, timeout=900, env=None):
+    """subprocess.run(argv, capture_output=True, text=True, timeout=timeout), with the command in a process group of its
+    own that is ended WHOLE when the timeout passes. subprocess.run kills only the bash it started, with SIGKILL, which no
+    trap can see: an `index` that ran past the timeout left its engine compiling and solving with no caller (a C++
+    compile at full CPU for half an hour after the call had answered). A build a query starts in the background is in a
+    session of its own (ax_contract._start_build) and is not reached."""
+    if os.name == 'nt':
+        return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
+    p = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop_group(p.pid)
+        try: p.communicate(timeout=10)          # a detached grandchild that kept a pipe must not hold this call
+        except subprocess.TimeoutExpired: p.kill()
+        raise
+    return subprocess.CompletedProcess(argv, p.returncode, out, err)
+
+def stop_group(pgid, grace=5.0):
+    """TERM to process group `pgid`, then KILL to whatever of it is still there after `grace` seconds"""
+    import signal, time
+    try: os.killpg(pgid, signal.SIGTERM)
+    except OSError: return
+    end = time.time() + grace
+    while time.time() < end:
+        try: os.killpg(pgid, 0)
+        except OSError: return
+        time.sleep(0.1)
+    try: os.killpg(pgid, signal.SIGKILL)
+    except OSError: pass
+
 def run(args, cwd=None, timeout=900):
     for a in args[1:]:
         if os.path.isdir(a) and os.path.isdir(os.path.join(a, '.axiomcode')): SEEN.add(os.path.realpath(a))
@@ -224,7 +255,7 @@ def run(args, cwd=None, timeout=900):
     note = stale_note(root)
     head = (note + '\n') if note else ''
     try:
-        r = subprocess.run([BASH, ax, *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout, env=env)
+        r = run_group([BASH, ax, *args], cwd=cwd or None, timeout=timeout, env=env)
     except OSError as e:
         return (f"axiomcode could not start bash ({BASH}): {e}. On Windows it needs the bash that comes with "
                 "Git for Windows; install it, or set AXIOMCODE_BASH to its bin\\bash.exe.")

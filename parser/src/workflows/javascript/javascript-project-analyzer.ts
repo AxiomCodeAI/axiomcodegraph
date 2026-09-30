@@ -51,7 +51,7 @@ import { JsTypeHeritageRegistry } from '@/analysis-types/javascript/JsTypeHerita
 import { JsTypeReferenceRegistry } from '@/analysis-types/javascript/JsTypeReferenceRegistry';
 import { JsTypeRegistry } from '@/analysis-types/javascript/JsTypeRegistry';
 import { JsVariableRegistry } from '@/analysis-types/javascript/JsVariableRegistry';
-import { isGitIgnoredDir } from '@/utils/git-ignored';
+import { isGitIgnoredDir, isVendoredFile } from '@/utils/git-ignored';
 import { scriptTextOf } from '@/utils/vue-sfc';
 
 /**
@@ -961,7 +961,8 @@ function collectJavaScriptFiles(
         packageJsonsSeen.add(full);
       }
       // `.vue`, `.svelte` and `.astro` included: `scriptTextOf` decides what each one holds for JavaScript
-      if (isJavaScriptSourceFile(entry.name)) {
+      // a minified or bundled script is vendored output, skipped when the index detected its languages (utils/git-ignored.ts)
+      if (isJavaScriptSourceFile(entry.name) && !isVendoredFile(entry.name)) {
         out.push(full);
       }
     }

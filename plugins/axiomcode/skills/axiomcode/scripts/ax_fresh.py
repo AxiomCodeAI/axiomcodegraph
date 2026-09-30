@@ -185,9 +185,39 @@ def git_ignored_dirs(root):
     _IGNORED[root] = out
     return out
 
-def watched(root, lang):
+# VENDORED CODE (third-party copies and bundles) IS NOT THE PROJECT'S SOURCE when the index detected its languages: a C#
+# web application paid a JavaScript build for the jQuery and bootstrap under wwwroot/lib, and a language whose files are
+# all vendored is not indexed at all (axiomcode-build). axiomcode-build sets AXIOMCODE_SKIP_VENDORED=1 for such a build,
+# the parser skips the same files (parser/src/utils/git-ignored.ts isVendoredDir / isVendoredFile), and the file table
+# records it (`skip_vendored`) so the refresher watches what the parser read. An explicit --lang, or
+# AXIOMCODE_INCLUDE_VENDORED=1, reads them as before. What is vendored:
+#   a directory named `vendor`, in every language but Java (there it is a package name; third-party Java comes as jars)
+#   `lib` directly under `wwwroot` (what libman and bower restore into an ASP.NET application)
+#   a minified or bundled script: *.min.js, *.bundle.js (and .mjs / .cjs)
+# node_modules, dist and build output are already pruned by each parser's own list (SKIP, generated_output), and so is
+# every directory the repository's .gitignore excludes (git_ignored_dirs).
+VENDORED_FILE = re.compile(r'\.(min|bundle)\.[cm]?js$', re.I)
+
+def vendored_dir(parent, name, lang):
+    """True when directory `parent`/`name` holds vendored code for `lang`"""
+    if name == 'vendor': return lang != 'java'
+    return name == 'lib' and os.path.basename(parent) == 'wwwroot'
+
+def vendored_file(name): return bool(VENDORED_FILE.search(name))
+
+def vendored_rel(rel):
+    """True when the repository-relative file `rel` is vendored code for the language that reads it"""
+    parts = rel.replace(os.sep, '/').split('/')
+    if vendored_file(parts[-1]): return True
+    if 'vendor' in parts[:-1] and not parts[-1].endswith(EXT['java']): return True
+    return any(parts[i] == 'wwwroot' and parts[i + 1] == 'lib' for i in range(len(parts) - 2))
+
+def skip_vendored_env(): return os.environ.get('AXIOMCODE_SKIP_VENDORED') == '1'
+
+def watched(root, lang, skip_vendored=False):
     """every file the parser of `lang` reads under root; `lang` may be a comma list (a repository in several
-    languages, each with its own graph), and a file two of them read is yielded once"""
+    languages, each with its own graph), and a file two of them read is yielded once. skip_vendored: leave out vendored
+    code as a build with AXIOMCODE_SKIP_VENDORED=1 does"""
     # ONE WALK FOR EVERY LANGUAGE. A repository in five languages was walked five times on every freshness check, that is
     # before every query; the tree is walked once now, a directory only one language prunes (C#'s obj/bin/packages)
     # entered for the others and its files kept from that one. The files yielded are the same set.
@@ -202,18 +232,31 @@ def watched(root, lang):
         parent, keep = os.path.basename(d), []
         for s in subdirs:
             if ignored and os.path.normpath(os.path.join(rd, s)) in ignored: continue
-            o = off | {l for l in langs if prunes(l, s, parent)}
+            o = off | {l for l in langs if prunes(l, s, parent) or (skip_vendored and vendored_dir(d, s, l))}
             if web and not web <= o and generated_output(d, s): o = o | web     # a build's output (#1545)
             if 'java' in langs and 'java' not in o and gradle_output(d, s): o = o | {'java'}   # Gradle's output
             if all(l in o for l in langs): continue
             keep.append(s); hidden[os.path.join(d, s)] = o
         subdirs[:] = keep
         for f in files:
+            if skip_vendored and vendored_file(f): continue                # only the web languages read a .js
             for l, exts, names in spec:
                 if l in off: continue
                 if has_ext(l, f, exts) or f in names or (l == 'java' and os.path.basename(d) == 'services' and 'META-INF' in d) \
                         or (l == 'python' and python_script(os.path.join(d, f), f)):
                     yield os.path.join(d, f); break
+
+C_COMMENTS = re.compile(r'/\*.*?\*/|//[^\n]*', re.S)
+PY_COMMENTS = re.compile(r'#[^\n]*')
+
+def holds_code(p, lang):
+    """False when file `p` is only comments and blank lines (an ASP.NET template's `wwwroot/js/site.js` is three comment
+    lines): nothing in it for a graph. A file that cannot be read, or is large, counts as code"""
+    try:
+        if os.path.getsize(p) > 64 * 1024: return True
+        with open(p, 'rb') as fh: text = fh.read().decode('utf-8', 'replace').lstrip('\ufeff')
+    except OSError: return True
+    return bool((PY_COMMENTS if lang == 'python' else C_COMMENTS).sub('', text).strip())
 
 def digest(p):
     h = hashlib.sha1()
@@ -221,10 +264,10 @@ def digest(p):
         for b in iter(lambda: fh.read(1 << 20), b''): h.update(b)
     return h.hexdigest()
 
-def snapshot(repo, lang, src):
+def snapshot(repo, lang, src, skip_vendored=False):
     """the file table: {rel: [size, mtime_ns, sha1]} of every file the parser would read under src"""
     files = {}
-    for p in watched(src, lang):
+    for p in watched(src, lang, skip_vendored):
         try: st = os.stat(p); files[os.path.relpath(p, repo)] = [st.st_size, st.st_mtime_ns, digest(p)]
         except OSError: pass
     return files
@@ -242,7 +285,7 @@ def changes(repo, table=None):
     if not t: return None
     old = t.get('files', {}); src = os.path.join(repo, t.get('src') or '')
     changed, added, seen = [], [], set()
-    for p in watched(src, t.get('lang', '')):
+    for p in watched(src, t.get('lang', ''), bool(t.get('skip_vendored'))):
         rel = os.path.relpath(p, repo); seen.add(rel)
         try: st = os.stat(p)
         except OSError: continue
@@ -259,7 +302,7 @@ def changes(repo, table=None):
         mine = set(t.get('lang', '').split(','))
         for l in SOURCE:
             if l in mine: continue
-            for p in watched(src, l):
+            for p in watched(src, l, bool(t.get('skip_vendored'))):
                 rel = os.path.relpath(p, repo)
                 if p.endswith(SOURCE[l]) and rel not in old: added.append(rel); break
     return sorted(changed), sorted(added), sorted(set(old) - seen)
@@ -776,7 +819,9 @@ def rebuild_env(t, **extra):
     repository had several, and keeping that would keep the others out for good."""
     env = dict(os.environ, AXIOMCODE_LANG='' if t.get('lang_auto', True) else t.get('lang', ''), AXIOMCODE_SRC=t.get('src_arg', ''), **extra)
     env.pop('AXIOMCODE_LIBRARY', None)
-    env.pop('AXIOMCODE_LANG_AUTO', None); env.pop('AXIOMCODE_GRAPH_LANG', None)
+    env.pop('AXIOMCODE_LANG_AUTO', None); env.pop('AXIOMCODE_GRAPH_LANG', None); env.pop('AXIOMCODE_SKIP_VENDORED', None)
+    # detected languages that were indexed WITH their vendored code (AXIOMCODE_INCLUDE_VENDORED=1) are rebuilt with it
+    if t.get('lang_auto', True) and t.get('skip_vendored') is False: env['AXIOMCODE_INCLUDE_VENDORED'] = '1'
     if t.get('library'): env['AXIOMCODE_LIBRARY'] = t['library']
     return env
 
@@ -1509,17 +1554,29 @@ def main(argv):
         # what built the graph (the engine axiomcode-build found, passed as AXIOMCODE_ENGINE), unless this table is taken
         # for a graph an earlier build made (AXIOMCODE_BUILT_BY_UNKNOWN), which must not be credited to this one
         by = {} if os.environ.get('AXIOMCODE_BUILT_BY_UNKNOWN') else dict(built_by=built_by(os.environ.get('AXIOMCODE_ENGINE') or current_engine(repo), lang))
+        sv = skip_vendored_env()
         json.dump(dict(lang=lang, lang_auto=bool(os.environ.get('AXIOMCODE_LANG_AUTO')), src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
-                       files=snapshot(repo, lang, os.path.join(repo, src_arg)), **by), sys.stdout); return 0
+                       files=snapshot(repo, lang, os.path.join(repo, src_arg), sv), skip_vendored=sv, **by), sys.stdout); return 0
     if cmd == 'count':
         # the SOURCE files of each language under repo, walked as the refresher walks (the parser's skip list and git's
         # ignore rules): java typescript python javascript csharp. axiomcode-build picks the main language from these, and
         # a `find` that saw a generated tree the parser skips could pick a different main language than the last build did
-        n = {l: 0 for l in SOURCE}
+        # With AXIOMCODE_SKIP_VENDORED=1 vendored files are not counted, and a second line says, per language, how many
+        # files were left out as vendored and whether the files that remain hold any code at all (1) or are only comments
+        # and blank lines (0): a language whose files are all vendored, or hold no code, is not indexed (axiomcode-build)
+        sv = skip_vendored_env()
+        n = {l: 0 for l in SOURCE}; kept = {l: [] for l in SOURCE}
         for l in SOURCE:
-            for p in watched(repo, l):
-                if has_ext(l, os.path.basename(p), SOURCE[l]) or (l == 'python' and python_script(p)): n[l] += 1
-        print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp']); return 0
+            for p in watched(repo, l, sv):
+                if has_ext(l, os.path.basename(p), SOURCE[l]) or (l == 'python' and python_script(p)): n[l] += 1; kept[l].append(p)
+        print(n['java'], n['typescript'], n['python'], n['javascript'], n['csharp'])
+        if sv:
+            v, code = {}, {}
+            for l in SOURCE:
+                allp = sum(1 for p in watched(repo, l) if has_ext(l, os.path.basename(p), SOURCE[l]) or (l == 'python' and python_script(p)))
+                v[l] = max(0, allp - n[l]); code[l] = 1 if any(holds_code(p, l) for p in kept[l]) else 0
+            print(' '.join(f"{v[l]}:{code[l]}" for l in ('java', 'typescript', 'python', 'javascript', 'csharp')))
+        return 0
     if cmd == 'pyscripts':
         # how many extensionless python scripts are under repo: added to the build's .py count when it picks a language
         n = 0
@@ -1539,6 +1596,12 @@ def main(argv):
         lang, src_arg, lib = argv[3], argv[4] if len(argv) > 4 else '', argv[5] if len(argv) > 5 else ''
         t = load_table(repo)
         if not t or t.get('lang') != lang or t.get('src_arg', '') != src_arg or (t.get('library') or 'nolib') != (lib or 'nolib'): return 1
+        # vendored code skipped, or read, as this build would (AXIOMCODE_SKIP_VENDORED): a table taken the other way
+        # watched other files, so its "nothing changed" says nothing about these
+        # A table from before the key was recorded read vendored code; it is out of date only if it holds some
+        if 'skip_vendored' in t:
+            if bool(t['skip_vendored']) != skip_vendored_env(): return 1
+        elif skip_vendored_env() and any(vendored_rel(r) for r in t.get('files', {})): return 1
         c = changes(repo, t)
         if c is None or any(c): return 1
         # the files are the graph's; the axiomcode that built it must be the one building now (axiomcode-build passes
