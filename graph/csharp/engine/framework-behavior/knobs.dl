@@ -242,6 +242,12 @@ cs_med_dispatch("Send", "IRequestPostProcessor", "wrap").
 cs_med_dispatch("CreateStream", "IStreamRequestHandler", "one").
 cs_med_dispatch("CreateStream", "IStreamPipelineBehavior", "wrap").
 cs_med_dispatch("Publish", "INotificationHandler", "all").
+// The source-generated mediator writes a request's handler as a command or a query
+// handler, `ICommandHandler<TCommand, TResponse>` / `IQueryHandler<TQuery, TResponse>`,
+// with the same Handle; a Send reaches it by the request's type as it reaches an
+// IRequestHandler.
+cs_med_dispatch("Send", "ICommandHandler", "one").
+cs_med_dispatch("Send", "IQueryHandler", "one").
 // A test that stubs or verifies the mediator writes the send with an argument MATCHER,
 // `mediator.Send(Arg.Any<GetOrder>())` or `m.Send(It.IsAny<GetOrder>(), ..)` inside a
 // mock setup: nothing is dispatched, so no handler is linked from it.
@@ -392,6 +398,8 @@ cs_framework_callback("PageModel", "OnPageHandlerExecutionAsync", "framework_hoo
 // container and calls it in process. An entry point, not a remote edge (see above).
 cs_framework_callback("IRequestHandler", "Handle", "framework_hook").
 cs_framework_callback("INotificationHandler", "Handle", "framework_hook").
+cs_framework_callback("ICommandHandler", "Handle", "framework_hook").
+cs_framework_callback("IQueryHandler", "Handle", "framework_hook").
 cs_framework_callback("IStreamRequestHandler", "Handle", "framework_hook").
 cs_framework_callback("IPipelineBehavior", "Handle", "framework_hook").
 cs_framework_callback("IStreamPipelineBehavior", "Handle", "framework_hook").
