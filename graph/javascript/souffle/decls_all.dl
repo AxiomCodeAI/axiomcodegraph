@@ -232,6 +232,18 @@
 .decl var_owner_method(c0:symbol, c1:symbol, c2:symbol)
 .decl var_type_name(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 .decl var_pattern_root(c0:symbol, c1:symbol, c2:symbol)
+
+// ── call-edge-generation/field_access.dl ──
+.decl js_module_var(c0:symbol)
+.decl js_not_a_data_binding(c0:symbol)
+.decl export_var(c0:symbol, c1:symbol, c2:symbol)
+.decl import_var(c0:symbol, c1:symbol)
+.decl js_var_read_target(c0:symbol, c1:symbol)
+.decl js_var_written(c0:symbol)
+.decl js_var_write_only(c0:symbol)
+.decl js_var_access(c0:symbol, c1:symbol)
+.decl js_var_read_from(c0:symbol, c1:symbol)
+.decl field_access(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol)
 .decl var_binding_form(c0:symbol, c1:symbol, c2:symbol)
 
 // ── resolution/module-graph.dl ──

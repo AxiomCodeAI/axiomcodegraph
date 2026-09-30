@@ -519,6 +519,10 @@ const_holds(ff, fll, m) :- init_alias(ff, fll, n), named(n, m).
 .decl const_handed(q:symbol, c:symbol, f:symbol, l:number, ff:symbol, fll:number)
 const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
     fref(q, c, _, f, l), route_site(f, l), route_arg(c, f, l, n).
+// the same where the engine bound the name to this const (an imported or module-level const read through its binding):
+// fref leaves such a line to fa_bound, and the hand-off is still a registration, not a read
+const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
+    fa_bound(c, fl, _, f, l), route_site(f, l), route_arg(c, f, l, n).
 .decl const_route_edge(q:symbol, c:symbol, m:symbol, f:symbol, l:number)
 const_route_edge(q, c, m, f, l) :- const_handed(q, c, f, l, ff, fll), const_holds(ff, fll, m), handoff_at(c, m, f, l).
 .decl const_route(q:symbol, c:symbol, cert:symbol, f:symbol, l:number)
@@ -540,7 +544,7 @@ const_routed(q, c, f, l) :- const_route_byname(q, c, f, l).
 fa_bound(c, fl, acc, f, l) :- faccess(c, fl, acc, tier, f, l), tier != "ambiguous_unknown".
 direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "write", f, l).
 direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
-direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "read", f, l).
+direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "read", f, l), !const_routed(q, c, f, l).
 direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
 // a caller the engine bound — to this field, or to a DIFFERENT field of the same name. Either way its
 // name matches say nothing further: the first is already reported above with its direction, and the
