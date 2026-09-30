@@ -1,0 +1,1 @@
+{"name":"min","dependencies":{"debug":"^4"},"scripts":{"trace":"debug"}}
