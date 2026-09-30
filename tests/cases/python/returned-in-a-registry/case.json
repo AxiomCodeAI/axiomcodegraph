@@ -1,0 +1,27 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a function placed in a list of tuples that a registry hook returns is a value use of it, and the row says it is returned, which is what the hook's caller does with it",
+   "run": ["impact", "now"],
+   "want": ["[by name] register", "returns it as a value in a tuple, list or dict"]
+  },
+  {
+   "why": "the same for a dict display",
+   "run": ["impact", "later"],
+   "want": ["[by name] table", "returns it as a value in a tuple, list or dict"]
+  },
+  {
+   "why": "and the walk continues from the hook to whoever calls it, and to its test",
+   "run": ["impact", "now", "--tests-only"],
+   "want": ["test_collect"]
+  },
+  {
+   "why": "near-miss control: a function passed to a call inside a return statement is handed to that call, not returned",
+   "run": ["impact", "pick"],
+   "want": ["[by name] ordered", "names it as a value"],
+   "avoid": ["returns it as a value"]
+  }
+ ]
+}

@@ -598,7 +598,8 @@ def value_ref_rows(q, names, ids, site_file=None, at=None, lines=None):
                 continue
             if local and not any(ax_edges.sees_local(q, sc, c) for sc in local):
                 continue
-            rows.append((c, 'uses', reg.get((f, l), _PLAIN), 'by name', f or '', l or 0))
+            rows.append((c, 'uses', reg.get((f, l)) or (_RETURNED if lines and (f, l, n) in returned_in_container([(f, l, n)], lines) else _PLAIN),
+                         'by name', f or '', l or 0))
     return rows
 
 
@@ -621,6 +622,38 @@ def _is_receiver(q, lines, f, l, n):
 
 
 _PLAIN = 'names it as a value — passed, stored or registered, and called somewhere the graph cannot see'
+_RETURNED = 'returns it as a value in a tuple, list or dict — whoever calls this and reads what it returns can call it'
+
+
+def returned_in_container(refs, lines_of):
+    """{(file, line, name)}: the value references among `refs` (file, line, name) written as an element of a tuple, list,
+    set or dict display that a `return` statement returns — `return [("now", now), ("cookie", cookie)]`, `return
+    {"csv": export_csv}`. A registry hook's whole contract: the caller collects what it returns and calls the functions
+    in it, so the reference is the one place a change to them is wired in. Only a display, nested displays and `*`
+    included: a name passed to a call inside the return (`return sorted(xs, key=pick)`) is handed to that call, not
+    returned. Python only, read with `ast`; a file the running interpreter cannot parse gives nothing, never a guess."""
+    import ast, collections
+    want = collections.defaultdict(set)
+    for f, l, n in refs:
+        if f and f.endswith(('.py', '.pyi')): want[f].add((l, n))
+    out = set()
+    shapes = (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.Starred)
+    for f, w in want.items():
+        text = '\n'.join(lines_of(f) or [])
+        if 'return' not in text: continue
+        try: tree = ast.parse(text)
+        except (SyntaxError, ValueError): continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Return) or not isinstance(node.value, shapes): continue
+            stack = [node.value]
+            while stack:
+                x = stack.pop()
+                if isinstance(x, ast.Name):
+                    if (x.lineno, x.id) in w: out.add((f, x.lineno, x.id))
+                elif isinstance(x, ast.Dict): stack += [v for v in list(x.keys) + list(x.values) if v is not None]
+                elif isinstance(x, ast.Starred): stack.append(x.value)
+                elif isinstance(x, (ast.List, ast.Tuple, ast.Set)): stack += list(x.elts)
+    return out
 
 
 # A value reference is a dependent, but it is NOT a by-name CALL, so it must not seed the upward closure: handing a

@@ -470,7 +470,16 @@ calls_same_named(c, n, f, l) :- calls(c, m2, _, f, l), named(n, m2).
 // resolved (see `route_site` above) and no name-matched rows at all.
 registered(q, c, why, f, l) :- valueref(q, c, f, l), registration(_, f, l, _, _, why).
 direct(q, c, "uses", "names it as a value — passed, stored or registered, and called somewhere the graph cannot see", "by name", f, l) :-
-    valueref(q, c, f, l), !registered(q, c, _, f, l).
+    valueref(q, c, f, l), !registered(q, c, _, f, l), !returns_value(q, c, f, l).
+// A FUNCTION RETURNED INSIDE A TUPLE, LIST OR DICT: `return [("now", now), ("cookie", cookie)]` is a registry hook's
+// whole contract, the caller collecting what it returns and calling the functions in it. The row says so, since
+// "passed, stored or registered" names nothing the reader can follow; the walk continues from it as from any value
+// reference (seed_byname). returned_ref is read with Python's own parser (ax_registration.returned_in_container).
+.decl returned_ref(f:symbol, l:number, n:symbol)                  .input returned_ref
+.decl returns_value(q:symbol, c:symbol, f:symbol, l:number)
+returns_value(q, c, f, l) :- valueref(q, c, f, l), target(q, "method", m, _), named(n, m), returned_ref(f, l, n).
+direct(q, c, "uses", "returns it as a value in a tuple, list or dict — whoever calls this and reads what it returns can call it", "by name", f, l) :-
+    returns_value(q, c, f, l), !registered(q, c, _, f, l).
 // and when the site says what will do the calling, the answer says that instead: a route registration, an event
 // subscription, a lifecycle hook. `registration` is written by the exporter's convention table, never guessed here.
 direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q, c, why, f, l).
