@@ -3738,8 +3738,8 @@ def main(argv):
     # like a partial one, and the reader re-derives it from the source.
     if D and not open_set and not u and not byname_seeds and not outside and not dunder and not shapes and not unmod \
             and not any(x[3] in ('by name', 'text', 'capped set') for x in D):
-        print("complete: every dependent above is a resolved call or a dispatch through a base; no caller reaches it by name "
-              "only and no call inside the impacted set is unresolved — read source to make the edit, not to re-check this list")
+        print("complete: every dependent above is a resolved call or a dispatch through a base; none is a name-only match "
+              "and no call inside the impacted set is unresolved — read source to make the edit, not to re-check this list")
     elif used_registered:
         # the note above is counted in by-name entries, and a `registered` route need not produce one: on a
         # target reached ONLY through hand-offs there were no by-name entries at all, so the label the whole
