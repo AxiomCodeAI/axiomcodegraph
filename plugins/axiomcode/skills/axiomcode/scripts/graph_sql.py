@@ -3494,6 +3494,7 @@ def _has_framework_hops(q, at=None, site_file=None):
     try:
         import ax_registration
         if at is not None and ax_registration.key_edges(q, at, site_file): return True
+        if ax_registration.filter_links(q): return True     # fw_edge "filter": a servlet filter a test's context holds
     except Exception:
         return True                               # cannot tell: decline, because answering smaller is the failure
     try:
