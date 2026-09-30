@@ -262,11 +262,28 @@ class Changed:
         if k in ('field', 'const', 'enum_member', 'variable'):
             if is_py: return bool(re.search(rf'(^\s*|\bself\.|\bcls\.){e}\s*(:[^=]*)?=(?!=)|^\s*{e}\s*:', text))
             if k == 'enum_member' and re.match(rf'^\s*{e}\s*(\(|,|;|$|=|\{{)', text): return True
+            # a JavaScript / TypeScript field is declared where it is assigned, `this.x = …` in the constructor: read as
+            # "no line declares it", a field whose line moved was reported removed while it was still assigned
+            if k == 'field' and re.search(rf'\bthis\.{e}\s*=(?![=>])', text): return True
             return bool(re.search(rf'^\s*(?:[\w<>\[\],.?@]+\s+)+{e}\s*(=(?![=>])|;|\{{|=>|$)', text)) and not re.match(r'^\s*(return|throw|new|await|using|yield)\b', text)
         if is_py: return bool(re.search(rf'^\s*(async\s+)?def\s+{e}\s*[(\[]', text))
         m = re.search(rf'^\s*((?:[\w<>\[\],.?@]+\s+)*){e}\s*(<[^()]*>)?\s*\(', text)
         return bool(m) and not re.match(r'^\s*(return|throw|new|await|if|while|for|foreach|switch|else|using|lock|catch|yield)\b', text) \
                and (bool(m.group(1).strip()) or not text.rstrip().endswith(';'))
+    @staticmethod
+    def declared_name(h, is_py):
+        """the name a callable header declares (`async save(a) {`, `def save(self):`, `public int Save(int a)`,
+        `save = async (a) =>`, `function save(a)`); None when the text declares no callable"""
+        h = strip_code(h, hash_comments=is_py)
+        h = re.sub(r'^\s*(@[\w.]+\s*(\([^)]*\))?\s*)+', '', h)
+        if is_py:
+            m = re.match(r'\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*[(\[]', h); return m.group(1) if m else None
+        m = re.match(r'\s*(?:(?:export|default|declare|public|private|protected|static|readonly|override|async|const|let|var)\s+)*'
+                     r'([A-Za-z_$#][\w$]*)\s*[?!]?\s*(?::[^=()]*)?=\s*(?:async\s+)?(?:function\b\s*\*?\s*[\w$]*\s*)?(?:<[^()]*>)?\s*\(', h)
+        if m: return m.group(1)
+        m = re.search(r'([A-Za-z_$#][\w$]*)\s*(?:<[^()]*>)?\s*\(', h)
+        if not m or m.group(1) in ('if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'function', 'super', 'this', 'await', 'typeof', 'yield'): return None
+        return m.group(1) if Changed.declares(h, m.group(1), 'method', False) else None
     def anchor(self, rel, spans, G, O):
         """THE GRAPH'S LINES ARE IN THE TEXT IT WAS INDEXED FROM, and the text an edit is judged against can be a later
         one: an edit made since the index (the background refresh has not run yet), or a baseline behind a refresh. Read
@@ -311,7 +328,7 @@ class Changed:
         # texts: 3 of 393 files fall under 0.8 this way, and every file does with its text shifted by two lines
         tstarts = {a for a, b, i, k, d, n in spans if k in ('class', 'interface', 'enum', 'type', 'namespace')}
         GS = strip_code(G, hash_comments=is_py).split('\n')
-        chk = [(a, n) for a, b, i, k, d, n in spans if shaped(k, n) and re.fullmatch(r'[A-Za-z_$][\w$]*', n)
+        chk = [(a, self.header_name(n, d, rel)) for a, b, i, k, d, n in spans if shaped(k, n) and re.fullmatch(r'[A-Za-z_$][\w$]*', self.header_name(n, d, rel))
                and not (rel.endswith('.cs') and re.match(r'(get|set|add|remove|init)_', n))
                and (k in ('class', 'interface', 'enum', 'type', 'namespace') or a not in tstarts)]
         hit = sum(1 for a, n in chk if starts(GS, a, n))
@@ -326,11 +343,23 @@ class Changed:
                 elif tag == 'replace': near[j1 + k_ + 1] = i1 + min(k_ + 1, i2 - i1)          # a rewritten line: the line in its position
                 else: near[j1 + k_ + 1] = max(1, i1)                                             # a line this text lacks: the one before it
         taken = {exact[a] for a, b, i, k, d, n in spans if a in exact}
+        def renamed_line(a, d, n, k):
+            """A HEADER THE GRAPH HOLDS UNDER A NEW NAME is the same declaration when this text's line in its place declares
+            another name with the same parameters (a rename the refresh already indexed). Dropped as "not declared here",
+            the old header's line fell to the module ("body a.<module>") and the new name was "added"."""
+            j = near.get(a)
+            if k not in ('method', 'function', 'constructor') or not j or j in taken or j in exact.values() or a > len(GL) or j > len(OL): return None
+            gh, oh = ' '.join(GS[a - 1:self.header_end(GS, a)]), ' '.join(OS[j - 1:self.header_end(OS, j)])
+            on = self.declared_name(oh, is_py)
+            if self.declared_name(gh, is_py) != self.header_name(n, d, rel) or not on or on == n: return None
+            pl = lambda h: [p for p, _, _ in self.param_list(self.before_block_body(self.before_expression_body(h)))]
+            return j if pl(gh) == pl(oh) else None
         for a, b, i, k, d, n in spans:
             a2 = exact.get(a)
             if a2 is None:
                 if not shaped(k, n): continue                                                    # a lambda or a module whose first line is gone
                 a2, many = found(n, k, near.get(a) or a, taken, d)
+                if a2 is None: a2, many = renamed_line(a, d, n, k), False
                 if a2 is None: continue                                                          # this text does not declare it
                 if many: self.unsure[rel].add(i)
                 taken.add(a2)
@@ -403,30 +432,73 @@ class Changed:
         """the last line of a header starting at `start`: up to the first line holding `{`, ending with `;`, or (Python) `:`.
         Read on stripped text: a route template, a cache key or an authorization expression inside an annotation holds a
         brace, and taking that for the end of the header classified an annotation edit as body-only, its exact inverse"""
+        # a `{` inside the parameter list (a destructured parameter, an object default) is not the body's: counted by
+        # bracket depth, `constructor({` ended its header on its first line and the fields below read as body
+        depth = 0
         for i in range(start - 1, min(len(L), start + 15)):
             t = strip_code(L[i])
-            if '{' in t or t.rstrip().endswith(';') or (t.rstrip().endswith(':') and not t.strip().startswith(('case', 'default'))): return i + 1
+            for ch in t:
+                if ch in '([': depth += 1
+                elif ch in ')]': depth = max(0, depth - 1)
+                elif ch == '{' and depth == 0: return i + 1
+            if depth: continue
+            if t.rstrip().endswith(';') or (t.rstrip().endswith(':') and not t.strip().startswith(('case', 'default'))): return i + 1
         return start
     @staticmethod
-    def params(header):
-        m = re.search(r'\(([^()]*(?:\([^()]*\)[^()]*)*)\)', header)
-        if not m: return []
+    def split_top(s, sep=','):
+        """`s` cut at each `sep` outside brackets; an arrow's `>` (`=>`, `->`) closes nothing"""
         out = []; depth = 0; cur = ''
-        for ch in m.group(1):
-            depth += ch in '<[('; depth -= ch in '>])'
-            if ch == ',' and depth == 0: out.append(cur); cur = ''
+        for x, ch in enumerate(s):
+            if ch in '<[({': depth += 1
+            elif ch in '>])}' and not (ch == '>' and x and s[x - 1] in '=-'): depth = max(0, depth - 1)
+            if ch == sep and depth == 0: out.append(cur); cur = ''
             else: cur += ch
         if cur.strip(): out.append(cur)
-        res = []
-        for p in out:
-            p = re.sub(r'=.*$', '', p).strip(); p = re.sub(r'@\w+(\([^)]*\))?\s*', '', p)
-            p = re.sub(r'^((public|private|protected|readonly|override)\s+)+(?=[A-Za-z_$][\w$]*\s*[?!]?\s*:)', '', p)   # a TypeScript parameter property
-            if not p: continue
-            if ':' in p: name, typ = p.split(':', 1)[0].strip(), p.split(':', 1)[1].strip()          # TS / Python: name: Type
+        return out
+    @staticmethod
+    def param_list(header):
+        """[(name, type, default)] of a header's parameter list. The list is the text between the first `(` and the `)`
+        that closes it, however deep its default values nest (`clock = { now: () => Date.now() }`). A destructured
+        parameter (`{ users, jwt }`, `[a, b]`) is its fields, one row each: those are the names a caller passes, and
+        read as one parameter a change to one field was every field removed and added."""
+        s = header.find('(')
+        if s < 0: return _Params()
+        depth = 0; e = None
+        for x in range(s, len(header)):
+            if header[x] in '([{': depth += 1
+            elif header[x] in ')]}':
+                depth -= 1
+                if depth == 0: e = x; break
+        body = header[s + 1:e] if e is not None else header[s + 1:]
+        res = _Params()
+        def one(p, into):
+            p = re.sub(r'@\w+(\([^)]*\))?\s*', '', p).strip()
+            eq = re.search(r'(?<![=!<>])=(?![=>])', p)
+            head, dflt = (p[:eq.start()].strip(), re.sub(r'\s+', ' ', p[eq.end():].strip())) if eq and not p.startswith(('{', '[')) else (p, '')
+            if head.startswith(('{', '[')):
+                close = {'{': '}', '[': ']'}[head[0]]; depth = 0; end = len(head)
+                for x, ch in enumerate(head):
+                    depth += ch in '{['; depth -= ch in '}]'
+                    if depth == 0 and ch == close: end = x; break
+                for f in Changed.split_top(head[1:end]):
+                    f = f.strip()
+                    if not f: continue
+                    eqf = re.search(r'(?<![=!<>])=(?![=>])', f)
+                    fd = re.sub(r'\s+', ' ', f[eqf.end():].strip()) if eqf else ''
+                    key = (f[:eqf.start()] if eqf else f).split(':', 1)[0].strip().lstrip('.')
+                    if key: into.append((key, '', fd)); into.fields.add(key)
+                return
+            head = re.sub(r'^((public|private|protected|readonly|override)\s+)+(?=[A-Za-z_$][\w$]*\s*[?!]?\s*:)', '', head)   # a TypeScript parameter property
+            if not head: return
+            if ':' in head: name, typ = head.split(':', 1)[0].strip(), head.split(':', 1)[1].strip()   # TS / Python: name: Type
             else:
-                toks = re.findall(r'[A-Za-z_$][\w$]*', p); name = toks[-1] if toks else p; typ = p[:p.rfind(name)].strip() if toks else ''
-            res.append((name.lstrip('*.'), re.sub(r'\s+', ' ', typ)))
+                toks = re.findall(r'[A-Za-z_$][\w$]*', head); name = toks[-1] if toks else head; typ = head[:head.rfind(name)].strip() if toks else ''
+            into.append((name.lstrip('*.').rstrip('?'), re.sub(r'\s+', ' ', typ), dflt))
+        for p in Changed.split_top(body): one(p, res)
         return res
+    @staticmethod
+    def params(header):
+        return [(n, t) for n, t, _ in Changed.param_list(header)]
     @staticmethod
     def before_expression_body(h):
         """a header's text up to an expression body's `=>` written after its parameter list, at bracket depth 0 (a
@@ -717,6 +789,13 @@ class Changed:
             elif not f: f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if k in ('field', 'const', 'enum_member', 'variable') and a < ln
                                 and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None)
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
+            # A FUNCTION WRITTEN IN ANOTHER'S PARAMETER LIST IS PART OF THAT HEADER. A default value
+            # (`clock = { millis: () => Date.now() }`) holds a callable the graph records on its own; an edit inside the
+            # default was charged to it ("signature millis") instead of to the function whose parameter changed
+            if m and m[3] in ('method', 'function', 'constructor'):
+                host = [x for x in decls if x[3] in ('method', 'function', 'constructor') and x[2] != m[2] and not is_lam(x)
+                        and x[0] <= m[0] and m[1] <= x[1] and m[1] <= self.header_end(OL, x[0]) and x[0] <= ln <= self.header_end(OL, x[0])]
+                if host: m = min(host, key=lambda x: x[1] - x[0])
             t = narrowest(ln, {'class', 'interface', 'enum', 'type', 'namespace'})
             lam = None if f else lambda_decl(ln, m)
             if lam: hits.setdefault(('lambda', lam), set()).add(ln); continue
@@ -751,8 +830,30 @@ class Changed:
         overrun_note = ('', f"{rel}: the graph's spans run past the end of this file's committed version ({len(OL)} lines): it was "
                         "indexed from a working tree with uncommitted edits, so positions here may be off; re-index "
                         "(`axiomcode index`) for exact answers", None) if overrun else None
+        sig_of = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()
+        def renamed_at(a, n, k):
+            """A DECLARATION RENAMED IN PLACE is the same declaration: its header line became one that declares another
+            name, with the same parameters, the old name is declared nowhere in the new text and the new name nowhere in
+            the old. Read as "removed <old>" plus "added <new>" (or as a signature change of the NEW name, 0 callers), the
+            edit's dependents were never the old name's callers. (new name, new line), or None"""
+            if k not in ('method', 'function', 'constructor') or n in P.LAMBDA_NAMES: return None
+            j = counterpart(a)
+            if not j or j > len(NL): return None
+            oh = ' '.join(x.strip() for x in OK[a - 1:self.header_end(OL, a)]); nh = ' '.join(x.strip() for x in NK[j - 1:self.header_end(NL, j)])
+            if self.declared_name(oh, is_py) != n: return None
+            nn = self.declared_name(nh, is_py)
+            if not nn or nn == n: return None
+            plist = lambda L, x: [p for p, _, _ in self.param_list(self.before_block_body(self.before_expression_body(sig_of(' '.join(y.strip() for y in L[x - 1:self.header_end(L, x)])))))]
+            po, pn = plist(OK, a), plist(NK, j)
+            if po != pn: return None
+            # the old name may stay declared by an OVERLOAD (another parameter list); declared with this one, it moved
+            if any(self.declares(NS[x - 1], n, k, is_py) and plist(NK, x) == po for x in range(1, len(NS) + 1)): return None
+            if any(self.declares(OS[x - 1], nn, k, is_py) and plist(OK, x) == po for x in range(1, len(OS) + 1)): return None
+            return (nn, j, oh, nh)
+        renamed_new = set()
         for (kind, (a, b, i, k, d, n)), lines in hits.items():
             decs = decorated.get((a, b, i, k, d, n))
+            n = self.header_name(n, d, rel)
             if a > len(OL): continue                                             # starts past the committed file: nothing of it is there
             entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(x for x in lines if x > 0), target_kind=('param' if kind == 'signature' else KIND(k)))
             if kind == 'lambda':
@@ -814,9 +915,20 @@ class Changed:
                 # parameter read as removed ("signature f -self, -rel"). Declared nowhere in the new text, it is removed;
                 # declared elsewhere, what changed cannot be read from here
                 if not nh:
+                    ren = renamed_at(a, n, k)
+                    if ren:
+                        nn_, j_, oh_r, nh_r = ren
+                        entry.update(detail=f"renamed {n} → {nn_} (same parameters; its callers still name {n})", old_header=oh_r, new_header=nh_r, target=d, target_kind='method')
+                        renamed_new.add((d.rsplit('.', 1)[0] + '.' + nn_) if '.' in d else nn_)
+                        out.append(entry); continue
                     again = still_declared(hn, k, na or a)
                     if not again:
                         if not any(e['kind'] == 'removed' and e['id'] == i for e in out): entry.update(kind='removed', target=self.target(kind, d, k, n)); out.append(entry)
+                        continue
+                    # the same header, word for word, further along: code inserted above it moved it, and its header did not change
+                    if re.sub(r'\s', '', ' '.join(OS[a - 1:self.header_end(OS, a)])) == re.sub(r'\s', '', ' '.join(NS[again - 1:self.header_end(NS, again)])):
+                        entry.update(kind='body', detail=f"moved: the same header is now at line {again}", target=d, target_kind='method')
+                        if not any(e['id'] == i for e in out): out.append(entry)
                         continue
                     entry.update(detail=f"may have changed: its header is no longer at its line; a declaration of {n} is at line {again}", target=d, target_kind='method')
                     out.append(entry); continue
@@ -828,11 +940,24 @@ class Changed:
                     oh, oh_raw, nh, nh_raw = body_brace(oh), body_brace(oh_raw), body_brace(nh), body_brace(nh_raw)
                 # the header may start on an annotation line: its arguments are not a parameter list, and its text is
                 # not a return type. Read the signature from the first line that is not a decoration
-                sig = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()
+                sig = sig_of
                 oh_s, nh_s = sig(oh), sig(nh)
-                op, np_ = self.params(oh_s), self.params(nh_s) if nh_s else []
+                opl, npl = self.param_list(oh_s), self.param_list(nh_s) if nh_s else []
+                op, np_ = [(x, t) for x, t, _ in opl], [(x, t) for x, t, _ in npl]
                 on, nn = [x for x, _ in op], [x for x, _ in np_]
                 detail = []
+                # THE OLD HEADER MUST BE THIS DECLARATION'S. A graph from another text of the file (a refresh that already
+                # holds the edit) can place a declaration on a line that declares something else, or on a body line; its
+                # words were then printed as a "return type" (`const iat = Math.floor → export function`). A header that
+                # declares another name is that name renamed to this one; a line that declares nothing says so
+                names_n = bool(re.search(rf'(?<![\w$]){re.escape(n)}(?![\w$])', strip_code(oh_s, hash_comments=is_py)))
+                named_o = None if names_n else self.declared_name(oh_s, is_py)
+                pre_o = re.sub(r'\(.*$', '', oh_s)
+                if (named_o and nh) or (not names_n and re.search(r'(?<![=!<>])=(?![=>])|;', pre_o)):
+                    entry.update(detail=(f"renamed {named_o} → {n} (the graph already holds the new name)" if named_o and nh else
+                                         f"may have changed: the graph places it at line {a}, which is not its header (the graph is from another text of this file)"),
+                                 old_header=oh_raw, new_header=nh_raw, target=d, target_kind='method')
+                    out.append(entry); continue
                 if nh and not re.search(rf'\b{re.escape(hn)}\b', nh): detail.append('renamed')
                 for x in on:
                     if x not in nn: detail.append(f'-{x}')
@@ -840,6 +965,9 @@ class Changed:
                     if x not in on: detail.append(f'+{x}')
                 for (x, t1), (y, t2) in zip(op, np_):
                     if x == y and t1 != t2 and t1 and t2: detail.append(f'{x}: {t1} → {t2}')
+                od = {x: v for x, _, v in opl}
+                for x, _, v in npl:
+                    if x in od and re.sub(r'\s', '', od[x]) != re.sub(r'\s', '', v): detail.append(f'{x}: default {od[x] or "(none)"} → {v or "(none)"}')
                 pre_o = re.sub(r'\(.*$', '', oh_s); pre_n = re.sub(r'\(.*$', '', nh_s) if nh_s else ''
                 if nh and pre_o.split() != pre_n.split():
                     ro = [w for w in pre_o.split() if w != hn]; rn = [w for w in pre_n.split() if w != hn]
@@ -850,7 +978,7 @@ class Changed:
                 if decs: detail.append('decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — what the framework does with it (a proxy, a transaction, a cache, a route) is NOT in the graph; only the code that names it is')
                 if not detail: entry['kind'] = 'body'                                                  # whitespace or a comment in the header
                 entry['detail'] = ', '.join(detail); entry['old_header'] = oh_raw; entry['new_header'] = nh_raw
-                changed_params = [x for x, _ in op if any(dd.startswith(f'{x}:') or dd == f'-{x}' for dd in detail)]
+                changed_params = [x for x, _ in op if x not in opl.fields and any(dd.startswith(f'{x}:') or dd == f'-{x}' for dd in detail)]
                 entry['target'] = (f"{d}({changed_params[0]})" if len(changed_params) == 1 and entry['kind'] == 'signature' else d)
                 entry['target_kind'] = 'param' if '(' in entry['target'] else 'method'
             elif kind == 'field':
@@ -912,6 +1040,14 @@ class Changed:
         # a declaration found removed is not also listed by a body line of it that the diff paired with other text
         gone_ids = {e['id'] for e in out if e['kind'] == 'removed'}
         out = [e for e in out if e['kind'] == 'removed' or e['id'] not in gone_ids]
+        # one body row per declaration (a header line found moved and a body line are two keys of it)
+        seen_body = set(); keep = []
+        for e in out:
+            if e['kind'] == 'body' and e['id'] is not None:
+                if e['id'] in seen_body: continue
+                seen_body.add(e['id'])
+            keep.append(e)
+        out = keep
         adds = []
         SL = strip_code(new, hash_comments=is_py).split('\n')                                             # the new text, strings and comments blanked
         ndepth = [0] * (len(NL) + 2)                                                                     # brace depth at the START of each new line
@@ -1016,7 +1152,7 @@ class Changed:
             def old_has(nm, hdr, t=t):
                 ht = types_of(hdr) if '(' in hdr else None
                 for a, b, i, k, d, n in decls:
-                    if n != nm or (t and not d.startswith(t[4] + '.') and d != t[4] + '.' + nm and k not in ('class', 'interface', 'enum')): continue
+                    if self.header_name(n, d, rel) != nm or (t and not d.startswith(t[4] + '.') and d != t[4] + '.' + nm and k not in ('class', 'interface', 'enum')): continue
                     if ht is not None and k in ('field', 'const', 'enum_member', 'variable'): continue     # a field of that name is not this method
                     if ht is None or k in ('class', 'interface', 'enum', 'field', 'const', 'enum_member'): return True
                     sig = self.g.sym.get(i, {}).get('signature') or ''
@@ -1073,6 +1209,8 @@ class Changed:
         renamed = {(e['file'], e['symbol'].rsplit('.', 1)[0] + '.' + str(e.get('detail'))[len('renamed → '):] if '.' in e['symbol'] else str(e.get('detail'))[len('renamed → '):])
                    for e in out if e['kind'] == 'field' and str(e.get('detail', '')).startswith('renamed → ')}
         out = [e for e in out if not (e['kind'] == 'added' and (e['file'], e['symbol']) in renamed)]
+        # and a callable renamed in place is not also a new callable of the new name (renamed_at)
+        out = [e for e in out if not (e['kind'] == 'added' and e['symbol'] in renamed_new)]
         if overrun_note: adds.append(overrun_note)
         # THE TARGET NAMES THIS DECLARATION, NOT EVERY DECLARATION OF ITS NAME. `symbol` stays the short display; the
         # target impact is asked is where the declaration is (at_line), and `shown_target` keeps its name for reading.
@@ -1095,7 +1233,15 @@ class Changed:
         if isinstance(i, str) and i.startswith('f:'):
             row = self.g.q("SELECT file, line FROM symbols WHERE rowid = ?", int(i[2:])) if i[2:].isdigit() else None
             at = f"{row[0][0]}:{row[0][1]}" if row and row[0][0] and row[0][1] else None
-        else: at = self.g.lambda_target(i)
+        else:
+            at = self.g.lambda_target(i)
+            # file:line names the NARROWEST callable spanning the line: a function whose line also holds another one (an
+            # arrow in a default value, `f(clock = { now: () => 0 })`) is not named by it, and asked that way impact
+            # answered for the arrow. Its qualified name names it
+            r = self.g.all_sym.get(i) or self.g.sym.get(i) or {}
+            if at and not self.g.is_lambda(i) and r.get('end_line') and self.g.q(
+                    "SELECT 1 FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' AND id <> ? AND end_line - line < ? LIMIT 1",
+                    r['file'], r['line'], r['line'], i, r['end_line'] - r['line']) and self.qualified(i, 'method'): return None
         return at + sfx if at else None
     def new_file(self, rel, new, decls, is_py):
         """A FILE THE BASE DOES NOT HAVE is one change: `added <file> (N declarations)`. Read line by line as an insertion,
@@ -1164,6 +1310,10 @@ class Changed:
     @staticmethod
     def target(kind, d, k, n):
         return d
+
+class _Params(list):
+    """a parameter list; `fields` are the names that are fields of a destructured parameter, not parameters of their own"""
+    def __init__(self): super().__init__(); self.fields = set()
 
 NO_GIT = ("no git base: {repo} is not a git checkout (a copy without .git), so there is no earlier version to diff the "
           "working tree against, and nothing can say what changed. Name the files you edited: `axiomcode changed <file>…` "

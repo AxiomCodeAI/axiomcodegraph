@@ -124,11 +124,14 @@
    "want": [
     "main   alpha/cli.py:5",
     "→ impact alpha/cli.py:5",
-    "go_a"
+    "go_a",
+    "renamed main → entry"
    ],
    "avoid": [
     "go_b",
-    "test_beta"
+    "test_beta",
+    "added      ",
+    "removed    "
    ]
   },
   {

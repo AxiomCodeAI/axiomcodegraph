@@ -1,0 +1,205 @@
+{
+ "lang": "javascript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a method renamed in place (same position, same parameters) is one declaration renamed, answered from the OLD name's callers; never 'removed' plus 'added'",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new-rename.js",
+    "--file",
+    "src/a.js",
+    "--impact"
+   ],
+   "want": [
+    "signature  S.oldName",
+    "renamed oldName → newName",
+    "twice",
+    "use"
+   ],
+   "avoid": [
+    "removed    ",
+    "added      S.newName",
+    "signature  S.newName"
+   ]
+  },
+  {
+   "why": "a constructor header edit is a signature change of the constructor, found under the name it is written with ('constructor'), not removed and re-added",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new-ctor.js",
+    "--file",
+    "src/a.js"
+   ],
+   "want": [
+    "signature  S.<constructor>",
+    "-b",
+    "+c"
+   ],
+   "avoid": [
+    "removed    S.<constructor>",
+    "added      S.constructor",
+    "-a,",
+    "placed by name"
+   ]
+  },
+  {
+   "why": "a field added to a destructured parameter names only that field, and targets the constructor (a destructured field is no parameter of its own)",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new-destructure.js",
+    "--file",
+    "src/a.js"
+   ],
+   "want": [
+    "signature  S.<constructor>",
+    "+c",
+    "impact src/a.js:2"
+   ],
+   "avoid": [
+    "-a",
+    "-b",
+    "src/a.js:2(c)"
+   ]
+  },
+  {
+   "why": "a multi-line destructured parameter with one field replaced is reported as that one field",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old-c.js",
+    "--new",
+    "{repo}/new-c.js",
+    "--file",
+    "src/c.js"
+   ],
+   "want": [
+    "signature  Auth.<constructor>",
+    "-jwt",
+    "+tokens"
+   ],
+   "avoid": [
+    "-users",
+    "-clock",
+    "removed    Auth"
+   ]
+  },
+  {
+   "why": "an edit inside a default value is the function's own parameter change, not a change to the arrow written inside the default",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new-default.js",
+    "--file",
+    "src/a.js",
+    "--impact"
+   ],
+   "want": [
+    "signature  stamp",
+    "clock: default",
+    "twice"
+   ],
+   "avoid": [
+    "signature  millis",
+    "parameter clock of millis"
+   ]
+  },
+  {
+   "why": "a field whose assignment moved and changed (`this.n = 2` now first in the constructor) is still assigned, so it is not removed",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new-reorder.js",
+    "--file",
+    "src/a.js"
+   ],
+   "want": [
+    "field      S.n",
+    "still assigned"
+   ],
+   "avoid": [
+    "removed    S.n"
+   ]
+  },
+  {
+   "why": "a graph that already holds the new name reads the old header as that name renamed, never as a 'return type' change",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old-d.js",
+    "--new",
+    "{repo}/new-d.js",
+    "--file",
+    "src/d.js"
+   ],
+   "want": [
+    "renamed stale → fresh"
+   ],
+   "avoid": [
+    "return type"
+   ]
+  },
+  {
+   "why": "control: a body edit is a body change of that method, and no field of the constructor is touched",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new-body.js",
+    "--file",
+    "src/a.js"
+   ],
+   "want": [
+    "body       S.oldName"
+   ],
+   "avoid": [
+    "signature  ",
+    "removed    ",
+    "field      "
+   ]
+  },
+  {
+   "why": "control: a statement added to a constructor body leaves its header and its untouched field this.name alone",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.js",
+    "--new",
+    "{repo}/new-errbody.js",
+    "--file",
+    "src/a.js"
+   ],
+   "want": [
+    "body       Err.<constructor>"
+   ],
+   "avoid": [
+    "Err.name",
+    "signature  ",
+    "removed    "
+   ]
+  }
+ ]
+}
