@@ -48,7 +48,14 @@ def _parse(lines):
     # a field and a method): it stays on top of every page instead of sinking into the footer with the qualifiers
     while lines and lines[0].startswith('note:'):
         head.append(lines.pop(0))
-    while lines and (lines[0].startswith('change:') or (head and lines[0].startswith('  ') and not lines[0].startswith('    '))):
+    # impact --why prints, under each `change:` line, a block that says how the name was resolved: its first line is
+    # indented like the other lines under `change:`, its detail deeper, and the whole block stays in the head
+    why = False
+    while lines:
+        l = lines[0]
+        if l.startswith('change:'): why = False
+        elif head and l.startswith('  ') and not l.startswith('    '): why = l.startswith("  why '")
+        elif not (why and l.startswith('    ')): break
         head.append(lines.pop(0))
     quals = [l for l in lines if QUALIFIER.match(l)]
     sections, cur = [], None                                   # a line at column 0 opens a section

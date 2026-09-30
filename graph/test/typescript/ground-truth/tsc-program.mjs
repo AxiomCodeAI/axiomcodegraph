@@ -204,7 +204,10 @@ export function loadProgram(srcDir, libDir, toolName, programDir) {
     const mods = ts.canHaveModifiers(decl) ? (ts.getModifiers(decl) ?? []) : [];
     if (mods.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) name = 'static ' + name;
 
-    const ps = (decl.parameters ?? []).map((param) => {
+    // A declared `this` parameter types `this`, it is no argument: the engine's label
+    // leaves it out, so this one does too.
+    const ps = (decl.parameters ?? []).filter((param) =>
+      !(ts.isIdentifier(param.name) && param.name.text === 'this')).map((param) => {
       let t = param.type ? param.type.getText(sf) : '?';
       if (param.dotDotDotToken && !t.endsWith('[]')) t += '[]';
       return simple(t);

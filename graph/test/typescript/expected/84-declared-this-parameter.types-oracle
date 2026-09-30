@@ -1,0 +1,7 @@
+84-declared-this-parameter [types]
+  precision 1.0000   (5 correct, 0 wrong)
+  recall    1.0000   (5 of 5 the compiler resolved)
+  sites 6   resolved 6 (100.0%)
+  tiers known_edge=6
+  contexts FIELD_TYPE=2  METHOD_PARAM=1  OBJECT_CREATION_TYPE=3
+  not scored: 0 rows whose target is not a client declaration

@@ -1,0 +1,9 @@
+84-declared-this-parameter [fields]
+  precision 0.6667   (2 correct, 1 wrong)
+  recall    0.6667   (2 of 3 the compiler resolved)
+  sites 4   resolved 3 (75.0%)
+  tiers ambiguous_unknown=1  known_edge=3
+  access read=4
+  not scored: 1 rows whose target is not a client declaration
+    WRONG   x#onShape(number) READ { other: Other }#other
+    MISSING x#onShape(number) READ x#other
