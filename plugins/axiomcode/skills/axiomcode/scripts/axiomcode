@@ -1,5 +1,27 @@
 #!/bin/bash
-# axiomcode — the one entry point. Every capability is a subcommand here; a new skill is a new subcommand, never a new tool.
+# axiomcode — ask the repository's call graph. Each answer is a numbered list of places, each with the code of the
+# function it sits in.
+#
+#   axiomcode find "<what you need, in words>"
+#       where the code for a task lives: the functions involved, most relevant first.
+#   axiomcode impact [<name>]
+#       who calls it, what a change to it reaches, and the tests that exercise it.
+#       With no name: the same for the declarations your uncommitted edits changed.
+#   axiomcode path <A> <B>
+#       how A reaches B: every hop of the call chain, with the code at each call.
+#   axiomcode tests
+#       the tests your uncommitted edits reach, and the command that runs exactly those.
+#   axiomcode index [<repo>] [--lang <lang>[,<lang>…]] [--src <subdir>] [--library <root>[,<root>…]]
+#       build the graph (the first query builds it too). <repo> defaults to the current directory.
+#
+# Names are written as in the code: Owner.method, function, Type, or file.py:123. `axiomcode help <verb>` for one verb.
+
+# THE HELP ABOVE IS THE PUBLIC SURFACE: helptext() prints the comment block up to the blank line above. The verbs below
+# are still dispatched and keep every flag -- the hooks, the test suites and scripts call them -- but they are internal
+# and are not advertised on any user- or agent-facing surface. find is context and tests is test-impact underneath;
+# at the front door (bin/axiomcode sets AXIOMCODE_FRONT, the MCP server AXIOMCODE_SURFACE=mcp) a query with no flag
+# answers as places with their code (ax_blocks.py), and any flag, AXIOMCODE_RAW=1 or a direct call gives the verb's
+# own answer.
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
@@ -110,7 +132,12 @@ helptext(){ awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; 
 # one verb's own usage, from the script that implements it: a python docstring, or a bash file's
 # leading comment block. The verb documents itself once, where it is implemented.
 verbhelp(){
-  local f="$H/axiomcode-$1"; [ "$1" = index ] && f="$H/axiomcode-build"; [ "$1" = tests ] && f="$H/axiomcode-test-impact"
+  # a verb of the small surface is explained by its own entry in the help above: what it answers, no options
+  case "$1" in find|impact|path|tests)
+    helptext | awk -v v="$1" '$0 ~ "^  axiomcode "v"( |$)" {on=1; print; next} on && /^  axiomcode / {exit} on && /^$/ {exit} on {print}'
+    return 0 ;;
+  esac
+  local f="$H/axiomcode-$1"; [ "$1" = index ] && f="$H/axiomcode-build"; [ "$1" = tests ] && f="$H/axiomcode-test-impact"; [ "$1" = find ] && f="$H/axiomcode-context"
   [ -f "$f" ] || { echo "axiomcode: no such verb '$1' — try: $(verbs | tr '\n' ' ')" >&2; return 2; }
   if head -1 "$f" | grep -q python; then python3 -c 'import ast,sys; print(ast.get_docstring(ast.parse(open(sys.argv[1]).read())) or "")' "$f"
   else awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$f"; fi
@@ -176,7 +203,7 @@ LASTPOS=""; [ "${#POS[@]}" -gt 0 ] && LASTPOS="${POS[${#POS[@]}-1]}"
 case "$cmd" in
   index|build) if [ "${#POS[@]}" -gt 0 ] && [ ! -d "${POS[0]}" ]; then gone "${POS[0]}"; fi ;;
   graph) case "${POS[0]:-}" in ""|build|export|draw) ;; *) [ -d "${POS[0]}" ] || gone "${POS[0]}" ;; esac ;;
-  context) if [ "${#POS[@]}" -gt 1 ] && [ ! -d "${POS[1]}" ]; then gone "${POS[1]}"; fi ;;
+  context|find) if [ "${#POS[@]}" -gt 1 ] && [ ! -d "${POS[1]}" ]; then gone "${POS[1]}"; fi ;;
   path) if [ "${#POS[@]}" -gt 2 ] && [ ! -d "${POS[2]}" ]; then gone "${POS[2]}"; fi ;;
   impact) if [ "${#POS[@]}" -gt 1 ] && [ ! -e "$LASTPOS" ] && dirlike "$LASTPOS"; then gone "$LASTPOS"; fi ;;
   changed|test-impact|tests) if [ "${#POS[@]}" -gt 0 ] && [ ! -e "${POS[0]}" ] && dirlike "${POS[0]}"; then gone "${POS[0]}"; fi ;;
@@ -191,6 +218,25 @@ done
 # shapes are one answer. Without it the answer is the verb's own, unchanged.
 G=()
 case "$cmd" in context|path|impact|test-impact|tests) [ -n "${GREP:-}" ] && G=(python3 "$H/ax_grep.py" "$cmd" "$FR" --limit "${GREP_LIMIT:-30}" --) ;; esac
+# THE SMALL SURFACE: find, impact, path and tests, asked with no flags at the front door (the installed `axiomcode` and
+# the MCP server set AXIOMCODE_FRONT), answer as numbered places, each with the code of the function it sits in
+# (ax_blocks.py), so a place needs no read to be understood. find is context; impact <name> is impact with its tests,
+# and impact with no name answers for the declarations the working tree has edited; path is path; tests is
+# test-impact. A flag, AXIOMCODE_RAW, or a caller that runs this script directly (the hooks, the suites) gets the
+# verb's own answer.
+B=""; FRONT="${AXIOMCODE_FRONT:-}"; [ "${AXIOMCODE_SURFACE:-}" = mcp ] && FRONT=1; [ -n "${AXIOMCODE_RAW:-}${GREP:-}" ] && FRONT=""
+if [ -n "$FRONT" ]; then for a in ${ARGS[@]+"${ARGS[@]}"}; do case "$a" in -*) FRONT="" ;; esac; done; fi
+case "$cmd" in
+  find) cmd=context; [ -n "$FRONT" ] && B=find ;;
+  path) [ -n "$FRONT" ] && B=path ;;
+  tests|test-impact) [ -n "$FRONT" ] && B=tests ;;
+  impact) if [ -n "$FRONT" ]; then
+            named=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ -d "$a" ] || named=1; done
+            [ -z "$named" ] && exec python3 "$H/ax_blocks.py" edits "$FR"
+            ARGS+=(--tests); B=impact
+          fi ;;
+esac
+[ -n "$B" ] && G=(python3 "$H/ax_blocks.py" "$B" "$FR" --)
 # A REPOSITORY IN SEVERAL LANGUAGES has one graph per language (.axiomcode/lang/<lang> beside the main one): a query
 # asks every one of them (ax_langs.py), so no language's code is left out of an answer. A graph named in
 # AXIOMCODE_GRAPH was chosen by the caller and is asked alone.
@@ -204,7 +250,7 @@ if [ -f "$FR/.axiomcode/out/graph.sqlite" ] || [ -L "$FR/.axiomcode/out/graph.sq
 fi
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
-  context) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
+  context|find) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
   path)   exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
   impact) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   changed) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;

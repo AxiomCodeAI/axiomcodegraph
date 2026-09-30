@@ -253,7 +253,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       # the engine is compiled for any x86-64 runner, so a cached one can be restored
       # on whichever runner this job lands (see the engine cache step below)
@@ -447,6 +447,25 @@ jobs:
         # The cases run concurrently, up to one per CPU (graph/test/tools/case-pool.sh);
         # AXIOM_SUITE_JOBS=1 here would run them one at a time, as they used to.
         run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
+
+      # THE QUERY LAYER'S CASES (tests/run.py): what impact, path, context, changed and test-impact answer on small
+      # projects written for one behaviour each. Every case must pass, and a case marked pending that now passes fails
+      # the run until the mark is removed, so a fix for one shape cannot quietly break another's answer. The suite
+      # calls the verbs directly, so it checks their own answers, not the front-door rendering (tests/front_door.py).
+      - name: ${{ matrix.lang }} query cases
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        run: python3 tests/run.py --lang ${{ matrix.lang }}
+
+      # the small surface as users and agents get it: find / impact / path / tests through the installed command and
+      # the MCP server, answered as places with their code, and the direct calls and flags that keep the old answers
+      - name: the front door answers as places with their code
+        if: matrix.lang == 'python'
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
+          AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
+        run: python3 tests/front_door.py
 
       # The hooks answer impact from SQL (graph_sql.impact_shaped) and fall back to the rules (dl/impact.dl) only when
       # it declines, so the two must list the same rows for the same edit: tests/fastpath.py indexes a small case, asks

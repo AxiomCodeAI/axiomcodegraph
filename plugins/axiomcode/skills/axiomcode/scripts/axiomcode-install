@@ -35,23 +35,23 @@ END = '<!-- END axiomcode -->'
 BLOCK = """<!-- BEGIN axiomcode -->
 ## Finding code in this repository
 
-This repository has a resolved call graph. Ask it FIRST, through the
-`mcp__plugin_axiomcode_axiomcode__axiomcode_*` tools; no skill needs loading:
+This repository has a resolved call graph. Ask it FIRST, through the axiomcode MCP tools
+(`mcp__plugin_axiomcode_axiomcode__*`); no skill needs loading:
 
-    axiomcode_context  task="<the task, in your words>"   # where the work is, when you have no name yet
-    axiomcode_impact   targets=["<Owner.method>"]          # what a change reaches: contract, users, tests
-    axiomcode_path     from_="<A>" to="<B>"                # how A reaches B
+    find(question="<the task, in your words>")   # where the code for a task lives
+    impact(name="<Owner.method>")                  # who calls it, what a change reaches, its tests
+    impact()                                       # the same for your uncommitted edits
+    path(start="<A>", end="<B>")                   # how A reaches B
+    tests()                                        # the tests your edits reach, and how to run them
 
-Only when those tools are not in your list, the same from the shell: `axiomcode context "<task>"`,
-`axiomcode impact <Owner.method>`, `axiomcode path <A> <B>`.
+Only when those tools are not in your list, the same from the shell: `axiomcode find "<task>"`,
+`axiomcode impact <Owner.method>`, `axiomcode path <A> <B>`, `axiomcode tests`.
 
-**Trust the answer.** A `[resolved]` / `[sound]` row has already been looked up again in the graph
-(the `verified:` line) — do not re-derive it by grepping or opening the other files it names. Every
-answer ends with `next:`, the one step to take: read only the lines you will cite or change.
-`[by name]` / `[text]` rows are leads, not facts. An unresolved call means *unknown*, not *absent*.
+**Trust the answer.** Each place comes with the code of the function it sits in: answer from it. A
+`resolved` place has already been looked up again in the graph (the `verified:` line) — do not re-derive it
+by grepping. `by name` / `text` places are leads, not facts. An unresolved call means *unknown*, not *absent*.
 
 Text search is still right for a string, a comment, a config value, or a file you already know.
-`axiomcode index` builds the graph if `.axiomcode/out/graph.sqlite` is absent.
 <!-- END axiomcode -->"""
 
 

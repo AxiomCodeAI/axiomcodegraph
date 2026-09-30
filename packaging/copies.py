@@ -11,7 +11,7 @@ the skill lives in plugins/axiomcode/skills/ where every other host reads it. A 
 the install: Gemini clones into a temporary directory, copies it with fs.cp, which rewrites a relative
 link into an absolute one inside that directory, and then deletes the directory.
 
-So skills/axiomcode/ holds a copy of SKILL.md and reference/, and nothing else. The scripts stay in the
+So skills/axiomcode/ holds a copy of SKILL.md (and reference/, when the skill has one), and nothing else. The scripts stay in the
 plugin: the copy's fallback command is rewritten to reach them from the repository root, which Gemini
 installs whole.
 
@@ -48,7 +48,8 @@ def expected():
     if SCRIPTS not in text:
         sys.exit(f"copies: SKILL.md no longer names {SCRIPTS}…; update the rewrite in {__file__}")
     files['SKILL.md'] = text.replace(SCRIPTS, FROM_ROOT)
-    for name in sorted(os.listdir(os.path.join(SOURCE, 'reference'))):
+    ref = os.path.join(SOURCE, 'reference')
+    for name in sorted(os.listdir(ref)) if os.path.isdir(ref) else []:
         with open(os.path.join(SOURCE, 'reference', name)) as f:
             files[os.path.join('reference', name)] = f.read()
     return files

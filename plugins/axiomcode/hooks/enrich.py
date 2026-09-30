@@ -243,7 +243,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         # 0 tests where the rules report ~1800 and ~1470, and there was no way to tell from the block whether that
         # was the fast path answering, the rules answering, or the CLI having given up.
         lines.append(f"    [{'fast path' if j.get('_sql') else 'rules'}] reaches {len(rc)} more callable(s) through resolved calls within 12 hops; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner'] or (t.get('at') or '').rsplit('/', 1)[-1].split(':')[0] or 'test'}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
-    if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more changed declaration(s): axiomcode changed --impact")
+    if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more changed declaration(s): impact() with no name (`axiomcode impact`) answers for every edit")
     if decls:
         for n in ch.get('notes', [])[:2]: lines.append(f"  added: {n}")
     if bodies:
@@ -512,7 +512,7 @@ if lines and tool in ('Read', 'Grep', 'Glob'):
     if key in seen:
         lines = []                                            # the same range, or the same search, is annotated once
     elif spent >= ENRICH_BUDGET:
-        lines = [] if st.get('budget_said') else [f"graph: this session's enrichment budget ({ENRICH_BUDGET} characters) is spent, so reads and searches get no more of these blocks; ask `axiomcode impact` / `path` directly for a declaration's edges"]
+        lines = [] if st.get('budget_said') else [f"graph: this session's enrichment budget ({ENRICH_BUDGET} characters) is spent, so reads and searches get no more of these blocks; ask impact(name) / path(start, end) directly (mcp__plugin_axiomcode_axiomcode__impact / __path; shell `axiomcode impact` / `axiomcode path`) for a declaration's edges"]
         st['budget_said'] = True
     elif not novel and spent >= ENRICH_BUDGET // 2:
         lines = []                                            # only edges into files already opened: the rest is kept for new ones
