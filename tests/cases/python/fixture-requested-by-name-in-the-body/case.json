@@ -1,0 +1,115 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "request.getfixturevalue(\"name\") in a test's body requests that fixture, which reaches the test (#1514)",
+   "run": [
+    "impact",
+    "admin_user",
+    "--tests"
+   ],
+   "want": [
+    "test_users.py::test_admin_by_name"
+   ]
+  },
+  {
+   "why": "the fixture's own callee reaches the test through the by-name request too",
+   "run": [
+    "impact",
+    "make_admin",
+    "--tests"
+   ],
+   "want": [
+    "test_users.py::test_admin_by_name"
+   ]
+  },
+  {
+   "why": "a getfixturevalue call in a helper that is no test requests nothing, and a fixture's name in some other call is no request (near miss for #1514)",
+   "run": [
+    "impact",
+    "guest_user",
+    "--tests"
+   ],
+   "avoid": [
+    "test_names_guest_in_a_message",
+    "test_admin_by_name"
+   ],
+   "want": [
+    "test_users.py::test_guest_as_a_parameter"
+   ]
+  },
+  {
+   "why": "getfixturevalue(<param>) requests each fixture the test's parametrize lists for that one argument (#1514)",
+   "run": [
+    "impact",
+    "remote_srv",
+    "--tests"
+   ],
+   "want": [
+    "test_users.py::test_each_server"
+   ]
+  },
+  {
+   "why": "the other listed value is requested too, and reaches the test through its fixture",
+   "run": [
+    "impact",
+    "local_server",
+    "--tests"
+   ],
+   "want": [
+    "test_users.py::test_each_server"
+   ]
+  },
+  {
+   "why": "a parametrized string the test only uses as a value requests no fixture, though it is a fixture's name (control)",
+   "run": [
+    "impact",
+    "audit_log",
+    "--tests"
+   ],
+   "avoid": [
+    "test_label_is_only_a_value"
+   ],
+   "want": [
+    "test_users.py::test_audit_as_a_parameter"
+   ]
+  },
+  {
+   "why": "with several argument names, getfixturevalue(<param>) requests the value in that argument's own column of each row",
+   "run": [
+    "impact",
+    "staging_srv",
+    "--tests"
+   ],
+   "want": [
+    "test_users.py::test_server_and_code"
+   ]
+  },
+  {
+   "why": "a fixture's name in another column of the same rows is only a value, not a request (near miss for the column rule)",
+   "run": [
+    "impact",
+    "mirror_srv",
+    "--tests"
+   ],
+   "want": [
+    "test_users.py::test_mirror_as_a_parameter"
+   ],
+   "avoid": [
+    "test_server_and_code"
+   ]
+  },
+  {
+   "why": "argnames written as a list: the column is the name's place in the list",
+   "run": [
+    "impact",
+    "backup_srv",
+    "--tests"
+   ],
+   "want": [
+    "test_users.py::test_target_from_a_name_list"
+   ]
+  }
+ ]
+}
