@@ -1485,8 +1485,11 @@ class Impact:
         W('returns_fn', sorted(ax_registration.returned_functions(g.q)))
         CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')
         # an unresolved site inside a mock's stub or verification (a Moq lambda whose parameter the engine did not type)
-        # is the kind "stub": still a name match for the rows, never a by-name seed of the closure
-        W('unresolved', [(r['caller_id'], (r['callee_name'] or '').split('.')[-1], 'new' if r['kind'] in CTOR else ax_edges.STUB_TIER if r['id'] in stubs else 'method', g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
+        # is the kind "stub": still a name match for the rows, never a by-name seed of the closure. One whose receiver is a
+        # package's value is the kind "library" (ax_edges.library_receiver_sites), for the same two reasons
+        libsites = ax_edges.library_receiver_sites(lambda s, p: g.q(s, *p))
+        W('unresolved', [(r['caller_id'], (r['callee_name'] or '').split('.')[-1], 'new' if r['kind'] in CTOR else ax_edges.STUB_TIER if r['id'] in stubs
+                          else ax_edges.LIBRARY_RECEIVER_KIND if r['id'] in libsites else 'method', g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
                          for r in g.q("SELECT s.id, s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
         # a call site with a name that the engine did NOT bind to a client declaration: unresolved, or sent to a library
         # because the callee is generated (a dataclass constructor is a call to the class itself). The generated-member
@@ -2952,7 +2955,7 @@ def main(argv):
                           # AN `alongside` ROW IS NOT A DEPENDENT, so it never shares `direct` or a role with one. It sat
                           # there as role 'uses', and a reader keyed on role or section counted a same-file sibling as a
                           # user: a check passed on it, then failed when the type moved to another file with no edge changed.
-                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0])) if cert != 'alongside'],
+                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[2] == ax_edges.LIBRARY_BYNAME_WHY, x[1], g.disp(x[0]), x[2], x[4], x[0])) if cert != 'alongside'],
                           'alongside': [{'id': c, 'display': g.disp(c), 'role': 'co-located', 'why': why, 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (g.disp(x[0]), x[2], x[4], x[0])) if cert == 'alongside'],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
                           'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in test_route(m, fx)],
@@ -3000,7 +3003,7 @@ def main(argv):
     # every letter, and in a callback-heavy language they are most of the list, so the file that breaks is pushed into
     # the hidden tail. Surest first, then named before anonymous, then the entries with the most sites
     anon = lambda c: g.disp(c).split('.')[-1].startswith('<')
-    D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
+    D.sort(key=lambda x: (CERT[x[3]], x[2] == ax_edges.LIBRARY_BYNAME_WHY, anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     # `alongside` rows are their own section, never counted under `reads or uses it`: no call, no reference, so no dependent
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes') and x[3] != 'alongside']),
               ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses') and x[3] != 'alongside']),

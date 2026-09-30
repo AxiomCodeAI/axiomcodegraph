@@ -126,3 +126,30 @@ unresolved_covered(ce) :- call_site("client", ck, _, "NONE", _, ce, _),
 unresolved_receiver(ce, cn, rk, "other_form") :- call_site("client", _, cn, rk, _, ce, _),
     !call_resolved(ce),
     !unresolved_covered(ce).
+
+// ── library_receiver(CallExpr, Specifier) ───────────────────────────────────
+// An unresolved member call whose receiver is a PACKAGE'S value: a binding imported
+// from a package no staged IR declares, a member of one, what calling or constructing
+// one returns, and a const holding any of those — `request(app).get('/x').expect(200)`,
+// `new grpc.Metadata().get(k)`. The receiver's origin is known, so the site is not an
+// untyped `x.get()`: a project method of the same name is not what it calls. It stays
+// unresolved (the package is not staged), and consumers list it apart from the name
+// matches on unknown receivers rather than among them. Read off the source, as the
+// JavaScript rule is. A call handed a value of a project type is left out: a wrapper,
+// a proxy or a mock helper may return the very object it was given.
+package_import(imp, spec) :- import_specifier("client", spec, imp), !import_resolved_module("client", _, imp),
+    !import_is_type_only("client", imp), import_resolution_kind("client", rk, imp),
+    rk != "RELATIVE_FILE", rk != "PATHS_ALIAS", !match("[.#~/].*", spec), !match("@/.*", spec).
+library_value(e, spec) :- expr_referenced("client", "IMPORT_BINDING", imp, e), package_import(imp, spec).
+library_value(e, spec) :- expr_kind("client", k, _, e), (k = "PROPERTY_ACCESS" ; k = "ELEMENT_ACCESS"),
+    expr_child("client", e, role, _, r), (role = "RECEIVER" ; role = "QUALIFIER"), library_value(r, spec).
+library_value(e, spec) :- expr_kind("client", k, _, e), (k = "CALL_EXPRESSION" ; k = "NEW_EXPRESSION"),
+    expr_child("client", e, "METHOD_NAME", _, c), library_value(c, spec), !call_passes_project_instance(e).
+library_value(e, spec) :- expr_kind("client", k, _, e),
+    (k = "AWAIT_EXPRESSION" ; k = "NON_NULL_EXPRESSION" ; k = "AS_EXPRESSION" ; k = "SATISFIES_EXPRESSION"),
+    expr_child("client", e, _, _, c), library_value(c, spec).
+library_value(e, spec) :- expr_referenced("client", "VARIABLE", v, e), var_initializer("client", _, i, v),
+    !var_reassigned(v), library_value(i, spec).
+call_passes_project_instance(e) :- expr_child("client", e, "ARGUMENT", _, a), expr_type(a, "client", _).
+library_receiver(ce, spec) :- call_site("client", _, _, rk, recv, ce, _), receiver_kind_is_value(rk),
+    !call_resolved(ce), library_value(recv, spec).

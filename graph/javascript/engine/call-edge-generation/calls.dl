@@ -72,6 +72,36 @@ unresolved_covered(ce) :- call_site("client", ck, _, _, _, _, ce, _, _), call_ki
 unresolved_receiver(ce, cn, ck, "other_form") :- call_site("client", ck, cn, _, _, _, ce, _, _),
     !call_resolved(ce), !unresolved_covered(ce).
 
+// ── library_receiver(CallExpr, Specifier) ───────────────────────────────────
+// An unresolved member call whose receiver is a PACKAGE'S value: a binding imported
+// from a package no staged IR declares, a member of one, what calling or constructing
+// one returns, and a const holding any of those — `request(app).get('/x').expect(200)`,
+// `new grpc.Metadata().get(k)`, `const md = new Metadata(); md.get(k)`. The receiver's
+// origin is known, so the site is not an untyped `x.get()`: a project method of the
+// same name is not what it calls. It stays unresolved (the package is not staged), and
+// consumers list it apart from the name matches on unknown receivers rather than
+// among them. Read off the source, never the value flow, so it cannot invent a value.
+// A call handed a project INSTANCE is left out: a wrapper, a proxy or a mock helper
+// may return the very object it was given (`mocked(repo).get(1)`).
+// A package is named by a bare specifier: a relative or absolute path that reached no
+// file (`require('./not-here')`) is a missing PROJECT module, and an alias (`@/x`, `~/x`,
+// `#x`) may map onto the project's own source.
+package_import(imp, spec) :- import_decl(_, spec, _, _, _, _, out, _, imp), import_outcome_is_package(out),
+    !match("[.#~/].*", spec), !match("@/.*", spec).
+library_value(e, spec) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_import(_, imp, v),
+    package_import(imp, spec).
+library_value(e, spec) :- expr_kind(_, "MODULE_EDGE_CALL", _, e), expr_module_edge(_, imp, e), package_import(imp, spec).
+library_value(e, spec) :- expr_kind(_, k, _, e), access_kind_reads_member(k), expr_child(_, e, "ACCESS_TARGET", _, r),
+    library_value(r, spec).
+library_value(e, spec) :- expr_kind(_, k, _, e), (k = "CALL" ; k = "NEW"), expr_child(_, e, role, _, c),
+    (role = "CALLEE" ; role = "RECEIVER"), library_value(c, spec), !call_passes_project_instance(e).
+library_value(e, spec) :- expr_kind(_, "AWAIT", _, e), expr_child(_, e, _, _, c), library_value(c, spec).
+library_value(e, spec) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), !var_import(_, _, v),
+    var_init("client", _, i, v), !variable_reassigned(v), library_value(i, spec).
+call_passes_project_instance(e) :- call_arg(e, _, a), expr_value(a, "inst", _).
+library_receiver(ce, spec) :- call_site("client", ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    !call_resolved(ce), expr_child(_, ce, "RECEIVER", _, r), library_value(r, spec).
+
 // ── unresolved_value_callee(CallExpr, Binding) ──────────────────────────────
 // An unresolved call whose callee is a VALUE, not a name: `cb()` on a parameter,
 // `f()` on a loop variable or a local, `table[k]()`, `eval(s)`. Nothing about its

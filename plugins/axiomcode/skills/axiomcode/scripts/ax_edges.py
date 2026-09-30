@@ -497,6 +497,21 @@ def stub_sites(q):
     return out
 
 
+# ── a LIBRARY RECEIVER: an unresolved call on a package's value is not a name match for a project method ───────────
+# `request(app).get('/x')`, `new Metadata().get(k)`: the engine traced the receiver to what a package no IR declares
+# returned or constructed (ext_library_receiver). The site stays unresolved, since what the package's `get` runs is
+# unknown, but a project `get` is not what it calls. Like a stub it keeps a row, apart from the untyped-receiver name
+# matches, and it seeds no closure: listed among them it filled the first page of `impact Repo.get`.
+LIBRARY_RECEIVER_KIND = 'library'
+LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package returned or constructed: not this method, unless the package hands it back'
+
+
+def library_receiver_sites(q):
+    """the ids of the unresolved call sites whose receiver is a package's value. q(sql, params) -> rows."""
+    if not list(q("SELECT 1 FROM sqlite_master WHERE name = 'ext_library_receiver'", ())): return set()
+    return {r[0] for r in q("SELECT DISTINCT c0 FROM ext_library_receiver", ())}
+
+
 # ── a MOCKED TYPE: a test class that holds a mock of T never runs T's methods ────────────────────────────────────
 # `@MockBean OrderService orders` in a web test replaces the bean the controller is handed, so a request the test sends
 # reaches the controller and stops at the mock: a change to OrderService's body cannot fail that test, however the

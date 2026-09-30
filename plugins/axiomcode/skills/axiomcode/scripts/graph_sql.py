@@ -196,6 +196,9 @@ def impact(repo, target, depth=DEPTH, file=None):
         stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, p_).fetchall())
         con.execute("CREATE TEMP TABLE _stub(id TEXT PRIMARY KEY)")
         con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in stubs])
+        # …and so is an unresolved call on a package's value (ax_edges.library_receiver_sites): it has no edge to walk,
+        # and it is no by-name reader of a project method, so the by-name count below leaves it out too
+        con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in ax_edges.library_receiver_sites(lambda s_, p_: q(s_, p_).fetchall())])
         # A CALLER IS ITS ID, NOT ITS DISPLAY. Every unnamed function of a file carries one display (`<arrow>`,
         # `<lambda>`), and so does every module body of one basename (`app.<module>`): keyed by display, the arrow in a
         # test and the arrow in the source that really calls this were one row, located at whichever came first in the
@@ -328,8 +331,9 @@ HOOK_HIDDEN = frozenset({'alongside'})
 
 
 def hook_direct(j):
-    """the `direct` rows of an impact answer (either path's dict) that a hook lists: all but the HOOK_HIDDEN tiers."""
-    return [x for x in (j or {}).get('direct', []) if x.get('certainty') not in HOOK_HIDDEN]
+    """the `direct` rows of an impact answer (either path's dict) that a hook lists: all but the HOOK_HIDDEN tiers, and
+    but a name match on a package's value (ax_edges.LIBRARY_BYNAME_WHY), which the fast path does not count either."""
+    return [x for x in (j or {}).get('direct', []) if x.get('certainty') not in HOOK_HIDDEN and x.get('why') != ax_edges.LIBRARY_BYNAME_WHY]
 
 
 def impact_shaped(repo, target, depth=DEPTH, tests_shown=3, file=None):
@@ -1322,8 +1326,10 @@ def no_caller_reasons(q, mids):
         if s.get('name') and has['unresolved_sites'] and has['call_sites']:
             # joined on the caller too: unresolved_sites is keyed (caller_id, call_site_id), and on the site alone the join
             # scanned the whole table for every method (3.5 s for 10 methods on a 200 MB graph)
+            # a call on a package's value is no by-name caller (ax_edges.library_receiver_sites)
+            lib = " AND cs.id NOT IN (SELECT c0 FROM ext_library_receiver)" if _has(q, 'ext_library_receiver') else ''
             n = q("""SELECT count(*) FROM call_sites cs JOIN unresolved_sites u ON u.caller_id = cs.caller_id AND u.call_site_id = cs.id
-                     WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""", s['name'])[0][0]
+                     WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""" + lib, s['name'])[0][0]
             if n: rs.append(('by name', str(n), ''))
         order = {k: i for i, k in enumerate(NO_CALLER_KINDS)}
         out[mid] = sorted(dict.fromkeys(rs), key=lambda r: order[r[0]])     # stable within a kind: source order
@@ -1471,12 +1477,14 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
     rows += [(c, 'uses', why, cert, f, l) for c, m, why, cert, f, l, _e in via if m in idset and c not in idset]
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     seen = {r[0] for r in rows}
+    libsites = ax_edges.library_receiver_sites(lambda s_, p_: q(s_, *p_))           # the kind "library" in the rules
     for n in names:
         for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
             if c in ids: continue                                            # !is_target_decl(q, c)
-            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else ax_edges.LIBRARY_BYNAME_WHY if sid in libsites
+                         else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # the declaration handed over as a VALUE — a route registration, a callback — which has no call site at all
     # (the valueref / registered rules). The convention table is shared with the rules, in ax_registration.py, so
     # the two backends cannot disagree about what a registration is.
@@ -1832,7 +1840,7 @@ def direct_for_param(q, ids):
         direct(q,m,"uses","declares it","resolved","",0)                        :- target(q,"param",m,_)
         direct(q,c,"uses","passes an argument for it","resolved",f,l)           :- calls(c,m,_,f,l)
         direct(q,c,"uses","calls a method of this name (receiver not typed) — its argument list must match",
-                                                                "by name",f,l) :- unresolved(c,n,k,f,l), !ctor_kind(k)
+                                                                "by name",f,l) :- unresolved(c,n,k,f,l), !ctor_kind(k), k != "library"
 
     Rule 284 takes EVERY call site with no tier test and no `!bean_call` guard: an argument list is a contract the
     container's proxy has nothing to do with, so the bean layer that splits `calls it` three ways is absent here.
@@ -1848,10 +1856,11 @@ def direct_for_param(q, ids):
                          ORDER BY s.start_line""", *ids):
         rows.append((c, 'uses', 'passes an argument for it', 'resolved', f or '', l or 0))
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+    libsites = ax_edges.library_receiver_sites(lambda s_, p_: q(s_, *p_))
     for n in sorted(names):
-        for c, f, l, kind in q("""SELECT s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
+        for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
-            if kind in CTOR_KINDS: continue
+            if kind in CTOR_KINDS or sid in libsites: continue           # !ctor_kind(k), k != "library"
             rows.append((c, 'uses', 'calls a method of this name (receiver not typed) — its argument list must '
                                     'match', 'by name', f or '', l or 0))
     rows += [r for r in direct_for_method(q, ids) if r[3] == 'alongside']
@@ -3635,7 +3644,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             # direct_edge(q,c,e) :- target(q,"method",m,_), via_base(c,m,_,_,_,_,e), !is_target_decl(q,c)
             de += sorted({(c, e) for c, m, _w, _c, _f, _l, e in via[0] if m in set(mids) and c not in set(mids)})
             byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)
-                             and _w != STUB_BYNAME_WHY} - seeds)
+                             and _w != STUB_BYNAME_WHY and _w != ax_edges.LIBRARY_BYNAME_WHY} - seeds)
 
         if 'type' in by_kind:
             tids = sorted(by_kind['type'])
