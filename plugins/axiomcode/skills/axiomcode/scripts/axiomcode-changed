@@ -1295,6 +1295,36 @@ class Changed:
                             target_kind='type' if k in ('class', 'interface', 'enum', 'type') else 'method'))
         if not out: out.append(dict(kind='named', symbol=rel, id=None, file=rel, line=1, end=1, old_lines=[], detail=why + '; the graph declares nothing in it', target=None))
         return out
+    def mapper_methods(self, ns, sid):
+        """the methods a statement `sid` under `<mapper namespace="ns">` is the SQL of (ax_nonsource.mapper_methods)"""
+        import ax_nonsource
+        if not self.g.has('types'): return []
+        return [i for i in ax_nonsource.mapper_methods(self.g.q, ns, sid) if i in self.g.all_sym]
+    def mapper_changes(self, rel, old, new, whole=None):
+        """A MAPPER XML's STATEMENT IS ITS METHOD'S BODY. MyBatis binds `<select id="m">` under `<mapper namespace="a.B">`
+        to a.B.m, so an edit to that SQL is a body change of a.B.m, and `test-impact` asks for the tests of a.B.m (an
+        edit to a `<sql>` fragment or a `<resultMap>` is one to every statement that includes or names it). The row sits
+        at the statement's line in the XML and targets the method. -> (entries, unplaced edited lines); ([], 0) for a
+        file that is not a mapper XML or whose namespace names no type of this graph. `whole` (a reason): the file was
+        named with no edit, so every statement in it counts."""
+        import ax_nonsource
+        if whole:
+            ns = ax_nonsource.mapper_namespace_of(new)
+            stm = {e[1]: (e[2], 'named', None) for e in ax_nonsource.mapper_elements(new) if e[0] in ax_nonsource.STATEMENT_TAGS} if ns else {}
+            unplaced = 0
+        else:
+            ns, stm, unplaced = ax_nonsource.mapper_edits(old, new)
+        if not ns: return [], 0
+        out = []
+        for sid, (line, how, via) in sorted(stm.items(), key=lambda x: (x[1][0], x[0])):
+            what = {'added': 'a statement for it was added', 'removed': 'its statement was removed', 'named': whole}.get(how, 'the SQL of its statement changed')
+            for i in self.mapper_methods(ns, sid):
+                sy = self.g.all_sym[i]
+                out.append(dict(kind='named' if how == 'named' else 'body', symbol=sy['display'], id=i, file=rel, line=line, end=line, old_lines=[],
+                                detail=f"mapper statement {ns}.{sid}: {what}" + (f" (through {via}, which it includes or maps with)" if via else ''),
+                                target=self.at_line(i) or self.qualified(i, 'method') or sy['display'], shown_target=self.qualified(i, 'method') or sy['display'],
+                                target_kind='method', mapper=True))
+        return out, unplaced
     def qualified(self, i, kind):
         if i is None: return None
         r = self.g.all_sym.get(i)
@@ -1412,10 +1442,31 @@ def main(argv):
     if old_f or new_f:
         if not one: die("--old/--new need --file <path in the repo>")
         rel = C.rel(one); old = open(old_f, errors='replace').read() if old_f else ''; new = open(new_f, errors='replace').read() if new_f else ''
-        r, n = C.file_changes(rel, old, new); results += r; notes += n
+        mr = C.mapper_changes(rel, old, new)[0] if not C.is_code(rel) else []
+        if mr: results += mr
+        else:
+            r, n = C.file_changes(rel, old, new); results += r; notes += n
     else:
         files = C.files(mode, rng, a)
         outside = list(C.outside)
+        # A MAPPER XML IS NOT OUTSIDE THE GRAPH: its statements are the bodies of the mapper methods their namespace and
+        # id name (mapper_changes). An edit placed in a statement, a fragment or a result map is that method's change;
+        # the file stays named as outside only when an edited line lies in no element with an id (its header, say).
+        mapped = set()
+        for f in [x for x in outside if x.lower().endswith('.xml')]:
+            if a and not git:
+                try: new = open(os.path.join(C.repo, f), errors='replace').read()
+                except OSError: continue
+                r, unplaced = C.mapper_changes(f, '', new, whole='no git base to diff against')
+            else:
+                old, new = C.texts(f, mode, rng)
+                if old == new:
+                    if not (a and whole): continue
+                    r, unplaced = C.mapper_changes(f, old, new, whole=f"no edit against {'the index' if mode == 'staged' else 'the baseline'}: the file was named")
+                else: r, unplaced = C.mapper_changes(f, old, new)
+            results += r
+            if r and not unplaced: mapped.add(f)
+        outside = [x for x in outside if x not in mapped]
         # a source file in a language no graph here holds (a .java file beside a Python-only index) is outside the index too
         held = held_extensions(C.repo)
         if held:
