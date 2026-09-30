@@ -1064,7 +1064,22 @@ class Changed:
                 if nt_:
                     renamed_new.add((d.rsplit('.', 1)[0] + '.' + nt_) if '.' in d else nt_)
                     renamed_types[n] = nt_
-                entry['detail'] = (f'renamed {n} → {nt_}' if nt_ else 'header changed (name, extends / implements, type parameters)') + ('; decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — the framework behaviour it turns on is NOT in the graph' if decs else ''); entry['target'] = d
+                # A PRIMARY CONSTRUCTOR'S PARAMETERS are written in the type's header, `record Cancel(int N)`: an edit to
+                # them is a change of the constructor every construction calls, and is named as that
+                pc = ''
+                if not nt_ and new_of.get(a):
+                    ja = new_of.get(a)
+                    oh_ = ' '.join(OS[a - 1:self.header_end(OS, a)]); nh_ = ' '.join(NS[ja - 1:self.header_end(NS, ja)])
+                    after = lambda h: (lambda m: h[m.end():] if m else '')(re.search(rf'\b(?:class|record|struct)\s+{re.escape(n)}\s*(?:<[^()]*>)?\s*(?=\()', h))
+                    ao, an = after(oh_), after(nh_)
+                    if ao or an:
+                        po, pn = self.param_list(ao), self.param_list(an)
+                        on_, nn2 = [x[0] for x in po], [x[0] for x in pn]
+                        dd = [f'-{x}' for x in on_ if x not in nn2] + [f'+{x}' for x in nn2 if x not in on_]
+                        dd += [f'{x}: {t1} → {t2}' for (x, t1, _d1), (y, t2, _d2) in zip(po, pn) if x == y and t1 != t2 and t1 and t2]
+                        dd += [f"{x}: default {d1 or '(none)'} → {d2 or '(none)'}" for (x, _t1, d1), (y, _t2, d2) in zip(po, pn) if x == y and d1 != d2]
+                        if dd: pc = 'primary constructor parameters: ' + ', '.join(dd)
+                entry['detail'] = (f'renamed {n} → {nt_}' if nt_ else pc or 'header changed (name, extends / implements, type parameters)') + ('; decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — the framework behaviour it turns on is NOT in the graph' if decs else ''); entry['target'] = d
             elif kind == 'body': entry['target'] = d
             else: entry['target'] = None
             if i in unsure and entry['kind'] in ('signature', 'field', 'type') and not str(entry.get('detail', '')).startswith('may have changed'):

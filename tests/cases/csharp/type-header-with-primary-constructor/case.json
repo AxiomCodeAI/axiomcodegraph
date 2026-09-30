@@ -109,6 +109,64 @@
     "CancelsAnOrder",
     "ReadsTheHost"
    ]
+  },
+  {
+   "why": "changed names a parameter added to a positional record's primary constructor",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-record.txt",
+    "--file",
+    "src/App/Settings.cs"
+   ],
+   "want": [
+    "type       CancelOrder",
+    "primary constructor parameters: +Reason"
+   ],
+   "avoid": [
+    "header changed (name"
+   ]
+  },
+  {
+   "why": "and one added to a class's primary constructor",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-class.txt",
+    "--file",
+    "src/App/Settings.cs"
+   ],
+   "want": [
+    "primary constructor parameters: +host"
+   ],
+   "avoid": [
+    "header changed (name"
+   ]
+  },
+  {
+   "why": "control: an ordinary constructor's parameter edit is still that constructor's signature",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/old.txt",
+    "--new",
+    "{repo}/new-plain.txt",
+    "--file",
+    "src/App/Settings.cs"
+   ],
+   "want": [
+    "signature  Plain.<constructor>"
+   ],
+   "avoid": [
+    "primary constructor"
+   ]
   }
  ]
 }
