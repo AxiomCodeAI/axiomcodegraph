@@ -21,7 +21,10 @@ import json, os, re, shutil, subprocess, sys, tempfile, threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')
-AX = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode')
+SKILL_DIR = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode')
+AX = os.path.join(SKILL_DIR, 'scripts', 'axiomcode')
+# the shell entry SKILL.md gives an agent with no MCP tools and no `axiomcode` on PATH: a front door, not the dispatcher
+SKILL_CLI = os.path.join(SKILL_DIR, 'axiomcode')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 FILES = {
     'shop/__init__.py': '',
@@ -117,6 +120,17 @@ def main():
         check('tests: the reached test as a numbered place with its code', rc == 0 and places(out) and 'tests/test_pricing.py' in out, out[:600] + err[-300:])
         check('tests: the answer ends with the "run:" line', last[0].startswith('run:') and 'test_pricing' in last[0], last)
 
+        # the entry SKILL.md documents for the shell is a front door too: the same shape, not the dispatcher's raw answer
+        skill = open(os.path.join(SKILL_DIR, 'SKILL.md')).read() + open(os.path.join(ROOT, 'skills', 'axiomcode', 'SKILL.md')).read()
+        documented = re.findall(r'`<this dir>/(\S+) <verb>`', skill)
+        check('SKILL.md (both copies) gives the skill\'s front door as the shell entry, never scripts/axiomcode',
+              len(documented) == 2 and all(os.path.normpath(os.path.join(SKILL_DIR, d)) == SKILL_CLI or
+                                           os.path.normpath(os.path.join(ROOT, 'skills', 'axiomcode', d)) == SKILL_CLI for d in documented), documented)
+        r = subprocess.run(['bash', SKILL_CLI, 'impact', 'vat_rate'], cwd=repo, capture_output=True, text=True, timeout=600, env=ENV)
+        check('the documented shell entry answers impact <name> as numbered places with their code',
+              r.returncode == 0 and places(r.stdout) and 'shop/pricing.py:6' in r.stdout, r.stdout[:600] + r.stderr[-300:])
+        check('the documented shell entry is executable', os.access(SKILL_CLI, os.X_OK))
+
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
         got = mcp(repo, [('find', {'question': 'how is the invoice total computed'}), ('impact', {'name': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
@@ -138,6 +152,9 @@ def main():
         rc, out, err = cli(repo, 'impact', 'vat_rate', env=dict(ENV, AXIOMCODE_RAW='1'))
         check('CONTROL: AXIOMCODE_RAW=1 at the installed command gives the old answer, no fenced block',
               rc == 0 and '```' not in out and 'reads or uses it' in out, out[:600])
+        r = subprocess.run(['bash', SKILL_CLI, 'impact', 'vat_rate', '--json'], cwd=repo, capture_output=True, text=True, timeout=600, env=ENV)
+        check('CONTROL: the documented shell entry with a flag gives the old answer, no fenced block',
+              r.stdout.lstrip().startswith('{') and '```' not in r.stdout, r.stdout[:400])
         rc, out, err = cli(repo, 'tests', '--why')
         check('CONTROL: tests with a flag gives the old answer, no fenced block', '```' not in out and bool(out.strip()), out[:600])
     finally:

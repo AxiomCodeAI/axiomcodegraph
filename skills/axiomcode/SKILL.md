@@ -8,7 +8,7 @@ description: >-
 
 Four questions, asked of the repository's call graph. Use the MCP tools when they are in your list (in Claude Code
 `mcp__plugin_axiomcode_axiomcode__find`, `__impact`, `__path`, `__tests`); otherwise run
-`<this dir>/../../plugins/axiomcode/skills/axiomcode/scripts/axiomcode <verb>` from the repository root. Same answer either way.
+`<this dir>/../../plugins/axiomcode/skills/axiomcode/axiomcode <verb>` from the repository root. Same answer either way.
 
 | the question | MCP tool | shell |
 |---|---|---|

@@ -19,7 +19,7 @@
 # THE HELP ABOVE IS THE PUBLIC SURFACE: helptext() prints the comment block up to the blank line above. The verbs below
 # are still dispatched and keep every flag -- the hooks, the test suites and scripts call them -- but they are internal
 # and are not advertised on any user- or agent-facing surface. find is context and tests is test-impact underneath;
-# at the front door (bin/axiomcode sets AXIOMCODE_FRONT, the MCP server AXIOMCODE_SURFACE=mcp) a query with no flag
+# at the front door (bin/axiomcode and the skill's own <skill>/axiomcode set AXIOMCODE_FRONT, the MCP server AXIOMCODE_SURFACE=mcp) a query with no flag
 # answers as places with their code (ax_blocks.py), and any flag, AXIOMCODE_RAW=1 or a direct call gives the verb's
 # own answer.
 #

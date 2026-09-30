@@ -36,8 +36,8 @@ alwaysApply: true
 ---
 
 """
-SCRIPTS = '`<this dir>/scripts/axiomcode'
-FROM_ROOT = '`<this dir>/../../plugins/axiomcode/skills/axiomcode/scripts/axiomcode'
+SCRIPTS = '`<this dir>/axiomcode'
+FROM_ROOT = '`<this dir>/../../plugins/axiomcode/skills/axiomcode/axiomcode'
 
 
 def expected():

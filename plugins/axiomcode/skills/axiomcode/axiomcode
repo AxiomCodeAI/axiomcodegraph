@@ -1,0 +1,12 @@
+#!/bin/bash
+# axiomcode — the skill's own front door: find, impact, path and tests, asked from a shell, answer exactly as the
+# installed `axiomcode` command and the MCP tools do, as numbered places with their code. SKILL.md points an agent that
+# has neither the MCP tools nor the command on PATH here.
+#
+# THE DISPATCHER IS NOT THE FRONT DOOR. scripts/axiomcode, run directly, gives each verb's own answer: the hooks, the
+# test suites and scripts call it and read that answer, so it must not change. This file only marks the call as coming
+# through a front door (AXIOMCODE_FRONT, as bin/axiomcode sets it) and hands everything to the dispatcher; any flag or
+# AXIOMCODE_RAW=1 still gives the verb's own answer there.
+H="${0//\\//}"; case "$H" in */*) H="${H%/*}";; *) H=.;; esac   # no `dirname`, and either separator (see scripts/axiomcode)
+export AXIOMCODE_FRONT=1
+exec bash "$H/scripts/axiomcode" "$@"
