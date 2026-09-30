@@ -561,6 +561,10 @@ class Impact:
         # A CLASS field is the other way round: G.decl_at_line has already taken it when only its own initializer node
         # or lambda is written there, so what is left on its line is a callable of its own that its initializer
         # declares (`static cfg = make({ run() {…} })`), and that callable is what the line names (#1752)
+        # A field ASSIGNED inside a callable's body (`self.items = []` in `__init__`) is not declared on that line: the
+        # line is in the body of the callable whose header is above it, and that callable is what the line names
+        if kind is None and out and out[0][0] == 'field' and re.fullmatch(r'.+\.\w+:\d+', s) and self.in_body(out[0][2][0]):
+            out = out[1:]
         if kind is None and out and out[0][0] == 'field' and re.fullmatch(r'.+\.\w+:\d+', s):
             at = [i for i in self.methods(s, soft=True) if self.g.sym[i].get('line') == out[0][2][0]['line']]
             if not {self.g.sym[i]['name'] for i in at} & {f['name'] for f in out[0][2]}:
@@ -670,6 +674,17 @@ class Impact:
         elif all((f['owner'] or '') == owner for f in rows): won = f"a field '{parts[-1]}' declared on {owner}"
         else: won = f"a field '{parts[-1]}' on a type whose name ends in '{owner}'"
         return {'step': 'field', 'won': won, 'ids': [], 'rows': [(f['display'], f"{f['file']}:{f['line']}") for f in rows]}
+    def in_body(self, f):
+        """is field row `f` written inside the body of a callable that starts above its line? A module, a class body,
+        a lambda and the node that runs field initializers are not such a body: a field on their lines is declared there,
+        and so is a field of a type declared inside the callable (a local or anonymous class)"""
+        for r in self.g.q("SELECT id, name, line FROM symbols WHERE file = ? AND line < ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module'",
+                          f['file'], f['line'], f['line']):
+            if r['name'] in P.FIELD_OWNED_NAMES or self.g.is_lambda(r['id']): continue
+            if self.g.q("SELECT 1 FROM symbols WHERE file = ? AND type_id IS NOT NULL AND method_id IS NULL AND line > ? AND line <= ? AND end_line >= ? LIMIT 1",
+                        f['file'], r['line'], f['line'], f['line']): continue
+            return True
+        return False
     def field_rows(self, s):
         # `file.js:12` — the field or const DECLARED on that line. Split on `.` it named a field `js:12`, so a const was
         # the one declaration a file:line could not target, and its bare name answered for every const so named
