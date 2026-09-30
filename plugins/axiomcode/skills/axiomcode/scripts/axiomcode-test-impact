@@ -2061,8 +2061,9 @@ def main(argv):
     replaced = concrete_test_classes(db, run_classes)[1] if lang in ('java', 'csharp') else {}
     cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db, repo)
 
+    import ax_evidence
     if as_json:
-        print(json.dumps({'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
+        print(json.dumps(ax_evidence.annotate('test-impact', {'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
                                        'target': t} for t in targets],
                           'test_files': files, 'test_classes': classes,
                           'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in tests.items()],
@@ -2085,7 +2086,7 @@ def main(argv):
                           'range_note': changed.get('range_note'), 'baseline_note': changed.get('baseline_note'),
                           'same_name_not_tests': name_hits.get('not_tests') or 0,
                           'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
-                                   'framework instantiating by name, a subprocess, or a case built at runtime is not here'},
+                                   'framework instantiating by name, a subprocess, or a case built at runtime is not here'}, repo),
                          indent=1))
         return 0
 
@@ -2240,6 +2241,11 @@ def main(argv):
         for t, first in unreadable:
             print(f"     {t}   {(first or [''])[0][:100]}")
         print("     the selection above is incomplete — do not act on it as though it were the whole answer.")
+    if ax_evidence.on():
+        # the line in each test that starts a route which is not an exact edge, and what decides it (ax_evidence.py)
+        _ed = ax_evidence.annotate('test-impact', {'changed': [{'symbol': by_target[t]['symbol']} for t in targets],
+                                                   'tests': [dict(r) for r in tests.values()]}, repo)
+        for l in ax_evidence.prose_block(_ed['tests'], _ed.get('evidence_more', 0), 'test routes'): print(l)
     print("\nbound: this is a LOWER bound. A test that reaches the change only through something the graph "
           "does not encode — reflection, a service loader, a framework that instantiates by name, a subprocess, a case "
           "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")

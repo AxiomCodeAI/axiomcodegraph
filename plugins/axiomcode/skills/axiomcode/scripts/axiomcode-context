@@ -1364,14 +1364,21 @@ def cli(argv):
     """--json: the same answer as one document. The prose is produced by the same code path and carried
     in `prose`, so the machine shape is never LESS than the human one — a second traversal to build it
     would be a second implementation to keep in step."""
+    import ax_evidence
+    repo = next((a for a in reversed([x for x in argv if not x.startswith('--')]) if os.path.isdir(a)), '.')
     if '--json' not in argv:
         code = main(argv)
+        # the line that decides each flow step reached through a call that is not an exact edge (ax_evidence.py)
+        if ax_evidence.on() and RESULT.get('flow'):
+            ax_evidence.annotate('context', RESULT, repo)
+            for l in ax_evidence.prose_block(RESULT['flow'], RESULT.get('evidence_more', 0), 'steps'): print(l)
         if code in (0, 2): quoted_text(argv)
         sys.exit(code)
     import contextlib, io, json
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf): code = main(argv)
     RESULT['prose'] = buf.getvalue().rstrip('\n').split('\n')
+    ax_evidence.annotate('context', RESULT, repo)
     print(json.dumps(RESULT, indent=2))
     sys.exit(code)
 

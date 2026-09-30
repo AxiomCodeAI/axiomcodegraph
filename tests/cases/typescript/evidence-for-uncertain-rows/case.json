@@ -1,0 +1,88 @@
+{
+ "lang": "typescript,javascript,python,java,csharp",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a [by name] row carries the line that decides its receiver: a Map field and an `any` parameter show the name-match is another type; the resolved row gets no evidence",
+   "run": ["impact", "ts/orders.ts:2", "--evidence", "--grep"],
+   "want": ["ts/callers.ts:16: return this.seen.get(key);", "decided  L14: private readonly seen = new Map<string, string>();  [field · type new Map(…)]",
+            "decided  L20: export function viaAny(box: any, id: string): string {  [param · type any]", "only through it:"],
+   "avoid": ["decided  L7"]
+  },
+  {
+   "why": "a dispatch-key row decides on where the key comes from, and a registration row on the constant it registers under, followed into the module that defines it",
+   "run": ["impact", "ts/bus.ts:16", "--evidence", "--grep"],
+   "want": ["decided  L10: emit(topic: string, id: string): void {  [dispatch key topic]",
+            "decided  ts/callers.ts:4: export const ORDER_PLACED = 'order.placed';  [registration key ORDER_PLACED]"]
+  },
+  {
+   "why": "--json rows gain evidence {call, decider} and only_through {callables, tests}; alongside rows become a count",
+   "run": ["impact", "ts/orders.ts:2", "--evidence", "--json"],
+   "stdout_json": true,
+   "want": ["\"evidence\"", "\"decider\"", "\"only_through\"", "\"callables\"", "\"alongside_count\""]
+  },
+  {
+   "why": "the prose answer says the same, in one section after the rows it qualifies",
+   "run": ["impact", "ts/orders.ts:2", "--evidence"],
+   "want": ["evidence for the 2 strongest non-exact rows", "call     L16: return this.seen.get(key);", "only through it: 1 callable(s), 0 test(s)", "--drop <a row's file:line> asks again without that row"]
+  },
+  {
+   "why": "--exact asks again with exact edges only: the name-matches and what stands on them go, the resolved caller stays",
+   "run": ["impact", "ts/orders.ts:2", "--exact", "--grep"],
+   "want": ["return this.store.get(id);", "asked again with exact edges only"],
+   "avoid": ["box.get(id)", "this.seen.get(key)"]
+  },
+  {
+   "why": "--drop <file:line> asks again without that one row",
+   "run": ["impact", "ts/orders.ts:2", "--drop", "ts/callers.ts:21", "--grep"],
+   "want": ["this.seen.get(key)", "without ts/callers.ts:21"],
+   "avoid": ["box.get(id)"]
+  },
+  {
+   "why": "control: an answer with only [resolved] rows is byte-identical with evidence on and off",
+   "run": ["impact", "ts/ledger.ts:2", "--evidence"],
+   "same_as": ["impact", "ts/ledger.ts:2", "--no-evidence"],
+   "want": ["[resolved] sum"]
+  },
+  {
+   "why": "control: the same resolved-only answer as --json and as grep rows is byte-identical too",
+   "run": ["impact", "ts/ledger.ts:2", "--evidence", "--json"],
+   "same_as": ["impact", "ts/ledger.ts:2", "--json"],
+   "stdout_json": true
+  },
+  {
+   "why": "control: evidence is off by default, so an answer with uncertain rows is the answer it was",
+   "run": ["impact", "ts/orders.ts:2", "--grep"],
+   "same_as": ["impact", "ts/orders.ts:2", "--no-evidence", "--grep"],
+   "avoid": ["decided ", "only through it"]
+  },
+  {
+   "why": "JavaScript: an untyped parameter is the decider of a name-match; a field assigned in the constructor decides nothing that is resolved",
+   "run": ["impact", "js/store.js:2", "--evidence", "--grep"],
+   "want": ["decided  L11: cached(res) {  [param]", "decided  L16: export function remote(api) {  [param]"],
+   "avoid": ["this.shelf = new Shelf()"]
+  },
+  {
+   "why": "Python: the receiver's type is set from an __init__ parameter of its OWN class, not the same-named attribute another class in the file annotates",
+   "run": ["impact", "py/gateway.py:2", "--evidence", "--grep"],
+   "want": ["py/billing.py:33: return self.gw.charge(-amount)", "decided  L30: self.gw = gw  [assigned]"],
+   "avoid": ["def __init__(self, gw: Gateway):  [constructor parameter"]
+  },
+  {
+   "why": "Java: a one-of-a-set call through a JDK functional interface decides on the field that holds it",
+   "run": ["impact", "java/app/Pipeline.java:7", "--evidence", "--grep"],
+   "want": ["decided  L6: private final Function<String, String> loader;  [field · type Function]"]
+  },
+  {
+   "why": "Java: path's hop through the same call carries the same decider",
+   "run": ["path", "Cache.load", "Pipeline.apply", "--evidence", "--grep"],
+   "want": ["private final Function<String, String> loader;"]
+  },
+  {
+   "why": "C#: a dynamic field is why the call is a name-match; the resolved call on the typed field beside it gets nothing",
+   "run": ["impact", "cs/Stock.cs:5", "--evidence", "--grep"],
+   "want": ["decided  L11: private readonly dynamic _meter;  [field · type dynamic]"],
+   "avoid": ["decided  L10"]
+  }
+ ]
+}

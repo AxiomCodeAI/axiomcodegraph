@@ -66,6 +66,10 @@
 # --grep (context, path, impact, test-impact) prints the answer's sites one per line, as grep does: `path:line: <the code
 # on that line>  [resolved | one of a set | by name | text | hop N | test]`, the first 30 (--grep-limit N) and a count of
 # the rest, then whether it was verified and its bound. The MCP tools answer this way by default; full=True is the prose.
+# --evidence / --no-evidence (or AXIOMCODE_EVIDENCE=on|off; off by default): each of the five strongest rows that is not an
+# exact edge ([by name], [one of a set], [registered], …) carries the line that decides it — where its receiver or key
+# gets its value — and how much of the answer is reached only through it. --drop <file:line> (repeatable) asks again
+# without that row, --exact with exact edges only; --alongside lists the `alongside` rows the evidence view counts.
 # ON WINDOWS $0 CAN MIX SEPARATORS: the MCP server joins its script path onto AXIOMCODE_PLUGIN_ROOT with os.path.join,
 # C:/.../plugins/axiomcode\skills\axiomcode\scripts\axiomcode. Splitting that on '/' alone lands on .../plugins, and
 # every verb then runs a helper that is not there. `dirname` split on either; so does this, as bin/axiomcode does.
@@ -123,6 +127,12 @@ while [ $# -gt 0 ]; do
     --no-refresh) export AXIOMCODE_NO_REFRESH=1; shift ;;
     --grep) GREP=1; shift ;;
     --grep-limit) GREP=1; GREP_LIMIT="$2"; shift 2 ;;
+    # evidence for the uncertain rows, and asking again without them (ax_evidence.py): read by every verb from the env
+    --evidence) export AXIOMCODE_EVIDENCE=on; shift ;;
+    --no-evidence) export AXIOMCODE_EVIDENCE=off; shift ;;
+    --drop) export AXIOMCODE_DROP="${AXIOMCODE_DROP:+$AXIOMCODE_DROP,}$2"; shift 2 ;;
+    --exact) export AXIOMCODE_EXACT=1; shift ;;
+    --alongside) export AXIOMCODE_ALONGSIDE=1; shift ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
