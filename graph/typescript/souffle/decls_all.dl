@@ -373,6 +373,8 @@
 .decl method_signature_role(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl method_signature_role_of(c0:symbol,c1:symbol)
 .decl method_this_param(c0:symbol)
+.decl this_expr(c0:symbol)
+.decl method_declared_this(c0:symbol,c1:symbol)
 .decl module_ambient_specifier(c0:symbol,c1:symbol,c2:symbol)
 .decl module_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl module_default_export(c0:symbol,c1:symbol,c2:symbol)
