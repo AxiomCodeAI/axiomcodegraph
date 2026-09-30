@@ -3719,7 +3719,7 @@ def main(argv):
             parts.append("[one of a set] … (via the interface / base class) is dispatch: the call is typed on the base, so the caller is "
                          "certain and only which override runs is open — a dependent, not a guess")
         if open_set:
-            parts.append("[one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge)")
+            parts.append("[one of a set] is one member of a target set the engine could not narrow: any one of them may be the one that runs")
         if any(x[3] in ('by name', 'text') for x in byname):
             parts.append("[by name] / [text] may be a same-named other thing")
         legend = ", ".join(parts)
