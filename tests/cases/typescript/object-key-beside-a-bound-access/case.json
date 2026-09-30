@@ -1,0 +1,14 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "an object literal key on the same line as a bound access of another type's same-named field is a separate reference: `{ eventId: options.eventId }` typed EventMeta writes EventMeta.eventId, and the engine binding `options.eventId` to PublishOptions.eventId must not hide it",
+   "run": ["impact", "EventMeta.eventId"],
+   "want": ["change: field EventMeta.eventId", "Bus.publish", "Recorder.wrap"],
+   "avoid": ["Stamper.stamp"]},
+  {"why": "control: a line that only reads another type's same-named field, bound by the engine, is still not this field's reader",
+   "run": ["impact", "EventMeta.eventId"],
+   "avoid": ["src/stamper.ts"]},
+  {"why": "control: the bound access is the other field's resolved read",
+   "run": ["impact", "PublishOptions.eventId"],
+   "want": ["[resolved] Bus.publish   src/bus.ts:5   — reads it", "[resolved] Stamper.stamp   src/stamper.ts:5   — reads it"],
+   "avoid": ["Recorder.wrap"]}
+ ]}
