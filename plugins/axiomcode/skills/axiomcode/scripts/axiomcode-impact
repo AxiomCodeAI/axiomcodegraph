@@ -2295,6 +2295,17 @@ def main(argv):
         print(f"axiomcode-scope-declared: {int(scoped_in)}", file=sys.stderr)
     targets_files =[t for k, _, pay in targets for t in (pay if isinstance(pay, list) else []) if isinstance(t, str) and t in g.sym]
     prof('targets resolved'); res = I.run(targets); prof('souffle done')
+    # A NAME THAT IS CALLED BUT DECLARED NOWHERE. The path finder's resolver takes such a name to the call sites written
+    # with it (a node `w:<name>`, its rows in g.SITES), but the rules cannot seed on a node the graph does not hold, so
+    # the answer said "directly touches it: nothing" and "the change is local" about a name with callers. That is the
+    # question asked when writing a function the code already calls: each of those sites is a direct row, by name.
+    for q_, lab in res['_targets'].items():
+        for k, klab, ids in targets:
+            if k != 'name match' or klab != lab: continue
+            for i in ids:
+                for r in getattr(g, 'SITES', {}).get(i, []):
+                    res['direct'].append([r['caller_id'], 'uses', 'calls it (no declaration of this name)', 'by name',
+                                          g.site_file(r['file_path']) or '', str(r['start_line'] or 0), q_])
     LAB = res['_targets']; multi = len(LAB) > 1
     contract_of = collections.defaultdict(set)
     for c, why, q_ in res['contract']: contract_of[(c, why)].add(LAB[q_])

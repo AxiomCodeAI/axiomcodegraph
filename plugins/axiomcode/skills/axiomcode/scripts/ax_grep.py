@@ -186,6 +186,9 @@ def path(d, code):
 def context(d, code):
     rows = []
     listed = set()
+    # first: where a name the task writes is called though nothing declares it — the code to write is used there
+    for u in d.get('called_undeclared', []):
+        rows.append(('called', site(code, u['at'], f"calls {u['name']}, declared nowhere" + (f" · in {u['in']}" if u.get('in') else '')))); listed.add(u['at'])
     for s in d.get('flow', []):
         if s.get('repeat_of'): continue
         c = s.get('certainty') or 'entry'

@@ -64,6 +64,30 @@ TEST_PENALTY = 0.05          # demoted by 20x, never dropped: sometimes the test
 COMMON_PATH = 0.25           # a word in more than a quarter of the file paths earns no path bonus
 
 
+
+def called_undeclared(g, body, cap=8):
+    """{name: [(file, line, caller, code)]} for identifiers the task writes that the code CALLS but declares nowhere.
+    The IDF ranker only knows declared names, so a task about a function the code already calls and nobody has written
+    yet ("implement numpy_to_votable_dtype") lost that word before ranking. The call sites are where the new function
+    is used: the one thing a search would find and the graph did not say."""
+    if not (g.has('call_sites') and g.has('unresolved_sites')): return {}
+    ids = sorted({w for w in re.findall(r'[A-Za-z_][A-Za-z0-9_]{3,}', body)})
+    if not ids: return {}
+    ph = ','.join('?' * len(ids))
+    declared = {r[0] for r in g.q(f"SELECT DISTINCT name FROM symbols WHERE name IN ({ph}) AND kind NOT IN ('library', 'written')", *ids)}
+    rows = g.q(f"SELECT cs.callee_name n, cs.file_path f, cs.start_line l, cs.caller_id c FROM call_sites cs "
+               f"JOIN unresolved_sites u ON u.call_site_id = cs.id WHERE cs.callee_name IN ({ph}) ORDER BY cs.file_path, cs.start_line", *ids)
+    out = {}; lines = {}
+    for r in rows:
+        if r['n'] in declared or len(out.get(r['n'], [])) >= cap: continue
+        f = g.site_file(r['f']) if hasattr(g, 'site_file') else r['f']
+        if f not in lines:
+            try: lines[f] = open(os.path.join(g.repo, f), errors='replace').read().split('\n')
+            except OSError: lines[f] = []
+        L = lines[f]; code = L[r['l'] - 1].strip() if r['l'] and r['l'] <= len(L) else ''
+        out.setdefault(r['n'], []).append((f, r['l'], g.disp(r['c']) if r['c'] in g.sym else '', code[:160]))
+    return out
+
 def score_symbols(g, terms, use_path=True):
     """{symbol id: (score, matched terms)} — the lexical tier, IDF-weighted.
 
@@ -960,6 +984,15 @@ def main(argv):
     RESULT['task'], RESULT['repo'] = task, g.repo
 
     body = task_text(task)
+    # before anything that can stop the answer (no terms, no scope): a name the code calls and nobody declares is an
+    # answer on its own, and "implement <that name>" is often all the task says
+    undecl = called_undeclared(g, body)
+    RESULT['called_undeclared'] = [{'name': n, 'at': f"{f}:{l}", 'in': c, 'code': code} for n, rs in undecl.items() for f, l, c, code in rs]
+    if undecl:
+        print("\ncalled but declared nowhere (the task names them; the code already calls them — this is where they are used):")
+        for n, rs in undecl.items():
+            print(f"    {n}  — {len(rs)} call site(s)")
+            for f, l, c, code in rs: print(f"      {f}:{l}: {code}" + (f"   [in {c}]" if c else ''))
     terms = task_terms(body)
     if not terms: die("nothing to search for in that task description")
     # what the question names that no graph here holds is said FIRST (#1571), and a scope that exists on disk but holds
