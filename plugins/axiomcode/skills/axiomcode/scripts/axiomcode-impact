@@ -117,7 +117,7 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 # it obtained itself, so an added proxied annotation does not apply") — the differential test caught that immediately.
 # `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
 # not, for EVERY target kind. What is left is the layer only a field or type target can reach.
-_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'sigtype', 'persist_field', 'type_alias', 'jsx_props', 'jsx_tag', 'discriminant', 'keyed_literal', 'literal', 'dec_literal', 'field', 'accessor', 'faccess', 'gen_table',
+_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'sigtype', 'persist_field', 'type_alias', 'jsx_props', 'jsx_tag', 'discriminant', 'keyed_literal', 'literal', 'dec_literal', 'field', 'field_holder', 'accessor', 'faccess', 'gen_table',
               'base_name', 'field_type', 'reexport', 'reexport_from', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
 # `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
@@ -1175,10 +1175,13 @@ class Impact:
         mod_of = {}
         for i, sy in g.sym.items():
             if sy['kind'] == 'module' and sy.get('file'): mod_of.setdefault(sy['file'], i)
-        modules_used = set()
+        modules_used = set(); holders = []; key_names = set()
         for rid, f in self.fields.items():
             # the field's own registry hash when the index has it, so a decoration ON the field joins (#750)
             fid = f['id'] or f"f:{rid}"; t = owner_tid(f['owner'] or '', f.get('file'))
+            # a key of a module-level object (`TOPICS.CREATED`) is owned by an OBJECT, not a type: its module owns it, and
+            # the object's name is what a read of it is written behind (`TOPICS.CREATED`, `nested.depth`)
+            if not t and f['owner']: holders.append((fid, f['owner'].rsplit('.', 1)[-1])); key_names.add(f['name'])
             if not t: t = mod_of.get(f.get('file') or '')
             if not t: continue
             if t in mod_of.values(): modules_used.add(t)
@@ -1200,7 +1203,7 @@ class Impact:
                     (fid, 'init_' + f['name'], 'write'), (fid, 'get_' + cap, 'read'),
                     (fid, 'set_' + cap, 'write'), (fid, 'init_' + cap, 'write')]
             if f['name'].startswith('_') and len(f['name']) > 1: acc.append((fid, f['name'].lstrip('_'), 'read'))
-        W('member', members); W('owner', owners); W('field', fields); W('accessor', acc)
+        W('member', members); W('owner', owners); W('field', fields); W('accessor', acc); W('field_holder', sorted(set(holders)))
         # the accesses the ENGINE resolved, joined on the same id the `field` fact uses: symbols.id for a
         # field IS the bundle's fields.id. #1071 — the relation shipped populated and no rule read it, so a
         # resolved access was answered as a name match, with its read/write direction discarded.
@@ -1328,13 +1331,15 @@ class Impact:
                            for r in g.q("""SELECT DISTINCT s.caller_id, x.c1 t, s.file_path, s.start_line FROM ext_ctor_implicit_type x
                                             JOIN call_sites s ON s.id = x.c0""")] if g.has('ext_ctor_implicit_type') else [])
         refs = []; quals = []
+        # an object's key names: TypeScript records the member of `TOPICS.CREATED` as a bare name, and the qualifier
+        # written in front of it is what tells that object's key from another's
         if g.has('refs'):
             for r in g.q("SELECT name, file, line, kind, entity_kind FROM refs WHERE line > 0"):
                 c = self.at(r['file'], r['line'])
                 if not c: continue
                 rk = 'qualified' if r['kind'] in QUALIFIED_KINDS else 'bare'; ek = 'CLASS_LITERAL' if r['kind'] == 'CLASS_LITERAL' else (r['entity_kind'] or '')
                 refs.append((c, r['name'], rk, ek, r['file'], r['line']))
-                if rk == 'qualified':
+                if rk == 'qualified' or r['name'] in key_names:
                     L = self.code(r['file']); text = L[r['line'] - 1] if r['line'] <= len(L) else ''
                     for qn in re.findall(rf'([A-Za-z_$][\w$]*)\s*\.\s*{re.escape(r["name"])}\b', text): quals.append((r['file'], r['line'], r['name'], qn))
         W('ref', refs); W('qualifier', sorted(set(quals)))
