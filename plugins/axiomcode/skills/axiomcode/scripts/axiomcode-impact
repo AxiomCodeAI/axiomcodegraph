@@ -1156,8 +1156,11 @@ class Impact:
         # implements `Router.add` whether or not anything constructs a TrieRouter, and a signature change breaks it
         # either way. Read straight from dispatch_candidates so the contract rule does not inherit the closure's
         # filter — which is what made the rules and the hook's fast path disagree on exactly those candidates.
+        # A `structural` pair is a shape match nobody declared: evidence that the class MAY be passed as the
+        # interface, not that it implements it, so it never makes the declaration a must-change contract.
         W('implements_pair', sorted({(r[0], r[1]) for r in g.q(
-            "SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE base_method_id <> candidate_method_id")})
+            "SELECT base_method_id, candidate_method_id FROM dispatch_candidates WHERE base_method_id <> candidate_method_id"
+            " AND basis <> 'structural'")})
             if g.has('dispatch_candidates') else [])
         # the pairs whose base is a FUNCTION TYPE and whose candidate is a function stored in a field of it (#1206):
         # the callers of the base call the candidate through that field (impact.dl, `value_pair`)
