@@ -1,2 +1,4 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	store [EXPRESSION] -> -
+ambiguous_unknown	VARIABLE_TYPE	0	store [VARIABLE] -> -
 known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
 known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function

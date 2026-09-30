@@ -212,27 +212,52 @@ holder_value(p, a) :- expr_child("client", ce, "ARGUMENT", pos, a),
 // ============================================================================
 call_runs_client_body(ce) :- call_runs_method(ce, m), method_prov(m, "client").
 hof_boundary_site(ce) :- call_site("client", _, _, _, _, ce, _), !call_runs_client_body(ce).
+// A Map or Set stores, finds and drops its argument and never calls it (`subs.add(h)`,
+// `handlers.set(k, h)`, `seen.has(h)`); only `forEach` runs what it is handed. The function
+// is reached where it is taken back out and called, not where it is stored.
+collection_store_site(ce) :- expr_resolves_to_method(ce, m), method_decl("lib", mn, _, _, m), mn != "forEach",
+    method_owner("lib", t, m), type_decl("lib", tn, _, _, _, _, t), keyed_collection_name(tn).
+collection_store_site(ce) :- call_site("client", _, mn, _, recv, ce, _), recv != "", mn != "forEach",
+    expr_type(recv, _, t), type_decl(_, tn, _, _, _, _, t), keyed_collection_name(tn).
+collection_store_site(ce) :- call_site("client", _, mn, _, recv, ce, _), recv != "", mn != "forEach",
+    collection_receiver(recv).
+// Without the standard library staged there is no Map declaration to resolve to, so the
+// receiver is recognised by the reference it was declared with, or by the `new Map()` an
+// un-annotated variable is initialised with. Recognised by NAME only where the program
+// does not declare that name itself (builtin_container_ref).
+collection_receiver(e) :- expr_decl_ref(e, r), keyed_collection_ref(r).
+collection_receiver(e) :- new_expression_ref(e, r), keyed_collection_ref(r).
+collection_receiver(e) :- expr_referenced("client", "VARIABLE", v, e), !var_has_declared_type(v),
+    var_initializer("client", _, init, v), init != "", collection_receiver(init).
+keyed_collection_ref(r) :- type_ref(_, "TYPE_REFERENCE", _, tn, _, _, _, r), keyed_collection_name(tn),
+    builtin_container_ref(r).
+keyed_collection_name("Map").
+keyed_collection_name("ReadonlyMap").
+keyed_collection_name("WeakMap").
+keyed_collection_name("Set").
+keyed_collection_name("ReadonlySet").
+keyed_collection_name("WeakSet").
 
 value_branch(a, a) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     !expr_kind("client", "CALL_EXPRESSION", _, x),        # `xs.map(make())` hands over what make RETURNS
     expr_callable(x, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     expr_referenced("client", k, h, x),
     holder_ref_kind(k),
     holder_holds_function(h, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     ts_field_access_target(x, f),
     holder_holds_function(f, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     expr_kind("client", "CALL_EXPRESSION", _, x),
     call_runs(x, f),
     holder_holds_function(f, m).
-handed_function(ce, m) :- hof_boundary_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
+handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), expr_child("client", ce, "ARGUMENT", _, a),
     value_branch(a, x),
     method_value(x, m).
 

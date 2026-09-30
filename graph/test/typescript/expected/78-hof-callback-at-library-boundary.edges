@@ -1,5 +1,12 @@
 ambient_terminal	FUNCTION_CALL	app#atStartup() @L38 -> app#onReady(() =)
+ambient_terminal	FUNCTION_CALL	store#deferred() @L24 -> store#later(() =)
+ambiguous_unknown	CONSTRUCTOR_CALL	store#<module-init>() @L8 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	store#<module-init>() @L9 -> -
+ambiguous_unknown	METHOD_CALL	store#known() @L17 -> -
+ambiguous_unknown	METHOD_CALL	store#store() @L12 -> -
+ambiguous_unknown	METHOD_CALL	store#store() @L13 -> -
 callback_registered	FUNCTION_CALL	app#atStartup() @L38 -> app#<arrow@38>()
+callback_registered	FUNCTION_CALL	store#deferred() @L24 -> store#onUpdated()
 callback_registered	METHOD_CALL	app#doubled(number[]) @L16 -> app#<arrow@16>(?)
 callback_registered	METHOD_CALL	app#named(number[]) @L25 -> app#double(number)
 callback_registered	METHOD_CALL	app#scaled(number[]) @L12 -> app#<arrow@12>(?)
