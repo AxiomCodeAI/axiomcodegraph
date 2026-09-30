@@ -537,6 +537,28 @@ def mocked_types(q, line_of=None):
     return dict(out)
 
 
+# the call a test writes to BUILD a mock, with the type it mocks read from the line: NSubstitute `Substitute.For<T>()`,
+# FakeItEasy `A.Fake<T>()`, Moq `new Mock<T>()` and `Mock.Of<T>()`, Mockito `mock(T.class)`
+_MOCK_BUILD = re.compile(r'\b(?:Substitute\s*\.\s*For(?:PartsOf)?|A\s*\.\s*Fake|Mock\s*\.\s*Of|new\s+Mock)\s*<\s*([\w.]+)|\bmock\(\s*([\w.]+)\.class')
+SEND_NAMES = {'Send', 'SendAsync', 'Publish', 'PublishAsync', 'SendLocal', 'CreateStream'}
+
+
+def method_mocked_types(q, line_of):
+    """{callable id: {mocked type simple name}} from the mocks a callable BUILDS in its own body (a local, not a field:
+    mocked_types reads those). q(sql, params); line_of(file, line) -> the source line, where the type argument is read."""
+    out = collections.defaultdict(set)
+    try:
+        rows = q("SELECT caller_id, callee_name, file_path, start_line FROM call_sites WHERE callee_name IN ('For', 'ForPartsOf', 'Fake', 'Of', 'Mock', 'mock')", ())
+    except Exception:
+        return {}
+    for cid, n, f, l in rows:
+        if not (cid and f and l): continue
+        for m in _MOCK_BUILD.finditer(line_of(f, l) or ''):
+            t = (m.group(1) or m.group(2) or '').split('.')[-1]
+            if t: out[cid].add(t)
+    return dict(out)
+
+
 def best_cert(certs):
     return min(certs, key=lambda c: DIRECT_ORDER.index(c) if c in DIRECT_ORDER else len(DIRECT_ORDER))
 

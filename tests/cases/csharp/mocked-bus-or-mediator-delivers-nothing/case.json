@@ -1,0 +1,61 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a test that hands a mocked bus to the publisher is not counted for the message's handler: the mock delivers nothing",
+   "run": [
+    "impact",
+    "WidgetShippedHandler.Handle",
+    "--tests-only"
+   ],
+   "want": [
+    "DeliveryTests::PublishesOnARealBus",
+    "reach it only through a type they hold as a mock (IEventBus)",
+    "tests: 1 of 4"
+   ]
+  },
+  {
+   "why": "a test that hands a mocked mediator to the sender is not counted for the request's handler",
+   "run": [
+    "impact",
+    "RetireWidgetHandler.Handle",
+    "--tests-only"
+   ],
+   "want": [
+    "DeliveryTests::RetiresThroughTheHandler",
+    "reach it only through a type they hold as a mock (IMediator)",
+    "tests: 1 of 4"
+   ]
+  },
+  {
+   "why": "control: the mocked-bus test still reaches the publisher it drives",
+   "run": [
+    "impact",
+    "Notifier.Notify",
+    "--tests-only"
+   ],
+   "want": [
+    "DeliveryTests::PublishesOnAMockedBus",
+    "DeliveryTests::PublishesOnARealBus"
+   ],
+   "avoid": [
+    "hold as a mock"
+   ]
+  },
+  {
+   "why": "control: the mocked-mediator test still reaches the controller it drives",
+   "run": [
+    "impact",
+    "WidgetsController.Retire",
+    "--tests-only"
+   ],
+   "want": [
+    "DeliveryTests::RetiresThroughAMockedMediator"
+   ],
+   "avoid": [
+    "hold as a mock"
+   ]
+  }
+ ]
+}

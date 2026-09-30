@@ -2736,7 +2736,24 @@ def main(argv):
             try: return I.lines(g.site_file(f))[l - 1]
             except Exception: return ''
         mocks = ax_edges.mocked_types(lambda s_, p_: g.q(s_, *p_), _line_of)
-        if mocks:
+        # A SEND ON A MOCKED BUS OR MEDIATOR DELIVERS NOTHING. A test that builds `Substitute.For<IEventBus>()` and hands
+        # it to the class under test reaches the class's publish, and the route then crossed the remote (or mediator)
+        # hop to every handler of the message, though the mock swallows the send: such a test was counted for a change
+        # to a handler it never runs. A remote or dispatch hop is not taken for a test that holds, as a field or a mock
+        # it builds itself, the type the sender sends on.
+        lmocks = ax_edges.method_mocked_types(lambda s_, p_: g.q(s_, *p_), _line_of)
+        _sent_on = {}
+        def sent_on(c):
+            """the types callable c sends on: the owner of a send method it calls, or the type an external send names"""
+            if c not in _sent_on:
+                ts = set()
+                for r in g.q("SELECT e.callee_label, s.owner, s.name FROM call_edges e LEFT JOIN symbols s ON s.method_id = e.callee_method_id WHERE e.caller_id = ?", c):
+                    lab, ow, nm = r[0] or '', r[1] or '', r[2] or ''
+                    if nm in ax_edges.SEND_NAMES and ow: ts.add(ow.split('.')[-1])
+                    elif lab.startswith('external:') and lab.rsplit('.', 1)[-1] in ax_edges.SEND_NAMES: ts.add(lab[len('external:'):].rsplit('.', 1)[0].split('.')[-1])
+                _sent_on[c] = ts
+            return _sent_on[c]
+        if mocks or lmocks:
             tsimple = {r['type_id']: (r['display'] or '').split('.')[-1] for r in g.q("SELECT type_id, display FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
             anc = collections.defaultdict(set)
             for r in g.q("SELECT type_id, ancestor_type_id FROM type_ancestors") if g.has('type_ancestors') else []:
@@ -2745,7 +2762,8 @@ def main(argv):
             for m in list(tests):
                 own = (g.sym[m]['owner'] or '').split('.')[-1]
                 held = set().union(*(mocks.get(x, set()) for x in up_names(own)))
-                if not held: continue
+                built = set(lmocks.get(m, set()))
+                if not held and not built: continue
                 via = tests[m][1]
                 ch = (chains.get(m) or []) if not via else [m] + I.chain(via, parent)
                 # the hop's OWN type, or a supertype of it only where the hop is a dispatch choice (the caller's call was
@@ -2757,6 +2775,7 @@ def main(argv):
                     if not ow: continue
                     ts = {t for x, t in parent.get(a_, ()) if x == n}
                     hit = ({ow} | (anc.get(ow, set()) if ts & {'dispatch', 'multi_inferred'} else set())) & held
+                    if not hit and ts & {'remote', 'event_dispatch'}: hit = sent_on(a_) & (held | built)
                     if hit:
                         mock_via[m] = sorted(hit)[0]; break
             for m in mock_via:
