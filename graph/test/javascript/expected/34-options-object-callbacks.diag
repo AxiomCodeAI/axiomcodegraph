@@ -3,6 +3,8 @@ import_cause     main.js:2:14  walker  not_staged
 import_cause     main.js:37:136  events  builtin
 import_cause     main.js:3:15  https  builtin
 import_cause     main.js:4:9  stream  builtin
+library_receiver main.js:43:25  walk.register  walker
+library_receiver main.js:43:48  walk.register  walker
 package_entry    options-callbacks  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       main.js:10:28  FUNCTION_CALL walk  callee_untyped
 unresolved       main.js:11:89  FUNCTION_CALL walk  callee_untyped
