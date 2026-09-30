@@ -2438,8 +2438,9 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     holder = typeref_holder(at, aspans, {i for (i,) in q("SELECT id FROM symbols WHERE kind = 'module'")}
                             if aspans else set())
     def trefs(n): return q("SELECT name, file, line, context FROM type_refs WHERE line > 0 AND name = ?", n)
-    over, todo = set(), []
-    sig_resolved = set()                                    # callables whose signature type_use resolves to it (273b)                                  # alias_over(q, a), and the aliases still to expand
+    over, todo = set(), []                                  # alias_over(q, a), and the aliases still to expand
+    sig_resolved = set()                                    # callables whose signature type_use resolves to it (273b)
+    sig_at_line = set()                                     # (c, ctx) rule 273 names with a line: 273b adds no second row
 
     # ── a type the container INJECTS (rule 186) ────────────────────────────────────────────────────────────
     #   direct(q,c,"uses",cat("receives it by dependency injection (",kind,") — …"),"resolved","",0)
@@ -2566,7 +2567,8 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
             for nm, f, l, ctx in trefs(n):
                 c = holder(f, l)
                 if (c, f, l) in other: continue                     # typeref_other: the name at that line builds another type of it
-                if c and c not in inside: rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l))
+                if c and c not in inside:
+                    rows.append((c, 'uses', f'names it ({ctx})', 'by name', f, l)); sig_at_line.add((c, ctx))
                 if c in anames and c not in inside and c not in over: over.add(c); todo.append(c)
         # 273b — a signature the engine RESOLVED to this type (#1422): `type_use` holds each parameter, return and
         # type-argument position with the type it names. Java writes no line into type_refs, so rule 273 matched none of
@@ -2579,6 +2581,7 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
                                         AND context IN ('METHOD_PARAM', 'METHOD_RETURN')""", t):
                 if not c or c in inside: continue
                 sig_resolved.add(c)
+                if (c, ctx) in sig_at_line: continue        # rule 273 already names this signature at its line
                 what = SIG_CTX_WORDS.get(ctx, ctx.lower())
                 if depth and int(depth) > 0: what = f"a type argument of {what}"
                 rows.append((c, 'uses', f'names it in its signature ({what})', 'resolved', '', 0))
