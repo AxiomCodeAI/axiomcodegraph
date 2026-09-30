@@ -33,6 +33,11 @@ One check needs no graph and is its own script:
     python3 tests/graph_verb.py          `axiomcode graph` draws the existing graph and rebuilds a stale one with the flags it
                                          was indexed with; no rebuild path (refresh, repair, bare index) solves a language an
                                          explicit --lang left out (builds real graphs, needs the engine)
+    python3 tests/repo_arg.py            a repository argument that is not there (every verb, the MCP tools' repo=, --src)
+                                         is an error naming it, with nothing built in the working directory; an absolute
+                                         --src is used as given (indexes a small Python project, so it needs the engine)
+    python3 tests/row_order.py           rows tied on one file line print in one order: the same answers, byte for byte,
+                                         under several hash seeds (indexes small cases, so it needs the engine)
     python3 tests/indexed_tree.py        changed compares against the tree the graph was indexed from, so an
                                          index taken with uncommitted edits reports only later edits (#1222)
     python3 tests/mcp.py                 `axiomcode mcp` answers initialize, lists every tool and runs one,

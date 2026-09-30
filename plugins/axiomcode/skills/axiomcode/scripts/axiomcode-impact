@@ -2280,9 +2280,11 @@ def main(argv):
             ids = [i for i in (pay if isinstance(pay, list) else []) if isinstance(i, str) and i in g.sym and g.sym[i].get('file')]
             files = sorted({g.sym[i]['file'] for i in ids})
             if k == 'method' and len(files) > 1 and not re.search(r':\d+$', a):
-                where = ', '.join(dict.fromkeys(g.loc(i) for i in sorted(ids, key=lambda i: (g.sym[i]['file'], g.sym[i].get('line') or 0))))
+                # the example is the first declaration as written, not the first id: ids hash the index directory
+                by_place = sorted(ids, key=lambda i: (g.sym[i]['file'], g.sym[i].get('line') or 0, i))
+                where = ', '.join(dict.fromkeys(g.loc(i) for i in by_place))
                 print(f"note: {a} names {len(ids)} declarations in {len(files)} files ({where}) — this answer is for all of them; "
-                      f"target one by file:line (e.g. `impact {g.loc(ids[0])}`)", file=sys.stderr if as_json else sys.stdout)
+                      f"target one by file:line (e.g. `impact {g.loc(by_place[0])}`)", file=sys.stderr if as_json else sys.stdout)
         if want_why: target_why += [I.why_of(a, k, lab, pay) for k, lab, pay in rs]
         targets += rs
     if IN and os.environ.get('AXIOMCODE_FANOUT') == '1':
@@ -2783,7 +2785,10 @@ def main(argv):
     # AN UNMODELLED ENTRY (P.unmodelled_entry): a decoration the rules do not model, or a library base, on the
     # declaration or its owner. With no caller bound to it, "local", "tests: 0" and "independent" would be claims about
     # the model, not the code, and they were false on exactly these declarations: say it was not checked, and how to.
-    unmod = [(i, sig) for i, sig in P.unmodelled_entry(g, asked)]
+    # in the order the declarations are WRITTEN (file, line, then the signal): the order of `asked` follows symbol ids,
+    # which hash the index directory, so one case indexed at two paths listed the same signals in two orders
+    _at = lambda i: ((getattr(g, 'all_sym', {}).get(i) or g.sym.get(i) or {}).get('file') or '', (getattr(g, 'all_sym', {}).get(i) or g.sym.get(i) or {}).get('line') or 0)
+    unmod = sorted(((i, sig) for i, sig in P.unmodelled_entry(g, asked)), key=lambda x: (_at(x[0]), x[1], x[0]))
     unmod_name = next((((getattr(g, 'all_sym', {}).get(i) or g.sym.get(i) or {}).get('name')) for i, _ in unmod), None)
     unmod_grep = P.grep_for(g, unmod_name) if unmod_name else ''
     # a decoration on the declaration itself says a framework enters THIS member; one on its owner, or the owner's
@@ -2935,7 +2940,10 @@ def main(argv):
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
-    ext = sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])}, key=lambda x: (x[0], x[1]))
+    # (file, line) is not a total order: one line can name the method twice (`run` and `Step.run`), and the ties then
+    # fell back to the SET's order, a function of string hashing, so two runs printed the same rows in two orders.
+    # The name and how it was matched make it total.
+    ext = sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})
     # A COMMON WORD WRITTEN AS A WORD IS NOT A BINDING (ax_nonsource.py, PROSE): `note` in a template's text, `build`
     # in a CI file, a Maven `<phase>validate</phase>`. Those rows leave `ext` here, so nothing below -- the section,
     # its header count, `next:`, the --delete verdict -- reads them as a place a rename breaks; they are counted with
