@@ -11,5 +11,9 @@
   {"why": "the contract holds whether or not anything constructs the implementation: TrieRouter is never instantiated, so the closure's RTA filter drops its dispatch edge, and reading the implements relation through that filter made the rules and the fast path disagree",
    "run": ["impact", "TrieRouter.add"],
    "want": ["Router.add", "it implements this"],
-   "avoid": []}
+   "avoid": []},
+  {"why": "a class that only matches the interface's SHAPE is a dispatch candidate, not a declared contract: its callers are still reached through the base, but the base is never 'must change - it implements this'",
+   "run": ["impact", "DuckRouter.add"],
+   "want": ["App.mount"],
+   "avoid": ["it implements this", "must change with it"]}
  ]}

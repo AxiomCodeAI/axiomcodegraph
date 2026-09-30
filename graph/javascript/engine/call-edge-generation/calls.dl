@@ -107,6 +107,37 @@ module_variable_from_call(v) :- var_init("client", _, e, v), expr_kind(_, k, _, 
     !variable_reassigned(v), !call_passes_function(e).
 call_passes_function(e) :- call_arg(e, _, a), expr_value(a, "func", _).
 call_passes_function(e) :- call_arg(e, _, a), expr_introduces(_, _, a).
+// `promisify(store.find.bind(store))`: a `.bind` always evaluates to a function, typed
+// receiver or not. A bound platform function (`Math.max.bind(Math)`) is the platform's.
+call_passes_function(e) :- call_arg(e, _, a), call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, a, _, _),
+    expr_child(_, a, "CALLEE", _, f), !bound_platform_function(f).
+bound_platform_function(f) :- expr_kind(_, "PROPERTY_ACCESS", _, f), expr_child(_, f, "ACCESS_TARGET", _, r),
+    expr_value(r, "ambient", _).
+// A holder whose value is what a PLATFORM call returned when handed a project function
+// (`this.find = promisify(s.find.bind(s))`, `const f = util.callbackify(g)`): the value
+// is a wrapper the platform made around that function, and calling it runs the
+// function. The platform value on the holder made the call an ambient terminal, a
+// claimed correct end, and path said "independent" of the very method the wrapper
+// runs. A platform value made from no project function (`promisify(setTimeout)`)
+// keeps its platform reading.
+// When the graph knows the function the wrapper was made from (a function value, or
+// the method a `.bind` site resolves to), the call runs it: one of a set, beside the
+// platform row the call keeps. Only when it knows none is the callee an open value.
+unresolved_value_callee(ce, "field") :- wrapper_holder_call(ce, val), !wrapper_call_target(ce, _), made_from_function(val),
+    field_call(ce, _, _, _).
+unresolved_value_callee(ce, "module_variable") :- wrapper_holder_call(ce, e), !wrapper_call_target(ce, _), made_from_function(e),
+    !field_call(ce, _, _, _).
+wrapper_holder_call(ce, val) :- field_call(ce, k, t, n), !call_resolved(ce), field_assignment(k, t, n, val).
+wrapper_holder_call(ce, e) :- value_callee_unresolved(ce, c), expr_binding(_, v, c),
+    var_decl("client", _, _, _, _, _, v), !var_owner_method("client", _, v), !var_import(_, _, v), !expr_param(_, _, c),
+    var_init("client", _, e, v), !variable_reassigned(v).
+made_from_function(e) :- expr_kind(_, "CALL", _, e), expr_value(e, "ambient", _), call_passes_function(e).
+wrapper_runs(e, m) :- made_from_function(e), call_arg(e, _, a), expr_value(a, "func", m).
+wrapper_runs(e, m) :- made_from_function(e), call_arg(e, _, a), call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, a, _, _),
+    expr_resolves_to_method(a, m).
+wrapper_call_target(ce, m) :- wrapper_holder_call(ce, e), wrapper_runs(e, m), call_target_count(ce, 0).
+call_chain_edge(ce, caller, "-", m, "client", "multi_inferred", kind) :-
+    wrapper_call_target(ce, m), !call_over_cap(ce), call_from(ce, caller), invocation_site(ce, kind).
 variable_reassigned(v) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_binding(_, v, tgt).
 // `(c ? a : b)()`, `(0, cb)()`, `make()()`: the callee is computed by an expression.

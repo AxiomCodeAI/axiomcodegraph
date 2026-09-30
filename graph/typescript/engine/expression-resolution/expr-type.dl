@@ -169,6 +169,16 @@ expr_type(e, "client", t) :- expr_referenced("client", "THIS", _, e),
     expr_enclosing_type(e, t).
 expr_type(e, "client", t) :- expr_kind("client", "THIS_REFERENCE", _, e),
     expr_enclosing_type(e, t).
+// A declared `this` parameter (`function onEvent(this: Ctx, e: Evt)`) is what `this` is in
+// that function, whoever binds it (`onEvent.bind(ctx)`, `.call(ctx)`, a framework): the
+// compiler types `this.repo` from it, and without it the site had no receiver type at all.
+expr_type(e, prov, t) :- this_expr(e), expr_enclosing_method(e, m), method_declared_this(m, p),
+    param_type(p, prov, t).
+expr_shape(e, s) :- this_expr(e), expr_enclosing_method(e, m), method_declared_this(m, p),
+    param_shape_target(p, s).
+this_expr(e) :- expr_referenced("client", "THIS", _, e).
+this_expr(e) :- expr_kind("client", "THIS_REFERENCE", _, e).
+method_declared_this(m, p) :- param_shape("client", "THIS", _, _, p), param_decl("client", _, _, _, m, p).
 
 // `this` INSIDE A STATIC METHOD IS THE CLASS, so its members are the STATICS. A helper
 // class that calls its own statics through `this` is ordinary TypeScript —

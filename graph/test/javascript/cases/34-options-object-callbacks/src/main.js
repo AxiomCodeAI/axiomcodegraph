@@ -14,3 +14,9 @@ function viaCtor() { return new Transform({ transform }); }
 function viaProject() { return localWalk([1], { filter: keep }); }
 function main() { direct(); viaVar(); viaPlatform(); viaCtor(); viaProject(); }
 main();
+// a function wrapped by a package call and kept in a const, then handed to a package registration: registered
+function migrate() { return 1; }
+const plugin = walk(async () => migrate());
+const settings = walk(42);
+function viaWrapped() { walk.register(plugin); walk.register(settings); }
+module.exports = { viaWrapped };

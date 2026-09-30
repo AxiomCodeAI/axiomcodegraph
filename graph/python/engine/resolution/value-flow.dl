@@ -329,14 +329,13 @@ partial_target(site, m) :-
     call_arg(site, "0", a),
     expr_denotes_method("client", a, m).
 
-// ── a name holding a partial denotes the partial's target ────────────────────
-binding_value_method(p, b, m) :-
-    binding_rebinding(p, "1", _, _, b),
-    expr_binding(p, b, "STORE", tgt),
-    assign_pair(p, tgt, val),
-    call_of_expr(val, site),
-    partial_target(site, m),
-    p = "client".
+// ── a partial denotes the partial's target ───────────────────────────────────
+// The call EXPRESSION, so wherever the partial goes the target goes with it: a name
+// (`add_ten = partial(add, 10)`, through (d)'s alias rule), an attribute
+// (`self.op = partial(repo.append)`, through field_holds_method), an argument.
+expr_denotes_method("client", e, m) :-
+    call_of_expr(e, site),
+    partial_target(site, m).
 
 // ── param_arg_class(ParamHash, TypeHash) — a CLASS OBJECT reaching a parameter ─
 // Distinct from param_arg_type on purpose: param_arg_type means "an INSTANCE of this

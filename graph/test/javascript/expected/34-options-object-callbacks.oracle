@@ -5,4 +5,5 @@ main.js:15:39 FUNCTION_CALL viaPlatform  EXACT  main.js:12:1
 main.js:15:54 FUNCTION_CALL viaCtor  EXACT  main.js:13:1
 main.js:15:65 FUNCTION_CALL viaProject  EXACT  main.js:14:1
 main.js:16:1 FUNCTION_CALL main  EXACT  main.js:15:1
+main.js:19:33 FUNCTION_CALL migrate  EXACT  main.js:18:1
 # defects: 0
