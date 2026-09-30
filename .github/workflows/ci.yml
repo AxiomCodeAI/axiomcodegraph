@@ -456,7 +456,7 @@ jobs:
         env:
           AXIOM_PARSER: ${{ github.workspace }}/parser/dist/index.js
           AXIOM_SOUFFLE_CACHE: ${{ github.workspace }}/.souffle-cache
-        run: python3 tests/run.py --lang ${{ matrix.lang }}
+        run: python3 tests/run.py --lang ${{ matrix.lang }} --jobs 4
 
       # the small surface as users and agents get it: find / impact / path / tests through the installed command and
       # the MCP server, answered as places with their code, and the direct calls and flags that keep the old answers
