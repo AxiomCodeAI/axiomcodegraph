@@ -30,7 +30,8 @@ MCP = os.path.join(PLUG, 'mcp', 'server.py')
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')     # the command an install puts on $PATH
 
 PUBLIC = ['index', 'find', 'impact', 'path', 'tests']
-NO_MCP = {'index': 'setup, not a question: the first query through the MCP server builds the graph itself'}
+NO_MCP = {'index': 'setup, not a question: the first query through the MCP server builds the graph itself',
+          'find': 'search is the agent\'s own grep, which a hook annotates; find is a shell verb for a person'}
 # dispatched, not advertised: verb -> why
 INTERNAL = {
     'build':       'the old name of index',

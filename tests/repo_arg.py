@@ -72,7 +72,7 @@ try:
     seen = []
     real, server.run = server.run, (lambda args, *a, **k: seen.append(args) or 'ran')
     try:
-        calls = {'find': lambda: server.find('how'), 'path': lambda: server.path('a', 'b'),
+        calls = {'path': lambda: server.path('a', 'b'),
                  'impact': lambda: server.impact('foo'), 'tests': lambda: server.tests()}
         for name, call in calls.items():
             seen.clear(); call()

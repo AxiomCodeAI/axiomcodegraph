@@ -196,9 +196,9 @@ if refused:
         # rather than restating that there was a match, which told the reader nothing about WHICH match
         _, _, hits = rest.partition('<- ')
         print(f"  {path}" + (f"   <- {hits.strip()}" if hits.strip() else ''))
-    print('  find(question="<the task>") (mcp__plugin_axiomcode_axiomcode__find) ranks the functions the task lands in, '
-          'each with its code; call it directly, no skill needs loading first (without that tool: '
-          '`axiomcode find "<the task>"`).')
+    print('  search these with grep as usual: after each grep the graph says only what grep cannot see (which declaration '
+          'a match reaches, callers that never spell the name). For a name: impact(name="<name>") '
+          '(mcp__plugin_axiomcode_axiomcode__impact; shell `axiomcode impact <name>`).')
 else:
     print("graph: where this task's own words land in the index —")
     for l in lines[:MAX_LINES]:
@@ -210,9 +210,8 @@ else:
     if 'how it runs —' in out:
         # a how-question: the flow is the answer's spine, and the call that returns it with each step's code is the
         # one to make — named here so no turn goes to loading the skill or the tool schemas first
-        print('  next: find(question="<the question>") (mcp__plugin_axiomcode_axiomcode__find) returns the functions '
-              'the flow runs through, each with its code; call it directly, no skill needs loading first (without that '
-              'tool: `axiomcode find "<the question>"`).')
+        print('  next: grep the names above as usual; for how one reaches another, path(start="<A>", end="<B>") '
+              '(mcp__plugin_axiomcode_axiomcode__path; shell `axiomcode path <A> <B>`) returns every hop with its code.')
     else:
         print('  a starting point, not a conclusion: next, impact(name="<name>") (mcp__plugin_axiomcode_axiomcode__impact) '
               'for who calls it, what a change reaches and its tests, each with its code; call it directly, no skill '

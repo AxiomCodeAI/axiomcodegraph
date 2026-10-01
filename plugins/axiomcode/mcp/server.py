@@ -313,15 +313,8 @@ def plain(text):
     return '\n'.join(out)
 
 
-# THE SMALL SURFACE. Three questions, each answered as numbered places with the code of the function each sits in, so
+# THE SMALL SURFACE. Search is grep's job; the graph answers what grep cannot. Three questions, each answered as numbered places with the code of the function each sits in, so
 # a place is understood without opening its file. No options: the repository is the one the session works in.
-@srv.tool()
-def find(question: str) -> str:
-    """Where the code for a task lives. Describe what you need in words (the feature, the behaviour, a name you saw);
-    get the functions involved, each with its code, most relevant first. A name the code calls but nothing declares
-    is listed with its call sites: that is code you have to write."""
-    return plain(run(['find', question, os.getcwd()]))
-
 @srv.tool()
 def impact(name: str = '') -> str:
     """What a change reaches. With a name (as written in the code: Owner.method, function, Type, or file.py:123): who

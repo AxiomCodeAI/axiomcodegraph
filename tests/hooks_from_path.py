@@ -23,6 +23,10 @@ Promises, each with a near-miss control:
 
     python3 tests/hooks_from_path.py
 """
+# this suite checks WHERE a hook finds its graph; the previous grep note always speaks when it does, so it is the proof.
+# The grep-aid note is silent whenever grep was complete, which proves nothing about the lookup.
+import os as _os
+_os.environ['AXIOMCODE_GREP_AID'] = '0'
 import json, os, shutil, subprocess, sys, tempfile, time
 # the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
 # second run of this script reuses the first run's session ids and hears nothing

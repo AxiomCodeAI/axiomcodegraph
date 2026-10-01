@@ -131,7 +131,7 @@ def controls(tools):
         got = len(mismatches(documented(text), fake, 'control'))
         if got != want:
             bad.append(f"control {text!r}: {got} mismatch(es), want {want}")
-    if set(tools) != {'find', 'impact', 'path', 'tests'}:
+    if set(tools) != {'impact', 'path', 'tests'}:
         bad.append(f"the server listed {sorted(tools)}; the MCP tools were not read")
     return bad
 
@@ -147,7 +147,7 @@ def main():
         seen |= {(t, a) for ts, a, _v, _u in rows if ts for t in ts}
         bad += mismatches(rows, tools, rel)
     # not a vacuous pass: the arguments the docs are known to teach were found and checked
-    for want in (('find', 'question'), ('impact', 'name'), ('path', 'start'), ('path', 'end')):
+    for want in (('impact', 'name'), ('path', 'start'), ('path', 'end')):
         if want not in seen:
             bad.append(f"the docs' {want[0]} {want[1]}= was not found, so the reader missed it")
     print(f"{len(DOCS)} doc(s), {len(seen)} documented (tool, argument) pair(s) checked against {len(tools)} tool schema(s)")

@@ -132,6 +132,85 @@ except Exception: pass
 # Seeded from one method the same closure is small, and the cap keeps a hub method flat. Each edge table joins in
 # its OWN recursive branch so SQLite drives them by index; one combined edge CTE rescans every edge per call.
 REACH_DEPTH = 6
+GREP_HIT = re.compile(r'(?:^|[\s"\'])((?:[\w.@-]+/)*[\w.@-]+\.\w+)(?::(\d+))?')
+WORD = lambda n: re.compile(r'(?<![\w$])' + re.escape(n) + r'(?![\w$])')
+
+
+def grep_aid(idents, response):
+    """THE GRAPH AIDS A GREP, IT DOES NOT ANSWER IT AGAIN. The agent already has grep's lines, so the only things worth
+    saying are what grep cannot know: which declaration each matched call reaches when the name is declared more than once,
+    and the callers whose line never spells the name (a function passed as a value, a DI or framework registration, an
+    alias) — those are invisible to any text search. When grep was complete and unambiguous, nothing is said."""
+    text = response if isinstance(response, str) else json.dumps(response or '')
+    text = text.replace('\\n', '\n')
+    hit_lines, hit_files = set(), set()
+    for f, ln in GREP_HIT.findall(text):
+        r = rel_of(_where._abs(f, scwd)) if not os.path.isabs(f) else rel_of(f)
+        hit_files.add(r)
+        if ln: hit_lines.add((r, int(ln)))
+    out = []
+    for n in idents[:4]:
+        decls = q("SELECT method_id, display, file, line FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module'", n)
+        if not decls: continue
+        mids = {d['method_id']: d for d in decls}
+        ph = ','.join('?' * len(mids))
+        edges = q(f"SELECT cs.file_path f, cs.start_line ln, coalesce(cs.end_line, cs.start_line) eln, cs.callee_name cn, e.callee_method_id m, cr.display who FROM call_edges e "
+                  f"JOIN call_sites cs ON cs.id = e.call_site_id JOIN symbols cr ON cr.id = e.caller_id "
+                  f"WHERE e.callee_method_id IN ({ph})", *mids)
+        # 1. the calls grep matched, split by the declaration they reach — only when the name is declared more than once
+        # A call through an interface reaches the base and every implementation: that is one target set, not an ambiguity.
+        # Only lines that reach DIFFERENT sets are worth telling apart, because that is what grep's lines cannot show.
+        split = ''
+        if len(decls) > 1:
+            mine = [x for x in edges if (x['f'], x['ln']) in hit_lines] if hit_lines else [x for x in edges if x['f'] in hit_files and x['cn'] == n]
+            per_line = collections.defaultdict(set)
+            for x in mine: per_line[(x['f'], x['ln'])].add(mids[x['m']]['display'])
+            groups = collections.defaultdict(list)
+            for k, ds in per_line.items(): groups[frozenset(ds)].append(k)
+            if len(groups) > 1:
+                def name(ds): return min(ds, key=len) + (f" (+{len(ds) - 1} implementation(s))" if len(ds) > 1 else '')
+                def at(ks):
+                    ks = sorted(ks); fs = collections.OrderedDict()
+                    for f, ln in ks: fs.setdefault(f.split('/')[-1], []).append(str(ln))
+                    return ' '.join(f"{f}:{','.join(v[:3])}" for f, v in list(fs.items())[:2]) + (' …' if len(fs) > 2 else '')
+                split = '; '.join(f"{len(ks)} → {name(ds)} [{at(ks)}]" for ds, ks in sorted(groups.items(), key=lambda kv: -len(kv[1]))[:3])
+        # 2. the callers no text search finds: the call's line does not spell the name
+        hidden = []
+        for x in edges:
+            # a call spans lines (`rows\n  .sort(byPath)` starts a line above its name): the whole span is checked
+            src = [linecache_line(x['f'], i) for i in range(x['ln'], max(x['ln'], x['eln']) + 1)]
+            if None not in src and not any(WORD(n).search(l) for l in src) and (x['f'], x['ln']) not in hit_lines:
+                hidden.append(f"{x['f']}:{x['ln']} ({x['who'].split('.')[-1]})")
+        hidden = list(dict.fromkeys(hidden))
+        # 3. a declaration nothing in the code calls, that the runtime enters (a route, a schedule, a framework
+        # annotation): grep shows no caller and reads as dead code; this says who calls it. A plain `0` stays unsaid,
+        # since grep's lines already show it
+        entered = []
+        if not edges:
+            for d in decls:
+                is_test = (q("SELECT is_test FROM symbols WHERE method_id = ? LIMIT 1", d['method_id']) or [{'is_test': 0}])[0]['is_test']
+                lab = _graphline.zero_label(con, d['method_id'], None, is_test or 0)
+                if lab.startswith(('entry', '?')) and lab != 'entry (test)':
+                    entered.append(f"{d['display']} {lab.replace('? framework', 'by the framework').replace('entry', 'entered by the runtime')}")
+        if not split and not hidden and not entered: continue
+        parts = []
+        if entered: parts.append("nothing in the code calls " + '; '.join(entered[:3]))
+        if split: parts.append(f"your matches reach different declarations: {split}")
+        if hidden: parts.append(f"{len(hidden)} caller(s) grep cannot see (the line never names it): " + ', '.join(hidden[:4]) + (f" +{len(hidden) - 4}" if len(hidden) > 4 else ''))
+        out.append(f"graph on `{n}`: " + ' | '.join(parts))
+    return out
+
+
+_LINES = {}
+def linecache_line(f, ln):
+    if f not in _LINES:
+        try:
+            with open(os.path.join(cwd, f), encoding='utf-8', errors='replace') as h: _LINES[f] = h.read().split('\n')
+        except OSError: _LINES[f] = None
+    L = _LINES[f]
+    return L[ln - 1] if L and 0 < ln <= len(L) else None
+
+
 def reach_counts(mid):
     try:
         tot = q("SELECT count(*) n FROM symbols WHERE is_test = 1 AND method_id IS NOT NULL")[0]['n']
@@ -477,7 +556,9 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
         if total > len(rows) and out: out[-1] += f"  (+{total - len(rows)} more declaration(s){'' if total < 40 else ' or more'})"
         if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out
-    if idents:
+    if idents and os.environ.get('AXIOMCODE_GREP_AID', '1') != '0':
+        lines += grep_aid(idents, ev.get('tool_response'))
+    elif idents:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(idents))) as ex: found = list(ex.map(lookup, idents))
         found = [(n, rows, out) for n, rows, out in found if rows]
         opened = set(load_state().get('opened', []))
