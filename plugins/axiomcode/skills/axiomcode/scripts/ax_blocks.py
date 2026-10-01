@@ -20,6 +20,8 @@ import ax_grep
 
 CAP = 10                 # places shown; the rest are counted
 FAR = 8                  # places more than one hop away, named without code
+DIRECT_CODE = 3          # direct callers shown with code even when a word grep also finds them
+PLAIN_WHY = ('calls it', 'reads it', 'writes it', 'writes/reads it', 'references it', 'instantiates it')
 WHOLE = 14               # a function this short is shown whole
 AROUND = 3               # else: its header, then this many lines either side of the line that matters
 FENCE = {'.py': 'python', '.java': 'java', '.ts': 'typescript', '.tsx': 'tsx', '.js': 'javascript', '.jsx': 'jsx',
@@ -107,10 +109,27 @@ def render(verb, doc, repo):
     plain = []
     names = target_names(doc) if verb == 'impact' and os.environ.get('AXIOMCODE_GREP_AID', '1').lower() not in ('0', 'off', 'false') else []
     if names:
-        spelled = lambda p: all(any(re.search(r'(?<![\w$])' + re.escape(nm) + r'(?![\w$])', statement(repo, p['f'], n)) for nm in names)
-                                for n in p['marks'])
-        plain = [p for p in places.values() if spelled(p)]
-        places = {k: p for k, p in places.items() if not spelled(p)}
+        # WHY each direct place depends on it: a plain resolved call, read or write is what a word grep finds too; a call
+        # across a process boundary, an override or implementation, an injection or a call through a field holding it is
+        # a link grep cannot make, so it keeps its code and says what it is
+        why = {}
+        for r in doc.get('direct') or []:
+            for x in [r] + list(r.get('reasons') or []):
+                if x.get('at'): why.setdefault(x['at'], (x.get('why') or r.get('why') or '', x.get('certainty') or r.get('certainty') or 'resolved'))
+        for p in places.values():
+            for n in p['marks']:
+                w = why.get(f"{p['f']}:{n}")
+                if w and w[0] and w[0] not in PLAIN_WHY and w[0].split(' — ')[0].split(' (')[0] not in p['tags']: p['tags'].insert(0, w[0].split(' — ')[0].split(' (')[0])
+        def greppable(p):
+            ws = [why.get(f"{p['f']}:{n}") for n in p['marks']]
+            return all(w and w[0] in PLAIN_WHY and w[1] in ('resolved', 'sound') for w in ws) and \
+                   all(any(re.search(r'(?<![\w$])' + re.escape(nm) + r'(?![\w$])', statement(repo, p['f'], n)) for nm in names) for n in p['marks'])
+        # the first few direct callers keep their code even when grep finds them: they are what an agent checks first
+        keep = 0
+        for k, p in list(places.items()):
+            if greppable(p):
+                if keep < DIRECT_CODE: keep += 1; continue
+                plain.append(p); del places[k]
     # A PLACE FURTHER THAN ONE HOP AWAY IS NAMED, NOT SHOWN: no text search finds it, so it stays in the answer, but the
     # function it sits in says enough; code goes to the direct places the agent will actually edit or check
     far, tests = [], []
@@ -130,7 +149,7 @@ def render(verb, doc, repo):
             out += ['   ' + b for b in body]
             out.append('   ```')
     if far:
-        out.append(f"further away ({len(far)} place(s), reached through the ones above; no code shown):")
+        out.append(f"further away ({len(far)} place(s), reached through {'the places above' if places or plain else 'its callers'}; no code shown):")
         for p in far[:FAR]:
             fn = (p['span'][0] if p['span'] else '?')
             out.append(f"   {p['f']}:{','.join(map(str, sorted(p['marks'])))}  {fn}  [{p['tags'][0]}]")
@@ -143,7 +162,7 @@ def render(verb, doc, repo):
     if plain:
         refs = [f"{p['f']}:{','.join(map(str, sorted(p['marks'])))}" for p in plain]
         g = ' -e '.join(names)
-        out.append(f"{'' if out else 'every place spells the name, so grep finds them all — '}+{len(plain)} place(s) `grep -nw {g}` also finds "
+        out.append(f"+{len(plain)} more direct caller(s) `grep -nw {g}` also finds "
                    f"(confirmed callers; no code shown): " + ', '.join(refs[:8]) + (f" +{len(refs) - 8}" if len(refs) > 8 else ''))
         other = grep_others(repo, names, {(p['f'], n) for p in plain for n in p['marks']})
         if other: out.append(f"  {other} other line(s) grep matches for that name are NOT this declaration (another symbol of the same name, or text)")
