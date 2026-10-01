@@ -699,6 +699,9 @@ CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EX
 CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id); CREATE INDEX IF NOT EXISTS symbols_tid ON symbols(type_id);
 CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS type_refs_name ON type_refs(name); CREATE INDEX IF NOT EXISTS decorations_owner ON decorations(owner_id); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
 CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
+-- lookups by id and by file + line: without them each per-site or per-test query scans the whole table
+CREATE INDEX IF NOT EXISTS symbols_id ON symbols(id); CREATE INDEX IF NOT EXISTS refs_file_line ON refs(file, line);
+CREATE INDEX IF NOT EXISTS literals_file_line ON literals(file, line);
 -- who calls a method: one row per (site, target), with the engine's tier. caller_id is symbols.id: a
 -- Java call written in a field initializer has the TYPE as its caller, and that row is kept, not dropped
 CREATE VIEW callers AS
