@@ -105,7 +105,7 @@ def render(verb, doc, repo):
     # `grep -nw NAME` finds: it is listed by location only, and the code goes to the places no text search reaches
     # (a function passed as a value, a framework or DI registration, an alias). Off with AXIOMCODE_GREP_AID=0.
     plain = []
-    names = target_names(doc) if verb == 'impact' and os.environ.get('AXIOMCODE_GREP_AID', '1') != '0' else []
+    names = target_names(doc) if verb == 'impact' and os.environ.get('AXIOMCODE_GREP_AID', '1').lower() not in ('0', 'off', 'false') else []
     if names:
         spelled = lambda p: all(any(re.search(r'(?<![\w$])' + re.escape(nm) + r'(?![\w$])', statement(repo, p['f'], n)) for nm in names)
                                 for n in p['marks'])

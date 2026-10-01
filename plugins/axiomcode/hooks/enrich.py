@@ -556,7 +556,7 @@ elif tool == 'Grep' and not (inp.get('path') and os.path.relpath(os.path.realpat
         if total > len(rows) and out: out[-1] += f"  (+{total - len(rows)} more declaration(s){'' if total < 40 else ' or more'})"
         if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out
-    if idents and os.environ.get('AXIOMCODE_GREP_AID', '1') != '0':
+    if idents and os.environ.get('AXIOMCODE_GREP_AID', '1').lower() not in ('0', 'off', 'false'):
         lines += grep_aid(idents, ev.get('tool_response'))
     elif idents:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(idents))) as ex: found = list(ex.map(lookup, idents))
