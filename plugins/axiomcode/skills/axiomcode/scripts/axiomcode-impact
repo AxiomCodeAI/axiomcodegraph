@@ -3715,10 +3715,31 @@ def main(argv):
     REGISTERED_NOTE = ("[registered] is a callable handed over as a value, or a handler a framework runs for a request or event "
                        "sent to it — the engine recorded the hand-off or the send, not a call to it, and cannot say it ever runs")
     used_registered = 'registered' in set(test_cert.values())
+    # A DISPATCH ROW IS NOT A GUESS. `calls it (via the interface)` is a call typed on a base whose target set is that
+    # base and its overrides, so the caller is certain and only which override runs is open. Explaining it with the
+    # oracle figure for sets the engine could not narrow told agents to distrust the one right answer, and they
+    # re-read every file to check it.
+    dispatch_why = set(ax_edges.VIA_BASE_WHY.values())
+    open_set = [x for x in byname if x[3] == 'one of a set' and x[2] not in dispatch_why]
+    dispatched = [x for x in byname if x[3] == 'one of a set' and x[2] in dispatch_why]
     if byname:
-        legend = "[one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge), [by name] / [text] may be a same-named other thing"
+        parts = []
+        if dispatched:
+            parts.append("[one of a set] … (via the interface / base class) is dispatch: the call is typed on the base, so the caller is "
+                         "certain and only which override runs is open — a dependent, not a guess")
+        if open_set:
+            parts.append("[one of a set] is one member of a target set the engine could not narrow: any one of them may be the one that runs")
+        if any(x[3] in ('by name', 'text') for x in byname):
+            parts.append("[by name] / [text] may be a same-named other thing")
+        legend = ", ".join(parts)
         if used_registered: legend += ", " + REGISTERED_NOTE
         print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} are not an exact edge — " + legend)
+    # COMPLETE, SAID ONLY WHEN NOTHING ABOVE IS OPEN. Without it an answer that is all resolved calls and dispatch reads
+    # like a partial one, and the reader re-derives it from the source.
+    if D and not open_set and not u and not byname_seeds and not outside and not dunder and not shapes and not unmod \
+            and not any(x[3] in ('by name', 'text', 'capped set') for x in D):
+        print("complete: every dependent above is a resolved call or a dispatch through a base; none is a name-only match "
+              "and no call inside the impacted set is unresolved — read source to make the edit, not to re-check this list")
     elif used_registered:
         # the note above is counted in by-name entries, and a `registered` route need not produce one: on a
         # target reached ONLY through hand-offs there were no by-name entries at all, so the label the whole
