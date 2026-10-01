@@ -365,6 +365,27 @@ class Changed:
                 elif tag == 'replace': near[j1 + k_ + 1] = i1 + min(k_ + 1, i2 - i1)          # a rewritten line: the line in its position
                 else: near[j1 + k_ + 1] = max(1, i1)                                             # a line this text lacks: the one before it
         taken = {exact[a] for a, b, i, k, d, n in spans if a in exact}
+        # A DECLARATION CAN BE LONGER IN THIS TEXT THAN IN THE GRAPH'S. Its end is carried to the line the graph's end
+        # line became, so the lines this text has after it and the graph's text does not (statements a later text
+        # deleted) fell outside it: removed from a method, they were charged to the declaration below or to nothing.
+        # The span runs on over lines only this text has while they are still inside it: its braces not yet closed, or
+        # (Python) indented deeper than its header
+        mine = set(exact.values())
+        def grow(a2, b2, k):
+            if k not in ('method', 'function', 'constructor', 'class', 'interface', 'enum', 'type') or b2 >= len(OL): return b2
+            if is_py:
+                ind = len(OL[a2 - 1]) - len(OL[a2 - 1].lstrip()); x = b2
+                while x < len(OL) and x + 1 not in mine and (not OL[x].strip() or len(OL[x]) - len(OL[x].lstrip()) > ind):
+                    x += 1
+                    if OL[x - 1].strip(): b2 = x
+                return b2
+            depth = sum(OS[x - 1].count('{') - OS[x - 1].count('}') for x in range(a2, b2 + 1))
+            if depth <= 0 or '{' not in ''.join(OS[a2 - 1:b2]): return b2
+            x = b2
+            while x < len(OL) and x + 1 not in mine:
+                x += 1; depth += OS[x - 1].count('{') - OS[x - 1].count('}')
+                if depth <= 0: return x
+            return b2
         def renamed_line(a, d, n, k):
             """A HEADER THE GRAPH HOLDS UNDER A NEW NAME is the same declaration when this text's line in its place declares
             another name with the same parameters (a rename the refresh already indexed). Dropped as "not declared here",
@@ -388,7 +409,7 @@ class Changed:
                 b2 = a2 + (b - a) if exact.get(b) is None else exact[b]
             else:
                 b2 = exact.get(b) or near.get(b) or a2 + (b - a)
-            out.append((a2, max(a2, b2), i, k, d, n))
+            out.append((a2, grow(a2, max(a2, b2), k), i, k, d, n))
         out.sort(); return out
     def rel(self, f):
         f = os.path.realpath(f) if os.path.exists(f) else f
@@ -797,7 +818,7 @@ class Changed:
             for a, b, i, k, d, n in decls:
                 if ln < a <= ln + 3 and all(not L[x - 1].strip() or L[x - 1].strip().startswith('@') for x in range(ln + 1, a)): return (a, b, i, k, d, n)
             return None
-        decorated = {}; stmt_pair = {}
+        decorated = {}; stmt_pair = {}; gone_fields = []
         OK = strip_code(old, strings=False, hash_comments=is_py).split('\n'); NK = strip_code(new, strings=False, hash_comments=is_py).split('\n')
         # A LINE INSERTED INTO A HEADER CHANGES THE SIGNATURE. A parameter list written one parameter a line gains a
         # parameter as an inserted line, which no old line was changed for; charged to the callable as an insertion it
@@ -866,12 +887,20 @@ class Changed:
             elif m and m[3] != 'module' and m[0] <= ln <= self.header_end(OL, m[0]): key = ('signature', m)
             elif m: key = ('body', m)
             elif t and t[0] <= ln <= self.header_end(OL, t[0]): key = ('type', t)
+            # A FIELD THE GRAPH NEVER HELD is still named by its line. Read against a graph from a later text (a range, a
+            # refresh), a field that text no longer declares has no span, and its deleted line came back as an anonymous
+            # "inside <type>": the mirror of a new field, named from its inserted line (added)
+            elif t and not is_py and (fp := self.field_parts(OS[ln - 1]))[0] and OS[ln - 1].rstrip().endswith(';') \
+                    and '(' not in OS[ln - 1].split('=')[0] and self.declares(OS[ln - 1], fp[1], 'field', False) \
+                    and not still_declared(fp[1], 'field', new_of.get(ln) or ln):
+                gone_fields.append((ln, t, fp[1]))
             elif t: key = ('inside', t)                                                                 # between members: a field the graph did not record, a comment
             if key: hits.setdefault(key, set()).add(ln)
         nd = [0] * (len(NL) + 2)
         for ii, text in enumerate(strip_code(new).split('\n'), 1): nd[ii] = nd[ii - 1] + text.count('{') - text.count('}')
         ndepth_ok = lambda j: nd[j - 1] <= 2
-        out = []
+        out = [dict(kind='field', symbol=f"{t[4]}.{nm}", id=None, file=rel, line=ln, end=ln, old_lines=[ln], target_kind='field',
+                    detail='removed or renamed', target=None) for ln, t, nm in gone_fields]
         KIND_OF = lambda k: 'field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'signature'
         KIND = lambda k: 'field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'method'
         for (a, b, i, k, d, n), decs in decorated.items():
@@ -1568,6 +1597,9 @@ def main(argv):
                 for e in r:
                     if e.get('new_file'): e['kind'] = 'removed'; e['detail'] = 'the file is gone at the newer side'; continue
                     if e['kind'] == 'removed': e['kind'] = 'added (declaration)'; e['target'] = None
+                    # and one the newer text lacks, read as new in the swapped pair, is one the range removed
+                    elif e['kind'] == 'added':
+                        e.update(kind='removed', detail=re.sub(r'^new ', '', e.get('detail') or '') + ' gone at the newer side', target=None); continue
                     if e.get('detail'):
                         e['detail'] = ' → '.join(reversed(e['detail'].split(' → '))) if ' → ' in e['detail'] and ':' not in e['detail'] else re.sub(r'(\w+): (.+?) → (.+?)(,|$)', r'\1: \3 → \2\4', e['detail'])
                         e['detail'] = re.sub(r'(^|, )([+-])(\w+)', lambda m: m.group(1) + ('-' if m.group(2) == '+' else '+') + m.group(3), e['detail'])
@@ -1626,7 +1658,7 @@ def main(argv):
               + ', '.join(e['symbol'] for e in es[:10]) + (f" … +{len(es) - 10}" if len(es) > 10 else ''))
     # a note with a file is an addition in that file; one without is a caveat about the whole answer, and printing it
     # under `added` made "the graph is built at the newer commit …" read as a new declaration
-    for f, n, _ in notes: print(f"  {'added':<10} {n}" if f else f"note: {n}")
+    for f, n, _ in notes: print(f"  {'removed' if ' line(s) gone at ' in n else 'added':<10} {n}" if f else f"note: {n}")
     # CASE DATA IS NOT A TEST: a changed file in a case directory or a fixture tree is an input its runner reads
     cd = case_data(C.repo, {e['file'] for e in results if e.get('file') and not e.get('new_file')} | set(outside))
     if cd:
