@@ -88,11 +88,31 @@ def fire(repo, session, tool, inp, hook='enrich.py', event='PostToolUse'):
 
 
 def grep(repo, pattern, session=None):
-    return fire(repo, session or f'g-{pattern}', 'Grep', {'pattern': pattern})
+    """the previous grep note (declarations with caller counts), still served with AXIOMCODE_GREP_AID=0"""
+    os.environ['AXIOMCODE_GREP_AID'] = '0'
+    try: return fire(repo, session or f'g-{pattern}', 'Grep', {'pattern': pattern})
+    finally: os.environ.pop('AXIOMCODE_GREP_AID', None)
+
+
+def grep_aid(repo, pattern, session=None):
+    """the grep note as served: only what the agent's own grep lines cannot show"""
+    lines = subprocess.run(['git', 'grep', '-nw', pattern], cwd=repo, capture_output=True, text=True).stdout
+    return _fire_with(repo, session or f'ga-{pattern}', pattern, lines)
+
+
+def _fire_with(repo, session, pattern, lines):
+    ev = {'hook_event_name': 'PostToolUse', 'tool_name': 'Grep', 'tool_input': {'pattern': pattern, 'output_mode': 'content'},
+          'tool_response': {'mode': 'content', 'content': lines}, 'cwd': repo, 'session_id': session}
+    r = subprocess.run([sys.executable, os.path.join(HOOKS, 'enrich.py')], input=json.dumps(ev), capture_output=True, text=True, timeout=120)
+    try: return json.loads(r.stdout)['hookSpecificOutput']['additionalContext'] if r.stdout.strip() else ''
+    except (ValueError, KeyError, TypeError): return r.stdout.strip()
 
 
 def bash(repo, command, session=None):
-    return fire(repo, session or f'b-{command}', 'Bash', {'command': command})
+    """a grep run through the shell, with the previous note (AXIOMCODE_GREP_AID=0), like grep()"""
+    os.environ['AXIOMCODE_GREP_AID'] = '0'
+    try: return fire(repo, session or f'b-{command}', 'Bash', {'command': command})
+    finally: os.environ.pop('AXIOMCODE_GREP_AID', None)
 
 
 def line_of(block, name):
@@ -121,6 +141,15 @@ with tempfile.TemporaryDirectory() as repo:
           '← 0 resolved, 1 by name' in line_of(g, 'Jobs.nudgeAll'), g)
     check('a method of a framework-annotated class says which annotation', '← ? framework (@RestController on Jobs)' in line_of(g, 'Jobs.pokeAll'), g)
     check('control: an undecorated method nothing calls still reads 0', '← 0  →' in line_of(g, 'Plain.unusedCount'), g)
+    # the grep-aid note: grep shows no caller for these; it says who enters them, and nothing for the plain one
+    for nm, want in (('listOrders', 'entered by the runtime (http)'), ('sweepStale', 'entered by the runtime (scheduled)'),
+                     ('pokeAll', 'by the framework (@RestController on Jobs)')):
+        a = grep_aid(repo, nm)
+        check(f'grep aid: {nm}, which nothing in the code calls, says who enters it', want in a, a)
+    a = grep_aid(repo, 'unusedCount')
+    check('grep aid control: a method nothing calls and nothing enters adds nothing (grep already shows no caller)', a == '', a)
+    a = grep_aid(repo, 'findById')
+    check('grep aid control: a name grep found complete and unambiguous adds nothing', a == '', a)
     r = fire(repo, 'r1', 'Read', {'file_path': os.path.join(repo, P + 'Ticker.java')})
     check('a Read labels a library override the same way', 'run ←? framework (overrides a library method)' in r, r)
     check('a method of a class with a library base that it may not override names the base', 'tickAll ←? framework (extends Runnable)' in r, r)

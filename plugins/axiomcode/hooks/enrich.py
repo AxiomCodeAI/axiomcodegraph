@@ -182,8 +182,19 @@ def grep_aid(idents, response):
             if None not in src and not any(WORD(n).search(l) for l in src) and (x['f'], x['ln']) not in hit_lines:
                 hidden.append(f"{x['f']}:{x['ln']} ({x['who'].split('.')[-1]})")
         hidden = list(dict.fromkeys(hidden))
-        if not split and not hidden: continue
+        # 3. a declaration nothing in the code calls, that the runtime enters (a route, a schedule, a framework
+        # annotation): grep shows no caller and reads as dead code; this says who calls it. A plain `0` stays unsaid,
+        # since grep's lines already show it
+        entered = []
+        if not edges:
+            for d in decls:
+                is_test = (q("SELECT is_test FROM symbols WHERE method_id = ? LIMIT 1", d['method_id']) or [{'is_test': 0}])[0]['is_test']
+                lab = _graphline.zero_label(con, d['method_id'], None, is_test or 0)
+                if lab.startswith(('entry', '?')) and lab != 'entry (test)':
+                    entered.append(f"{d['display']} {lab.replace('? framework', 'by the framework').replace('entry', 'entered by the runtime')}")
+        if not split and not hidden and not entered: continue
         parts = []
+        if entered: parts.append("nothing in the code calls " + '; '.join(entered[:3]))
         if split: parts.append(f"your matches reach different declarations: {split}")
         if hidden: parts.append(f"{len(hidden)} caller(s) grep cannot see (the line never names it): " + ', '.join(hidden[:4]) + (f" +{len(hidden) - 4}" if len(hidden) > 4 else ''))
         out.append(f"graph on `{n}`: " + ' | '.join(parts))
