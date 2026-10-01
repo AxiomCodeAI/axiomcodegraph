@@ -943,9 +943,14 @@ up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), !state_g
 up_running_g(q, a, t, f, d+1) :- up_running(q, f, d), state_gate(a, f, t), edge(a, f, "known_edge"), d < 40.
 up_running_g(q, c, t, f, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_world(c, t), d < 40.
 up_running(q, c, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_exit(c, a, t, f), d < 40.
+// A module-level CONST asked about is reached by its module body only because that body declares it: its value is
+// read by the callables that import it (resolved reads, listed as such), and importing the module runs nothing new
+// for them. Hopping on from that module named every importer's module as broken at import, the readers again.
+.decl declares_seed_const(q:symbol, mod:symbol)
+declares_seed_const(q, mod) :- target(q, "field", fl, _), field(fl, mod, _, _, _), kind(mod, "module").
 .decl import_hop(q:symbol, a:symbol, b:symbol)
-import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), decl_file(mod, g), imports_file(f, g),
-                         decl_file(a, f), kind(a, "module"), a != mod.
+import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), !declares_seed_const(q, mod), decl_file(mod, g),
+                         imports_file(f, g), decl_file(a, f), kind(a, "module"), a != mod.
 up(q, a, d+1) :- up_running(q, b, d), import_hop(q, a, b), d < 40.
 parent_up(q, a, b, "at import") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, import_hop(q, a, b).
 .output reach
