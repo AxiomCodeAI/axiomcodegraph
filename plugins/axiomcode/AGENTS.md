@@ -1,15 +1,15 @@
 # axiomcode
 
-For any why, what or where question about code — where something lives, who calls it, what a change
-breaks, which tests an edit reaches — ask the repository's call graph FIRST, through the axiomcode MCP tools:
+Search with grep and Read as usual: after a grep, the call graph adds only what grep cannot know (which
+declaration each match reaches, the callers that never spell the name). Ask it directly, through the axiomcode
+MCP tools, for what no text search answers:
 
-    find(question)      where the code for a task lives, when you have a task in words and no name yet
     impact(name)        who calls it, what a change to it reaches, and its tests;
                         impact() with no name: the same for your uncommitted edits
     path(start, end)    how A reaches B, every hop of the call chain
     tests()             the tests your uncommitted edits reach, and the command that runs them
 
-Without the tools, the same from the shell: `axiomcode find "<question>"`, `axiomcode impact <name>`,
+Without the tools, the same from the shell: `axiomcode impact <name>`,
 `axiomcode path <A> <B>`, `axiomcode tests`.
 
 Every answer is a numbered list of places, each with the code of the function it sits in and the line that

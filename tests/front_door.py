@@ -99,8 +99,8 @@ def main():
         rc, out, err = cli(repo, 'find', 'how is the invoice total computed')
         check('find: numbered places, each with its code in a fenced block', rc == 0 and places(out) and 'def invoice' in out, out[:600] + err[-300:])
         rc, out, err = cli(repo, 'impact', 'vat_rate')
-        check('impact <name>: its caller as a numbered place with its code', rc == 0 and places(out) and 'shop/pricing.py:6' in out
-              and 'return net * (1 + vat_rate())' in out, out[:600] + err[-300:])
+        check('impact <name>: its caller, which spells the name, by location on the grep line (no code)', rc == 0 and 'grep -nw vat_rate' in out and 'shop/pricing.py:6' in out
+              and 'return net * (1 + vat_rate())' not in out, out[:600] + err[-300:])
         check('impact <name>: the test that reaches it is one of the places', 'tests/test_pricing.py' in out, out[:800])
         rc, out, err = cli(repo, 'path', 'invoice', 'vat_rate')
         check('path: every hop a numbered place with the code at the call', rc == 0 and places(out)
@@ -111,20 +111,20 @@ def main():
         first = out.lstrip().split('\n', 1)[0]
         check('impact with no name: the answer starts with "your edits:" and names the edited declaration',
               rc == 0 and first.startswith('your edits:') and 'vat_rate' in first, out[:600] + err[-300:])
-        check('impact with no name: then what the edit reaches, as places with their code', places(out) and 'shop/pricing.py:6' in out, out[:600])
+        check('impact with no name: then what the edit reaches, its grep-visible caller by location', 'shop/pricing.py:6' in out, out[:600])
         rc, out, err = cli(repo, 'tests')
         last = [l for l in out.splitlines() if l.strip()][-1:] or ['']
         check('tests: the reached test as a numbered place with its code', rc == 0 and places(out) and 'tests/test_pricing.py' in out, out[:600] + err[-300:])
         check('tests: the answer ends with the "run:" line', last[0].startswith('run:') and 'test_pricing' in last[0], last)
 
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
-        got = mcp(repo, [('find', {'question': 'how is the invoice total computed'}), ('impact', {'name': 'vat_rate'})])
+        got = mcp(repo, [('path', {'start': 'total', 'end': 'vat_rate'}), ('impact', {'name': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
-        check('MCP tools/list is exactly find, impact, path and tests', set(tools) == {'find', 'impact', 'path', 'tests'}, tools)
+        check('MCP tools/list is exactly impact, path and tests (search is grep\'s)', set(tools) == {'impact', 'path', 'tests'}, tools)
         check('MCP: every tool takes at most two parameters', bool(tools) and all(len(p) <= 2 for p in tools.values()), tools)
         text = lambda i: ''.join(c.get('text', '') for c in got.get(i, {}).get('content', []))
-        check('MCP find answers as numbered places with their code', places(text(3)), text(3)[:600])
-        check('MCP impact answers as numbered places with their code', places(text(4)) and 'shop/pricing.py:6' in text(4), text(4)[:600])
+        check('MCP path answers as numbered places with their code', places(text(3)), text(3)[:600])
+        check('MCP impact names the caller grep also finds, by location', 'shop/pricing.py:6' in text(4) and 'grep -nw vat_rate' in text(4), text(4)[:600])
 
         # ── c. controls: the same question anywhere else gets the verb's own answer ──────────────────────────────────
         r = subprocess.run(['bash', AX, 'impact', 'vat_rate', repo], cwd=repo, capture_output=True, text=True, timeout=600, env=ENV)

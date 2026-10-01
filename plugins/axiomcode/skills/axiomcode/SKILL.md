@@ -1,18 +1,18 @@
 ---
 name: axiomcode
 description: >-
-  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". No task is too small: if you are about to grep for a name, call this instead. Mandatory when .axiomcode/out/graph.sqlite exists — start here rather than grep, even when you already know the code. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: find(question) for where the code for a task lives, impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach. Only when those tools are not in your list, the same from the shell: `axiomcode find "<question>"`, `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`. Java, TypeScript, Python, JavaScript, C#.
+  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". Search with grep as usual: after a grep the graph adds only what grep cannot know — which declaration each match reaches and the callers that never spell the name. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`. Java, TypeScript, Python, JavaScript, C#.
 ---
 
 # axiomcode
 
-Four questions, asked of the repository's call graph. Use the MCP tools when they are in your list (in Claude Code
-`mcp__plugin_axiomcode_axiomcode__find`, `__impact`, `__path`, `__tests`); otherwise run
+Search with grep as usual; the graph answers what grep cannot. Use the MCP tools when they are in your list (in Claude Code
+`mcp__plugin_axiomcode_axiomcode__impact`, `__path`, `__tests`); otherwise run
 `<this dir>/scripts/axiomcode <verb>` from the repository root. Same answer either way.
 
 | the question | MCP tool | shell |
 |---|---|---|
-| where is the code for this task? | `find(question)` | `axiomcode find "<question>"` |
+| where is the code for this task? | grep; or, shell only | `axiomcode find "<question>"` |
 | who calls X, what does changing it reach, which tests? | `impact(name)` | `axiomcode impact <name>` |
 | what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
@@ -44,7 +44,7 @@ from an empty answer.
 
 Where the code for a task lives, when you have a task in words and no name yet: the functions involved, most
 relevant first, each with its code. A name the code calls but nothing declares is listed with its call sites — that is
-code you have to write. Example: `find(question="how is the invoice total computed")`.
+code you have to write. Shell only: `axiomcode find "how is the invoice total computed"`.
 
 ## impact
 

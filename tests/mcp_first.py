@@ -60,13 +60,13 @@ skill = open(os.path.join(PLUG, 'skills', 'axiomcode', 'SKILL.md'), encoding='ut
 m = re.search(r'^description: >-\n(.*?)\n---', skill, re.S | re.M)
 check('SKILL.md has a description block', bool(m))
 if m:
-    tool_first('SKILL.md description', ' '.join(m.group(1).split()), ('find', 'impact', 'path', 'tests'))
+    tool_first('SKILL.md description', ' '.join(m.group(1).split()), ('impact', 'path', 'tests'))
 
 # 2. the block `axiomcode install` writes into CLAUDE.md, beside the permission it grants
 r = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'axiomcode-install'), '--print'],
                    capture_output=True, text=True, timeout=30)
 check('install --print prints the block', r.returncode == 0 and 'BEGIN axiomcode' in r.stdout, r.stderr[-200:])
-tool_first('install block', r.stdout, ('find', 'impact', 'path', 'tests'))
+tool_first('install block', r.stdout, ('impact', 'path', 'tests'))
 
 # 3. the directive before the first search for a name the graph declares
 with tempfile.TemporaryDirectory() as repo:
@@ -80,7 +80,7 @@ with tempfile.TemporaryDirectory() as repo:
                                   'tool_input': {'pattern': 'findOrder'}, 'cwd': repo, 'session_id': 'm1'})
     check('direct: the first search for a declared name hears the directive', rc == 0 and bool(said), f'rc={rc}')
     # only the verbs that answer a search: tests is about an edit, not about what a grep looks for
-    tool_first('direct', said, ('impact', 'path', 'find'))
+    tool_first('direct', said, ('impact', 'path'))
 
 # 4. the orientation on the first prompt, both branches it can reach: a change question and a how-question
 with tempfile.TemporaryDirectory() as work:
@@ -97,15 +97,15 @@ with tempfile.TemporaryDirectory() as work:
         rc, said = fire('orient.py', {'hook_event_name': 'UserPromptSubmit', 'cwd': repo, 'session_id': 'o2',
                                       'prompt': 'How does Consumer.go work, step by step?'})
         check('orient: a how-question is oriented to the flow', rc == 0 and 'next:' in said, said[:300])
-        tool_first('orient (how)', said, ('find',))
+        tool_first('orient (how)', said, ('path',))
 
 # 5. orient's third hint, for a verb that refuses without a scope: no verb refuses that way today, so it cannot be
 # fired; the order is checked in the source line that prints it.
 src = open(os.path.join(HOOKS, 'orient.py'), encoding='utf-8').read()
-i = src.find("find(question=\"<the task>\") (mcp__plugin_axiomcode_axiomcode__find) ranks")
+i = src.find("search these with grep as usual")
 check('orient (scope refused): its hint is still in the source', i >= 0)
 if i >= 0:
-    tool_first('orient (scope refused)', src[i:src.find("')", src.find('`axiomcode find', i))], ('find',))
+    tool_first('orient (scope refused)', src[i:src.find("')", src.find('`axiomcode impact', i))], ('impact',))
 
 print(f'\n{len(checked) - len(fails)} of {len(checked)} check(s) held')
 sys.exit(1 if fails else 0)
