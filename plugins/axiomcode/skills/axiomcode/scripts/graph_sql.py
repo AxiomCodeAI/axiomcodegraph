@@ -685,6 +685,21 @@ NON_TEST_DECOR = _re.compile(r'^(Bean|Configuration|Component|Provides|Produces|
 # a file the runner imports for its fixtures and hooks and never collects tests from
 NON_TEST_FILE = _re.compile(r'(^|/)conftest\.py$')
 _RET_TYPE = _re.compile(r'\)\s*:\s*(.+)$')
+# NO RUNNER OF THESE LANGUAGES COLLECTS A FUNCTION BY ITS NAME: node:test, jest, vitest and mocha run the callback handed
+# to test(…) / it(…), which the registrar rule finds on the declaration's own line. Read by name, a helper beside the
+# tests (`export function testApp()` in test/harness.js) was a test, counted as "1 test" in a file no runner collects.
+_JS_FILE = _re.compile(r'\.(?:[cm]?[jt]sx?)$')
+# a module-level Python function is collected only from a file the runner collects (pytest's python_files, unittest's
+# test*.py): a `def test_client()` in tests/helpers.py is a helper the tests import
+_PY_COLLECTED = _re.compile(r'(^|/)(test[^/]*|[^/]*_tests?)\.py$')
+
+
+def _module_level_helper(name, owner, file):
+    """a callable named like a test that no runner of its language collects by that name"""
+    f = file or ''
+    if _JS_FILE.search(f): return True
+    if f.endswith('.py') and not owner: return not _PY_COLLECTED.search(f) or not (name or '').startswith('test')
+    return False
 
 
 def _short_decoration(d):
@@ -708,6 +723,7 @@ def named_test(name, decs, owner, file, signature):
     if not (name or '').startswith(('test', 'it')): return False
     if any(NON_TEST_DECOR.match(_short_decoration(d)) for d in decs or ()): return False
     if NON_TEST_FILE.search(file or ''): return False
+    if _module_level_helper(name, owner, file): return False
     own = (owner or '').split('.')[-1]
     if own and not TEST_OWNER.search(own): return False
     # JUnit 3 reads the convention on `public void testX()`. A method that DECLARES a return

@@ -6,4 +6,11 @@
    "avoid": ["test_other.py"]},
   {"why": "an autouse fixture runs before every test in its scope, named by nothing at all",
    "run": ["impact", "reset", "--tests"],
-   "want": ["test_widget.py", "test_other.py"]}]}
+   "want": ["test_widget.py", "test_other.py"]},
+  {"why": "a module-level function named like a test in a module pytest does not collect (tests/helpers.py) is the route to the change, not a test: the test that calls it is selected, the helper is not",
+   "run": ["impact", "total", "--tests"],
+   "want": ["tests: 1 of 3 test method(s)", "test_total.py"],
+   "avoid": ["treat them as tests to run"]},
+  {"why": "CONTROL: a module-level test_ function in a collected test module is still a test",
+   "run": ["impact", "reset", "--tests"],
+   "want": ["test_other_is_true"]}]}
