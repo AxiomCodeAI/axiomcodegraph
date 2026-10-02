@@ -997,6 +997,9 @@ class G:
             for r in rows: f.write('\t'.join(str(x) for x in r) + '\n')
         replace_file(tmp, p)
     def edges(self):
+        # exported here, not only by the verbs that call export(): `context` read edge.facts straight after `index`
+        # returned, while the build's warm-up was still writing it in the background, and died on a missing file
+        self.export()
         return [tuple(l.rstrip('\n').split('\t')) for l in open(os.path.join(self.facts, 'edge.facts'))] + list(self.EXTRA)
     def add_outside_call_edges(self):
         """THE HOPS NO CALL SITE EXPRESSES, as hops of this query (#1469). A gRPC client reaches the handler that serves
