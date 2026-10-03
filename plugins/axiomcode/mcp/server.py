@@ -300,7 +300,7 @@ def _doc(f):
     f.__doc__ = (f.__doc__ or '') + EV_DOC
     return f
 
-# THE FOUR TOOLS TAKE NO OPTIONS, so an answer never tells the agent to pass one. The notes the verbs add (a stale
+# THE THREE TOOLS TAKE NO OPTIONS, so an answer never tells the agent to pass one. The notes the verbs add (a stale
 # graph, a refresh in flight) are kept for what they say; a clause that names a flag or a parameter to set is dropped.
 _OPTION = re.compile(r"(?<![\w-])--[a-z][a-z-]*|\b[a-z_]+=(?:True|False|N\b|<|\d|\"|')")
 def plain(text):
@@ -315,13 +315,7 @@ def plain(text):
 
 # THE SMALL SURFACE. Three questions, each answered as numbered places with the code of the function each sits in, so
 # a place is understood without opening its file. No options: the repository is the one the session works in.
-@srv.tool()
-def find(question: str) -> str:
-    """Where the code for a task lives. Describe what you need in words (the feature, the behaviour, a name you saw);
-    get the functions involved, each with its code, most relevant first. A name the code calls but nothing declares
-    is listed with its call sites: that is code you have to write."""
-    return plain(run(['find', question, os.getcwd()]))
-
+# Finding WHERE code lives is left to the agent's own search; the hooks feed the graph in where the search falls short.
 @srv.tool()
 def impact(name: str = '') -> str:
     """What a change reaches. With a name (as written in the code: Owner.method, function, Type, or file.py:123): who

@@ -31,7 +31,7 @@ LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 # THE SMALL SURFACE: four questions, each with at most two parameters and no options. The front-door answer is capped
 # at ten places with the rest counted, so no tool is paged.
-TOOLS = {'find': ['question'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': []}
+TOOLS = {'impact': ['name'], 'path': ['start', 'end'], 'tests': []}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
@@ -112,10 +112,10 @@ def check_arguments(label, cmd, cwd, lax=False):
     wrong = [('impact', {'name': ['Excluder.excludeClass']}, 'name'),
              ('path', {'start': 'a'}, 'end'),
              ('path', {'start': 'a', 'end': 'b', 'nope': 1}, 'nope'),
-             ('find', {}, 'question'),
+             ('path', {'start': 'a', 'end': 'b', 'but': 1}, 'but'),
              # the options the old tools took are refused, not dropped so that an unnarrowed answer comes back as if
              # it had been narrowed (#1567): the repository is the session's, and there are no flags
-             ('find', {'question': 'x', 'in_path': 'src'}, 'in_path: unexpected argument'),
+             ('impact', {'name': 'A.f', 'in_path': 'src'}, 'in_path: unexpected argument'),
              ('impact', {'name': 'A.f', 'repo': cwd}, 'repo: unexpected argument'),
              ('tests', {'why': True}, 'why: unexpected argument')]
     for name, args, field in wrong:
@@ -125,7 +125,7 @@ def check_arguments(label, cmd, cwd, lax=False):
         if not res.get('isError') or field not in text or not ('invalid arguments' in text or 'validation error' in text):
             bad.append(f"{label}: {name}({json.dumps(args)}) was not refused naming {field!r}: {res}")
     # the control: every parameter a tool declares still passes, including the ones the CLI's hints name
-    right = [('find', {'question': 'x'}), ('impact', {'name': 'A.f'}), ('impact', {}),
+    right = [('impact', {'name': 'A.f'}), ('impact', {}),
              ('path', {'start': 'a', 'end': 'b'}), ('tests', {})]
     for name, args in right:
         res = call(cmd, cwd, name, args)
@@ -181,8 +181,7 @@ def check_front_door():
     cwd = os.getcwd()
     try:
         bad = []
-        for call, want in ((lambda: server.find('how is a total computed'), ['find', 'how is a total computed', cwd]),
-                           (lambda: server.impact('A.f'), ['impact', 'A.f', cwd]),
+        for call, want in ((lambda: server.impact('A.f'), ['impact', 'A.f', cwd]),
                            (lambda: server.impact(''), ['impact', cwd]),
                            (lambda: server.impact(), ['impact', cwd]),
                            (lambda: server.path('a', 'b'), ['path', 'a', 'b', cwd]),

@@ -29,12 +29,13 @@ SKILL = os.path.join(PLUG, 'skills', 'axiomcode', 'SKILL.md')
 MCP = os.path.join(PLUG, 'mcp', 'server.py')
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')     # the command an install puts on $PATH
 
-PUBLIC = ['index', 'find', 'impact', 'path', 'tests']
+PUBLIC = ['index', 'impact', 'path', 'tests']
 NO_MCP = {'index': 'setup, not a question: the first query through the MCP server builds the graph itself'}
 # dispatched, not advertised: verb -> why
 INTERNAL = {
     'build':       'the old name of index',
-    'context':     'what find runs; its flags (--in, --source, --from, …) serve the hooks and the suites',
+    'context':     'search by task words; search is the agent\'s own, the hooks feed the graph in where it falls short',
+    'find':        'the front-door spelling of context; dispatched for compatibility, no longer advertised',
     'changed':     'impact with no name answers the same question at the front door; the edit hooks read it with --json',
     'test-impact': 'what tests runs; its flags (--range, --staged, --why, …) serve scripts and the suites',
     'graph':       'draws the graph as a page for a person; not one of the four questions',

@@ -118,13 +118,13 @@ def main():
         check('tests: the answer ends with the "run:" line', last[0].startswith('run:') and 'test_pricing' in last[0], last)
 
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
-        got = mcp(repo, [('find', {'question': 'how is the invoice total computed'}), ('impact', {'name': 'vat_rate'})])
+        got = mcp(repo, [('impact', {'name': 'vat_rate'}), ('path', {'start': 'invoice', 'end': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
-        check('MCP tools/list is exactly find, impact, path and tests', set(tools) == {'find', 'impact', 'path', 'tests'}, tools)
+        check('MCP tools/list is exactly impact, path and tests', set(tools) == {'impact', 'path', 'tests'}, tools)
         check('MCP: every tool takes at most two parameters', bool(tools) and all(len(p) <= 2 for p in tools.values()), tools)
         text = lambda i: ''.join(c.get('text', '') for c in got.get(i, {}).get('content', []))
-        check('MCP find answers as numbered places with their code', places(text(3)), text(3)[:600])
-        check('MCP impact answers as numbered places with their code', places(text(4)) and 'shop/pricing.py:6' in text(4), text(4)[:600])
+        check('MCP impact answers as numbered places with their code', places(text(3)) and 'shop/pricing.py:6' in text(3), text(3)[:600])
+        check('MCP path answers as numbered places with their code', places(text(4)), text(4)[:600])
 
         # ── c. controls: the same question anywhere else gets the verb's own answer ──────────────────────────────────
         r = subprocess.run(['bash', AX, 'impact', 'vat_rate', repo], cwd=repo, capture_output=True, text=True, timeout=600, env=ENV)
