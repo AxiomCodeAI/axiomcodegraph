@@ -128,6 +128,43 @@ def replace_file(tmp, dst):
     shutil.copyfile(tmp, dst); os.remove(tmp)
 
 
+def export_lock(d, fresh):
+    """ONE exporter per facts directory. A query that found the stamp stale while another process (the build's
+    background warm-up, a concurrent query, several hooks at once) was already writing these facts ran the whole
+    export AGAIN beside it: on an 8,619-file repository the first query after `index` cost 193 s against 8.8 s
+    once warm, every concurrent query the same again, and the copies thrashed each other. Returns True with the
+    lock held — the caller exports, then export_unlock in a finally — or False once another process finished the
+    same export (`fresh` says so) and the caller just reads it. A lock whose writer is gone is taken over."""
+    lock = os.path.join(d, '.exporting')
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode()); os.close(fd); return True
+        except FileExistsError:
+            pass
+        gone = False
+        try:
+            os.kill(int(open(lock).read().strip() or '0'), 0)
+        except (ProcessLookupError, ValueError):
+            gone = True
+        except PermissionError:
+            pass                                 # alive, another user's process: wait for it
+        except OSError:                          # Windows cannot probe another session's pid: fall back to the lock's age
+            try: gone = time.time() - os.path.getmtime(lock) > 900
+            except OSError: continue             # the lock vanished under us: contend for it again
+        if gone:
+            try: os.remove(lock)
+            except OSError: pass
+            continue
+        time.sleep(0.5)
+        if fresh(): return False
+
+
+def export_unlock(d):
+    try: os.remove(os.path.join(d, '.exporting'))
+    except OSError: pass
+
+
 class G:
     def __init__(self, repo):
         self.repo = os.path.realpath(repo or '.')
@@ -948,8 +985,16 @@ class G:
     EXPORT_VERSION = '4'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
-        if os.path.exists(stamp) and open(stamp).read() == want: return
+        def fresh():
+            try: return open(stamp).read() == want
+            except OSError: return False
+        if fresh(): return
         os.makedirs(self.facts, exist_ok=True)
+        if not export_lock(self.facts, fresh): return      # another process just exported these same facts
+        try: self._export(stamp, want)
+        finally: export_unlock(self.facts)
+
+    def _export(self, stamp, want):
         # `generated` is a client declaration too: a Lombok accessor, a record member, a C# auto-property. The engine
         # synthesises it and RESOLVES the call sites that name it, so filtering the edge out lost every call into a
         # generated member — which, on a project whose models are all @Data, is most of what touches the models.
