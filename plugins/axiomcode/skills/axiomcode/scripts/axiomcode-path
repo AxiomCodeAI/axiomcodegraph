@@ -969,10 +969,16 @@ class G:
         unfoll = [(r['lib'], r['n']) for r in rows if r['from_site']][:cap]
         return named, unfoll
     def site_file(self, raw):
-        """a call site's file as the repo sees it: Java bundles store absolute paths; the index's paths table maps them"""
-        if self.has('paths'):
-            r = self.q("SELECT rel FROM paths WHERE raw = ?", raw)
-            if r: return r[0]['rel']
+        """a call site's file as the repo sees it: Java bundles store absolute paths; the index's paths table maps them.
+        The map is read ONCE PER GRAPH, not once per row: this ran a query per call (one `has`, one lookup), and the
+        facts export calls it for every call edge — 319k edges on an 8,619-file repository made 638k round-trips
+        through sqlite, which was most of the export's time (reg_key_fact 36 s, calls 34 s, registration 31 s,
+        via_base 25 s of a 171 s warm)."""
+        m = getattr(self, '_site_files', None)
+        if m is None:
+            m = self._site_files = {r['raw']: r['rel'] for r in self.q("SELECT raw, rel FROM paths")} if self.has('paths') else {}
+        got = m.get(raw)
+        if got is not None: return got
         return os.path.relpath(raw, self.repo).replace(os.sep, '/') if os.path.isabs(raw) and raw.startswith(self.repo) else raw
 
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
