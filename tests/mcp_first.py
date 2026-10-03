@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory() as work:
 # 5. orient's third hint, for a verb that refuses without a scope: no verb refuses that way today, so it cannot be
 # fired; the order is checked in the source line that prints it.
 src = open(os.path.join(HOOKS, 'orient.py'), encoding='utf-8').read()
-i = src.find("impact(name=\"<name>\") (mcp__plugin_axiomcode_axiomcode__impact) returns")
+i = src.find("search these with grep as usual")
 check('orient (scope refused): its hint is still in the source', i >= 0)
 if i >= 0:
     tool_first('orient (scope refused)', src[i:src.find("')", src.find('`axiomcode impact', i))], ('impact',))

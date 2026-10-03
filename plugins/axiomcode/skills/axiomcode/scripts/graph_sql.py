@@ -196,6 +196,9 @@ def impact(repo, target, depth=DEPTH, file=None):
         stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, p_).fetchall())
         con.execute("CREATE TEMP TABLE _stub(id TEXT PRIMARY KEY)")
         con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in stubs])
+        # …and so is an unresolved call on a package's value (ax_edges.library_receiver_sites): it has no edge to walk,
+        # and it is no by-name reader of a project method, so the by-name count below leaves it out too
+        con.executemany("INSERT OR IGNORE INTO _stub VALUES(?)", [(x,) for x in ax_edges.library_receiver_sites(lambda s_, p_: q(s_, p_).fetchall())])
         # A CALLER IS ITS ID, NOT ITS DISPLAY. Every unnamed function of a file carries one display (`<arrow>`,
         # `<lambda>`), and so does every module body of one basename (`app.<module>`): keyed by display, the arrow in a
         # test and the arrow in the source that really calls this were one row, located at whichever came first in the
@@ -328,8 +331,9 @@ HOOK_HIDDEN = frozenset({'alongside'})
 
 
 def hook_direct(j):
-    """the `direct` rows of an impact answer (either path's dict) that a hook lists: all but the HOOK_HIDDEN tiers."""
-    return [x for x in (j or {}).get('direct', []) if x.get('certainty') not in HOOK_HIDDEN]
+    """the `direct` rows of an impact answer (either path's dict) that a hook lists: all but the HOOK_HIDDEN tiers, and
+    but a name match on a package's value (ax_edges.LIBRARY_BYNAME_WHY), which the fast path does not count either."""
+    return [x for x in (j or {}).get('direct', []) if x.get('certainty') not in HOOK_HIDDEN and x.get('why') != ax_edges.LIBRARY_BYNAME_WHY]
 
 
 def impact_shaped(repo, target, depth=DEPTH, tests_shown=3, file=None):
@@ -585,23 +589,55 @@ def _rev(edges):
     return r
 
 
-def reach_from(rev, seeds, byname=(), cap=40):
+def reach_from(rev, seeds, byname=(), cap=40, gate=None):
     """up/reach: everything that can reach a seed, at its SHORTEST hop count.
     `up(q,m,0) :- seed(q,m)` · `up(q,c,1) :- seed_byname(q,c)` · `up(q,a,d+1) :- up(q,b,d), edge(a,b,_), d<cap`
     Walked a level at a time: `reach` is the MINIMUM depth, and a recursive CTE unioning on (id, depth) keeps every
-    depth a node is reached at instead, which then needs a second pass to take the min."""
-    depth = {m: 0 for m in seeds}
-    frontier = list(depth); d = 0
+    depth a node is reached at instead, which then needs a second pass to take the min.
+    `gate` (state_gate() below) is dl/impact.dl's `upg`: an edge that reaches its callee only through what one
+    instance was given is walked as (node, T, callee) through T's own code, and leaves it only for a caller whose
+    receiver may be an allocation given that callee, or whose receiver's allocation is unknown."""
+    if not gate: gate = {'gate': {}, 'world': {}, 'alloc': {}, 'calloc': {}, 'copen': set()}
+    G, world, galloc, calloc, copen = gate['gate'], gate['world'], gate['alloc'], gate['calloc'], gate['copen']
+
+    def leaves(c, a, t, f):
+        if (c, a) in copen: return True
+        return (c, a) not in calloc or bool(calloc[(c, a)] & galloc.get((t, f), set()))
+
+    depth = {m: 0 for m in seeds}; seen = {(m, None) for m in seeds}
+    frontier = list(seen); d = 0
     while frontier and d < cap:
         nxt = []
-        for b in frontier:
+        def push(a, g):
+            if (a, g) in seen: return
+            seen.add((a, g)); nxt.append((a, g))
+            if a not in depth: depth[a] = d + 1
+        for b, g in frontier:
             for a, _t in rev.get(b, ()):
-                if a not in depth: depth[a] = d + 1; nxt.append(a)
+                if g is None:
+                    ts = G.get((a, b))
+                    if not ts: push(a, None)
+                    for t in ts or ():
+                        push(a, (t, b))
+                elif g[0] in world.get(a, ()): push(a, g)
+                elif leaves(a, b, *g): push(a, None)
         if d == 0:
-            for c in byname:
-                if c not in depth: depth[c] = 1; nxt.append(c)
+            for c in byname: push(c, None)
         frontier = nxt; d += 1
     return depth
+
+
+def state_gate(q):
+    """the instance-state facts the JavaScript engine exports (resolution/instance-state.dl), shaped for reach_from"""
+    has = lambda t: q("SELECT 1 FROM sqlite_master WHERE name=?", t)
+    out = {'gate': {}, 'world': {}, 'alloc': {}, 'calloc': {}, 'copen': set()}
+    if not has('ext_state_gate'): return out
+    for a, f, t in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_gate"): out['gate'].setdefault((a, f), set()).add(t)
+    for m, t in q("SELECT DISTINCT c0, c1 FROM ext_state_world_of_gated"): out['world'].setdefault(m, set()).add(t)
+    for t, f, s in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_gate_alloc"): out['alloc'].setdefault((t, f), set()).add(s)
+    for c, m, s in q("SELECT DISTINCT c0, c1, c2 FROM ext_state_call_alloc"): out['calloc'].setdefault((c, m), set()).add(s)
+    out['copen'] = {(c, m) for c, m in q("SELECT DISTINCT c0, c1 FROM ext_state_call_open")}
+    return out
 
 
 def parent_up(edges, depth):
@@ -649,6 +685,21 @@ NON_TEST_DECOR = _re.compile(r'^(Bean|Configuration|Component|Provides|Produces|
 # a file the runner imports for its fixtures and hooks and never collects tests from
 NON_TEST_FILE = _re.compile(r'(^|/)conftest\.py$')
 _RET_TYPE = _re.compile(r'\)\s*:\s*(.+)$')
+# NO RUNNER OF THESE LANGUAGES COLLECTS A FUNCTION BY ITS NAME: node:test, jest, vitest and mocha run the callback handed
+# to test(…) / it(…), which the registrar rule finds on the declaration's own line. Read by name, a helper beside the
+# tests (`export function testApp()` in test/harness.js) was a test, counted as "1 test" in a file no runner collects.
+_JS_FILE = _re.compile(r'\.(?:[cm]?[jt]sx?)$')
+# a module-level Python function is collected only from a file the runner collects (pytest's python_files, unittest's
+# test*.py): a `def test_client()` in tests/helpers.py is a helper the tests import
+_PY_COLLECTED = _re.compile(r'(^|/)(test[^/]*|[^/]*_tests?)\.py$')
+
+
+def _module_level_helper(name, owner, file):
+    """a callable named like a test that no runner of its language collects by that name"""
+    f = file or ''
+    if _JS_FILE.search(f): return True
+    if f.endswith('.py') and not owner: return not _PY_COLLECTED.search(f) or not (name or '').startswith('test')
+    return False
 
 
 def _short_decoration(d):
@@ -672,6 +723,7 @@ def named_test(name, decs, owner, file, signature):
     if not (name or '').startswith(('test', 'it')): return False
     if any(NON_TEST_DECOR.match(_short_decoration(d)) for d in decs or ()): return False
     if NON_TEST_FILE.search(file or ''): return False
+    if _module_level_helper(name, owner, file): return False
     own = (owner or '').split('.')[-1]
     if own and not TEST_OWNER.search(own): return False
     # JUnit 3 reads the convention on `public void testX()`. A method that DECLARES a return
@@ -1290,8 +1342,10 @@ def no_caller_reasons(q, mids):
         if s.get('name') and has['unresolved_sites'] and has['call_sites']:
             # joined on the caller too: unresolved_sites is keyed (caller_id, call_site_id), and on the site alone the join
             # scanned the whole table for every method (3.5 s for 10 methods on a 200 MB graph)
+            # a call on a package's value is no by-name caller (ax_edges.library_receiver_sites)
+            lib = " AND cs.id NOT IN (SELECT c0 FROM ext_library_receiver)" if _has(q, 'ext_library_receiver') else ''
             n = q("""SELECT count(*) FROM call_sites cs JOIN unresolved_sites u ON u.caller_id = cs.caller_id AND u.call_site_id = cs.id
-                     WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""", s['name'])[0][0]
+                     WHERE cs.callee_name = ? AND cs.kind NOT IN ('new', 'anon_new', 'DECORATOR_APPLICATION')""" + lib, s['name'])[0][0]
             if n: rs.append(('by name', str(n), ''))
         order = {k: i for i, k in enumerate(NO_CALLER_KINDS)}
         out[mid] = sorted(dict.fromkeys(rs), key=lambda r: order[r[0]])     # stable within a kind: source order
@@ -1439,12 +1493,14 @@ def direct_for_method(q, ids, code=None, rel=None, at=None, lines=None, via=None
     rows += [(c, 'uses', why, cert, f, l) for c, m, why, cert, f, l, _e in via if m in idset and c not in idset]
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     seen = {r[0] for r in rows}
+    libsites = ax_edges.library_receiver_sites(lambda s_, p_: q(s_, *p_))           # the kind "library" in the rules
     for n in names:
         for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
             if c in ids: continue                                            # !is_target_decl(q, c)
-            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+            rows.append((c, 'uses', STUB_BYNAME_WHY if sid in stubs else ax_edges.LIBRARY_BYNAME_WHY if sid in libsites
+                         else 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # the declaration handed over as a VALUE — a route registration, a callback — which has no call site at all
     # (the valueref / registered rules). The convention table is shared with the rules, in ax_registration.py, so
     # the two backends cannot disagree about what a registration is.
@@ -1800,7 +1856,7 @@ def direct_for_param(q, ids):
         direct(q,m,"uses","declares it","resolved","",0)                        :- target(q,"param",m,_)
         direct(q,c,"uses","passes an argument for it","resolved",f,l)           :- calls(c,m,_,f,l)
         direct(q,c,"uses","calls a method of this name (receiver not typed) — its argument list must match",
-                                                                "by name",f,l) :- unresolved(c,n,k,f,l), !ctor_kind(k)
+                                                                "by name",f,l) :- unresolved(c,n,k,f,l), !ctor_kind(k), k != "library"
 
     Rule 284 takes EVERY call site with no tier test and no `!bean_call` guard: an argument list is a contract the
     container's proxy has nothing to do with, so the bean layer that splits `calls it` three ways is absent here.
@@ -1816,10 +1872,11 @@ def direct_for_param(q, ids):
                          ORDER BY s.start_line""", *ids):
         rows.append((c, 'uses', 'passes an argument for it', 'resolved', f or '', l or 0))
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+    libsites = ax_edges.library_receiver_sites(lambda s_, p_: q(s_, *p_))
     for n in sorted(names):
-        for c, f, l, kind in q("""SELECT s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
+        for sid, c, f, l, kind in q("""SELECT s.id, s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
-            if kind in CTOR_KINDS: continue
+            if kind in CTOR_KINDS or sid in libsites: continue           # !ctor_kind(k), k != "library"
             rows.append((c, 'uses', 'calls a method of this name (receiver not typed) — its argument list must '
                                     'match', 'by name', f or '', l or 0))
     rows += [r for r in direct_for_method(q, ids) if r[3] == 'alongside']
@@ -3564,7 +3621,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
                            'parent_up', 'test_near', 'test_hit', 'test_stub', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q) + _spawn_edges(q, lines, at); rev = _rev(E); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
+    E = _edges(q) + _spawn_edges(q, lines, at); rev = _rev(E); gate = state_gate(q); sets = _test_sets(q, lines, rel); stubs = ax_edges.stub_sites(lambda s_, p_: q(s_, *p_))
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
@@ -3603,7 +3660,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             # direct_edge(q,c,e) :- target(q,"method",m,_), via_base(c,m,_,_,_,_,e), !is_target_decl(q,c)
             de += sorted({(c, e) for c, m, _w, _c, _f, _l, e in via[0] if m in set(mids) and c not in set(mids)})
             byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name' and not ax_registration.is_value_why(_w)
-                             and _w != STUB_BYNAME_WHY} - seeds)
+                             and _w != STUB_BYNAME_WHY and _w != ax_edges.LIBRARY_BYNAME_WHY} - seeds)
 
         if 'type' in by_kind:
             tids = sorted(by_kind['type'])
@@ -3806,7 +3863,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             _sde.add((c, m)); _de.append((c, m))
         out['direct_edge'] += [[c, m, qq] for c, m in _de]
         out['seed_byname'] += [[c, qq] for c in byname]
-        depth = reach_from(rev, seeds, byname)
+        depth = reach_from(rev, seeds, byname, gate=gate)
         out['reach'] += [[m, str(d), qq] for m, d in depth.items()]
         # reach_sure: the same closure from the seeds that are an exact edge only — a seed reached ONLY through a
         # by-name / text / one-of-a-set dependent is weak, and the answer says how much of itself rests on those

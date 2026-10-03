@@ -1,1 +1,3 @@
+known_edge	read	Comp.vue#<module-init>() -> Comp#total
 known_edge	read	child#Child({ msg: string }) -> { msg: string }#msg
+known_edge	read	shims-vue#<module-init>() -> shims-vue.d#component

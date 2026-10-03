@@ -34,7 +34,7 @@ NO_MCP = {'index': 'setup, not a question: the first query through the MCP serve
 # dispatched, not advertised: verb -> why
 INTERNAL = {
     'build':       'the old name of index',
-    'context':     'search by task words; search is the agent\'s own, the hooks feed the graph in where it falls short',
+    'context':     'search by task words; search is the agent\'s own grep, which a hook annotates',
     'find':        'the front-door spelling of context; dispatched for compatibility, no longer advertised',
     'changed':     'impact with no name answers the same question at the front door; the edit hooks read it with --json',
     'test-impact': 'what tests runs; its flags (--range, --staged, --why, …) serve scripts and the suites',

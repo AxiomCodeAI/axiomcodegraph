@@ -112,10 +112,9 @@ def check_arguments(label, cmd, cwd, lax=False):
     wrong = [('impact', {'name': ['Excluder.excludeClass']}, 'name'),
              ('path', {'start': 'a'}, 'end'),
              ('path', {'start': 'a', 'end': 'b', 'nope': 1}, 'nope'),
-             ('path', {'start': 'a', 'end': 'b', 'but': 1}, 'but'),
              # the options the old tools took are refused, not dropped so that an unnarrowed answer comes back as if
              # it had been narrowed (#1567): the repository is the session's, and there are no flags
-             ('impact', {'name': 'A.f', 'in_path': 'src'}, 'in_path: unexpected argument'),
+             ('path', {'start': 'a', 'end': 'b', 'in_path': 'src'}, 'in_path: unexpected argument'),
              ('impact', {'name': 'A.f', 'repo': cwd}, 'repo: unexpected argument'),
              ('tests', {'why': True}, 'why: unexpected argument')]
     for name, args, field in wrong:

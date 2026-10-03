@@ -86,18 +86,43 @@ field_site_excluded(e, "method_value") :- ts_field_site_is_method(e),
     !expr_kind("client", "PROPERTY_ACCESS", "METHOD_NAME", e).
 
 // ── RESOLUTION — the three receiver-typing paths expr-type.dl already has ───
-ts_field_access_target(e, f) :- property_access_name(e, n),
+ts_field_access_typed(e, f) :- property_access_name(e, n),
     expr_child("client", e, "RECEIVER", _, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f).
-ts_field_access_target(e, f) :- property_access_name(e, n),
+ts_field_access_typed(e, f) :- property_access_name(e, n),
     expr_child("client", e, "RECEIVER", _, q),
     expr_static_type(q, _, qt),
     field_in_scope(qt, n, "true", f).
-ts_field_access_target(e, f) :- property_access_name(e, n),
+ts_field_access_typed(e, f) :- property_access_name(e, n),
     expr_child("client", e, "RECEIVER", _, q),
     expr_shape(q, qs),
     field_in_scope(qs, n, _, f).
+ts_field_access_target(e, f) :- ts_field_access_typed(e, f).
+ts_field_access_is_typed(e) :- ts_field_access_typed(e, _).
+
+// ── A KEY OF A MODULE-LEVEL CONST TABLE — `TOPICS.orderEvents` ──────────────
+// `export const TOPICS = { orderEvents: '…' } as const`: the parser declares each key
+// as an OBJECT_LITERAL_PROPERTY owned by the VARIABLE (a nested literal's keys by the
+// property holding it). The owner is no type, so none of the three joins above can
+// reach it; the receiver names the owner instead — the variable itself, an import of
+// it, a namespace import's export of it, or a key of an outer table. Only where the
+// typed lookup found nothing: `{ … } satisfies Config` is read as Config's member.
+ts_objlit_owner(q, v) :- expr_referenced("client", "VARIABLE", v, q).
+ts_objlit_owner(q, v) :- expr_referenced("client", "IMPORT_BINDING", ih, q),
+    import_binds(ih, _, "VARIABLE", v).
+ts_objlit_owner(q, v) :- property_access_name(q, n),
+    expr_child("client", q, "RECEIVER", _, r),
+    expr_namespace(r, _, m),
+    module_export(_, m, n, "VARIABLE", v).
+ts_objlit_owner(q, pf) :- ts_field_access_target(q, pf),
+    field_kind("client", "OBJECT_LITERAL_PROPERTY", _, _, pf).
+ts_field_access_target(e, f) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    ts_objlit_owner(q, o),
+    field_decl("client", n, _, o, f),
+    field_kind("client", "OBJECT_LITERAL_PROPERTY", _, _, f),
+    !ts_field_access_is_typed(e).
 
 // ── ACCESS DIRECTION ────────────────────────────────────────────────────────
 // property_written and property_write_only are accessors.dl's, and are reused rather
@@ -124,12 +149,39 @@ ts_field_access_class(e, "ambiguous_unknown") :- ts_field_access_count(e, 0).
 // The enclosing function of the ACCESS, by expr_enclosing_method, exactly as accessors.dl
 // attributes an accessor invocation: there is no call site to attribute through. Top-level
 // code is the module initializer, which that relation already supplies.
+// A read inside a METHOD'S DECORATOR is that method's: `@EventPattern(TOPICS.orderEvents)`
+// binds the handler to the topic, and the module initializer that evaluates the
+// decorator is no user of it. A decorator's expressions carry no owner hash, so the
+// subtree is walked down from the decorator's own expression.
+ts_deco_expr_method(e, m) :- decorator_expr("client", e, d), decorator_target("client", _, m, d), m != "".
+// ...and so is a read in a PARAMETER'S decorator: `constructor(@inject(TOKENS.Store) s)`
+// binds the constructor to the token. The decorator's owner is the parameter.
+ts_deco_expr_method(e, m) :- decorator_expr("client", e, d),
+    ts_decorator(_, _, "PARAMETER_DECLARATION", p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d),
+    param_decl("client", _, _, _, m, p), m != "".
+ts_deco_expr_method(c, m) :- ts_deco_expr_method(p, m), expr_child("client", p, _, _, c).
+ts_field_access_in_decorator(e) :- ts_deco_expr_method(e, _).
+// A read in a parameter's DEFAULT is its method's too: `constructor(topic = TOPICS.payments)`
+// is evaluated on every call that omits the argument, and the extractor places it in the
+// module initializer. Only there: a function written as the default keeps its own reads.
+ts_param_default_expr(e, m) :- ts_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _),
+    e != "", m != "".
+ts_param_default_expr(c, m) :- ts_param_default_expr(p, m), expr_child("client", p, _, _, c).
+ts_field_access_in_function(e) :- expr_enclosing_method(e, m), m != "", !module_init("client", m, _).
+ts_param_default_method(e, m) :- ts_param_default_expr(e, m),
+    !ts_field_access_in_function(e), !ts_field_access_in_decorator(e).
 ts_field_access_named(e) :- expr_enclosing_method(e, m), m != "".
-ts_field_access_from(e, m) :- ts_field_access_site(e), expr_enclosing_method(e, m), m != "".
-// ...and the MODULE itself for the residue expr_enclosing_method cannot place, which is
-// the marker call_sites.caller_id already uses in TypeScript rather than a blank. Never
-// NULL, so a site can always be attributed to the code that contains it.
-ts_field_access_from(e, mod) :- ts_field_access_site(e), !ts_field_access_named(e),
+ts_field_access_placed(e) :- ts_field_access_named(e).
+ts_field_access_placed(e) :- ts_field_access_in_decorator(e).
+ts_field_access_placed(e) :- ts_param_default_method(e, _).
+ts_field_access_from(e, m) :- ts_field_access_site(e), ts_deco_expr_method(e, m).
+ts_field_access_from(e, m) :- ts_field_access_site(e), ts_param_default_method(e, m).
+ts_field_access_from(e, m) :- ts_field_access_site(e), expr_enclosing_method(e, m), m != "",
+    !ts_field_access_in_decorator(e), !ts_param_default_method(e, _).
+// ...and the MODULE itself for the residue none of those can place, which is the marker
+// call_sites.caller_id already uses in TypeScript rather than a blank. Never NULL, so a
+// site can always be attributed to the code that contains it.
+ts_field_access_from(e, mod) :- ts_field_access_site(e), !ts_field_access_placed(e),
     expr_module("client", mod, e), mod != "".
 
 // ── THE EXPORTED ROW — field_access(Site, Caller, Field, Prov, Tier, Access) ─
@@ -150,3 +202,88 @@ ts_field_access_has_row(e) :- ts_field_access_target(e, f), ts_field_prov(_, f).
 field_access(e, caller, "-", "-", "ambiguous_unknown", acc) :- ts_field_access_site(e),
     !ts_field_access_has_row(e),
     ts_field_access_from(e, caller), ts_field_access_kind(e, acc).
+
+// ── A MODULE-SCOPE VARIABLE, READ BY NAME ───────────────────────────────────
+// `SERVICE.name`, `f(EnvSchema)`, `TOKENS.IntentStore`: the receiver or argument is an
+// IDENTIFIER_REFERENCE that the binder already tied to one declaration -- a module-scope
+// variable of its own file (VARIABLE), or an import whose binding import_binds follows,
+// through every re-export, to the exported variable (IMPORT_BINDING). Nothing recorded
+// that tie as a data edge, so "who reads this exported const" was answered by name, and
+// the name matched every same-named const in every sibling package.
+//
+// The variable is the field of the row: a module is the owner of its variables the way a
+// class is the owner of its fields, and consumers read one relation for both. A variable
+// that holds a function is a function (`const f = () => ...`): its uses are calls, which
+// call_edges already carries, so it is left out here.
+ts_module_var(v) :- var_decl("client", _, _, sk, _, _, v), scope_is_module_level(sk),
+    !var_is_function(v, _).
+ts_var_read_target(e, v) :- expr_kind("client", "IDENTIFIER_REFERENCE", _, e),
+    expr_referenced("client", "VARIABLE", v, e), ts_module_var(v).
+ts_var_read_target(e, v) :- expr_kind("client", "IDENTIFIER_REFERENCE", _, e),
+    expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, "client", "VARIABLE", v), ts_module_var(v).
+// the direction, by the same law property_written applies to a member
+ts_var_written(e) :- ts_var_read_target(e, _), expr_child("client", asg, "LEFT_OPERAND", _, e),
+    expr_kind("client", ak, _, asg), assignment_kind(ak).
+ts_var_written(e) :- ts_var_read_target(e, _), expr_child("client", u, "UNARY_OPERAND", _, e),
+    expr_kind("client", "UNARY_EXPRESSION", _, u), expr_operator("client", op, u), update_operator(op).
+ts_var_write_only(e) :- ts_var_read_target(e, _), expr_child("client", asg, "LEFT_OPERAND", _, e),
+    expr_kind("client", "ASSIGNMENT_EXPRESSION", _, asg).
+ts_var_read_kind(e, "write")     :- ts_var_written(e), ts_var_write_only(e).
+ts_var_read_kind(e, "readwrite") :- ts_var_written(e), !ts_var_write_only(e).
+ts_var_read_kind(e, "read")      :- ts_var_read_target(e, _), !ts_var_written(e).
+// the caller, as for a property access: the enclosing function, else the module.
+// A DECORATOR on a method or on one of its parameters is that method's: `place(@Payload(new
+// Pipe(CommandSchema)) c)` reads CommandSchema for place(). The parser gives an expression
+// inside a decorator no owner hash, and expr_enclosing_method routes it to the module
+// initializer, so the read is found by walking down from the decorator's own expression.
+ts_decorated_method(dx, m) :- decorator_expr("client", dx, d),
+    annotation_on("client", _, _, "METHOD_DECLARATION", m, d), m != "".
+ts_decorated_method(dx, m) :- decorator_expr("client", dx, d),
+    annotation_on("client", _, _, "PARAMETER_DECLARATION", p, d), param_decl("client", _, _, _, m, p), m != "".
+ts_under_decorator(dx, dx) :- ts_decorated_method(dx, _).
+ts_under_decorator(dx, c) :- ts_under_decorator(dx, p), expr_child("client", p, _, _, c).
+ts_var_read_decorated(e, m) :- ts_var_read_target(e, _), expr_owner("client", "DECORATOR", _, _, e),
+    ts_under_decorator(dx, e), ts_decorated_method(dx, m).
+ts_var_read_named(e) :- ts_var_read_decorated(e, _).
+ts_var_read_named(e) :- ts_var_read_target(e, _), expr_enclosing_method(e, m), m != "".
+ts_var_read_from(e, m) :- ts_var_read_decorated(e, m).
+ts_var_read_from(e, m) :- ts_var_read_target(e, _), !ts_var_read_decorated(e, _),
+    expr_enclosing_method(e, m), m != "".
+ts_var_read_from(e, mod) :- ts_var_read_target(e, _), !ts_var_read_named(e),
+    expr_module("client", mod, e), mod != "".
+// one declaration, bound by the binder: known_edge
+field_access(e, caller, v, "client", "known_edge", acc) :- ts_var_read_target(e, v),
+    ts_var_read_from(e, caller), ts_var_read_kind(e, acc).
+
+// ── THE SAME VARIABLE, READ IN A TYPE: `typeof X` ───────────────────────────
+// `type OrderDto = z.infer<typeof OrderSchema>` depends on OrderSchema exactly as
+// `f(OrderSchema)` does, but the name sits in a TYPE_QUERY type reference, not in an
+// expression, so the binder's expression tie above never sees it. The name is bound
+// through the module's own scope (name_binds_any: a declaration of this file, or a named
+// import followed to the exported variable). Only the bare form `typeof X`: in
+// `typeof A.b` the variable read is A, and the reference names b. A parameter or a local
+// of the same name in the enclosing callable shadows the module's (control).
+// The site is the type reference; the bundle positions it from the type-reference table.
+ts_type_query_site(ref, tn, mod) :- type_ref("client", "TYPE_QUERY", _, tn, ctn, _, _, ref),
+    tn != "", ctn = cat("typeof ", tn), type_ref_module("client", mod, ref).
+ts_type_query_method(ref, m) :- ts_type_query_site(ref, _, _), type_ref("client", _, _, _, _, m, "METHOD", ref).
+ts_type_query_method(ref, m) :- ts_type_query_site(ref, _, _), type_ref("client", _, _, _, _, p, "METHOD_PARAM", ref),
+    param_decl("client", _, _, _, m, p).
+ts_type_query_method(ref, m) :- ts_type_query_site(ref, _, _), type_ref("client", _, _, _, _, lv, "VARIABLE", ref),
+    var_decl("client", _, _, _, m, _, lv), m != "".
+ts_type_query_method(ref, m) :- ts_type_query_site(ref, _, _), type_ref("client", _, _, _, _, x, "EXPRESSION", ref),
+    expr_enclosing_method(x, m), m != "".
+ts_type_query_shadowed(ref) :- ts_type_query_site(ref, tn, _), ts_type_query_method(ref, m),
+    param_decl("client", tn, _, _, m, _).
+ts_type_query_shadowed(ref) :- ts_type_query_site(ref, tn, _), ts_type_query_method(ref, m),
+    var_decl("client", tn, _, _, m, _, _).
+ts_type_query_read(ref, v) :- ts_type_query_site(ref, tn, mod), !ts_type_query_shadowed(ref),
+    name_binds_any(mod, tn, "client", "VARIABLE", v), ts_module_var(v).
+ts_type_query_has_method(ref) :- ts_type_query_method(ref, _).
+field_access(ref, m, v, "client", "known_edge", "read") :- ts_type_query_read(ref, v),
+    ts_type_query_method(ref, m).
+// a type alias, an interface, a class member's annotation: the module's initializer, as for
+// any module-level read
+field_access(ref, init, v, "client", "known_edge", "read") :- ts_type_query_read(ref, v),
+    !ts_type_query_has_method(ref), ts_type_query_site(ref, _, mod), module_init("client", init, mod).

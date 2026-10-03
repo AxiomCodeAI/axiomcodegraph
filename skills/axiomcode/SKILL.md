@@ -1,18 +1,18 @@
 ---
 name: axiomcode
 description: >-
-  Use for any question about how code connects — who calls it, what a change to it breaks, how one piece reaches another, which tests cover an edit. Examples: "What calls this?", "What breaks if I change Z?", "How does A reach B?", "Which tests do I run?". Mandatory when .axiomcode/out/graph.sqlite exists — ask it before reasoning about callers or blast radius, even when you already know the code. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Finding where code lives is yours: search as you normally would, then bring the name you found here. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`. Java, TypeScript, Python, JavaScript, C#.
+  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". Search with grep as usual: after a grep the graph adds only what grep cannot know — which declaration each match reaches and the callers that never spell the name. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`. Java, TypeScript, Python, JavaScript, C#.
 ---
 
 # axiomcode
 
-Three questions, asked of the repository's call graph. Use the MCP tools when they are in your list (in Claude Code
+Search with grep as usual; the graph answers what grep cannot. Use the MCP tools when they are in your list (in Claude Code
 `mcp__plugin_axiomcode_axiomcode__impact`, `__path`, `__tests`); otherwise run
-`<this dir>/../../plugins/axiomcode/skills/axiomcode/scripts/axiomcode <verb>` from the repository root. Same answer either way. Finding where code lives
-is yours: search as you normally would, then bring the name you found here.
+`<this dir>/../../plugins/axiomcode/skills/axiomcode/scripts/axiomcode <verb>` from the repository root. Same answer either way.
 
 | the question | MCP tool | shell |
 |---|---|---|
+| where is the code for this task? | your own search (grep), then bring the name here | — |
 | who calls X, what does changing it reach, which tests? | `impact(name)` | `axiomcode impact <name>` |
 | what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |

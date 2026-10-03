@@ -1,0 +1,60 @@
+// ============================================================================
+// CALL-EDGE-GEN · A MODULE VARIABLE READ BY NAME, AS A DATA EDGE
+//
+// `CFG.name`, `use(SCHEMA)`, `${TOKENS.store}`: the identifier is bound by the binder
+// (expr_binding) to a variable -- the module's own top-level one, or an import binding.
+// This engine follows an import to the VALUE the export holds (import_value), which is
+// what a call needs, and never to the exported VARIABLE, which is what "who reads this
+// const" needs. So a read of an imported const was answered by name, and the name
+// matched every same-named const in every sibling package.
+//
+// The export surface is walked here once more, keeping the variable: export_decl names
+// it (`export const x` and `export { x }` carry target kind VARIABLE), and a re-export
+// (`export * from`, `export { x } from`) passes it on exactly as module_export_value
+// passes a value on. A variable holding a function or a class is left out: its uses
+// are calls and constructions, which call edges already carry.
+//
+// field_access(Site, Caller, Variable, "client", "known_edge", Access), the shape the
+// Java and TypeScript engines export, so the bundle reads one relation for all three.
+// ============================================================================
+
+js_module_var(v) :- var_decl("client", _, reg, _, _, _, v), !var_owner_method("client", _, v),
+    !js_not_a_data_binding(reg),
+    !var_init("client", "FUNCTION", _, v), !var_init("client", "CLASS", _, v),
+    !var_import("client", _, v).
+js_not_a_data_binding("IMPORT_BINDING").
+js_not_a_data_binding("FUNCTION_DECLARATION_HOISTED").
+js_not_a_data_binding("CLASS_TDZ").
+js_not_a_data_binding("CATCH_PARAMETER").
+
+// ── export_var(Module, ExportedName, Variable) — the surface, by variable ───
+export_var(mod, n, v) :- export_decl("client", n, _, _, _, "VARIABLE", v, _, mod, _), n != "", js_module_var(v).
+export_var(mod, n, v) :- export_decl("client", en, _, "EXPORT_ALL", _, _, _, _, mod, x), export_all_is_spread(en),
+    export_reexport(_, _, imp, x), import_module(imp, src),
+    export_var(src, n, v), n != "default".
+export_var(mod, en, v) :- export_decl("client", en, ln, form, _, _, _, _, mod, x), form != "EXPORT_ALL",
+    export_reexport(_, _, imp, x), import_module(imp, src), ln != "",
+    export_var(src, ln, v).
+// ── import_var(ImportHash, Variable) — what a named import binding stands for ─
+import_var(imp, v) :- import_decl("client", _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
+    !contains(".", n), import_module(imp, mod), export_var(mod, n, v).
+
+// ── the site ────────────────────────────────────────────────────────────────
+js_var_read_target(e, v) :- expr_kind("client", "IDENTIFIER", _, e), expr_binding("client", v, e), js_module_var(v).
+js_var_read_target(e, v) :- expr_kind("client", "IDENTIFIER", _, e), expr_binding("client", lv, e),
+    var_import("client", imp, lv), import_var(imp, v).
+// A plain `=` never reads the old value; `+=` and `++` read and then write.
+js_var_written(e) :- js_var_read_target(e, _), expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, e).
+js_var_written(e) :- js_var_read_target(e, _), expr_kind(_, "UNARY", _, u), expr_operator(_, op, u), update_operator(op),
+    expr_child(_, u, _, _, e).
+js_var_write_only(e) :- js_var_read_target(e, _), expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, "=", a),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, e).
+js_var_access(e, "write")     :- js_var_written(e), js_var_write_only(e).
+js_var_access(e, "readwrite") :- js_var_written(e), !js_var_write_only(e).
+js_var_access(e, "read")      :- js_var_read_target(e, _), !js_var_written(e).
+// the caller: the callable the expression is written in, else the module initializer
+js_var_read_from(e, m) :- js_var_read_target(e, _), expr_owner("client", m, _, e), m != "".
+js_var_read_from(e, init) :- js_var_read_target(e, _), expr_owner("client", "", mod, e), module_init(_, init, mod).
+
+field_access(e, caller, v, "client", "known_edge", acc) :- js_var_read_target(e, v),
+    js_var_read_from(e, caller), js_var_access(e, acc).

@@ -5,7 +5,7 @@
 //   edge(a, b, t)                     a calls b (the path finder's facts: resolved client edges, dispatch, defines)
 //   named(n, m)                       a client callable m declared with simple name n
 //   calls(c, m, tier, f, l)           a resolved call site in c to client method m, at f:l
-//   unresolved(c, n, kind, f, l)      an unresolved site in c written n (kind: new | method), at f:l
+//   unresolved(c, n, kind, f, l)      an unresolved site in c written n (kind: new | method | stub | library), at f:l
 //   member(T, s, n, k)                symbol s named n of kind k (method, constructor, field, const, enum_member …) declared in type T
 //   owner(c, T)                       callable c is declared in type T
 //   typ(T, n, k)                      type T has simple name n and kind k (class | interface | enum | record)
@@ -420,8 +420,11 @@ direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m,
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
 // reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
 // one self-match. A recursive call needs no row either — the body is what is changing.
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", k != "library", !is_target_decl(q, c).
 direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
+// A site whose receiver the engine traced to a package's value (`request(app).get('/x')`, ax_edges.library_receiver_sites):
+// the kind "library". A row of its own, listed after the untyped-receiver matches, and no seed of the closure.
+direct(q, c, "uses", "calls a method of this name on a value a package returned or constructed: not this method, unless the package hands it back", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "library", f, l), !is_target_decl(q, c).
 
 // ── a method handed over as a VALUE, never called where it is named ──────────────────────────────────────────
 // `app.get('/orders/:id', getOrder)`, `useEffect(load)`, `items.map(format)`, `handlers = {"x": handle_x}`: the
@@ -470,10 +473,15 @@ direct(q, c, "uses", why, "by name", f, l) :- valueref(q, c, f, l), registered(q
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
 fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll),
-    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY"), (ek != "OBJECT_PROPERTY_KEY" ; !key_decl_at(n, f, l)).
+    (!fa_line(q, f, l) ; ek = "OBJECT_PROPERTY_KEY"), (ek != "OBJECT_PROPERTY_KEY" ; !key_decl_at(n, f, l)), !other_field_line(q, f, l).
 // the key that DECLARES another object's same-named key (`QUEUES = { CREATED: … }`) is that declaration, not a use of this one
 .decl key_decl_at(n:symbol, f:symbol, l:number)
 key_decl_at(n, f, l) :- field_holder(fl, _), field(fl, _, n, f, l).
+// a key of a module-level const table: the line that DECLARES another table's key of the same name writes that name
+// as its own key, not a read of this one — `GATEWAY_ROUTES = { products: … }` beside `CATALOG_ROUTES = { products: … }`.
+// Only for a target owned by its module: a type's field keeps the keys written for it (`{ eventId: … } satisfies T`).
+.decl other_field_line(q:symbol, f:symbol, l:number)
+other_field_line(q, f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), kind(t, "module"), field(fl2, _, n, f, l), fl2 != fl.
 // an enum member is written like a type, so the parser labels the genuine reference TYPE: keep those, but only in a
 // file that can see the enum — its own directory, or a file that names the enum type somewhere
 .decl enum_member_target(q:symbol, fl:symbol)
@@ -514,6 +522,10 @@ const_holds(ff, fll, m) :- init_alias(ff, fll, n), named(n, m).
 .decl const_handed(q:symbol, c:symbol, f:symbol, l:number, ff:symbol, fll:number)
 const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
     fref(q, c, _, f, l), route_site(f, l), route_arg(c, f, l, n).
+// the same where the engine bound the name to this const (an imported or module-level const read through its binding):
+// fref leaves such a line to fa_bound, and the hand-off is still a registration, not a read
+const_handed(q, c, f, l, ff, fll) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), callable_const(ff, fll),
+    fa_bound(c, fl, _, f, l), route_site(f, l), route_arg(c, f, l, n).
 .decl const_route_edge(q:symbol, c:symbol, m:symbol, f:symbol, l:number)
 const_route_edge(q, c, m, f, l) :- const_handed(q, c, f, l, ff, fll), const_holds(ff, fll, m), handoff_at(c, m, f, l).
 .decl const_route(q:symbol, c:symbol, cert:symbol, f:symbol, l:number)
@@ -535,7 +547,7 @@ const_routed(q, c, f, l) :- const_route_byname(q, c, f, l).
 fa_bound(c, fl, acc, f, l) :- faccess(c, fl, acc, tier, f, l), tier != "ambiguous_unknown".
 direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "write", f, l).
 direct(q, c, "produces", "writes it", "resolved", f, l) :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
-direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "read", f, l).
+direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "read", f, l), !const_routed(q, c, f, l).
 direct(q, c, "uses", "reads it", "resolved", f, l)      :- target(q, "field", fl, _), fa_bound(c, fl, "readwrite", f, l).
 // a caller the engine bound — to this field, or to a DIFFERENT field of the same name. Either way its
 // name matches say nothing further: the first is already reported above with its direction, and the
@@ -718,7 +730,7 @@ direct(q, c, role, cat(why, " — first use runs the static initializer"), cert,
 // a PARAMETER: the method itself, its callers, (the overrides are the contract)
 direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "param", m, _).
 direct(q, c, "uses", "passes an argument for it", "resolved", f, l) :- target(q, "param", m, _), calls(c, m, _, f, l).
-direct(q, c, "uses", "calls a method of this name (receiver not typed) — its argument list must match", "by name", f, l) :- target(q, "param", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "uses", "calls a method of this name (receiver not typed) — its argument list must match", "by name", f, l) :- target(q, "param", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "library".
 
 // a TYPE PARAMETER of a type: every callable inside the type that spells it; of a method: the method. A bound reaches the uses of Type<…> too
 direct(q, c, "uses", cat("uses ", x, " in its body or signature"), "text", f, l) :- target(q, "typeparam", _, x), textuse(c, x, f, l).
@@ -853,7 +865,7 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
-seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", !seed(q, c).
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", k != "library", !seed(q, c).
 // and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
 // a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
 // registered"), and the closure stopped there: the answer named the callable that hands it over and then said the
@@ -874,10 +886,44 @@ seed_byname(q, c) :- valueref(q, c, _, _), !seed(q, c).
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
 up(q, c, 1) :- seed_byname(q, c).
-up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40.
+up(q, a, d+1) :- up(q, b, d), edge(a, b, _), !state_gate(a, b, _), d < 40.
 up(q, a, d+1) :- up(q, b, d), fw_edge(a, b, _), d < 40.
+// ── WHAT ONE INSTANCE WAS GIVEN: the edge holds for some receivers only ──────────────────────────────────────────
+// `new Bus({ validate: check })` and `b.on(handleA)` give ONE bus a callback, and `Bus.emit` calls it through what
+// that bus holds. The engine's edge emit -> check is one edge for every bus, so the closure used to hand check to
+// every caller of emit: a test that emits on a bus built without `validate` reached it. The engine now says which
+// edges are of that kind and which allocations were given the callback (JavaScript resolution/instance-state.dl):
+//   state_gate(a, f, T)          every call a makes to f reaches f only through what the receiver instance holds
+//   state_world(m, T)            m runs with an instance of T as `this` (T's instance code, and what it nests)
+//   state_gate_alloc(T, f, s)    the allocation s (a `new T(...)`) was given f
+//   state_call_alloc(c, m, s)    c calls the T member m on a receiver that may be s
+//   state_call_open(c, m)        c calls m on a receiver whose allocation is unknown: it keeps every callback
+// The gate travels with the walk through T's own code (`this.deliver()` -> `this.#invoke()` -> `handler()`), and is
+// applied where the walk leaves it: a caller outside T keeps the route when one of its receivers may be an
+// allocation given f, or when the engine knows none. An edge with no call-site record (a dispatch choice) keeps it.
+.decl state_gate(a:symbol, f:symbol, t:symbol)                    .input state_gate
+.decl state_world(m:symbol, t:symbol)                             .input state_world
+.decl state_gate_alloc(t:symbol, f:symbol, s:symbol)              .input state_gate_alloc
+.decl state_call_alloc(c:symbol, m:symbol, s:symbol)              .input state_call_alloc
+.decl state_call_open(c:symbol, m:symbol)                         .input state_call_open
+.decl state_call_known(c:symbol, m:symbol)
+state_call_known(c, m) :- state_call_alloc(c, m, _).
+state_call_known(c, m) :- state_call_open(c, m).
+.decl state_exit(c:symbol, a:symbol, t:symbol, f:symbol)
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_gate_alloc(t, f, _), state_call_open(c, a).
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_call_alloc(c, a, s), state_gate_alloc(t, f, s).
+state_exit(c, a, t, f) :- edge(c, a, _), state_world(a, t), !state_world(c, t), state_gate_alloc(t, f, _), !state_call_known(c, a).
+// upg(q, m, T, f, d): m is reached only on the instances of T that were given f
+.decl upg(q:symbol, m:symbol, t:symbol, f:symbol, d:number)
+upg(q, a, t, f, d+1) :- up(q, f, d), state_gate(a, f, t), edge(a, f, _), d < 40.
+upg(q, c, t, f, d+1) :- upg(q, a, t, f, d), edge(c, a, _), state_world(c, t), d < 40.
+up(q, c, d+1) :- upg(q, a, t, f, d), state_exit(c, a, t, f), d < 40.
+up(q, a, d+1) :- upg(q, b, _, _, d), fw_edge(a, b, _), d < 40.
+.decl up_all(q:symbol, m:symbol, d:number)
+up_all(q, m, d) :- up(q, m, d).
+up_all(q, m, d) :- upg(q, m, _, _, d).
 .decl reach(q:symbol, m:symbol, d:number)
-reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
+reach(q, m, d) :- up_all(q, m, d), d = min x : up_all(q, m, x).
 // the chain read-back: a is one hop further from the change than b, through edge a → b
 .decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
@@ -891,10 +937,20 @@ parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_
 // shape — which is the whole argument for keeping cases beside a corpus.
 .decl up_running(q:symbol, m:symbol, d:number)
 up_running(q, m, 0) :- seed(q, m).
-up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), d < 40.
+up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), !state_gate(a, b, _), d < 40.
+// the same gate as `up` (above): a caller that leaves the instance code keeps the route only on an instance given f
+.decl up_running_g(q:symbol, m:symbol, t:symbol, f:symbol, d:number)
+up_running_g(q, a, t, f, d+1) :- up_running(q, f, d), state_gate(a, f, t), edge(a, f, "known_edge"), d < 40.
+up_running_g(q, c, t, f, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_world(c, t), d < 40.
+up_running(q, c, d+1) :- up_running_g(q, a, t, f, d), edge(c, a, "known_edge"), state_exit(c, a, t, f), d < 40.
+// A module-level CONST asked about is reached by its module body only because that body declares it: its value is
+// read by the callables that import it (resolved reads, listed as such), and importing the module runs nothing new
+// for them. Hopping on from that module named every importer's module as broken at import, the readers again.
+.decl declares_seed_const(q:symbol, mod:symbol)
+declares_seed_const(q, mod) :- target(q, "field", fl, _), field(fl, mod, _, _, _), kind(mod, "module").
 .decl import_hop(q:symbol, a:symbol, b:symbol)
-import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), decl_file(mod, g), imports_file(f, g),
-                         decl_file(a, f), kind(a, "module"), a != mod.
+import_hop(q, a, mod) :- up_running(q, mod, _), kind(mod, "module"), !declares_seed_const(q, mod), decl_file(mod, g),
+                         imports_file(f, g), decl_file(a, f), kind(a, "module"), a != mod.
 up(q, a, d+1) :- up_running(q, b, d), import_hop(q, a, b), d < 40.
 parent_up(q, a, b, "at import") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, import_hop(q, a, b).
 .output reach

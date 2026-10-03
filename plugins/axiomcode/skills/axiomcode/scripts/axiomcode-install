@@ -35,8 +35,8 @@ END = '<!-- END axiomcode -->'
 BLOCK = """<!-- BEGIN axiomcode -->
 ## Finding code in this repository
 
-This repository has a resolved call graph. Ask it FIRST, through the axiomcode MCP tools
-(`mcp__plugin_axiomcode_axiomcode__*`); no skill needs loading:
+This repository has a resolved call graph. Search with grep as usual; after a grep it adds what grep cannot know.
+Ask it directly, through the axiomcode MCP tools (`mcp__plugin_axiomcode_axiomcode__*`; no skill needs loading):
 
     impact(name="<Owner.method>")                  # who calls it, what a change reaches, its tests
     impact()                                       # the same for your uncommitted edits

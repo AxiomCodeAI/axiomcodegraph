@@ -101,7 +101,9 @@ A = {
               litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
-    decls=[dict(file='all-typescript-variables.csv', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
+    # the variable's own hash: the engine's field_access names a module variable by it when an identifier the binder
+    # tied to it (directly, or through an import binding) reads it
+    decls=[dict(file='all-typescript-variables.csv', id='tsVariableUniqueHash', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
                 kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-fields.csv', id='tsFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
@@ -115,8 +117,9 @@ A = {
     # `obj.x = function …`, `{ all: (p) => … }`: named for the property, as JavaScript's are (#1585). The rows are
     # read through `ts_member_rows`, which gives them JavaScript's expression shape
     memberNames=dict(file='all-typescript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash',
-                     vars='all-typescript-variables.csv', shape='typescript',
-                     consts=lambda r: r.get('scopeKind') == 'MODULE_SCOPE' and r.get('isConst') == 'true'),
+                     # no `consts`: the parser declares a const table's data keys itself, and leaves an annotated
+                     # const's keys to the type it names (`const S: Settings = {…}` reads Settings.mode)
+                     vars='all-typescript-variables.csv', shape='typescript'),
     skipped='skipped-typescript-files.csv'),
  'python': dict(
     modules=dict(file='all-python-modules.csv', id='pyModuleUniqueHash', filePath='filePath'),
@@ -139,7 +142,7 @@ A = {
     # a `function f` or `class C` is also a binding (FUNCTION_DECLARATION_HOISTED, CLASS_TDZ), and `const { C } =
     # require('./m')` is an import in all but syntax (it carries an importLinkHash): none of them is a variable, and
     # each made the function or class it names look declared as a second kind, so `impact C` refused as ambiguous
-    decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
+    decls=[dict(file='all-javascript-variables.csv', id='jsVariableUniqueHash', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') not in ('IMPORT_BINDING', 'FUNCTION_DECLARATION_HOISTED', 'CLASS_TDZ') and not r.get('importLinkHash'),
                 kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
            # a field's owner is its class by hash (`this.x = …` in a constructor, a class field, `F.prototype.x = …`), so it
            # displays as `Store.items`, not `items`; a computed key (`[Symbol.iterator] = …`) is named by its key expression
@@ -563,7 +566,11 @@ tq2id = {}
 for t in types.values(): tq2id.setdefault(t['qualified_name'], t['id'])
 def owner_display(qn):
     tid = tq2id.get(qn)
-    return tdisplay(tid) if tid else (qn.rsplit('.', 1)[-1] if qn else None)
+    if tid: return tdisplay(tid)
+    # an owner that is no type — a TypeScript const table, `mod/path#ROUTES.orders` — is named by what follows the
+    # module, so its key is `ROUTES.orders.list` rather than `path#ROUTES.orders.list` or `orders.list`
+    if qn and '#' in qn: return qn.rsplit('#', 1)[-1]
+    return qn.rsplit('.', 1)[-1] if qn else None
 def file_of(r, d):
     if d.get('filePath'): return rel(r.get(d['filePath'], ''))
     via = d.get('fileVia')

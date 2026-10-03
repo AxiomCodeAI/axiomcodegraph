@@ -5,8 +5,9 @@ alwaysApply: true
 
 # axiomcode
 
-For any question about how code connects — who calls it, what a change
-breaks, which tests an edit reaches — ask the repository's call graph FIRST, through the axiomcode MCP tools:
+Search with grep and Read as usual: after a grep, the call graph adds only what grep cannot know (which
+declaration each match reaches, the callers that never spell the name). Ask it directly, through the axiomcode
+MCP tools, for what no text search answers:
 
     impact(name)        who calls it, what a change to it reaches, and its tests;
                         impact() with no name: the same for your uncommitted edits
@@ -15,8 +16,6 @@ breaks, which tests an edit reaches — ask the repository's call graph FIRST, t
 
 Without the tools, the same from the shell: `axiomcode impact <name>`,
 `axiomcode path <A> <B>`, `axiomcode tests`.
-
-Finding where code lives is yours: search as you normally would, then bring the name you found to these tools.
 
 Every answer is a numbered list of places, each with the code of the function it sits in and the line that
 matters marked `→`: answer from that code, and open a file only where a body was cut. A `resolved` place has

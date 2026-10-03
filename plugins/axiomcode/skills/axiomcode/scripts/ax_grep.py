@@ -117,10 +117,15 @@ def impact(d, code):
         rung = {}
         for i, r in enumerate(direct): rung.setdefault(r.get('certainty'), i)
         direct = sorted(direct, key=lambda r: (rung[r.get('certainty')], not r.get('evidence')))
+    # a name match on a package's value (`request(app).get(…)`, ax_edges.library_receiver_sites) is the weakest lead:
+    # it goes after every other row, so the first page holds the callers that may really be the target's
+    libs = []
     for r in direct:
         cert = r.get('certainty') or 'resolved'
         if cert == 'alongside': more('alongside (no call, no reference)'); continue
         seen.add(r['id'])
+        if r.get('why') == ax_edges.LIBRARY_BYNAME_WHY:
+            libs.append(('library receiver', site(code, r['at'], f"{TAG.get(cert, cert)} · library receiver{n_sites(r)}{stale(r)}", r['display']))); continue
         rows.append((cert, ev(site(code, r['at'], f"{TAG.get(cert, cert)}{n_sites(r)}{stale(r)}", r['display']), r)))
     # a mapper method's own statement (its namespace and id bind it, ax_nonsource.mapper_elements) is the method's SQL:
     # a dependent, listed with the direct rows, not a [text] lead after every test
@@ -137,8 +142,13 @@ def impact(d, code):
         row = ('module' if mod else 'reached', site(code, r['at'], f"hop {r['hops']}" + (' · module scope' if mod else '') +
                                                      (' · test' if r.get('test') else '') + stale(r), r['display']))
         (modules if mod else rows).append(row)
-    for r, k in per_test_file(d.get('tests', [])):
-        rows.append(('test', site(code, r['at'], f"test · {TAG.get(r.get('certainty'), r.get('certainty'))} · hop {r['hops']}" + more_in_file(k) + stale(r), r['display'])))
+    # a test file that loads the changed file before one that never imports it (impact's loads_change)
+    far_files = {f for f in {(t.get('at') or '').rpartition(':')[0] for t in d.get('tests', [])}
+                 if all(t.get('loads_change') is False for t in d.get('tests', []) if (t.get('at') or '').rpartition(':')[0] == f)}
+    near_some = any(t.get('loads_change') is not False for t in d.get('tests', []))
+    for r, k in sorted(per_test_file(d.get('tests', [])), key=lambda rk: near_some and rk[0]['at'].rpartition(':')[0] in far_files):
+        far = ' · further out: never imports the change' if near_some and r['at'].rpartition(':')[0] in far_files else ''
+        rows.append(('test', site(code, r['at'], f"test · {TAG.get(r.get('certainty'), r.get('certainty'))} · hop {r['hops']}" + far + more_in_file(k) + stale(r), r['display'])))
     for r in d.get('stub_tests', []):
         rows.append(('stub', site(code, r['at'], f"test · stubs it{stale(r)}", r['display'])))
     # a test file's top level is already its test row above
@@ -152,6 +162,7 @@ def impact(d, code):
         if r.get('prose'): more('plain-word mentions'); continue
         if shown >= TEXT_ROWS: more('[text]'); continue
         rows.append(('text', site(code, r['at'], f"text · {r.get('how') or 'names it'}{stale(r)}"))); shown += 1
+    rows += libs
     foot = []
     nt = len(d.get('tests', []))
     if 'test_universe' in d: foot.append(f"tests: {nt} of {d['test_universe']} reach it" + ("; `axiomcode test-impact` runs them" if nt else ''))
@@ -232,8 +243,13 @@ def test_impact(d, code):
     rows = []
     for f in d.get('edited_test_files', []):
         rows.append(('test', f"{f}:1: (edited test file)  [test · edited]"))
+    # the tests that load the changed file first; a file further out (it never imports the change, or reaches it only
+    # many hops away) after them, said so
+    further = set(d.get('further_test_files') or [])
     for t, k in per_test_file(d.get('tests', [])):
-        rows.append(('test', ev(site(code, t['at'], f"test · {TAG.get(t.get('certainty'), t.get('certainty'))} · hop {t['hops']}{more_in_file(k)}{stale(t)}", t['display']), t)))
+        far = (' · further out: never imports the change' if t.get('loads_change') is False else ' · further out') \
+            if (t.get('at') or '').rpartition(':')[0] in further else ''
+        rows.append(('test', ev(site(code, t['at'], f"test · {TAG.get(t.get('certainty'), t.get('certainty'))} · hop {t['hops']}{far}{more_in_file(k)}{stale(t)}", t['display']), t)))
     # a changed file no graph follows (a script, a fixture) is run by the test files that name it in their text
     names = {}
     for f, v in (d.get('named_in_test_text') or {}).items():
@@ -243,6 +259,7 @@ def test_impact(d, code):
         rows.append(('text test', f"{t}:1: (names {', '.join(dict.fromkeys(ns))})  [test · text]"))
     foot = ev_foot(d)
     if d.get('command'): foot.append(f"run: {d['command']}")
+    if d.get('command_further'): foot.append(f"run: (then, further out) {d['command_further']}")
     if d.get('bound'): foot.append(f"bound: {d['bound']}")
     return rows, {}, foot
 

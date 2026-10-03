@@ -62,6 +62,8 @@ is not the same as a change that does nothing, and the rung on each row is where
 import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections, functools, posixpath, shlex
 
 TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', re.I)
+# a test that loads the change and reaches it within this many hops is listed first; beyond it, further out
+NEAR_HOPS = 3
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -2034,6 +2036,19 @@ def main(argv):
     case_data_tests = {i for i, r in tests.items() if r.get('at') and ax_caserun.in_case_dir(real, r['at'].split(':')[0])}
     for i in case_data_tests: tests.pop(i, None)
     files = sorted({r.get('at', '').split(':')[0] for r in tests.values() if r.get('at')})
+    # NEAREST FIRST, AND FURTHER OUT APART: a test whose file (or the fixture file its runner loads) never imports the
+    # changed file reaches it only through a key join, a dispatch resolved across services, or a registration the
+    # process it runs in never makes (impact's loads_change). Still listed, after the tests that load the change.
+    # One that loads it but reaches it only beyond NEAR_HOPS (a whole service started for an unrelated flow, whose
+    # route crosses a bus and a handler table) is further out too: impact's own measurement puts a sound route within
+    # 3 hops at about 9 in 10 right, and a hub answer at 3 in 10. Where the import graph is unknown (no loads_change),
+    # nothing moves.
+    near = lambda r: r.get('loads_change') is None or (r['loads_change'] and (r.get('hops') or 0) <= NEAR_HOPS)
+    further = sorted({f for f in files} - {(r.get('at') or '').split(':')[0] for r in tests.values() if near(r)})
+    if further and len(further) < len(files):
+        files = [f for f in files if f not in set(further)]
+    else:
+        further = []                                    # nothing loads it, or everything does: one list, as before
     # A selected test carrying no location drops out of `files`, and `files` is what the command PRINTS and
     # what the run command is built from — so the answer names it nowhere and the suite runs without it.
     # This is the third instance of one bug: a row discarded for being malformed in one field. The other two
@@ -2060,13 +2075,18 @@ def main(argv):
         if classes and lang in ('java', 'csharp') else classes
     replaced = concrete_test_classes(db, run_classes)[1] if lang in ('java', 'csharp') else {}
     cmd_all = command_for(lang, run_files, run_classes + ([os.path.splitext(os.path.basename(f))[0] for f in edited] if classes else []), db, repo)
+    cmd_further = command_for(lang, further, [], db, repo) if further else None
+    in_file = lambda f: sum(1 for r in tests.values() if r.get('at', '').startswith(f + ':'))
 
     import ax_evidence
     if as_json:
         print(json.dumps(ax_evidence.annotate('test-impact', {'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
                                        'target': t} for t in targets],
                           'test_files': files, 'test_classes': classes,
-                          'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in tests.items()],
+                          'further_test_files': further, 'command_further': cmd_further,
+                          # the tests that load the change first, then the ones further out, each nearest first
+                          'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in
+                                    sorted(tests.items(), key=lambda kv: (kv[1].get('at', '').split(':')[0] in further,))],
                           'edited_test_files': edited,
                           'command': cmd_all,
                           'abstract_replaced': replaced,
@@ -2141,12 +2161,20 @@ def main(argv):
             print("\n  " + cmd_all.replace("\n", "\n  "))
             print_unrun(lang, repo, run_files)
     elif tests:
-        print(f"\ntests to run: {len(tests)} test(s) in {len(files)} file(s)")
+        print(f"\ntests to run: {sum(in_file(f) for f in files)} test(s) in {len(files)} file(s)"
+              + (" that load the changed file" if further else ""))
         for f in files[:limit]:
-            n = sum(1 for r in tests.values() if r.get('at', '').startswith(f + ':'))
-            print(f"    {f}   ({n} test(s))")
+            print(f"    {f}   ({in_file(f)} test(s))")
         if len(files) > limit:
             print(f"    … +{len(files)-limit} more file(s) (--limit N)")
+        if further:
+            print(f"\nfurther out: {sum(in_file(f) for f in further)} test(s) in {len(further)} file(s) whose file never imports the"
+                  f" changed one (a key, a dispatch or a registration joins them to it) or reaches it only beyond {NEAR_HOPS} hops;"
+                  " run after the ones above:")
+            for f in further[:limit]:
+                print(f"    {f}   ({in_file(f)} test(s))")
+            if len(further) > limit:
+                print(f"    … +{len(further)-limit} more file(s) (--limit N)")
         if why:
             print("\n  why each one is here:")
             for i, r in sorted(tests.items(), key=lambda kv: (kv[1].get('hops') or 99, kv[1].get('display', '')))[:limit]:
@@ -2167,6 +2195,8 @@ def main(argv):
         if cmd_all:
             print("\n  " + cmd_all.replace("\n", "\n  "))
         print_unrun(lang, repo, run_files)
+        if cmd_further:
+            print("\n  then, further out: " + cmd_further.replace("\n", "\n  "))
     elif edited and cmd_all:
         print("\n  " + cmd_all.replace("\n", "\n  "))
         print_unrun(lang, repo, run_files)
