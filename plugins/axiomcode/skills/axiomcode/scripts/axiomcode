@@ -2,8 +2,6 @@
 # axiomcode — ask the repository's call graph. Each answer is a numbered list of places, each with the code of the
 # function it sits in.
 #
-#   axiomcode find "<what you need, in words>"
-#       where the code for a task lives: the functions involved, most relevant first.
 #   axiomcode impact [<name>]
 #       who calls it, what a change to it reaches, and the tests that exercise it.
 #       With no name: the same for the declarations your uncommitted edits changed.
@@ -133,7 +131,7 @@ helptext(){ awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; 
 # leading comment block. The verb documents itself once, where it is implemented.
 verbhelp(){
   # a verb of the small surface is explained by its own entry in the help above: what it answers, no options
-  case "$1" in find|impact|path|tests)
+  case "$1" in impact|path|tests)
     helptext | awk -v v="$1" '$0 ~ "^  axiomcode "v"( |$)" {on=1; print; next} on && /^  axiomcode / {exit} on && /^$/ {exit} on {print}'
     return 0 ;;
   esac
@@ -218,9 +216,9 @@ done
 # shapes are one answer. Without it the answer is the verb's own, unchanged.
 G=()
 case "$cmd" in context|path|impact|test-impact|tests) [ -n "${GREP:-}" ] && G=(python3 "$H/ax_grep.py" "$cmd" "$FR" --limit "${GREP_LIMIT:-30}" --) ;; esac
-# THE SMALL SURFACE: find, impact, path and tests, asked with no flags at the front door (the installed `axiomcode` and
+# THE SMALL SURFACE: impact, path and tests, asked with no flags at the front door (the installed `axiomcode` and
 # the MCP server set AXIOMCODE_FRONT), answer as numbered places, each with the code of the function it sits in
-# (ax_blocks.py), so a place needs no read to be understood. find is context; impact <name> is impact with its tests,
+# (ax_blocks.py), so a place needs no read to be understood. impact <name> is impact with its tests,
 # and impact with no name answers for the declarations the working tree has edited; path is path; tests is
 # test-impact. A flag, AXIOMCODE_RAW, or a caller that runs this script directly (the hooks, the suites) gets the
 # verb's own answer.

@@ -12,7 +12,7 @@ Search with grep as usual; the graph answers what grep cannot. Use the MCP tools
 
 | the question | MCP tool | shell |
 |---|---|---|
-| where is the code for this task? | grep; or, shell only | `axiomcode find "<question>"` |
+| where is the code for this task? | your own search (grep), then bring the name here | — |
 | who calls X, what does changing it reach, which tests? | `impact(name)` | `axiomcode impact <name>` |
 | what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
@@ -39,12 +39,6 @@ is: `resolved` is an edge the engine resolved and re-checked (`verified:`), do n
 `one of a set` is one of several real targets; `by name` and `text` are leads, not facts; `test` marks a test;
 `hop N` is how far out it is. A call the graph could not resolve is *unknown*, not absent: never report "no callers"
 from an empty answer.
-
-## find
-
-Where the code for a task lives, when you have a task in words and no name yet: the functions involved, most
-relevant first, each with its code. A name the code calls but nothing declares is listed with its call sites — that is
-code you have to write. Shell only: `axiomcode find "how is the invoice total computed"`.
 
 ## impact
 

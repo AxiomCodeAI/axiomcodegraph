@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tests/mcp_docs.py: every MCP argument the skill documents is one the tool it names accepts.
 
-SKILL.md (and reference/*.md, when there is one) tells an agent which MCP arguments to pass (`find(question="…")`,
-`impact(name="…")`, `path(start="…", end="…")`). An argument the tool's schema does not take is refused, and the agent
+SKILL.md (and reference/*.md, when there is one) tells an agent which MCP arguments to pass (`impact(name="…")`,
+`path(start="…", end="…")`). An argument the tool's schema does not take is refused, and the agent
 that followed the docs is left with an error and no answer. The docs name the arguments in prose, so this reads them the
 way an agent does: in each paragraph, list item or table row that speaks of a tool, every `name=value` belongs to the
 nearest tool named before it (`impact(`, MCP `impact`, `mcp__plugin_axiomcode_axiomcode__impact`; a run like "`impact`
@@ -117,12 +117,12 @@ def schemas():
 def controls(tools):
     """the reader itself: a wrong argument is caught, a right one is not, and a group binds every tool in it"""
     bad = []
-    fake = {'impact': {'name': {}}, 'path': {'start': {}, 'end': {}}, 'find': {'question': {}}, 'tests': {}}
+    fake = {'impact': {'name': {}}, 'path': {'start': {}, 'end': {}}, 'tests': {}}
     cases = [('MCP `impact` with `full=True`.', 1),                           # the argument the tool lacks
              ('MCP `impact` with `name=X`.', 0),                              # the near miss: it has it
              ('`path(start="a", end="b")` answers.', 0),
              ('The MCP `impact` and `path` answer; `start=a`.', 1),           # impact lacks it
-             ('`find(question="x", limit=5)` lists more.', 1),
+             ('`impact(name="x", limit=5)` lists more.', 1),
              ('mcp__plugin_axiomcode_axiomcode__tests with why=True.', 1),
              ('ask with `--fresh` (MCP `fresh=true`).', 1),                  # no tool named
              ('`path:line: code` then MCP `name=3`.', 1),                     # an answer's shape is not the tool

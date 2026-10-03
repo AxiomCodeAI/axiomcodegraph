@@ -644,6 +644,13 @@ def block(repo, asked, scope=None, why='unresolved', rows=ROWS):
         if rest > 0:
             lines.append(f"    … +{rest} more line(s): git grep -n{'w' if w else ''} -F -e '{n}'" if not pat else
                          f"    … +{rest} more line(s): git grep -nP -e '{pat.pattern}'")
+        # a name no graph declares that ARRIVES THROUGH AN IMPORT is the signature of an unstaged dependency, the
+        # commonest setup gap there is: without the hint this answer is indistinguishable from an engine gap, and the
+        # fix (stage the dependency's source) is one flag away. Only for undeclared names: a string or a resolved
+        # target wants no staging advice.
+        if why == 'undeclared' and any(re.match(r'\s*(import\b|using\b|from\s)', t.strip()) and n in t for _f, _l, t in hits):
+            lines.append(f"    this name arrives through an import, so it is likely declared in a dependency: calls through "
+                         f"it resolve once that dependency's source is staged — `axiomcode index --library <its source dir>`")
     if not lines: return ''
     if approxed: lines.append("next: [approx] rows are text placed in the declaration that holds it, not resolved edges: read the "
                               "evidence line, then `impact <that declaration>` for what a change reaches")

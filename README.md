@@ -308,12 +308,12 @@ about one change had to read 95 of 43,793 methods, and every true direct caller 
 
 ## CLI commands
 
-Four questions, each answered as numbered places with the code of the function each one sits in. The MCP server
-offers the same four as tools: `find(question)`, `impact(name)`, `path(start, end)` and `tests()`.
+Three questions, each answered as numbered places with the code of the function each one sits in. The MCP server
+offers the same three as tools: `impact(name)`, `path(start, end)` and `tests()`. Finding where code lives is
+left to your own search: bring the name you found to these commands.
 
 | command | what it answers |
 |---|---|
-| `axiomcode find "<question>"` | where the code for a task lives, when you have it in words and not yet a name |
 | `axiomcode impact <name>` | who calls it, what a change to it reaches, and the tests that exercise it |
 | `axiomcode impact` | the same for the declarations your uncommitted edits changed; the answer starts with `your edits:` |
 | `axiomcode path <A> <B>` | how A reaches B: every hop of the call chain, with the code at each call |
