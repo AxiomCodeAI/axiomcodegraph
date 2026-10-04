@@ -128,6 +128,43 @@ def replace_file(tmp, dst):
     shutil.copyfile(tmp, dst); os.remove(tmp)
 
 
+def export_lock(d, fresh):
+    """ONE exporter per facts directory. A query that found the stamp stale while another process (the build's
+    background warm-up, a concurrent query, several hooks at once) was already writing these facts ran the whole
+    export AGAIN beside it: on an 8,619-file repository the first query after `index` cost 193 s against 8.8 s
+    once warm, every concurrent query the same again, and the copies thrashed each other. Returns True with the
+    lock held — the caller exports, then export_unlock in a finally — or False once another process finished the
+    same export (`fresh` says so) and the caller just reads it. A lock whose writer is gone is taken over."""
+    lock = os.path.join(d, '.exporting')
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode()); os.close(fd); return True
+        except FileExistsError:
+            pass
+        gone = False
+        try:
+            os.kill(int(open(lock).read().strip() or '0'), 0)
+        except (ProcessLookupError, ValueError):
+            gone = True
+        except PermissionError:
+            pass                                 # alive, another user's process: wait for it
+        except OSError:                          # Windows cannot probe another session's pid: fall back to the lock's age
+            try: gone = time.time() - os.path.getmtime(lock) > 900
+            except OSError: continue             # the lock vanished under us: contend for it again
+        if gone:
+            try: os.remove(lock)
+            except OSError: pass
+            continue
+        time.sleep(0.5)
+        if fresh(): return False
+
+
+def export_unlock(d):
+    try: os.remove(os.path.join(d, '.exporting'))
+    except OSError: pass
+
+
 class G:
     def __init__(self, repo):
         self.repo = os.path.realpath(repo or '.')
@@ -932,10 +969,16 @@ class G:
         unfoll = [(r['lib'], r['n']) for r in rows if r['from_site']][:cap]
         return named, unfoll
     def site_file(self, raw):
-        """a call site's file as the repo sees it: Java bundles store absolute paths; the index's paths table maps them"""
-        if self.has('paths'):
-            r = self.q("SELECT rel FROM paths WHERE raw = ?", raw)
-            if r: return r[0]['rel']
+        """a call site's file as the repo sees it: Java bundles store absolute paths; the index's paths table maps them.
+        The map is read ONCE PER GRAPH, not once per row: this ran a query per call (one `has`, one lookup), and the
+        facts export calls it for every call edge — 319k edges on an 8,619-file repository made 638k round-trips
+        through sqlite, which was most of the export's time (reg_key_fact 36 s, calls 34 s, registration 31 s,
+        via_base 25 s of a 171 s warm)."""
+        m = getattr(self, '_site_files', None)
+        if m is None:
+            m = self._site_files = {r['raw']: r['rel'] for r in self.q("SELECT raw, rel FROM paths")} if self.has('paths') else {}
+        got = m.get(raw)
+        if got is not None: return got
         return os.path.relpath(raw, self.repo).replace(os.sep, '/') if os.path.isabs(raw) and raw.startswith(self.repo) else raw
 
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
@@ -948,8 +991,16 @@ class G:
     EXPORT_VERSION = '4'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
-        if os.path.exists(stamp) and open(stamp).read() == want: return
+        def fresh():
+            try: return open(stamp).read() == want
+            except OSError: return False
+        if fresh(): return
         os.makedirs(self.facts, exist_ok=True)
+        if not export_lock(self.facts, fresh): return      # another process just exported these same facts
+        try: self._export(stamp, want)
+        finally: export_unlock(self.facts)
+
+    def _export(self, stamp, want):
         # `generated` is a client declaration too: a Lombok accessor, a record member, a C# auto-property. The engine
         # synthesises it and RESOLVES the call sites that name it, so filtering the edge out lost every call into a
         # generated member — which, on a project whose models are all @Data, is most of what touches the models.
@@ -999,6 +1050,9 @@ class G:
             for r in rows: f.write('\t'.join(str(x) for x in r) + '\n')
         replace_file(tmp, p)
     def edges(self):
+        # exported here, not only by the verbs that call export(): `context` read edge.facts straight after `index`
+        # returned, while the build's warm-up was still writing it in the background, and died on a missing file
+        self.export()
         return [tuple(l.rstrip('\n').split('\t')) for l in open(os.path.join(self.facts, 'edge.facts'))] + list(self.EXTRA)
     def add_outside_call_edges(self):
         """THE HOPS NO CALL SITE EXPRESSES, as hops of this query (#1469). A gRPC client reaches the handler that serves

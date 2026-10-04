@@ -54,7 +54,7 @@ export class ImportExtractor implements BaseExtractor<ImportRegistry> {
       }
 
       const tree = this.javaParser.parse(fileContent);
-      const rootNode = this.javaParser.getRootNode(tree);
+      const rootNode = this.javaParser.getRootNode(tree, fileContent);
 
       this.extractImportsFromRoot(rootNode, filePath, serviceVersionHash, imports);
     } catch (error) {
