@@ -331,8 +331,13 @@ export class TypeScriptProjectAnalyzer {
 
     for (const file of files) {
       let sourceText: string;
+      // the closure walk read this file already; take its text and release it
+      const prefetched = rootProgram?.texts.get(file);
+      if (prefetched !== undefined) {
+        rootProgram!.texts.delete(file);
+      }
       try {
-        sourceText = await fsp.readFile(file, 'utf-8');
+        sourceText = prefetched ?? await fsp.readFile(file, 'utf-8');
       } catch (error) {
         this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
           SkippedFileReason.READ_ERROR, String(error));
@@ -609,7 +614,13 @@ export class TypeScriptProjectAnalyzer {
 function filesOfRootProgram(
   rootDir: string,
   configResolver: TsConfigResolver
-): { readonly files: string[]; readonly others: string[]; readonly orphans: string[] } | undefined {
+): {
+  readonly files: string[];
+  readonly others: string[];
+  readonly orphans: string[];
+  /** What the closure walk already read, so the extraction pass reads nothing twice. */
+  readonly texts: Map<string, string>;
+} | undefined {
   const configPath = path.join(rootDir, 'tsconfig.json');
   if (!fs.existsSync(configPath)) {
     return undefined;
@@ -660,6 +671,11 @@ function filesOfRootProgram(
   // by a nested tsconfig stays in that program, which is what keeps a nested
   // project's separate global scope separate.
   const rootOptions = configResolver.resolve(claimed[0] ?? configPath).options;
+  // One resolution cache for the whole walk: ts.resolveModuleName with a bare
+  // ts.sys re-probes the same node_modules directories for every specifier,
+  // and the probing (statSync/readdirSync) was most of this pass's cost.
+  const resolutionCache = ts.createModuleResolutionCache(rootDir, (f) => f, rootOptions);
+  const texts = new Map<string, string>();
   const included = new Set(claimed.map((f) => path.normalize(f)));
   const available = new Map(unclaimed.map((f) => [path.normalize(f), f]));
   const queue = [...claimed];
@@ -671,13 +687,14 @@ function filesOfRootProgram(
     } catch {
       continue;
     }
+    texts.set(current, text);
     // No parent pointers and no type nodes needed: this pass only reads
     // specifiers, so the cheapest possible parse is the right one.
     const script = scriptTextOf(current, text);
     const sf = ts.createSourceFile(current, script.text, ts.ScriptTarget.Latest, false,
       script.scriptKind ?? (current.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS));
     for (const specifier of importSpecifiersOf(sf)) {
-      const resolved = ts.resolveModuleName(specifier, current, rootOptions, ts.sys)
+      const resolved = ts.resolveModuleName(specifier, current, rootOptions, ts.sys, resolutionCache)
         .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, current);
       if (resolved === undefined) {
         continue;
@@ -702,7 +719,7 @@ function filesOfRootProgram(
       orphans.push(f);
     }
   }
-  return { files, others, orphans };
+  return { files, others, orphans, texts };
 }
 
 /**
