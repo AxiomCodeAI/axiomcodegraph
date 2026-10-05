@@ -43,8 +43,10 @@ Ask it directly, through the axiomcode MCP tools (`mcp__plugin_axiomcode_axiomco
     path(start="<A>", end="<B>")                   # how A reaches B
     tests()                                        # the tests your edits reach, and how to run them
 
-Only when those tools are not in your list, the same from the shell: `axiomcode find "<task>"`,
+Only when those tools are not in your list, the same from the shell:
 `axiomcode impact <Owner.method>`, `axiomcode path <A> <B>`, `axiomcode tests`.
+
+Finding where code lives is yours: search as you normally would, then bring the name you found here.
 
 **Trust the answer.** Each place comes with the code of the function it sits in: answer from it. A
 `resolved` place has already been looked up again in the graph (the `verified:` line) — do not re-derive it

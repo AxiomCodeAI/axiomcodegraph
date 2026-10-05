@@ -97,7 +97,9 @@ def run_case(case):
         if bad:
             fail += 1; print(f"FAIL {l}/{name}: {ch['why']}", flush=True)
             for b in bad: print(f"     missing/unwanted: {b}")
-            print('     ' + '\n     '.join(text.strip().split('\n')[:14]))
+            lines = text.strip().split('\n')
+            # a traceback's last line is the error itself: keep the head (what it answered) and the tail (why it stopped)
+            print('     ' + '\n     '.join(lines[:14] + (['…'] + lines[-12:] if len(lines) > 26 else lines[14:])))
         elif verbose: print(f"ok   {l}/{name}: {ch['why']}")
     if not keep: shutil.rmtree(os.path.join(path, '.axiomcode'), ignore_errors=True)
     return buf.getvalue(), tot, fail, pend

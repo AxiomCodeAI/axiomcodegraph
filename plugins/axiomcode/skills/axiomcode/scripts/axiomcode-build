@@ -495,12 +495,16 @@ w = max([len('tier')] + [len(t) for t, _ in rows])
 print(f"{'tier':<{w}}  edges")
 for t, n in rows: print(f"{t:<{w}}  {n}")
 PY
-  python3 "$H/axiomcode-impact" --warm "$REPO" || true   # export the graph's facts now (~9 s on 1,373 files): the first
-  # query pays it otherwise, and for the plugin that first query is inside hooks/changes.py's timeout=14, several at once.
+  # export the graph's facts for impact IN THE BACKGROUND, after the graph is queryable: the first query pays it otherwise
+  # (and for the plugin that first query is inside hooks/changes.py's timeout=14), but on a large repository the export
+  # takes minutes and `index` must not wait on it. fd 9 is the build lock: the child closes it, so the lock is released
+  # when this build ends, and a query or a second build never waits on the warm-up. Its writes are atomic renames.
+  ( exec 9>&-; nohup python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 & ) || true
+  echo "graph ready; precomputing impact facts in the background"
   # the query rules: their compile started at the top of the build, detached (a caller's timeout cannot kill it half-way,
   # which cached nothing and repeated on every edit); this only says where it is. A query never waits for it.
   python3 "$H/dl_program.py" --no-wait || true
-  [ -n "$BASE_SAVED" ] && AXIOMCODE_GRAPH="$REPO/.axiomcode/base" python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 || true
+  [ -n "$BASE_SAVED" ] && ( exec 9>&-; AXIOMCODE_GRAPH="$REPO/.axiomcode/base" nohup python3 "$H/axiomcode-impact" --warm "$REPO" >/dev/null 2>&1 & ) || true
   [ -z "$OTHER_LANGS" ] || [ ! -s "$PENDING" ] || echo "$LANG_ARG graph ready at $OUT/graph.sqlite; still building: $(cut -d' ' -f1 "$PENDING" | paste -sd, - | sed 's/,/, /g')"
 }
 # EVERY OTHER LANGUAGE'S GRAPH, indexed where the engine wrote it and only then moved into place, as the main one is.

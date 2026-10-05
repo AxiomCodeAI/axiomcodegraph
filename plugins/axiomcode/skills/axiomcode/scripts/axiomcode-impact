@@ -1322,8 +1322,17 @@ class Impact:
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
         # "Cannot open fact file X.facts": accept it only when it holds every relation the program reads
         need = set(re.findall(r'\.decl (\w+)\([^)]*\)\s+\.input', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dl', 'impact.dl')).read())) - PER_QUERY
-        if os.path.exists(stamp) and open(stamp).read() == want and all(os.path.exists(os.path.join(D, n + '.facts')) for n in need): return D
-        os.makedirs(D, exist_ok=True); W = lambda n, rows: g.write(n, rows, D)
+        def fresh():
+            try: return open(stamp).read() == want and all(os.path.exists(os.path.join(D, n + '.facts')) for n in need)
+            except OSError: return False
+        if fresh(): return D
+        os.makedirs(D, exist_ok=True)
+        if not P.export_lock(D, fresh): return D           # another process just exported these same facts
+        try: return self._export(D, stamp, want)
+        finally: P.export_unlock(D)
+
+    def _export(self, D, stamp, want):
+        g = self.g; W = lambda n, rows: g.write(n, rows, D)
         # owner display -> type id. A display name is NOT unique: two files of one test suite commonly
         # declare a class of the same name, and keyed on the name alone the second one's members were
         # filed under the first one's type. Everything scope/2 reaches then crossed between them --
@@ -1558,7 +1567,8 @@ class Impact:
                     L = self.code(r['file']); text = L[r['line'] - 1] if r['line'] <= len(L) else ''
                     for qn in re.findall(rf'([A-Za-z_$][\w$]*)\s*\.\s*{re.escape(r["name"])}\b', text): quals.append((r['file'], r['line'], r['name'], qn))
         W('ref', refs); W('qualifier', sorted(set(quals)))
-        W('registration', ax_registration.registrations(g.q, g.site_file))
+        regs = ax_registration.registrations(g.q, g.site_file)      # computed once: reg_key_fact below reads it too
+        W('registration', regs)
         trs = []; trf = set()
         # a reference on a module-level type alias's own lines belongs to the alias, not the module (#784)
         import graph_sql
@@ -1640,7 +1650,7 @@ class Impact:
         regk = []                                        # `rd` and not `decl`: `decl` is the dec_literal list above
         for rd, _f, _l, kind, key, _why in (ax_registration.decoration_keys(g.q, g.site_file)
                                             + ax_registration.value_route_registrations(g.q, g.site_file)
-                                            + ax_registration.registrations(g.q, g.site_file) + tregs):
+                                            + regs + tregs):
             if rd in g.sym and key: regk.append((rd, kind, key))
         W('reg_key_fact', sorted(set(regk)))
         # the callables in test files: a test that publishes a handler table's key drives the handler, and is not
