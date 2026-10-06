@@ -324,16 +324,61 @@ case "$cmd" in
     # a caller that checks it is no worse off. Only the languages that produced a graph are
     # listed at the end, so the output stays a list of files that exist.
     solved=(); failed=()
-    for l in "${langs[@]}"; do
-      echo "▶ solving $l → $out/$l/graph.sqlite"
-      if "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" --library "$libroots" \
-           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}; then
-        solved+=("$l"); [ -z "$progress" ] || echo "$l ok $out/$l/graph.sqlite" >> "$progress"
+    # Each language gets its OWN intermediate: run-souffle writes fixed names there
+    # (souffle-program.cpp, .souffle-gen.log), so two concurrent solves into one
+    # directory would overwrite each other's program mid-compile.
+    solve_one(){ local sl="$1"
+      "$0" engine --language "$sl" --client-ir "$ir/$sl" --out "$out/$sl" --intermediate "$int/$sl" --library "$libroots" \
+           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
+    }
+    record(){ local rl="$1" rrc="$2"
+      if [ "$rrc" -eq 0 ]; then
+        solved+=("$rl"); [ -z "$progress" ] || echo "$rl ok $out/$rl/graph.sqlite" >> "$progress"
       else
-        failed+=("$l"); echo "❌ $l failed; continuing with the remaining languages" >&2
-        [ -z "$progress" ] || echo "$l failed" >> "$progress"
+        failed+=("$rl"); echo "❌ $rl failed; continuing with the remaining languages" >&2
+        [ -z "$progress" ] || echo "$rl failed" >> "$progress"
       fi
-    done
+    }
+    # THE FIRST (LARGEST) LANGUAGE SOLVES ALONE, streaming, exactly as before: its graph is the one a
+    # --progress caller publishes first (#1555), and nothing may compete with it for cores or
+    # interleave its log. Only the languages AFTER it run concurrently — they used to wait in line
+    # behind each other for no reason: their solves share nothing (own IR, own output, own
+    # intermediate). Memory is the tradeoff (each is its own Soufflé process), so the width is
+    # modest by default and AXIOMCODE_SOLVE_JOBS raises or lowers it; 1 restores the strict line.
+    l="${langs[0]}"
+    echo "▶ solving $l → $out/$l/graph.sqlite"
+    rc=0; solve_one "$l" || rc=$?; record "$l" "$rc"
+    if [ ${#langs[@]} -gt 1 ]; then
+      others=("${langs[@]:1}")
+      JOBS="${AXIOMCODE_SOLVE_JOBS:-2}"
+      case "$JOBS" in (*[!0-9]*|'') JOBS=2;; esac; [ "$JOBS" -ge 1 ] || JOBS=1
+      if [ "$JOBS" -eq 1 ]; then
+        for l in "${others[@]}"; do
+          echo "▶ solving $l → $out/$l/graph.sqlite"
+          rc=0; solve_one "$l" || rc=$?; record "$l" "$rc"
+        done
+      else
+        # Waves of $JOBS (bash 3.2 has no `wait -n`): start a wave, wait for all of it, replay each
+        # log whole so the build log never interleaves, then record in the wave's order.
+        i=0
+        while [ $i -lt ${#others[@]} ]; do
+          wave=("${others[@]:$i:$JOBS}"); i=$((i + JOBS))
+          wavepids=()
+          for l in "${wave[@]}"; do
+            echo "▶ solving $l → $out/$l/graph.sqlite (concurrent)"
+            { solve_one "$l" > "$int/solve-$l.log" 2>&1; echo $? > "$int/solve-$l.rc"; } &
+            wavepids+=($!)
+          done
+          for wp in "${wavepids[@]}"; do wait "$wp" || true; done
+          for l in "${wave[@]}"; do
+            cat "$int/solve-$l.log" 2>/dev/null
+            rc="$(cat "$int/solve-$l.rc" 2>/dev/null || echo 1)"
+            rm -f "$int/solve-$l.log" "$int/solve-$l.rc"
+            record "$l" "$rc"
+          done
+        done
+      fi
+    fi
     for l in ${solved[@]+"${solved[@]}"}; do echo "$out/$l/graph.sqlite"; done
     if [ ${#failed[@]} -gt 0 ]; then
       echo "❌ ${#failed[@]} of ${#langs[@]} languages failed: ${failed[*]}" >&2

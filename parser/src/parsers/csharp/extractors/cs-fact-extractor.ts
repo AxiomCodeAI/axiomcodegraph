@@ -216,11 +216,11 @@ export class CsFactExtractor {
     // is. Length-preserving to the character; the receiver the blanking
     // removes is returned in a side table. See cs-extension-block.ts.
     const flattened = flattenExtensionBlocks(rewritten, (source) =>
-      this.parser.getRootNode(this.parser.parse(source))
+      this.parser.getRootNode(this.parser.parse(source), source)
     );
     const parseText = flattened.text.endsWith('\n') ? flattened.text : `${flattened.text}\n`;
     const tree = this.parser.parse(parseText);
-    const root = this.parser.getRootNode(tree);
+    const root = this.parser.getRootNode(tree, parseText);
 
     // The symbol set this emission is compiled under: what the caller supplied,
     // plus the implicit framework symbols the SDK injects and no `.csproj`
