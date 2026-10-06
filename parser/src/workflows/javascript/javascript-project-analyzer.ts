@@ -12,7 +12,6 @@ import {
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import {
   extractJavaScriptFile,
-  JsFileFacts,
 } from '@/parsers/javascript/extractors/js-fact-extractor';
 import {
   accumulateFileCompleteness,
@@ -53,6 +52,11 @@ import { JsTypeRegistry } from '@/analysis-types/javascript/JsTypeRegistry';
 import { JsVariableRegistry } from '@/analysis-types/javascript/JsVariableRegistry';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
 import { scriptTextOf } from '@/utils/vue-sfc';
+import {
+  JsParseOutcome,
+  parseFilesInPool,
+  parsePoolJobs,
+} from '@/workflows/javascript/js-parse-pool';
 
 /**
  * Each relation's header, from its registry, so an EMPTY relation still writes
@@ -60,7 +64,7 @@ import { scriptTextOf } from '@/utils/vue-sfc';
  * constant list — which is why the prototype can answer without a row.
  */
 /** Source extensions a workspace package's entry is mapped back to, in the order they are looked for. */
-const JS_SOURCE_EXTENSIONS = ['.js', '.jsx', '.mjs', '.cjs'] as const;
+export const JS_SOURCE_EXTENSIONS = ['.js', '.jsx', '.mjs', '.cjs'] as const;
 
 const HEADER_BY_FILE: Readonly<Record<string, string>> = {
   [JAVASCRIPT_CSV_FILES.MODULES]: JsModuleRegistry.prototype.getCsvHeader(),
@@ -442,54 +446,36 @@ export class JavaScriptProjectAnalyzer {
 
     try {
       await writerFor(JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES).append(packageEntries);
-      for (const file of files) {
-        let sourceText: string;
-        try {
-          sourceText = await fsp.readFile(file, 'utf-8');
-        } catch (error) {
+
+      // One file's outcome, consumed the same way whichever thread produced it.
+      // The pool calls this in file order as results arrive (never after
+      // buffering them all — a project's rows fill the heap once, not twice),
+      // and the serial loop calls it inline, so skip order, write order and
+      // therefore output bytes are identical across the two paths.
+      const consumeOutcome = async (file: string, outcome: JsParseOutcome): Promise<void> => {
+        if (outcome.readError !== undefined) {
           this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-            SkippedFileReason.READ_ERROR, String(error));
-          continue;
+            SkippedFileReason.READ_ERROR, outcome.readError);
+          return;
         }
         // A component is read once, by `scriptTextOf`: a `.vue` as its virtual
         // script, a `.svelte`/`.astro` as its JavaScript blocks. One with nothing
         // this analyzer can read (a lang="ts" Vue script is the TypeScript one's) is a recorded skip.
-        const script = scriptTextOf(file, sourceText);
-        if (script.unread !== undefined) {
+        if (outcome.unread !== undefined) {
           this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-            SkippedFileReason.EMPTY_CONTENT, script.unread);
-          continue;
+            SkippedFileReason.EMPTY_CONTENT, outcome.unread);
+          return;
         }
-        const governing = governingByFile.get(file)!;
-        let facts: JsFileFacts;
-        try {
-          facts = extractJavaScriptFile({
-            absoluteFilePath: file,
-            filePath: toRelative(pathAnchor, file),
-            baseMservPath: baseMservPath,
-            moduleQualifiedName: toProjectRelative(file),
-            sourceText: script.text,
-            scriptKind: script.scriptKind,
-            serviceVersionLinkHash,
-            moduleSystem: governing.moduleSystem,
-            moduleSystemSource: governing.moduleSystemSource,
-            governingPackageJsonPath: governing.packageJsonPath === ''
-              ? ''
-              : toRelative(pathAnchor, governing.packageJsonPath),
-            packageName: governing.packageName,
-            compilerOptions: compilerOptionsFor(governing.moduleSystem, pathAliases.aliasesFor(file)),
-            projectModuleHashes,
-            toProjectRelative,
-            resolveWorkspaceModule,
-          });
-        } catch (error) {
+        if (outcome.extractError !== undefined || outcome.facts === undefined) {
           // An extraction error is a DEFECT, never a decision. Counted apart
           // from anything else so a parser that throws on every file cannot
           // report a clean run with empty relations.
           this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-            SkippedFileReason.EXTRACTION_ERROR, String(error));
-          continue;
+            SkippedFileReason.EXTRACTION_ERROR,
+            outcome.extractError ?? 'worker returned no facts');
+          return;
         }
+        const facts = outcome.facts;
         analysed += 1;
         const module = facts.modules[0]!;
         if (module.sourceProvenance !== 'PROJECT') {
@@ -523,6 +509,94 @@ export class JavaScriptProjectAnalyzer {
         // measure folds this file into running totals and the objects become
         // garbage on the next iteration.
         accumulateFileCompleteness(completeness, facts);
+      };
+
+      // THE PER-FILE WORK RUNS ON WORKER THREADS when there are enough files
+      // (js-parse-pool.ts): read, parse, extract and hash are independent
+      // between files — `projectModuleHashes` and every resolver cache the
+      // loop shares were derived from paths alone before any file was parsed,
+      // so no file's extraction reads another's results. The loop below still
+      // CONSUMES every outcome in sorted file order through the unchanged
+      // body. AXIOMCODE_PARSE_JOBS=1 restores the strict serial path; the
+      // pool declining (no compiled worker) falls back to it too.
+      const jobs = parsePoolJobs(files.length);
+      let pooled = false;
+      if (jobs > 1) {
+        // The pool's consume callback is synchronous; the body above awaits
+        // its writers. Outcomes are chained in the file order the pool
+        // guarantees, so writes land in exactly the serial order, and the
+        // chain is awaited (and its first error rethrown) before the
+        // relations publish. After a failure the remaining outcomes are
+        // dropped unconsumed, as the serial loop drops the files after a
+        // throw.
+        let consumeError: unknown;
+        let tail: Promise<void> = Promise.resolve();
+        pooled = await parseFilesInPool(
+          {
+            pathAnchor,
+            baseMservPath,
+            serviceVersionLinkHash,
+            excludeDirs: [...excludes],
+            moduleHashes: [...projectModuleHashes],
+          },
+          files.map((filePath) => ({ filePath, governing: governingByFile.get(filePath)! })),
+          jobs,
+          (i, outcome) => {
+            tail = tail
+              .then(() => (consumeError === undefined
+                ? consumeOutcome(files[i]!, outcome)
+                : undefined))
+              .catch((error) => { consumeError = consumeError ?? error; });
+          }
+        );
+        await tail;
+        if (consumeError !== undefined) {
+          throw consumeError;
+        }
+      }
+      if (!pooled) {
+        for (const file of files) {
+          let sourceText: string;
+          try {
+            sourceText = await fsp.readFile(file, 'utf-8');
+          } catch (error) {
+            await consumeOutcome(file, { readError: String(error) });
+            continue;
+          }
+          const script = scriptTextOf(file, sourceText);
+          if (script.unread !== undefined) {
+            await consumeOutcome(file, { unread: script.unread });
+            continue;
+          }
+          const governing = governingByFile.get(file)!;
+          let outcome: JsParseOutcome;
+          try {
+            outcome = {
+              facts: extractJavaScriptFile({
+                absoluteFilePath: file,
+                filePath: toRelative(pathAnchor, file),
+                baseMservPath: baseMservPath,
+                moduleQualifiedName: toProjectRelative(file),
+                sourceText: script.text,
+                scriptKind: script.scriptKind,
+                serviceVersionLinkHash,
+                moduleSystem: governing.moduleSystem,
+                moduleSystemSource: governing.moduleSystemSource,
+                governingPackageJsonPath: governing.packageJsonPath === ''
+                  ? ''
+                  : toRelative(pathAnchor, governing.packageJsonPath),
+                packageName: governing.packageName,
+                compilerOptions: compilerOptionsFor(governing.moduleSystem, pathAliases.aliasesFor(file)),
+                projectModuleHashes,
+                toProjectRelative,
+                resolveWorkspaceModule,
+              }),
+            };
+          } catch (error) {
+            outcome = { extractError: String(error) };
+          }
+          await consumeOutcome(file, outcome);
+        }
       }
 
       for (const filename of Object.values(JAVASCRIPT_CSV_FILES)) {
@@ -631,7 +705,7 @@ export class JavaScriptProjectAnalyzer {
  * here. A parser running two resolvers and comparing them is doing resolution
  * work, which is exactly what `js_import.resolverAgreement` was deleted for.
  */
-function compilerOptionsFor(moduleSystem: string, aliases: PathAliases): ts.CompilerOptions {
+export function compilerOptionsFor(moduleSystem: string, aliases: PathAliases): ts.CompilerOptions {
   return {
     allowJs: true,
     target: ts.ScriptTarget.ESNext,
@@ -642,7 +716,7 @@ function compilerOptionsFor(moduleSystem: string, aliases: PathAliases): ts.Comp
 }
 
 /** The alias half of a `jsconfig.json` / `tsconfig.json`: nothing else of it is read. */
-type PathAliases = Partial<Pick<ts.CompilerOptions, 'baseUrl' | 'paths' | 'pathsBasePath'>>;
+export type PathAliases = Partial<Pick<ts.CompilerOptions, 'baseUrl' | 'paths' | 'pathsBasePath'>>;
 
 /**
  * The `compilerOptions.paths` / `baseUrl` that govern a file, from the nearest
@@ -659,7 +733,7 @@ type PathAliases = Partial<Pick<ts.CompilerOptions, 'baseUrl' | 'paths' | 'paths
  * governs (the tsconfig-family config when both sit in one directory), so a vite app
  * nested under a repository whose own `tsconfig.json` maps `@/*` elsewhere keeps its alias.
  */
-class PathAliasResolver {
+export class PathAliasResolver {
   private readonly byDirectory = new Map<string, GoverningAliases>();
   private readonly bundlerByDirectory = new Map<string, GoverningAliases>();
 
@@ -844,7 +918,7 @@ function pathAnchorFor(rootDir: string, baseMservPath: string): string {
   return rootIsInsideBase ? base : rootDir;
 }
 
-function toRelative(anchor: string, absolutePath: string): string {
+export function toRelative(anchor: string, absolutePath: string): string {
   return path.relative(anchor, absolutePath).split(path.sep).join('/');
 }
 
@@ -855,7 +929,7 @@ function toRelative(anchor: string, absolutePath: string): string {
  * name carried an extension. The directory part is preserved, which is why the
  * strip is applied to the basename and rejoined rather than to the whole path.
  */
-function stripExtension(relativePath: string): string {
+export function stripExtension(relativePath: string): string {
   const slash = relativePath.lastIndexOf('/');
   const directory = slash < 0 ? '' : relativePath.slice(0, slash + 1);
   return directory + stripJsExtension(relativePath.slice(slash + 1));
