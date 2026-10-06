@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The axiomcode entry as MCP tools — one tool per subcommand, each a thin shell-out to scripts/axiomcode so the answer is
 exactly what the CLI prints (and stays verified there). Descriptions are short on purpose: they sit in the agent's context every turn."""
-import inspect, os, re, subprocess, sys, typing
+import inspect, os, re, subprocess, sys
 try:
     from mcp.server.mcpserver import MCPServer
 except ImportError:
@@ -113,56 +113,18 @@ def scripts_module(name):
         _LOADED[0] = sig; _LOADED[1].add(d)
     return importlib.import_module(name)
 
-# THE CLI'S WORDS, SPELLED AS THIS SURFACE SPELLS THEM (#1567). The answers are the CLI's, so their hints name CLI
-# flags (`--in <path>`, `--tests-only`, `--limit N`); an agent that sent those back as `in=`, `tests_only=` had them
-# dropped without a word by the SDK, which ignores an argument it does not know, and got the unnarrowed answer as if
-# it had been narrowed. So an argument no tool parameter answers to is refused, naming the parameter the CLI flag is
-# here, and every flag in an answer that is a parameter here is written as that parameter. Flags only the CLI has
-# (--json, --lang on a query) are left as they are.
-PARAM = {'--in': 'in_path', '--tests-only': 'tests', '--tests': 'tests', '--tests-in': 'tests_in', '--from': 'from_',
-         '--why': 'why', '--source': 'source', '--explain': 'explain', '--every': 'every', '--staged': 'staged',
-         '--impact': 'impact', '--delete': 'delete', '--depth': 'depth', '--limit': 'limit', '--page': 'page',
-         '--budget': 'budget', '--kind': 'kind', '--range': 'range', '--fresh': 'fresh', '--no-refresh': 'refresh',
-         '--drop': 'drop', '--exact': 'exact', '--alongside': 'alongside'}
-# a CLI switch that turns a parameter OFF: `--no-refresh` is refresh=False here
-NEGATED = {'--no-refresh'}
-SWITCH = {'--tests-only', '--tests', '--why', '--source', '--explain', '--every', '--staged', '--impact', '--delete', '--fresh',
-          '--exact', '--alongside'}
+# AN ARGUMENT NO TOOL PARAMETER ANSWERS TO IS REFUSED (#1567): the SDK ignores an argument it does not know, so a
+# call that sent one got the unnarrowed answer as if it had been narrowed. The tools take no options, so anything
+# beyond their declared parameters is named back to the caller.
 PARAMS = {}                                     # tool name -> its parameter names, filled as the tools are declared
-# a flag, and its value when what follows looks like one (<path>, 'x', N, 2, a.b, src/x) rather than prose ("no --in was given")
-_FLAG = re.compile(r"(?<![\w-])(--[a-z][a-z-]*)(?![\w-])"
-                   r"(?:([ =])(<[^>]*>|'[^']*'|N(?:\|all)?(?![\w])|\d+(?![\w])|all(?![\w])|[a-z](?![\w.])|[\w*-]*[/.:*][^\s`'\"(),;\]]*))?")
-# a line of quoted source (context --source), or a site of a grep-shaped answer (`path:line: code  [tag]`, whose tag
-# names no flag): never rewritten, since the code on it is the file's own text
-_CODE = re.compile(r'^\s*(\d+ )?\| |^[^\s:]+:\d+: ')
-
-def mcp_words(text):
-    """An answer with each CLI flag that is an MCP parameter written as that parameter: `--in <path>` -> `in_path=<path>`,
-    `--tests-only` -> `tests=True`, `--limit N` -> `limit=N`. Lines of quoted code are left alone."""
-    def one(m):
-        flag, sep, val = m.groups()
-        p = PARAM.get(flag)
-        if not p: return m.group(0)
-        if flag in SWITCH: return f"{p}=True" + (sep + val if val else '')
-        if flag in NEGATED: return f"{p}=False" + (sep + val if val else '')
-        if flag == '--drop' and val: return f'{p}=["{val}"]'   # a list of rows: `--drop a.ts:3` is drop=["a.ts:3"]
-        if val == 'all': return f'{p}="all"'                   # `--page all` is page="all", a string, not a name
-        if val == 'N|all': return f'{p}=N or {p}="all"'
-        return f"{p}={val}" if val else p
-    return '\n'.join(l if _CODE.match(l) else _FLAG.sub(one, l) for l in text.split('\n'))
 
 def unknown_arguments(name, arguments):
-    """Why a call names an argument the tool does not take, with the parameter meant when it is a CLI flag's name
-    (in -> in_path, tests_only -> tests, from -> from_), or None when every argument is a parameter."""
+    """Why a call names an argument the tool does not take, or None when every argument is a parameter."""
     params = PARAMS.get(name)
     extra = [k for k in (arguments or {}) if params is not None and k not in params]
     if not extra: return None
-    said = []
-    for k in extra:
-        meant = PARAM.get('--' + k.lstrip('-').replace('_', '-'))
-        said.append(f"{k}: unexpected argument" + (f" (the CLI's --{k.lstrip('-').replace('_', '-')} is {meant}= here)"
-                                                    if meant in params else ''))
-    return f"invalid arguments for {name}: " + '; '.join(said) + f". {name} takes: {', '.join(params)}"
+    said = [f"{k}: unexpected argument" for k in extra]
+    return f"invalid arguments for {name}: " + '; '.join(said) + f". {name} takes: {', '.join(params) or 'no arguments'}"
 
 try:
     import importlib
@@ -242,65 +204,9 @@ def run(args, cwd=None, timeout=900):
     # an answer given from a graph that predates some edit says so, and names the files (#1305); one given from a graph a
     # fallback engine built, in place of the checkout's own, names that engine
     if not r.returncode: out += ''.join('\n' + l for l in (r.stderr or '').splitlines() if l.startswith(('graph refresh:', 'graph built by:')))
-    return head + (mcp_words(out.strip()) or f"(no output, exit {r.returncode})")
+    return head + (out.strip() or f"(no output, exit {r.returncode})")
 
-# SITES, ONE PER LINE, BY DEFAULT. When the answer is a list of sites (who uses it, the hops of a chain, where a task
-# lands, the tests to run) it comes the way grep prints: `path:line: code  [resolved | one of a set | text | hop N]`,
-# capped, the rest counted (scripts/ax_grep.py). The prose answer's sections, headers and explanations were most of what
-# an agent read, and the fan-out it complained of. full=True, or asking for what only the prose carries (the code of a
-# flow, test routes, a delete verdict, a later page), gives the verb's own answer, unchanged.
-# A PAGE IS A NUMBER OR "all". The answers say `--page all` for the whole answer; the parameter took only an integer, so
-# the hint could not be followed here, and an agent that sent page="all" was refused. page=2 and page="2" are page 2.
-Page = typing.Union[int, str]
-
-def _page_arg(page):
-    p = str(page).strip().lower() if page is not None else '1'
-    if p == 'all': return 'all'
-    if not p.lstrip('-').isdigit():
-        raise ToolError(f'page: expected a page number or "all", got {page!r}')
-    return None if int(p) == 1 else str(int(p))
-
-def _paged(page):
-    return _page_arg(page) is not None
-
-def _pg(page):
-    v = _page_arg(page)
-    return ['--page', v] if v else []
-
-def NOREF(refresh):
-    """refresh=False is the CLI's --no-refresh: a read-only query, which starts no rebuild of the graph"""
-    return [] if refresh else ['--no-refresh']
-
-def grep(full, limit=0):
-    return [] if full else ['--grep'] + (['--grep-limit', str(limit)] if limit else [])
-
-# A REPOSITORY THAT IS NOT THERE IS REFUSED, NOT REPLACED. The dispatcher took the last argument that was a directory,
-# else the working directory, so a repo= naming nothing answered for the server's working directory instead, and on one
-# with no graph started a full build of it. The repo parameter is always the repository, so any value that is not a
-# directory is an error that names it, and nothing is run.
-def need_repo(repo):
-    if repo and not os.path.isdir(repo):
-        raise ToolError(f"repo: no such directory: {repo}. Nothing was built or asked; pass a directory that exists "
-                        f"(an absolute path), or leave repo out to use {os.getcwd()}.")
-
-# EVIDENCE FOR THE UNCERTAIN ROWS (scripts/ax_evidence.py): evidence="on" gives each of the five strongest rows that is
-# not an exact edge the line that decides it and what stands on it; "off" turns it off; empty leaves AXIOMCODE_EVIDENCE
-# (off by default) to decide. drop=[file:line] asks again without those rows, exact=True with exact edges only.
-EV_DOC = (' evidence="on"|"off": each of the 5 strongest rows that is not an exact edge ([by name], [one of a set], '
-          '[registered] …) carries the line that decides it (where its receiver or key gets its value) and how many '
-          'callables and tests are reached only through it; drop=["file:line"] asks again without those rows, exact=True '
-          'with exact edges only, alongside=True lists the `alongside` rows the evidence view counts.')
-
-def ev(evidence='', drop=(), exact=False, alongside=False):
-    e = str(evidence or '').strip().lower()
-    a = (['--evidence'] if e in ('on', '1', 'true', 'yes') else ['--no-evidence'] if e in ('off', '0', 'false', 'no') else [])
-    return a + [x for d in (drop or []) if str(d).strip() for x in ('--drop', str(d).strip())] + (['--exact'] if exact else []) + (['--alongside'] if alongside else [])
-
-def _doc(f):
-    f.__doc__ = (f.__doc__ or '') + EV_DOC
-    return f
-
-# THE FOUR TOOLS TAKE NO OPTIONS, so an answer never tells the agent to pass one. The notes the verbs add (a stale
+# THE TOOLS TAKE NO OPTIONS, so an answer never tells the agent to pass one. The notes the verbs add (a stale
 # graph, a refresh in flight) are kept for what they say; a clause that names a flag or a parameter to set is dropped.
 _OPTION = re.compile(r"(?<![\w-])--[a-z][a-z-]*|\b[a-z_]+=(?:True|False|N\b|<|\d|\"|')")
 def plain(text):

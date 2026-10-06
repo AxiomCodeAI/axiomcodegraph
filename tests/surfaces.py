@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tests/surfaces.py — the public verbs are on every caller-facing surface, and nothing else is.
 
-The product offers a small surface: `index` to set up, then four questions — `find`, `impact`, `path`, `tests` —
+The product offers a small surface: `index` to set up, then three questions — `impact`, `path`, `tests` —
 answered as numbered places with the code of the function each sits in. Every public verb must be:
 
   · in `axiomcode --help` (the dispatcher's own comment block) and in `bin/axiomcode --help`, the command an install
@@ -14,8 +14,8 @@ Every other verb the dispatcher still dispatches (the hooks, the suites and scri
 INTERNAL, with the reason written down, and must appear on none of those surfaces. A verb added to the dispatch table
 that is in neither list fails, so exposing one is a decision rather than an accident (#1034).
 
-The agent-facing docs (both copies of SKILL.md, AGENTS.md, the Cursor rule, the block `axiomcode install` writes, and
-the README's CLI section) name no old MCP tool (`axiomcode_context` …) and no flag other than index's.
+The agent-facing docs (both copies of SKILL.md, AGENTS.md, the Cursor rule, and the README's CLI section) name no old
+MCP tool (`axiomcode_context` …) and no flag other than index's.
 
     python3 tests/surfaces.py
 """
@@ -34,13 +34,9 @@ NO_MCP = {'index': 'setup, not a question: the first query through the MCP serve
 # dispatched, not advertised: verb -> why
 INTERNAL = {
     'build':       'the old name of index',
-    'context':     'search by task words; search is the agent\'s own grep, which a hook annotates',
-    'find':        'the front-door spelling of context; dispatched for compatibility, no longer advertised',
+    'context':     'search by task words; the orient hook and the suites call it, no caller-facing surface does',
     'changed':     'impact with no name answers the same question at the front door; the edit hooks read it with --json',
     'test-impact': 'what tests runs; its flags (--range, --staged, --why, …) serve scripts and the suites',
-    'graph':       'draws the graph as a page for a person; not one of the four questions',
-    'diff':        'compares two graphs of one tree; a tool for checking an engine change',
-    'install':     'writes the CLAUDE.md block once, at setup',
 }
 OLD_TOOLS = re.compile(r'\baxiomcode_(context|impact|path|changed|test_impact|graph|index|diff)\b')
 INDEX_FLAGS = {'--lang', '--src', '--library'}
@@ -67,8 +63,6 @@ def docs():
     for p in (SKILL, os.path.join(ROOT, 'skills', 'axiomcode', 'SKILL.md'), os.path.join(PLUG, 'AGENTS.md'),
               os.path.join(PLUG, 'rules', 'axiomcode.mdc')):
         out.append((os.path.relpath(p, ROOT), open(p, encoding='utf-8').read()))
-    r = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'axiomcode-install'), '--print'], capture_output=True, text=True)
-    out.append(('the install block', r.stdout))
     out.append(('README.md CLI section', readme_cli()))
     return out
 

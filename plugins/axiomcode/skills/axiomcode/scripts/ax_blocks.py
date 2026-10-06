@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ax_blocks.py <find|impact|path|tests> <repo> -- <verb command…>   ·   ax_blocks.py edits <repo>  — an answer as numbered places, each with its code.
+"""ax_blocks.py <impact|path|tests> <repo> -- <verb command…>   ·   ax_blocks.py edits <repo>  — an answer as numbered places, each with its code.
 
     1. src/shop/pricing.py:6  [by name · in total]
        ```python
@@ -86,7 +86,7 @@ NOISE = ('module scope',)
 
 def render(verb, doc, repo):
     code = ax_grep.Code(repo)
-    rows, _rest, foot = ax_grep.VERBS[{'find': 'context', 'tests': 'test-impact'}.get(verb, verb)](doc, code)
+    rows, _rest, foot = ax_grep.VERBS[{'tests': 'test-impact'}.get(verb, verb)](doc, code)
     sites = []
     for _k, line in rows:
         m = SITE.match(line)

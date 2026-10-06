@@ -722,12 +722,12 @@ def read_only_checks():
         open(os.path.join(shim, 'python3'), 'w').write('#!/bin/sh\necho "NO_REFRESH=${AXIOMCODE_NO_REFRESH:-} $*"\n'); os.chmod(os.path.join(shim, 'python3'), 0o755)
         env = {k: v for k, v in os.environ.items() if k != 'AXIOMCODE_NO_REFRESH'}; env['PATH'] = shim + os.pathsep + env.get('PATH', '')
         said = {}
-        for verb in ('context', 'path', 'impact', 'changed', 'test-impact', 'graph'):
+        for verb in ('context', 'path', 'impact', 'changed', 'test-impact'):
             args = {'context': ['a task'], 'path': ['A', 'B'], 'impact': ['X']}.get(verb, [])
             on = subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode'), verb, *args, repo, '--no-refresh'], capture_output=True, text=True, env=env).stdout
             off = subprocess.run(['bash', os.path.join(SCRIPTS, 'axiomcode'), verb, *args, repo], capture_output=True, text=True, env=env).stdout
             said[verb] = (on, off)
-        check("read-only: `--no-refresh` on each query verb (context, path, impact, changed, test-impact, graph) sets AXIOMCODE_NO_REFRESH and is not passed on as an argument",
+        check("read-only: `--no-refresh` on each query verb (context, path, impact, changed, test-impact) sets AXIOMCODE_NO_REFRESH and is not passed on as an argument",
               all('NO_REFRESH=1 ' in on and '--no-refresh' not in on for on, _ in said.values()), said)
         check("read-only: control: without it the verbs run with refresh on", all(o and 'NO_REFRESH=1' not in o for _, o in said.values()), said)
 
@@ -834,10 +834,11 @@ def mcp_checks():
     check("mcp: fresh=true is refused as an unknown argument, not dropped",
           'fresh: unexpected argument' in (m.unknown_arguments('impact', {'name': 'X', 'fresh': True}) or ''),
           m.unknown_arguments('impact', {'name': 'X', 'fresh': True}))
-    check("mcp: an answer's --fresh is written as the parameter", 'fresh=True' in m.mcp_words('ask again with --fresh to wait'),
-          m.mcp_words('ask again with --fresh to wait'))
-    w = m.mcp_words('pass --no-refresh (MCP refresh=false) to query without rebuilding')
-    check("mcp: an answer's --no-refresh is written as refresh=False", 'refresh=False' in w and '--no-refresh' not in w, w)
+    w = m.plain('stale rows are marked below.\nask again with --fresh to wait')
+    check("mcp: an answer's clause naming --fresh is dropped at the tool layer (the tools take no options)",
+          '--fresh' not in w and 'stale rows are marked below.' in w, w)
+    w = m.plain('pass --no-refresh (MCP refresh=false) to query without rebuilding')
+    check("mcp: an answer's clause naming --no-refresh is dropped at the tool layer", '--no-refresh' not in w, w)
 
 if __name__ == '__main__':
     prune_checks(); marks_checks(); wait_checks(); engine_checks(); per_language_checks(); newer_checks(); read_only_checks(); cap_checks(); lock_checks(); named_checks(); mcp_checks()

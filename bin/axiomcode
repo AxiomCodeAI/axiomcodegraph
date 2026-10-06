@@ -98,16 +98,17 @@ PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
 # `tests` is a query verb (the tests an edit reaches); `test` is THIS command's engine suite. The query
 # surface advertises `tests`; `test` is internal.
-# The list is read from the frontend's own dispatch table, the lines `  <verb>[|<alias>]) exec …` that its `--verbs`
-# prints, so the two entry points still cannot drift -- but read here, in this shell, instead of by a second bash, a
-# sed, a tr and two greps on every query.
+# THE LIST IS THE SUPPORTED SURFACE: the `#   axiomcode <verb>` lines of the frontend's own leading help (what its
+# `--verbs` prints), so the two entry points cannot drift -- read here, in this shell, instead of by a second bash.
+# The frontend still dispatches internal verbs (context, changed, test-impact) for the hooks and the suites, which
+# call it directly; this command refuses them, so the installed surface is only what the help teaches.
 QVERBS=()
 load_verbs(){
   [ ${#QVERBS[@]} -gt 0 ] && return 0; [ -f "$QUERY" ] || return 0
-  local l v x re='^  ([a-z|-]*)\) *exec '
+  local l re='^#   axiomcode ([a-z][a-z-]*)'
   while IFS= read -r l || [ -n "$l" ]; do
-    [[ $l =~ $re ]] || continue; v="${BASH_REMATCH[1]}"
-    for x in ${v//|/ }; do QVERBS+=("$x"); done
+    [ "${l:0:1}" = '#' ] || { [ -n "${QVERBS[*]:-}" ] && break; continue; }
+    [[ $l =~ $re ]] && QVERBS+=("${BASH_REMATCH[1]}")
   done < "$QUERY"
 }
 query_verbs(){ load_verbs; [ ${#QVERBS[@]} -gt 0 ] && printf '%s\n' "${QVERBS[@]}"; return 0; }

@@ -25,7 +25,6 @@ DOCS = sorted(p for d in (os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', '
               for p in [os.path.join(d, 'SKILL.md')] + glob.glob(os.path.join(d, 'reference', '*.md'))) + \
        [os.path.join(ROOT, 'plugins', 'axiomcode', 'AGENTS.md')] + \
        sorted(glob.glob(os.path.join(ROOT, 'plugins', 'axiomcode', 'rules', '*.mdc')))
-INSTALL = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode-install')
 
 VERB = r'(find|impact|path|tests)'
 # a tool named: a call `impact(`, the Claude Code name mcp__plugin_axiomcode_axiomcode__impact, MCP `impact`, or a command
@@ -140,8 +139,7 @@ def main():
     tools = schemas()
     bad = controls(tools)
     seen = set()
-    block = subprocess.run([sys.executable, INSTALL, '--print'], capture_output=True, text=True).stdout
-    for path, text in [(p, open(p, encoding='utf-8').read()) for p in DOCS] + [('the install block', block)]:
+    for path, text in [(p, open(p, encoding='utf-8').read()) for p in DOCS]:
         rel = os.path.relpath(path, ROOT) if os.path.isabs(path) else path
         rows = documented(text)
         seen |= {(t, a) for ts, a, _v, _u in rows if ts for t in ts}

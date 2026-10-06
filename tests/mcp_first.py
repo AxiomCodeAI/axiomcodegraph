@@ -62,13 +62,7 @@ check('SKILL.md has a description block', bool(m))
 if m:
     tool_first('SKILL.md description', ' '.join(m.group(1).split()), ('impact', 'path', 'tests'))
 
-# 2. the block `axiomcode install` writes into CLAUDE.md, beside the permission it grants
-r = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'axiomcode-install'), '--print'],
-                   capture_output=True, text=True, timeout=30)
-check('install --print prints the block', r.returncode == 0 and 'BEGIN axiomcode' in r.stdout, r.stderr[-200:])
-tool_first('install block', r.stdout, ('impact', 'path', 'tests'))
-
-# 3. the directive before the first search for a name the graph declares
+# 2. the directive before the first search for a name the graph declares
 with tempfile.TemporaryDirectory() as repo:
     import sqlite3
     os.makedirs(os.path.join(repo, '.axiomcode', 'out'))
@@ -82,7 +76,7 @@ with tempfile.TemporaryDirectory() as repo:
     # only the verbs that answer a search: tests is about an edit, not about what a grep looks for
     tool_first('direct', said, ('impact', 'path'))
 
-# 4. the orientation on the first prompt, both branches it can reach: a change question and a how-question
+# 3. the orientation on the first prompt, both branches it can reach: a change question and a how-question
 with tempfile.TemporaryDirectory() as work:
     repo = os.path.join(work, 'case')
     shutil.copytree(CASE, repo)
@@ -99,7 +93,7 @@ with tempfile.TemporaryDirectory() as work:
         check('orient: a how-question is oriented to the flow', rc == 0 and 'next:' in said, said[:300])
         tool_first('orient (how)', said, ('path',))
 
-# 5. orient's third hint, for a verb that refuses without a scope: no verb refuses that way today, so it cannot be
+# 4. orient's third hint, for a verb that refuses without a scope: no verb refuses that way today, so it cannot be
 # fired; the order is checked in the source line that prints it.
 src = open(os.path.join(HOOKS, 'orient.py'), encoding='utf-8').read()
 i = src.find("search these with grep as usual")

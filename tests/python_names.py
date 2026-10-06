@@ -54,9 +54,9 @@ with tempfile.TemporaryDirectory() as tmp:
             open(log, 'w').close()
 
     # the command npm links: bash's python3 is the placeholder until the launcher puts its own first
-    r = subprocess.run(['node', AXJS, 'help', 'context'], env=placeholder, capture_output=True, text=True, timeout=60)
-    check('`axiomcode help context` answers when python3 is the Store placeholder',
-          r.returncode == 0 and 'context' in r.stdout and 'Python was not found' not in r.stderr,
+    r = subprocess.run(['node', AXJS, 'help', 'impact'], env=placeholder, capture_output=True, text=True, timeout=60)
+    check('`axiomcode help impact` answers when python3 is the Store placeholder',
+          r.returncode == 0 and 'impact' in r.stdout and 'Python was not found' not in r.stderr,
           f'rc={r.returncode} err={r.stderr[-300:]}')
     c = calls()
     check('...and the Python bash ran is the one `python` named, not the placeholder',
@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # AXIOMCODE_PYTHON comes first, as it does for the MCP server
     chosen = os.path.join(tmp, 'mine')
     script(chosen, f'#!/bin/sh\necho "mine $*" >> "{log}"\nexec "{sys.executable}" "$@"\n')
-    r = subprocess.run(['node', AXJS, 'help', 'context'], env=dict(placeholder, AXIOMCODE_PYTHON=chosen),
+    r = subprocess.run(['node', AXJS, 'help', 'impact'], env=dict(placeholder, AXIOMCODE_PYTHON=chosen),
                        capture_output=True, text=True, timeout=60)
     check('AXIOMCODE_PYTHON is the Python bash runs', r.returncode == 0 and 'mine' in calls(), f'rc={r.returncode}')
 
