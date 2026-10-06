@@ -115,7 +115,12 @@ export async function runParsePool<D extends { i: number }, R extends { i: numbe
   workerPath: string,
   dispatches: D[],
   jobs: number,
-  consume: (reply: R) => void
+  // may be async (a consumer that streams rows to disk awaits its writes);
+  // the pool never runs two consumes at once and never out of order
+  consume: (reply: R) => void | Promise<void>,
+  // handed to every worker at start (workerData): the shared, clonable inputs
+  // a language's extraction needs beyond the per-file dispatch
+  workerData?: Record<string, unknown>
 ): Promise<boolean> {
   if (!fs.existsSync(workerPath)) return false;
   if (dispatches.length === 0) return true;
@@ -125,16 +130,10 @@ export async function runParsePool<D extends { i: number }, R extends { i: numbe
   const workers: Worker[] = [];
   let nextToDispatch = 0;
   let nextToConsume = 0;
+  let pumping = false;
   const idle: Worker[] = [];
 
   await new Promise<void>((resolve, reject) => {
-    const drain = () => {
-      for (let reply = ready.get(nextToConsume); reply; reply = ready.get(nextToConsume)) {
-        ready.delete(nextToConsume);
-        consume(reply);
-        nextToConsume += 1;
-      }
-    };
     const feed = (worker: Worker) => {
       if (nextToDispatch >= dispatches.length) {
         idle.push(worker);
@@ -142,27 +141,53 @@ export async function runParsePool<D extends { i: number }, R extends { i: numbe
         return;
       }
       if (nextToDispatch - nextToConsume >= window) {
-        idle.push(worker); // drain() wakes it once its result's turn has come
+        idle.push(worker); // the pump wakes it once its result's turn has come
         return;
       }
       worker.postMessage(dispatches[nextToDispatch]);
       nextToDispatch += 1;
     };
+    const wakeIdle = () => {
+      while (
+        idle.length > 0 &&
+        nextToDispatch - nextToConsume < window &&
+        nextToDispatch < dispatches.length
+      ) {
+        feed(idle.pop() as Worker);
+      }
+    };
+    // ONE pump at a time: a consume may await, replies landing meanwhile only
+    // set `ready` — the running pump picks them up, or the re-check below
+    // restarts it for a reply that arrived exactly as it finished.
+    const pump = async () => {
+      if (pumping) return;
+      pumping = true;
+      try {
+        for (let reply = ready.get(nextToConsume); reply; reply = ready.get(nextToConsume)) {
+          ready.delete(nextToConsume);
+          await consume(reply);
+          nextToConsume += 1;
+          wakeIdle();
+        }
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+        return;
+      } finally {
+        pumping = false;
+      }
+      if (ready.has(nextToConsume)) {
+        void pump();
+      } else if (nextToConsume >= dispatches.length) {
+        resolve();
+      }
+    };
     for (let w = 0; w < Math.min(jobs, dispatches.length); w++) {
-      const worker = new Worker(workerPath);
+      const worker = new Worker(workerPath, workerData === undefined ? undefined : { workerData });
       workers.push(worker);
       worker.on('message', (reply: R) => {
         ready.set(reply.i, reply);
-        drain();
+        void pump();
         feed(worker);
-        while (
-          idle.length > 0 &&
-          nextToDispatch - nextToConsume < window &&
-          nextToDispatch < dispatches.length
-        ) {
-          feed(idle.pop() as Worker);
-        }
-        if (nextToConsume >= dispatches.length) resolve();
       });
       worker.on('error', reject);
       feed(worker);

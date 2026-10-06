@@ -92,6 +92,37 @@ export class TsRelationWriter {
     }
   }
 
+  /**
+   * Appends one file's rows ALREADY RENDERED — a parse worker runs `toCsv`
+   * beside the extraction so the main thread writes strings instead of
+   * re-walking rows. Every line passes the same `verifyRow` the object path
+   * runs, on the same string that is written; the header must be the one the
+   * rows' class renders, and the first appender's header wins exactly as the
+   * object path's first row does.
+   */
+  async appendRendered(header: string, lines: readonly string[]): Promise<void> {
+    if (this.closed) {
+      throw new Error(`${path.basename(this.outputPath)}: appended after the file was published`);
+    }
+    if (lines.length === 0) {
+      return;
+    }
+    if (this.handle === undefined) {
+      this.handle = await fsp.open(this.temporaryPath, 'w');
+      this.header = header;
+      this.width = countTabs(this.header) + 1;
+      this.buffer.push(this.header + '\n');
+    }
+    for (const line of lines) {
+      verifyRow(line, this.width, this.outputPath, this.rows + 2);
+      this.buffer.push(line + '\n');
+      this.rows += 1;
+    }
+    if (this.buffer.length >= TS_CSV_CHUNK_SIZE) {
+      await this.flush();
+    }
+  }
+
   private async flush(): Promise<void> {
     if (this.handle === undefined || this.buffer.length === 0) {
       return;

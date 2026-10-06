@@ -28,12 +28,18 @@ import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extract
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
 import { extractTsPackageEntries } from '@/parsers/typescript/ts-package-entry-extractor';
 import { WorkspacePackages } from '@/parsers/typescript/workspace-packages';
-import { WorkspaceModule } from '@/parsers/typescript/extractors/ts-import-extractor';
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
+import {
+  mergeCompleteness as mergeFileCompleteness,
+  parsePoolJobs,
+  parseTsFilesInPool,
+  STREAMED_KEYS,
+  STREAMED_TABLES,
+} from '@/workflows/typescript/ts-parse-pool';
+import { tsResolutionContext } from '@/workflows/typescript/ts-resolution-context';
 import { TsRelationWriter } from './ts-relation-writer';
 import { EntityUtils } from '@/utils/entity-utils';
 import { isGeneratedOutputDirectory } from '@/utils/generated-output';
-import { stripTsExtension } from '@/parsers/typescript/ts-module-paths';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
 import {
   isVueFile,
@@ -265,36 +271,21 @@ export class TypeScriptProjectAnalyzer {
         moduleHashFor(toRelative(pathAnchor, file), options.baseMservPath, serviceVersionLinkHash)
       );
     }
-    const toProjectRelative = (absolutePath: string): string =>
-      stripExtension(toRelative(pathAnchor, absolutePath));
-    // A sibling package imported by its name binds to the source its entry is built
-    // from. That source may belong to another program under the same anchor, whose
-    // module hash is the same pure function of its path; a source file outside the
-    // anchor or under a skipped directory is walked by no program and binds nothing.
+    // The three closures extraction needs, built from plain values through
+    // ts-resolution-context.ts — the SAME constructor a parse worker uses, so
+    // the serial loop and the pool cannot drift.
     const workspacePackages = this.workspacePackagesAt(pathAnchor);
-    const sourceModuleHashOf = (absolutePath: string): string | undefined => {
-      const inProgram = projectModuleHashes.get(absolutePath);
-      if (inProgram !== undefined) {
-        return inProgram;
-      }
-      const relative = path.relative(pathAnchor, absolutePath);
-      if (relative.startsWith('..') || path.isAbsolute(relative) || /\.d\.(m|c)?ts$/.test(relative)
-        || relative.split(path.sep).some((segment) => excludes.has(segment))
-        || !fs.existsSync(absolutePath)) {
-        return undefined;
-      }
-      return moduleHashFor(toRelative(pathAnchor, absolutePath), options.baseMservPath, serviceVersionLinkHash);
+    const resolutionInputs = {
+      pathAnchor,
+      baseMservPath: options.baseMservPath,
+      serviceVersionLinkHash,
+      excludes,
+      projectModuleHashes,
     };
-    const workspaceResolutions = new Map<string, WorkspaceModule | undefined>();
-    const resolveWorkspaceModule = (specifier: string): WorkspaceModule | undefined => {
-      if (workspacePackages.size === 0) {
-        return undefined;
-      }
-      if (!workspaceResolutions.has(specifier)) {
-        workspaceResolutions.set(specifier, workspacePackages.resolve(specifier, sourceModuleHashOf));
-      }
-      return workspaceResolutions.get(specifier);
-    };
+    const { toProjectRelative, resolveWorkspaceModule } = tsResolutionContext(
+      resolutionInputs,
+      workspacePackages
+    );
 
     // Skips accumulate across the programs one analyzePrograms call drives; a
     // standalone analyze starts its own list.
@@ -329,54 +320,29 @@ export class TypeScriptProjectAnalyzer {
     const completenessAccumulator = newCompletenessAccumulator();
     let analysed = 0;
 
-    for (const file of files) {
-      let sourceText: string;
-      // the closure walk read this file already; take its text and release it
-      const prefetched = rootProgram?.texts.get(file);
-      if (prefetched !== undefined) {
-        rootProgram!.texts.delete(file);
-      }
-      try {
-        sourceText = prefetched ?? await fsp.readFile(file, 'utf-8');
-      } catch (error) {
+    // One file's outcome on the SERIAL path (AXIOMCODE_PARSE_JOBS=1, or no
+    // compiled worker): the loop below calls it inline. The pooled path's
+    // consume mirrors this body over worker-rendered rows, in the same file
+    // order, so skip order, writer order and output bytes match.
+    const consumeOutcome = async (
+      file: string,
+      outcome: { readError?: string; extractError?: string; facts?: TsFileFacts }
+    ): Promise<void> => {
+      if (outcome.readError !== undefined) {
         this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-          SkippedFileReason.READ_ERROR, String(error));
-        continue;
+          SkippedFileReason.READ_ERROR, outcome.readError);
+        return;
       }
-      const governing = configResolver.resolve(file);
-      const script = scriptTextOf(file, sourceText);
-      let facts: TsFileFacts;
-      try {
-        facts = extractTypeScriptFile({
-          absoluteFilePath: file,
-          filePath: toRelative(pathAnchor, file),
-          baseMservPath: options.baseMservPath,
-          moduleQualifiedName: toProjectRelative(file),
-          sourceText: script.text,
-          scriptKind: script.scriptKind,
-          serviceVersionLinkHash,
-          tsConfigPath: governing.configPath === ''
-            ? ''
-            : toRelative(pathAnchor, governing.configPath),
-          moduleResolutionMode: governing.moduleResolutionMode,
-          // Per file, from the config that actually claims it. `legacy/` in the
-          // fixture corpus compiles under experimentalDecorators while its
-          // siblings do not, and the source is identical either way.
-          decoratorSystem: governing.decoratorSystem,
-          compilerOptions: governing.options,
-          packageName: '',
-          projectModuleHashes,
-          toProjectRelative,
-          resolveWorkspaceModule,
-        });
-      } catch (error) {
+      if (outcome.extractError !== undefined || !outcome.facts) {
         // An extraction error is a DEFECT, never a decision. Counted apart from
         // anything else so a parser that throws on every file cannot report a
         // clean run with empty relations.
         this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
-          SkippedFileReason.EXTRACTION_ERROR, String(error));
-        continue;
+          SkippedFileReason.EXTRACTION_ERROR,
+          outcome.extractError ?? 'worker returned no facts');
+        return;
       }
+      const facts = outcome.facts;
       analysed += 1;
       // Measured HERE, before the row is let go. The measurement was already
       // per-file: the two indexes it called cross-file were keyed by a file's
@@ -405,6 +371,119 @@ export class TypeScriptProjectAnalyzer {
       await writerFor(TYPESCRIPT_CSV_FILES.FIELD_POSITIONS).append(facts.fieldPositions);
       await writerFor(TYPESCRIPT_CSV_FILES.COMMENTS).append(facts.comments);
       await writerFor(TYPESCRIPT_CSV_FILES.PARSE_GAPS).append(facts.parseGaps);
+    };
+
+    // THE PER-FILE WORK RUNS ON WORKER THREADS when there are enough files:
+    // extraction is per-file by design (cross-file call resolution is the
+    // engine's; the module link passes run after every file, below), so the
+    // pool only changes WHERE a file is parsed, never what order its rows are
+    // consumed in. AXIOMCODE_PARSE_JOBS=1 restores the strict serial path;
+    // the pool declining (no compiled worker beside this file) falls back to
+    // it too.
+    const jobs = parsePoolJobs(files.length);
+    let pooled = false;
+    if (jobs > 1) {
+      pooled = await parseTsFilesInPool(
+        {
+          pathAnchor,
+          baseMservPath: options.baseMservPath,
+          serviceVersionLinkHash,
+          excludes: [...excludes],
+          projectModuleHashes,
+        },
+        files.map((file, i) => {
+          // the closure walk read this file already; hand its text over
+          const prefetched = rootProgram?.texts.get(file);
+          if (prefetched !== undefined) {
+            rootProgram!.texts.delete(file);
+          }
+          return {
+            i,
+            file,
+            sourceText: prefetched,
+            filePath: toRelative(pathAnchor, file),
+            moduleQualifiedName: toProjectRelative(file),
+          };
+        }),
+        jobs,
+        async (i, outcome) => {
+          const file = files[i] as string;
+          if (outcome.readError !== undefined) {
+            this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
+              SkippedFileReason.READ_ERROR, outcome.readError);
+            return;
+          }
+          if (outcome.extractError !== undefined || !outcome.file) {
+            this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
+              SkippedFileReason.EXTRACTION_ERROR,
+              outcome.extractError ?? 'worker returned no facts');
+            return;
+          }
+          const pooledFile = outcome.file;
+          analysed += 1;
+          // The worker already measured this file; fold its counters, gaps and
+          // deferred verdicts in, in file order, as the serial call would have.
+          mergeFileCompleteness(completenessAccumulator, pooledFile.completeness);
+          moduleGraph.push({
+            filePath: pooledFile.filePath,
+            modules: pooledFile.modules,
+            imports: pooledFile.imports,
+            exports: pooledFile.exports,
+          });
+          for (const key of STREAMED_KEYS) {
+            const rendered = pooledFile.rendered[key];
+            if (rendered) {
+              await writerFor(STREAMED_TABLES[key]).appendRendered(rendered.header, rendered.lines);
+            }
+          }
+        }
+      );
+    }
+    if (!pooled) {
+      for (const file of files) {
+        // the closure walk read this file already; take its text and release it
+        const prefetched = rootProgram?.texts.get(file);
+        if (prefetched !== undefined) {
+          rootProgram!.texts.delete(file);
+        }
+        let outcome: { readError?: string; extractError?: string; facts?: TsFileFacts };
+        try {
+          const sourceText = prefetched ?? await fsp.readFile(file, 'utf-8');
+          try {
+            const governing = configResolver.resolve(file);
+            const script = scriptTextOf(file, sourceText);
+            outcome = {
+              facts: extractTypeScriptFile({
+                absoluteFilePath: file,
+                filePath: toRelative(pathAnchor, file),
+                baseMservPath: options.baseMservPath,
+                moduleQualifiedName: toProjectRelative(file),
+                sourceText: script.text,
+                scriptKind: script.scriptKind,
+                serviceVersionLinkHash,
+                tsConfigPath: governing.configPath === ''
+                  ? ''
+                  : toRelative(pathAnchor, governing.configPath),
+                moduleResolutionMode: governing.moduleResolutionMode,
+                // Per file, from the config that actually claims it. `legacy/` in the
+                // fixture corpus compiles under experimentalDecorators while its
+                // siblings do not, and the source is identical either way.
+                decoratorSystem: governing.decoratorSystem,
+                compilerOptions: governing.options,
+                packageName: '',
+                projectModuleHashes,
+                toProjectRelative,
+                resolveWorkspaceModule,
+              }),
+            };
+          } catch (error) {
+            outcome = { extractError: String(error) };
+          }
+        } catch (error) {
+          outcome = { readError: String(error) };
+        }
+        await consumeOutcome(file, outcome);
+      }
     }
 
     // The MODULE graph is the parser's, and it needs every file: an import of
@@ -879,10 +958,6 @@ function pathAnchorFor(rootDir: string, baseMservPath: string): string {
   const root = path.resolve(rootDir);
   const contained = root === base || root.startsWith(base + path.sep);
   return contained ? base : root;
-}
-
-function stripExtension(relativePath: string): string {
-  return stripTsExtension(relativePath);
 }
 
 /** Re-exported so a caller can create a source file the same way the extractor does. */
