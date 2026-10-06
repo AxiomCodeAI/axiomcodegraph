@@ -14,6 +14,7 @@ Search with grep as usual; the graph answers what grep cannot. Use the MCP tools
 |---|---|---|
 | where is the code for this task? | your own search (grep), then bring the name here | — |
 | who calls X, what does changing it reach, which tests? | `impact(name)` | `axiomcode impact <name>` |
+| what is the value of constant X, and who reads it? | `impact(name)` | `axiomcode impact <name>` |
 | what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
 | which tests do my edits need, and how do I run them? | `tests()` | `axiomcode tests` |
@@ -44,7 +45,8 @@ from an empty answer.
 
 With a name: who calls it, what depends on it further out, and the tests that exercise it. Example:
 `impact(name="PriceService.total")`. With no name: the first line is `your edits:` (each declaration you changed and
-how), then the same answer for all of them.
+how), then the same answer for all of them. A constant answers with its value — `change: const MAX_ITEMS = 5` —
+so a limit, a default or a threshold is read off the first line rather than from the file.
 
 ## path
 

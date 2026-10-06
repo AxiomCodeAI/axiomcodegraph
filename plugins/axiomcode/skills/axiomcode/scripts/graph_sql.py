@@ -1990,7 +1990,10 @@ def direct_for_string(q, vals, at, rel):
     """
     rows = []
     if _has(q, 'literals'):
-        for v, f, l in q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64"):
+        # strings only: the v8 index also carries numbers and booleans, and `True` is identifier-shaped
+        try: lit_rows = q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64 AND kind = 'string'")
+        except Exception: lit_rows = q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64")
+        for v, f, l in lit_rows:
             if v not in vals or not re.fullmatch(r'[A-Za-z_]\w*', v): continue
             c = at(f, l)
             if c: rows.append((c, 'uses', 'names it in a string literal', 'text', rel(f) if f else '', l or 0))
@@ -2473,8 +2476,9 @@ def discriminants(q):
 
 def keyed_literals(q, code, at, values):
     """`keyed_literal(c, k, v, f, l)`: an object literal inside c writes the property `k: 'v'` — the discriminant of a
-    type it builds without naming it. Read from the literals table, which holds string EXPRESSIONS only (a literal
-    type `kind: 'X'` in an interface is not there), then confirmed on the line: `node.kind === 'X'` compares and
+    type it builds without naming it. Read from the literals table — only rows whose value is one of the known
+    discriminant strings can match, so the numbers a v8 index adds never join (a literal
+    type `kind: 'X'` in an interface is still not there), then confirmed on the line: `node.kind === 'X'` compares and
     builds nothing, so it is not a row."""
     rows = []
     if not values or not _has(q, 'literals'): return rows
