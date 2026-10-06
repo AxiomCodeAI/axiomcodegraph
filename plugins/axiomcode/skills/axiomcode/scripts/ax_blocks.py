@@ -111,7 +111,11 @@ def render(verb, doc, repo):
             out.append('   ```')
     if not out: return None
     if len(places) > CAP: out.append(f"… {len(places) - CAP} more place(s) not shown — ask a narrower question to see them")
-    out += [x for x in foot if x.startswith(('run:', 'verified'))][:2]
+    # a bound: line is the answer saying where it stops being complete — an agent writing "only X reaches this"
+    # from these places needs it as much as the verified: line, so it is never tidied away here.
+    # run: stays LAST: the answer ends with the command to run, whatever else the foot carries.
+    kept = [x for x in foot if x.startswith(('verified', 'bound:'))][:3]
+    out += kept + [x for x in foot if x.startswith('run:')][:1]
     return out
 
 
