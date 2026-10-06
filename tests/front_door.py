@@ -10,7 +10,7 @@ own answer, unchanged.
   a. bin/axiomcode on a small repository (copied to a temporary directory, committed, indexed): find, impact <name> and
      path answer with numbered places and a fenced code block; after an edit, impact with no name starts with
      `your edits:`, and tests lists the test with its code and ends with a `run:` line.
-  b. the MCP server lists exactly find, impact, path and tests, each with at most two parameters, and a call to one
+  b. the MCP server lists exactly find, context, impact, path and tests, each with at most two parameters, and a call to one
      answers in the same shape.
   c. CONTROLS: the dispatcher run directly, bin/axiomcode with --json, and AXIOMCODE_RAW=1 give the old answer — no
      fenced block — for the same question.
@@ -120,7 +120,7 @@ def main():
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
         got = mcp(repo, [('find', {'question': 'how is the invoice total computed'}), ('impact', {'name': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
-        check('MCP tools/list is exactly find, impact, path and tests', set(tools) == {'find', 'impact', 'path', 'tests'}, tools)
+        check('MCP tools/list is exactly find, context, impact, path and tests', set(tools) == {'find', 'context', 'impact', 'path', 'tests'}, tools)
         check('MCP: every tool takes at most two parameters', bool(tools) and all(len(p) <= 2 for p in tools.values()), tools)
         text = lambda i: ''.join(c.get('text', '') for c in got.get(i, {}).get('content', []))
         check('MCP find answers as numbered places with their code', places(text(3)), text(3)[:600])

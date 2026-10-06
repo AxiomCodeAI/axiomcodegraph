@@ -29,9 +29,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')
 LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
-# THE SMALL SURFACE: four questions, each with at most two parameters and no options. The front-door answer is capped
-# at ten places with the rest counted, so no tool is paged.
-TOOLS = {'find': ['question'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': []}
+# THE SMALL SURFACE: five questions, each with at most two parameters and no options. The front-door answer is capped
+# at ten places with the rest counted, so no tool is paged. context is the one narrative verb: a task in words,
+# answered as the verb's own flow rather than as places.
+TOOLS = {'find': ['question'], 'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': []}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
@@ -117,7 +118,9 @@ def check_arguments(label, cmd, cwd, lax=False):
              # it had been narrowed (#1567): the repository is the session's, and there are no flags
              ('find', {'question': 'x', 'in_path': 'src'}, 'in_path: unexpected argument'),
              ('impact', {'name': 'A.f', 'repo': cwd}, 'repo: unexpected argument'),
-             ('tests', {'why': True}, 'why: unexpected argument')]
+             ('tests', {'why': True}, 'why: unexpected argument'),
+             ('context', {}, 'task'),
+             ('context', {'task': 'x', 'budget': 3}, 'budget: unexpected argument')]
     for name, args, field in wrong:
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
@@ -126,7 +129,8 @@ def check_arguments(label, cmd, cwd, lax=False):
             bad.append(f"{label}: {name}({json.dumps(args)}) was not refused naming {field!r}: {res}")
     # the control: every parameter a tool declares still passes, including the ones the CLI's hints name
     right = [('find', {'question': 'x'}), ('impact', {'name': 'A.f'}), ('impact', {}),
-             ('path', {'start': 'a', 'end': 'b'}), ('tests', {})]
+             ('path', {'start': 'a', 'end': 'b'}), ('tests', {}),
+             ('context', {'task': 'x'}), ('context', {'task': 'x', 'source': True})]
     for name, args in right:
         res = call(cmd, cwd, name, args)
         text = ' '.join(c.get('text', '') for c in res.get('content', []))
@@ -182,6 +186,7 @@ def check_front_door():
     try:
         bad = []
         for call, want in ((lambda: server.find('how is a total computed'), ['find', 'how is a total computed', cwd]),
+                           (lambda: server.context('how is a total computed'), ['context', 'how is a total computed', cwd]),
                            (lambda: server.impact('A.f'), ['impact', 'A.f', cwd]),
                            (lambda: server.impact(''), ['impact', cwd]),
                            (lambda: server.impact(), ['impact', cwd]),
