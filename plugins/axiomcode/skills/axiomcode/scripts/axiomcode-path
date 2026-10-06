@@ -1736,13 +1736,16 @@ def closure(g, sel, upstream, limit=40, depth=40):
     # figures on a large tree, which reads as "unknown" and is skipped. The reader can only check the rows
     # actually in front of them, so the actionable number is the unresolved calls inside THOSE; the closure-wide
     # figure stays, in parentheses, as the honest total.
+    RESULT['unresolved_closure'] = u                    # 0 is a counted zero, not a missing value
     if u:
         shown_ids = [m for m, _ in (np_ if upstream else sorted(rows, key=lambda x: (x[1], g.sym[x[0]]['display'], x[0])))[:limit]]
         un = g.q("SELECT count(*) n FROM unresolved_sites WHERE caller_id IN (%s)" % ','.join('?' * (len(shown_ids) + len(ids))),
                  *shown_ids, *ids)[0]['n'] if shown_ids or ids else 0
-        print(f"  bound: {un} unresolved call(s) inside the {len(shown_ids)} method(s) printed above"
-              + (f" ({u} across the whole closure)" if u != un else '')
-              + f" — the set is a lower bound; `path <one of them> {sel}` for the chain")
+        RESULT['unresolved_inside'] = un
+        RESULT['bound'] = (f"{un} unresolved call(s) inside the {len(shown_ids)} method(s) printed above"
+                           + (f" ({u} across the whole closure)" if u != un else '')
+                           + f" — the set is a lower bound; `path <one of them> {sel}` for the chain")
+        print(f"  bound: {RESULT['bound']}")
     print(f"  (chain from any one of them: path <that method> {sel}" + (")" if upstream else " — or the reverse)"))
     return 0
 
@@ -1919,13 +1922,20 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             if shown >= limit and not show_all: print(f"  … +{len(hits) - shown} more targets (--all)"); break
         blind = {n for n, _ in (read_back(res['parent'], q, hits[0][0], srcs) or [])}
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(blind))})", *blind)[0]['n'] if blind else 0
+        # the JSON says what the prose says: verified true/false once hops were checked (null stays "nothing was
+        # checked"), and the unresolved count as a number, where 0 is a counted zero. An automation was parsing the
+        # prose to learn both because the fields sat at null beside a prose line stating them.
+        RESULT['verified'] = not (vbad or vlen)
+        RESULT['unresolved_inside'] = u
         print(f"  verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length" if not (vbad or vlen) else f"  ✗ verification failed on {vbad} hop(s) / {vlen} length(s) — report this")
         if seen_tiers:
             print("  what the hops are:"); [print(l) for l in ax_edges.legend(seen_tiers)]
         print_boundary(g, [m for m, _ in hits[:limit]], "the target(s) call into libraries", "the target(s) also make")
         if every: every_route(g, res, q, srcs, dsts, max_paths, adj)
         else: print(f"  (one shortest chain per reached target; --every for all the routes and every method on any of them)")
-        if u: print(f"  bound: the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see")
+        if u:
+            RESULT['bound'] = f"the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see"
+            print(f"  bound: {RESULT['bound']}")
         return 0
     # nothing resolved either way: say so, then whether unresolved sites would connect them
     print(f"no chain of resolved calls connects {la} and {lb} in either direction (searched {len(g.edges())} edges, depth ≤ 40)")
