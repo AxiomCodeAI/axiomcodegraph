@@ -21,6 +21,7 @@ import {
 } from '@/parsers/python/extractors/python-resolution-linker';
 import { Python2Finding } from '@/parsers/python/types';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
+import { parseFilesInPool, parsePoolJobs } from '@/workflows/python/python-parse-pool';
 
 /** One rejected or unanalysable file. */
 interface SkippedPythonFile {
@@ -242,38 +243,40 @@ export class PythonProjectAnalyzer {
     // been parsed, and file order is not a dependency order.
     const perModule: ProjectModuleFacts[] = [];
 
+    // THE PER-FILE WORK RUNS ON WORKER THREADS when there are enough files
+    // (python-parse-pool.ts): read, parse, mirror, extract and hash are
+    // independent between files, and profiling shows no single stage dominates
+    // — the whole per-file pipeline does. The loop below still CONSUMES every
+    // outcome in sorted file order through the unchanged body, so the
+    // accumulated rows, the skip order and the output bytes are byte-identical
+    // to the serial path (AXIOMCODE_PARSE_JOBS=1), whichever order workers
+    // finish in. Everything cross-module stays down in `linkProject`.
     let analysed = 0;
-    for (const filePath of files) {
-      const moduleQualifiedName = this.moduleQualifiedNameFor(options.rootDir, filePath);
 
-      let sourceCode: string;
-      try {
-        sourceCode = await fsp.readFile(filePath, 'utf-8');
-      } catch (error) {
-        this.recordSkip(filePath, options, SkippedFileReason.READ_ERROR, [], String(error));
-        continue;
+    // One file's outcome, consumed the same way whichever thread produced it.
+    // The pool calls this in file order as results arrive (never after
+    // buffering them all — a project's rows fill the heap once, not twice),
+    // and the serial loop calls it inline, so skip order, accumulation order
+    // and therefore output bytes are identical across the two paths.
+    const consumeOutcome = (
+      filePath: string,
+      outcome: { readError?: string; extractError?: string; facts?: ReturnType<PythonFactExtractor['extract']> }
+    ): void => {
+      if (outcome.readError !== undefined) {
+        this.recordSkip(filePath, options, SkippedFileReason.READ_ERROR, [], outcome.readError);
+        return;
       }
-
-      let facts;
-      try {
-        facts = this.extractor.extract({
-          sourceCode,
-          filePath: this.recordedFilePath(filePath, options.rootDir, options.baseMservPath),
-          baseMservPath: options.baseMservPath,
-          moduleQualifiedName,
-          serviceVersionLinkHash,
-          emissionRegime: PythonEmissionRegime.PY3_0_11,
-        });
-      } catch (error) {
+      if (outcome.extractError !== undefined || !outcome.facts) {
         this.recordSkip(
           filePath,
           options,
           SkippedFileReason.EXTRACTION_ERROR,
           [],
-          String(error)
+          outcome.extractError ?? 'worker returned no facts'
         );
-        continue;
+        return;
       }
+      const facts = outcome.facts;
 
       if (facts.dialect !== PythonDialect.PY3 || !facts.module) {
         this.recordSkip(
@@ -289,7 +292,7 @@ export class PythonProjectAnalyzer {
         // facts in it. The skipped-files CSV records the DECISION; these record
         // WHAT could not be represented and where.
         accumulated.parseGaps.push(...facts.parseGaps);
-        continue;
+        return;
       }
 
       analysed += 1;
@@ -338,11 +341,67 @@ export class PythonProjectAnalyzer {
           [...facts.expressionByByteRange].map(([range, hash]) => [hash, range])
         ),
       });
+    };
+
+    // THE PER-FILE WORK RUNS ON WORKER THREADS when there are enough files
+    // (python-parse-pool.ts): read, parse, mirror, extract and hash are
+    // independent between files, and profiling shows no single stage dominates
+    // — the whole per-file pipeline does. Everything cross-module stays down
+    // in `linkProject`. AXIOMCODE_PARSE_JOBS=1 restores the strict serial
+    // path; the pool declining (no compiled worker beside this file) falls
+    // back to it too.
+    const debugT = process.env.AXIOMCODE_PARSE_DEBUG ? Date.now() : 0;
+    const mark = (what: string) => {
+      if (debugT) process.stderr.write(`[parse-pool] ${what} +${((Date.now() - debugT) / 1000).toFixed(1)}s\n`);
+    };
+    const jobs = parsePoolJobs(files.length);
+    let pooled = false;
+    if (jobs > 1) {
+      pooled = await parseFilesInPool(
+        files.map((filePath, i) => ({
+          i,
+          filePath,
+          recordedFilePath: this.recordedFilePath(filePath, options.rootDir, options.baseMservPath),
+          moduleQualifiedName: this.moduleQualifiedNameFor(options.rootDir, filePath),
+          baseMservPath: options.baseMservPath,
+          serviceVersionLinkHash,
+        })),
+        jobs,
+        (i, outcome) => consumeOutcome(files[i] as string, outcome)
+      );
+    }
+    mark(`pool done (${jobs} jobs, ${files.length} files)`);
+    if (!pooled) {
+      for (const filePath of files) {
+        let outcome;
+        try {
+          const sourceCode = await fsp.readFile(filePath, 'utf-8');
+          try {
+            outcome = {
+              facts: this.extractor.extract({
+                sourceCode,
+                filePath: this.recordedFilePath(filePath, options.rootDir, options.baseMservPath),
+                baseMservPath: options.baseMservPath,
+                moduleQualifiedName: this.moduleQualifiedNameFor(options.rootDir, filePath),
+                serviceVersionLinkHash,
+                emissionRegime: PythonEmissionRegime.PY3_0_11,
+              }),
+            };
+          } catch (error) {
+            outcome = { extractError: String(error) };
+          }
+        } catch (error) {
+          outcome = { readError: String(error) };
+        }
+        consumeOutcome(filePath, outcome);
+      }
     }
 
     // The cross-module pass mutates rows already in `accumulated` — they are the
     // same objects — so it must run BEFORE export.
+    mark('consume done');
     const resolution = this.resolutionLinker.linkProject(perModule);
+    mark('linkProject done');
 
     await fsp.mkdir(options.outputDir, { recursive: true });
     await this.exportCsv(accumulated.modules, options.outputDir, PYTHON_CSV_FILES.MODULES);
