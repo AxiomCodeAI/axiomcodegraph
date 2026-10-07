@@ -89,6 +89,23 @@ same tables and be compared.
 | **YAML** | Beta | 2 | yaml | Configuration entries with anchor and alias tracking, multi document support. |
 | **META-INF/services** | Stable | 2 | custom | Provider-configuration files: the service each file configures, taken from its name, and every implementation class it names, with the file and line. |
 | **Gradle** | Beta | 8 | tree-sitter-groovy | Scripts and their role in the build, blocks, declarations, dependency coordinates split into group/artifact/version, version catalogs, value references with resolution, comments, and parse gaps. Groovy and Kotlin DSL. |
+| **HTML** | Beta | 9 | tree-sitter-html | Documents with their doctype and template dialects, the element tree as written (nothing a browser would imply) with XPath-like paths, attributes by kind, class tokens, every URL a page names (scripts, stylesheets, links, images, forms, frames, htmx requests) classified and resolved to a file where one exists, `<script>` elements with their type and inline body range (inside inline `<svg>` too), the calls written in event-handler attributes, `javascript:` URLs and framework event bindings, template expressions (Vue, Angular, Alpine, Jinja, Handlebars, ERB and the others: the directive, its argument and modifiers, the expression text, the names it calls and reads, the variables a loop declares), and parse gaps. `.html`, `.htm`, `.xhtml`. Inline `<style>` elements and `style` attributes are extracted as CSS. |
+| **CSS** | Beta | 8 | tree-sitter-css | Stylesheets (files and `<style>` elements), rules and at-rules as a tree including CSS nesting, selectors with specificity, simple selectors (type, class, id, attribute, pseudo-class, pseudo-element, nesting) with combinators, declarations, the names values refer to (custom properties, URLs, imports, keyframes, layers, containers, font families), comments and parse gaps. `.css` only; a preprocessor dialect is recorded as a gap, not parsed. |
+
+HTML and CSS are one front end, extracted structurally the way the configuration formats are:
+a page's `<link rel="stylesheet">` and `<script src>` are resolved to the files they name, a
+`class` attribute's tokens and a stylesheet's class selectors are rows that join by name, and a
+handler attribute's calls carry their callee names for the engine to resolve against the scripts
+the page loads. Nothing is rendered: a template dialect (Jinja, Thymeleaf, Handlebars, Razor, ERB,
+PHP, Angular, Vue, Alpine, htmx) is detected from its markers and recorded on the document, so a
+consumer knows a URL holding `{{` is a template's and not a path. Each template construct is also
+a row of its own: `v-for="item in items"` is a LOOP that declares `item` and reads `items`,
+`@click="save(id)"` is an EVENT_HANDLER whose call `save` is a handler-call row like an `onclick`'s,
+`:class="{ on: open }"` is a BINDING of `class` that reads `open`, `{{ user.name }}` an INTERPOLATION,
+and a Jinja `{% for %}` or an Angular `*ngIf` the same with their own dialect. The expression inside is
+read by the TypeScript syntax layer where the dialect's expression language is JavaScript's, and a
+value that does not parse is a gap on the row, not a guess. A `<base href>` is honoured when URLs
+are resolved, as a browser would.
 
 Python and Java are the two languages with full semantic resolution. TypeScript and C# resolve what
 one file decides and leave the cross-file call graph to the engine, as Java does for type references. The configuration formats are
@@ -172,7 +189,7 @@ detection  ->  parsing  ->  extraction  ->  models  ->  resolution  ->  export
 | Layer | Directory | Responsibility |
 |---|---|---|
 | Detection | `language-detectors/` | Identify which languages and build systems a project uses. |
-| Parsing | `parsers/<lang>/` | Produce a syntax tree. tree-sitter for Java, Python, C# and Gradle; the TypeScript compiler's syntax layer for TypeScript and JavaScript; sax for XML; the `yaml` package for YAML; a hand written scanner for Properties and for META-INF/services. |
+| Parsing | `parsers/<lang>/` | Produce a syntax tree. tree-sitter for Java, Python, C#, Gradle, HTML and CSS; the TypeScript compiler's syntax layer for TypeScript and JavaScript; sax for XML; the `yaml` package for YAML; a hand written scanner for Properties and for META-INF/services. |
 | Extraction | `parsers/<lang>/extractors/` | Walk the tree and emit rows. One extractor per relation family, implementing `BaseExtractor`. |
 | Models | `analysis-types/<lang>/` | One class per relation. Builder pattern, content addressed key, CSV serialisation. |
 | Resolution | `parsers/<lang>/**/*-resolution-linker.ts` | Fill in cross entity foreign keys, first within a file and then across the project. |
@@ -250,6 +267,24 @@ Every gate therefore uses something not written for this purpose.
 | TypeScript compiler, with a `Program` and `TypeChecker` | TypeScript call targets, module resolution, declaration kinds | The same arrangement as JavaScript, with the pinned compiler version the parser records. |
 | A runtime tracer | Which TypeScript declaration a call actually reaches | A source rewrite that records, as a project's own test suite runs, the declaration entered at each call site. The compiler says what it resolved; this says what ran, and the two disagree in ways that matter. |
 | Gradle `projects` | The build's project graph | Gradle is the implementation that decides which projects a settings file creates. On its first real run it found a directory this parser was reporting as a project and Gradle was not. |
+
+The web front end's oracle is `tools/web-corpus-bench`, a development-only bench that runs the
+front end and reference parsers (parse5 and htmlparser2 for HTML; css-tree, postcss and
+`@bramus/specificity` for CSS) over downloaded corpora (html5lib, web-platform-tests, the csstree
+and postcss fixtures, several real applications, live pages and CDN stylesheets) and reports every
+measure on which they differ; its last baseline is committed next to it. tree-sitter-html and
+tree-sitter-css build the trees, and both grammars are narrower than the languages: the HTML grammar knows void elements,
+raw text and implicit end tags but does not run the browser's tree construction (nothing is
+implied, a stray end tag is an error), and the CSS grammar rejects some valid shapes — an unquoted
+`url(../x)`, an attribute selector's `i` flag, a `@container` name, a range media query, `&` after
+a compound — each of which the front end reads back from the source text and marks as recovered
+rather than as a gap. What this repository adds (URL classification and resolution, specificity,
+the names a value refers to, the calls in a handler, positions through an inline `<style>`, the
+recoveries) is checked by format checks written from the HTML, CSS Syntax, Selectors and URL
+specifications, each paired with the wrong implementation it rules out, by an enum-emission
+audit over the fixture, and by the torture suite below. A browser-side oracle (a DOM built by a
+browser engine, `getComputedStyle` for the cascade) would be the next independent check, and is
+not there.
 
 Call graph quality is measured at three increasing strictnesses, because each answers a question the
 previous cannot. **Discovery** asks whether a call site was found at all, against the compiled
@@ -349,11 +384,14 @@ Both call the same core in `src/extract.ts`.
 
 Tab separated files, one per relation. Java relations are named `all-*.csv`; every other language
 is prefixed by name: `all-python-*.csv`, `all-typescript-*.csv`, `all-javascript-*.csv`,
-`all-csharp-*.csv`, `all-gradle-*.csv`, `all-xml-*.csv` and so on. The `skipped-*-files.csv` files
+`all-csharp-*.csv`, `all-gradle-*.csv`, `all-xml-*.csv`, `all-html-*.csv`, `all-css-*.csv` and so on. The `skipped-*-files.csv` files
 record every file that was not analysed and why, and a file the extractor loses part way leaves a row
 saying so, so a consumer can distinguish an empty result from an unanalysed one.
 
-`--per-language` writes `outputDir/<lang>/` instead of one flat folder. `--library` marks the tree as
+`--per-language` writes `outputDir/<lang>/` instead of one flat folder. The HTML and CSS tables are
+copied into every folder among `java/`, `javascript/` and `typescript/` that exists, since a page is
+read by whichever of those engines the repository runs; their frozen schema is
+`src/schema/web/schema.json` and the matching declarations `src/schema/web/decls_base_web.dl`. `--library` marks the tree as
 a dependency being staged rather than the project under analysis, so a build output directory its
 `package.json` ships from is walked as its source.
 
@@ -376,6 +414,8 @@ npx tsx src/test/javascript-tests.ts
 npx tsx src/test/csharp-tests.ts
 npx tsx src/test/gradle-tests.ts
 npx tsx src/test/services-tests.ts
+npx tsx src/test/web-tests.ts
+npx tsx src/test/web-torture.ts
 npx tsx src/test/discovery-tests.ts
 npx tsx src/test/java-gates/source-walk.ts
 ```
@@ -387,6 +427,19 @@ reserved value carries a zero-row assertion, a meaning assertion on every popula
 and torture scripts — dense files where each line is a known trap for a hand-rolled resolver, with
 the language's answer asserted by line. `--corpus <dir>` adds sweeps over a real corpus that are
 development-only: absent from the plain run and failing, not passing, when the corpus is missing.
+
+The web suite is split the same way. `web-tests.ts` is the specification: format checks with the
+wrong implementation each rules out, a fixture tree with a golden for drift, key uniqueness,
+foreign-key integrity, schema arity and domains, determinism and the enum-emission audit.
+`web-torture.ts` is the adversary: it runs the analyzer over `src/test-data/web/torture`, a project
+written to hold every trap a static reader of a web project meets (a `<base href>`, links with query
+strings and fragments, `../` escaping the root, uppercase `REL`, declarative shadow roots, inline
+SVG with its own `<style>` and `<script>`, XHTML, quirks-mode markup, Jinja and Vue templates,
+escaped and non-ASCII class names, CSS nesting, layers, container queries, keyframes, `@import`
+chains, minified and 90 KB sheets) and asserts, join by join, that the IR carries what the
+documented joins need. Every check carries its verdict when it fails: a DEFECT (the parser could have
+read it) fails the run; a GAP (the IR cannot yet express it) and a LIMIT (nothing static can know
+it) are reported, so the list of what the front end does not do is explicit and kept current.
 
 What ships is what Python and TypeScript ship: fixtures, in-repo gates, committed expectations. The
 oracle harness that computes an expectation, and the `bless` command that writes it, live in a

@@ -1,0 +1,19 @@
+referenceKind=CONTAINER	name=sidebar	fallbackText=	urlKind=	isResolved=false	position=0	startLine=13	startColumn=11
+referenceKind=CONTAINER	name=sidebar	fallbackText=	urlKind=	isResolved=false	position=0	startLine=14	startColumn=28
+referenceKind=FONT_FAMILY	name=Inter	fallbackText=	urlKind=	isResolved=false	position=0	startLine=11	startColumn=27
+referenceKind=FONT_FAMILY	name=Inter	fallbackText=	urlKind=	isResolved=false	position=0	startLine=8	startColumn=149
+referenceKind=FONT_FAMILY	name=Segoe UI	fallbackText=	urlKind=	isResolved=false	position=1	startLine=8	startColumn=158
+referenceKind=IMPORT	name=base.css	fallbackText=	urlKind=RELATIVE	isResolved=true	position=0	startLine=3	startColumn=8
+referenceKind=IMPORT	name=missing.css	fallbackText=	urlKind=RELATIVE	isResolved=false	position=0	startLine=4	startColumn=8
+referenceKind=KEYFRAMES	name=spin	fallbackText=	urlKind=	isResolved=false	position=0	startLine=8	startColumn=111
+referenceKind=LAYER	name=base	fallbackText=	urlKind=	isResolved=false	position=0	startLine=5	startColumn=7
+referenceKind=LAYER	name=base	fallbackText=	urlKind=	isResolved=false	position=1	startLine=3	startColumn=8
+referenceKind=LAYER	name=components	fallbackText=	urlKind=	isResolved=false	position=1	startLine=5	startColumn=7
+referenceKind=URL	name=../img/bg.png	fallbackText=	urlKind=RELATIVE	isResolved=false	position=0	startLine=8	startColumn=70
+referenceKind=URL	name=/fonts/inter.woff2	fallbackText=	urlKind=ROOT_RELATIVE	isResolved=false	position=0	startLine=11	startColumn=41
+referenceKind=URL	name=static/img/hero.png	fallbackText=	urlKind=RELATIVE	isResolved=true	position=0	startLine=13	startColumn=46
+referenceKind=VARIABLE	name=--brand	fallbackText=	urlKind=	isResolved=false	position=0	startLine=13	startColumn=20
+referenceKind=VARIABLE	name=--brand	fallbackText=	urlKind=	isResolved=false	position=0	startLine=25	startColumn=56
+referenceKind=VARIABLE	name=--brand	fallbackText=red	urlKind=	isResolved=false	position=0	startLine=7	startColumn=69
+referenceKind=VARIABLE	name=--gap	fallbackText=	urlKind=	isResolved=false	position=0	startLine=7	startColumn=93
+referenceKind=VARIABLE	name=--gap	fallbackText=	urlKind=	isResolved=false	position=0	startLine=9	startColumn=50

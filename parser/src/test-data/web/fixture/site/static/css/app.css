@@ -1,0 +1,20 @@
+@charset "utf-8";
+/* theme tokens */
+@import url("base.css") layer(base);
+@import "missing.css";
+@layer base, components;
+:root { --gap: 8px; --brand: #09f; }
+.nav > li.item:not(.hidden) a[href^="http" i]:hover::after { color: var(--brand, red); gap: var(--gap) }
+#main .card, .card--wide, ul li:nth-child(2n of .item) { background: url(../img/bg.png) no-repeat; animation: spin 1s linear infinite; font-family: "Inter", Segoe UI, sans-serif }
+@media (min-width: 40em) { .card { padding: calc(var(--gap) * 2) !important } }
+@keyframes spin { from { transform: rotate(0) } 50% { opacity: .5 } to { transform: rotate(1turn) } }
+@font-face { font-family: "Inter"; src: url(/fonts/inter.woff2) format("woff2") }
+@supports (display: grid) { .grid { display: grid } }
+@container sidebar (min-width: 400px) { .card { gap: 1rem } }
+.sidebar { container-name: sidebar; container-type: inline-size }
+.a { color: blue; .b & { color: red } &:hover { color: green } }
+.broken { color: ; }
+.title::before, .title:before { content: "" }
+* { box-sizing: border-box }
+h1 + p ~ em { margin: 0 }
+col || td { margin: 0 }

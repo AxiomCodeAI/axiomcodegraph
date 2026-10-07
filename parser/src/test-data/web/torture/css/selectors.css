@@ -1,0 +1,34 @@
+/* E01 escaped identifiers: every form the CSS syntax admits */
+.md\:flex { display: flex }
+.md\3A flex { display: flex }
+.md\00003Aflex { display: flex }
+.w-1\/2 { width: 50% }
+.\31 23 { order: 1 }
+.\31 0 { order: 10 }
+.\-mt-2 { margin: 0 }
+.a\ b { color: red }
+.\@media { color: red }
+.\#hash { color: red }
+.\.dot { color: red }
+.\\backslash { color: red }
+.caf\e9 { color: red }
+.café { color: red }
+.\1F680 { color: red }
+.🚀 { color: red }
+#\31 23 { color: red }
+#id\:colon { color: red }
+[data-x\:y] { color: red }
+[data-x="a\"b"] { color: red }
+svg|rect\:x { color: red }
+.a\,b { color: red }
+.a\>b { color: red }
+.a\&b { color: red }
+.\[\&_svg\]\:size-4 svg { color: red }
+.\!font-bold { color: red }
+.\32 xl\:grid-cols-\[repeat\(auto-fill\2c minmax\(200px\2c 1fr\)\)\] { color: red }
+.group:hover .group-hover\:visible { color: red }
+.peer:checked ~ .peer-checked\:block { color: red }
+.data-\[state\=open\]\:bg-red[data-state="open"] { color: red }
+.aria-\[checked\]\:bg-red[aria-checked] { color: red }
+.supports-\[display\:grid\]\:grid { color: red }
+.has-\[\>img\]\:p-0:has(> img) { color: red }

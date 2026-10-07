@@ -1,0 +1,14 @@
+/* K02 the end of the import chain: app -> tokens -> theme; imports tokens back (cycle) */
+@import "tokens.css";
+.theme-light { --brand: #0af }
+.theme-dark { --brand: #a0f }
+@keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes spin { from { transform: rotate(0) } 50% { opacity: .5 } to { transform: rotate(1turn) } }
+@keyframes spin { to { transform: rotate(2turn) } }       /* redefinition: the last one wins */
+@keyframes "quoted-name" { to { opacity: 0 } }
+@keyframes ease { to { opacity: 0 } }                     /* a keyframes named like a keyword */
+@keyframes none { to { opacity: 0 } }                     /* invalid name, written anyway */
+@keyframes slide { 0%, 50% { left: 0 } 100% { left: 1px } 33.3% { left: 2px } from, to { left: 3px } }
+@keyframes var-inside { to { color: var(--brand); background: url(img/bg.png) } }
+@-webkit-keyframes spin { to { transform: rotate(0) } }
+@-moz-keyframes spin { to { transform: rotate(0) } }
