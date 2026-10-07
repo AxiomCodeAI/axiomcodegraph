@@ -1,2 +1,17 @@
 ambiguous_unknown	read	pipeline#countIdle() -> -
+known_edge	read	pipeline#<module-init>() -> pipeline#registry
+known_edge	read	pipeline#<module-init>() -> pipeline#steps
+known_edge	read	pipeline#countIdle() -> pipeline#idle
+known_edge	read	pipeline#keysOnly() -> pipeline#table
+known_edge	read	pipeline#runByKey(Node,'grow' | 'shrink') -> pipeline#table
+known_edge	read	pipeline#runByName(Node) -> pipeline#table
+known_edge	read	pipeline#runForEach(Node) -> pipeline#steps
+known_edge	read	pipeline#runFrozen(Node) -> pipeline#frozen
+known_edge	read	pipeline#runImported(Node) -> steps#exportedSteps
+known_edge	read	pipeline#runIndexed(Node,number) -> pipeline#steps
+known_edge	read	pipeline#runIterated(Node) -> pipeline#steps
+known_edge	read	pipeline#runReduce(Node) -> pipeline#frozen
+known_edge	read	pipeline#runRegistry(Node) -> pipeline#extended
+known_edge	read	pipeline#runRegistry(Node) -> pipeline#registry
+known_edge	read	pipeline#runValues(Node) -> pipeline#table
 known_edge	read	steps#measure(Node) -> { width: number }#width

@@ -1037,7 +1037,9 @@ class G:
             have = {(a, b) for a, b, _ in edges}
             edges += [(r[0], r[1], 'dispatch') for r in self.q("SELECT DISTINCT c0, c1 FROM ext_fn_value_call") if (r[0], r[1]) not in have]
         self.write('edge', edges)
-        self.write('byname', sorted({(r[1], r[2]) for r in self.q("SELECT s.id, s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''") if r[0] not in stubs}))
+        # a call on a package's value (`request(app).get(…)`) is no by-name caller of a project method: impact's seed_byname
+        libsites = ax_edges.library_receiver_sites(lambda s, p: self.q(s, *p))
+        self.write('byname', sorted({(r[1], r[2]) for r in self.q("SELECT s.id, s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''") if r[0] not in stubs and r[0] not in libsites}))
         self.write('named', [(r['name'], r['id']) for r in self.sym.values() if r['method_id'] and r['kind'] != 'module' and r['name']])
         t = f'{stamp}.{os.getpid()}.tmp'; open(t, 'w').write(want); replace_file(t, stamp)
     def write(self, name, rows, d=None):
@@ -1494,6 +1496,7 @@ def byname_sites(g, ids):
                     and g.sym[i]['kind'] not in ('library', 'written', 'module') and g.sym[i].get('name')})
     if not names or not g.has('unresolved_sites'): return [], set()
     stubs = ax_edges.stub_sites(lambda s, p: g.q(s, *p)) if g.has('call_sites') else set()
+    libsites = ax_edges.library_receiver_sites(lambda s, p: g.q(s, *p))
     own = set(ids); out = []; stubbed = set()
     for n in names:
         for r in g.q("SELECT s.id sid, s.caller_id c, s.callee_name cn, s.kind k, s.file_path f, s.start_line ln FROM call_sites s"
@@ -1501,6 +1504,7 @@ def byname_sites(g, ids):
             if (r['cn'] or '').split('.')[-1] != n or r['k'] in CTOR_SITE_KINDS or r['c'] in own: continue
             if r['c'] not in g.sym or (g.IN and not g.under_in(g.sym[r['c']]['file'])): continue
             if r['sid'] in stubs: stubbed.add(r['c']); continue      # impact's "stubs it" rows: named on a mock, never run
+            if r['sid'] in libsites: continue                      # a package's value: impact lists it apart, last
             out.append((r['c'], n, g.site_file(r['f']) if r['f'] else g.sym[r['c']]['file'], r['ln'] or g.sym[r['c']]['line']))
     return sorted(set(out), key=lambda x: (g.sym[x[0]]['is_test'], x[2] or '', x[3] or 0, g.sym[x[0]]['display'])), stubbed - {c for c, *_ in out}
 

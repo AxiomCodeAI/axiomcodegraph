@@ -124,8 +124,7 @@ def directive(hits):
         f"graph: this search is for {named}. Who calls it and what a change breaks, each with its code,\n"
         f"  including the callers that never spell the name (an interface, an override, a callback, DI):\n"
         f"  impact(name=\"{at}\") (mcp__plugin_axiomcode_axiomcode__impact; shell `axiomcode impact {at}`). Also\n"
-        f"  path(start, end) for how A reaches B (`axiomcode path A B`), find(question) for a task in words\n"
-        f"  (`axiomcode find \"<task>\"`). Said once this session."
+        f"  path(start, end) for how A reaches B (`axiomcode path A B`). Said once this session."
     )
 
 

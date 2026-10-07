@@ -30,6 +30,7 @@ import {
   SymbolFlags,
   SymbolScope,
 } from '@/parsers/python/extractors/python-symbol-table';
+import { materializePyTree } from '@/parsers/python/py-mirror-tree';
 import { Python2Finding, SymbolBlock } from '@/parsers/python/types';
 import { PythonSourcePositions } from '@/utils/python';
 
@@ -144,7 +145,10 @@ export class PythonScopeExtractor {
     }
 
     const tree = this.parser.parse(input.sourceCode);
-    const rootNode = this.parser.getRootNode(tree);
+    // One cursor pass mirrors the tree into plain JS; every stage after this
+    // line reads JS properties instead of re-crossing the tree-sitter FFI.
+    // Tree-sitter itself still parses every file — see py-mirror-tree.ts.
+    const rootNode = materializePyTree(tree, input.sourceCode) as unknown as Parser.SyntaxNode;
 
     const detection = this.detector.detect(rootNode, input.sourceCode);
     if (detection.dialect !== PythonDialect.PY3) {

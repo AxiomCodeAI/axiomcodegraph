@@ -29,10 +29,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')
 LAUNCHER = os.path.join(ROOT, 'bin', 'axiomcode.js')
 SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
-# THE SMALL SURFACE: five questions, each with at most two parameters and no options. The front-door answer is capped
+# THE SMALL SURFACE: four questions, each with at most two parameters and no options. The front-door answer is capped
 # at ten places with the rest counted, so no tool is paged. context is the one narrative verb: a task in words,
 # answered as the verb's own flow rather than as places.
-TOOLS = {'find': ['question'], 'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': []}
+TOOLS = {'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': []}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
@@ -113,10 +113,9 @@ def check_arguments(label, cmd, cwd, lax=False):
     wrong = [('impact', {'name': ['Excluder.excludeClass']}, 'name'),
              ('path', {'start': 'a'}, 'end'),
              ('path', {'start': 'a', 'end': 'b', 'nope': 1}, 'nope'),
-             ('find', {}, 'question'),
              # the options the old tools took are refused, not dropped so that an unnarrowed answer comes back as if
              # it had been narrowed (#1567): the repository is the session's, and there are no flags
-             ('find', {'question': 'x', 'in_path': 'src'}, 'in_path: unexpected argument'),
+             ('path', {'start': 'a', 'end': 'b', 'in_path': 'src'}, 'in_path: unexpected argument'),
              ('impact', {'name': 'A.f', 'repo': cwd}, 'repo: unexpected argument'),
              ('tests', {'why': True}, 'why: unexpected argument'),
              ('context', {}, 'task'),
@@ -128,7 +127,7 @@ def check_arguments(label, cmd, cwd, lax=False):
         if not res.get('isError') or field not in text or not ('invalid arguments' in text or 'validation error' in text):
             bad.append(f"{label}: {name}({json.dumps(args)}) was not refused naming {field!r}: {res}")
     # the control: every parameter a tool declares still passes, including the ones the CLI's hints name
-    right = [('find', {'question': 'x'}), ('impact', {'name': 'A.f'}), ('impact', {}),
+    right = [('impact', {'name': 'A.f'}), ('impact', {}),
              ('path', {'start': 'a', 'end': 'b'}), ('tests', {}),
              ('context', {'task': 'x'}), ('context', {'task': 'x', 'source': True})]
     for name, args in right:
@@ -137,42 +136,6 @@ def check_arguments(label, cmd, cwd, lax=False):
         if not text or 'invalid arguments' in text or 'validation error' in text:
             bad.append(f"{label}: well-formed {name}({json.dumps(args)}) was refused or empty: {res}")
     return bad
-
-
-def check_words():
-    """An answer's CLI flags are written as the MCP parameters they are (#1567), and nothing else is touched: quoted
-    code, flags only the CLI has, a flag's name inside a longer word, and a flag followed by prose rather than a value."""
-    sys.path.insert(0, os.path.dirname(SERVER))
-    import server
-    cases = [("pass --in <path> to narrow", "pass in_path=<path> to narrow"),
-             ("  … +12 (--limit N)", "  … +12 (limit=N)"),
-             ("    --tests-only lists all 22 by rung and file; --why adds each one's route",
-              "    tests=True lists all 22 by rung and file; why=True adds each one's route"),
-             ("ask for --page 2", "ask for page=2"),
-             # `--page all` is the string "all" here, and the footer names one spelling per surface, never both
-             ("ask for the next with --page 2, or all of it with --page all; --budget N changes the page size",
-              'ask for the next with page=2, or all of it with page="all"; budget=N changes the page size'),
-             ("narrow instead with --in <path>, --depth N or --tests-only", "narrow instead with in_path=<path>, depth=N or tests=True"),
-             ("--page N|all", 'page=N or page="all"'),
-             ("narrow with `impact <name> --in <path>` or `path '*' <name> --in parser/src`.",
-              "narrow with `impact <name> in_path=<path>` or `path '*' <name> in_path=parser/src`."),
-             ("start at --from <start>", "start at from_=<start>"),
-             ("no --in was given, so", "no in_path was given, so"),
-             # the controls: these must come back unchanged
-             ("    --in parser/src                             --in-offered  11302 symbol(s)",
-              "    in_path=parser/src                             --in-offered  11302 symbol(s)"),
-             ("print it with --json", "print it with --json"),
-             ("           49 |   args = ['--in', path, '--tests-only']", "           49 |   args = ['--in', path, '--tests-only']"),
-             ("              | … +23 more line(s) --limit", "              | … +23 more line(s) --limit"),
-             ("a pre-built --lang java graph", "a pre-built --lang java graph"),
-             ('grep -rnw "all" . lists them', 'grep -rnw "all" . lists them'),
-             # a site of a grep-shaped answer is the file's own text: a flag written in that code stays as written
-             ("tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]",
-              "tests/freshness.py:294: fn(['--in', p, '--fresh'])  [by name ×2 · mcp_checks]"),
-             # and the footer under the sites is prose, rewritten as ever
-             ("… +3 more not listed: 3 [text] — pass --in <path> to narrow", "… +3 more not listed: 3 [text] — pass in_path=<path> to narrow")]
-    return [f"mcp_words({src!r}) gave {server.mcp_words(src)!r}, want {want!r}"
-            for src, want in cases if server.mcp_words(src) != want]
 
 
 def check_front_door():
@@ -185,8 +148,7 @@ def check_front_door():
     cwd = os.getcwd()
     try:
         bad = []
-        for call, want in ((lambda: server.find('how is a total computed'), ['find', 'how is a total computed', cwd]),
-                           (lambda: server.context('how is a total computed'), ['context', 'how is a total computed', cwd]),
+        for call, want in ((lambda: server.context('how is a total computed'), ['context', 'how is a total computed', cwd]),
                            (lambda: server.impact('A.f'), ['impact', 'A.f', cwd]),
                            (lambda: server.impact(''), ['impact', cwd]),
                            (lambda: server.impact(), ['impact', cwd]),
@@ -347,7 +309,6 @@ def main():
         bad += check('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo)
         # the SDK when the launcher finds one, which ignored an argument it did not know (#1567); else the fallback again
         bad += check_arguments('bin/axiomcode mcp', ['bash', CLI, 'mcp'], repo, lax=True)
-        bad += check_words()
         bad += check_front_door()
         if os.name != 'nt':
             bad += check_install_move(work)

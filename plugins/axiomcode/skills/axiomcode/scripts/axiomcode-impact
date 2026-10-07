@@ -557,6 +557,11 @@ class Impact:
             tids = self.types(base, soft=True)
             if tids: self.WHY['type'] = self._why_t.get(base)
             if tids: out.append(('type', f"{self.g.sym[tids[0]]['kind']} {self.g.disp(tids[0])}" + (f" (+{len(tids)-1})" if len(tids) > 1 else ''), tids))
+            # the same rule as a method below: a field whose display IS the spelling (`TOKENS.OutboxRelay`, a key of a
+            # const table) wins over a type types() found only by dropping the leading segment (class OutboxRelay)
+            if tids and out[0][0] == 'field' and any(r.get('display') == base for r in out[0][2]) \
+                    and not any(self.g.sym[t]['display'] == base for t in tids):
+                out = [o for o in out if o[0] != 'type']
         # a const declared ON the line is the declaration written there: the enclosing module spans the line and a
         # function in its initializer (`const h = wrap(async (req, res) => …)`) starts on it, and neither is what was asked
         # — unless that function IS the const (`const h = async (req, res) => …` is named `h`), which stays the method.
@@ -822,13 +827,55 @@ class Impact:
                     # member of it, so every prefix is tried, longest first.
                     parts = cand.split('.')
                     tgt = next((mod[p] for p in ('.'.join(parts[:k]) for k in range(len(parts), 0, -1)) if p in mod), None)
+                elif raw.startswith('.'):
+                    tgt = self._js_file(os.path.normpath(os.path.join(os.path.dirname(f), raw)), byfile)
                 else:
-                    if not raw.startswith('.'): continue          # a package, not a file in this repository
-                    base = os.path.normpath(os.path.join(os.path.dirname(f), raw))
-                    tgt = next((c for c in (base + e for e in ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-                                                               '/index.ts', '/index.tsx', '/index.js')) if c in byfile), None)
+                    tgt = self._workspace_import(raw, byfile)     # a package of this repository (a workspace), else none
                 if tgt and tgt != f: out.add((f, tgt))
         return sorted(out)
+
+    JS_RESOLVE = ('', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '/index.ts', '/index.tsx', '/index.js', '/index.mjs')
+
+    def _js_file(self, base, byfile):
+        # an ES module names the file with its extension (`./a.js`), and TypeScript writes `./a.js` for `./a.ts`
+        stems = [base] + ([base[:-len(x)] for x in ('.js', '.mjs', '.cjs', '.jsx') if base.endswith(x)][:1])
+        return next((c for s in stems for c in (s + e for e in self.JS_RESOLVE) if c in byfile), None)
+
+    def _workspace_import(self, spec, byfile):
+        """the file a bare specifier names when it is a PACKAGE OF THIS REPOSITORY (a monorepo workspace: `@acme/bus`,
+        `@acme/bus/kafka`), read the way node reads it: the package.json `exports` entry for the subpath, else `main` /
+        `module`, else its index. A package installed from a registry has no package.json here and names no file."""
+        if not hasattr(self, '_pkgs'):
+            self._pkgs = {}
+            for d in sorted({os.path.dirname(f) for f in byfile}):
+                while d and d not in self._pkgs:
+                    try:
+                        with open(os.path.join(self.g.repo, d, 'package.json'), encoding='utf-8', errors='replace') as h: pj = json.load(h)
+                    except (OSError, ValueError):
+                        pj = None
+                    self._pkgs[d] = pj if isinstance(pj, dict) and isinstance(pj.get('name'), str) else None
+                    d = os.path.dirname(d)
+            self._pkg_by_name = {pj['name']: (d, pj) for d, pj in sorted(self._pkgs.items()) if pj}
+        name = '/'.join(spec.split('/')[:2 if spec.startswith('@') else 1])
+        if name not in self._pkg_by_name: return None
+        d, pj = self._pkg_by_name[name]
+        sub = '.' + spec[len(name):]
+        def pick(v):                                     # a conditional export: the first condition that names a path
+            if isinstance(v, str): return v
+            if isinstance(v, dict):
+                for k in ('import', 'node', 'require', 'default', *v.keys()):
+                    p = pick(v.get(k)) if k in v else None
+                    if p: return p
+            return None
+        ex = pj.get('exports')
+        if isinstance(ex, dict) and any(k.startswith('.') for k in ex):
+            entry = pick(ex.get(sub))
+        elif sub == '.':
+            entry = pick(ex) or pj.get('module') or pj.get('main') or 'index'
+        else:
+            entry = sub
+        if not entry: return None
+        return self._js_file(os.path.normpath(os.path.join(d, entry)), byfile)
 
     def _nonsource(self):
         """the non-source scan, cached per graph (ax_nonsource.py): a query opens only the files that changed since the
@@ -1264,7 +1311,7 @@ class Impact:
         W('cs_fixture_type', sorted(x for x in fixt if not x[0].startswith('collection:')))
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '61'        # 61: filter_run, a servlet filter a test's context holds (added to HttpSecurity in a configuration the test loads, or a component) and the test methods that send a request through it; 57: a TypeScript object literal key is a ref of entity kind OBJECT_PROPERTY_KEY, kept past a bound access on its line; 56: reg_key_fact carries a handler table's entries (kind table), literal a table key written as a dotted string or through a constant, and test_code; 55: cs_data_source, cs_data_type, cs_fixture_type, the C# test links a runner makes from a data attribute or a class/collection fixture (#1498, #1499); 53: implicit_new, the type a C# `new T()` constructs where T writes no constructor (#1473); 52: test_method holds a method under a composed or derived test marker declared in the repository (a Java annotation meta-annotated @Test, a C# attribute derived from FactAttribute: #1418, #1497; 51 was the C# test-links branch's number, landed as 55); 48: sigtype, a parameter / return position type_use resolves to a type, read before the textuse grep (#1422), and persist_field, the properties a persistence query reads (#1461); 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '63'        # 63: imports_fact resolves an import written with its extension and a workspace package's specifier, and test_method takes no JavaScript / TypeScript helper by its name; 62: state_gate, state_gate_alloc, state_call_alloc, state_call_open, state_world, the callbacks one instance was given and the allocation each caller's receiver may be (JavaScript instance-state.dl); 61: filter_run, a servlet filter a test's context holds (added to HttpSecurity in a configuration the test loads, or a component) and the test methods that send a request through it; 57: a TypeScript object literal key is a ref of entity kind OBJECT_PROPERTY_KEY, kept past a bound access on its line; 56: reg_key_fact carries a handler table's entries (kind table), literal a table key written as a dotted string or through a constant, and test_code; 55: cs_data_source, cs_data_type, cs_fixture_type, the C# test links a runner makes from a data attribute or a class/collection fixture (#1498, #1499); 53: implicit_new, the type a C# `new T()` constructs where T writes no constructor (#1473); 52: test_method holds a method under a composed or derived test marker declared in the repository (a Java annotation meta-annotated @Test, a C# attribute derived from FactAttribute: #1418, #1497; 51 was the C# test-links branch's number, landed as 55); 48: sigtype, a parameter / return position type_use resolves to a type, read before the textuse grep (#1422), and persist_field, the properties a persistence query reads (#1461); 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1489,8 +1536,11 @@ class Impact:
         W('returns_fn', sorted(ax_registration.returned_functions(g.q)))
         CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')
         # an unresolved site inside a mock's stub or verification (a Moq lambda whose parameter the engine did not type)
-        # is the kind "stub": still a name match for the rows, never a by-name seed of the closure
-        W('unresolved', [(r['caller_id'], (r['callee_name'] or '').split('.')[-1], 'new' if r['kind'] in CTOR else ax_edges.STUB_TIER if r['id'] in stubs else 'method', g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
+        # is the kind "stub": still a name match for the rows, never a by-name seed of the closure. One whose receiver is a
+        # package's value is the kind "library" (ax_edges.library_receiver_sites), for the same two reasons
+        libsites = ax_edges.library_receiver_sites(lambda s, p: g.q(s, *p))
+        W('unresolved', [(r['caller_id'], (r['callee_name'] or '').split('.')[-1], 'new' if r['kind'] in CTOR else ax_edges.STUB_TIER if r['id'] in stubs
+                          else ax_edges.LIBRARY_RECEIVER_KIND if r['id'] in libsites else 'method', g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
                          for r in g.q("SELECT s.id, s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
         # a call site with a name that the engine did NOT bind to a client declaration: unresolved, or sent to a library
         # because the callee is generated (a dataclass constructor is a call to the class itself). The generated-member
@@ -1606,6 +1656,15 @@ class Impact:
         # the callables in test files: a test that publishes a handler table's key drives the handler, and is not
         # counted against the key the way a production writer is (dl/impact.dl, table_key)
         W('test_code', sorted((i,) for i, s in g.sym.items() if s['is_test'] and s.get('method_id')))
+        # WHAT ONE INSTANCE WAS GIVEN (JavaScript, engine resolution/instance-state.dl): a callback handed to the
+        # constructor or subscribed through a method of ONE object is reached from the class's code only for callers
+        # whose receiver may be that object. The engine names the gated edges, the allocations that were given each
+        # callback, and the allocation (or none known) of each receiver that calls into the class; the walk in
+        # dl/impact.dl carries the gate through the class's own code and applies it where a caller leaves it.
+        for rel, t, cols in (('state_gate', 'ext_state_gate', 'c0, c1, c2'), ('state_gate_alloc', 'ext_state_gate_alloc', 'c0, c1, c2'),
+                             ('state_call_alloc', 'ext_state_call_alloc', 'c0, c1, c2'), ('state_call_open', 'ext_state_call_open', 'c0, c1'),
+                             ('state_world', 'ext_state_world_of_gated', 'c0, c1')):
+            W(rel, sorted(tuple(r) for r in g.q(f"SELECT DISTINCT {cols} FROM {t}")) if g.has(t) else [])
         # the HTTP method each side names, where it names one (ax_registration.route_verbs / literal_verbs)
         W('reg_verb', sorted(x for x in ax_registration.route_verbs(g.q, g.site_file) if x[0] in g.sym))
         W('lit_verb', sorted(ax_registration.literal_verbs(g.q, self.at, g.site_file)))
@@ -2729,6 +2788,43 @@ def main(argv):
     # framework's, not an edge, which is why `chains` (verified hop by hop below) keeps the test's own chain.
     def test_route(m, fx):
         return [m] + I.chain(fx, parent) if fx else chains.get(m, [])
+    # DOES THE TEST LOAD THE CHANGE? A test runs code in its own process only once its file, or the fixture's file the
+    # runner loads for it (and in Python the conftest.py files above it), imports the changed file, directly or through
+    # other files. A route that never does -- a key join from a test that only writes the topic string, a dispatch
+    # resolved to a table in a service the test never starts -- is a lead further out, not a test of the change: on
+    # one monorepo 19 test files were selected for a handler table's module and 2 of them import it. None where the
+    # language has no import graph here (imports_fact covers Python, JavaScript and TypeScript).
+    _rev = None; _importers = {}
+    def loads_change(m, fx):
+        nonlocal _rev
+        tf = g.sym[m].get('file') or ''
+        route = test_route(m, fx)
+        seed_file = (g.sym.get(route[-1]) or {}).get('file') if route else None
+        if not tf or not seed_file or os.path.splitext(tf)[1].lower() not in I.IMPORT_RE: return None
+        if tf == seed_file or test_cert.get(m) in ('spawns', 'at import'): return True
+        if _rev is None:
+            _rev = collections.defaultdict(set)
+            try:
+                for ln in open(os.path.join(g.facts, 'impact', 'imports_fact.facts'), encoding='utf-8', errors='replace'):
+                    a, _, b = ln.rstrip('\n').partition('\t')
+                    if a and b: _rev[b].add(a)
+            except OSError:
+                _rev = {}                                # no import facts: nothing can be said either way
+        if not _rev: return None
+        if seed_file not in _importers:
+            seen, todo = {seed_file}, [seed_file]
+            while todo:
+                for a in _rev.get(todo.pop(), ()):
+                    if a not in seen: seen.add(a); todo.append(a)
+            _importers[seed_file] = seen
+        loaders = {tf} | ({g.sym[fx].get('file')} if fx and fx in g.sym else set())
+        if tf.endswith('.py'):
+            d_ = os.path.dirname(tf)
+            while True:
+                loaders.add(f"{d_}/conftest.py" if d_ else 'conftest.py')
+                if not d_: break
+                d_ = os.path.dirname(d_)
+        return bool(loaders & _importers[seed_file])
     # a MODULE counted as a test is a script test (graph_sql.script_tests): it is labelled with the command it runs by
     script_ids = {m for m in tests if g.sym[m]['kind'] == 'module'}
     _runs = {}
@@ -2948,10 +3044,11 @@ def main(argv):
                           # AN `alongside` ROW IS NOT A DEPENDENT, so it never shares `direct` or a role with one. It sat
                           # there as role 'uses', and a reader keyed on role or section counted a same-file sibling as a
                           # user: a check passed on it, then failed when the type moved to another file with no edge changed.
-                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0])) if cert != 'alongside'],
+                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'also': direct_also.get((c, _grp(role)), []), 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[2] == ax_edges.LIBRARY_BYNAME_WHY, x[1], g.disp(x[0]), x[2], x[4], x[0])) if cert != 'alongside'],
                           'alongside': [{'id': c, 'display': g.disp(c), 'role': 'co-located', 'why': why, 'reasons': direct_reasons.get((c, _grp(role)), []), 'certainty': cert, 'at': loc, 'for': sorted(direct_for[(c, _grp(role))])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (g.disp(x[0]), x[2], x[4], x[0])) if cert == 'alongside'],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
                           'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in test_route(m, fx)],
+                                     **({'loads_change': lc} if (lc := loads_change(m, fx)) is not None else {}),
                                      **({'script': True, 'run': script_cmd(m)} if m in script_ids else {})} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'framework_entries': [{'id': m, 'display': g.disp(m), 'signal': sig, 'at': g.loc(m)} for m, sig in fw_ent],
                           'framework_grep': fw_grep,
@@ -2996,7 +3093,7 @@ def main(argv):
     # every letter, and in a callback-heavy language they are most of the list, so the file that breaks is pushed into
     # the hidden tail. Surest first, then named before anonymous, then the entries with the most sites
     anon = lambda c: g.disp(c).split('.')[-1].startswith('<')
-    D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
+    D.sort(key=lambda x: (CERT[x[3]], x[2] == ax_edges.LIBRARY_BYNAME_WHY, anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     # `alongside` rows are their own section, never counted under `reads or uses it`: no call, no reference, so no dependent
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes') and x[3] != 'alongside']),
               ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses') and x[3] != 'alongside']),
@@ -3327,6 +3424,11 @@ def main(argv):
     # a callable in a file whose test is counted runs when that file does (`main` under a script's main guard, the
     # describe block around a counted `it`): the count already credits it
     test_rows = [m for m in test_rows if g.sym[m]['file'] not in tfiles]
+    # a helper beside the tests (test/helpers.js, tests/helpers.py) that a counted test calls on its way to the change is
+    # that test's route, not an uncredited test: the count already runs it
+    if test_rows:
+        on_route = {x for t, v in tests.items() for x in test_route(t, v[1] if isinstance(v, tuple) and len(v) > 1 else None)}
+        test_rows = [m for m in test_rows if m not in on_route]
     if test_rows:
         print(f"    {'and ' if tests else 'but '}{len(test_rows)} callable(s) in test code listed above reach it by a route this count does not credit "
               "(a runner entry it does not collect, a remote or framework hop) — treat them as tests to run: "
@@ -3708,10 +3810,31 @@ def main(argv):
     REGISTERED_NOTE = ("[registered] is a callable handed over as a value, or a handler a framework runs for a request or event "
                        "sent to it — the engine recorded the hand-off or the send, not a call to it, and cannot say it ever runs")
     used_registered = 'registered' in set(test_cert.values())
+    # A DISPATCH ROW IS NOT A GUESS. `calls it (via the interface)` is a call typed on a base whose target set is that
+    # base and its overrides, so the caller is certain and only which override runs is open. Explaining it with the
+    # oracle figure for sets the engine could not narrow told agents to distrust the one right answer, and they
+    # re-read every file to check it.
+    dispatch_why = set(ax_edges.VIA_BASE_WHY.values())
+    open_set = [x for x in byname if x[3] == 'one of a set' and x[2] not in dispatch_why]
+    dispatched = [x for x in byname if x[3] == 'one of a set' and x[2] in dispatch_why]
     if byname:
-        legend = "[one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge), [by name] / [text] may be a same-named other thing"
+        parts = []
+        if dispatched:
+            parts.append("[one of a set] … (via the interface / base class) is dispatch: the call is typed on the base, so the caller is "
+                         "certain and only which override runs is open — a dependent, not a guess")
+        if open_set:
+            parts.append("[one of a set] is one member of a target set the engine could not narrow: any one of them may be the one that runs")
+        if any(x[3] in ('by name', 'text') for x in byname):
+            parts.append("[by name] / [text] may be a same-named other thing")
+        legend = ", ".join(parts)
         if used_registered: legend += ", " + REGISTERED_NOTE
         print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} are not an exact edge — " + legend)
+    # COMPLETE, SAID ONLY WHEN NOTHING ABOVE IS OPEN. Without it an answer that is all resolved calls and dispatch reads
+    # like a partial one, and the reader re-derives it from the source.
+    if D and not open_set and not u and not byname_seeds and not outside and not dunder and not shapes and not unmod \
+            and not any(x[3] in ('by name', 'text', 'capped set') for x in D):
+        print("complete: every dependent above is a resolved call or a dispatch through a base; none is a name-only match "
+              "and no call inside the impacted set is unresolved — read source to make the edit, not to re-check this list")
     elif used_registered:
         # the note above is counted in by-name entries, and a `registered` route need not produce one: on a
         # target reached ONLY through hand-offs there were no by-name entries at all, so the label the whole

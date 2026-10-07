@@ -1,0 +1,10 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a graph from a later text than both sides: lines removed from a method that the later text has shorter are that method's body, and a field and a constructor parameter removed above it are the field and the constructor's signature; the unchanged method below, whose lines shifted, is not listed",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Writer.java"],
+   "want": ["field      Writer.codec", "signature  Writer.Writer", "body       Writer.write"],
+   "avoid": ["Writer.priority", "inside     Writer", "added", "signature  Writer.write"]},
+  {"why": "control: an edit only inside the method below is that method's body and nothing else",
+   "run": ["changed", "{repo}", "--old", "{repo}/new.java", "--new", "{repo}/later.java", "--file", "src/pkg/Writer.java"],
+   "want": ["body       Writer.priority"],
+   "avoid": ["Writer.write", "Writer.Writer", "Writer.codec"]}]}

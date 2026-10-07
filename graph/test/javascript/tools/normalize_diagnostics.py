@@ -89,6 +89,10 @@ for f in raw(os.path.join(out, 'unresolved-receiver.csv'), 4):
 for f in raw(os.path.join(out, 'unresolved-value-callee.csv'), 2):
     pos, _, text = site.get(f[0], ('?', '?', '?'))
     lines.add('value_callee     %s  %s  %s' % (pos, text, f[1]))
+# library_receiver(CallExpr, Specifier): the receiver is a package's value, so a same-named project method is not the callee
+for f in raw(os.path.join(out, 'library-receiver.csv'), 2):
+    pos, _, text = site.get(f[0], ('?', '?', '?'))
+    lines.add('library_receiver %s  %s  %s' % (pos, text, f[1]))
 # package_entry(Prov, Package, Subpath, Condition, Source, Target, Outcome, ModuleHash)
 for f in raw(os.path.join(out, 'package-entry.csv'), 8):
     lines.add('package_entry    %s  %s  [%s]  %s  %s  %s  -> %s' % (

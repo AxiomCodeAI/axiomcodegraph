@@ -4,6 +4,7 @@ client_calls_client	client-to-client-calls.csv
 client_calls_lib	client-to-lib-calls.csv
 client_calls_lib_detail	client-to-lib-navigation.csv
 unresolved_receiver	unresolved-receiver.csv
+library_receiver	library-receiver.csv
 method_has_unknown_call	method-has-unknown-call.csv
 unresolved_value_callee	unresolved-value-callee.csv
 entry_point	entry-point.csv
@@ -42,3 +43,9 @@ package_entry	package-entry.csv
 import_staged_package_unreached	import-staged-package-unreached.csv
 member_write_refused	member-write-refused.csv
 jsx_renders	jsx-renders.csv
+state_gate	state-gate.csv
+state_gate_alloc	state-gate-alloc.csv
+state_call_alloc	state-call-alloc.csv
+state_call_open	state-call-open.csv
+state_world_of_gated	state-world.csv
+field_access	field-access.csv

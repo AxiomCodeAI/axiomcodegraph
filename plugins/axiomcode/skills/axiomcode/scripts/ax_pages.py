@@ -300,10 +300,17 @@ def next_context(text):
                 "step's BODY, not only the line shown, since the body is the explanation and the flow is only its spine "
                 "(`--source` prints it)." + gap)
     m = re.search(r'^\s+(?:hop \d+|name only, no call path)\s+(\S+)\s+\(\d+ symbol\(s\)\)[^\n]*\n\s+-> ([^\n]+)', text, re.M)
+    if m:
+        f = m.group(1); syms = [x.strip() for x in m.group(2).split(',') if x.strip()][:2]
+        return (f"next: read {f} first — it holds {' and '.join(syms)}; then `impact <the one you will change>` for what a change "
+                "to it reaches. The other files are ranked context, not a reading list")
+    # --source prints each file's declarations as code (`name  (file:line)` and its lines) instead of the `->` list
+    m = re.search(r'^\s+(?:hop \d+|name only, no call path)\s+(\S+)\s+\(\d+ symbol\(s\)\)[^\n]*\n((?:\s+\S+  \(\S+:\d+\)\n(?:\s+(?:\d+|) \| [^\n]*\n)*)+)',
+                  text, re.M)
     if not m: return ''
-    f = m.group(1); syms = [x.strip() for x in m.group(2).split(',') if x.strip()][:2]
-    return (f"next: read {f} first — it holds {' and '.join(syms)}; then `impact <the one you will change>` for what a change "
-            "to it reaches. The other files are ranked context, not a reading list")
+    syms = re.findall(r'^\s+(\S+)  \(\S+:\d+\)$', m.group(2), re.M)[:2]
+    return (f"next: answer from the code of {m.group(1)} shown first above — {' and '.join(syms)}; then `impact <the one you will "
+            "change>` for what a change to it reaches. The other files are ranked context, not a reading list")
 
 def next_changed(text):
     if re.search(r'^(no change|no git base)', text, re.M): return ''

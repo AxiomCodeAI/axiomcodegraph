@@ -240,6 +240,12 @@ export class PythonExpressionExtractor {
     this.callSites = [];
     this.worklist = [];
     this.expressionByByteRange = new Map();
+    // Both are PER-FILE: byte ranges repeat across files, so a pairing left
+    // from an earlier file satisfied a later file's receiver lookup with the
+    // wrong value expression — which file won depended on extraction order,
+    // and a worker that had seen different files answered differently.
+    this.assignedValueByTargetRange = new Map();
+    this.returnIndexByMethod = new Map();
     this.pendingReceiverLinks = [];
 
     const moduleScopeHash = input.scopeHashByNodeId.get(input.rootNode.id) ?? '';

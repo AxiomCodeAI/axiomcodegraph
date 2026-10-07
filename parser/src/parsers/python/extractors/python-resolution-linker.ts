@@ -349,6 +349,14 @@ export class PythonResolutionLinker {
 
     // ---- step 2: bases, now that imports are resolved
     // Per-module views of what each module's imports brought into scope.
+    // Modules keyed by hash once, FIRST occurrence kept — the lookup below ran as a
+    // linear scan per import record, which is quadratic over the project.
+    const moduleByHash = new Map<string, ProjectModuleFacts>();
+    for (const module of modules) {
+      if (!moduleByHash.has(module.moduleHash)) {
+        moduleByHash.set(module.moduleHash, module);
+      }
+    }
     const importedTypeByName = new Map<string, Map<string, PyTypeRegistry | null>>();
     const importedModuleByName = new Map<string, Map<string, ProjectModuleFacts>>();
     for (const module of modules) {
@@ -365,7 +373,7 @@ export class PythonResolutionLinker {
           // The bound name refers to a module. Find which one by matching the
           // resolved module hash, so `from . import protocols` and
           // `import pkg.protocols` are handled by the same lookup.
-          const target = modules.find(m => m.moduleHash === record.getResolvedModuleLinkHash());
+          const target = moduleByHash.get(record.getResolvedModuleLinkHash());
           if (target) {
             mods.set(record.getSimpleName(), target);
           }
@@ -383,8 +391,14 @@ export class PythonResolutionLinker {
     const aliasByModule = new Map<string, Map<string, PyMethodRegistry | PyTypeRegistry | null>>();
     for (const module of modules) {
       const scoped = new Map<string, PyBindingRegistry>();
+      // Bindings keyed by hash, FIRST occurrence kept, matching the linear
+      // `.find` this replaces; built in the pass that already walks them.
+      const bindingByHash = new Map<string, PyBindingRegistry>();
       for (const binding of module.bindings) {
         scoped.set(`${binding.getPyScopeLinkHash()}::${binding.getName()}`, binding);
+        if (!bindingByHash.has(binding.getHash())) {
+          bindingByHash.set(binding.getHash(), binding);
+        }
       }
       const parents = new Map<string, string>();
       for (const scope of module.scopes) {
@@ -411,7 +425,7 @@ export class PythonResolutionLinker {
       });
       const byName = new Map<string, PyMethodRegistry | PyTypeRegistry>();
       for (const [bindingHash, entity] of aliases) {
-        const binding = module.bindings.find(b => b.getHash() === bindingHash);
+        const binding = bindingByHash.get(bindingHash);
         if (binding) {
           byName.set(binding.getName(), entity);
         }
