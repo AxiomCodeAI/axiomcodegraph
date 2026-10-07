@@ -63,7 +63,7 @@ def registrations(q, site_file=None):
     sf = site_file or (lambda x: x)
     lits = {}
     if _has(q, 'literals'):
-        for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        for v, f, l in _string_literals(q):
             lits.setdefault((f, l), []).append(v)
     # the declarations a name identifies uniquely: only those can be named as the registered declaration, because
     # a site names a VALUE by identifier and two callables of one name would each claim the other's registration
@@ -107,7 +107,7 @@ def route_site_lines(q, site_file=None):
         return {}
     lits = {}
     if _has(q, 'literals'):
-        for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        for v, f, l in _string_literals(q):
             lits.setdefault((f, l), []).append(v)
     return _route_links(q, site_file or (lambda x: x), lits, set())[2]
 
@@ -628,6 +628,20 @@ def _has(q, t):
     return bool(q("SELECT 1 FROM sqlite_master WHERE name=?", t))
 
 
+def _span_string_literals(q, f, a, b):
+    """the STRING literals inside one file span, kind-filtered the same way _string_literals is"""
+    try: return q("SELECT value, file, line FROM literals WHERE file = ? AND line BETWEEN ? AND ? AND kind = 'string'", f, a, b)
+    except Exception: return q("SELECT value, file, line FROM literals WHERE file = ? AND line BETWEEN ? AND ?", f, a, b)
+
+
+def _string_literals(q):
+    """the literals rows that are STRINGS, as (value, file, line). A v8 index also carries numbers and
+    booleans, which are never registration keys and would join everything (`"1"` matches every retry
+    count); a pre-v8 or degraded index has no kind column, and there every row is a string."""
+    try: return q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL AND kind = 'string'")
+    except Exception: return q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL")
+
+
 # ── the DECORATION path: the key is written at the `@`, and the owner is recorded ────────────────────────────
 # `registrations()` above skips DECORATOR_CALL sites deliberately, because a decoration is not a call that hands a
 # value over. It is the other half of the same idea and it carries BETTER evidence: the index records which
@@ -814,7 +828,7 @@ def literal_verbs(q, at, site_file=None):
         short = re.sub(r'Async$', '', (n or '').split('.')[-1].split('<')[0]).upper()
         if short in _VERBS: calls[sf(f) if f else ''].append((a, b or a, short))
     out = set()
-    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+    for v, f, l in _string_literals(q):
         if not (isinstance(v, str) and v.startswith('/')): continue
         f2 = sf(f) if f else ''
         hold = [(b - a, -a, verb) for a, b, verb in calls.get(f2, ()) if a <= l <= b]
@@ -857,7 +871,7 @@ def value_route_registrations(q, site_file=None):
                 names_at.setdefault((f, l), set()).update(routed[(f, n)])
     import re
     out = []
-    for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+    for v, f, l in _string_literals(q):
         if not (isinstance(v, str) and 0 < len(v) < 160):
             continue
         # A RESOURCE IS NOT A ROUTE. Measured on the JVM parser: the pair fired on
@@ -1118,7 +1132,7 @@ def table_key_writes(q, keys, consts=None, cpos=None):
             if not _KEY_POS.match(text, mm.end()): return True
         return False
     if _has(q, 'literals'):
-        for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL"):
+        for v, f, l in _string_literals(q):
             if v not in keys or (f, l) in cpos: continue
             L = read(f)
             text = L[l - 1] if L and l <= len(L) else None
@@ -1187,7 +1201,7 @@ def key_writes(q, table_keys=None):
     the table's own key position or the constant's declaration)."""
     if table_keys is None:
         table_keys = {r[4] for r in table_registrations(q)}
-    rows = [(v, f, l) for v, f, l in q("SELECT value, file, line FROM literals WHERE line > 0 AND value IS NOT NULL")
+    rows = [(v, f, l) for v, f, l in _string_literals(q)
             if v not in table_keys] if _has(q, 'literals') else []
     return rows + table_key_writes(q, table_keys)
 
@@ -1313,6 +1327,6 @@ def _sends_request(q, m):
     ph = ','.join('?' * len(REQUEST_CALLS))
     if q(f"SELECT 1 FROM call_sites WHERE caller_id = ? AND callee_name IN ({ph}) LIMIT 1", m, *sorted(REQUEST_CALLS)): return True
     if _has(q, 'literals'):
-        for (v,) in q("SELECT value FROM literals WHERE file = ? AND line BETWEEN ? AND ?", f, a, b):
+        for v, _f, _l in _span_string_literals(q, f, a, b):
             if isinstance(v, str) and re.fullmatch(r'/[\w\-./{}:%]*', v): return True
     return False

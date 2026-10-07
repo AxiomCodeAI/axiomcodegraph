@@ -464,7 +464,7 @@ class Impact:
             if d and d[0] == 'field' and kind in (None, 'field'):
                 row = self.fields.get(d[1]['rowid']) or d[1]
                 self.WHY['field'] = {'step': 'file and line: a field declared there', 'won': f"the line declares {row['display']} and no callable of its own", 'ids': [], 'rows': [(row['display'], f"{row['file']}:{row['line']}")]}
-                return [('field', f"{row['kind']} {row['display']} (at {s})", [row])]
+                return [('field', f"{row['kind']} {row['display']}{self.const_value(row)} (at {s})", [row])]
             if d and d[0] == 'type' and kind in (None, 'type'):
                 self.WHY['type'] = {'step': 'file and line: a type declared there', 'won': f"the line is the header of type {d[1]['display']}", 'ids': [d[1]['id']], 'rows': None}
                 return [('type', f"{d[1]['kind']} {d[1]['display']} (at {s})", [d[1]['id']])]
@@ -532,7 +532,7 @@ class Impact:
             if hit: return [('method', verb + (f" ({len(hit)} declarations)" if len(hit) > 1 else ''), [x['id'] for x in hit])]
             # …and a private FIELD (`Vault.#secret`, `#secret`) the same way: rewritten, it asked for `Vault..secret`
             rows = self.field_rows(verb) if kind in (None, 'field') and re.search(r'(^|\.)#[A-Za-z_$]', verb) else []
-            if rows: return [('field', f"{rows[0]['kind']} {rows[0]['display']}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows)]
+            if rows: return [('field', f"{rows[0]['kind']} {rows[0]['display']}{self.const_value(rows[0])}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows)]
         base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
         m0 = re.match(r'^(.+)\.<new>$', base)
@@ -552,7 +552,7 @@ class Impact:
         if kind in (None, 'field'):
             rows = self.field_rows(base)
             if rows: self.WHY['field'] = self.why_field(base, rows)
-            if rows: out.append(('field', f"{rows[0]['kind']} {rows[0]['display']}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows))
+            if rows: out.append(('field', f"{rows[0]['kind']} {rows[0]['display']}{self.const_value(rows[0])}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows))
         if kind in (None, 'type'):
             tids = self.types(base, soft=True)
             if tids: self.WHY['type'] = self._why_t.get(base)
@@ -692,6 +692,16 @@ class Impact:
                         f['file'], r['line'], f['line'], f['line']): continue
             return True
         return False
+    def const_value(self, row):
+        """`` = 5`` — the scalar the v8 index linked to this declaration's line (literals.name), so the
+        answer to `impact MAX_ITEMS` states the value a spec would print, not only who reads it. Empty
+        on a pre-v8 index, a non-scalar initializer, or any line the linker refused as ambiguous."""
+        try:
+            for v, k in self.g.q("SELECT value, kind FROM literals WHERE name = ? AND file = ? AND line = ? LIMIT 1",
+                                 row['display'], row['file'], row['line']):
+                return f" = '{v}'" if k == 'string' else f" = {v}"
+        except Exception: pass
+        return ''
     def field_rows(self, s):
         # `file.js:12` — the field or const DECLARED on that line. Split on `.` it named a field `js:12`, so a const was
         # the one declaration a file:line could not target, and its bare name answered for every const so named
@@ -3077,8 +3087,12 @@ def main(argv):
     if tests_only: sys.stdout = io.StringIO()
     for k, lab, pay in targets:
         if k in ('method', 'field', 'type'):
-            nm = lab.split()[-1].split('(')[0].split('.')[-1]
-            n = len(g.q("SELECT 1 FROM literals WHERE value = ?", nm)) if g.has('literals') else 0
+            # a const's label carries its value (`const MAX_ITEMS = 5`): the name is the word before `=`
+            nm = lab.split(' = ')[0].split()[-1].split('(')[0].split('.')[-1]
+            if g.has('literals'):
+                try: n = len(g.q("SELECT 1 FROM literals WHERE value = ? AND kind = 'string'", nm))
+                except Exception: n = len(g.q("SELECT 1 FROM literals WHERE value = ?", nm))
+            else: n = 0
             d = len(g.q("SELECT 1 FROM decorations WHERE text LIKE ?", f'%"{nm}"%')) if g.has('decorations') else 0
             if n + d > 1: print(f"  the name {nm} is also written as a string in {n + d} place(s) ({STRING_BINDS.get(target_ext(g, pay), STRING_BINDS[''])}): ask for it quoted, `impact '\"{nm}\"'`, to get those")
             break

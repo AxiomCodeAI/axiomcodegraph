@@ -7,7 +7,9 @@ Adds to <repo>/.axiomcode/out/graph.sqlite, idempotently:
             function | method | constructor | class | interface | enum | enum_member | type |
             namespace | const | variable | field | module
   refs      every place an identifier or member is USED (the question grep answers)
-  literals  string literals;  comments  comments and docstrings
+  literals  string, number and boolean literals, with kind ('string'|'number'|'bool') and, when exactly
+            one scalar sits on a declaration's line, the NAME of the const/field it initializes — so
+            "what is MAX_ITEMS" is answerable;  comments  comments and docstrings
   nesting   (type, outer type) recovered by line containment — Java's qualified_name drops the outer
   skipped   files the parser skipped (so `find` can say "exists, not indexed" instead of nothing)
   index_meta what was indexed, from where, and whether the IR was available
@@ -20,10 +22,12 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections, functools
 csv.field_size_limit(10**9)
-INDEX_VERSION = '7'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
+INDEX_VERSION = '8'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function;
                          # v5: JavaScript fields owned by their class, computed-key members named by their key, anonymous class expressions named by their binding;
                          # v6: TypeScript class-property arrows named after their field;
-                         # v7: data keys of module-level const objects declared, Object.freeze seen through); the query
+                         # v7: data keys of module-level const objects declared, Object.freeze seen through;
+                         # v8: literals carry numbers and booleans with a kind column, and the name of the constant
+                         #     a scalar initializes — a spec's numbers were the one thing the graph could not answer); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -80,7 +84,7 @@ A = {
     modules=None,
     expr=dict(file='all-expressions.csv', kind='kind', name='literalValue', line='startLine', fileVia=('types', 'typeRegistryLinkHash'),
               refKinds={'IDENTIFIER_REFERENCE', 'FIELD_ACCESS', 'CLASS_LITERAL'}, entityKind='referencedEntityKind',
-              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+              litKinds={'LITERAL'}, litType=('literalType', {'STRING': 'string', 'INTEGER': 'number', 'LONG': 'number', 'FLOAT': 'number', 'DOUBLE': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
     comments=dict(file='all-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'typeRegistryLinkHash')),
     # @Annotation(args) on a method or type: the arguments live in a second file keyed by the annotation hash
@@ -98,7 +102,7 @@ A = {
               # the key of an object literal (`{ eventId: … }`) is stored with the entity kind OBJECT_PROPERTY_KEY, not
               # UNKNOWN: it is never a property ACCESS, so an access the engine bound on the same line is not this name
               keyRole=dict(role='edgeRole', value='OBJECT_PROPERTY_KEY'),
-              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+              litKinds={'LITERAL'}, litType=('literalType', {'STRING': 'string', 'NUMBER': 'number', 'BIGINT': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
     comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
     # the variable's own hash: the engine's field_access names a module variable by it when an identifier the binder
@@ -125,7 +129,7 @@ A = {
     modules=dict(file='all-python-modules.csv', id='pyModuleUniqueHash', filePath='filePath'),
     expr=dict(file='all-python-expressions.csv', kind='kind', name=('NAME_REFERENCE:literalValue', 'ATTRIBUTE_ACCESS:dottedPath'), line='startLine', fileVia=('modules', 'pyModuleLinkHash'),
               refKinds={'NAME_REFERENCE', 'ATTRIBUTE_ACCESS'}, entityKind='referencedEntityKind',
-              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+              litKinds={'LITERAL'}, litType=('literalType', {'STRING': 'string', 'INTEGER': 'number', 'FLOAT': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ASSIGNMENT_VALUE'}),
     comments=dict(file='all-python-comments.csv', text='text', kind='kind', line='startLine', filePath='filePath'),
     typeRefs=dict(file='all-python-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'pyModuleLinkHash')),
     decorations=dict(file='all-python-decorators.csv', name='decoratorName', owner='ownerHash', line='startLine', fileVia=('modules', 'pyModuleLinkHash'), text='fullText'),
@@ -137,7 +141,7 @@ A = {
     modules=dict(file='all-javascript-modules.csv', id='jsModuleUniqueHash', filePath='filePath'),
     expr=dict(file='all-javascript-expressions.csv', kind='expressionKind', name='name', line='startLine', fileVia=('modules', 'ownerModuleLinkHash'),
               refKinds={'IDENTIFIER', 'PROPERTY_ACCESS'}, entityKind='referenceKind',
-              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='text'),
+              litKinds={'LITERAL'}, litType=('literalKind', {'STRING': 'string', 'NUMBER': 'number', 'BIGINT': 'number', 'BOOLEAN': 'bool'}), litValue='text', litLinkRoles={'OPERAND', 'ASSIGNMENT_VALUE'}, litLinkBlockKinds={'UNARY'}),
     comments=dict(file='all-javascript-comments.csv', text='text', kind='commentKind', line='startLine', fileVia=('modules', 'ownerModuleLinkHash')),
     # a `function f` or `class C` is also a binding (FUNCTION_DECLARATION_HOISTED, CLASS_TDZ), and `const { C } =
     # require('./m')` is an import in all but syntax (it carries an importLinkHash): none of them is a variable, and
@@ -175,7 +179,7 @@ A = {
               # name elsewhere is a by-name reader whatever its qualifier says, so `_r.Limit` was listed under AuditOptions.Limit
               memberName=dict(role='edgeRole', value='MEMBER_NAME', parent='parentExpressionHash', id='csExpressionUniqueHash'),
               # the literal TYPE column is literalKind here, not literalType as in java/typescript/python
-              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='literalValue'),
+              litKinds={'LITERAL'}, litType=('literalKind', {'STRING': 'string', 'INTEGER': 'number', 'REAL': 'number', 'BOOLEAN': 'bool'}), litValue='literalValue', litLinkRoles={'ROOT'}),
     comments=dict(file='all-csharp-comments.csv', text='commentText', kind='commentKind', line='startLine', fileVia=('modules', 'csModuleLinkHash')),
     # type references carry no module link of their own. The owner is a type only for a base-list reference; for
     # `M<T>()`, `new T()`, a parameter, a return or a field it is the expression, method, parameter or field, so
@@ -247,7 +251,7 @@ DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS type_refs; DROP TABLE IF EXIS
 DROP VIEW IF EXISTS callers; DROP VIEW IF EXISTS callees; DROP VIEW IF EXISTS source; DROP VIEW IF EXISTS sites;
 CREATE TABLE symbols(id TEXT, name TEXT, display TEXT, kind TEXT, qualified_name TEXT, signature TEXT, file TEXT, line INT, end_line INT, owner TEXT, is_test INT, method_id TEXT, type_id TEXT);
 CREATE TABLE refs(name TEXT, file TEXT, line INT, kind TEXT, entity_kind TEXT);
-CREATE TABLE literals(value TEXT, file TEXT, line INT);
+CREATE TABLE literals(value TEXT, file TEXT, line INT, kind TEXT, name TEXT);
 CREATE TABLE comments(text TEXT, file TEXT, line INT, kind TEXT);
 CREATE TABLE nesting(type_id TEXT, outer_type_id TEXT);
 CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind TEXT);
@@ -658,15 +662,40 @@ for r in rows(e['file']):
         if mname and ek in ('', 'UNKNOWN'): ek = child_ek.get(r.get(mname['id'], ''), ek) or ek
         if kr and ek in ('', 'UNKNOWN') and r.get(kr['role']) == kr['value']: ek = kr['value']
         refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, ek))
-    elif k in e['litKinds'] and r.get(e['litType'][0]) == e['litType'][1]:
+    elif k in e['litKinds'] and r.get(e['litType'][0]) in e['litType'][1]:
+        kind = e['litType'][1][r.get(e['litType'][0])]        # 'string' | 'number' | 'bool' across every language
         v = (r.get(e['litValue']) or '')
-        # C# keeps the source token, and the IR writer RFC4180-quotes a field holding a double quote, so `"Fee"` arrived
-        # as `"""Fee"""` and was stored `""Fee""`: no key, route or member name written in a C# string ever matched
-        if LANG == 'csharp' and len(v) > 1 and v[0] == '"' == v[-1] and '""' in v: v = v[1:-1].replace('""', '"')
-        if LANG == 'csharp' and len(v) > 2 and v[0] in '@$' and v[-1] == '"': v = v.lstrip('@$')   # @"verbatim", $"interpolated"
-        if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
-        if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0)))
-c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?)", lits)
+        if kind == 'string':
+            # C# keeps the source token, and the IR writer RFC4180-quotes a field holding a double quote, so `"Fee"` arrived
+            # as `"""Fee"""` and was stored `""Fee""`: no key, route or member name written in a C# string ever matched
+            if LANG == 'csharp' and len(v) > 1 and v[0] == '"' == v[-1] and '""' in v: v = v[1:-1].replace('""', '"')
+            if LANG == 'csharp' and len(v) > 2 and v[0] in '@$' and v[-1] == '"': v = v.lstrip('@$')   # @"verbatim", $"interpolated"
+            if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
+        if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0), kind, r.get('edgeRole', '')))
+# a scalar's NAME: `MAX_ITEMS = 5` — the one literal on a const/variable/field declaration's line IS its value,
+# so the row gets the symbol's display and "what is MAX_ITEMS" has an answer with a source location. Strictly:
+# one literal, one such symbol, no call on the line (`RETRY = max(3, env())` names no value), the literal in the
+# language's VALUE position — litLinkRoles, which keeps a subscript's key (`d["timeout"]`, INDEX_ARGUMENT) and a
+# call's argument out — and, where an initializer's sign hides in a parent node (JavaScript's UNARY around `-5`),
+# no such node on the line either (litLinkBlockKinds).
+# Dict passes, not correlated subqueries: the UPDATE form of this join ran minutes against seconds on a mid-sized
+# repository, because at this point the literals indexes do not exist yet.
+lit_count = collections.Counter((f, l) for _v, f, l, _k, _r in lits)
+decl_at = {}                       # (file, line) -> the ONE declared name there, or None once a second appears
+for d, f, l in c.execute("SELECT display, file, line FROM symbols WHERE kind IN ('const', 'variable', 'field', 'enum_member') AND line > 0"):
+    decl_at[(f, l)] = None if (f, l) in decl_at else d
+call_at = {(rel(f), l) for f, l in c.execute("SELECT DISTINCT file_path, start_line FROM call_sites WHERE file_path IS NOT NULL")}
+link_roles = e.get('litLinkRoles') or set()
+block_kinds = e.get('litLinkBlockKinds') or set()
+blocked_at = set()
+if block_kinds:
+    for r in rows(e['file']):
+        if r.get(e['kind'], '') in block_kinds: blocked_at.add((file_of(r, e), int(r.get(e['line']) or 0)))
+lits = [(v, f, l, k,
+         (decl_at.get((f, l)) if role in link_roles and l > 0 and lit_count[(f, l)] == 1
+          and (f, l) not in call_at and (f, l) not in blocked_at else None))
+        for v, f, l, k, role in lits]
+c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?,?,?)", lits)
 cm = A['comments']
 c.executemany("INSERT INTO comments VALUES (?,?,?,?)", ((r.get(cm['text'], '')[:400], file_of(r, cm), int(r.get(cm['line']) or 0), r.get(cm['kind'], '')) for r in rows(cm['file']) if r.get(cm['text'])))
 # where a TYPE is used in a declaration or expression — field type, parameter, return, generic argument, `new` —

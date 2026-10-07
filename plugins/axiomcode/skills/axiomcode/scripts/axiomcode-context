@@ -411,7 +411,10 @@ def route_seeds(g, text):
         for r in g.q("SELECT owner_id, text, file, line FROM decorations WHERE text LIKE '%/%' OR text LIKE '%\"%'"):
             for v in re.findall(r'"([^"]*)"', r['text'] or ''): lits.append((v, r['file'], r['line'], r['owner_id']))
     if asked and g.has('literals'):
-        for r in g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40"):
+        # strings only: a route is never a number, and the v8 index carries numbers and booleans too
+        try: lit_rows = g.q("SELECT value, file, line FROM literals WHERE (value LIKE '%/%' OR length(value) < 40) AND kind = 'string'")
+        except Exception: lit_rows = g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40")
+        for r in lit_rows:
             lits.append(((r['value'] or '').strip('"'), r['file'], r['line'], None))
     by_file = collections.defaultdict(set)
     for v, f, _l, _o in lits: by_file[f].add(tuple(_route_parts(v)))
