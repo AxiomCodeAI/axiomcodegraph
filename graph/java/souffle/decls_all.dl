@@ -475,6 +475,8 @@
 .decl cha_wide_base(c0:symbol)
 .decl cha_override_low(c0:symbol,c1:symbol)
 .decl local_init_expr(c0:symbol,c1:symbol)
+.decl local_use(c0:symbol,c1:symbol)
+.decl local_use_init(c0:symbol,c1:symbol)
 .decl local_assign_value(c0:symbol,c1:symbol)
 .decl local_flow_type(c0:symbol,c1:symbol)
 .decl param_flow_type(c0:symbol,c1:symbol)
