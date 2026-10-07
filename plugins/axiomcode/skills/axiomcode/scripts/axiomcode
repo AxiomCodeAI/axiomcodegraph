@@ -9,6 +9,9 @@
 #       how A reaches B: every hop of the call chain, with the code at each call.
 #   axiomcode tests
 #       the tests your uncommitted edits reach, and the command that runs exactly those.
+#   axiomcode context "<the task, in your own words>" [--source]
+#       how something works, as a narrative: the files and callables the task touches and, for a
+#       how-does-X-work question, the call flow step by step; --source carries each step's code.
 #   axiomcode index [<repo>] [--lang <lang>[,<lang>…]] [--src <subdir>] [--library <root>[,<root>…]]
 #       build the graph (the first query builds it too). <repo> defaults to the current directory.
 #

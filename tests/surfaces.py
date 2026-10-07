@@ -15,7 +15,7 @@ INTERNAL, with the reason written down, and must appear on none of those surface
 that is in neither list fails, so exposing one is a decision rather than an accident (#1034).
 
 The agent-facing docs (both copies of SKILL.md, AGENTS.md, the Cursor rule, and the README's CLI section) name no old
-MCP tool (`axiomcode_context` …) and no flag other than index's.
+MCP tool (`axiomcode_context` …) and no flag other than index's setup flags and context's --source.
 
     python3 tests/surfaces.py
 """
@@ -29,17 +29,17 @@ SKILL = os.path.join(PLUG, 'skills', 'axiomcode', 'SKILL.md')
 MCP = os.path.join(PLUG, 'mcp', 'server.py')
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')     # the command an install puts on $PATH
 
-PUBLIC = ['index', 'impact', 'path', 'tests']
+PUBLIC = ['index', 'impact', 'path', 'tests', 'context']
 NO_MCP = {'index': 'setup, not a question: the first query through the MCP server builds the graph itself'}
 # dispatched, not advertised: verb -> why
 INTERNAL = {
     'build':       'the old name of index',
-    'context':     'search by task words; the orient hook and the suites call it, no caller-facing surface does',
     'changed':     'impact with no name answers the same question at the front door; the edit hooks read it with --json',
     'test-impact': 'what tests runs; its flags (--range, --staged, --why, …) serve scripts and the suites',
 }
 OLD_TOOLS = re.compile(r'\baxiomcode_(context|impact|path|changed|test_impact|graph|index|diff)\b')
-INDEX_FLAGS = {'--lang', '--src', '--library'}
+# the flags the surface may teach: index's setup flags, and context's one option (the flow with each step's code)
+INDEX_FLAGS = {'--lang', '--src', '--library', '--source'}
 
 
 def dispatched():

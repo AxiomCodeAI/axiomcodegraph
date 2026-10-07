@@ -12,3 +12,13 @@ def replay(source):
 
 def rewind(source):
     return source.reopen(3)
+
+
+def scheduler(source):
+    # reaches settle only through replay's by-name site
+    return replay(source)
+
+
+def rollback(source):
+    # reaches only rewind, whose by-name site names reopen, not settle
+    return rewind(source)

@@ -8,9 +8,11 @@ MCP tools, for what no text search answers:
                         impact() with no name: the same for your uncommitted edits
     path(start, end)    how A reaches B, every hop of the call chain
     tests()             the tests your uncommitted edits reach, and the command that runs them
+    context(task)       how something works, as a narrative: the call flow step by step;
+                        context(task, source=True) carries each step's code
 
 Without the tools, the same from the shell: `axiomcode impact <name>`,
-`axiomcode path <A> <B>`, `axiomcode tests`.
+`axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode context "<task>" --source`.
 
 Every answer is a numbered list of places, each with the code of the function it sits in and the line that
 matters marked `→`: answer from that code, and open a file only where a body was cut. A `resolved` place has

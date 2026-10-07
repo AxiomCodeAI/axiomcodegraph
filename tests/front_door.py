@@ -12,7 +12,7 @@ command.
      path answer with numbered places and a fenced code block; after an edit, impact with no name starts with
      `your edits:`, and tests lists the test with its code and ends with a `run:` line. A verb off the surface is
      refused with the supported list.
-  b. the MCP server lists exactly impact, path and tests, each with at most two parameters, and a call to one
+  b. the MCP server lists exactly context, impact, path and tests, each with at most two parameters, and a call to one
      answers in the same shape.
   c. CONTROLS: the dispatcher run directly, bin/axiomcode with --json, and AXIOMCODE_RAW=1 give the old answer — no
      fenced block — for the same question.
@@ -98,11 +98,13 @@ def main():
         if fails: return 1
 
         # ── a. the installed command, no flags ───────────────────────────────────────────────────────────────────
-        for verb, args in (('find', ('how is the invoice total computed',)), ('context', ('the invoice total',)),
+        for verb, args in (('find', ('how is the invoice total computed',)),
                            ('graph', ()), ('diff', ()), ('install', ())):
             rc, out, err = cli(repo, verb, *args)
             check(f'{verb}: off the surface, the installed command refuses it and names the supported verbs',
                   rc != 0 and 'impact' in err and 'path' in err and 'tests' in err, (out + err)[:400])
+        rc, out, err = cli(repo, 'context', 'how is the invoice total computed')
+        check('context: on the surface, the task in words answers with the flow', rc == 0 and 'pricing.py' in out, (out + err)[:400])
         rc, out, err = cli(repo, 'impact', 'vat_rate')
         check('impact <name>: its direct caller as a numbered place with its code', rc == 0 and places(out) and 'shop/pricing.py:6' in out
               and 'return net * (1 + vat_rate())' in out, out[:600] + err[-300:])
@@ -125,7 +127,7 @@ def main():
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
         got = mcp(repo, [('path', {'start': 'total', 'end': 'vat_rate'}), ('impact', {'name': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
-        check('MCP tools/list is exactly impact, path and tests (search is grep\'s)', set(tools) == {'impact', 'path', 'tests'}, tools)
+        check('MCP tools/list is exactly context, impact, path and tests (search is grep\'s)', set(tools) == {'context', 'impact', 'path', 'tests'}, tools)
         check('MCP: every tool takes at most two parameters', bool(tools) and all(len(p) <= 2 for p in tools.values()), tools)
         text = lambda i: ''.join(c.get('text', '') for c in got.get(i, {}).get('content', []))
         check('MCP path answers as numbered places with their code', places(text(3)), text(3)[:600])

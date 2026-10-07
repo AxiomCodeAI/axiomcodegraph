@@ -1198,7 +1198,16 @@ def main(argv):
             print(f"    {n}  — {len(rs)} call site(s)")
             for f, l, c, code in rs: print(f"      {f}:{l}: {code}" + (f"   [in {c}]" if c else ''))
     terms = task_terms(body)
-    if not terms: die("nothing to search for in that task description")
+    if not terms:
+        # the graph's vocabulary is the code's own identifiers, which are English words and names: a task
+        # written in another script matches nothing, and "nothing to search for" read as a parsing fault
+        # rather than a stated limit. A mixed task works — one identifier is enough to land.
+        if any(ord(c) > 127 and c.isalpha() for c in body or ''):
+            die("this task is written in a language the index cannot search: only English task words are supported,"
+                " because the graph's vocabulary is the code's own identifiers."
+                " Rephrase the task in English, or keep your language and include one identifier as written in the"
+                " code (a mixed task works: the identifier lands it).")
+        die("nothing to search for in that task description")
     # what the question names that no graph here holds is said FIRST (#1571), and a scope that exists on disk but holds
     # no indexed file is a text scope, not a typo (#1382). Only a scope the index does not know is checked on disk.
     def holds(x):
