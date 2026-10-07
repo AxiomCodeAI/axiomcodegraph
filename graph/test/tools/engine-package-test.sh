@@ -11,6 +11,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
+# This test counts compiles and asserts cache-entry names, and the parallel flavor is a per-machine
+# question answered by probing c++ — under the stub c++ the probe and a later real-c++ run can answer
+# differently, so prepare and the run after it would disagree on the -par cache name. The flavor is
+# pinned serial: what is under test is packaging and caching, not the solve.
+export AXIOM_SOLVE_PARALLEL=0
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
 [ -x "$ROOT/node_modules/.bin/tsx" ] || { echo "engine-package: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
 W="$(mktemp -d)"; SHADOW=""; trap 'rm -rf "$W" ${SHADOW:+"$SHADOW"}' EXIT
