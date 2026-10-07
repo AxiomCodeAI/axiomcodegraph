@@ -1,0 +1,17 @@
+/* L01 cascade layers: statement, block, nested, dotted, anonymous, imported-into, media-wrapped */
+@layer reset, base, components.buttons, components.cards, utilities;
+@layer reset { * { margin: 0 } }
+@layer base { .card { color: red } @layer typography { h1 { font-size: 2rem } } }
+@layer components { @layer buttons { .btn { color: red } } @layer cards { .card { color: blue } } }
+@layer components.cards { .card .item { color: green } }
+@layer base.typography { h2 { font-size: 1rem } }
+@layer { .anonymous { color: red } }
+@media screen { @layer utilities { .u-hide { display: none } } }
+@layer utilities { @media print { .u-hide { display: block } } }
+@import "print.css" layer(print-layer);
+@import "alt.css" layer;
+@layer sub.sub.sub { .deep-layer { color: red } }
+@layer a, b, a;
+@layer reset;
+@layer    spaced   ,   names   ;
+.unlayered { color: red }

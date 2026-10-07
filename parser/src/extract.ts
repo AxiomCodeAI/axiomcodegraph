@@ -13,6 +13,7 @@ import { DEFAULT_EXCLUDES as PYTHON_DEFAULT_EXCLUDES, PythonProjectAnalyzer } fr
 import { ServicesProjectAnalyzer } from '@/workflows/services/services-project-analyzer';
 import { JavaScriptProjectAnalyzer } from '@/workflows/javascript/javascript-project-analyzer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
+import { WebProjectAnalyzer } from '@/workflows/web/web-project-analyzer';
 import { XmlProjectAnalyzer } from '@/workflows/xml/xml-project-analyzer';
 import { YamlProjectAnalyzer } from '@/workflows/yaml/yaml-project-analyzer';
 import { clearGitIgnored, loadGitIgnored } from '@/utils/git-ignored';
@@ -127,6 +128,22 @@ async function mergeProjectOutputs(scratchDirs: string[], outputDir: string): Pr
       }
     }
     await fsp.rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Copy every relation file of `src` into each of `targets`. Used for the web tables, which
+ * several languages read; a copy is cheap next to the Java or JavaScript relations beside it,
+ * and a hard link would make the two folders share a file one of them may rewrite.
+ */
+async function copyRelationFiles(src: string, targets: readonly string[]): Promise<void> {
+  let names: string[] = [];
+  try { names = (await fsp.readdir(src)).filter((n) => n.endsWith('.csv')); } catch { return; }
+  for (const target of targets) {
+    fs.mkdirSync(target, { recursive: true });
+    for (const name of names) {
+      await fsp.copyFile(path.join(src, name), path.join(target, name));
+    }
   }
 }
 
@@ -291,12 +308,20 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   // is discarded rather than into a java/ folder that would announce a language absent here.
   const configOut = perLanguage ? (javaOut ?? scratchFor(baseOut, 'config', 0)) : outputDir;
 
+  // HTML and CSS are read by more than one engine: a page's <script src> reaches a JavaScript or
+  // TypeScript module and a server template sits beside Java. In per-language mode the web
+  // tables are therefore extracted ONCE into a scratch folder and copied into every language
+  // folder that exists among those readers (web-project-analyzer.ts), rather than written into
+  // one of them and lost to the others. Flat mode writes them beside everything else.
+  const webScratch = perLanguage ? scratchFor(baseOut, 'web', 0) : undefined;
+  const webOut = webScratch ?? outputDir;
   const javaAnalyzer = new JavaProjectAnalyzer(undefined, javaOut ?? (perLanguage ? scratchFor(baseOut, 'java', 0) : outputDir));
   const propertiesAnalyzer = new PropertiesProjectAnalyzer(configOut);
   const xmlAnalyzer = new XmlProjectAnalyzer(configOut);
   const yamlAnalyzer = new YamlProjectAnalyzer(configOut);
   const gradleAnalyzer = new GradleProjectAnalyzer(configOut);
   const servicesAnalyzer = new ServicesProjectAnalyzer(configOut);
+  const webAnalyzer = new WebProjectAnalyzer(webOut);
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
   const javascriptAnalyzer = new JavaScriptProjectAnalyzer();
@@ -307,7 +332,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   // gradle's void return, and the mistake surfaced only as a type error — so a
   // new analyzer is APPENDED rather than inserted, and the destructuring below
   // is checked against this list rather than against memory.
-  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries, csharpSummaries]
+  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries, csharpSummaries, webSummary]
     = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
@@ -415,6 +440,9 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
                'test', 'tests', 'Tests', 'UnitTests', 'IntegrationTests']
             : undefined,
         }).then((summary) => [summary])),
+    // HTML and CSS are APPENDED, as the comment above the destructuring asks. Every scan
+    // target, like the other file-type analyzers: a page has no project shape of its own.
+    webAnalyzer.analyzeWebFiles(scanTargets, opts.versionLink),
   ]);
 
   // Every per-project scratch folder is merged into its language's folder now, in project
@@ -434,8 +462,16 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     const promoted = dirFor('javascript', true)!;
     await mergeProjectOutputs([path.join(baseOut, '.javascript-project-0')], promoted);
   }
+  // The web tables reach every reader that has a folder: java (server templates), javascript and
+  // typescript (pages that load modules). A reader with no folder gets none, and a repository with
+  // none of the three keeps no web folder either — the tables would announce a language absent here.
+  if (webScratch !== undefined && webSummary.filesAnalysed > 0) {
+    const readers = [javaOut, javascriptOut ?? (fs.existsSync(path.join(baseOut, 'javascript')) ? path.join(baseOut, 'javascript') : undefined), typescriptOut]
+      .filter((d): d is string => d !== undefined);
+    await copyRelationFiles(webScratch, readers);
+  }
   if (perLanguage) {
-    for (const stray of ['.config-project-0', '.java-project-0', '.javascript-project-0']) {
+    for (const stray of ['.config-project-0', '.java-project-0', '.javascript-project-0', '.web-project-0']) {
       fs.rmSync(path.join(baseOut, stray), { recursive: true, force: true });
     }
   }
@@ -449,6 +485,9 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   reportLanguage('TypeScript', typescriptSummaries.seconds, typescriptSummaries.value);
   reportLanguage('C#', csharpSummaries.seconds, csharpSummaries.value);
   reportLanguage('JavaScript', javascriptSummaries.seconds, javascriptSummaries.value);
+  if (webSummary.htmlFilesSeen + webSummary.cssFilesSeen > 0) {
+    console.log(`\n📊 ${'HTML/CSS files analysed:'.padEnd(30)}${webSummary.filesAnalysed} of ${webSummary.htmlFilesSeen + webSummary.cssFilesSeen}`);
+  }
 
   // Wall clock for the whole run. The per-language figures above will NOT sum to
   // it: the analyzers run concurrently, so their durations overlap. Reporting

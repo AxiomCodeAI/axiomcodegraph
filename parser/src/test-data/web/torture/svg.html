@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Torture: foreign content</title>
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    svg|rect { fill: red }            /* V01 namespaced type selector: name is "svg|rect", element tagName is "rect" */
+    rect { fill: blue }
+    .icon { width: 1em }              /* V02 class on an SVG element joins like any other */
+    #sym-icon { fill: green }
+    use { color: red }
+    foreignObject div { color: red }  /* V03 camelCase in a selector lowercases; the element keeps foreignObject */
+    foreignobject div { color: red }
+    math mi { font-style: italic }
+    .in-svg-style { color: red }
+  </style>
+</head>
+<body>
+  <svg class="icon" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- V04 SVG <style> and <script> inside an HTML document: browsers APPLY and RUN them -->
+    <style>.in-svg-style { color: blue } rect.svg-rect { stroke: black }</style>
+    <script>svgScript(); document.querySelector('.icon');</script>
+    <defs><symbol id="sym-icon" class="symbol-class"><rect class="svg-rect" width="1" height="1"/></symbol></defs>
+    <use href="#sym-icon" class="use-class"/>
+    <use xlink:href="#sym-icon"/>
+    <use href="img/sprite.svg#external-icon"/>
+    <use xlink:href="img/sprite.svg#external-icon"/>
+    <image href="img/logo.png" xlink:href="img/logo.png" width="1" height="1"/>
+    <a href="forms.html" xlink:href="forms.html"><text>svg anchor</text></a>
+    <rect CLASS="Case-Kept" ID="Case-Kept-Id" width="1" height="1" style="fill: var(--brand)" onclick="svgClick()"/>
+    <foreignObject width="10" height="10">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="in-foreign" ONCLICK="backInHtml()">html again: tag and attribute names lowercase here</div>
+      <svg class="nested-svg"><rect class="nested-rect"/></svg>
+    </foreignObject>
+    <title>svg title must not become the document title</title>
+    <linearGradient id="grad"><stop offset="0"/></linearGradient>
+    <rect fill="url(#grad)" class="uses-gradient"/>
+    <rect fill="url(img/sprite.svg#pattern)"/>
+  </svg>
+  <math><mi class="math-class">x</mi><annotation-xml encoding="text/html"><div class="in-annotation"></div></annotation-xml></math>
+  <svg><rect class="icon"/></svg>
+</body>
+</html>
