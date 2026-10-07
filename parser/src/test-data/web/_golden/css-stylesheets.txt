@@ -1,0 +1,5 @@
+name=app	fileName=app.css	relativePath=static/css/app.css	sourceKind=FILE	sourceProvenance=PROJECT	startLine=1	startColumn=1	endLine=20	ruleCount=27	declarationCount=25	parseGapCount=1
+name=base	fileName=base.css	relativePath=static/css/base.css	sourceKind=FILE	sourceProvenance=PROJECT	startLine=1	startColumn=1	endLine=1	ruleCount=1	declarationCount=2	parseGapCount=0
+name=index#style1	fileName=index.html	relativePath=index.html	sourceKind=HTML_STYLE_ELEMENT	sourceProvenance=PROJECT	startLine=12	startColumn=10	endLine=14	ruleCount=1	declarationCount=2	parseGapCount=0
+name=sassy	fileName=sassy.css	relativePath=vendor/sassy.css	sourceKind=FILE	sourceProvenance=PROJECT	startLine=1	startColumn=1	endLine=3	ruleCount=3	declarationCount=2	parseGapCount=6
+name=vendor.min	fileName=vendor.min.css	relativePath=static/css/vendor.min.css	sourceKind=FILE	sourceProvenance=MINIFIED	startLine=1	startColumn=1	endLine=1	ruleCount=3	declarationCount=4	parseGapCount=0

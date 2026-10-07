@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <title>Torture: the main page</title>
+  <!-- T01 base href: every relative URL below is, to a browser, relative to /static/ — not to this file's directory -->
+  <base href="/static/">
+  <!-- T02 stylesheet link variants: plain, alternate, print-only, disabled, preload-as-style, query-string, no rel, uppercase rel -->
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="alternate stylesheet" href="css/alt.css" title="Alt">
+  <link rel="stylesheet" href="css/print.css" media="print">
+  <link rel="stylesheet" href="css/disabled.css" disabled>
+  <link rel="preload" as="style" href="css/base.css" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="stylesheet" href="css/base.css?v=abc123#frag">
+  <link href="css/norel.css">
+  <link REL="StyleSheet" HREF="css/upper.css">
+  <!-- T03 root-relative ambiguity: /css/dup.css exists under both public/ and static/ -->
+  <link rel="stylesheet" href="/css/dup.css">
+  <!-- T04 stylesheet that lives in another project folder, reached by ../ -->
+  <link rel="stylesheet" href="../css/app.css">
+  <link rel="icon" href="img/favicon.ico">
+  <link rel="modulepreload" href="js/module.js">
+  <!-- T05 scripts: classic, module, nomodule, external module, importmap, inline referencing globals -->
+  <script src="js/vendor.js" defer></script>
+  <script type="module" src="js/module.js"></script>
+  <script nomodule src="js/lib.js"></script>
+  <script type="importmap">{ "imports": { "lib": "./js/lib.js" } }</script>
+  <script>
+    // T06 inline classic script: defines globals the handlers below call
+    function track(a, b) { return a + b; }
+    var app = { submit: function (e) { return e; } };
+    document.body.classList.add('js-ready');       // class named only in script text
+    document.getElementById('late-id');             // id named only in script text
+  </script>
+  <!-- T07 inline styles: plain, media-scoped, type=text/less (ignored by browsers), empty, with @import -->
+  <style>
+    .inline-only { color: red; }
+    .md\:flex { display: flex; }                /* T08 escaped colon: HTML writes class="md:flex" */
+    .w-1\/2 { width: 50%; }                     /* escaped slash: HTML writes class="w-1/2" */
+    .\31 23 { order: 1; }                       /* escaped leading digit: HTML writes class="123" */
+    .hover\:bg-blue:hover { background: blue; } /* escaped colon plus a real pseudo-class */
+    .日本語 { font-weight: bold; }               /* unicode class, as written in both */
+    .emoji-🚀 { color: gold; }
+  </style>
+  <style media="print">.print-only { display: none }</style>
+  <style type="text/less">@c: red; .less-only { color: @c }</style>
+  <style></style>
+  <style>@import url("css/imported-by-style.css"); .after-import { color: green }</style>
+</head>
+<body class="home dark" onload="track('load', 1)" data-page="index">
+  <!-- T09 class attribute shapes -->
+  <div class="  spaced&#9;tabbed
+multi-line   dup dup  " id="  padded-id  ">whitespace, tab entity, newline, duplicate token, padded id</div>
+  <div class>valueless class attribute</div>
+  <div class="">empty class attribute</div>
+  <div class="a&amp;b &lt;c&gt; &quot;q&quot;">entity-bearing class tokens</div>
+  <div class="Upper lower MIXED">case variants: CSS .upper must NOT match Upper</div>
+  <DIV CLASS="SHOUT" ID="LOUD">uppercase tag and attribute names</DIV>
+  <div class="first" class="second">duplicate class attribute: first wins, second is a gap</div>
+
+  <!-- T10 id-based joins -->
+  <nav id="main-nav" class="nav">
+    <a href="#section-one">same-page fragment</a>
+    <a href="#missing-anchor">dangling fragment</a>
+    <a href="forms.html#the-form">cross-page fragment, resolvable</a>
+    <a href="forms.html#nope">cross-page fragment, dangling</a>
+    <a href="missing.html#x">cross-page fragment, page missing</a>
+    <a href="">empty href</a>
+    <a href="  index.html  ">padded href</a>
+    <a href="img/space%20name.png">percent-encoded path</a>
+    <a href="img/space name.png">literal space in path</a>
+    <a href="../outside.html">escapes the root</a>
+    <a href="./">directory</a>
+    <a href="css/">directory with slash</a>
+    <a href="INDEX.HTML">case-different name (case-insensitive FS hazard)</a>
+    <a href="tel:+1-555-0100">tel</a>
+    <a href="sms:+15550100?body=hi">sms</a>
+    <a href="file:///etc/hosts">file scheme</a>
+    <a href="C:\Users\x\page.html">windows path reads as scheme c</a>
+    <a href="//cdn.example.com/lib.js">protocol relative</a>
+    <a href="HTTPS://EXAMPLE.COM/A">uppercase scheme</a>
+    <a href="javascript:void(0)" onclick="go(1); return false;">js void plus handler</a>
+    <a href="JavaScript:toggle('nav')">mixed-case javascript scheme</a>
+    <a href="javascript:;">empty javascript</a>
+    <a href="javascript:{{ handler }}">template in javascript url</a>
+    <a href="{{ url_for('home') }}" class="{{ cls }} static-class">template url and template class</a>
+    <a href="/static/{{ name }}.js">template inside path</a>
+    <a href="${ctx}/x.html">dollar brace</a>
+    <a href="<%= path %>">erb</a>
+    <a href="@Url.Action(&quot;Index&quot;)">razor</a>
+    <a href="x.html" ping="/ping1 /ping2">ping list</a>
+    <a href="x.html" target="frame-a">targets a named iframe</a>
+  </nav>
+
+  <section id="section-one" class="card card--wide is-active">
+    <h2 id="section-one">duplicate id on the page</h2>
+    <!-- T11 inline style attribute shapes -->
+    <p style="color: var(--brand); margin:0">var in style attribute</p>
+    <p style="--local: 4px; padding: var(--local)">custom property defined in a style attribute</p>
+    <p style="background: url(img/bg.png) no-repeat; cursor: url(img/cursor.cur), auto">urls in style attribute, relative to the page</p>
+    <p style="background: url(/img/bg.png)">root-relative url in style attribute</p>
+    <p style="color: red !important; font: 12px/1.5 Inter, serif">important and font shorthand</p>
+    <p style="color: {{ color }}">template in style attribute</p>
+    <p style="color red; margin: 0">broken declaration list, second declaration must survive</p>
+    <p style=".x { color: red }">a rule where a declaration list belongs</p>
+    <p style="">empty style</p>
+    <p style="animation: spin 1s infinite; font-family: 'Inter'; container-name: sidebar">keyframes, font, container refs in a style attribute</p>
+    <p style="color: red; } .injected { color: blue">brace in a style attribute</p>
+    <p STYLE="COLOR: RED; Background-Color: Blue">uppercase property names</p>
+  </section>
+
+  <!-- T12 handler shapes -->
+  <button onclick="save()">simple</button>
+  <button onclick="app.submit(event)">member</button>
+  <button onclick="a.b.c.d(1,2,3)">deep member</button>
+  <button onclick="window['save']()">computed member</button>
+  <button onclick="new Widget(this).open()">new then call</button>
+  <button onclick="if (confirm('sure?')) { remove(1); } else { keep() }">three calls</button>
+  <button onclick="(function(){ inner() })()">iife</button>
+  <button onclick="save">no call, bare identifier</button>
+  <button onclick="return false">no call at all</button>
+  <button onclick="">empty handler</button>
+  <button onclick="save(&quot;a&quot;, &apos;b&apos;)">entities in handler</button>
+  <button onclick="save(a, b">unbalanced handler</button>
+  <button onclick="this.classList.toggle('open')">class named in handler string: CSS .open cannot join</button>
+  <button onclick="document.querySelector('#late-id .card')">selector in handler string</button>
+  <button ONCLICK="shout()">uppercase handler attribute</button>
+  <button onClick="camel()">camel-case handler attribute</button>
+  <button on:click="svelte()" @click="vue()" (click)="angular()" v-on:click="vueLong()" x-on:click="alpine()" hx-on:click="htmx()">framework handlers, none are on* attributes</button>
+  <button onclick="{{ handler }}">template handler</button>
+  <button onclick="<%= handler %>">erb handler</button>
+  <button ondblclick="save(); save(); save()">same callee three times</button>
+  <button onmouseover="javascript:hover()">javascript: label inside a handler</button>
+  <button onclick="save?.()">optional call</button>
+  <button onclick="await save()">top-level await in a handler</button>
+  <button onclick="save(...args)">spread</button>
+  <button onclick="save`tpl`">tagged template, not a call expression</button>
+
+  <!-- T13 script type variants -->
+  <script type="text/javascript">classic();</script>
+  <script type="TEXT/JAVASCRIPT">upperClassic();</script>
+  <script type="application/javascript;charset=utf-8">paramClassic();</script>
+  <script type="module">import { init } from './js/app.js'; init();</script>
+  <script type="text/x-template" id="tpl-row"><tr class="tpl-class"><td>{{ name }}</td></tr></script>
+  <script type="text/x-handlebars-template" id="hbs">{{#each items}}<li class="hbs-class">{{this}}</li>{{/each}}</script>
+  <script type="text/html" id="knockout"><div class="ko-class" data-bind="text: name"></div></script>
+  <script type="application/json" id="data">{"a": 1}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org"}</script>
+  <script type="speculationrules">{"prerender": [{"source": "list", "urls": ["forms.html"]}]}</script>
+  <script type="text/babel">const x = <b/>;</script>
+  <script type="text/typescript">let x: number = 1;</script>
+  <script type="text/x-mathjax-config">MathJax.Hub.Config({});</script>
+  <script type="module" src="https://cdn.example.com/esm.js" integrity="sha384-x" crossorigin></script>
+  <script src="js/app.js">ignoredBody();</script>
+  <script src="">emptySrcIsInline();</script>
+  <script src="   ">blankSrcIsInline();</script>
+  <script>
+    // T14 a string that looks like a closing tag, and template literals
+    var s = "<\/script>"; var t = `</div>`;
+  </script>
+  <script>var closesEarly = "</script>"; trailingText();</script>
+
+  <!-- T15 media and embedded documents -->
+  <img src="img/logo.png" srcset="img/logo.png 1x, img/logo@2x.png 2x" sizes="100vw" alt="">
+  <img srcset="img/hero.webp?w=100,200 100w, img/hero.png 200w" alt="comma inside a srcset url">
+  <img src="img/logo.png#frag" usemap="#site-map" alt="">
+  <map name="site-map"><area href="forms.html" shape="rect" coords="0,0,1,1" alt=""></map>
+  <picture><source srcset="img/hero.webp" type="image/webp"><source srcset="img/hero.png"><img src="img/hero.png" alt=""></picture>
+  <video src="media/clip.mp4" poster="media/poster.png"><source src="media/clip.mp4" type="video/mp4"><track src="media/clip.vtt" kind="captions"></video>
+  <audio><source src="media/clip.mp4"></audio>
+  <input type="image" src="img/logo.png" alt="">
+  <input type="IMAGE" src="img/logo.png" alt="">
+  <input type="text" src="img/logo.png">
+  <iframe src="forms.html" name="frame-a"></iframe>
+  <iframe srcdoc="<style>.srcdoc-class{color:red}</style><div class='srcdoc-class'></div>"></iframe>
+  <embed src="media/clip.mp4" type="video/mp4">
+  <object data="media/clip.mp4" type="video/mp4"><param name="movie" value="media/clip.mp4"></object>
+  <blockquote cite="forms.html">cite</blockquote>
+  <body background="img/bg.png"></body>
+  <meta property="og:image" content="img/hero.png">
+  <meta http-equiv="refresh" content="0; URL='forms.html'">
+  <meta http-equiv="Refresh" content="0;url=https://example.com/">
+
+  <!-- T16 element-tree shapes the browser repairs and the grammar may not -->
+  <div/>
+  <span class="after-self-closing-div">a browser makes me a CHILD of the div above</span>
+  <p>a <div class="div-in-p">div inside a p closes the p</div> trailing</p>
+  <ul><li class="li-one">one<li class="li-two">two</ul>
+  <select><option>one<option>two</select>
+  <table class="tbl"><tr><td class="cell">no tbody written</td></tr></table>
+  <table><caption>c</caption><thead><tr><th>h</th></tr></thead><tr><td>body row after thead</td></tr></table>
+  <a href="x.html">outer <a href="y.html">nested anchor</a></a>
+  <dl><dt>t<dd>d<dt>t2</dl>
+  <div class="unclosed-at-eof">
+  <template><div class="in-template"><style>.in-template-style { color: red }</style><script>inTemplate()</script></div></template>
+  <noscript><link rel="stylesheet" href="css/noscript.css"><div class="noscript-class"></div></noscript>
+  <custom-element class="custom" part="label"><slot name="s"></slot></custom-element>
+  <div is="x-foo" class="customized-builtin"></div>
+  <!--[if IE]><link rel="stylesheet" href="css/ie.css"><div class="ie-only"></div><![endif]-->
+  <!-- <div class="commented-out"><script>commented()</script></div> -->
+  <p>entities: &nbsp; &amp; &lt;tag&gt; &#x27; &#39; &unknown; &copy;</p>
+  <p title="a &amp; b" data-json='{"k": "v"}' aria-label="x" aria-labelledby="section-one missing-label" aria-describedby="late-id" aria-controls="main-nav" role="region">aria idrefs</p>
+  <div hidden class="hidden-attr"></div>
+  <div class="base-class">styled only by base.css, which this page does not load (its link is under the base)</div>
+  <div class="dup-attr" id="d1" id="d2" title="t" title="u"></div>
+  <input value="a" value="b" disabled disabled>
+</body>
+</html>

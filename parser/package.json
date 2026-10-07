@@ -16,10 +16,13 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "entities": "6.0.1",
     "sax": "^1.4.4",
     "tree-sitter": "^0.21.1",
     "tree-sitter-c-sharp": "0.23.1",
+    "tree-sitter-css": "0.23.0",
     "tree-sitter-groovy": "^0.1.2",
+    "tree-sitter-html": "0.23.2",
     "tree-sitter-java": "0.23.4",
     "tree-sitter-python": "^0.21.0",
     "typescript": "^5.3.3",

@@ -11,3 +11,6 @@ export * from '@/enums/python';
 export { SkippedFileReason } from '@/enums/SkippedFileReason';
 export * from '@/enums/xml';
 export * from '@/enums/yaml';
+export * from '@/enums/web';
+export * from '@/enums/html';
+export * from '@/enums/css';

@@ -1,0 +1,33 @@
+dialect=ALPINE	expressionKind=BINDING	directive=:class	argument=class	modifiers=	expressionText={ on: open }	calleeNames=	identifiers=open	declares=	position=3	startLine=1	startColumn=92
+dialect=ALPINE	expressionKind=CONDITION	directive=x-show	argument=	modifiers=	expressionText=open	calleeNames=	identifiers=open	declares=	position=2	startLine=11	startColumn=55
+dialect=ALPINE	expressionKind=DIRECTIVE	directive=x-data	argument=	modifiers=	expressionText={ open: false }	calleeNames=	identifiers=	declares=	position=0	startLine=1	startColumn=29
+dialect=ALPINE	expressionKind=DIRECTIVE	directive=x-data	argument=	modifiers=	expressionText={ open: false }	calleeNames=	identifiers=	declares=	position=0	startLine=11	startColumn=16
+dialect=ALPINE	expressionKind=EVENT_HANDLER	directive=@click	argument=click	modifiers=	expressionText=open = !open	calleeNames=	identifiers=open	declares=	position=1	startLine=1	startColumn=54
+dialect=ALPINE	expressionKind=REFERENCE	directive=x-ref	argument=	modifiers=	expressionText=panel	calleeNames=	identifiers=	declares=	position=1	startLine=11	startColumn=40
+dialect=ANGULAR	expressionKind=BINDING	directive=[class.on]	argument=class.on	modifiers=	expressionText=open	calleeNames=	identifiers=open	declares=	position=1	startLine=2	startColumn=38
+dialect=ANGULAR	expressionKind=CONDITION	directive=*ngIf	argument=	modifiers=	expressionText=items.length	calleeNames=	identifiers=items	declares=	position=0	startLine=2	startColumn=12
+dialect=ANGULAR	expressionKind=EVENT_HANDLER	directive=(click)	argument=click	modifiers=	expressionText=toggle()	calleeNames=toggle	identifiers=toggle	declares=	position=2	startLine=2	startColumn=53
+dialect=ANGULAR	expressionKind=LOOP	directive=*ngFor	argument=	modifiers=	expressionText=let item of items; let i = index	calleeNames=	identifiers=items	declares=item,i	position=0	startLine=3	startColumn=15
+dialect=ANGULAR	expressionKind=MODEL	directive=[(ngModel)]	argument=ngModel	modifiers=	expressionText=item.qty	calleeNames=	identifiers=item	declares=	position=1	startLine=3	startColumn=62
+dialect=ERB	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=if (user) {	calleeNames=	identifiers=	declares=	position=0	startLine=3	startColumn=3
+dialect=ERB	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=}	calleeNames=	identifiers=	declares=	position=1	startLine=3	startColumn=45
+dialect=ERB	expressionKind=INTERPOLATION	directive=	argument=	modifiers=	expressionText=user.name	calleeNames=	identifiers=	declares=	position=0	startLine=3	startColumn=24
+dialect=HANDLEBARS	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=#each items	calleeNames=	identifiers=	declares=	position=0	startLine=2	startColumn=23
+dialect=HANDLEBARS	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=/each	calleeNames=	identifiers=	declares=	position=2	startLine=2	startColumn=46
+dialect=HANDLEBARS	expressionKind=INTERPOLATION	directive=	argument=	modifiers=	expressionText=this	calleeNames=	identifiers=	declares=	position=1	startLine=2	startColumn=38
+dialect=HTMX	expressionKind=REQUEST	directive=hx-get	argument=get	modifiers=	expressionText=/items	calleeNames=	identifiers=	declares=	position=2	startLine=1	startColumn=76
+dialect=JINJA	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=block title	calleeNames=	identifiers=	declares=	position=0	startLine=2	startColumn=7
+dialect=JINJA	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=endblock	calleeNames=	identifiers=	declares=	position=1	startLine=2	startColumn=31
+dialect=JINJA	expressionKind=INTERPOLATION	directive=href	argument=href	modifiers=	expressionText=url_for('home')	calleeNames=	identifiers=	declares=	position=0	startLine=3	startColumn=12
+dialect=MUSTACHE	expressionKind=INTERPOLATION	directive=onclick	argument=onclick	modifiers=	expressionText=handler	calleeNames=	identifiers=	declares=	position=0	startLine=35	startColumn=43
+dialect=PHP	expressionKind=DIRECTIVE	directive=	argument=	modifiers=	expressionText=php echo $total;	calleeNames=	identifiers=	declares=	position=0	startLine=4	startColumn=3
+dialect=THYMELEAF	expressionKind=BINDING	directive=th:text	argument=text	modifiers=	expressionText=${title}	calleeNames=	identifiers=	declares=	position=0	startLine=3	startColumn=21
+dialect=VUE	expressionKind=BINDING	directive=:key	argument=key	modifiers=	expressionText=row.id	calleeNames=	identifiers=row	declares=	position=1	startLine=7	startColumn=38
+dialect=VUE	expressionKind=EVENT_HANDLER	directive=@keyup.enter	argument=keyup	modifiers=enter	expressionText=search()	calleeNames=search	identifiers=search	declares=	position=1	startLine=10	startColumn=45
+dialect=VUE	expressionKind=EVENT_HANDLER	directive=@select	argument=select	modifiers=	expressionText=pick(row)	calleeNames=pick	identifiers=pick,row	declares=	position=3	startLine=7	startColumn=74
+dialect=VUE	expressionKind=INTERPOLATION	directive=	argument=	modifiers=	expressionText=format(item.name)	calleeNames=format	identifiers=format,item	declares=	position=0	startLine=8	startColumn=35
+dialect=VUE	expressionKind=LOOP	directive=v-for	argument=	modifiers=	expressionText=row in rows	calleeNames=	identifiers=rows	declares=row	position=0	startLine=7	startColumn=19
+dialect=VUE	expressionKind=MODEL	directive=v-model	argument=	modifiers=	expressionText=selected	calleeNames=	identifiers=selected	declares=	position=2	startLine=7	startColumn=55
+dialect=VUE	expressionKind=MODEL	directive=v-model.trim	argument=	modifiers=trim	expressionText=query	calleeNames=	identifiers=query	declares=	position=0	startLine=10	startColumn=24
+dialect=VUE	expressionKind=SLOT	directive=#default	argument=default	modifiers=	expressionText={ item }	calleeNames=	identifiers=	declares=item	position=0	startLine=8	startColumn=25
+dialect=VUE	expressionKind=SLOT	directive=#list	argument=list	modifiers=	expressionText=	calleeNames=	identifiers=	declares=	position=3	startLine=2	startColumn=63
