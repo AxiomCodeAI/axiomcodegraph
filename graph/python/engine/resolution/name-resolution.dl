@@ -161,13 +161,20 @@ assign_pair(p, te, ve) :-
 //    the two-member set is the correct answer. A block that contains exactly one of the
 //    two is what proves the separation, and py_block — emitted by the parser and read by
 //    no rule before this — is the only place that is written down.
+// RESTRICTED TO THE PAIRS ITS ONE CONSUMER ASKS ABOUT. def_rebound_by_later_def reads
+// this only for two defs of the SAME BINDING; materialized over every same-file pair it
+// held 1.88M rows (230s) on a 526k-LOC subject, of which the consumer could ever touch a
+// few hundred. The binding join also keys the method pairs, so the block scan runs per
+// rebinding candidate instead of per file-wide cross product. Queried results unchanged.
 def_separated_by_block(p, m1, m2) :-
+    method_declaring_binding(p, b, m1), method_declaring_binding(p, b, m2),
     method_file(p, f, m1), method_file(p, f, m2),
     method_start_line(p, l1s, m1), method_start_line(p, l2s, m2),
     block_span(p, f, bs, be, _),
     l1 = to_number(l1s), l2 = to_number(l2s), bstart = to_number(bs), bend = to_number(be),
     l1 >= bstart, l1 <= bend, l2 > bend.
 def_separated_by_block(p, m1, m2) :-
+    method_declaring_binding(p, b, m1), method_declaring_binding(p, b, m2),
     method_file(p, f, m1), method_file(p, f, m2),
     method_start_line(p, l1s, m1), method_start_line(p, l2s, m2),
     block_span(p, f, bs, be, _),

@@ -292,9 +292,15 @@ py_fixture_request(req, name) :- py_fixture_param(req, name),
 // below. Only in a requester's own body: a helper function calling it is not collected,
 // and which test calls the helper is a call edge's question, not this rule's.
 .decl py_fixture_value_call(req:symbol, e:symbol)
-py_fixture_value_call(req, e) :- py_fixture_requester(req),
-    call_decl("client", "METHOD_CALL", fn, _, e, site), py_fixture_value_method(fn),
-    call_context("client", _, req, _, _, site).
+// SELECTIVE ATOM FIRST: there is one fixture-value method name and, on most projects,
+// few or no calls to it — while there are tens of thousands of requesters. Written
+// requester-first, the planner walked every requester's whole call context before the
+// one-tuple filter said no: 295s to derive ZERO rows on a 526k-LOC subject. This order
+// costs what the answer costs.
+py_fixture_value_call(req, e) :- py_fixture_value_method(fn),
+    call_decl("client", "METHOD_CALL", fn, _, e, site),
+    call_context("client", _, req, _, _, site),
+    py_fixture_requester(req).
 // (a) the name written as a string literal;
 py_fixture_request(req, name) :- py_fixture_value_call(req, e),
     call_arg(e, "0", a), expr_node("client", "LITERAL", _, name, a), name != "".
