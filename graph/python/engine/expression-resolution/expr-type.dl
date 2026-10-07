@@ -430,6 +430,19 @@ binding_value_type(p, b, t) :-
     assign_pair(p, tgt, val),
     expr_type(p, val, t).
 
+// ── AN IMPORTED MODULE-LEVEL VALUE IS THE BINDING IT NAMES (#1140) ───────────
+// `from order_service import order_service` resolves to the exporting module's
+// own binding row (import_resolved_target kind VARIABLE), and that binding's
+// value type is derived above from its assignment. Without this clause the
+// type stopped at the module boundary: the same `order_service.cancel()` was a
+// known edge next to the assignment and a name match one import away. The
+// write-count trade-offs are inherited, not re-decided -- a multi-write export
+// arrives as the union and the tier follows from the target count as usual.
+binding_value_type(p, b, t) :-
+    import_binding(p, b, i),
+    import_resolved_target(p, "VARIABLE", b2, i),
+    binding_value_type(p, b2, t).
+
 // ── A CONDITIONAL EXPRESSION IS EITHER BRANCH ────────────────────────────────
 // `w = HtmlWriter() if flag else PlainWriter()`. CONDITIONAL_EXPRESSION was present in
 // the IR with BODY / CONDITION / ORELSE children and NO rule read it, so a ternary had

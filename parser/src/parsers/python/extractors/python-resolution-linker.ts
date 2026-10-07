@@ -283,12 +283,27 @@ export class PythonResolutionLinker {
               ? undefined
               : exportsByModule.get(targetModule.qualifiedName)?.get(member) ??
                 this.followReExport(member, targetModule, exportsByModule, moduleByQualifiedName);
-          if (declared === undefined || declared === null) {
+          // A module-level VARIABLE is a member too, and the interpreter's
+          // member-first order applies to it the same as to a def or a class.
+          // Without this check, `from svc.order_service import order_service` —
+          // the ordinary singleton idiom, where the value is named after its
+          // module — fell into the submodule fallback below, whose findModule
+          // matches by SUFFIX and so handed back svc.order_service ITSELF: the
+          // import resolved to MODULE with an empty hash and the VARIABLE
+          // branch further down never ran (#1140).
+          const variableMember =
+            targetModule === undefined
+              ? undefined
+              : moduleVariablesByModule.get(targetModule.qualifiedName)?.get(member);
+          if ((declared === undefined || declared === null) && variableMember === undefined) {
             const asModule = targetName === null || targetName === ''
               ? member
               : `${targetName}.${member}`;
             const memberModule = this.findModule(asModule, moduleByQualifiedName);
-            if (memberModule) {
+            // The module found by suffix must not be the target module itself:
+            // `from X import Y` never binds X, so a "submodule" that IS X is a
+            // suffix collision, not an answer.
+            if (memberModule && memberModule !== targetModule) {
               record.setResolution(memberModule.moduleHash, PythonImportTargetKind.MODULE, '');
               stats.importsResolved += 1;
               continue;
@@ -688,6 +703,20 @@ export class PythonResolutionLinker {
       }
     }
 
+    // Per-module resolution context, built for EVERY module before ANY module
+    // resolves its call sites. The split matters for one reason: an imported
+    // module-level value's type lives in the EXPORTING module's local type
+    // index, and module order is arbitrary, so typing and resolution cannot
+    // share one sweep.
+    const resolutionCtxByModuleHash = new Map<string, {
+      entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
+      boundNames: Set<string>;
+      importedModuleNames: Set<string>;
+      typesByName: Map<string, PyTypeRegistry | null>;
+      localTypeByBinding: Map<string, PyTypeRegistry | null>;
+    }>();
     for (const module of modules) {
       const entityByBinding = new Map<string, PyMethodRegistry | PyTypeRegistry>();
       for (const method of module.methods) {
@@ -779,6 +808,66 @@ export class PythonResolutionLinker {
         mroCache,
       });
 
+      resolutionCtxByModuleHash.set(module.moduleHash, {
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+        boundNames,
+        importedModuleNames,
+        typesByName,
+        localTypeByBinding,
+      });
+    }
+
+    // A from-import of a module-level VALUE carries the binding it names
+    // (#1140, PythonImportTargetKind.VARIABLE) — but the IMPORTING module's
+    // local type index knew nothing about that binding, so
+    // `order_service.cancel()` still fell to a name match whenever
+    // `order_service = OrderService()` lives in another module, while the same
+    // call in the exporting module resolved. The exporter's own index has
+    // already typed that binding on the same three grounds any local uses;
+    // copy the answer onto the import's binding so the ordinary NAME-receiver
+    // lookup finds it. One hop only, by construction: a re-exported value
+    // resolves to an import binding, which is never an assigned module-scope
+    // binding, so it was not given VARIABLE kind in the first place.
+    for (const module of modules) {
+      const own = resolutionCtxByModuleHash.get(module.moduleHash);
+      if (!own) {
+        continue;
+      }
+      for (const record of module.imports) {
+        if (record.getResolvedTargetKind() !== PythonImportTargetKind.VARIABLE) {
+          continue;
+        }
+        const importBinding = record.getBindingLinkHash();
+        const exportedBinding = record.getResolvedTargetHash();
+        // An entry that already exists wins: the name is also assigned in this
+        // module, and that assignment (or its refusal, null) is the local truth.
+        if (importBinding === '' || exportedBinding === '' || own.localTypeByBinding.has(importBinding)) {
+          continue;
+        }
+        const exporter = resolutionCtxByModuleHash.get(record.getResolvedModuleLinkHash());
+        const type = exporter?.localTypeByBinding.get(exportedBinding);
+        if (type) {
+          own.localTypeByBinding.set(importBinding, type);
+        }
+      }
+    }
+
+    for (const module of modules) {
+      const ctx = resolutionCtxByModuleHash.get(module.moduleHash);
+      if (!ctx) {
+        continue;
+      }
+      const {
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+        boundNames,
+        importedModuleNames,
+        typesByName,
+        localTypeByBinding,
+      } = ctx;
       for (const callSite of module.callSites) {
         // Retry anything WITHOUT A HASH, not merely anything UNRESOLVED. The
         // single-file pass has no module graph, so it can only say IMPORTED for
