@@ -109,9 +109,13 @@ global_name_demanded("String").
 // ReadonlyArray's — `slice`, `every`, `map`, `filter`, `join`, `reduce`, `forEach`.
 global_name_demanded("ReadonlyArray").
 
-name_binds_any(mod, name, prov, k, ent) :- module_decl("client", _, _, _, _, mod),
-    global_name_demanded(name),
-    global_decl_visible(mod, name, k, prov, ent),
+// ANCHORED ON global_decl_visible, which already holds exactly the (module, demanded
+// name) pairs with a global to offer — its own clauses carry the module_decl and
+// global_name_demanded gates. Written with the cross pair first, the plan enumerated
+// |client modules| x |demanded names| and probed global_decl_visible per pair: 30s
+// between this rule and name_binds' twin on a 1.1M-LOC subject, for 217K rows.
+name_binds_any(mod, name, prov, k, ent) :- global_decl_visible(mod, name, k, prov, ent),
+    module_decl("client", _, _, _, _, mod),
     !name_bound_locally(mod, name).
 
 // ── name_binds(ModuleHash, Name, Prov, Kind, EntityHash) ────────────────────
@@ -125,9 +129,8 @@ name_binds(mod, local, prov, k, ent) :- import_binding("client", _, local, _, mo
     import_binds(ih, prov, k, ent).
 name_binds(mod, name, prov, k, ent) :- module_local_decl(prov, mod, name, k, ent),
     !decl_is_type_only(prov, k, ent).
-name_binds(mod, name, prov, k, ent) :- module_decl("client", _, _, _, _, mod),
-    global_name_demanded(name),
-    global_decl_visible(mod, name, k, prov, ent),
+name_binds(mod, name, prov, k, ent) :- global_decl_visible(mod, name, k, prov, ent),
+    module_decl("client", _, _, _, _, mod),
     !decl_is_type_only(prov, k, ent),
     !name_bound_locally(mod, name).
 
@@ -210,13 +213,16 @@ qualified_name_binds(mod, ctn, prov, k, ent) :- qname_walk(mod, ctn, ctn, prov, 
 // A namespace IMPORT qualifier — `import * as ts from "typescript"; ts.SourceFile`.
 // The leftmost segment is a module rather than a namespace declaration, so the
 // member comes from that module's export table instead of from namespace_member.
-qualified_name_binds(mod, ctn, prov, k, ent) :- demanded_qualified_name(ctn),
+// The qualifier is matched as an EQUALITY KEY, not as a substring test. An import's
+// local name holds no dot, so "the demanded name starts with local followed by a dot"
+// is exactly "local is one of the demanded name's dot-prefixes" — and qname_dot_prefix
+// already enumerates those. Written with the substring test, no index applies and the
+// body is |demanded names| x |import bindings| with two substr calls per pair: 29s for
+// 805 rows on a 1.1M-LOC subject, the single most expensive rule of the solve.
+qualified_name_binds(mod, ctn, prov, k, ent) :- qname_dot_prefix(ctn, local),
     import_binding("client", _, local, _, mod, ih),
     import_binds_namespace_any(ih, prov, target),
     l = strlen(local),
-    l < strlen(ctn),
-    substr(ctn, 0, l) = local,
-    substr(ctn, l, 1) = ".",
     seg = substr(ctn, l + 1, strlen(ctn) - l - 1),
     module_export_any(prov, target, seg, k, ent).
 
@@ -236,12 +242,16 @@ qualified_name_binds(mod, ctn, prov, k, ent) :- demanded_qualified_name(ctn),
 // needed: qname_dot_prefix already enumerates the prefixes, and a prefix that is the
 // qualifier plus one segment has no interior dot by construction — the next prefix out
 // would be the one that contains it.
+// `local` is joined as another dot-prefix of the SAME demanded name: two prefixes of
+// one string nest, so "local is a shorter prefix of dotted ending at a dot" is implied
+// by both being dot-prefixes of ctn with strlen(local) < strlen(dotted) — the substring
+// tests the first version ran per (binding x prefix) pair are gone, and import_binding
+// is probed by local through its index.
 qname_walk(mod, ctn, dotted, prov, k, ent) :- qname_dot_prefix(ctn, dotted),
-    import_binding("client", _, local, _, mod, ih),
-    import_binds_namespace_any(ih, prov, target),
+    qname_dot_prefix(ctn, local),
     l = strlen(local),
     l < strlen(dotted),
-    substr(dotted, 0, l) = local,
-    substr(dotted, l, 1) = ".",
+    import_binding("client", _, local, _, mod, ih),
+    import_binds_namespace_any(ih, prov, target),
     seg = substr(dotted, l + 1, strlen(dotted) - l - 1),
     module_export_any(prov, target, seg, k, ent).

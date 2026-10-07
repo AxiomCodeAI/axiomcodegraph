@@ -111,9 +111,7 @@ field_flow_type(f, prov, t) :- field_initializer("client", e, f),
 // ── the receiver takes what its field holds ─────────────────────────────────
 // `this.repo.find()`: the property access is typed by the field's flowed type as well
 // as its declared one.
-expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_flow_type(f, prov, t).
@@ -123,9 +121,7 @@ expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
 // fixpoint, whereas an arbitrary qualifier's type comes from expr_type and feeding that
 // into a negated relation would put the negation inside its own cycle. Java's
 // type-flow.dl draws the identical line and records the identical reason.
-expr_exact_type(e, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_exact_type(e, t) :- property_access_recv(e, n, q),
     expr_kind("client", "THIS_REFERENCE", _, q),
     expr_enclosing_type(q, encl),
     field_in_enclosing(encl, n, f),
@@ -298,15 +294,11 @@ call_result_callable(w) :- expr_shape(w, s), call_signature_in_scope(s, _).
 // instance call `recv.name()` looks it up (callee-resolution rules 4 and 6). Without it a
 // method passed by reference had no edge from the function that passes it, where a free
 // function passed at the same position had one.
-method_value(x, m) :- expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+method_value(x, m) :- property_access_recv(x, n, q),
     expr_type(q, _, qt),
     method_in_scope(qt, n, "false", m),
     !method_is_accessor(m).
-method_value(x, m) :- expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+method_value(x, m) :- property_access_recv(x, n, q),
     expr_shape(q, s),
     method_in_scope(s, n, _, m),
     !method_is_accessor(m).

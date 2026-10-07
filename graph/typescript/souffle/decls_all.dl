@@ -501,6 +501,7 @@
 .decl property_written(c0:symbol)
 .decl update_operator(c0:symbol)
 .decl property_access_name(c0:symbol,c1:symbol)
+.decl property_access_recv(c0:symbol,c1:symbol,c2:symbol)
 .decl qname_dot_prefix(c0:symbol,c1:symbol)
 .decl qname_scan(c0:symbol,c1:number)
 .decl qname_walk(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)

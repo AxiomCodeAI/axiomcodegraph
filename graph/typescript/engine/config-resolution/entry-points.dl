@@ -216,9 +216,7 @@ entry_point(m, "package_export") :- cfg_published_value(x),
     method_prov(m, "client").
 // an instance method read as a value: `engine.produce`, typed through its receiver
 entry_point(m, "package_export") :- cfg_published_value(x),
-    expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+    property_access_recv(x, n, q),
     expr_type(q, _, t),
     method_in_scope(t, n, _, m),
     method_prov(m, "client").
