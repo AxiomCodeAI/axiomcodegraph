@@ -11,6 +11,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
+# This test counts compiles and asserts cache-entry names, and the parallel flavor is a per-machine
+# question answered by probing c++ — under the stub c++ the probe and a later real-c++ run can answer
+# differently, so prepare and the run after it would disagree on the -par cache name. The flavor is
+# pinned serial: what is under test is packaging and caching, not the solve.
+export AXIOM_SOLVE_PARALLEL=0
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
 [ -x "$ROOT/node_modules/.bin/tsx" ] || { echo "engine-package: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
 W="$(mktemp -d)"; SHADOW=""; trap 'rm -rf "$W" ${SHADOW:+"$SHADOW"}' EXIT
@@ -68,7 +73,12 @@ fake="$W/fake-engine"
 { echo '#!/usr/bin/env bash'
   echo 'while [ $# -gt 0 ]; do case "$1" in -D) D="$2"; shift 2;; -F) shift 2;; *) shift;; esac; done'
   cut -f2 "$ROOT/graph/$lang/souffle/export_manifest.tsv" | sed 's|^|: > "$D/|; s|$|"|'; } > "$fake"
-mkdir -p "$W/stub" "$W/inc/souffle"; : > "$W/inc/souffle/CompiledSouffle.h"; : > "$W/cc-calls"
+mkdir -p "$W/stub" "$W/inc/souffle/utility"; : > "$W/inc/souffle/CompiledSouffle.h"; : > "$W/cc-calls"
+# the stub include dir must carry what souffle_overlay patches (the seqlock fix seds these
+# write-entry RMWs and refuses an include dir without them), as a real install's headers do
+printf '%s\n' 'version.fetch_or(0x1, std::memory_order_acquire);' \
+              'version.fetch_or(0x1, std::memory_order_acquire);' \
+              'version.fetch_or(0x1, std::memory_order_acquire);' > "$W/inc/souffle/utility/ParallelUtil.h"
 { echo '#!/usr/bin/env bash'
   echo "[ \"\$1\" = --version ] && { echo 'Version: $SOUFFLE_VERSION'; exit 0; }"
   echo 'while [ $# -gt 0 ]; do case "$1" in -g) : > "$2"; echo "// c++" > "$2"; shift 2;; *) shift;; esac; done'; } > "$W/stub/souffle"
@@ -83,6 +93,9 @@ if prep; then
   [ -x "$W/cache/souffle-engine-$lang-$id" ] || bad "prepare left no binary under the run's cache name (souffle-engine-$lang-${id:0:12}…)"
   [ "$(calls)" = 1 ] || bad "prepare compiled $(calls) time(s), expected 1"
   grep -q "engine ready" "$W/log" || bad "prepare did not report the engine ready"
+  h="$W/cache/include-seqlock-fix-1/souffle/utility/ParallelUtil.h"
+  grep -q 'memory_order_seq_cst' "$h" 2>/dev/null && ! grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" \
+    || bad "prepare did not leave the patched overlay header (seqlock fix) in the cache"
 else bad "prepare failed:"; tail -8 "$W/log" | sed 's/^/      /'; fi
 prep || bad "a second prepare failed"
 grep -q "reusing cached binary" "$W/log" && [ "$(calls)" = 1 ] || bad "a second prepare compiled again ($(calls) compiles)"
