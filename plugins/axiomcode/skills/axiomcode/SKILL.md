@@ -57,6 +57,14 @@ Example: `path(start="main", end="Ledger.put")`.
 The tests your uncommitted edits reach, each with its code, and a last line `run: <command>` that runs exactly those.
 Example: `tests()`. It is a lower bound: a test reached only through reflection or a service loader is not listed.
 
+## context
+
+How something works, from a task in your own words: the files and callables the task touches and, for a
+how-does-X-work question, the call flow step by step. Example: `context(task="how is an invoice settled",
+source=True)` — source carries each step's code, so the flow is read without opening files. Only English task
+words land (the graph's vocabulary is the code's identifiers); any language works once the task includes one
+identifier as written in the code.
+
 ## index
 
 `axiomcode index` builds the graph explicitly; `--lang`, `--src` and `--library` narrow it. Never re-run it on an
