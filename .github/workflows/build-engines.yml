@@ -73,7 +73,9 @@ jobs:
             id="$(bash graph/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
             echo "$lang: $id"; printf '%s' "$id" > "gen/$lang.id"
             bash graph/pipeline/run-souffle.sh --language "$lang" --emit-program "gen/$lang.dl"
-            souffle -I graph -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
+            # -j makes souffle EMIT the parallel loops (without it the C++ has none); whether a
+            # platform's binary runs them in parallel is decided at compile time below.
+            souffle -I graph -j 8 -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
             awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "gen/$lang.gen.log"
           done
           # the query programs: self-contained (no #include), keyed by dl_program.py itself
@@ -89,6 +91,13 @@ jobs:
           bash .github/scripts/query-smoke.sh expect gen/queries
           cp .github/scripts/query-smoke.sh gen/queries/smoke.sh
           cp -r /usr/include/souffle gen/souffle
+          # the seqlock fix (see souffle_overlay in run-souffle.sh): the write-entry RMW
+          # must be seq_cst or a weakly-ordered CPU lets data stores pass the version-odd
+          # store and readers validate garbage. Patched here so every platform's binary
+          # is built from the same fixed header; the engine id carries +seqlock-fix-1.
+          sed -i 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' gen/souffle/souffle/utility/ParallelUtil.h
+          grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' gen/souffle/souffle/utility/ParallelUtil.h
+          ! grep -q 'fetch_or(0x1, std::memory_order_acquire)' gen/souffle/souffle/utility/ParallelUtil.h
           # one key for the whole set; a partial match restores the previous set
           echo "key=$(cat gen/*.id gen/queries/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
           # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
@@ -135,7 +144,15 @@ jobs:
           for lang in $LANGUAGES; do
             if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
             mkdir -p "engines/$lang"
-            c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            # OpenMP on linux-x64 only: x86-TSO is where the optimistic btree's design
+            # assumptions hold (a residual arm64 crash mode under memory pressure survives
+            # the seqlock entry fix — see souffle_overlay in run-souffle.sh), and libgomp
+            # links STATICALLY so the binary runs on machines with no gcc runtime. The
+            # .parallel marker beside the binary is what run-souffle.sh reads to pass a
+            # real -j at run time; arm64 compiles the same patched code sequentially.
+            OMP=""; case "$(uname -m)" in x86_64) OMP="-fopenmp -Wl,-Bstatic,-lgomp,-Bdynamic";; esac
+            c++ -std=c++17 -O3 -w $OMP -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            [ -n "$OMP" ] && touch "engines/$lang/axiomcode-engine-$lang.parallel"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
           mkdir -p engines/queries

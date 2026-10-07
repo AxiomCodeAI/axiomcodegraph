@@ -318,14 +318,14 @@ engine_id_of(){
   done < "$prog"
   hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
     || { echo "❌ engine id: mktemp failed" >&2; return 1; }
-  if ! printf 'souffle=%s\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+  if ! printf 'souffle=%s+seqlock-fix-1\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
     echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
   fi
   # The expected size comes from the SOURCE files (wc's last line is their total), not from a
   # second read through cat, so a cat that loses bytes cannot agree with itself.
   want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
   want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
-  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 9 ));; esac   # 9 = "souffle=" + "\n"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-1" + "\n"
   if [ "${have//[[:space:]]/}" != "$want" ]; then
     echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
   fi
@@ -379,8 +379,87 @@ case "${AXIOM_ENGINE_MARCH:-native}" in
   portable) MARCH_FLAG=();;
   *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
 esac
+# ── PARALLEL SOLVE ────────────────────────────────────────────────────────────
+# Soufflé emits parallel loops only when the program is GENERATED with -j — without it
+# the C++ holds zero parallel sections, which is why every engine before this was
+# sequential by construction. Compiled WITHOUT OpenMP the same generated code runs
+# serially (pfor degrades to for), so generation always asks for the parallel loops and
+# OpenMP at COMPILE time decides the flavor. Measured on a 6,139-file Java subject:
+# 147s serial -> 59s at -j8; the outputs are equal as sets (row order shifts between
+# flavors; the bundle loads rows into sqlite, which keeps no order).
+# GATED PER PLATFORM. On darwin-arm64 the parallel RUNTIME segfaults nondeterministically
+# — a different rule each crash, g++/libgomp and apple-clang/libomp alike, Soufflé 2.5
+# and master f53dab8 — so Darwin stays serial until upstream fixes it. Linux enables
+# OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
+# anywhere; =1 forces the attempt anywhere (still needs a toolchain with -fopenmp).
+# The flavor is part of the CACHE NAME, never shared between flavors: the two binaries
+# answer with different row orders, and a cache hit must reproduce the flavor that ran
+# yesterday, not whichever compiled first.
+# THE SEQLOCK FIX (overlay). Soufflé's OptimisticReadWriteLock enters its write phase
+# with fetch_or(..., memory_order_acquire): the version-odd store may become visible
+# AFTER the write section's data stores on a weakly-ordered CPU, so a reader can read a
+# half-mutated node and still pass validate() against the stale even version. On x86's
+# TSO stores never reorder, which is why this only ever fired on arm64 (nondeterministic
+# segfaults in a different rule each run, any toolchain, Soufflé 2.5 and master alike).
+# seq_cst on the entry RMW pins the odd version BEFORE any data store; on x86 a locked
+# RMW is already a full barrier, so the change costs nothing there. The engine id carries
+# "+seqlock-fix-1", so no unpatched cache entry or package is ever taken for a patched one.
+souffle_overlay(){
+  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-1"
+  local hdr="$overlay/souffle/utility/ParallelUtil.h"
+  if [ ! -f "$hdr" ]; then
+    rm -rf "$overlay.tmp.$$"
+    mkdir -p "$overlay.tmp.$$"
+    cp -R "$inner/." "$overlay.tmp.$$/" || return 1
+    local h="$overlay.tmp.$$/souffle/utility/ParallelUtil.h"
+    [ -f "$h" ] || return 1
+    # three write-entry RMWs: start_write (two), try_start_write, try_upgrade_to_write
+    sed -i.bak 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$h" && rm -f "$h.bak"
+    grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$h" || return 1
+    grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" && return 1
+    mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
+    rm -rf "$overlay.tmp.$$"
+  fi
+  [ -f "$hdr" ] && printf '%s' "$overlay"
+}
+OMP_FLAG=(); PAR_SUFFIX=""
+probe_openmp(){
+  # the flags this platform needs for a working OpenMP compile, or nothing.
+  # Linux: -fopenmp everywhere. Darwin: Apple clang only lowers the pragmas with the
+  # frontend flag plus Homebrew's libomp (-Xpreprocessor defines _OPENMP without
+  # lowering anything — a silently sequential binary, which is how this stayed hidden).
+  case "$(uname -s)" in
+    Linux)
+      if printf 'int main(){return 0;}' | c++ -fopenmp -x c++ -o /dev/null - 2>/dev/null; then
+        printf '%s' "-fopenmp"; return 0
+      fi ;;
+    Darwin)
+      local omp
+      for omp in /opt/homebrew/opt/libomp /usr/local/opt/libomp; do
+        [ -f "$omp/lib/libomp.dylib" ] || continue
+        if printf 'int main(){return 0;}' | c++ -Xclang -fopenmp -I "$omp/include" -L "$omp/lib" -lomp -x c++ -o /dev/null - 2>/dev/null; then
+          printf '%s' "-Xclang -fopenmp -I $omp/include -L $omp/lib -lomp"; return 0
+        fi
+      done ;;
+  esac
+  return 1
+}
+# Default: Linux x86_64 only. The seqlock entry fix above repairs the diagnosed
+# ordering hole (quiet-machine runs went clean), but a residual crash mode remains on
+# arm64 under memory pressure, so weakly-ordered CPUs stay serial by default until it
+# is found; AXIOM_SOLVE_PARALLEL=1 opts any machine in for experiments.
+case "${AXIOM_SOLVE_PARALLEL:-}" in
+  0) ;;
+  1) if _OMP="$(probe_openmp)"; then
+       OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
+     fi ;;
+  "") if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && _OMP="$(probe_openmp)"; then
+        # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
+        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
+      fi ;;
+esac
 EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
-BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
+BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$PAR_SUFFIX$EXE"
 
 # The platform string, in npm's spelling (process.platform-process.arch), because that is
 # how the engine packages are named: darwin-arm64, linux-x64, linux-arm64, win32-x64.
@@ -456,14 +535,16 @@ elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
   # line blocks from stderr; on a real failure, dump the full log and fail. c++ -w
   # silences the deprecation warnings in souffle's own headers. Compile to a .tmp then
   # atomically rename, so a concurrent/aborted run never leaves a half-written binary.
-  if ! souffle -I "$SRC" -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
+  if ! souffle -I "$SRC" -j 8 -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
     cat "$INT/.souffle-gen.log" >&2; exit 1
   fi
   awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
   [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
   CXX_PLATFORM=""
   case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
-  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
+  OVERLAY="$(souffle_overlay "$INNER" || true)"
+  [ -n "$OVERLAY" ] || { echo "❌ could not prepare the patched soufflé headers (seqlock fix)" >&2; exit 1; }
+  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} ${OMP_FLAG[@]+"${OMP_FLAG[@]}"} -w $CXX_PLATFORM -I "$OVERLAY" -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
     rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
   fi
   # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
@@ -771,7 +852,15 @@ while [ "$iter" -lt 50 ]; do
     # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
     # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
     # later run the same way: drop the cache entry, so the next run recompiles, and say so.
-    rc=0; "$BIN" -F "$FACTS" -D "$RAW" || rc=$?
+    # -j is passed ALWAYS (a serial binary ignores it silently — verified); more than one
+    # thread only for a binary of the parallel flavor: one this run compiled with OpenMP,
+    # or a packaged/cached one whose builder left a .parallel marker beside it.
+    SOLVE_J=1
+    if [ -n "$PAR_SUFFIX" ] || [ -f "$BIN.parallel" ]; then
+      cores="$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )"
+      SOLVE_J="${AXIOMCODE_SOLVE_THREADS:-$(( cores < 8 ? cores : 8 ))}"
+    fi
+    rc=0; "$BIN" -j "$SOLVE_J" -F "$FACTS" -D "$RAW" || rc=$?
     if [ "$rc" -ne 0 ]; then
       if [ "$rc" -eq 132 ] && [ -z "$PACKAGED" ]; then
         rm -f "$BIN"
@@ -810,7 +899,7 @@ done
 # here (it's in the shared cache), and facts must stay per-run (never shared) so concurrent
 # analyses of different projects don't collide. Runs only on success (set -e bails earlier
 # on failure, leaving the facts for debugging).
-rm -rf "$FACTS" "$INT/souffle-program.cpp"
+[ "${AXIOM_KEEP_FACTS:-0}" = "1" ] || rm -rf "$FACTS" "$INT/souffle-program.cpp"
 SOLVE_EPOCH=$(date +%s)
 echo "Elapsed (solve): $((SOLVE_EPOCH-START_EPOCH))s"
 
