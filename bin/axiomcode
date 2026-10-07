@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # axiomcode — ask a repository's call graph. `axiomcode --help` prints the dispatcher's help
-# (plugins/axiomcode/skills/axiomcode/scripts/axiomcode): index, impact, path and tests.
+# (plugins/axiomcode/skills/axiomcode/scripts/axiomcode): index, context, impact, path and tests.
 # ─────────────────────────────────────────────────────────────────────────────
 # INTERNAL COMMANDS, not advertised: the build, the engine suites and the MCP server, which
 # the dispatcher, the test suites and the agent manifests call.

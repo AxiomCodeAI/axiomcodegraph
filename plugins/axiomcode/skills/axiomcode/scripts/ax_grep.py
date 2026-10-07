@@ -196,6 +196,13 @@ def path(d, code):
     if ans: v = all(not a.get('unverified_hops') for a in ans) and v is not False
     foot = ev_foot(d) + [verified(v, sum(len(a.get('hops', [])) for a in ans) if ans else None)]
     if d.get('bound'): foot.append(f"bound: {d['bound']}")
+    # what reaches a [by name] caller reaches the target too whenever the by-name site is real: counted, or the
+    # upstream closure reads complete while every chain behind a by-name row is missing from it
+    bb = d.get('by_name_behind')
+    if bb:
+        foot.append(f"bound: {bb['methods']} more method(s) in {bb['files']} file(s) reach a [by name] caller above through"
+                    " the graph's edges — callers of the target too if that by-name site is real; nearest: "
+                    + ', '.join(f"{x['name']} ({x['at']})" for x in bb.get('nearest', [])))
     return rows, {}, foot
 
 

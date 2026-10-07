@@ -1,22 +1,24 @@
 ---
 name: axiomcode
 description: >-
-  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". Search with grep as usual: after a grep the graph adds only what grep cannot know — which declaration each match reaches and the callers that never spell the name. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`. Java, TypeScript, Python, JavaScript, C#.
+  Use for any why, what or where question about code — how a codebase works, where something lives, who calls it, what a change to it breaks, which tests cover an edit. Also use when resolving an issue or bug report, which names a symptom rather than a file. Examples: "How does X work?", "Where do I change Y?", "What calls this?", "What breaks if I change Z?", "Which tests do I run?", "Fix this issue". Search with grep as usual: after a grep the graph adds only what grep cannot know — which declaration each match reaches and the callers that never spell the name. Answers come from a resolved call graph, so they include callers that never spell the name — through an interface, an override, a callback, dependency injection or a config key — and every place comes with the code of the function it sits in. Call the MCP tools directly, no need to load this skill first: impact(name) for who calls it and what a change reaches (with no name: your uncommitted edits), path(start, end) for how A reaches B, tests() for the tests your edits reach, context(task, source=True) for how something works as a step-by-step call flow with each step's code. Only when those tools are not in your list, the same from the shell: `axiomcode impact <name>`, `axiomcode path <A> <B>`, `axiomcode tests`, `axiomcode context "<task>" --source`. Java, TypeScript, Python, JavaScript, C#.
 ---
 
 # axiomcode
 
 Search with grep as usual; the graph answers what grep cannot. Use the MCP tools when they are in your list (in Claude Code
-`mcp__plugin_axiomcode_axiomcode__impact`, `__path`, `__tests`); otherwise run
+`mcp__plugin_axiomcode_axiomcode__impact`, `__path`, `__tests`, `__context`); otherwise run
 `<this dir>/scripts/axiomcode <verb>` from the repository root. Same answer either way.
 
 | the question | MCP tool | shell |
 |---|---|---|
 | where is the code for this task? | your own search (grep), then bring the name here | — |
 | who calls X, what does changing it reach, which tests? | `impact(name)` | `axiomcode impact <name>` |
+| what is the value of constant X, and who reads it? | `impact(name)` | `axiomcode impact <name>` |
 | what do my uncommitted edits reach? | `impact()` | `axiomcode impact` |
 | how does A reach B? | `path(start, end)` | `axiomcode path <A> <B>` |
 | which tests do my edits need, and how do I run them? | `tests()` | `axiomcode tests` |
+| how does this work, start to finish? | `context(task, source=True)` | `axiomcode context "<task>" --source` |
 
 Names are written as in the code: `Owner.method`, `function`, `Type`, or `file.py:123` for the declaration at that
 line. There is no setup step: the first question builds the graph, and it refreshes itself after every edit.
@@ -44,7 +46,8 @@ from an empty answer.
 
 With a name: who calls it, what depends on it further out, and the tests that exercise it. Example:
 `impact(name="PriceService.total")`. With no name: the first line is `your edits:` (each declaration you changed and
-how), then the same answer for all of them.
+how), then the same answer for all of them. A constant answers with its value — `change: const MAX_ITEMS = 5` —
+so a limit, a default or a threshold is read off the first line rather than from the file.
 
 ## path
 
@@ -55,6 +58,14 @@ Example: `path(start="main", end="Ledger.put")`.
 
 The tests your uncommitted edits reach, each with its code, and a last line `run: <command>` that runs exactly those.
 Example: `tests()`. It is a lower bound: a test reached only through reflection or a service loader is not listed.
+
+## context
+
+How something works, from a task in your own words: the files and callables the task touches and, for a
+how-does-X-work question, the call flow step by step. Example: `context(task="how is an invoice settled",
+source=True)` — source carries each step's code, so the flow is read without opening files. Only English task
+words land (the graph's vocabulary is the code's identifiers); any language works once the task includes one
+identifier as written in the code.
 
 ## index
 

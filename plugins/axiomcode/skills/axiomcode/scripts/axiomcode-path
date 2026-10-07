@@ -1487,9 +1487,11 @@ def byname_sites(g, ids):
     on a receiver the engine could not type: `impact X` lists its caller as a lead, and the closure, which walks
     resolved edges only, left it out, so the two verbs gave different sets of direct callers and `path` gave no hint
     of the second one. The same rule as dl/impact.dl's `direct(... "by name")`: a callable target, a site that is not
-    a construction and not inside a mock's stub or verification, and not in the target's own body. Listed apart and
-    never walked: the name may belong to another method, and the by-name closure stays the search `path A B` runs
-    only when nothing resolved connects its two ends."""
+    a construction and not inside a mock's stub or verification, and not in the target's own body. Listed apart,
+    not folded into the closure: the name may belong to another method, and the by-name closure stays the search
+    `path A B` runs only when nothing resolved connects its two ends. What reaches THEM is counted (byname_behind):
+    a method that reaches a by-name caller reaches the target too whenever the by-name site is real, and left
+    uncounted those callers-of-callers were missing from "everything that can reach X" with no line saying so."""
     names = sorted({g.sym[i]['name'] for i in ids if i in g.sym and g.sym[i].get('method_id')
                     and g.sym[i]['kind'] not in ('library', 'written', 'module') and g.sym[i].get('name')})
     if not names or not g.has('unresolved_sites'): return [], set()
@@ -1507,7 +1509,29 @@ def byname_sites(g, ids):
     return sorted(set(out), key=lambda x: (g.sym[x[0]]['is_test'], x[2] or '', x[3] or 0, g.sym[x[0]]['display'])), stubbed - {c for c, *_ in out}
 
 
-def print_byname(g, found, limit):
+def byname_behind(g, named, exclude, depth=40):
+    """the methods that reach a by-name caller through the graph's edges and are in neither the printed closure nor
+    the by-name list itself. Each one reaches the target exactly when the by-name site is real, so an upstream
+    closure that lists the by-name callers but not these is short by every chain behind them — on a spec question
+    ("only X can trigger this") they are the triggers the answer silently dropped. Counted and named nearest-first,
+    not folded in: their certainty is the by-name site's, not an edge's."""
+    callers = {c for c, *_ in named}
+    if not callers: return []
+    radj = collections.defaultdict(set)
+    for a, b, _ in g.edges(): radj[b].add(a)
+    seen = {c: 0 for c in callers}; fr = list(callers); d = 0
+    while fr and d < depth:
+        d += 1; nxt = []
+        for x in fr:
+            for y in radj.get(x, ()):
+                if y not in seen: seen[y] = d; nxt.append(y)
+        fr = nxt
+    out = [(m, dd) for m, dd in seen.items() if dd > 0 and m not in exclude and m in g.sym
+           and (not g.IN or g.under_in(g.sym[m]['file']))]
+    return sorted(out, key=lambda x: (x[1], g.sym[x[0]]['display'], x[0]))
+
+
+def print_byname(g, found, limit, sel=None, behind=()):
     named, stubbed = found
     if stubbed:
         print(f"  +{len(stubbed)} caller(s) only stub a method of this name on a mock (receiver not typed): they run none of it;"
@@ -1520,6 +1544,16 @@ def print_byname(g, found, limit):
     for c, n, f, ln in named[:limit]:
         print(f"    [by name] {g.disp(c)}   {f}:{ln}   — calls `{n}` (receiver not typed)")
     if len(named) > limit: print(f"    … +{len(named) - limit} (--limit N)")
+    if behind:
+        # the examples: nearest NAMED methods first — an `<arrow>` placeholder names nothing a reader can look up
+        show = sorted(behind, key=lambda x: ('<' in g.disp(x[0]), x[1], g.sym[x[0]]['display'], x[0]))[:3]
+        RESULT['by_name_behind'] = {'methods': len(behind), 'files': len({g.sym[m]['file'] for m, _ in behind}),
+                                    'nearest': [{'name': g.disp(m), 'at': g.loc(m), 'hops': dd} for m, dd in show]}
+        tgt = f" is really `{sel}`" if sel else " resolves the way its name suggests"
+        print(f"    behind them: {len(behind)} more method(s) in {len({g.sym[m]['file'] for m, _ in behind})} file(s)"
+              f" reach these by-name caller(s) through the graph's edges — callers of the target too if a by-name site{tgt};"
+              " nearest: " + ', '.join(f"{g.disp(m)} ({g.loc(m)})" for m, _ in show)
+              + (f" … +{len(behind) - 3}" if len(behind) > 3 else ''))
 
 
 def closure(g, sel, upstream, limit=40, depth=40):
@@ -1580,11 +1614,12 @@ def closure(g, sel, upstream, limit=40, depth=40):
     if not upstream:
         print_boundary(g, ids, "it calls into libraries directly", "it also makes")
     named = byname_sites(g, ids) if upstream else ([], set())
+    behind = byname_behind(g, named[0], {m for m, _ in rows} | set(ids) | {c for c, *_ in named[0]}, depth) if named[0] else []
     if not rows:
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(ids))})", *ids)[0]['n'] if not upstream else 0
         print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ")
               + (f"{len(named[0])} unresolved site(s) write its name (below)" if named[0] else "an unresolved site elsewhere may still " + ("call it" if upstream else "be it"))))
-        print_byname(g, named, limit)
+        print_byname(g, named, limit, sel=sel, behind=behind)
         # AN EMPTY UPSTREAM CLOSURE IS THE MOST MISLEADING LINE THIS COMMAND CAN PRINT. For a live route handler,
         # a signal receiver or a CLI command the answer "0 methods reach it" is true of calls and false of the
         # program: the framework reaches it. Name the registration rather than leave the reader at a dead end.
@@ -1659,7 +1694,7 @@ def closure(g, sel, upstream, limit=40, depth=40):
                 print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}{at}")
             if len(np_) > limit: print(f"    … +{len(np_) - limit} production (--limit N)")
             if nt: print(f"    +{len(nt)} test caller(s) within 2 hop(s) — `axiomcode test-impact` names them and the command that runs them")
-    print_byname(g, named, limit)
+    print_byname(g, named, limit, sel=sel, behind=behind)
     byhop = collections.Counter(d for _, d in rows); print("  by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
     # most_common breaks a tie by insertion order, which is the order the closure rows arrived in: two files with the
     # same count then swap depending on which engine answered. Sort the tie by name so the line is stable either way.
@@ -1705,13 +1740,16 @@ def closure(g, sel, upstream, limit=40, depth=40):
     # figures on a large tree, which reads as "unknown" and is skipped. The reader can only check the rows
     # actually in front of them, so the actionable number is the unresolved calls inside THOSE; the closure-wide
     # figure stays, in parentheses, as the honest total.
+    RESULT['unresolved_closure'] = u                    # 0 is a counted zero, not a missing value
     if u:
         shown_ids = [m for m, _ in (np_ if upstream else sorted(rows, key=lambda x: (x[1], g.sym[x[0]]['display'], x[0])))[:limit]]
         un = g.q("SELECT count(*) n FROM unresolved_sites WHERE caller_id IN (%s)" % ','.join('?' * (len(shown_ids) + len(ids))),
                  *shown_ids, *ids)[0]['n'] if shown_ids or ids else 0
-        print(f"  bound: {un} unresolved call(s) inside the {len(shown_ids)} method(s) printed above"
-              + (f" ({u} across the whole closure)" if u != un else '')
-              + f" — the set is a lower bound; `path <one of them> {sel}` for the chain")
+        RESULT['unresolved_inside'] = un
+        RESULT['bound'] = (f"{un} unresolved call(s) inside the {len(shown_ids)} method(s) printed above"
+                           + (f" ({u} across the whole closure)" if u != un else '')
+                           + f" — the set is a lower bound; `path <one of them> {sel}` for the chain")
+        print(f"  bound: {RESULT['bound']}")
     print(f"  (chain from any one of them: path <that method> {sel}" + (")" if upstream else " — or the reverse)"))
     return 0
 
@@ -1888,13 +1926,20 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
             if shown >= limit and not show_all: print(f"  … +{len(hits) - shown} more targets (--all)"); break
         blind = {n for n, _ in (read_back(res['parent'], q, hits[0][0], srcs) or [])}
         u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(blind))})", *blind)[0]['n'] if blind else 0
+        # the JSON says what the prose says: verified true/false once hops were checked (null stays "nothing was
+        # checked"), and the unresolved count as a number, where 0 is a counted zero. An automation was parsing the
+        # prose to learn both because the fields sat at null beside a prose line stating them.
+        RESULT['verified'] = not (vbad or vlen)
+        RESULT['unresolved_inside'] = u
         print(f"  verified: every printed hop is an edge in the graph and a second, independent traversal finds the same length" if not (vbad or vlen) else f"  ✗ verification failed on {vbad} hop(s) / {vlen} length(s) — report this")
         if seen_tiers:
             print("  what the hops are:"); [print(l) for l in ax_edges.legend(seen_tiers)]
         print_boundary(g, [m for m, _ in hits[:limit]], "the target(s) call into libraries", "the target(s) also make")
         if every: every_route(g, res, q, srcs, dsts, max_paths, adj)
         else: print(f"  (one shortest chain per reached target; --every for all the routes and every method on any of them)")
-        if u: print(f"  bound: the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see")
+        if u:
+            RESULT['bound'] = f"the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see"
+            print(f"  bound: {RESULT['bound']}")
         return 0
     # nothing resolved either way: say so, then whether unresolved sites would connect them
     print(f"no chain of resolved calls connects {la} and {lb} in either direction (searched {len(g.edges())} edges, depth ≤ 40)")

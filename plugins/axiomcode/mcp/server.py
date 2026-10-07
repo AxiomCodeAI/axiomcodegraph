@@ -219,8 +219,17 @@ def plain(text):
     return '\n'.join(out)
 
 
-# THE SMALL SURFACE. Search is grep's job; the graph answers what grep cannot. Three questions, each answered as numbered places with the code of the function each sits in, so
-# a place is understood without opening its file. No options: the repository is the one the session works in.
+# THE SMALL SURFACE. Search is grep's job; the graph answers what grep cannot. Three questions, each answered as
+# numbered places with the code of the function each sits in, so a place is understood without opening its file,
+# plus context, the one narrative verb: a task in words answered as the verb's own flow. No options beyond
+# context's source: the repository is the one the session works in.
+@srv.tool()
+def context(task: str, source: bool = False) -> str:
+    """How something works, from a task in words: the files and callables the task touches, and for a "how does X
+    work" question the call FLOW — every step in the order the calls are written, with ⚠ where the graph lost a
+    call. source=True asks for the flow with each step's code, so it is read without opening files."""
+    return plain(run(['context', task] + (['--source'] if source else []) + [os.getcwd()]))
+
 @srv.tool()
 def impact(name: str = '') -> str:
     """What a change reaches. With a name (as written in the code: Owner.method, function, Type, or file.py:123): who
