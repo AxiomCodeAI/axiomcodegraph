@@ -482,13 +482,14 @@ case "${AXIOM_SOLVE_PARALLEL:-}" in
   1) if _OMP="$(probe_openmp)"; then
        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
      fi ;;
-  "") # linux-x64 since the seqlock entry fix; darwin-arm64 since the publication fences
-      # (seqlock-fix-2) — the pre-fix binary crashed 2 of 2 parallel solves on a 1.1M-LOC
-      # subject, the fenced one held 5 of 5 including two concurrent, relations identical
-      # to the serial flavor. linux-arm64 carries the same fences but stays serial until
-      # someone validates it on that hardware the same way.
-      if { { [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; } \
-        || { [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; }; } && _OMP="$(probe_openmp)"; then
+  "") # linux-x64 only. The fix-2 publication fences closed the repro that crashed 2 of 2
+      # on a 1.1M-LOC subject (15 of 15 clean after), but a peer's harder repro — 6,139
+      # files, 906MB facts, three spinners and a concurrent solve — still crashed 1 of 3
+      # on the fenced binary: the parent-pointer publications (split's reparenting,
+      # grow_parent's this->parent = new_root, insert_inner's late newNode->parent) are
+      # not covered by the two fences. darwin-arm64 stays OPT-IN (AXIOM_SOLVE_PARALLEL=1)
+      # until that repro runs clean on a binary that fences every publication path.
+      if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && _OMP="$(probe_openmp)"; then
         # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
         OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
       fi ;;
