@@ -37,9 +37,10 @@ function gitBash() {
 // command exports the bash it chose to everything it starts, and on POSIX that is the bare `bash`, so `axiomcode mcp`
 // reached the MCP launcher with AXIOMCODE_BASH=bash; read as a path, it "did not exist", and the launcher warned that
 // every tool would fail while every tool worked (#1357). The PATH search skips relative directories, as which.js does.
+// Not on Windows: the command always exports a full path there, and a bare `bash` on that PATH is WSL's (see above).
 function onPath(name) {
   if (path.isAbsolute(name) || /[\\/]/.test(name)) return fs.existsSync(name) ? name : null;
-  if (process.platform === 'win32') return which(name);
+  if (process.platform === 'win32') return null;
   for (const d of (process.env.PATH || '').split(path.delimiter)) {
     if (!d || !path.isAbsolute(d)) continue;
     const p = path.join(d, name);
@@ -55,7 +56,9 @@ function findBash() {
   if (override) {
     const found = onPath(override);
     if (found) return { bash: found };
-    return { error: `AXIOMCODE_BASH is set to ${override}, which ${path.isAbsolute(override) || /[\\/]/.test(override) ? 'does not exist' : 'is not on PATH'}.` };
+    const named = !(path.isAbsolute(override) || /[\\/]/.test(override));
+    return { error: `AXIOMCODE_BASH is set to ${override}, which ` + (!named ? 'does not exist.'
+      : process.platform === 'win32' ? 'is not a full path; on Windows set it to the full path of Git Bash\'s bash.exe.' : 'is not on PATH.') };
   }
   if (process.platform !== 'win32') return { bash: 'bash' };
   const found = gitBash();
