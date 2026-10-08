@@ -318,14 +318,14 @@ engine_id_of(){
   done < "$prog"
   hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
     || { echo "❌ engine id: mktemp failed" >&2; return 1; }
-  if ! printf 'souffle=%s+seqlock-fix-3\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+  if ! printf 'souffle=%s+seqlock-fix-4\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
     echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
   fi
   # The expected size comes from the SOURCE files (wc's last line is their total), not from a
   # second read through cat, so a cat that loses bytes cannot agree with itself.
   want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
   want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
-  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-3" + "\n"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-4" + "\n"
   if [ "${have//[[:space:]]/}" != "$want" ]; then
     echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
   fi
@@ -417,9 +417,9 @@ esac
 # all BTree.h insert/split against a node's lock word). A release fence before each
 # publication orders every initialization store first; the reader's dereference is
 # address-dependent, which arm64 orders by itself. The engine id carries
-# "+seqlock-fix-3", so no unpatched cache entry or package is ever taken for a patched one.
+# "+seqlock-fix-4", so no unpatched cache entry or package is ever taken for a patched one.
 souffle_overlay(){
-  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-3"
+  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-4"
   local hdr="$overlay/souffle/utility/ParallelUtil.h"
   if [ ! -f "$hdr" ]; then
     rm -rf "$overlay.tmp.$$"
@@ -439,7 +439,7 @@ souffle_overlay(){
     # __popcnt64 and pulls intrin.h for ALL of _WIN32, which breaks g++ on MinGW — the
     # one toolchain a Windows developer who clones this repository compiles with. Both
     # are MSVC-only concerns, so the guards narrow to _MSC_VER; every other platform's
-    # preprocessed output is bit-identical, which is why the overlay name stays fix-3.
+    # preprocessed output is bit-identical.
     local b="$overlay.tmp.$$/souffle/datastructure/BTree.h"
     [ -f "$b" ] || return 1
     python3 - "$b" <<'PYEOF' || return 1
@@ -500,6 +500,35 @@ r4 = """            keys[pos] = key;
             newNode->position = static_cast<field_index_type>(pos) + 1;
             """ + F + """
             getChildren()[pos + 1] = newNode;"""
+# spec-descent-guard (seqlock-fix-4): the insert descent dereferences the child it read
+# under a still-unvalidated optimistic lease; a concurrent split exposes a null slot.
+# CAPTURED on darwin-arm64: ldapr of the child's seqlock version at address null+8,
+# inside btree::insert, java -j8 under souffle-g memory load. A null child is a failed
+# validation and restarts the insert -- never a dereference. Applied to BTree.h and
+# its BTreeDelete.h twin.
+d = """                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();"""
+dr = """                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // spec-descent-guard (seqlock-fix-4): a concurrent split can expose a
+                // null child slot under an optimistic lease; treat it as a failed
+                // validation, never dereference it.
+                if (next == nullptr) {
+                    return insert(k, hints);
+                }
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();"""
+if s.count(d) != 1: sys.exit(1)
+s = s.replace(d, dr)
+bd = os.path.join(os.path.dirname(p), "BTreeDelete.h")
+t = open(bd).read()
+if t.count(d) != 1: sys.exit(1)
+open(bd, "w").write(t.replace(d, dr))
 for a, r in ((a1, r1), (a2, r2), (a3, r3), (a4, r4)):
     if s.count(a) != 1: sys.exit(1)
     s = s.replace(a, r)
@@ -516,8 +545,52 @@ for q in glob.glob(root + "/**/MiscUtil.h", recursive=True) + glob.glob(root + "
     if m2 in t: t = t.replace(m2, m2r); hit2 += 1; n = 1
     if n: open(q, "w").write(t)
 if hit1 < 1 or hit2 < 1: sys.exit(1)
+# spec-fetch-guard (seqlock-fix-4): an optimistic BTree reader may hand the flyweight a
+# SPECULATIVELY-READ index before validating its seqlock. A torn or stale index must come
+# back as a harmless empty value that the validation then discards -- never a dereference
+# of an unassigned (null) or out-of-range slot. Observed as a segfault in a varying rule,
+# javascript -j8 on darwin-arm64 under memory-pressure load (4 hits in two runs).
+fw = glob.glob(root + "/**/ConcurrentFlyweight.h", recursive=True)[0]
+t = open(fw).read()
+fa = """    const Key& fetch(const lane_id H, const index_type Idx) const {
+        const auto Lane = Lanes.guard(H);
+        assert(Idx < SlotCount.load(std::memory_order_relaxed));
+        return Slots[Idx]->first;
+    }"""
+fr = """    const Key& fetch(const lane_id H, const index_type Idx) const {
+        const auto Lane = Lanes.guard(H);
+        // spec-fetch-guard (seqlock-fix-4): tolerate a speculative index, see overlay notes.
+        if (Idx >= SlotCount.load(std::memory_order_relaxed) || Slots[Idx] == nullptr) {
+            static const Key Empty{};
+            return Empty;
+        }
+        return Slots[Idx]->first;
+    }"""
+if t.count(fa) != 1: sys.exit(1)
+open(fw, "w").write(t.replace(fa, fr))
+rt = glob.glob(root + "/**/RecordTableImpl.h", recursive=True)[0]
+t = open(rt).read()
+ua = """    const RamDomain* unpack(RamDomain Index) const override {
+        return fetch(Index).data();
+    }"""
+ur = """    const RamDomain* unpack(RamDomain Index) const override {
+        // spec-fetch-guard (seqlock-fix-4): an empty generic record has a null data();
+        // give a speculative reader zeroed storage to misread instead.
+        const auto& R = fetch(Index);
+        if (R.data() == nullptr) {
+            static const RamDomain Zeros[64] = {};
+            return Zeros;
+        }
+        return R.data();
+    }"""
+if t.count(ua) != 1: sys.exit(1)
+open(rt, "w").write(t.replace(ua, ur))
 PYEOF
     [ "$(grep -c 'seqlock-fix-3' "$b")" = "4" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$b")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/BTreeDelete.h")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/ConcurrentFlyweight.h")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/RecordTableImpl.h")" = "1" ] || return 1
     mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
     rm -rf "$overlay.tmp.$$"
   fi
