@@ -94,10 +94,18 @@ jobs:
           # the seqlock fix (see souffle_overlay in run-souffle.sh): the write-entry RMW
           # must be seq_cst or a weakly-ordered CPU lets data stores pass the version-odd
           # store and readers validate garbage. Patched here so every platform's binary
-          # is built from the same fixed header; the engine id carries +seqlock-fix-1.
+          # is built from the same fixed headers; the engine id carries +seqlock-fix-3,
+          # so these headers must carry the SAME patches run-souffle's overlay applies —
+          # a binary labeled fix-3 but built from lesser headers is the exact mislabeling
+          # the salt exists to prevent.
           sed -i 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' gen/souffle/souffle/utility/ParallelUtil.h
           grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' gen/souffle/souffle/utility/ParallelUtil.h
           ! grep -q 'fetch_or(0x1, std::memory_order_acquire)' gen/souffle/souffle/utility/ParallelUtil.h
+          # fix-3: the publication fences, applied by the same anchored patch the local
+          # overlay uses (extracted from run-souffle.sh so the two cannot drift)
+          awk '/^import sys$/,/^PYEOF$/' graph/pipeline/run-souffle.sh | sed '$d' > /tmp/fences.py
+          python3 /tmp/fences.py gen/souffle/souffle/datastructure/BTree.h
+          [ "$(grep -c 'seqlock-fix-3' gen/souffle/souffle/datastructure/BTree.h)" = "4" ]
           # one key for the whole set; a partial match restores the previous set
           echo "key=$(cat gen/*.id gen/queries/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
           # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
