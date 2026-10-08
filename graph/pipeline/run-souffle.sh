@@ -318,14 +318,14 @@ engine_id_of(){
   done < "$prog"
   hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
     || { echo "❌ engine id: mktemp failed" >&2; return 1; }
-  if ! printf 'souffle=%s+seqlock-fix-2\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+  if ! printf 'souffle=%s+seqlock-fix-3\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
     echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
   fi
   # The expected size comes from the SOURCE files (wc's last line is their total), not from a
   # second read through cat, so a cat that loses bytes cannot agree with itself.
   want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
   want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
-  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-2" + "\n"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-3" + "\n"
   if [ "${have//[[:space:]]/}" != "$want" ]; then
     echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
   fi
@@ -417,9 +417,9 @@ esac
 # all BTree.h insert/split against a node's lock word). A release fence before each
 # publication orders every initialization store first; the reader's dereference is
 # address-dependent, which arm64 orders by itself. The engine id carries
-# "+seqlock-fix-2", so no unpatched cache entry or package is ever taken for a patched one.
+# "+seqlock-fix-3", so no unpatched cache entry or package is ever taken for a patched one.
 souffle_overlay(){
-  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-2"
+  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-3"
   local hdr="$overlay/souffle/utility/ParallelUtil.h"
   if [ ! -f "$hdr" ]; then
     rm -rf "$overlay.tmp.$$"
@@ -431,21 +431,75 @@ souffle_overlay(){
     sed -i.bak 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$h" && rm -f "$h.bak"
     grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$h" || return 1
     grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" && return 1
-    # fix-2: release fences before the two node-publication stores in BTree.h
+    # fix-3: a release fence before EVERY store that makes a new node reachable — the child
+    # links fix-2 fenced, and the parent-pointer publications it missed (split's reparenting,
+    # grow_parent's this->parent/sibling->parent, insert_inner's late newNode->parent, which
+    # is reordered to before the link). The lock-parents walk reads exactly those pointers.
     local b="$overlay.tmp.$$/souffle/datastructure/BTree.h"
     [ -f "$b" ] || return 1
     python3 - "$b" <<'PYEOF' || return 1
 import sys
 p = sys.argv[1]; s = open(p).read()
-fence = "std::atomic_thread_fence(std::memory_order_release);  // publication: every init store above is visible before the link below (seqlock-fix-2)"
-a1 = "            keys[pos] = key;\n            getChildren()[pos + 1] = newNode;"
-a2 = "                // switch root node\n                *root = new_root;"
-if s.count(a1) != 1 or s.count(a2) != 1: sys.exit(1)
-s = s.replace(a1, "            keys[pos] = key;\n            " + fence + "\n            getChildren()[pos + 1] = newNode;")
-s = s.replace(a2, "                // switch root node\n                " + fence + "\n                *root = new_root;")
+F = "std::atomic_thread_fence(std::memory_order_release);  // publication fence (seqlock-fix-3)"
+# split(): fill the sibling completely (children, counts), fence, THEN reparent — each
+# children[j]->parent = other makes the new sibling reachable from an existing node.
+a1 = """            // move child pointers
+            if (this->inner) {
+                // move pointers to sibling
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;
+            sibling->numElements = maxKeys - split_point - 1;"""
+r1 = """            // move child pointers: the sibling's own fields first (private until reparented)
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                }
+            }
+            sibling->numElements = maxKeys - split_point - 1;
+            """ + F + """
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;"""
+# grow_parent(): new_root is fully filled above; the parent stores are its first publication.
+a2 = """                // link this and the sibling node to new root
+                this->parent = new_root;"""
+r2 = """                // link this and the sibling node to new root
+                """ + F + """
+                this->parent = new_root;"""
+a3 = "                // switch root node\n                *root = new_root;"
+r3 = "                // switch root node\n                " + F + "\n                *root = new_root;"
+# insert_inner(): give newNode its parent and position BEFORE the link that publishes it.
+a4 = """            keys[pos] = key;
+            getChildren()[pos + 1] = newNode;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;"""
+r4 = """            keys[pos] = key;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;
+            """ + F + """
+            getChildren()[pos + 1] = newNode;"""
+for a, r in ((a1, r1), (a2, r2), (a3, r3), (a4, r4)):
+    if s.count(a) != 1: sys.exit(1)
+    s = s.replace(a, r)
 open(p, 'w').write(s)
 PYEOF
-    [ "$(grep -c 'seqlock-fix-2' "$b")" = "2" ] || return 1
+    [ "$(grep -c 'seqlock-fix-3' "$b")" = "4" ] || return 1
     mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
     rm -rf "$overlay.tmp.$$"
   fi
