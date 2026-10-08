@@ -20,10 +20,11 @@ export function writeCoreCsv(graphDir: string, core: CoreTables, log: (s: string
   }
 }
 
-/** Node ≥ 22.5 ships `node:sqlite`. */
+/** Whether `node:sqlite` loads here. Asked of the module, not the version: Node 22.5–22.12 and 23.0–23.3 ship it only
+ *  behind --experimental-sqlite, and a version test passed them, so the import that followed failed with "No such
+ *  built-in module: node:sqlite" on Node 22.11. */
 export function sqliteAvailable(): boolean {
-  const [maj, min] = process.versions.node.split('.').map(Number);
-  return maj! > 22 || (maj === 22 && min! >= 5);
+  try { require('node:sqlite'); return true; } catch { return false; }
 }
 
 function createSql(t: TableSpec, prefix = ''): string {
