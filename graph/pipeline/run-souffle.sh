@@ -860,7 +860,14 @@ while [ "$iter" -lt 50 ]; do
       cores="$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )"
       SOLVE_J="${AXIOMCODE_SOLVE_THREADS:-$(( cores < 8 ? cores : 8 ))}"
     fi
+    # AXIOM_DL_PROFILE=<file>: solve this run in the souffle INTERPRETER with per-rule profiling
+    # written to <file> (souffleprof reads it). Slower than the compiled engine, same answer; for
+    # finding the rules a solve spends its time in, as the java local-use hoist was found.
+    if [ -n "${AXIOM_DL_PROFILE:-}" ] && command -v souffle >/dev/null 2>&1; then
+      rc=0; souffle -I "$SRC" -j "$SOLVE_J" -p "$AXIOM_DL_PROFILE" -F "$FACTS" -D "$RAW" "$PROG" || rc=$?
+    else
     rc=0; "$BIN" -j "$SOLVE_J" -F "$FACTS" -D "$RAW" || rc=$?
+    fi
     if [ "$rc" -ne 0 ]; then
       if [ "$rc" -eq 132 ] && [ -z "$PACKAGED" ]; then
         rm -f "$BIN"

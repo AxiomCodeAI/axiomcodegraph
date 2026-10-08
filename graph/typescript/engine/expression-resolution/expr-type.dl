@@ -158,9 +158,7 @@ expr_type(e, "client", t) :- expr_referenced("client", "NAMESPACE", t, e),
 //
 // Recurses on itself for free: the rule types `Local.Deep` from `Local`, and a third
 // segment types from that, so depth is not bounded here.
-expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     namespace_member(prov, qt, n, "TYPE", t).
 
@@ -381,9 +379,7 @@ expr_awaited_type(e, prov, t) :- expr_referenced("client", "VARIABLE", v, e),
 expr_awaited_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
     param_type_ref(_, r, p),
     ref_awaited_target(r, prov, t).
-expr_awaited_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_awaited_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_type_ref(_, r, f),
@@ -401,26 +397,32 @@ property_access_name(e, n) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
     expr_name("client", n, pn),
     n != "".
 
+// ── property_access_recv(ExprHash, Name, ReceiverHash) ────────────────────
+// A property access, decomposed ONCE, below the typing fixpoint: the access, its
+// name, its receiver. These same three atoms sat inline in 22 rules, most of them
+// recursive through expr_type(q, …), and semi-naive evaluation re-anchored the
+// PROPERTY_ACCESS scan every iteration — the souffle profile put expr_type's clauses
+// at 17K tuples/s with all of the time recursive, on an answer that is pure syntax
+// and never changes. Hoisted, each of those rules starts from its recursive delta
+// and probes this table by receiver.
+property_access_recv(e, n, q) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q).
+
 // ── PROPERTY ACCESS — `a.b`, where the parser had nothing ──────────────────
 // The 123k UNKNOWN references. The qualifier is typed first, then the member is
 // looked up on it, and the member's own declared type becomes the access's type.
 // Both member tables are searched by the shape of the qualifier: a VALUE qualifier
 // searches instance members, a TYPE qualifier (a class name) searches statics.
-expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_type(f, prov, t).
-expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_static_type(q, _, qt),
     field_in_scope(qt, n, "true", f),
     field_type(f, prov, t).
-expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_shape(q, qs),
     field_in_scope(qs, n, _, f),
     field_type(f, prov, t).
@@ -440,17 +442,13 @@ expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
 // method_return_type / _shape / _element already describe it, exactly as they describe
 // the result of a call. This only supplies the missing link from the access to the
 // member.
-property_access_getter(e, m) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+property_access_getter(e, m) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     method_in_scope(qt, n, "false", m),
     method_kind(_, "GETTER", _, m).
 // A STATIC getter, reached through a class name rather than a value, mirroring the
 // static field rule above.
-property_access_getter(e, m) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+property_access_getter(e, m) :- property_access_recv(e, n, q),
     expr_static_type(q, _, qt),
     method_in_scope(qt, n, "true", m),
     method_kind(_, "GETTER", _, m).
@@ -462,29 +460,21 @@ expr_shape(e, s) :- property_access_getter(e, m),
 expr_element_type(e, prov, t) :- property_access_getter(e, m),
     method_return_element(m, prov, t).
 
-expr_shape(e, s) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_shape(e, s) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_shape(f, s).
 
 // A property access on a NAMESPACE — `fs.promises`, `ts.SyntaxKind`. The member
 // comes from the module's export table, not from a member table.
-expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_namespace(q, mprov, m),
     module_export(mprov, m, n, "VARIABLE", v),
     var_type(v, prov, t).
-expr_static_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_static_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_namespace(q, prov, m),
     module_export(prov, m, n, "TYPE", t).
-expr_callable(e, cm) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_callable(e, cm) :- property_access_recv(e, n, q),
     expr_namespace(q, _, m),
     module_export(_, m, n, "METHOD", cm).
 
@@ -500,9 +490,7 @@ expr_callable(e, cm) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
 // same fixpoint, so reading it here would put that negation inside its own cycle.
 // The ancestor walk is the one method_in_scope (2) performs, with the shadowing
 // check expressed against the static table directly for the same reason.
-expr_callable(e, m) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_callable(e, m) :- property_access_recv(e, n, q),
     expr_static_type(q, _, t),
     static_member_value(t, n, m).
 static_member_value(t, n, m) :- scope_sibling(t, sib),
@@ -517,9 +505,7 @@ static_member_declared(t, n) :- scope_sibling(t, sib),
 
 // A property access on a namespace TYPE — `N.Inner` where N is a namespace
 // declaration rather than an imported module.
-expr_static_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_static_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_static_type(q, prov, ns),
     namespace_member(prov, ns, n, "TYPE", t).
 
@@ -551,9 +537,7 @@ expr_element_shape(e, sh) :- expr_call_candidate(e, callee),
 expr_element_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
     param_type_ref(_, r, p),
     ref_element_target(r, prov, t).
-expr_element_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
-    property_access_name(e, n),
-    expr_child("client", e, "RECEIVER", _, q),
+expr_element_type(e, prov, t) :- property_access_recv(e, n, q),
     expr_type(q, _, qt),
     field_in_scope(qt, n, "false", f),
     field_type_ref(_, r, f),
