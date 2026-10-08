@@ -33,12 +33,29 @@ function gitBash() {
   return candidates.find((p) => fs.existsSync(p));
 }
 
+// AXIOMCODE_BASH as a program would be started: a path is taken as written, a bare name is looked up on PATH. The
+// command exports the bash it chose to everything it starts, and on POSIX that is the bare `bash`, so `axiomcode mcp`
+// reached the MCP launcher with AXIOMCODE_BASH=bash; read as a path, it "did not exist", and the launcher warned that
+// every tool would fail while every tool worked (#1357). The PATH search skips relative directories, as which.js does.
+function onPath(name) {
+  if (path.isAbsolute(name) || /[\\/]/.test(name)) return fs.existsSync(name) ? name : null;
+  if (process.platform === 'win32') return which(name);
+  for (const d of (process.env.PATH || '').split(path.delimiter)) {
+    if (!d || !path.isAbsolute(d)) continue;
+    const p = path.join(d, name);
+    try { fs.accessSync(p, fs.constants.X_OK); if (fs.statSync(p).isFile()) return p; } catch { /* not here */ }
+  }
+  return null;
+}
+
 // { bash } or { error }: callers decide how to fail, because the MCP launcher must say it on stderr and
 // still leave the client a reason, while the command exits 127 as a shell would for a missing program.
 function findBash() {
   const override = process.env.AXIOMCODE_BASH;
   if (override) {
-    return fs.existsSync(override) ? { bash: override } : { error: `AXIOMCODE_BASH is set to ${override}, which does not exist.` };
+    const found = onPath(override);
+    if (found) return { bash: found };
+    return { error: `AXIOMCODE_BASH is set to ${override}, which ${path.isAbsolute(override) || /[\\/]/.test(override) ? 'does not exist' : 'is not on PATH'}.` };
   }
   if (process.platform !== 'win32') return { bash: 'bash' };
   const found = gitBash();

@@ -377,6 +377,20 @@ def main():
                            env=dict(os.environ, AXIOMCODE_BASH=os.path.join(work, 'no-bash')))
         if r.returncode != 127 or 'AXIOMCODE_BASH' not in r.stderr:
             bad.append(f"axiomcode with a missing AXIOMCODE_BASH: exit {r.returncode}, stderr {r.stderr.strip()[:200]!r}")
+        # A bare name is a program on PATH, not a file in the working directory: the command exports AXIOMCODE_BASH=bash
+        # on POSIX, and the MCP launcher it starts warned that every tool would fail while they all worked (#1357).
+        # Named but not on PATH is still the error above, said as such.
+        if os.name != 'nt':
+            find = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'find-bash.js')
+            probe = f"const r = require({json.dumps(find)}).findBash(); process.stdout.write(JSON.stringify(r))"
+            for name, ok in (('bash', True), ('no-such-bash-1357', False)):
+                p = subprocess.run(['node', '-e', probe], capture_output=True, text=True, cwd=work,
+                                   env=dict(os.environ, AXIOMCODE_BASH=name))
+                got = json.loads(p.stdout or '{}')
+                if ok and not (got.get('bash') and os.path.isabs(got['bash']) and not got.get('error')):
+                    bad.append(f"AXIOMCODE_BASH={name}, a program on PATH: {got}")
+                if not ok and 'is not on PATH' not in (got.get('error') or ''):
+                    bad.append(f"AXIOMCODE_BASH={name}, on no PATH: {got}")
     for b in bad:
         print('FAIL', b)
     print('ok' if not bad else f'{len(bad)} failure(s)')
