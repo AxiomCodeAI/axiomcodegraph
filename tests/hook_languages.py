@@ -18,7 +18,7 @@ It indexes a small project, so it needs the engine, as run.py does.
 """
 import json, os, subprocess, sys, tempfile
 
-# the directive's once-per-session stamp lives in the temp directory, keyed on the session
+# hook state lives in the temp directory, keyed on the session
 os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = os.path.join(ROOT, 'plugins', 'axiomcode', 'hooks')

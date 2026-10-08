@@ -34,16 +34,6 @@
   ],
   "PreToolUse": [
    {
-    "matcher": "Read|Grep|Glob|Bash|mcp__plugin_axiomcode_axiomcode__.*",
-    "hooks": [
-     {
-      "type": "command",
-      "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/run.js\" direct.py",
-      "timeout": 10
-     }
-    ]
-   },
-   {
     "matcher": "Edit|Write|MultiEdit",
     "hooks": [
      {

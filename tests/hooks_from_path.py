@@ -14,7 +14,6 @@ Promises, each with a near-miss control:
   · a Read, a Grep with path=, a shell `sed -n` by absolute path and a `cd <app> && grep` from ws/ are enriched, the
     Read exactly as it is from inside ws/app;
   · the state and budget files are kept in the repository's .axiomcode, not the working directory's;
-  · the directive stays silent on a shell `cat` of a file that is not source, as it is on a Read of one;
   · controls: a path with no graph anywhere above it, a path ABOVE the indexed root, and a symlink out of the indexed
     tree all stay silent; a symlink INTO it answers from the real graph;
   · the prompt hook tells a C#-only tree with no graph that one can be built (#1453), and a workspace above an indexed
@@ -28,8 +27,7 @@ Promises, each with a near-miss control:
 import os as _os
 _os.environ['AXIOMCODE_GREP_AID'] = '0'
 import json, os, shutil, subprocess, sys, tempfile, time
-# the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
-# second run of this script reuses the first run's session ids and hears nothing
+# hook state lives in the temp directory, keyed on the session
 os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -120,18 +118,6 @@ with tempfile.TemporaryDirectory() as tmp:
     check('a symlink INTO the indexed project answers from its real graph', ln == inside, ln)
     check('control: a symlink OUT of the indexed project to a tree with no graph stays silent',
           fire(app, 'c7', 'Read', {'file_path': os.path.join(app, 'vendored', P, 'OrderStore.java')}) == '')
-
-    # ── the directive (PreToolUse) ────────────────────────────────────────────────────────────────────────
-    # it speaks once per session (stamped in the temp directory), so each check gets a session no earlier run used
-    sid = lambda s: f'{s}-{os.getpid()}-{int(time.time() * 1000)}'
-    d = fire(ws, sid('d1'), 'Grep', {'pattern': 'findById', 'path': app}, hook='direct.py', event='PreToolUse')
-    check('the directive speaks before a Grep by absolute path from a directory with no graph', 'impact(name=' in d and 'OrderStore.java' in d, d)
-    check('control: the directive is silent before a Grep of a tree with no graph',
-          fire(ws, sid('d2'), 'Grep', {'pattern': 'findById', 'path': plain}, hook='direct.py', event='PreToolUse') == '')
-    check('the directive is silent on a shell grep of a file that is not source',
-          fire(app, sid('d3'), 'Bash', {'command': 'grep -n findById notes.md'}, hook='direct.py', event='PreToolUse') == '')
-    d = fire(app, sid('d4'), 'Bash', {'command': f'grep -n findById {os.path.relpath(store, app)}'}, hook='direct.py', event='PreToolUse')
-    check('control: the directive speaks on a shell grep of a source file for a declared method', 'impact(name=' in d, d)
 
     # ── orientation ──────────────────────────────────────────────────────────────────────────────────────
     for i in range(30):
