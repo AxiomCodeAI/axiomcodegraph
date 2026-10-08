@@ -42,6 +42,35 @@ export interface SqliteInputs {
   log: (s: string) => void;
 }
 
+// One INSERT per row pays the statement dispatch and argument binding once per row — half the
+// whole bundle stage on a 1.4GB graph (63.6s of 127s profiled, 4,461-file subject). A multi-row
+// VALUES list amortizes both; 128 rows per statement keeps the flattened argument array well
+// under sqlite's bind limit at the widest table.
+const BATCH = Math.max(1, Number(process.env.AXIOM_BUNDLE_BATCH ?? 128) || 128);
+type DbLike = { prepare(sql: string): { run(...a: (string | number | null)[]): unknown } };
+function batchInsert(db: DbLike, table: string, arity: number, verb: string): { push(r: (string | number | null)[]): void; flush(): void } {
+  const one = `(${Array.from({ length: arity }, () => '?').join(', ')})`;
+  if (BATCH === 1) {
+    // the pre-batching path, byte for byte: one prepared statement, one run per row
+    const single = db.prepare(`${verb} INTO ${table} VALUES ${one}`);
+    return { push(r) { single.run(...r.slice(0, arity).map((v) => v ?? null)); }, flush() {} };
+  }
+  const full = db.prepare(`${verb} INTO ${table} VALUES ${Array.from({ length: BATCH }, () => one).join(', ')}`);
+  let buf: (string | number | null)[] = [];
+  let n = 0;
+  return {
+    push(r) {
+      for (let i = 0; i < arity; i++) buf.push(r[i] ?? null);
+      if (++n === BATCH) { full.run(...buf); buf = []; n = 0; }
+    },
+    flush() {
+      if (n === 0) return;
+      const rest = db.prepare(`${verb} INTO ${table} VALUES ${Array.from({ length: n }, () => one).join(', ')}`);
+      rest.run(...buf); buf = []; n = 0;
+    },
+  };
+}
+
 export async function writeSqlite(inp: SqliteInputs): Promise<void> {
   // Loaded lazily so the CSV path works on a Node without the module.
   const { DatabaseSync } = await import('node:sqlite');
@@ -55,8 +84,9 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
     for (const t of CORE_TABLES) {
       db.exec(createSql(t));
       const rows = (inp.core as unknown as Record<string, Row[]>)[t.name] ?? [];
-      const ins = db.prepare(`INSERT OR IGNORE INTO ${t.name} VALUES (${t.columns.map(() => '?').join(', ')})`);
-      for (const r of rows) ins.run(...(r as (string | number | null)[]));
+      const ins = batchInsert(db, t.name, t.columns.length, 'INSERT OR IGNORE');
+      for (const r of rows) ins.push(r as (string | number | null)[]);
+      ins.flush();
       inp.log(`  sqlite ${t.name}: ${rows.length} rows`);
     }
     db.exec('COMMIT;');
@@ -68,12 +98,13 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
       const name = `ext_${e.relation}`;
       db.exec(`CREATE TABLE ${name} (${cols.join(', ')});`);
       if (e.arity === 0) continue;
-      const ins = db.prepare(`INSERT INTO ${name} VALUES (${cols.map(() => '?').join(', ')})`);
+      const ins = batchInsert(db, name, e.arity, 'INSERT');
       let n = 0;
       for await (const r of readRaw(path.join(inp.rawDir, e.file))) {
         if (r.length !== e.arity) continue; // a torn row is dropped, as the engine's own staging does
-        ins.run(...r); n++;
+        ins.push(r); n++;
       }
+      ins.flush();
       if (n > 0) inp.log(`  sqlite ${name}: ${n} rows`);
     }
     db.exec('COMMIT;');
