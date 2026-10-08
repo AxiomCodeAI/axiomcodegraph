@@ -555,18 +555,16 @@ case "${AXIOM_SOLVE_PARALLEL:-}" in
   1) if _OMP="$(probe_openmp)"; then
        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
      fi ;;
-  "") # Parallel by default on every platform with evidence behind it. The two arm64
-      # weak-ordering holes (write-entry RMW; unfenced node publication) are closed by
-      # the seqlock-fix-3 overlay, validated under load: darwin-arm64 10/10, linux-arm64
-      # 10/10 (GCP), linux-x64 5/5 (GCP) — all relation-identical to serial. x64 is TSO,
-      # where neither hole is observable. Windows local compiles probe like the rest
-      # (MSYS g++); packaged win32 engines carry /openmp from build-engines.yml, gated
-      # by its own release validation. AXIOM_SOLVE_PARALLEL=0 is the one-variable
-      # rollback to serial anywhere, no rebuild.
-      if _OMP="$(probe_openmp)"; then
-        # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
-        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
-      fi ;;
+  "") # Serial by default everywhere. The seqlock-fix-3 overlay closed the two diagnosed
+      # arm64 ordering holes, but the javascript program — the only one that creates
+      # symbols at solve time (substr/cat in its module rules) — still segfaults ~3/10
+      # under -j8 on darwin-arm64 with concurrent load, in a different rule each time:
+      # a shared structure the fix does not cover (symbol-table insertion suspected).
+      # Until that is root-caused and fenced, parallel is opt-in: AXIOM_SOLVE_PARALLEL=1
+      # builds the -par flavor on any machine whose toolchain takes OpenMP. On quiet
+      # multicore hardware it is worth 1.5-3x on top of the rule work (python 122s->40s
+      # darwin-arm64); on 8-vCPU cloud instances it measured as a slight loss.
+      ;;
 esac
 EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
 BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$PAR_SUFFIX$EXE"
