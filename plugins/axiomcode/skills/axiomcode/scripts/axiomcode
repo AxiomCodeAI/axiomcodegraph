@@ -149,8 +149,8 @@ case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; the
 # A QUERY NEVER BLOCKS ON A REFRESH BY DEFAULT (#1305, #1595). Before a query verb answers, the graph is checked against
 # the files it was built from. When one differs the background refresher is started and the answer comes from the last
 # good graph at once, every row that lies in a changed file marked "(may be out of date)" and one line on stderr naming
-# the files. It waits (up to AXIOMCODE_FRESH_WAIT, default 30 s) only when the answer touches a changed file and the last
-# build says the refresh will finish within that; never on a compile of the engine's rules. --fresh waits for the
+# the files. It waits only when AXIOMCODE_FRESH_WAIT (seconds, default 0) allows, the answer touches a changed file and
+# the last build says the refresh will finish within that; never on a compile of the engine's rules. --fresh waits for the
 # refresh, saying how it goes, and answers from the new graph. ax_fresh.py query does all of it; a fresh graph costs one
 # check and an exec. The repository is the last argument that is a directory, as the verbs themselves take it, else the
 # working directory. No graph: nothing here, the verb builds its first one.

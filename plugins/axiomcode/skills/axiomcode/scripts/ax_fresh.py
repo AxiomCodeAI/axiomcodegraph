@@ -37,7 +37,7 @@ Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off (a query verb's --no
 set it for that one query: a read-only answer from the graph as it is, still saying which edits it predates); AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
 is the quiet window; AXIOMCODE_REFRESH_BATCH (default 3; 1 = off) is how many edits a rebuild waits for once the last build
 took AXIOMCODE_REFRESH_BATCH_ABOVE seconds (default 20); AXIOMCODE_REFRESH_MAX (default 2, 0 = no cap) is how many background rebuilds run at once on
-the machine, the rest queued; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
+the machine, the rest queued; AXIOMCODE_FRESH_WAIT (seconds, default 0) is the most a query whose answer touches an edited file
 waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) makes it wait for the refresh whatever it
 takes, up to AXIOMCODE_FRESH_MAX (default 600); AXIOMCODE_BUILD_WAIT
 (seconds, default 900) is how long a query that finds no graph waits for a build that is running rather than starting
@@ -1285,11 +1285,11 @@ def note(s, marked=None, named=None, off=False):
 # ── STALE-WHILE-REVALIDATE (#1595) ──────────────────────────────────────────────────────────────────────────────────
 # A query never blocks on a refresh by default: it answers from the last good graph and says precisely what is stale.
 # Every row whose declaration or call site lies in a file edited, added or removed since the graph was built is marked;
-# rows from untouched files are exactly as current as the graph and carry nothing. It WAITS only when that matters and
-# will pay off: the answer (a row, or the name asked about) touches an edited file, the rebuild is not compiling the
-# engine's rules, and the last build of this repository says it will be done within AXIOMCODE_FRESH_WAIT seconds
-# (default 30). A fixed wait (10 s) was shorter than every rebuild measured, so it was spent and the answer came from
-# the old graph anyway. --fresh (MCP fresh=true) waits for the rebuild whatever it costs, saying so as it goes.
+# rows from untouched files are exactly as current as the graph and carry nothing. AXIOMCODE_FRESH_WAIT seconds (default
+# 0) lets it wait when the answer (a row, or the name asked about) touches an edited file, the rebuild is not compiling
+# the engine's rules, and the last build says it will be done within that. The default was 30: mid-edit, an agent's query
+# about the code it was editing waited 20-33 s per ask on a 1,300-file repository, for an answer the marked rows already
+# qualified (1.8 s without the wait). --fresh (MCP fresh=true) waits for the rebuild whatever it costs, saying so as it goes.
 MARK = '  (may be out of date)'
 _CODE_LINE = re.compile(r'^\s*(\d+ )?\| ')             # a line of quoted source (context --source): never marked
 _TOKEN = re.compile(r'[\w.$+@/-]+')
@@ -1497,7 +1497,7 @@ def query(repo, verb, argv, fresh=False):
     named = names_in_edits(repo, query_names(verb, argv, repo), stale)
     touched = touched or bool(named)
     if touched and not fresh and not s.get('failed') and not hold:
-        budget = float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 30)
+        budget = float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 0)
         left = expected_left(repo)
         if budget > 0 and not compiling(repo) and (left is None or left <= budget):
             print(f"waiting for the graph to refresh: this answer touches {', '.join(stale.files[:3])}" + (' …' if len(stale.files) > 3 else '') +
