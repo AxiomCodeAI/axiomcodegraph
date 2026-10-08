@@ -73,12 +73,40 @@ fake="$W/fake-engine"
 { echo '#!/usr/bin/env bash'
   echo 'while [ $# -gt 0 ]; do case "$1" in -D) D="$2"; shift 2;; -F) shift 2;; *) shift;; esac; done'
   cut -f2 "$ROOT/graph/$lang/souffle/export_manifest.tsv" | sed 's|^|: > "$D/|; s|$|"|'; } > "$fake"
-mkdir -p "$W/stub" "$W/inc/souffle/utility"; : > "$W/inc/souffle/CompiledSouffle.h"; : > "$W/cc-calls"
+mkdir -p "$W/stub" "$W/inc/souffle/utility" "$W/inc/souffle/datastructure"; : > "$W/inc/souffle/CompiledSouffle.h"; : > "$W/cc-calls"
 # the stub include dir must carry what souffle_overlay patches (the seqlock fix seds these
-# write-entry RMWs and refuses an include dir without them), as a real install's headers do
+# write-entry RMWs, the publication fix anchors on BTree.h's two link stores, and the overlay
+# refuses an include dir without either), as a real install's headers do
 printf '%s\n' 'version.fetch_or(0x1, std::memory_order_acquire);' \
               'version.fetch_or(0x1, std::memory_order_acquire);' \
               'version.fetch_or(0x1, std::memory_order_acquire);' > "$W/inc/souffle/utility/ParallelUtil.h"
+cat > "$W/inc/souffle/datastructure/BTree.h" <<'BTREE_STUB'
+            // move child pointers
+            if (this->inner) {
+                // move pointers to sibling
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;
+            sibling->numElements = maxKeys - split_point - 1;
+                // link this and the sibling node to new root
+                this->parent = new_root;
+                // switch root node
+                *root = new_root;
+            keys[pos] = key;
+            getChildren()[pos + 1] = newNode;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;
+BTREE_STUB
+mkdir -p "$W/inc/souffle/utility"
+printf '%s\n' '#if _WIN64' '#define __builtin_popcountll __popcnt64' '#else' '#define __builtin_popcountll __popcnt' '#endif' >> "$W/inc/souffle/utility/MiscUtil.h"
+printf '%s\n' '#ifdef _WIN32' '#include <intrin.h>' > "$W/inc/souffle/datastructure/PiggyList.h"
 { echo '#!/usr/bin/env bash'
   echo "[ \"\$1\" = --version ] && { echo 'Version: $SOUFFLE_VERSION'; exit 0; }"
   echo 'while [ $# -gt 0 ]; do case "$1" in -g) : > "$2"; echo "// c++" > "$2"; shift 2;; *) shift;; esac; done'; } > "$W/stub/souffle"
@@ -93,9 +121,12 @@ if prep; then
   [ -x "$W/cache/souffle-engine-$lang-$id" ] || bad "prepare left no binary under the run's cache name (souffle-engine-$lang-${id:0:12}…)"
   [ "$(calls)" = 1 ] || bad "prepare compiled $(calls) time(s), expected 1"
   grep -q "engine ready" "$W/log" || bad "prepare did not report the engine ready"
-  h="$W/cache/include-seqlock-fix-1/souffle/utility/ParallelUtil.h"
+  h="$W/cache/include-seqlock-fix-3/souffle/utility/ParallelUtil.h"
   grep -q 'memory_order_seq_cst' "$h" 2>/dev/null && ! grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" \
     || bad "prepare did not leave the patched overlay header (seqlock fix) in the cache"
+  b="$W/cache/include-seqlock-fix-3/souffle/datastructure/BTree.h"
+  [ "$(grep -c 'seqlock-fix-3' "$b" 2>/dev/null)" = "4" ] \
+    || bad "prepare did not leave the four publication fences (seqlock-fix-3) in the overlay BTree.h"
 else bad "prepare failed:"; tail -8 "$W/log" | sed 's/^/      /'; fi
 prep || bad "a second prepare failed"
 grep -q "reusing cached binary" "$W/log" && [ "$(calls)" = 1 ] || bad "a second prepare compiled again ($(calls) compiles)"

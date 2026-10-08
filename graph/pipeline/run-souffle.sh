@@ -318,14 +318,14 @@ engine_id_of(){
   done < "$prog"
   hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
     || { echo "❌ engine id: mktemp failed" >&2; return 1; }
-  if ! printf 'souffle=%s+seqlock-fix-1\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+  if ! printf 'souffle=%s+seqlock-fix-3\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
     echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
   fi
   # The expected size comes from the SOURCE files (wc's last line is their total), not from a
   # second read through cat, so a cat that loses bytes cannot agree with itself.
   want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
   want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
-  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-1" + "\n"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-3" + "\n"
   if [ "${have//[[:space:]]/}" != "$want" ]; then
     echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
   fi
@@ -387,10 +387,13 @@ esac
 # OpenMP at COMPILE time decides the flavor. Measured on a 6,139-file Java subject:
 # 147s serial -> 59s at -j8; the outputs are equal as sets (row order shifts between
 # flavors; the bundle loads rows into sqlite, which keeps no order).
-# GATED PER PLATFORM. On darwin-arm64 the parallel RUNTIME segfaults nondeterministically
-# — a different rule each crash, g++/libgomp and apple-clang/libomp alike, Soufflé 2.5
-# and master f53dab8 — so Darwin stays serial until upstream fixes it. Linux enables
-# OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
+# GATED PER PLATFORM. darwin-arm64's nondeterministic parallel segfaults — a different
+# rule each crash, g++/libgomp and apple-clang/libomp alike — were two weak-ordering
+# holes, both closed by the header overlay below: the write-entry RMW (seqlock-fix-1)
+# and the unfenced publication of freshly split btree nodes (seqlock-fix-2), which is
+# why the crashes needed memory pressure (a recycled page holds garbage where a fresh
+# one holds zeros). darwin-arm64 now runs parallel by default, like linux-x64; Linux
+# enables OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
 # anywhere; =1 forces the attempt anywhere (still needs a toolchain with -fopenmp).
 # The flavor is part of the CACHE NAME, never shared between flavors: the two binaries
 # answer with different row orders, and a cache hit must reproduce the flavor that ran
@@ -402,10 +405,21 @@ esac
 # TSO stores never reorder, which is why this only ever fired on arm64 (nondeterministic
 # segfaults in a different rule each run, any toolchain, Soufflé 2.5 and master alike).
 # seq_cst on the entry RMW pins the odd version BEFORE any data store; on x86 a locked
-# RMW is already a full barrier, so the change costs nothing there. The engine id carries
-# "+seqlock-fix-1", so no unpatched cache entry or package is ever taken for a patched one.
+# RMW is already a full barrier, so the change costs nothing there.
+# THE PUBLICATION FIX (fix-2, BTree.h). The residual arm64 crash under memory pressure:
+# a split publishes a freshly built node with PLAIN pointer stores — insert_inner's
+# `getChildren()[pos + 1] = newNode` and grow_parent's `*root = new_root` — and on a
+# weakly-ordered CPU that pointer can become visible BEFORE the node's own field stores,
+# including its lock's start_write. An optimistic reader then descends into memory whose
+# lock reads as free and whose children are whatever the allocator left there: zeros on a
+# fresh page (survivable), garbage on recycled memory — which is exactly the observed
+# "under memory pressure, a different rule each run" (TSAN: 66 atomic-vs-plain write pairs,
+# all BTree.h insert/split against a node's lock word). A release fence before each
+# publication orders every initialization store first; the reader's dereference is
+# address-dependent, which arm64 orders by itself. The engine id carries
+# "+seqlock-fix-3", so no unpatched cache entry or package is ever taken for a patched one.
 souffle_overlay(){
-  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-1"
+  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-3"
   local hdr="$overlay/souffle/utility/ParallelUtil.h"
   if [ ! -f "$hdr" ]; then
     rm -rf "$overlay.tmp.$$"
@@ -417,6 +431,93 @@ souffle_overlay(){
     sed -i.bak 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$h" && rm -f "$h.bak"
     grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$h" || return 1
     grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" && return 1
+    # fix-3: a release fence before EVERY store that makes a new node reachable — the child
+    # links fix-2 fenced, and the parent-pointer publications it missed (split's reparenting,
+    # grow_parent's this->parent/sibling->parent, insert_inner's late newNode->parent, which
+    # is reordered to before the link). The lock-parents walk reads exactly those pointers.
+    # ...and the MINGW-COMPILE guards: souffle maps __builtin_popcountll to MSVC's
+    # __popcnt64 and pulls intrin.h for ALL of _WIN32, which breaks g++ on MinGW — the
+    # one toolchain a Windows developer who clones this repository compiles with. Both
+    # are MSVC-only concerns, so the guards narrow to _MSC_VER; every other platform's
+    # preprocessed output is bit-identical, which is why the overlay name stays fix-3.
+    local b="$overlay.tmp.$$/souffle/datastructure/BTree.h"
+    [ -f "$b" ] || return 1
+    python3 - "$b" <<'PYEOF' || return 1
+import glob, os, sys
+p = sys.argv[1]; s = open(p).read()
+root = os.path.dirname(os.path.dirname(p))
+F = "std::atomic_thread_fence(std::memory_order_release);  // publication fence (seqlock-fix-3)"
+# split(): fill the sibling completely (children, counts), fence, THEN reparent — each
+# children[j]->parent = other makes the new sibling reachable from an existing node.
+a1 = """            // move child pointers
+            if (this->inner) {
+                // move pointers to sibling
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;
+            sibling->numElements = maxKeys - split_point - 1;"""
+r1 = """            // move child pointers: the sibling's own fields first (private until reparented)
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                }
+            }
+            sibling->numElements = maxKeys - split_point - 1;
+            """ + F + """
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;"""
+# grow_parent(): new_root is fully filled above; the parent stores are its first publication.
+a2 = """                // link this and the sibling node to new root
+                this->parent = new_root;"""
+r2 = """                // link this and the sibling node to new root
+                """ + F + """
+                this->parent = new_root;"""
+a3 = "                // switch root node\n                *root = new_root;"
+r3 = "                // switch root node\n                " + F + "\n                *root = new_root;"
+# insert_inner(): give newNode its parent and position BEFORE the link that publishes it.
+a4 = """            keys[pos] = key;
+            getChildren()[pos + 1] = newNode;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;"""
+r4 = """            keys[pos] = key;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;
+            """ + F + """
+            getChildren()[pos + 1] = newNode;"""
+for a, r in ((a1, r1), (a2, r2), (a3, r3), (a4, r4)):
+    if s.count(a) != 1: sys.exit(1)
+    s = s.replace(a, r)
+open(p, 'w').write(s)
+# mingw-compile guards, in every copy the include layout holds
+m1 = "#if _WIN64\n#define __builtin_popcountll __popcnt64\n#else\n#define __builtin_popcountll __popcnt\n#endif"
+m1r = "#if defined(_MSC_VER)\n" + m1 + "\n#endif  // _MSC_VER (mingw-compile): MinGW has the gcc builtins"
+m2 = "#ifdef _WIN32\n#include <intrin.h>"
+m2r = "#if defined(_MSC_VER)  // (mingw-compile): intrin.h only for MSVC\n#include <intrin.h>"
+hit1 = hit2 = 0
+for q in glob.glob(root + "/**/MiscUtil.h", recursive=True) + glob.glob(root + "/**/PiggyList.h", recursive=True):
+    t = open(q).read(); n = 0
+    if m1 in t: t = t.replace(m1, m1r); hit1 += 1; n = 1
+    if m2 in t: t = t.replace(m2, m2r); hit2 += 1; n = 1
+    if n: open(q, "w").write(t)
+if hit1 < 1 or hit2 < 1: sys.exit(1)
+PYEOF
+    [ "$(grep -c 'seqlock-fix-3' "$b")" = "4" ] || return 1
     mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
     rm -rf "$overlay.tmp.$$"
   fi
@@ -429,7 +530,8 @@ probe_openmp(){
   # frontend flag plus Homebrew's libomp (-Xpreprocessor defines _OPENMP without
   # lowering anything — a silently sequential binary, which is how this stayed hidden).
   case "$(uname -s)" in
-    Linux)
+    Linux|MINGW*|MSYS*|CYGWIN*)
+      # MSYS2/Git-Bash `c++` is g++, which takes -fopenmp exactly as Linux does
       if printf 'int main(){return 0;}' | c++ -fopenmp -x c++ -o /dev/null - 2>/dev/null; then
         printf '%s' "-fopenmp"; return 0
       fi ;;
@@ -453,7 +555,15 @@ case "${AXIOM_SOLVE_PARALLEL:-}" in
   1) if _OMP="$(probe_openmp)"; then
        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
      fi ;;
-  "") if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && _OMP="$(probe_openmp)"; then
+  "") # Parallel by default on every platform with evidence behind it. The two arm64
+      # weak-ordering holes (write-entry RMW; unfenced node publication) are closed by
+      # the seqlock-fix-3 overlay, validated under load: darwin-arm64 10/10, linux-arm64
+      # 10/10 (GCP), linux-x64 5/5 (GCP) — all relation-identical to serial. x64 is TSO,
+      # where neither hole is observable. Windows local compiles probe like the rest
+      # (MSYS g++); packaged win32 engines carry /openmp from build-engines.yml, gated
+      # by its own release validation. AXIOM_SOLVE_PARALLEL=0 is the one-variable
+      # rollback to serial anywhere, no rebuild.
+      if _OMP="$(probe_openmp)"; then
         # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
         OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
       fi ;;
