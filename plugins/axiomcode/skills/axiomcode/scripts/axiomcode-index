@@ -738,6 +738,10 @@ CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE IND
 -- lookups by id and by file + line: without them each per-site or per-test query scans the whole table
 CREATE INDEX IF NOT EXISTS symbols_id ON symbols(id); CREATE INDEX IF NOT EXISTS refs_file_line ON refs(file, line);
 CREATE INDEX IF NOT EXISTS literals_file_line ON literals(file, line);
+-- the bases written in a type's header (graph_sql.library_bases, asked once per type a no-caller reason looks at) and
+-- the parts of a partial type (type_parts): without these each ask scanned type_refs / symbols, 1.2 s of a 1.8 s impact
+-- on a 1,300-file Java repository → 0.5-0.75 s, answers unchanged
+CREATE INDEX IF NOT EXISTS type_refs_file_line ON type_refs(file, line); CREATE INDEX IF NOT EXISTS symbols_qn ON symbols(qualified_name);
 -- the fields a caller reads: via_base_rows asks per single-target call site, and without the index each ask
 -- scanned the whole table (65,797 rows × 5,162 sites on an 8,619-file repository = 24 s of a 171 s warm → 1.4 s)
 CREATE INDEX IF NOT EXISTS fa_caller ON field_access(caller_id);
