@@ -260,9 +260,7 @@ method_dispatch_candidate(base, m, "value") :-
 // Read as a value -- `k = self._row_class` -- the attribute denotes the class, so a
 // call on it or through it resolves like any other class object.
 expr_type_class_object(p, e, c) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    !expr_name_context(p, "STORE", e),
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj), !expr_name_context(p, "STORE", e),
     expr_type(p, obj, t),
     type_attr_class_value(p, t, n, c).
 

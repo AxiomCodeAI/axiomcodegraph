@@ -152,23 +152,30 @@ expr_type(p, e, t) :-
 // of any length follows by recursion, since the object's type is derived the same way.
 // Same two field-type sources and the same declared_dispatch widening as the self clauses,
 // so no new precision assumption is introduced.
-expr_type(p, e, t) :-
+
+// ── attr_access(p, e, n, obj): a named attribute access and its object, ONCE ─────────
+// This three-atom prefix sat inline in 13 recursive clauses of the typing fixpoint, and
+// semi-naive evaluation re-ran the expr_node scan every iteration — 79 iterations on a
+// 526k-LOC subject, ~20% of the solve between them. Hoisted below the fixpoint (pure
+// syntax), each clause starts from its recursive delta and probes this table.
+attr_access(p, e, n, obj) :-
     expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj).
+
+expr_type(p, e, t) :-
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_declared_type(p, f, d),
     declared_dispatch(p, d, t).
 expr_type(p, e, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_type_from_param(p, f, d),
     declared_dispatch(p, d, t).
 expr_type(p, e, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_type_from_construction(p, f, t).
@@ -179,8 +186,7 @@ expr_type(p, e, t) :-
 // an attribute written through `self` in a method does not exist on the class object,
 // so typing `Cls.x` from it would name something the class never holds.
 expr_type(p, e, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type_class_object(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_decl(p, n, _, "CLASS_BODY_ASSIGN", f),
@@ -212,8 +218,7 @@ expr_type(p, e, t) :-
 // Same widening as everywhere else: the declared type goes out through declared_dispatch,
 // so an overriding subclass is not dropped and the annotation is not treated as exact.
 property_read_of(p, e, obj, n, g) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_property_getter(p, ot, n, g).
 // A USER-WRITTEN DATA DESCRIPTOR reaches the same two clauses (issue #326). `@property`
@@ -221,8 +226,7 @@ property_read_of(p, e, obj, n, g) :-
 // agree; type_descriptor_getter (resolution/attribute-lookup.dl) is deliberately shaped
 // like type_property_getter so this is one more clause rather than a parallel path.
 property_read_of(p, e, obj, n, g) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_descriptor_getter(p, ot, n, g).
 // (i3a) the getter's declared `-> X`.
@@ -658,8 +662,7 @@ expr_type_untypable(p, e, "unresolved_name") :-
 
 // (2b) the same hop through ANY object, not only self.
 expr_type_untypable(p, e, "attribute_untyped") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_type_unknown(p, f), !expr_any_type(p, e).
@@ -669,8 +672,7 @@ expr_type_untypable(p, e, "attribute_untyped") :-
 //     one wants the field annotated or its writes typed, the other wants the object typed.
 //     Reporting them as one reason would point at the wrong layer.
 expr_type_untypable(p, e, "attribute_object_untyped") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     !expr_any_type(p, obj),
     !expr_any_type(p, e).
 
@@ -687,8 +689,7 @@ expr_type_untypable(p, e, "attribute_object_untyped") :-
 // `handler` is a METHOD is a call through a bound method, which resolution/value-flow.dl
 // owns; labelling it "absent" would be wrong rather than merely unhelpful.
 expr_type_untypable(p, e, "attribute_absent_on_type") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type(p, obj, ot),
     !type_attr_field(p, ot, n, _),
     !mro_lookup(p, ot, n, _),
@@ -712,8 +713,7 @@ expr_type_untypable(p, e, "attribute_absent_on_type") :-
 // and no amount of field typing will reach it. Merging them would put the largest single
 // shape in the residual behind a name that suggests the wrong fix.
 expr_type_untypable(p, e, "class_attribute_absent") :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, e, n, obj),
     expr_type_class_object(p, obj, ot),
     !type_attr_field(p, ot, n, _),
     !mro_lookup(p, ot, n, _),

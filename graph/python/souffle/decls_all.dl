@@ -617,6 +617,8 @@
 .decl protocol_edge_wide(c0:symbol,c1:symbol,c2:number)
 .decl site_has_boundary(c0:symbol)
 .decl site_class(c0:symbol,c1:symbol)
+.decl attr_access(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl site_class_kind(c0:symbol)
 .decl site_reason(c0:symbol,c1:symbol)
 .decl site_is_decorator(c0:symbol)
 .decl call_chain_edge(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)

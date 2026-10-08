@@ -426,9 +426,12 @@ site_class(site, "ambiguous_unknown") :-
 // WHY a site is unresolved. This is the difference between a report and a shrug, and it
 // is what makes an ambiguous_unknown auditable rather than a dumping ground.
 site_reason(site, r) :- call_unresolvable(site, r), site_class(site, "ambiguous_unknown").
+// decorator_expr first: it binds d from site, so the annotation probe is keyed — written
+// annotation-first the planner crossed every annotation with every ambiguous site (25s
+// on a 526k-LOC subject for a diagnostic label).
 site_reason(site, "unmodelled_decorator") :-
     site_class(site, "ambiguous_unknown"),
-    annotation_on("client", _, _, _, _, d), decorator_expr("client", site, d).
+    decorator_expr("client", site, d), annotation_on("client", _, _, _, _, d).
 // The APPLICATION of a parenthesised decorator whose factory return the engine cannot
 // type — a library factory such as functools.wraps. Named, not shrugged at.
 site_reason(site, "decorator_factory_result_untyped") :-
@@ -819,7 +822,10 @@ method_has_unknown_call(caller, site) :-
 
 // ── call_chain_summary(EdgeStatus, N) ────────────────────────────────────────
 // The conservation ledger, as a relation: the tier counts must sum to the site count.
+// One count per DISTINCT class: driven by site_class rows, the aggregate re-counted the
+// class for every site in it (sites x class-size on a large subject, 15s for a ledger).
+site_class_kind(cls) :- site_class(_, cls).
 call_chain_summary(cls, n) :-
-    site_class(_, cls),
+    site_class_kind(cls),
     n = count : { site_class(_, cls) }.
 call_chain_summary("_total_sites", n) :- n = count : { invocation_site(_, _) }, n > 0.
