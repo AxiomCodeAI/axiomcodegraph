@@ -43,7 +43,7 @@
   <a href="https://www.npmjs.com/package/@axiomcode/code-graph"><img alt="npm" src="https://img.shields.io/npm/v/@axiomcode/code-graph?label=npm"></a>
   <a href="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml"><img alt="Nightly (dev)" src="https://github.com/AxiomCodeAI/axiomcodegraph/actions/workflows/nightly.yml/badge.svg?branch=dev"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
-  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
+  <img alt="Node ≥ 22.13" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-brightgreen">
 </p>
 
 <p align="center">
@@ -125,7 +125,7 @@ AxiomCode Graph is two parts. The **engine** (`@axiomcode/code-graph` on npm) pa
 graph; it also provides the `axiomcode` command and an MCP server. The **plugin** (`plugins/axiomcode/`) is the
 agent-facing frontend: a skill, four MCP tools, and hooks. Install the engine first.
 
-Requirements: **Node ≥ 22.5** and **Python 3** (`python3`, or `python` / `py` on Windows). On Windows, also
+Requirements: **Node ≥ 22.13** and **Python 3** (`python3`, or `python` / `py` on Windows). On Windows, also
 [Git for Windows](https://git-scm.com/download/win): the CLI runs under its bash. The engine ships as a prebuilt
 binary for macOS (Apple Silicon and Intel), Linux (x64 and arm64) and Windows x64, and `npm install` takes the one for
 your platform. No Soufflé and no compiler are needed, with one exception:
@@ -334,9 +334,9 @@ command's usage.
 The graph stays current on its own. Every file the parser reads is recorded with its hash at build time; after an
 edit, a shell command, a finished turn, at session start, and before a query, anything that differs starts one
 background rebuild per repository, with the language, `--src` and `--library` of the graph it replaces. Every
-command keeps reading the previous graph until the new one is indexed and swapped in. A query waits up to
-`AXIOMCODE_FRESH_WAIT` seconds (default 10) for it, then answers from the previous graph with a `graph refresh:` line
-naming the files it predates. The MCP server also checks every repository it has answered for once 15 minutes have
+command keeps reading the previous graph until the new one is indexed and swapped in. A query answers from the
+previous graph at once, with a `graph refresh:` line naming the files it predates and the rows in them marked;
+`--fresh` waits for the rebuild instead, and `AXIOMCODE_FRESH_WAIT` (seconds, default 0) lets every query wait that long. The MCP server also checks every repository it has answered for once 15 minutes have
 passed since its last update (`AXIOMCODE_REFRESH_INTERVAL`, seconds; 0 turns it off), which catches edits made while
 a session sits idle. The graph records when and why it was built in `index_meta` (`refreshed_at`, `refresh_reason`).
 `AXIOMCODE_NO_REFRESH=1` turns the rebuilds off, not the check: an answer from a graph older than an edit still
