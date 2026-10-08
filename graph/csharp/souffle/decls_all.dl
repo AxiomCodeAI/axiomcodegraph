@@ -65,6 +65,7 @@
 .decl call_callee_name(c0:symbol,c1:symbol,c2:symbol)
 .decl call_caller_unknown(c0:symbol,c1:symbol)
 .decl call_chain_edge(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)
+.decl call_class_kind(c0:symbol)
 .decl call_chain_summary(c0:symbol,c1:number)
 .decl call_class(c0:symbol,c1:symbol,c2:symbol)
 .decl call_context(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)

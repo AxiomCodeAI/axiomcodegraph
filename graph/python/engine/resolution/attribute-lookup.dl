@@ -152,10 +152,15 @@ mro_lookup_data_shadow(p, t, n, f) :-
 // factory), while mro_lookup is upstream of it and uses negation — folding this in makes
 // that negation cyclic and souffle refuses the program. Consumed by
 // expression-resolution/callee-resolution.dl, which is downstream of both.
+// The class-member lookup is pure syntax and was re-run inside the fixpoint every
+// iteration (12s for 783 rows on a mid-size subject); materialized once, keyed (c, n),
+// the rule starts from its recursive delta and probes it.
+replaced_method_of(p, c, n, def) :-
+    method_owner(p, c, def), method_decl(p, n, _, _, _, def),
+    method_target_replaced(p, def).
 mro_lookup_decorated(p, t, n, r) :-
     mro_winner(p, t, n, c),
-    method_owner(p, c, def), method_decl(p, n, _, _, _, def),
-    method_target_replaced(p, def),
+    replaced_method_of(p, c, n, def),
     decorated_name_target(def, r).
 
 // ── mro_lookup_opaque(Prov, ReceiverType, Name) ──────────────────────────────

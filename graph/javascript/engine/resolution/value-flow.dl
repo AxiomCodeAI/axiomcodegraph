@@ -493,8 +493,13 @@ carry_step(x, c) :- expr_kind(_, "BINARY", _, x), expr_operator(_, op, x), binar
 carry_step(x, c) :- expr_kind(_, "ASSIGNMENT", _, x), expr_child(_, x, "ASSIGNMENT_VALUE", _, c).
 carry_step(x, c) :- expr_kind(_, "SEQUENCE", _, x), sequence_last(x, c).
 carry_step(x, c) :- expr_binding(_, v, x), var_init(_, _, c, v).
-carry_step(x, c) :- expr_binding(_, v, x), expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+// An assignment writing variable v the value c, KEYED BY THE VARIABLE and enumerated
+// once. Anchored on expr_binding the clause below visited every USE of every variable
+// and re-scanned the assignments for each: 3.1 minutes of a 6-minute solve, half the
+// profile, for 16.5K rows.
+var_assigned_value(v, c) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_binding(_, v, tgt), expr_child(_, a, "ASSIGNMENT_VALUE", _, c).
+carry_step(x, c) :- expr_binding(_, v, x), var_assigned_value(v, c).
 carry_rest(e, x) :- carry_part(e, x), !carries_param_call(x, _).
 // What the carrying return holds read context-insensitively: every caller's argument
 // merged (and nothing once the wrapper is over the fan cap). Only the fallbacks below

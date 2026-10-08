@@ -230,9 +230,8 @@ type_attr_class_value(p, t, n, c) :-
 // never a single edge to the assigned value. `self.x = ...` is left to the field rules,
 // which see it with its write count.
 instance_attr_method_value(p, t, n, m) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    attr_access(p, e, n, obj),
     expr_name_context(p, "STORE", e),
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
     !expr_node(p, "SELF_REFERENCE", _, _, obj),
     expr_type(p, obj, t),
     assign_pair(p, e, val),
@@ -242,10 +241,9 @@ instance_attr_method_value(p, t, n, m) :-
 // denotes what was assigned to it, beside the bound class method expr_denotes_bound_method
 // already gives it.
 expr_denotes_method(p, e, m) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    attr_access(p, e, n, obj),
     !expr_name_context(p, "STORE", e),
     !call_callee_expr(_, e),
-    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
     expr_type(p, obj, t),
     instance_attr_method_value(p, t, n, m).
 

@@ -36,12 +36,19 @@ iter_pair(p, tgt, src) :-
 for_statement_roots("FOR_TARGET", "FOR_ITERABLE").
 for_statement_roots("ASYNC_FOR_TARGET", "ASYNC_FOR_ITERABLE").
 
+// ── root_expr_at(Prov, RootContext, Scope, Line, Expr) — the pairing key, ONCE ──
+// Both statement pairings below match a target root against a source root by scope and
+// line; written inline, each pairing enumerated every root of one context and probed
+// scope/span per candidate (22s between them for ~6K rows). Materialized with the key
+// in the columns, each pairing is one indexed join.
+root_expr_at(p, rc, s, line, e) :-
+    expr_root_context(p, rc, e), !expr_has_parent(p, e),
+    expr_scope(p, s, _, e), expr_span(p, line, _, e).
+
 iter_pair(p, tgt, src) :-
     for_statement_roots(trc, irc),
-    expr_root_context(p, trc, tgt), !expr_has_parent(p, tgt),
-    expr_root_context(p, irc, src), !expr_has_parent(p, src),
-    expr_scope(p, s, _, tgt), expr_scope(p, s, _, src),
-    expr_span(p, line, _, tgt), expr_span(p, line, _, src).
+    root_expr_at(p, trc, s, line, tgt),
+    root_expr_at(p, irc, s, line, src).
 
 // ── with_pair(Prov, TargetExprHash, ContextExprHash) — `with X() as y` (#128) ──
 // The SAME shape as a for statement, and it lives here for that reason: the parser emits
@@ -52,10 +59,8 @@ with_statement_roots("ASYNC_WITH_TARGET", "ASYNC_WITH_CONTEXT").
 
 with_pair(p, tgt, cm) :-
     with_statement_roots(trc, crc),
-    expr_root_context(p, trc, tgt), !expr_has_parent(p, tgt),
-    expr_root_context(p, crc, cm), !expr_has_parent(p, cm),
-    expr_scope(p, s, _, tgt), expr_scope(p, s, _, cm),
-    expr_span(p, line, _, tgt), expr_span(p, line, _, cm).
+    root_expr_at(p, trc, s, line, tgt),
+    root_expr_at(p, crc, s, line, cm).
 
 // The two names this needs, stated as facts rather than written into a rule body: one is a
 // dunder the language defines, the other the typing spelling for "the enclosing class".
@@ -125,14 +130,12 @@ element_type_of(p, src, t) :-
 // self-only, here the ELEMENT type of a container held on an attribute is. The self
 // clauses stay as the special case; nothing about what an element type means changes.
 element_type_of(p, src, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
-    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, src, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_declared_element(p, f, t).
 element_type_of(p, src, t) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
-    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, src, n, obj),
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_element_from_param(p, f, t).

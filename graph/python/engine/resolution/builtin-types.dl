@@ -472,8 +472,7 @@ expr_container_annotation_ref(p, src, r) :-
 // the same hop through ANY object whose type is known, not only self -- the fix that
 // #61 / #63 had to make three times over in the other typing files.
 expr_container_annotation_ref(p, src, r) :-
-    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
-    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    attr_access(p, src, n, obj),
     expr_type(p, obj, ot), type_attr_field(p, ot, n, f),
     type_ref_owner(p, f, "FIELD", r),
     type_ref(p, _, "FIELD_TYPE", _, _, r).

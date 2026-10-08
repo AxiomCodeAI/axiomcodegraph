@@ -485,6 +485,10 @@ call_site_dropped(e) :- csite("client", e), !site_in_output(e).
 
 // call_chain_summary(Tier, Count) -- the per-tier tally, which is the one number a
 // run is judged on.
+// One count per DISTINCT tier: driven by call_class rows, the aggregate re-counted the
+// tier once per SITE in it (sites x tiers — 9.8s of a 36s solve for 7 rows, the single
+// hottest rule of the C# profile). Same fix as the python engine's site_class_kind.
+call_class_kind(cls) :- call_class("client", _, cls).
 call_chain_summary(cls, n) :-
-    call_class("client", _, cls),
+    call_class_kind(cls),
     n = count : { call_class("client", _, cls) }.
