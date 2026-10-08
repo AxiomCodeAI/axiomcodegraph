@@ -318,14 +318,14 @@ engine_id_of(){
   done < "$prog"
   hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
     || { echo "❌ engine id: mktemp failed" >&2; return 1; }
-  if ! printf 'souffle=%s+seqlock-fix-1\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+  if ! printf 'souffle=%s+seqlock-fix-2\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
     echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
   fi
   # The expected size comes from the SOURCE files (wc's last line is their total), not from a
   # second read through cat, so a cat that loses bytes cannot agree with itself.
   want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
   want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
-  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-1" + "\n"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-2" + "\n"
   if [ "${have//[[:space:]]/}" != "$want" ]; then
     echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
   fi
@@ -387,10 +387,13 @@ esac
 # OpenMP at COMPILE time decides the flavor. Measured on a 6,139-file Java subject:
 # 147s serial -> 59s at -j8; the outputs are equal as sets (row order shifts between
 # flavors; the bundle loads rows into sqlite, which keeps no order).
-# GATED PER PLATFORM. On darwin-arm64 the parallel RUNTIME segfaults nondeterministically
-# — a different rule each crash, g++/libgomp and apple-clang/libomp alike, Soufflé 2.5
-# and master f53dab8 — so Darwin stays serial until upstream fixes it. Linux enables
-# OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
+# GATED PER PLATFORM. darwin-arm64's nondeterministic parallel segfaults — a different
+# rule each crash, g++/libgomp and apple-clang/libomp alike — were two weak-ordering
+# holes, both closed by the header overlay below: the write-entry RMW (seqlock-fix-1)
+# and the unfenced publication of freshly split btree nodes (seqlock-fix-2), which is
+# why the crashes needed memory pressure (a recycled page holds garbage where a fresh
+# one holds zeros). darwin-arm64 now runs parallel by default, like linux-x64; Linux
+# enables OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
 # anywhere; =1 forces the attempt anywhere (still needs a toolchain with -fopenmp).
 # The flavor is part of the CACHE NAME, never shared between flavors: the two binaries
 # answer with different row orders, and a cache hit must reproduce the flavor that ran
@@ -402,10 +405,21 @@ esac
 # TSO stores never reorder, which is why this only ever fired on arm64 (nondeterministic
 # segfaults in a different rule each run, any toolchain, Soufflé 2.5 and master alike).
 # seq_cst on the entry RMW pins the odd version BEFORE any data store; on x86 a locked
-# RMW is already a full barrier, so the change costs nothing there. The engine id carries
-# "+seqlock-fix-1", so no unpatched cache entry or package is ever taken for a patched one.
+# RMW is already a full barrier, so the change costs nothing there.
+# THE PUBLICATION FIX (fix-2, BTree.h). The residual arm64 crash under memory pressure:
+# a split publishes a freshly built node with PLAIN pointer stores — insert_inner's
+# `getChildren()[pos + 1] = newNode` and grow_parent's `*root = new_root` — and on a
+# weakly-ordered CPU that pointer can become visible BEFORE the node's own field stores,
+# including its lock's start_write. An optimistic reader then descends into memory whose
+# lock reads as free and whose children are whatever the allocator left there: zeros on a
+# fresh page (survivable), garbage on recycled memory — which is exactly the observed
+# "under memory pressure, a different rule each run" (TSAN: 66 atomic-vs-plain write pairs,
+# all BTree.h insert/split against a node's lock word). A release fence before each
+# publication orders every initialization store first; the reader's dereference is
+# address-dependent, which arm64 orders by itself. The engine id carries
+# "+seqlock-fix-2", so no unpatched cache entry or package is ever taken for a patched one.
 souffle_overlay(){
-  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-1"
+  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-2"
   local hdr="$overlay/souffle/utility/ParallelUtil.h"
   if [ ! -f "$hdr" ]; then
     rm -rf "$overlay.tmp.$$"
@@ -417,6 +431,21 @@ souffle_overlay(){
     sed -i.bak 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$h" && rm -f "$h.bak"
     grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$h" || return 1
     grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" && return 1
+    # fix-2: release fences before the two node-publication stores in BTree.h
+    local b="$overlay.tmp.$$/souffle/datastructure/BTree.h"
+    [ -f "$b" ] || return 1
+    python3 - "$b" <<'PYEOF' || return 1
+import sys
+p = sys.argv[1]; s = open(p).read()
+fence = "std::atomic_thread_fence(std::memory_order_release);  // publication: every init store above is visible before the link below (seqlock-fix-2)"
+a1 = "            keys[pos] = key;\n            getChildren()[pos + 1] = newNode;"
+a2 = "                // switch root node\n                *root = new_root;"
+if s.count(a1) != 1 or s.count(a2) != 1: sys.exit(1)
+s = s.replace(a1, "            keys[pos] = key;\n            " + fence + "\n            getChildren()[pos + 1] = newNode;")
+s = s.replace(a2, "                // switch root node\n                " + fence + "\n                *root = new_root;")
+open(p, 'w').write(s)
+PYEOF
+    [ "$(grep -c 'seqlock-fix-2' "$b")" = "2" ] || return 1
     mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
     rm -rf "$overlay.tmp.$$"
   fi
@@ -453,7 +482,13 @@ case "${AXIOM_SOLVE_PARALLEL:-}" in
   1) if _OMP="$(probe_openmp)"; then
        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
      fi ;;
-  "") if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && _OMP="$(probe_openmp)"; then
+  "") # linux-x64 since the seqlock entry fix; darwin-arm64 since the publication fences
+      # (seqlock-fix-2) — the pre-fix binary crashed 2 of 2 parallel solves on a 1.1M-LOC
+      # subject, the fenced one held 5 of 5 including two concurrent, relations identical
+      # to the serial flavor. linux-arm64 carries the same fences but stays serial until
+      # someone validates it on that hardware the same way.
+      if { { [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; } \
+        || { [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; }; } && _OMP="$(probe_openmp)"; then
         # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
         OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
       fi ;;
