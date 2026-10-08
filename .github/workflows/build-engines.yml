@@ -156,13 +156,13 @@ jobs:
           for lang in $LANGUAGES; do
             if cmp -s "gen/$lang.id" "engines/$lang/ENGINE_ID"; then echo "$lang: cached, rules unchanged"; continue; fi
             mkdir -p "engines/$lang"
-            # OpenMP on linux-x64 only: x86-TSO is where the optimistic btree's design
-            # assumptions hold (a residual arm64 crash mode under memory pressure survives
-            # the seqlock entry fix — see souffle_overlay in run-souffle.sh), and libgomp
-            # links STATICALLY so the binary runs on machines with no gcc runtime. The
-            # .parallel marker beside the binary is what run-souffle.sh reads to pass a
-            # real -j at run time; arm64 compiles the same patched code sequentially.
-            OMP=""; case "$(uname -m)" in x86_64) OMP="-fopenmp -Wl,-Bstatic,-lgomp,-Bdynamic";; esac
+            # OpenMP on BOTH architectures: the arm64 crash mode was two weak-ordering
+            # holes in the vendored headers (write-entry RMW + unfenced node publication),
+            # both patched above and validated 10/10 under load on linux-arm64 and
+            # darwin-arm64 (seqlock-fix-3). libgomp links STATICALLY so the binary runs on
+            # machines with no gcc runtime. The .parallel marker beside the binary is what
+            # run-souffle.sh reads to pass a real -j at run time.
+            OMP="-fopenmp -Wl,-Bstatic,-lgomp,-Bdynamic"
             c++ -std=c++17 -O3 -w $OMP -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
             [ -n "$OMP" ] && touch "engines/$lang/axiomcode-engine-$lang.parallel"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
@@ -198,8 +198,9 @@ jobs:
             fc /b gen\%%L.id engines\%%L\ENGINE_ID >nul 2>&1
             if errorlevel 1 (
               if not exist engines\%%L mkdir engines\%%L
-              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
+              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /openmp /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
               if errorlevel 1 exit /b 1
+              type nul > engines\%%L\axiomcode-engine-%%L.exe.parallel
               copy /y gen\%%L.id engines\%%L\ENGINE_ID
             ) else (
               echo %%L: cached, rules unchanged

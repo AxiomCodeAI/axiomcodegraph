@@ -512,7 +512,8 @@ probe_openmp(){
   # frontend flag plus Homebrew's libomp (-Xpreprocessor defines _OPENMP without
   # lowering anything — a silently sequential binary, which is how this stayed hidden).
   case "$(uname -s)" in
-    Linux)
+    Linux|MINGW*|MSYS*|CYGWIN*)
+      # MSYS2/Git-Bash `c++` is g++, which takes -fopenmp exactly as Linux does
       if printf 'int main(){return 0;}' | c++ -fopenmp -x c++ -o /dev/null - 2>/dev/null; then
         printf '%s' "-fopenmp"; return 0
       fi ;;
@@ -536,14 +537,15 @@ case "${AXIOM_SOLVE_PARALLEL:-}" in
   1) if _OMP="$(probe_openmp)"; then
        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
      fi ;;
-  "") # linux-x64 only. The fix-2 publication fences closed the repro that crashed 2 of 2
-      # on a 1.1M-LOC subject (15 of 15 clean after), but a peer's harder repro — 6,139
-      # files, 906MB facts, three spinners and a concurrent solve — still crashed 1 of 3
-      # on the fenced binary: the parent-pointer publications (split's reparenting,
-      # grow_parent's this->parent = new_root, insert_inner's late newNode->parent) are
-      # not covered by the two fences. darwin-arm64 stays OPT-IN (AXIOM_SOLVE_PARALLEL=1)
-      # until that repro runs clean on a binary that fences every publication path.
-      if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && _OMP="$(probe_openmp)"; then
+  "") # Parallel by default on every platform with evidence behind it. The two arm64
+      # weak-ordering holes (write-entry RMW; unfenced node publication) are closed by
+      # the seqlock-fix-3 overlay, validated under load: darwin-arm64 10/10, linux-arm64
+      # 10/10 (GCP), linux-x64 5/5 (GCP) — all relation-identical to serial. x64 is TSO,
+      # where neither hole is observable. Windows local compiles probe like the rest
+      # (MSYS g++); packaged win32 engines carry /openmp from build-engines.yml, gated
+      # by its own release validation. AXIOM_SOLVE_PARALLEL=0 is the one-variable
+      # rollback to serial anywhere, no rebuild.
+      if _OMP="$(probe_openmp)"; then
         # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
         OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
       fi ;;
