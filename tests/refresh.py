@@ -273,6 +273,33 @@ def main(argv):
                 time.sleep(0.2)
             check(rebuilds() > n0, f'{lang}: the refresher it started rebuilt the graph')
 
+            # ── edits batched where a rebuild is slow ───────────────────────────────────────────────────────────
+            # BATCH_ABOVE=0 takes this graph's build for a slow one: two edits and a shell command start nothing, the
+            # third edit does, and the end of a turn rebuilds after a single edit. The control is the check above: the
+            # same hook on the same graph with the default threshold rebuilt after one edit
+            slow = dict(env, AXIOMCODE_REFRESH_BATCH_ABOVE='0')
+            def hook(event, tool=None):
+                e = {'hook_event_name': event, 'cwd': repo, 'session_id': 't'}
+                if tool: e.update(tool_name=tool, tool_input={'file_path': f} if tool == 'Edit' else {'command': 'true'})
+                return sh(repo, sys.executable, HOOK, env=slow, stdin=json.dumps(e))
+            def settle(n, secs):                                      # the rebuild count once nothing is building
+                deadline = time.time() + secs
+                while time.time() < deadline and not (rebuilds() > n and json.loads(sh(repo, sys.executable, FRESH, 'status', '.', '--json', env=slow).stdout or '{}').get('state') == 'fresh'):
+                    time.sleep(0.2)
+                return rebuilds()
+            n0 = rebuilds()
+            for _ in range(2):
+                open(f, 'a').write('\n'); hook('PostToolUse', 'Edit')
+            hook('PostToolUse', 'Bash')
+            check(settle(n0, 4) == n0, f'{lang}: where a rebuild is slow, two edits and a shell command start no rebuild')
+            open(f, 'a').write('\n'); hook('PostToolUse', 'Edit')
+            check(settle(n0, 600) > n0, f'{lang}: the third edit starts it')
+            n0 = rebuilds()
+            open(f, 'a').write('\n'); hook('PostToolUse', 'Edit')
+            check(settle(n0, 4) == n0, f'{lang}: the batch starts over after that rebuild')
+            hook('Stop')
+            check(settle(n0, 600) > n0, f'{lang}: the end of a turn rebuilds after a single edit')
+
             # ── a graph from before the file table ────────────────────────────────────────────────────────────
             for x in ('files.json', 'base-tree', 'base-commit'):
                 if os.path.exists(os.path.join(out, x)): os.remove(os.path.join(out, x))
