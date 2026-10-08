@@ -104,6 +104,9 @@ cat > "$W/inc/souffle/datastructure/BTree.h" <<'BTREE_STUB'
             newNode->parent = this;
             newNode->position = static_cast<field_index_type>(pos) + 1;
 BTREE_STUB
+mkdir -p "$W/inc/souffle/utility"
+printf '%s\n' '#if _WIN64' '#define __builtin_popcountll __popcnt64' '#else' '#define __builtin_popcountll __popcnt' '#endif' >> "$W/inc/souffle/utility/MiscUtil.h"
+printf '%s\n' '#ifdef _WIN32' '#include <intrin.h>' > "$W/inc/souffle/datastructure/PiggyList.h"
 { echo '#!/usr/bin/env bash'
   echo "[ \"\$1\" = --version ] && { echo 'Version: $SOUFFLE_VERSION'; exit 0; }"
   echo 'while [ $# -gt 0 ]; do case "$1" in -g) : > "$2"; echo "// c++" > "$2"; shift 2;; *) shift;; esac; done'; } > "$W/stub/souffle"

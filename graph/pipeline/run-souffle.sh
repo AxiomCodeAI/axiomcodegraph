@@ -435,11 +435,17 @@ souffle_overlay(){
     # links fix-2 fenced, and the parent-pointer publications it missed (split's reparenting,
     # grow_parent's this->parent/sibling->parent, insert_inner's late newNode->parent, which
     # is reordered to before the link). The lock-parents walk reads exactly those pointers.
+    # ...and the MINGW-COMPILE guards: souffle maps __builtin_popcountll to MSVC's
+    # __popcnt64 and pulls intrin.h for ALL of _WIN32, which breaks g++ on MinGW — the
+    # one toolchain a Windows developer who clones this repository compiles with. Both
+    # are MSVC-only concerns, so the guards narrow to _MSC_VER; every other platform's
+    # preprocessed output is bit-identical, which is why the overlay name stays fix-3.
     local b="$overlay.tmp.$$/souffle/datastructure/BTree.h"
     [ -f "$b" ] || return 1
     python3 - "$b" <<'PYEOF' || return 1
-import sys
+import glob, os, sys
 p = sys.argv[1]; s = open(p).read()
+root = os.path.dirname(os.path.dirname(p))
 F = "std::atomic_thread_fence(std::memory_order_release);  // publication fence (seqlock-fix-3)"
 # split(): fill the sibling completely (children, counts), fence, THEN reparent — each
 # children[j]->parent = other makes the new sibling reachable from an existing node.
@@ -498,6 +504,18 @@ for a, r in ((a1, r1), (a2, r2), (a3, r3), (a4, r4)):
     if s.count(a) != 1: sys.exit(1)
     s = s.replace(a, r)
 open(p, 'w').write(s)
+# mingw-compile guards, in every copy the include layout holds
+m1 = "#if _WIN64\n#define __builtin_popcountll __popcnt64\n#else\n#define __builtin_popcountll __popcnt\n#endif"
+m1r = "#if defined(_MSC_VER)\n" + m1 + "\n#endif  // _MSC_VER (mingw-compile): MinGW has the gcc builtins"
+m2 = "#ifdef _WIN32\n#include <intrin.h>"
+m2r = "#if defined(_MSC_VER)  // (mingw-compile): intrin.h only for MSVC\n#include <intrin.h>"
+hit1 = hit2 = 0
+for q in glob.glob(root + "/**/MiscUtil.h", recursive=True) + glob.glob(root + "/**/PiggyList.h", recursive=True):
+    t = open(q).read(); n = 0
+    if m1 in t: t = t.replace(m1, m1r); hit1 += 1; n = 1
+    if m2 in t: t = t.replace(m2, m2r); hit2 += 1; n = 1
+    if n: open(q, "w").write(t)
+if hit1 < 1 or hit2 < 1: sys.exit(1)
 PYEOF
     [ "$(grep -c 'seqlock-fix-3' "$b")" = "4" ] || return 1
     mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
