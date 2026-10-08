@@ -14,13 +14,17 @@
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C#"/>
 &nbsp;&nbsp;
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/html5/html5-original.svg" width="46" height="46" alt="HTML" title="HTML"/>
+&nbsp;&nbsp;
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/css3/css3-original.svg" width="46" height="46" alt="CSS" title="CSS"/>
+&nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML"/>
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/yaml/yaml-original.svg" width="34" height="34" alt="YAML" title="YAML"/>
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle"/>
 
-<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> and <b>JavaScript</b> with a binder, from the compiler's syntax layer. <b>C#</b> with each file read under the framework and preprocessor symbols of the project that compiles it. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML, Properties and META-INF/services.</sub>
+<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> and <b>JavaScript</b> with a binder, from the compiler's syntax layer. <b>C#</b> with each file read under the framework and preprocessor symbols of the project that compiles it. <b>HTML</b> and <b>CSS</b> (beta) as one front end: the element tree, every URL a page names resolved to a file, event-handler calls, template expressions, selectors and declarations. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML, Properties and META-INF/services.</sub>
 
 [What it is](#what-this-is) &nbsp;|&nbsp;
 [The IR](#the-intermediate-representation) &nbsp;|&nbsp;
