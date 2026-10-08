@@ -35,7 +35,8 @@ the previous graph. Three pieces:
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off (a query verb's --no-refresh, and the MCP tools' refresh=false,
 set it for that one query: a read-only answer from the graph as it is, still saying which edits it predates); AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
-is the quiet window; AXIOMCODE_REFRESH_MAX (default 2, 0 = no cap) is how many background rebuilds run at once on
+is the quiet window; AXIOMCODE_REFRESH_BATCH (default 3; 1 = off) is how many edits a rebuild waits for once the last build
+took AXIOMCODE_REFRESH_BATCH_ABOVE seconds (default 20); AXIOMCODE_REFRESH_MAX (default 2, 0 = no cap) is how many background rebuilds run at once on
 the machine, the rest queued; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
 waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) makes it wait for the refresh whatever it
 takes, up to AXIOMCODE_FRESH_MAX (default 600); AXIOMCODE_BUILD_WAIT
@@ -935,14 +936,51 @@ def refresher_running(repo):
 
 def running_line(repo, s): return started_line(repo, s, running=True)
 
-def hook_kick(repo, trigger, session=''):
+# EDITS ARE BATCHED WHERE A REBUILD IS SLOW. Every edit started the refresher, which rebuilt after a 2 s quiet window: on
+# a repository whose build takes 5 s that keeps the graph current for free, but where it takes a minute (1,300 Java
+# files: 48-73 s cold, and 50-88 s again after a one- or two-file edit, since the solve is whole-program) an agent
+# editing every few seconds kept a rebuild running back to back. So once the last build took AXIOMCODE_REFRESH_BATCH_ABOVE
+# seconds (default 20), an edit tool only counts, and the AXIOMCODE_REFRESH_BATCH-th edit (default 3; 1 = off) starts the
+# rebuild; a shell command waits for the next edit or checkpoint. The end of a turn, a prompt, a session start, the
+# timer and every query still refresh at once, so the graph is current whenever the agent stops or asks.
+EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
+
+def batch_size():
+    try: return max(1, int(os.environ.get('AXIOMCODE_REFRESH_BATCH') or 3))
+    except ValueError: return 3
+
+def batching(repo):
+    """the edits a rebuild waits for here: batch_size() when the last build was slow, else 1 (every edit rebuilds)"""
+    try: above = float(os.environ.get('AXIOMCODE_REFRESH_BATCH_ABOVE') or 20)
+    except ValueError: above = 20.0
+    secs, _ = build_seconds(repo)
+    return batch_size() if secs is not None and secs >= above else 1
+
+def batch_due(repo):
+    n = batching(repo)
+    return n <= 1 or read_state(repo).get('edits', 0) >= n
+
+def batch_held(repo, event, tool):
+    """True when this hook event only counts toward the next rebuild; any other trigger makes the next one due"""
+    n = batching(repo)
+    if n <= 1: return False
+    if event != 'PostToolUse':
+        write_state(repo, edits=n); return False
+    if tool not in EDIT_TOOLS: return True
+    k = read_state(repo).get('edits', 0) + 1
+    write_state(repo, edits=k)
+    return k < n
+
+def hook_kick(repo, trigger, session='', event='', tool=''):
     """what a hook (and the MCP server's timer) runs in place of kick: '' after starting the refresher as kick does, or,
     for a graph another axiomcode built (engine_change), nothing started and one line to say so, once per session and
-    difference ('' when it was said already). A graph a newer axiomcode built is never rebuilt anyway (newer_build)"""
+    difference ('' when it was said already). A graph a newer axiomcode built is never rebuilt anyway (newer_build).
+    `event` and `tool` name the hook event and the tool it followed, for batching edits (batch_held)"""
     if not enabled(repo): return ''
     held = engine_change(repo)
     if not held:
-        kick(repo, trigger); return ''
+        if not batch_held(repo, event, tool): kick(repo, trigger)
+        return ''
     key = f"{session}|{held}"
     if read_state(repo).get('hook_held') == key: return ''
     write_state(repo, hook_held=key)
@@ -1060,8 +1098,9 @@ def worker(repo):
     if not _flock(fd, False): return 0                        # single flight
     debounce = float(os.environ.get('AXIOMCODE_REFRESH_DEBOUNCE') or 2); legacy_done = False; engine_done = ''; eng = ''
     try:
-        for _ in range(8):                                    # bounded: a tree rewritten faster than it builds must not spin forever
+        for i in range(8):                                    # bounded: a tree rewritten faster than it builds must not spin forever
             time.sleep(debounce)
+            if i and not batch_due(repo): return 0            # edits made during the build wait for their batch (batching)
             t = load_table(repo)
             if not has_graph(repo): return 0
             nb = newer_build(repo, t) if t else ''
@@ -1087,7 +1126,7 @@ def worker(repo):
                 if eng and eng == engine_done: eng = ''
                 if (c is None or not any(c)) and not eng and not base_moved(repo):
                     if export_behind(t): rewarm(repo, t)
-                    write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', '')); return 0
+                    write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', ''), edits=0); return 0
                 c = c or [[], [], []]
             st = read_state(repo)
             # a build that FAILED on exactly this tree is not retried on every trigger: the next edit retries it
@@ -1099,7 +1138,7 @@ def worker(repo):
             engine_done = eng
             env = rebuild_env(t, AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
             slot = take_slot(repo)                            # queued behind the machine's other background builds
-            t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
+            t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c), edits=0)
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
             if eng: print(f"{time.strftime('%H:%M:%S')} refresh: {eng}; rebuilding", flush=True)
             elif not any(c): print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
@@ -1123,7 +1162,7 @@ def worker(repo):
     # an edit that landed after the last check but while the lock was still held found the worker busy and
     # returned; it is picked up here, after the lock is released, by starting over
     c = changes(repo)
-    if (c and any(c) and read_state(repo).get('failed_table') != change_key(c)) or base_moved(repo): kick(repo)
+    if ((c and any(c) and read_state(repo).get('failed_table') != change_key(c)) or base_moved(repo)) and batch_due(repo): kick(repo)
     return 0
 
 def failure_reason(out):
