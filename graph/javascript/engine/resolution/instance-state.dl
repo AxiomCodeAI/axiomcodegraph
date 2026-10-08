@@ -106,10 +106,14 @@ state_outer_carry(t, k2, i2, d + 1) :- state_outer_carry(t, k, i, d), d < 3, k !
 state_outer_carry(t, k2, i2, d + 1) :- state_outer_carry(t, k, i, d), d < 3, (k = "arr" ; k = "coll"), elem_value(i, k2, i2), k2 != "alloc".
 state_leak(t, f) :- state_enters(t, f, _), state_outer_carry(t, "func", f, _).
 // written onto an instance of T or onto T itself from outside its instance code
-state_leak(t, f) :- state_enters(t, f, _), expr_kind(_, "ASSIGNMENT", _, a), expr_owner(_, em, _, a), !state_world(em, t),
+// The assignment side enumerated ONCE, keyed (t, f): anchored on state_enters the
+// clause crossed every (type, entry) pair with every assignment in the program — 33s
+// for 2 rows on the profile.
+func_written_onto(t, f, em) :- expr_kind(_, "ASSIGNMENT", _, a), expr_owner(_, em, _, a),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r),
     expr_value(r, k, t), (k = "inst" ; k = "ctor"),
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, "func", f).
+state_leak(t, f) :- state_enters(t, f, _), func_written_onto(t, f, em), !state_world(em, t).
 state_leak(t, f) :- state_enters(t, f, _), prop_value("ctor", t, _, "func", f).
 // an entry that says nothing about which instance it gives F to
 state_leak(t, f) :- state_enters(t, f, ce), state_entry_open(ce).
