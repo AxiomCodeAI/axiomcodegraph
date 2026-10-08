@@ -19,7 +19,7 @@
     "schema-doc": "tsx graph/bundle/cli.ts --print-schema > graph/bundle/SCHEMA.md"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.5.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
