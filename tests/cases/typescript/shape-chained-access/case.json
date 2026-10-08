@@ -1,0 +1,10 @@
+{"lang": "typescript", "src": ".",
+ "checks": [
+  {"why": "a chained access typed through a parameter's inline object shape resolves: attachTo.parent is the shape's field, and .getHash() on it reaches the class method. A rule reordering in the field-access neighborhood silently degraded exactly this to ambiguous_unknown while every other suite check held; only the byte-identity gate saw it",
+   "run": ["impact", "Reg.getHash"],
+   "want": ["[resolved", "user.ts"],
+   "avoid": ["by name"]},
+  {"why": "and path '*' names the caller through the same chain",
+   "run": ["path", "*", "Reg.getHash"],
+   "want": ["1 hop(s)  use"]}
+ ]}
