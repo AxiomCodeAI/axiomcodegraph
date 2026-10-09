@@ -94,9 +94,9 @@ jobs:
           # the seqlock fix (see souffle_overlay in run-souffle.sh): the write-entry RMW
           # must be seq_cst or a weakly-ordered CPU lets data stores pass the version-odd
           # store and readers validate garbage. Patched here so every platform's binary
-          # is built from the same fixed headers; the engine id carries +seqlock-fix-3,
+          # is built from the same fixed headers; the engine id carries +seqlock-fix-4,
           # so these headers must carry the SAME patches run-souffle's overlay applies —
-          # a binary labeled fix-3 but built from lesser headers is the exact mislabeling
+          # a binary labeled fix-4 but built from lesser headers is the exact mislabeling
           # the salt exists to prevent.
           # the header layout differs by install (deb: souffle/utility; brew: souffle/souffle/utility),
           # so the patched files are FOUND, not assumed — a miss fails the build here, loudly
@@ -107,9 +107,17 @@ jobs:
           # fix-3: the publication fences, applied by the same anchored patch the local
           # overlay uses (extracted from run-souffle.sh so the two cannot drift)
           BT=$(find gen/souffle -name BTree.h | head -1); [ -n "$BT" ]
-          awk '/^import sys$/,/^PYEOF$/' graph/pipeline/run-souffle.sh | sed '$d' > /tmp/fences.py
+          awk '/^import glob, os, sys$/,/^PYEOF$/' graph/pipeline/run-souffle.sh | sed '$d' > /tmp/fences.py
           python3 /tmp/fences.py "$BT"
           [ "$(grep -c 'seqlock-fix-3' "$BT")" = "4" ]
+          # fix-4: the speculative-fetch guards, applied by the same extracted patch
+          FW=$(find gen/souffle -name ConcurrentFlyweight.h | head -1); [ -n "$FW" ]
+          RT=$(find gen/souffle -name RecordTableImpl.h | head -1); [ -n "$RT" ]
+          [ "$(grep -c 'seqlock-fix-4' "$FW")" = "1" ]
+          [ "$(grep -c 'seqlock-fix-4' "$RT")" = "1" ]
+          [ "$(grep -c 'seqlock-fix-4' "$BT")" = "1" ]
+          BD=$(find gen/souffle -name BTreeDelete.h | head -1); [ -n "$BD" ]
+          [ "$(grep -c 'seqlock-fix-4' "$BD")" = "1" ]
           # one key for the whole set; a partial match restores the previous set
           echo "key=$(cat gen/*.id gen/queries/*.id | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
           # The compile flags live in THIS file and ENGINE_ID does not cover them, so its
