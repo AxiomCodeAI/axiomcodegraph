@@ -98,6 +98,18 @@ with_target_declared(p, tgt, ct) :-
     method_decl(p, _, _, _, ret, m),
     self_return_name(ret).
 
+// The same, WRITTEN rather than declared: an __enter__ with no return annotation whose
+// return value is `self` (`def __enter__(self): return self`). The protocol hands the
+// target what __enter__ returned, and that is the context manager itself.
+with_target_declared(p, tgt, ct) :-
+    with_pair(p, tgt, cm),
+    expr_root_context(p, crc, cm), context_manager_enter_of(crc, en),
+    expr_type(p, cm, ct),
+    mro_lookup(p, ct, en, m),
+    !method_declared_return_type(p, m, _),
+    method_return_value_expr(p, m, e),
+    expr_node(p, "SELF_REFERENCE", _, _, e).
+
 // AN __enter__ RETURN IS A DECLARED TYPE, not an exact one, so it goes out through
 // declared_dispatch and is registered with call_recv_declared in dispatch.dl. A declared
 // type escaping that gate has produced a confident-wrong answer four times in this engine.
