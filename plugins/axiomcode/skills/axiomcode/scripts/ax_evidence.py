@@ -34,7 +34,7 @@ UP = 250                 # lines searched above a call for its receiver's parame
 
 # a certainty that is an exact edge (or not a row about a call at all): no evidence
 EXACT = {None, '', 'resolved', 'sound', 'entry', 'defines', 'defines (not a call)', 'must change', 'alongside',
-         'stubs it', 'at import', 'decorator', 'test'}
+         'stubs it', 'at import', 'at load', 'decorator', 'test'}
 
 
 def _env(k):

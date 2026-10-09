@@ -2525,7 +2525,8 @@ export class LocalVariableExtractor {
           // Extract initializer expressions
           const equalsIndex = child.children.findIndex(c => c.type === '=');
           if (equalsIndex >= 0 && equalsIndex < child.children.length - 1) {
-            const initializerNode = child.children[equalsIndex + 1];
+            const initializerNode = child.children.slice(equalsIndex + 1)
+              .find(c => c.type !== 'line_comment' && c.type !== 'block_comment');
             if (initializerNode) {
               this.extractInitializerExpressions(
                 initializerNode,
