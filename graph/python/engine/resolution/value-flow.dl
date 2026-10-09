@@ -97,6 +97,21 @@ param_arg_type(ph, t) :-
     param_decl("client", kw, _, _, m, ph),
     expr_type("client", a, t).
 
+// ── a parameter the TEST RUNNER fills ─────────────────────────────────────────
+// pytest calls `test_commit(session=<what the session fixture yielded>)`: the call is the runner's,
+// so no call site spells it, but it is an argument reaching a parameter all the same, and
+// the parameter is typed exactly as one passed at a call site would be. Which fixture
+// serves the parameter is framework-behavior/dispatch.dl's py_fixs_injection (2a), the
+// runner's own lookup (same class, same module, nearest conftest, a pytest_plugins
+// module), so this is as deterministic as a name the LEGB walk resolves.
+// MEASURED across ten public suites: 1,529 method calls on such parameters were
+// ambiguous_unknown, and everything derived from them (`tx = session.begin(); tx.commit()`)
+// with them; a suite whose fixtures carry annotations resolved its own.
+param_arg_type(ph, t) :-
+    py_fixs_injection(req, fix, pn),
+    param_decl("client", pn, _, _, req, ph),
+    py_fixture_value_type(fix, t).
+
 // ── param_arg_method(ParamHash, MethodHash) — a CALLABLE reaching a parameter ──
 // `Delegator(target)` puts the FUNCTION `target` into the parameter `fn`. Java would
 // need a functional interface for this; in Python it is an ordinary assignment.
