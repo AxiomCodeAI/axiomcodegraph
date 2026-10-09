@@ -257,6 +257,43 @@ handed_function(ce, m) :- hof_boundary_site(ce), !collection_store_site(ce), exp
     value_branch(a, x),
     method_value(x, m).
 
+// …AND A PROXY HANDLER'S TRAPS. `new Proxy(target, handler)` and `Proxy.revocable(target, handler)` hand the runtime
+// an object whose `get` / `set` / `has` … the runtime calls on every touch of the proxy. No call site names a trap, so
+// what the traps call was reached by nothing: a change to the draft logic of a Proxy-based library selected none of the
+// tests that create drafts. The creating site hands each trap the handler defines, the way `xs.map(cb)` hands `cb`.
+// The handler is followed through the holders it is read from (a const, a reassigned `let`, a parameter it was passed
+// as: holder_value), to an object literal's methods or the methods of the class a `new C()` builds, its bases included.
+proxy_site(ce) :- call_site("client", "CONSTRUCTOR_CALL", "Proxy", _, _, ce, _), !type_decl("client", "Proxy", _, _, _, _, _).
+proxy_site(ce) :- call_site("client", _, "revocable", "IDENTIFIER", recv, ce, _), expr_name("client", "Proxy", recv),
+    !type_decl("client", "Proxy", _, _, _, _, _).
+proxy_handler_value(ce, a) :- proxy_site(ce), expr_child("client", ce, "ARGUMENT", "1", a).
+proxy_handler_value(ce, v) :- proxy_handler_value(ce, e), expr_referenced("client", k, h, e), holder_ref_kind(k),
+    holder_value(h, v).
+proxy_handler_value(ce, x) :- proxy_handler_value(ce, e), value_branch_of(e, x).
+handed_function(ce, m) :- proxy_handler_value(ce, o), objlit_member_fn(o, name, m), proxy_trap_name(name).
+handed_function(ce, m) :- proxy_handler_value(ce, n), expr_kind("client", "NEW_EXPRESSION", _, n), expr_type(n, _, t),
+    proxy_handler_class(t, c), method_owner("client", c, m), method_decl("client", name, _, _, m), proxy_trap_name(name).
+proxy_handler_class(t, t) :- type_decl("client", _, _, _, _, _, t).
+proxy_handler_class(t, a) :- type_decl("client", _, _, _, _, _, t), type_ancestor(t, a).
+// a conditional or a cast between the holder and the site: `isArray ? arrayTraps : objectTraps`, `h as ProxyHandler<T>`
+value_branch_of(e, x) :- expr_kind("client", "TERNARY_EXPRESSION", _, e), expr_child("client", e, r, _, x), ternary_value_role(r).
+value_branch_of(e, x) :- expr_kind("client", k, _, e), expr_kind_is_transparent(k), expr_child("client", e, _, _, x).
+ternary_value_role("TERNARY_THEN").
+ternary_value_role("TERNARY_ELSE").
+proxy_trap_name("get").
+proxy_trap_name("set").
+proxy_trap_name("has").
+proxy_trap_name("deleteProperty").
+proxy_trap_name("ownKeys").
+proxy_trap_name("getOwnPropertyDescriptor").
+proxy_trap_name("defineProperty").
+proxy_trap_name("getPrototypeOf").
+proxy_trap_name("setPrototypeOf").
+proxy_trap_name("isExtensible").
+proxy_trap_name("preventExtensions").
+proxy_trap_name("apply").
+proxy_trap_name("construct").
+
 // …AND WHAT A LIBRARY CALL WRAPPED, KEPT IN A HOLDER. `export const plugin = fp(async (app) => …)`, then
 // `app.register(plugin)`: the holder keeps what a call with no client body RETURNED, so no holder rule above
 // sees a function in it, and the registration reached nothing although the same literal handed to it bare

@@ -258,7 +258,7 @@ def main(argv):
     lines = render(verb, doc, repo) if r.returncode in (0, 1) or doc.get('called_undeclared') else None
     if lines is None:
         # a refusal or an answer with no place in it: the verb's own words are the answer
-        print('\n'.join(doc.get('prose') or []) or r.stdout.strip()); return r.returncode
+        print('\n'.join(doc.get('prose') or []) or doc.get('refusal') or r.stdout.strip()); return r.returncode
     print('\n'.join(lines))
     return 0
 
