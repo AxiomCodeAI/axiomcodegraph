@@ -35,7 +35,7 @@ the previous graph. Three pieces:
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off (a query verb's --no-refresh, and the MCP tools' refresh=false,
 set it for that one query: a read-only answer from the graph as it is, still saying which edits it predates); AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
-is the quiet window; AXIOMCODE_REFRESH_BATCH (default 3; 1 = off) is how many edits a rebuild waits for once the last build
+is the quiet window; AXIOMCODE_REFRESH_BATCH (default 5; 1 = off) is how many edits a rebuild waits for once the last build
 took AXIOMCODE_REFRESH_BATCH_ABOVE seconds (default 20); AXIOMCODE_REFRESH_MAX (default 2, 0 = no cap) is how many background rebuilds run at once on
 the machine, the rest queued; AXIOMCODE_FRESH_WAIT (seconds, default 0) is the most a query whose answer touches an edited file
 waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) makes it wait for the refresh whatever it
@@ -940,13 +940,13 @@ def running_line(repo, s): return started_line(repo, s, running=True)
 # a repository whose build takes 5 s that keeps the graph current for free, but where it takes a minute (1,300 Java
 # files: 48-73 s cold, and 50-88 s again after a one- or two-file edit, since the solve is whole-program) an agent
 # editing every few seconds kept a rebuild running back to back. So once the last build took AXIOMCODE_REFRESH_BATCH_ABOVE
-# seconds (default 20), an edit tool only counts, and the AXIOMCODE_REFRESH_BATCH-th edit (default 3; 1 = off) starts the
+# seconds (default 20), an edit tool only counts, and the AXIOMCODE_REFRESH_BATCH-th edit (default 5; 1 = off) starts the
 # rebuild; a shell command waits for the next edit or checkpoint. The end of a turn, a prompt, a session start, the
 # timer and every query still refresh at once, so the graph is current whenever the agent stops or asks.
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 
 def batch_size():
-    try: return max(1, int(os.environ.get('AXIOMCODE_REFRESH_BATCH') or 3))
+    try: return max(1, int(os.environ.get('AXIOMCODE_REFRESH_BATCH') or 5))
     except ValueError: return 3
 
 def batching(repo):
