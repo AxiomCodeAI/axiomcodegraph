@@ -255,6 +255,14 @@ def main(argv):
         except ValueError: d = {}
         check('direct' in d and 'other_languages' not in d and any('shape.ts' in (e.get('at') or '') for e in d.get('direct', [])),
               'compatible: --json from one graph is that graph\'s object, unchanged in shape', js.stdout[-800:] + js.stderr)
+        # no graph answers (no chain connects the two): --json is still ONE document, not the text answer's per-graph
+        # headers a machine reader cannot parse; the exit status still says no chain was found
+        nj = sh(repo, AX, 'path', 'onlyInTs', 'square', '.', '--json', env=quiet)
+        try: d = json.loads(nj.stdout)
+        except ValueError: d = None
+        check(isinstance(d, dict) and nj.returncode != 0 and d.get('language') == 'typescript' and '══' not in nj.stdout,
+              'compatible: --json when no graph answers is one document, keeping each graph\'s refusal and a failing status',
+              f"rc={nj.returncode}\n{nj.stdout[-800:]}{nj.stderr[-400:]}")
 
         # ── changed ───────────────────────────────────────────────────────────────────────────────────────────
         calc = os.path.join(repo, 'tools/pkg/calc.py'); util = os.path.join(repo, 'src/util.ts')
