@@ -370,3 +370,13 @@ class_definition_keyword("metaclass").
 // (expression-resolution/expr-type.dl, clause a'), where the convention is the only
 // signal there is: a lambda has no annotation and no `def` to classify.
 instance_receiver_name("self").
+
+// ── dict_view_name / dict_view_slot / dict_items_view — a mapping's views ────
+// `keys()` yields the key (generic position 0), `values()` the value (position 1), and
+// `items()` a (key, value) pair. Read by resolution/iteration.dl.
+dict_view_name("keys").
+dict_view_name("values").
+dict_view_name("items").
+dict_view_slot("keys", "0").
+dict_view_slot("values", "1").
+dict_items_view("items").
