@@ -156,6 +156,31 @@ method_returns_method("client", m, r) :-
     expr_call_candidate(site, g),
     method_returns_method("client", g, r).
 
+// ── a call that hands back one of its arguments (py_returns_arg, resolution/builtins.dl) ──
+// Matched through the import that binds the callee, never by the bare name:
+// `functools.update_wrapper(...)` / `t.cast(...)` where the receiver is the name an `import`
+// bound, or `update_wrapper(...)` bound by `from functools import update_wrapper`. A local
+// function that happens to share the name does neither.
+py_passthrough_arg(site, pos) :-
+    call_name(site, fn), call_receiver_object(site, obj),
+    expr_binding("client", rb, ctx, obj), ctx != "STORE", binding_lookup("client", rb, rb2),
+    import_binding("client", rb2, i), import_decl("client", k, mod, _, i),
+    (k = "MODULE_IMPORT" ; k = "MODULE_IMPORT_ALIAS"),   // `import typing as t` is the alias kind
+    py_returns_arg(path, pos), cat(mod, cat(".", fn)) = path.
+py_passthrough_arg(site, pos) :-
+    call_callee_is_value(site), call_callee_expr(site, callee),
+    expr_binding("client", rb, ctx, callee), ctx != "STORE", binding_lookup("client", rb, rb2),
+    import_binding("client", rb2, i), import_decl("client", _, path, _, i),
+    py_returns_arg(path, pos).
+// the expression a value really is, through any number of such calls
+py_passthrough_root(e, e) :- method_return_value_expr("client", _, e).
+py_passthrough_root(e, x) :-
+    py_passthrough_root(e, c), call_of_expr(c, site), py_passthrough_arg(site, pos),
+    call_arg(site, pos, x).
+method_returns_method("client", m, r) :-
+    method_return_value_expr("client", m, e), py_passthrough_root(e, x), x != e,
+    expr_names_method("client", x, r).
+
 // ── decorator_hits_lib(SiteKey, LibMethodHash) ───────────────────────────────
 // `@abstractmethod` names `abc.abstractmethod`, which HAS Python source and is in the
 // staged stdlib IR — it is a library boundary, not a blind spot. A BARE decorator has no
