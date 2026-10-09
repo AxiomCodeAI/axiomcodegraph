@@ -39,6 +39,9 @@ expr_call_candidate(site, m) :-
     call_callee_expr(site, callee),
     expr_denotes_method("client", callee, m).
 
+// ── a .pyi declaration's implementation twin (call-edge-generation/calls.dl) ────
+expr_call_candidate(site, i) :- expr_call_candidate(site, s), method_stub_twin(s, i).
+
 // ── a bare name that denotes a CLASS — CONSTRUCTION ──────────────────────────
 // `Base("b")`, `Sibling()`. Python construction is syntactically a call and the schema
 // has no OBJECT_CREATION kind on purpose, so this is the join that decides it. The

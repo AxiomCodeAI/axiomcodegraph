@@ -33,6 +33,19 @@
 // type source, and only stops being something a call EDGE can commit to.
 method_declared_in_stub(p, m) :- method_module(p, mod, m), module_is_stub(p, mod).
 
+// ── …AND WHERE A STUB HAS AN IMPLEMENTATION TWIN, THE TWIN IS THE TARGET ─────
+// A package that ships `.pyi` stubs beside its `.py` modules declares every function
+// twice under one qualified name. Name resolution can reach the stub's declaration
+// only — `import pkg; pkg.f()` through a package whose __init__ re-exports with
+// `from .impl import *` lands on the stub side — and the gate above then left the site
+// with no client target at all: every test call into such a package ended at the library
+// boundary. The twin is what CPython actually runs (the .py of the same qualified name),
+// so it becomes a candidate beside the stub (expression-resolution/callee-resolution.dl);
+// the stub stays a candidate and a type source, and stays off the edge.
+method_stub_twin(s, i) :-
+    method_declared_in_stub("client", s), method_decl("client", _, _, q, _, s), q != "",
+    method_decl("client", _, _, q, _, i), i != s, !method_declared_in_stub("client", i).
+
 // ── AN @overload DECLARATION IS NOT AN EDGE TARGET EITHER (issue #376) ───────
 // `@overload def f(x: int) -> str: ...` registers a SIGNATURE and the following `def f`
 // rebinds the name, so the stub objects are discarded before any call can reach one.
