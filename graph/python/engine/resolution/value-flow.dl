@@ -112,6 +112,16 @@ param_arg_type(ph, t) :-
     param_decl("client", pn, _, _, req, ph),
     py_fixture_value_type(fix, t).
 
+// ── a parameter's DEFAULT VALUE reaches it ────────────────────────────────────
+// `def getter(val, field_obj=field_obj): return field_obj.deserialize(val)` -- the closure
+// idiom that pins a loop variable -- is called with one argument, so the only value
+// field_obj ever holds is its default, and no call site passes one. The default is an
+// argument the def statement writes once, evaluated where the def runs: one more value
+// reaching the parameter, alongside whatever the call sites pass.
+param_arg_type(ph, t) :- param_default_expr("client", e, ph), expr_type("client", e, t).
+param_arg_class(ph, t) :- param_default_expr("client", e, ph), expr_type_class_object("client", e, t).
+param_arg_method(ph, m) :- param_default_expr("client", e, ph), expr_denotes_method("client", e, m).
+
 // ── a parameter the runner fills from a PARAMETRIZE row, or from FIXTURE PARAMS ──
 // `@pytest.mark.parametrize("cls", [String, Integer])` calls the test once per value, so
 // each value reaches `cls` as an argument would: an instance types it, a class object
