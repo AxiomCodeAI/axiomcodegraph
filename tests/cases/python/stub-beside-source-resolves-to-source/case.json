@@ -1,0 +1,8 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a package shipping .pyi stubs beside its .py modules: a call that resolves to the stub's declaration reaches the .py implementation of the same qualified name, the one CPython runs",
+   "run": ["impact", "pkg/impl.py:4", "--tests"],
+   "want": ["test_chunk.py"]},
+  {"why": "CONTROL: the stub itself is never an edge target",
+   "run": ["impact", "pkg/impl.pyi:1", "--tests"],
+   "avoid": ["[resolved] test_chunk"]}]}
