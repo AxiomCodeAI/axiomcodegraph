@@ -467,6 +467,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `new` | csharp | An object creation. The target is the constructed type's constructor, and it is never dispatched. |
 | `ctor_delegate` | csharp | `: this(...)` or `: base(...)`. No name is written, so the target is structural. |
 | `primary_ctor_base` | csharp | SYNTHESISED. A primary constructor's base invocation, written in the heritage clause: `class D(int a) : B(a)`. There is no call syntax anywhere in the body. FromExpr is the heritage type reference. |
+| `implicit_base_ctor` | csharp | SYNTHESISED. The base class's parameterless constructor that a constructor with no `: base(...)` / `: this(...)` runs before its body, or that the implicit constructor of a class declaring none runs at its `new`. FromExpr is the heritage type reference, or the `new` site. |
 | `delegate` | csharp | A call through a delegate value: `handler(x)` or `handler.Invoke(x)`. |
 | `operator` | csharp | A user-defined operator invoked by operator syntax. |
 | `conversion` | csharp | A user-defined conversion. An implicit one has no syntax at the call site. |
