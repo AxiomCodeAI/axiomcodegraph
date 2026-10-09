@@ -320,6 +320,7 @@ export class PythonProjectAnalyzer {
         qualifiedName: facts.module.getQualifiedName(),
         moduleHash: facts.module.getHash(),
         isPackage: isPythonPackageInitFileName(path.basename(filePath)),
+        isStub: filePath.endsWith('.pyi'),
         scopes: facts.scopes,
         bindings: facts.bindings,
         types: facts.types,
