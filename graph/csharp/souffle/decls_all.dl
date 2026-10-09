@@ -360,6 +360,7 @@
 .decl expr_target_any(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_target_type(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_type(c0:symbol,c1:symbol,c2:symbol)
+.decl expr_type_argc(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_type_owner(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_type_via_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_ultimate_method(c0:symbol,c1:symbol,c2:symbol)

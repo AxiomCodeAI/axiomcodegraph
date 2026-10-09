@@ -117,6 +117,15 @@ expr_written_name("lib", e, n) :-
     lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     n != "".
 
+// ── expr_type_argc(Prov, ExprHash, TypeArgumentCount) ──────────────────────
+// The type arguments written on a name: `Cache<int>` is the name `Cache` at arity 1.
+// A generic name used as a receiver or qualifier is resolved at this arity, since
+// `Cache` and `Cache<T>` are two types.
+expr_type_argc("client", e, tac) :-
+    cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tac, _, _, _, _, _, _, _, _, _, _, _, _, e).
+expr_type_argc("lib", e, tac) :-
+    lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tac, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
 // ── expr_literal(Prov, ExprHash, LiteralKind, LiteralValue) ─────────────────
 expr_literal("client", e, lk, lv) :-
     cs_expression(_, _, _, _, _, _, _, _, _, _, lk, lv, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),

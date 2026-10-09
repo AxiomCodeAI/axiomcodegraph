@@ -2142,6 +2142,13 @@ function describeExpression(
       const argumentList = childOfType(node, 'type_argument_list');
       shape.typeArgumentCount =
         argumentList === undefined ? 0 : namedChildren(argumentList).length;
+      // The name without its arguments, as an `identifier` row carries it; the
+      // arity is typeArgumentCount. Without it the receiver of `Cache<int>.Get()`
+      // has no name, and nothing can say which type it names.
+      const name = childOfType(node, 'identifier');
+      if (name !== undefined) {
+        shape.potentialQualifiedName = normalizeCSharpIdentifier(name.text);
+      }
       break;
     }
 

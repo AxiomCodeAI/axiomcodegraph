@@ -231,10 +231,10 @@ type_ref_demand(prov, mod, n, ar) :-
 // a type name and produced `external:s.Describe` -- an external target named after a
 // local variable, which is a wrong answer rather than a missing one. The !ref_denotes
 // term is what makes the guard "unbound by anyone".
-type_ref_demand(prov, mod, n, "0") :-
+type_ref_demand(prov, mod, n, ar) :-
     call_receiver_expr(prov, e, r),
     expr_ref_unknown(prov, r),
-    expr_written_name(prov, r, n),
+    expr_written_name(prov, r, n), expr_type_argc(prov, r, ar),
     !ref_denotes(prov, r, _, _),
     call_module(prov, e, mod).
 
