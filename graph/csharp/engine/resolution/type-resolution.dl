@@ -89,6 +89,26 @@ type_name_cand(prov, mod, qn, ar, gk, 1) :-
     type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk),
     !type_is_top_level(prov, gk).
 
+// ── A QUALIFIED NAME READ FROM ITS NAMESPACE ────────────────────────────────
+// `Reflection.Info.Create(..)` written inside namespace Shop names
+// Shop.Reflection.Info: the first segment of a qualified name is a
+// simple name, looked up in the enclosing namespaces like any other. Matched only
+// in full, such a receiver stays untyped and every call through it unresolved.
+//
+// Keyed from the DECLARATION side, so nothing is enumerated per written name: each
+// type's qualified name is split at each dot into the namespace before it and the
+// dotted tail after it, and the tail is a candidate in every file whose namespace
+// chain holds that prefix. A tail with no dot is a simple name, which ranks 2-5
+// already answer.
+type_qn_tail(prov, qn, p, s) :-
+    type_decl(prov, _, qn, _, _, _),
+    i = range(1, strlen(qn)), substr(qn, i, 1) = ".",
+    p = substr(qn, 0, i), s = substr(qn, i + 1, strlen(qn) - i - 1),
+    contains(".", s).
+type_name_cand(prov, mod, s, ar, gk, 1) :-
+    type_qn_tail(prov, qn, p, s), module_ns_chain(prov, mod, p),
+    type_decl(prov, _, qn, ar, _, t), type_group(prov, t, gk).
+
 // ── A CLIENT FILE NAMING A STAGED LIBRARY TYPE ──────────────────────────────
 // Every clause above is SINGLE-PROVENANCE: it joins a module and a declaration
 // under one `prov`, so a client module and a library namespace are never brought
