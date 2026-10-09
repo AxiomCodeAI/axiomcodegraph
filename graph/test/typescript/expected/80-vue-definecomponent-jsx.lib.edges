@@ -14,6 +14,7 @@ boundary_lib	FUNCTION_CALL	parts#<module-init>() @L42 -> vue#defineNuxtComponent
 boundary_lib	FUNCTION_CALL	parts#<module-init>() @L49 -> vue#makeStore(ComponentOptions)
 boundary_lib	FUNCTION_CALL	reg#<module-init>() @L18 -> vue#defineComponent(ComponentOptions)
 callback_registered	FUNCTION_CALL	parts#<module-init>() @L40 -> parts#<arrow@40>(?)
+callback_registered	JSX_COMPONENT_CALL	app#<arrow@13>() @L? -> app#onPing()
 known_edge	FUNCTION_CALL	app#onPing() @L12 -> app#helper()
 known_edge	FUNCTION_CALL	button#<arrow@10>() @L10 -> button#leafButton()
 known_edge	FUNCTION_CALL	card#render() @L12 -> card#leafCard()

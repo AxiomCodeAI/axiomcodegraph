@@ -294,6 +294,69 @@ proxy_trap_name("preventExtensions").
 proxy_trap_name("apply").
 proxy_trap_name("construct").
 
+// …AND A FUNCTION WRITTEN AS A JSX ATTRIBUTE OR CHILD. `<canvas onPointerMove={this.handleMove}/>`,
+// `<button onClick={onSave}/>`, `<List renderItem={renderRow}/>`: the element is handed the function and
+// the renderer runs it, on an event or while it renders. The parser writes each `{…}` as an expression
+// ROOT of its own, linked to no element (an intrinsic tag has no call site at all), so no rule above saw
+// it: a handler read off a field or named by reference was reached by nothing, and its whole body was
+// cut off from the tests that render the component and fire the event. The `{…}` itself is the site that
+// hands the function over, from the function it is written in, the way `xs.map(cb)` hands over `cb`;
+// what the value is read through is followed exactly as for an argument (value_branch, holders, a field
+// holding an arrow, a method read as a value, `bind`). A call there (`onClick={make()}`) hands over what
+// the call returns, not its callee, and stays out.
+jsx_value_root(r) :- expr_root_context("client", "JSX_EMBEDDED_EXPRESSION", r), expr_kind("client", _, "ROOT", r).
+value_branch(r, r) :- jsx_value_root(r).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    !expr_kind("client", "CALL_EXPRESSION", _, x),
+    expr_callable(x, m).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    expr_referenced("client", k, h, x), holder_ref_kind(k),
+    holder_holds_function(h, m).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    ts_field_access_target(x, f),
+    holder_holds_function(f, m).
+jsx_handed_value(r, m) :- jsx_value_root(r), value_branch(r, x),
+    method_value(x, m).
+// the function the `{…}` is written in: its block's method, or the module initializer at top level
+jsx_root_caller(r, c) :- jsx_handed_value(r, _), expr_owner("client", "BLOCK", b, _, r), block_owner("client", c, _, b), c != "".
+jsx_root_caller(r, c) :- jsx_handed_value(r, _), expr_owner("client", "METHOD", c, _, r), c != "".
+jsx_root_caller(r, c) :- jsx_handed_value(r, _), expr_owner("client", "MODULE_INIT", _, _, r),
+    expr_module("client", mod, r), module_init("client", c, mod).
+
+// …AND A CLASS COMPONENT'S RENDER AND LIFECYCLE. `<App/>` where App is a class builds an instance
+// (callee-resolution rule 13 resolves the tag to the constructor), and from then on the renderer
+// calls the instance's render and its lifecycle methods; nothing in the program does. Without these
+// the whole component below its constructor was unreachable from every test that mounts it. Only a
+// class that has a render method — its own or inherited — is a component.
+jsx_class_component_site(ce, t) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    !callee_names_local(ce),
+    name_binds(mod, cn, _, "TYPE", t),
+    method_in_scope(t, "render", "false", _).
+jsx_lifecycle_name("render").
+jsx_lifecycle_name("componentDidMount").
+jsx_lifecycle_name("componentDidUpdate").
+jsx_lifecycle_name("componentWillUnmount").
+jsx_lifecycle_name("shouldComponentUpdate").
+jsx_lifecycle_name("getSnapshotBeforeUpdate").
+jsx_lifecycle_name("componentDidCatch").
+jsx_lifecycle_name("componentWillMount").
+jsx_lifecycle_name("componentWillReceiveProps").
+jsx_lifecycle_name("componentWillUpdate").
+jsx_lifecycle_name("UNSAFE_componentWillMount").
+jsx_lifecycle_name("UNSAFE_componentWillReceiveProps").
+jsx_lifecycle_name("UNSAFE_componentWillUpdate").
+handed_function(ce, m) :- jsx_class_component_site(ce, t),
+    jsx_lifecycle_name(n),
+    method_in_scope(t, n, "false", m).
+// the static ones the renderer calls on the class itself
+jsx_static_lifecycle_name("getDerivedStateFromProps").
+jsx_static_lifecycle_name("getDerivedStateFromError").
+handed_function(ce, m) :- jsx_class_component_site(ce, t),
+    jsx_static_lifecycle_name(n),
+    method_in_scope(t, n, "true", m).
+
 // …AND WHAT A LIBRARY CALL WRAPPED, KEPT IN A HOLDER. `export const plugin = fp(async (app) => …)`, then
 // `app.register(plugin)`: the holder keeps what a call with no client body RETURNED, so no holder rule above
 // sees a function in it, and the registration reached nothing although the same literal handed to it bare
