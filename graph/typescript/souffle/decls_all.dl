@@ -619,6 +619,7 @@
 .decl unresolved_covered(c0:symbol)
 .decl package_import(c0:symbol,c1:symbol)
 .decl library_value(c0:symbol,c1:symbol)
+.decl builtin_global_object(c0:symbol)
 .decl call_passes_project_instance(c0:symbol)
 .decl library_receiver(c0:symbol,c1:symbol)
 .decl unresolved_receiver(c0:symbol,c1:symbol,c2:symbol,c3:symbol)

@@ -503,7 +503,7 @@ def stub_sites(q):
 # unknown, but a project `get` is not what it calls. Like a stub it keeps a row, apart from the untyped-receiver name
 # matches, and it seeds no closure: listed among them it filled the first page of `impact Repo.get`.
 LIBRARY_RECEIVER_KIND = 'library'
-LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package returned or constructed: not this method, unless the package hands it back'
+LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package or the platform (JSON, Promise, document …) returned or constructed: not this method, unless that code hands it back'
 
 
 def library_receiver_sites(q):

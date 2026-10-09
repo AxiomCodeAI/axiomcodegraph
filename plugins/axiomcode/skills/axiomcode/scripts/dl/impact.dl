@@ -424,7 +424,7 @@ direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by nam
 direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
 // A site whose receiver the engine traced to a package's value (`request(app).get('/x')`, ax_edges.library_receiver_sites):
 // the kind "library". A row of its own, listed after the untyped-receiver matches, and no seed of the closure.
-direct(q, c, "uses", "calls a method of this name on a value a package returned or constructed: not this method, unless the package hands it back", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "library", f, l), !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name on a value a package or the platform (JSON, Promise, document …) returned or constructed: not this method, unless that code hands it back", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "library", f, l), !is_target_decl(q, c).
 
 // ── a method handed over as a VALUE, never called where it is named ──────────────────────────────────────────
 // `app.get('/orders/:id', getOrder)`, `useEffect(load)`, `items.map(format)`, `handlers = {"x": handle_x}`: the

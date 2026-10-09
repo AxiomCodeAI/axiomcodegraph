@@ -151,5 +151,42 @@ library_value(e, spec) :- expr_kind("client", k, _, e),
 library_value(e, spec) :- expr_referenced("client", "VARIABLE", v, e), var_initializer("client", _, i, v),
     !var_reassigned(v), library_value(i, spec).
 call_passes_project_instance(e) :- expr_child("client", e, "ARGUMENT", _, a), expr_type(a, "client", _).
+// …and the runtime's own objects: `JSON.parse(s)`, `Promise.resolve(v).then(f)`, `Object.keys(o).forEach(g)`,
+// `document.createElement('a')`, `console.error(e)`. With no standard library staged the name resolves to nothing
+// in the run (AMBIENT_GLOBAL), so every such call was an untyped `x.parse()` to the consumers, and a project method
+// that happens to be named parse, resolve, all, keys, error or getMetadata was given every one of them as a by-name
+// caller — and every test around them. The receiver is the platform's, never the project's: a program that declares
+// the name itself binds it as its own variable, not as an ambient global, and stays out. Only the objects whose
+// members are called through the name; `window`, `globalThis` and `self` are left out, since a program may hang its
+// own functions on them.
+library_value(e, n) :- expr_referenced("client", "AMBIENT_GLOBAL", _, e), expr_name("client", n, e),
+    builtin_global_object(n).
+builtin_global_object("JSON").
+builtin_global_object("Math").
+builtin_global_object("Object").
+builtin_global_object("Reflect").
+builtin_global_object("Promise").
+builtin_global_object("Array").
+builtin_global_object("Number").
+builtin_global_object("String").
+builtin_global_object("Boolean").
+builtin_global_object("BigInt").
+builtin_global_object("Symbol").
+builtin_global_object("Date").
+builtin_global_object("RegExp").
+builtin_global_object("Error").
+builtin_global_object("Intl").
+builtin_global_object("Atomics").
+builtin_global_object("ArrayBuffer").
+builtin_global_object("console").
+builtin_global_object("process").
+builtin_global_object("Buffer").
+builtin_global_object("document").
+builtin_global_object("navigator").
+builtin_global_object("localStorage").
+builtin_global_object("sessionStorage").
+builtin_global_object("performance").
+builtin_global_object("crypto").
+builtin_global_object("URL").
 library_receiver(ce, spec) :- call_site("client", _, _, rk, recv, ce, _), receiver_kind_is_value(rk),
     !call_resolved(ce), library_value(recv, spec).
