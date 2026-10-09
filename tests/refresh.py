@@ -274,8 +274,8 @@ def main(argv):
             check(rebuilds() > n0, f'{lang}: the refresher it started rebuilt the graph')
 
             # ── edits batched where a rebuild is slow ───────────────────────────────────────────────────────────
-            # BATCH_ABOVE=0 takes this graph's build for a slow one: two edits and a shell command start nothing, the
-            # third edit does, and the end of a turn rebuilds after a single edit. The control is the check above: the
+            # BATCH_ABOVE=0 takes this graph's build for a slow one: four edits and a shell command start nothing, the
+            # fifth edit does, and the end of a turn rebuilds after a single edit. The control is the check above: the
             # same hook on the same graph with the default threshold rebuilt after one edit
             slow = dict(env, AXIOMCODE_REFRESH_BATCH_ABOVE='0')
             def hook(event, tool=None):
@@ -288,12 +288,12 @@ def main(argv):
                     time.sleep(0.2)
                 return rebuilds()
             n0 = rebuilds()
-            for _ in range(2):
+            for _ in range(4):
                 open(f, 'a').write('\n'); hook('PostToolUse', 'Edit')
             hook('PostToolUse', 'Bash')
-            check(settle(n0, 4) == n0, f'{lang}: where a rebuild is slow, two edits and a shell command start no rebuild')
+            check(settle(n0, 4) == n0, f'{lang}: where a rebuild is slow, four edits and a shell command start no rebuild')
             open(f, 'a').write('\n'); hook('PostToolUse', 'Edit')
-            check(settle(n0, 600) > n0, f'{lang}: the third edit starts it')
+            check(settle(n0, 600) > n0, f'{lang}: the fifth edit starts it')
             n0 = rebuilds()
             open(f, 'a').write('\n'); hook('PostToolUse', 'Edit')
             check(settle(n0, 4) == n0, f'{lang}: the batch starts over after that rebuild')
