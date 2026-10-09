@@ -1,0 +1,14 @@
+{"lang": "java", "src": "src", "library": "lib/kit",
+ "checks": [
+  {"why": "hashCode is run by the map the key is put into; the test that builds the key through Index is selected",
+   "run": ["impact", "Key.hashCode", "--tests"],
+   "want": ["IndexTest::countsRepeats"],
+   "avoid": ["TapTest", "OtherTest", "0 of"]},
+  {"why": "an override of a library method is run by the library; the test that builds the object and hands it over is selected",
+   "run": ["impact", "Tap.next", "--tests"],
+   "want": ["TapTest::drains"],
+   "avoid": ["IndexTest", "OtherTest", "0 of"]},
+  {"why": "control: a toString on a type no test constructs selects no test",
+   "run": ["impact", "Unseen.toString", "--tests"],
+   "want": ["0 of"],
+   "avoid": ["IndexTest", "TapTest", "OtherTest"]}]}

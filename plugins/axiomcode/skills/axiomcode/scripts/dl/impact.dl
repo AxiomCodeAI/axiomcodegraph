@@ -1094,6 +1094,17 @@ direct(q, c, "uses", cat("framework-mediated, not a call: servlet_filter via ", 
 protocol_member(t, m) :- member(t, m, n, _), match("__.*__", n), n != "__init__".
 .decl constructs(c:symbol, t:symbol)
 constructs(c, t) :- member(t, i, "__init__", _), edge(c, i, _), c != i.
+// THE SAME SHAPE IN JAVA: the members a LIBRARY runs on a client object. `equals`, `hashCode` and `toString` are run
+// by a HashMap key, a StringBuilder, String.format, an assertion; an override of a library method (`iterator` of an
+// Iterable, `compareTo`, `close`, `size` of a Collection) by the for-each loop, the sort, try-with-resources, the
+// collection itself. The call is written on a library receiver or not written at all, and Object's members are not
+// fanned to client overrides on purpose (resolution/virtual-dispatch.dl: the CHA blow-up), so a change to one had no
+// caller and selected no test. Whoever constructs the type, or a subtype of it, holds the object those calls run on.
+// Still only from the CHANGE itself, as above.
+protocol_member(t, m) :- member(t, m, n, _), java_decl(m), (n = "equals" ; n = "hashCode" ; n = "toString").
+protocol_member(t, m) :- member(t, m, _, _), java_decl(m), override(b, m), !decl_file(b, _).
+constructs(c, t) :- java_decl(t), kind(i, "constructor"), owner(i, t), edge(c, i, _), c != i.
+constructs(c, t) :- java_decl(t), extends(s, t), kind(i, "constructor"), owner(i, s), edge(c, i, _), c != i.
 // The hop is taken only where the CHANGE ITSELF is a protocol member, not wherever one turns up in the closure.
 // As a global edge it was logically fine and empirically noisy: any closure that happened to contain a protocol
 // member pulled in every constructor of that type and, through them, their tests. Measured across three subjects

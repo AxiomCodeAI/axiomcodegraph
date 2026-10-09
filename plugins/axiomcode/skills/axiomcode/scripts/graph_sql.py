@@ -3571,6 +3571,17 @@ def _has_framework_hops(q, at=None, site_file=None):
         return True
     return False
 
+def _java_protocol(q, mids):
+    """True when one of these Java methods is a member a library runs on the object (dl/impact.dl protocol_member)"""
+    if not mids or not _has(q, 'symbols'): return False
+    ph = ','.join('?' * len(mids))
+    if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND file LIKE '%.java' AND name IN ('equals', 'hashCode', 'toString') LIMIT 1", *mids):
+        return True
+    return bool(_has(q, 'overrides') and q(f"""SELECT 1 FROM overrides o JOIN methods b ON b.id = o.method_id
+                                             JOIN symbols s ON s.id = o.overriding_method_id
+                                             WHERE o.overriding_method_id IN ({ph}) AND b.provenance = 'lib'
+                                               AND s.file LIKE '%.java' LIMIT 1""", *mids))
+
 def _reaches_init(q, depth):
     """True when the closure holds a Java initializer the rules hop on from (load_hop): a type reached as a caller, or a
     <clinit> / <init_block> callable"""
@@ -3650,6 +3661,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         # `target(q,k,s,x)`: a STRING target is written (q,"string","",value) — no symbol at all — so the ids and
         # the extras are kept apart rather than one standing in for the other.
         ids = sorted({s_ for _k, s_, _x in mine if s_})
+        # a Java member a library runs (dl/impact.dl protocol_member: Object's equals / hashCode / toString, an
+        # override of a library method) is reached through whoever constructs its type: not ported, so decline
+        if _java_protocol(q, sorted({s_ for k_, s_, _x in mine if s_ and k_ == 'method'})): return None
         by_kind, extra = {}, {}
         for k, s_, x in mine:
             if s_: by_kind.setdefault(k, set()).add(s_)
