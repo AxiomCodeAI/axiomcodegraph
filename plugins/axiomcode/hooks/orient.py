@@ -3,9 +3,8 @@
 
 The active verbs only help an agent that calls them, and the one measurement of this skill in an agent's
 hands recorded no graph queries at all in six of six runs — the gap was never the answer, it was that
-nobody asked the question. The passive half already enriches a Read or a grep AFTER the agent has chosen
-where to look; this fires BEFORE, on the task itself, which is the only moment where orientation changes
-which file gets opened first.
+nobody asked the question. This fires on the task itself, before the agent has chosen where to look, which
+is the only moment where orientation changes which file gets opened first.
 
 Rules it holds itself to:
   · ONCE per session. Orientation is a first-turn need; repeating it on every prompt is noise that costs

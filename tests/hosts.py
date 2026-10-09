@@ -127,34 +127,6 @@ with tempfile.TemporaryDirectory() as work:
         sys.exit(1)
     lib = os.path.join(repo, 'lib.py')
 
-    # PostToolUse Read: enrich.py adds the edges the file does not show.
-    rc, out = fire('enrich.py', original('PostToolUse', 'Read', {'file_path': lib}, repo, 'e1'))
-    rc2, out2 = fire('enrich.py', cursor('postToolUse', 'Read', {'file_path': lib}, repo, 'e2'), cursor=True)
-    first = said_original(out)
-    check('enrich after a Read: the original host hears the callers the file does not show',
-          rc == 0 and 'test_greet' in first, out[:160])
-    check('enrich after a Read: Cursor hears the same lines', rc2 == 0 and first and said_cursor(out2, 'postToolUse') == first,
-          out2[:160])
-
-    rc3, out3 = fire('enrich.py', gemini('AfterTool', 'read_file', {'file_path': lib}, repo, 'e3'))
-    check('enrich after read_file: Gemini hears the same lines',
-          rc3 == 0 and first and said_gemini(out3, 'AfterTool') == first, out3[:160])
-
-    # PostToolUse on a shell read: Cursor calls the tool Shell. `cat` of a source file is enriched as a Read.
-    grep = {'command': 'cat lib.py'}
-    rc, out = fire('enrich.py', original('PostToolUse', 'Bash', grep, repo, 'g1'))
-    rc2, out2 = fire('enrich.py', cursor('postToolUse', 'Shell', grep, repo, 'g2'), cursor=True)
-    first = said_original(out)
-    check('enrich after `cat` in a shell: the original host hears the callers', rc == 0 and 'test_greet' in first,
-          out[:160])
-    check("enrich after `cat` in a shell: Cursor's Shell is the same tool as Bash",
-          rc2 == 0 and first and said_cursor(out2, 'postToolUse') == first, out2[:160])
-
-    rc3, out3 = fire('enrich.py', gemini('AfterTool', 'run_shell_command', grep, repo, 'g3'))
-    check("enrich after `cat` in a shell: Gemini's run_shell_command is the same tool as Bash",
-          rc3 == 0 and first and said_gemini(out3, 'AfterTool') == first, out3[:160])
-
-
     # UserPromptSubmit with a graph: changes.py and orient.py answer in Cursor's shape or not at all.
     for hook in ('changes.py', 'orient.py'):
         rc2, out2 = fire(hook, cursor('beforeSubmitPrompt', None, {}, repo, 'p1', prompt='what calls greet'),

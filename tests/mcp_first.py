@@ -63,7 +63,7 @@ if m:
     tool_first('SKILL.md description', ' '.join(m.group(1).split()), ('impact', 'path', 'tests'))
 
 # 2. a search runs untouched: no PreToolUse hook is wired on Read, Grep, Glob or Bash — what the graph
-# adds comes after, from the grep's own result (enrich.py's grep aid), feeding only what the search missed
+# answers only when the agent asks it, through the MCP tools or the CLI
 hooks = json.load(open(os.path.join(HOOKS, 'hooks.json')))['hooks']
 pre = ' '.join(g.get('matcher', '') for g in hooks.get('PreToolUse', []))
 check('no PreToolUse hook speaks before a search (Read/Grep/Glob/Bash)',

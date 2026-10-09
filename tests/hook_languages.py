@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""tests/hook_languages.py: the edit hooks speak for every language the index reads, from one table.
+"""tests/hook_languages.py: the edit hook and the tests verb speak for every language the index reads, from one table.
 
 Each hook kept its own list of source extensions, and the edit hooks' lists had no `.cs`: a C# edit got no graph line
 while a C# Read and Grep did. The lists now come from one table (_where.BY_EXT), so this checks the hooks on a C#
 project, where the old lists were silent:
 
-  · a body edit to a C# method gets the one line of reaching tests and the command that runs them (enrich.py);
+  · after a body edit to a C# method, `axiomcode tests` lists the reaching tests and the command that runs them;
   · a signature edit to a C# method gets its blast radius BEFORE it lands (changes.py, PreToolUse);
   · a test declared in an abstract C# base runs as the class that extends it, so the command filters on that class,
     not on the base, which `dotnet test --filter FullyQualifiedName~<base>` would never match;
@@ -82,10 +82,12 @@ with tempfile.TemporaryDirectory() as repo:
     check('a signature edit to a C# method gets its blast radius before it lands',
           'about to change' in out and 'Repo.Load' in out and 'Service.Run' in out, out)
 
-    # PostToolUse: a body-only edit gets one line, the tests and the command
+    # a body-only edit: `axiomcode tests` names the reaching tests and the command
     open(f, 'w').write(orig.replace('x + 1', 'x + 2'))
-    out = fire(repo, 'c2', 'Edit', {'file_path': f}, 'enrich.py', 'PostToolUse')
-    check('a body edit to a C# method gets the line of tests that reach it', 'body edit of Repo.Save' in out, out)
+    r = subprocess.run(['bash', AX, 'tests', repo], capture_output=True, text=True, timeout=600,
+                       env=dict(os.environ, AXIOMCODE_NO_REFRESH='1'))
+    out = r.stdout + r.stderr
+    check('after a body edit to a C# method, the tests verb lists the tests that reach it', 'SqlRepoTests' in out, out[-800:])
     check('the command runs the class that extends the abstract base that declares the test',
           'FullyQualifiedName~SqlRepoTests' in out, out)
     check('and never the abstract base, which no inherited test is named after', 'FullyQualifiedName~RepoContractTests' not in out, out)
@@ -95,9 +97,8 @@ with tempfile.TemporaryDirectory() as repo:
     p = os.path.join(repo, 'src/App/App.csproj')
     t = open(p).read()
     open(p, 'w').write(t.replace('net8.0', 'net9.0'))
-    out = fire(repo, 'c3', 'Edit', {'file_path': p}, 'enrich.py', 'PostToolUse')
     out2 = fire(repo, 'c3', 'Edit', {'file_path': p, 'old_string': 'net9.0', 'new_string': 'net8.0'}, 'changes.py', 'PreToolUse')
-    check('control: an edit to a .csproj says nothing', out == '' and out2 == '', out + out2)
+    check('control: an edit to a .csproj says nothing', out2 == '', out2)
     open(p, 'w').write(t)
 
 sys.path.insert(0, HOOKS)
