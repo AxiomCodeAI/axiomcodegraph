@@ -11,3 +11,11 @@ TABLE = render("header")
 
 if __name__ == "__main__":
     print(show())
+
+
+def banner():
+    return render("b")
+
+
+if render and __name__ == "__main__":
+    banner()
