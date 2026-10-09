@@ -777,7 +777,7 @@ function filesOfRootProgram(
     // specifiers, so the cheapest possible parse is the right one.
     const script = scriptTextOf(file, text);
     const sf = ts.createSourceFile(file, script.text, ts.ScriptTarget.Latest, false,
-      script.scriptKind ?? (file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS));
+      script.scriptKind ?? (file.endsWith('.tsx') ? ts.ScriptKind.TSX : JS_JOINER.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS));
     for (const specifier of importSpecifiersOf(sf)) {
       const resolved = ts.resolveModuleName(specifier, file, rootOptions, ts.sys, resolutionCache)
         .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, file);
@@ -806,19 +806,27 @@ function filesOfRootProgram(
   // and every test the change reaches was invisible to test selection. A file no other
   // config owns that imports a file of this program is part of what the program runs
   // under; it joins, together with the unclaimed files it pulls in.
+  // The same holds for a JavaScript file that imports the program — a `.js` test of `.ts` source,
+  // which the JavaScript graph holds with no edge into this one. It is a candidate here only: a
+  // TypeScript file that imports JavaScript still leaves it to the JavaScript analyzer.
+  const joiners = new Map(collectTypeScriptFiles(rootDir, new Set(TS_SKIP_DIRECTORIES), JS_JOINER)
+    .filter((f) => configResolver.resolve(f).configPath === '' || rootConfigs.has(path.resolve(configResolver.resolve(f).configPath)))
+    .map((f) => [path.normalize(f), f]));
   for (let grew = true; grew;) {
     grew = false;
-    for (const [key, file] of available) {
-      if (!included.has(key) && resolvedImports(file).some((k) => included.has(k))) {
-        included.add(key);
-        queue.push(file);
-        grew = true;
+    for (const pool of [available, joiners]) {
+      for (const [key, file] of pool) {
+        if (!included.has(key) && resolvedImports(file).some((k) => included.has(k))) {
+          included.add(key);
+          queue.push(file);
+          grew = true;
+        }
       }
     }
     closeOverImports();
   }
 
-  const files = [...included].map((f) => available.get(f) ?? f);
+  const files = [...included].map((f) => available.get(f) ?? joiners.get(f) ?? f);
   const pulled = new Set(files.map((f) => path.normalize(f)));
   // A file no config claims and no claimed file imports belongs to no program at
   // all; it is reported, not dropped (NO_PROGRAM_CLAIMS_FILE).
@@ -870,7 +878,8 @@ function importSpecifiersOf(sf: ts.SourceFile): string[] {
       && ts.isStringLiteral(node.moduleReference.expression)) {
       out.push(node.moduleReference.expression.text);
     } else if (ts.isCallExpression(node)
-      && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
       && node.arguments.length > 0
       && ts.isStringLiteral(node.arguments[0]!)) {
       out.push((node.arguments[0] as ts.StringLiteral).text);
@@ -922,7 +931,10 @@ function verifyRelationFile(temporaryPath: string, outputPath: string): void {
   }
 }
 
-function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): string[] {
+/** A JavaScript file that may join a TypeScript program by importing it (see filesOfRootProgram). */
+const JS_JOINER = /\.(?:[cm]?js|jsx)$/;
+
+function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>, only?: RegExp): string[] {
   const out: string[] = [];
   const walk = (current: string): void => {
     let entries: fs.Dirent[];
@@ -942,8 +954,8 @@ function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): str
         }
         continue;
       }
-      if (TS_SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))
-        || (isVueFile(entry.name) && isTypeScriptVueComponent(full))) {
+      if (only ? only.test(entry.name) : (TS_SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension))
+        || (isVueFile(entry.name) && isTypeScriptVueComponent(full)))) {
         out.push(full);
       }
     }

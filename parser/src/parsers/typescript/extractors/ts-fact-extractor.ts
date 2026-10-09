@@ -504,7 +504,12 @@ function parseDiagnosticsOf(sourceFile: ts.SourceFile): readonly ts.Diagnostic[]
 }
 
 function scriptKindFor(filePath: string): ts.ScriptKind {
-  return filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  if (filePath.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  // a JavaScript file joins a TypeScript program when it imports it (a .js test of .ts source):
+  // parsed as JavaScript, where JSX is allowed and type syntax is not
+  if (filePath.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (/\.[cm]?js$/.test(filePath)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
 }
 
 /**
