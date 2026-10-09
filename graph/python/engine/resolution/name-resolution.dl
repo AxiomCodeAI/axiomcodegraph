@@ -1008,18 +1008,41 @@ computed_name_prefix(nameArg, pre) :-
     expr_operator("client", op, nameArg), py_str_concat_operator(op),
     expr_parent("client", nameArg, "OPERAND_LEFT", _, l),
     expr_node("client", "LITERAL", _, pre, l), pre != "".
+// The same prefix written as an f-string, `getattr(self, f"visit_{type(node).__name__}")`:
+// the parser hands over an f-string's constant lead (the text before its first `{`) as its
+// literal value, and every string the f-string can produce starts with it.
+computed_name_prefix(nameArg, pre) :-
+    expr_node("client", "FSTRING", _, pre, nameArg), pre != "".
 getattr_computed_name(e, obj, pre) :-
     call_of_expr(e, site),
     call_name(site, "getattr"),
     call_arg(site, "0", obj),
     call_arg(site, "1", nameArg),
     computed_name_prefix(nameArg, pre).
-expr_denotes_method("client", e, m) :-
+// The receiver's type, and where the receiver is `self`, every CONSTRUCTED subclass of it too:
+// a visitor base names `visit_*` members it does not define itself, and self is whichever
+// subclass was built -- the same self-dispatch bound (RTA) dispatch.dl puts on `self.m()`.
+getattr_computed_type(e, pre, t) :-
     getattr_computed_name(e, obj, pre),
-    expr_type("client", obj, t),
+    expr_type("client", obj, t).
+getattr_computed_type(e, pre, s) :-
+    getattr_computed_name(e, obj, pre),
+    expr_node("client", "SELF_REFERENCE", _, _, obj),
+    expr_type("client", obj, k),
+    type_subclass("client", k, s),
+    type_instantiated_reachable("client", s).
+getattr_computed_member(e, m) :-
+    getattr_computed_type(e, pre, t),
     mro_lookup("client", t, n, m),
     strlen(n) > strlen(pre),
     substr(n, 0, strlen(pre)) = pre.
+// a member a decorator replaced is the callable the decorator returned (a wrapper)
+getattr_computed_member(e, m) :-
+    getattr_computed_type(e, pre, t),
+    mro_lookup_decorated("client", t, n, m),
+    strlen(n) > strlen(pre),
+    substr(n, 0, strlen(pre)) = pre.
+expr_denotes_method("client", e, m) :- getattr_computed_member(e, m).
 
 // ── getattr(obj, name, default) IS AT LEAST the default ──────────────────────
 //     h = getattr(record, "highlighter", self.highlighter)

@@ -156,6 +156,15 @@ method_returns_method("client", m, r) :-
     expr_call_candidate(site, g),
     method_returns_method("client", g, r).
 
+// A function returning a member it LOOKED UP BY NAME: `def get_visitor(self, node): return
+// getattr(self, f"visit_{type(node).__name__}", None)`, called as `f = self.get_visitor(node);
+// f(node)`. The lookup is resolved where it is written (name-resolution.dl's getattr clauses),
+// and the method hands that set back exactly as it would hand back a bare name.
+method_returns_method("client", m, r) :-
+    method_return_value_expr("client", m, e),
+    call_of_expr(e, site), call_name(site, "getattr"),
+    expr_denotes_method("client", e, r).
+
 // ── a call that hands back one of its arguments (py_returns_arg, resolution/builtins.dl) ──
 // Matched through the import that binds the callee, never by the bare name:
 // `functools.update_wrapper(...)` / `t.cast(...)` where the receiver is the name an `import`
