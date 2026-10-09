@@ -129,10 +129,14 @@ _CONFIG = {'config', 'config_key_known', 'config_site'}
 # exactly the kind that used to be handed them empty. Skipping them there made the rule produce nothing at all,
 # silently — the one failure mode this table can have.
 _KEY_LAYER = {'literal', 'dec_literal'}
+# and `field` / `faccess` are read by the `at load` hop for every kind that walks the closure: a test that reads a static
+# field of a type runs that type's initializer (load_hop / init_use). Handed them empty, a method target's closure that
+# reached a field initializer named only the type's CALLERS and dropped every test that touches it through a field.
+_LOAD_LAYER = {'field', 'faccess'}
 KIND_SKIPS = {                                     # relations a query of this kind can never reach
- 'method':    (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER) | _CONFIG,
- 'param':     (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER) | _CONFIG,
- 'var':       (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER) | _CONFIG,
+ 'method':    (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER - _LOAD_LAYER) | _CONFIG,
+ 'param':     (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER - _LOAD_LAYER) | _CONFIG,
+ 'var':       (_REF_LAYER - {'reexport', 'reexport_from'} - _KEY_LAYER - _LOAD_LAYER) | _CONFIG,
  'decoration': (_REF_LAYER - _KEY_LAYER) | _CONFIG,
  'config':    _REF_LAYER - _KEY_LAYER,
  'newconst':  (_REF_LAYER - {'switch_over'} - _KEY_LAYER) | _CONFIG,
