@@ -1,8 +1,8 @@
 distinct call sites emitted: 26
 
 --- by tier: edge ROWS, and the distinct SITES they cover ---
-     10 rows     10 sites  ambiguous_unknown
-     13 rows     13 sites  boundary_lib
+      8 rows      8 sites  ambiguous_unknown
+     15 rows     15 sites  boundary_lib
       3 rows      3 sites  known_edge
 
 --- edge rows by call kind ---
@@ -16,13 +16,12 @@ distinct call sites emitted: 26
 --- unresolved reasons ---
       2  callee_is_parameter
       4  decorator_factory_result_untyped
-      2  no_rule
       2  unmodelled_decorator
 
 --- the engine's own conservation ledger ---
      26  _total_sites
-     10  ambiguous_unknown
-     13  boundary_lib
+      8  ambiguous_unknown
+     15  boundary_lib
       3  known_edge
 
 --- reconciling rows against the conserved site count ---
