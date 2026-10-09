@@ -165,6 +165,14 @@ py_parametrize_deco("parametrize").
 py_parametrize_argnames_kw("argnames").
 py_parametrize_indirect_kw("indirect").
 py_parametrize_indirect_all("True").
+// The VALUES the runner hands in: the decorator's second argument (or `argvalues=`), a
+// fixture's `params=`, a row wrapped as `pytest.param(v, ..., id=...)`, and, inside a fixture
+// declared with params, the attribute `request.param` it reads the current one from.
+py_parametrize_argvalues_kw("argvalues").
+py_fixture_params_kw("params").
+py_param_row_wrapper("param").
+py_fixture_request_param("request").
+py_request_param_attr("param").
 
 // ── py_argnames_sep / py_argnames_lead: how "a, b" separates argument names ──
 // The runner splits the string on "," and strips each piece. Souffle cannot split, so a
