@@ -1214,8 +1214,20 @@ class JsModuleEdgeExtractor {
     ).resolvedModule?.resolvedFileName;
     // tsc resolves no `.vue` import itself (its extensions are fixed), so a
     // component in this program is looked up by path.
-    const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined)
+    let resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined)
       ?? resolveVueSpecifier(specifier, this.options.absoluteFilePath, this.options.compilerOptions);
+    // The compiler prefers a DECLARATION to the code it describes: `require('../')` in a package
+    // whose package.json names `types: typings/index.d.ts`, or `import './lib.js'` beside a
+    // hand-written `lib.d.ts`, resolves to the .d.ts. JavaScript never loads a declaration, so
+    // the module it runs is asked for again with declarations out of sight; left alone, every
+    // value imported that way was external and each call through it untyped.
+    if (resolved !== undefined && isDeclarationPath(resolved)
+        && !resolved.includes(`${path.sep}node_modules${path.sep}`) && !resolved.includes('/node_modules/')) {
+      const runtime = resolveRuntimeFile(specifier, this.options.absoluteFilePath, this.options.compilerOptions, mode);
+      if (runtime !== undefined) {
+        resolved = runtime;
+      }
+    }
     // BOTH SIDES CANONICAL. `projectModuleHashes` is keyed by the files the analyzer
     // walked from a root it has already resolved through its symlinks; the resolver
     // answers with the real path for a package found under `node_modules` but does NOT
@@ -1279,6 +1291,36 @@ class JsModuleEdgeExtractor {
 }
 
 // ---------------------------------------------------------------------------
+
+const DECLARATION_PATH = /\.d\.[cm]?ts$/;
+
+function isDeclarationPath(file: string): boolean {
+  return DECLARATION_PATH.test(file);
+}
+
+/**
+ * The file a JavaScript runtime would load for `specifier`: the compiler's resolution with every
+ * declaration file hidden from it, so `types`/`typings` and a `.d.ts` beside a `.js` fall through to
+ * `main`, the `exports` code conditions and the `.js` itself. `undefined` when nothing but a
+ * declaration answers (a types-only package), which leaves the first answer standing.
+ */
+function resolveRuntimeFile(
+  specifier: string,
+  fromFile: string,
+  options: ts.CompilerOptions,
+  mode: ts.ResolutionMode
+): string | undefined {
+  const host: ts.ModuleResolutionHost = {
+    ...ts.sys,
+    fileExists: (f) => !isDeclarationPath(f) && ts.sys.fileExists(f),
+  };
+  const answer = (m: ts.ResolutionMode): string | undefined => {
+    const r = ts.resolveModuleName(specifier, fromFile, { ...options, allowJs: true }, host, undefined, undefined, m)
+      .resolvedModule?.resolvedFileName;
+    return r !== undefined && !isDeclarationPath(r) ? r : undefined;
+  };
+  return answer(mode) ?? (mode === ts.ModuleKind.ESNext ? answer(ts.ModuleKind.CommonJS) : undefined);
+}
 
 /** `createRequire(import.meta.url)`, however it was imported. */
 function isCreateRequireCall(node: ts.CallExpression): boolean {
