@@ -255,8 +255,8 @@ looked up again in the graph before you see it; the `verified:` line is that che
 
 ### Support for agents
 
-Every agent below gets the four MCP tools and the skill; the hooks, which add the graph's edges to the agent's
-own file reads and searches, run where the last column says so.
+Every agent below gets the four MCP tools and the skill; the hooks, which keep the graph current and report what an
+edit breaks, run where the last column says so. No hook annotates the agent's own reads and searches.
 
 | Agent | Install | Uninstall | Hooks |
 |---|---|---|---|

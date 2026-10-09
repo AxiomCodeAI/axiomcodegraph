@@ -2,7 +2,7 @@
 """tests/mcp_first.py — every surface an agent reads before its first call names the MCP tool first (#1425).
 
 `axiomcode install` pre-approves the plugin's MCP tools and nothing else. The skill's description, the
-prompt-time orientation and the pre-search directive used to spell the call as a shell command, with the tool
+prompt-time orientation used to spell the call as a shell command, with the tool
 in parentheses or not at all, so an agent took the shell spelling; under the install's permissions that first
 call is the one that stops for a prompt, and in a headless session it is denied outright.
 
@@ -13,8 +13,8 @@ where the server did not start, has nothing else to call, and the skill has to k
     python3 tests/mcp_first.py      indexes one case, so it needs the engine, as hosts.py does
 """
 import json, os, re, shutil, subprocess, sys, tempfile
-# the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
-# second run of this script reuses the first run's session ids and hears nothing
+# hook state lives in the temp directory, keyed on the session: a run of its own, or a second run of
+# this script reusing the first run's session ids, must start clean
 os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,19 +62,12 @@ check('SKILL.md has a description block', bool(m))
 if m:
     tool_first('SKILL.md description', ' '.join(m.group(1).split()), ('impact', 'path', 'tests'))
 
-# 2. the directive before the first search for a name the graph declares
-with tempfile.TemporaryDirectory() as repo:
-    import sqlite3
-    os.makedirs(os.path.join(repo, '.axiomcode', 'out'))
-    con = sqlite3.connect(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite'))
-    con.execute("CREATE TABLE symbols(name TEXT, display TEXT, kind TEXT, file TEXT, line INT, is_test INT)")
-    con.execute("INSERT INTO symbols VALUES ('findOrder', 'Repo.findOrder', 'method', 'src/Repo.java', 4, 0)")
-    con.commit(); con.close()
-    rc, said = fire('direct.py', {'hook_event_name': 'PreToolUse', 'tool_name': 'Grep',
-                                  'tool_input': {'pattern': 'findOrder'}, 'cwd': repo, 'session_id': 'm1'})
-    check('direct: the first search for a declared name hears the directive', rc == 0 and bool(said), f'rc={rc}')
-    # only the verbs that answer a search: tests is about an edit, not about what a grep looks for
-    tool_first('direct', said, ('impact', 'path'))
+# 2. a search runs untouched: no PreToolUse hook is wired on Read, Grep, Glob or Bash — what the graph
+# answers only when the agent asks it, through the MCP tools or the CLI
+hooks = json.load(open(os.path.join(HOOKS, 'hooks.json')))['hooks']
+pre = ' '.join(g.get('matcher', '') for g in hooks.get('PreToolUse', []))
+check('no PreToolUse hook speaks before a search (Read/Grep/Glob/Bash)',
+      not re.search(r'\b(Read|Grep|Glob|Bash)\b', pre), pre)
 
 # 3. the orientation on the first prompt, both branches it can reach: a change question and a how-question
 with tempfile.TemporaryDirectory() as work:

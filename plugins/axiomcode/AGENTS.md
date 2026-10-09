@@ -1,8 +1,8 @@
 # axiomcode
 
-Search with grep and Read as usual: after a grep, the call graph adds only what grep cannot know (which
-declaration each match reaches, the callers that never spell the name). Ask it directly, through the axiomcode
-MCP tools, for what no text search answers:
+Search with grep and Read as usual; the call graph stays out of the way until you ask it. Ask it directly,
+through the axiomcode MCP tools, for what no text search answers — which declaration a call reaches, the callers
+that never spell the name:
 
     impact(name)        who calls it, what a change to it reaches, and its tests;
                         impact() with no name: the same for your uncommitted edits

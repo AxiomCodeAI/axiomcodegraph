@@ -11,8 +11,9 @@ Every fact a hook block states is checked again, against graph.sqlite and the so
   Edit   (PreToolUse / PostToolUse / Bash / UserPromptSubmit blocks) each declaration named spans a line the edit changed (from
          `axiomcode changed` on the same texts); every name under must-change / produces / reads is in `axiomcode impact`'s
          answer for that target with that role; the counts match
-Events are generated on the repo (Reads of whole files and ranges, Greps of declared identifiers, edits that change a body,
-a signature, a field's type) or replayed from .axiomcode/hooks.jsonl (--replay: entries that recorded their input and text).
+Events are generated on the repo (edits that change a body, a signature, a field's type) or replayed from
+.axiomcode/hooks.jsonl (--replay: entries that recorded their input and text). No hook annotates a Read or a Grep any
+more, so the Read and Grep checks apply to replayed logs only.
 Prints facts checked / facts wrong, and every wrong fact."""
 import collections, atexit, json, os, random, re, sqlite3, subprocess, sys, tempfile, shutil, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -247,17 +248,7 @@ def main(argv):
                 rel = os.path.relpath(os.path.realpath(inp['file_path']), V_.repo).replace(os.sep, '/'); a0 = int(inp.get('offset') or 1); V_.check_read(e['text'], rel, a0, a0 + int(inp.get('limit') or 100000))
             elif e.get('as') == 'Grep' and inp.get('pattern'): V_.check_grep(e['text'], re.sub(r'\W.*', '', inp['pattern']))
     else:
-        files = [r[0] for r in V_.q("SELECT DISTINCT file FROM symbols WHERE method_id IS NOT NULL AND kind <> 'module' AND is_test = 0")]
-        rnd.shuffle(files)
-        for rel in files[:n_reads]:
-            fp = os.path.join(V_.repo, rel)
-            if not os.path.exists(fp): continue
-            V_.check_read(hook('enrich.py', 'PostToolUse', 'Read', {'file_path': fp}, V_.repo), rel, 1, 100000)
-            n = len(open(fp, errors='replace').read().split('\n')); a0 = rnd.randint(1, max(1, n - 40)); lim = rnd.choice([20, 60, 120])
-            V_.check_read(hook('enrich.py', 'PostToolUse', 'Read', {'file_path': fp, 'offset': a0, 'limit': lim}, V_.repo), rel, a0, a0 + lim)
-        names = [r[0] for r in V_.q("SELECT DISTINCT name FROM symbols WHERE method_id IS NOT NULL AND kind = 'method' AND length(name) > 4")]
-        for nm in rnd.sample(names, min(n_greps, len(names))): V_.check_grep(hook('enrich.py', 'PostToolUse', 'Grep', {'pattern': nm}, V_.repo), nm)
-        # edits: a body line, a signature (a parameter added), a field's type — applied to a copy of the file, PreToolUse and PostToolUse both
+        # edits: a body line, a signature (a parameter added), a field's type — applied to a copy of the file (PreToolUse)
         meths = [dict(r) for r in V_.q("SELECT * FROM symbols WHERE method_id IS NOT NULL AND kind = 'method' AND is_test = 0 AND end_line - line >= 3")]
         fields = [dict(r) for r in V_.q("SELECT * FROM symbols WHERE method_id IS NULL AND type_id IS NULL AND kind IN ('field') AND is_test = 0 AND line > 0")]
         rnd.shuffle(meths); rnd.shuffle(fields); done = 0
@@ -299,18 +290,6 @@ def main(argv):
             if kind == 'signature': V_.fact(bool(blk), f"PreToolUse: no block for a signature edit of {s['display']} ({where})")
             else: V_.fact(not blk, f"PreToolUse: a block for a body-only edit of {s['display']} ({where})")
             if blk: V_.check_change(blk, s['file'], '\n'.join(L), new_text)
-            # after the edit lands: write the copy in place, run the PostToolUse block, restore
-            # RESTORE FROM MEMORY, NOT FROM A .bak ON DISK. Two runs of this harness on one repository interleaved
-            # their copy/move pairs, one restore consumed the other's backup, and the last writer left `# __edited`
-            # sitting in the subject's source — where the next measurement would have taken it for the code. A
-            # harness that edits a repository in place must be able to put it back without depending on a file.
-            original = '\n'.join(L)
-            open(fp, 'w').write(new_text)
-            try:
-                blk2 = hook('enrich.py', 'PostToolUse', 'Edit', {'file_path': fp, 'old_string': old_s, 'new_string': new_s}, V_.repo, session=f'w{done}')
-                V_.fact(bool(blk2), f"PostToolUse: no block for a {kind} edit of {s['display']} ({s['file']}:{i + 1 if kind == 'body' else s['line']}: {old_s.strip()[:60]!r})")
-                if blk2: V_.check_change(blk2, s['file'], '\n'.join(L), new_text)
-            finally: open(fp, 'w').write(original)
             done += 1
         for f_ in fields[:max(2, n_edits // 3)]:
             fp = os.path.join(V_.repo, f_['file'])

@@ -17,8 +17,7 @@ the model would receive. It indexes one case, so it needs the engine, as run.py 
     python3 tests/hosts.py
 """
 import json, os, shutil, subprocess, sys, tempfile
-# the directive's once-per-session stamp lives in the temp directory, keyed on the session: a run of its own, or a
-# second run of this script reuses the first run's session ids and hears nothing
+# hook state lives in the temp directory, keyed on the session
 os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='ax-hooks-')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -127,39 +126,6 @@ with tempfile.TemporaryDirectory() as work:
         print('FAIL could not index the case; the engine is needed\n     ' + built.stderr.strip()[-300:])
         sys.exit(1)
     lib = os.path.join(repo, 'lib.py')
-
-    # PostToolUse Read: enrich.py adds the edges the file does not show.
-    rc, out = fire('enrich.py', original('PostToolUse', 'Read', {'file_path': lib}, repo, 'e1'))
-    rc2, out2 = fire('enrich.py', cursor('postToolUse', 'Read', {'file_path': lib}, repo, 'e2'), cursor=True)
-    first = said_original(out)
-    check('enrich after a Read: the original host hears the callers the file does not show',
-          rc == 0 and 'test_greet' in first, out[:160])
-    check('enrich after a Read: Cursor hears the same lines', rc2 == 0 and first and said_cursor(out2, 'postToolUse') == first,
-          out2[:160])
-
-    rc3, out3 = fire('enrich.py', gemini('AfterTool', 'read_file', {'file_path': lib}, repo, 'e3'))
-    check('enrich after read_file: Gemini hears the same lines',
-          rc3 == 0 and first and said_gemini(out3, 'AfterTool') == first, out3[:160])
-
-    # PostToolUse on a shell read: Cursor calls the tool Shell. `cat` of a source file is enriched as a Read.
-    grep = {'command': 'cat lib.py'}
-    rc, out = fire('enrich.py', original('PostToolUse', 'Bash', grep, repo, 'g1'))
-    rc2, out2 = fire('enrich.py', cursor('postToolUse', 'Shell', grep, repo, 'g2'), cursor=True)
-    first = said_original(out)
-    check('enrich after `cat` in a shell: the original host hears the callers', rc == 0 and 'test_greet' in first,
-          out[:160])
-    check("enrich after `cat` in a shell: Cursor's Shell is the same tool as Bash",
-          rc2 == 0 and first and said_cursor(out2, 'postToolUse') == first, out2[:160])
-
-    rc3, out3 = fire('enrich.py', gemini('AfterTool', 'run_shell_command', grep, repo, 'g3'))
-    check("enrich after `cat` in a shell: Gemini's run_shell_command is the same tool as Bash",
-          rc3 == 0 and first and said_gemini(out3, 'AfterTool') == first, out3[:160])
-
-    # PreToolUse: Cursor's preToolUse output has no context field, so the directive stays silent there.
-    rc, out = fire('direct.py', original('PreToolUse', 'Grep', {'pattern': r'greet\('}, repo, 'd1'))
-    rc2, out2 = fire('direct.py', cursor('preToolUse', 'Grep', {'pattern': r'greet\('}, repo, 'd2'), cursor=True)
-    check('direct: the original host hears the directive', rc == 0 and 'impact' in said_original(out), out[:160])
-    check('direct: Cursor hears nothing, since preToolUse cannot carry context', rc2 == 0 and out2 == '', out2[:160])
 
     # UserPromptSubmit with a graph: changes.py and orient.py answer in Cursor's shape or not at all.
     for hook in ('changes.py', 'orient.py'):
