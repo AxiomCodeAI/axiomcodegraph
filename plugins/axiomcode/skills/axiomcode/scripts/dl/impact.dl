@@ -1094,6 +1094,16 @@ direct(q, c, "uses", cat("framework-mediated, not a call: servlet_filter via ", 
 // twice, which is the shape that made an override count as both contract and reached.
 .decl protocol_member(t:symbol, m:symbol)
 protocol_member(t, m) :- member(t, m, n, _), match("__.*__", n), n != "__init__".
+// Showing a value (`__repr__`, `__str__`, `__format__`), pickling or copying it (`__getstate__`, `__setstate__`,
+// `__reduce__`, ...) and deleting from it (`__delitem__`, `__delattr__`, `__del__`) happen only when some code asks,
+// so a constructor deep inside other code says nothing about whether they run, and taking the hop from every one of
+// them named every test above it. A TEST that builds the object is the one that asks: for these the hop is taken
+// from test code only.
+.decl protocol_on_demand(n:symbol)
+protocol_on_demand("__repr__"). protocol_on_demand("__str__"). protocol_on_demand("__format__").
+protocol_on_demand("__getstate__"). protocol_on_demand("__setstate__"). protocol_on_demand("__getnewargs__").
+protocol_on_demand("__getnewargs_ex__"). protocol_on_demand("__reduce__"). protocol_on_demand("__reduce_ex__").
+protocol_on_demand("__delitem__"). protocol_on_demand("__delattr__"). protocol_on_demand("__del__").
 .decl constructs(c:symbol, t:symbol)
 constructs(c, t) :- member(t, i, "__init__", _), edge(c, i, _), c != i.
 // The hop is taken only where the CHANGE ITSELF is a protocol member, not wherever one turns up in the closure.
@@ -1102,7 +1112,9 @@ constructs(c, t) :- member(t, i, "__init__", _), edge(c, i, _), c != i.
 // that cost 115 false pairs for 46 true ones. Narrowed to the seed it keeps what it was written for — a
 // declaration with NO call site by design, whose callers are whoever built the object — and drops the rest.
 .decl protocol_hop(q:symbol, c:symbol, m:symbol)
-protocol_hop(q, c, m) :- seed(q, m), protocol_member(t, m), constructs(c, t), c != m.
+protocol_hop(q, c, m) :- seed(q, m), protocol_member(t, m), member(t, m, n, _), !protocol_on_demand(n), constructs(c, t), c != m.
+protocol_hop(q, c, m) :- seed(q, m), protocol_member(t, m), member(t, m, n, _), protocol_on_demand(n), constructs(c, t), c != m,
+                         decl_file(c, f), is_test_file(f).
 up(q, c, 1) :- protocol_hop(q, c, _).
 parent_up(q, a, b, "protocol") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, protocol_hop(q, a, b).
 // WHAT RUNS AT IMPORT. `settings = Settings()` at the top level of a module is executed by the import statement,
