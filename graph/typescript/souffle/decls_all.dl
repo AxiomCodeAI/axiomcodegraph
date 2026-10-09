@@ -220,6 +220,7 @@
 .decl collection_receiver(c0:symbol)
 .decl keyed_collection_ref(c0:symbol)
 .decl handed_function(c0:symbol,c1:symbol)
+.decl expr_namespace_member(c0:symbol)
 .decl jsx_value_root(c0:symbol)
 .decl jsx_handed_value(c0:symbol,c1:symbol)
 .decl jsx_root_caller(c0:symbol,c1:symbol)

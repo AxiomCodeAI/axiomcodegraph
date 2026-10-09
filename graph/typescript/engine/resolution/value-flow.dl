@@ -618,6 +618,20 @@ call_runs(ce, m) :- callee_branch(ce, x),
 call_runs(ce, m) :- callee_branch(ce, x),
     ts_field_access_target(x, f),
     holder_holds_function(f, m).
+// A CALL THROUGH AN IMPORTED HOLDER. A package's public functions are often its default instance's methods,
+// exported as consts: `export const createDraft = immer.createDraft.bind(immer)`, `export const plain =
+// engine.plain`. The holder rules know what the const holds (method_value follows the read and `bind`), but a
+// call names the const through an import, and the two clauses above take only a local variable, a parameter
+// or a field: every caller outside the defining module — its whole test suite — ran nothing. expr_holder
+// follows the import, and a namespace member, to the exporting module's own variable, never by name.
+call_runs(ce, m) :- call_callee_expr(_, ce, x),
+    expr_referenced("client", "IMPORT_BINDING", _, x),
+    expr_holder(x, h),
+    holder_holds_function(h, m).
+call_runs(ce, m) :- call_callee_expr(_, ce, x),
+    expr_namespace_member(x),
+    expr_holder(x, h),
+    holder_holds_function(h, m).
 
 // ============================================================================
 // A FUNCTION ASSIGNED TO AN INTERFACE'S METHOD MEMBER IMPLEMENTS IT  (#1283)
@@ -719,6 +733,11 @@ expr_holder(x, f) :- ts_field_access_target(x, f).
 // an imported `const` is the exporting module's variable
 expr_holder(x, v) :- expr_referenced("client", "IMPORT_BINDING", ih, x),
     import_binds(ih, _, "VARIABLE", v).
+// …and so is one read off a namespace import, `api.createDraft`
+expr_holder(x, v) :- property_access_recv(x, n, q),
+    expr_namespace(q, _, mod),
+    module_export(_, mod, n, "VARIABLE", v).
+expr_namespace_member(x) :- property_access_recv(x, _, q), expr_namespace(q, _, _).
 
 // ── holder_elem_fn(Holder, Fn): an element of the holder's collection is, or holds, Fn ──
 holder_elem_fn(h, m) :- holder_elem_value(h, x),
