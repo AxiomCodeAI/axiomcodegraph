@@ -182,6 +182,18 @@ py_copy_module("copy").
 py_copy_function("copy").
 py_copy_function("deepcopy").
 
+// ── py_returns_arg(DottedName, Position) — a library call that hands back an argument ──
+// Each returns, unchanged, the argument at Position (documented behaviour, not inference):
+//   functools.update_wrapper(wrapper, wrapped)  -> wrapper   (copies __name__/__doc__ onto it)
+//   typing.cast(T, value)                       -> value     (a no-op at run time)
+// A decorator written `return update_wrapper(wrapper, f)`, or the typed spelling
+// `return t.cast(F, update_wrapper(wrapper, f))`, is therefore the same shape as one
+// returning `wrapper` under @functools.wraps. Without these every method it decorates was
+// decorator_replaced_target, and no call through the attribute reached anything
+// (call-edge-generation/call_chain.dl). Neither module is staged in a client-only run.
+py_returns_arg("functools.update_wrapper", "0").
+py_returns_arg("typing.cast", "1").
+
 // ── py_builtin_dynamic(Name) — the escape hatches ────────────────────────────
 // These do not merely lack Python source; they make the PROGRAM unanalysable at that
 // point. A call to getattr/eval/exec means the engine cannot know what runs, and the
