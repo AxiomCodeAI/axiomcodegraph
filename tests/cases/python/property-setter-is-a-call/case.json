@@ -1,0 +1,16 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "assigning `obj.x = v` runs x's @x.setter: a test that assigns reaches a change to the setter, one that only reads does not",
+   "run": ["impact", "pkg/m.py:10", "--tests"],
+   "want": ["test_write.py"],
+   "avoid": ["test_read.py"]},
+  {"why": "`del obj.x` runs x's @x.deleter",
+   "run": ["impact", "pkg/m.py:14", "--tests"],
+   "want": ["test_delete.py"],
+   "avoid": ["test_read.py"]},
+  {"why": "a setter's own calls are reached through the write too",
+   "run": ["impact", "check", "--tests"],
+   "want": ["test_write.py"]},
+  {"why": "CONTROL: the getter keeps its readers",
+   "run": ["impact", "pkg/m.py:6", "--tests"],
+   "want": ["test_read.py"]}]}

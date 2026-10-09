@@ -345,6 +345,25 @@ iter_protocol_edge(src, caller, m) :-
     expr_type("client", src, t), iter_protocol_target(t, m),
     expr_ultimate_method("client", src, caller).
 
+// ── property_write_edge(WriteExprHash, CallerMethodHash, AccessorMethodHash) ──
+// The store and delete halves of the property protocol: `obj.x = v` calls x's setter,
+// `del obj.x` its deleter (type_property_accessor, resolution/attribute-lookup.dl). Same
+// shape as a read, keyed on the access's own name context.
+property_write_edge(e, caller, m) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context("client", "STORE", e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type("client", obj, t),
+    type_property_accessor("client", t, n, "PROPERTY_SETTER", m),
+    expr_ultimate_method("client", e, caller).
+property_write_edge(e, caller, m) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context("client", "DEL", e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type("client", obj, t),
+    type_property_accessor("client", t, n, "PROPERTY_DELETER", m),
+    expr_ultimate_method("client", e, caller).
+
 // ── property_read_edge(ReadExprHash, CallerMethodHash, GetterMethodHash) ─────
 property_read_edge(e, caller, getter) :-
     expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
@@ -693,6 +712,7 @@ subscript_protocol_edge(sub, caller, m) :-
 // from the graph rather than being re-tiered. A dropped edge is worse than a mislabelled
 // one, and the golden caught it.
 protocol_edge(e, d, caller, m) :- property_read_edge(e, caller, m), method_decl(_, d, _, _, _, m).
+protocol_edge(e, d, caller, m) :- property_write_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 protocol_edge(e, d, caller, m) :- with_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 protocol_edge(e, d, caller, m) :- iter_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
 protocol_edge(e, d, caller, m) :- subscript_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
@@ -754,6 +774,12 @@ protocol_edge_wide(e, d, n) :-
 // and can never be mistaken for a written call.
 call_chain_edge(e, caller, "-", getter, "client", cls, "PROPERTY_READ") :-
     property_read_edge(e, caller, getter), method_decl(_, d, _, _, _, getter),
+    protocol_edge_class(e, d, cls).
+
+// PROPERTY WRITE — `obj.x = v` runs x's setter and `del obj.x` its deleter. Likewise no
+// call site, and its own kind so it is never counted as a written call.
+call_chain_edge(e, caller, "-", m, "client", cls, "PROPERTY_WRITE") :-
+    property_write_edge(e, caller, m), method_decl(_, d, _, _, _, m),
     protocol_edge_class(e, d, cls).
 
 // CONTEXT MANAGER — the same shape: an edge with no call site, its own kind so it can
