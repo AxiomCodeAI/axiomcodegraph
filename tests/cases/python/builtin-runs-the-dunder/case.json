@@ -1,0 +1,17 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "repr(v) runs type(v).__repr__: a test asserting a validator's repr covers what that __repr__ calls",
+   "run": ["impact", "describe_type", "--tests"],
+   "want": ["test_repr.py"],
+   "avoid": ["test_len.py", "test_other.py"]},
+  {"why": "len(x) runs __len__, and bool(x) on a class with no __bool__ runs __len__ too",
+   "run": ["impact", "count_items", "--tests"],
+   "want": ["test_len.py"],
+   "avoid": ["test_repr.py"]},
+  {"why": "str(x) on a class with no __str__ runs its __repr__",
+   "run": ["impact", "Plain.__repr__", "--tests"],
+   "want": ["test_str.py"]},
+  {"why": "CONTROL: str(x) on a class that defines __str__ does not run its __repr__, and constructing it runs neither",
+   "run": ["impact", "Shown.__repr__", "--tests"],
+   "want": ["tests: 0 of"],
+   "avoid": ["test_str.py", "test_other.py"]}]}
