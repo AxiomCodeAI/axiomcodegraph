@@ -585,6 +585,15 @@ binding_declared_nominal(p, bind, d) :-
     binding_declared_ref(p, bind, r),
     type_ref_resolved(p, d, r),
     !type_is_structural(p, d).
+// `x: Optional[Order] = ...` / `x: Order | None = ...` IS an Order (or None) — the rule the
+// parameter, return and field annotations already have (resolution/annotations.dl,
+// "Optional[X] IS X"), which the local annotation alone was missing: a local written
+// with the commonest modern spelling stayed untyped while the same annotation on a
+// parameter resolved.
+binding_declared_nominal(p, bind, t) :-
+    type_ref_owner(p, bind, "BINDING", r),
+    type_ref(p, k, "VARIABLE_ANNOTATION", _, _, r), annotation_optional_kind(k),
+    type_ref_element(p, r, t), !type_is_structural(p, t).
 // The FK is resolved on only 14 of 479 variable annotations, so the name-based lookup
 // beside it is what carries this -- the same two clauses the parameter path uses, with
 // the same kind restriction. A SUBSCRIPT or a UNION names no single type and is served by
