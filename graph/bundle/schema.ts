@@ -358,6 +358,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'new', languages: C, meaning: 'An object creation. The target is the constructed type\'s constructor, and it is never dispatched.' },
   { table: 'call_edges', column: 'kind', value: 'ctor_delegate', languages: C, meaning: '`: this(...)` or `: base(...)`. No name is written, so the target is structural.' },
   { table: 'call_edges', column: 'kind', value: 'primary_ctor_base', languages: C, meaning: 'SYNTHESISED. A primary constructor\'s base invocation, written in the heritage clause: `class D(int a) : B(a)`. There is no call syntax anywhere in the body. FromExpr is the heritage type reference.' },
+  { table: 'call_edges', column: 'kind', value: 'implicit_base_ctor', languages: C, meaning: 'SYNTHESISED. The base class\'s parameterless constructor that a constructor with no `: base(...)` / `: this(...)` runs before its body, or that the implicit constructor of a class declaring none runs at its `new`. FromExpr is the heritage type reference, or the `new` site.' },
   { table: 'call_edges', column: 'kind', value: 'delegate', languages: C, meaning: 'A call through a delegate value: `handler(x)` or `handler.Invoke(x)`.' },
   { table: 'call_edges', column: 'kind', value: 'operator', languages: C, meaning: 'A user-defined operator invoked by operator syntax.' },
   { table: 'call_edges', column: 'kind', value: 'conversion', languages: C, meaning: 'A user-defined conversion. An implicit one has no syntax at the call site.' },

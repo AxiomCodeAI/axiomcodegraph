@@ -149,3 +149,27 @@ module_in_scope(prov, mod, outer) :-
 
 // The GLOBAL namespace ("") is always in scope.
 module_in_scope(prov, mod, "") :- module_decl(prov, _, _, _, mod).
+
+// module_ns_chain(Prov, ModuleHash, Namespace) -- the namespaces a name written in this
+// file is read from: the file's own namespaces and every dotted prefix of them, as
+// text. A prefix that holds no type of its own (`Acme` over `Acme.Shop`) still
+// qualifies a name written below it, so this is not ns_encloses, which needs one.
+module_ns_chain(prov, mod, ns) :- module_namespace_own(prov, mod, ns), ns != "".
+module_ns_chain(prov, mod, p) :- module_namespace_own(prov, mod, inner), ns_prefix(prov, inner, p).
+
+// ── A USING WRITTEN INSIDE A NAMESPACE ─────────────────────────────────────
+// `namespace Shop.Tests; using Results;` imports Shop.Results. C# reads the name in
+// a using directive from the namespace the directive sits in, innermost outward,
+// exactly as it reads any other name there. Taken as written it names a namespace
+// that does not exist, and every type the file names through it reads as a library
+// type.
+//
+// The IR does not record whether a using sits inside the namespace or above it.
+// The language decides it instead: a using whose name is no namespace at all only
+// compiles inside a namespace that has it as a child. So the relative reading is
+// taken only when the name as written names nothing, and only for a child that
+// exists -- a file whose namespaces have no such child gains nothing.
+module_in_scope(prov, mod, full) :-
+    using_namespace(prov, mod, n), !ns_exists(prov, n),
+    module_ns_chain(prov, mod, e), full = cat(e, cat(".", n)),
+    ns_exists(prov, full).

@@ -103,6 +103,8 @@ KIND = {
     'new': 'new', 'CONSTRUCTOR_CALL': 'new', 'anon_new': 'new', 'METACLASS_CREATION': 'new',
     # one constructor to another
     'ctor_delegate': 'ctor', 'SUPER_CALL': 'super',
+    # C#: a base constructor no syntax names: the implicit `base()` a constructor without an initializer runs
+    'implicit_base_ctor': 'ctor',
     # the callable is named, not called at that line — it runs when whoever took it runs it
     'ref': 'method-ref',
     # a declaration handed to a decorator, which is what wires most framework handlers up
