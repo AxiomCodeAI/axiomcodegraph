@@ -937,7 +937,9 @@ parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_
 // shape — which is the whole argument for keeping cases beside a corpus.
 .decl up_running(q:symbol, m:symbol, d:number)
 up_running(q, m, 0) :- seed(q, m).
-up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), !state_gate(a, b, _), d < 40.
+// a module body's call made only under `if __name__ == "__main__":` runs when the file is a script, never on import
+.decl guard_only(a:symbol, b:symbol)                              .input guard_only
+up_running(q, a, d+1) :- up_running(q, b, d), edge(a, b, "known_edge"), !state_gate(a, b, _), !guard_only(a, b), d < 40.
 // the same gate as `up` (above): a caller that leaves the instance code keeps the route only on an instance given f
 .decl up_running_g(q:symbol, m:symbol, t:symbol, f:symbol, d:number)
 up_running_g(q, a, t, f, d+1) :- up_running(q, f, d), state_gate(a, f, t), edge(a, f, "known_edge"), d < 40.
