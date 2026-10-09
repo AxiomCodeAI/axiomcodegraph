@@ -112,6 +112,10 @@
 .decl wrapper_holder_call(c0:symbol, c1:symbol)
 .decl wrapper_runs(c0:symbol, c1:symbol)
 .decl wrapper_call_target(c0:symbol, c1:symbol)
+.decl wrap_runs(c0:symbol, c1:symbol)
+.decl wrapped_call_target(c0:symbol, c1:symbol)
+.decl wrapped_target_count(c0:symbol, c1:number)
+.decl wrapped_over_cap(c0:symbol)
 .decl live_export_variable(c0:symbol, c1:symbol)
 .decl this_type_open(c0:symbol)
 
