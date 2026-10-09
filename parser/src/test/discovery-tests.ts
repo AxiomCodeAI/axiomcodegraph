@@ -286,6 +286,40 @@ const CHECKS: Check[] = [
     },
   },
   {
+    name: 'a-test-the-build-tsconfig-excludes-is-analysed-with-the-program-it-imports',
+    proves: 'a spec file and its helper, excluded by the root tsconfig (`exclude: ["test/**"]`) and '
+      + 'claimed by no other config, are analysed because they import the program; an unclaimed '
+      + 'file that imports nothing of the program is still reported as NO_PROGRAM_CLAIMS_FILE',
+    rulesOut: 'analysing only what a config claims plus what claimed files import: a build config '
+      + 'that leaves its tests to the runner made every test file an orphan, so test selection '
+      + 'reached none of them',
+    run: async (tmp) => {
+      const root = build(tmp, 'excluded-tests', {
+        'tsconfig.json': '{"compilerOptions":{"rootDir":"./src","strict":true},"include":["src"],"exclude":["test/**"]}',
+        'src/lib.ts': 'export function area(w: number, h: number): number { return w * h; }\n',
+        'test/helper.ts': 'import { area } from "../src/lib";\nexport const unit = () => area(1, 1);\n',
+        'test/lib.spec.ts': 'import { area } from "../src/lib";\nimport { unit } from "./helper";\nexport const ok = area(2, 3) === 6 && unit() === 1;\n',
+        'tools/standalone.ts': 'export function alone(): number { return 1; }\n',
+      });
+      const out = path.join(tmp, 'excluded-tests-out');
+      const silence = console.log;
+      console.log = () => {};
+      try {
+        await extractProject({ projectPath: root, versionLink: 'v1', outputDir: out, layout: 'per-language' });
+      } finally {
+        console.log = silence;
+      }
+      const modules = fs.readFileSync(path.join(out, 'typescript', 'all-typescript-modules.csv'), 'utf-8');
+      const skipped = fs.readFileSync(path.join(out, 'typescript', 'skipped-typescript-files.csv'), 'utf-8');
+      if (!modules.includes('src/lib.ts')) return 'control: the claimed source file src/lib.ts is not analysed';
+      const missing = ['test/lib.spec.ts', 'test/helper.ts'].filter((f) => !modules.includes(f));
+      if (missing.length > 0) return `not analysed though they import the program: ${missing.join(', ')}`;
+      if (modules.includes('tools/standalone.ts')) return 'tools/standalone.ts imports nothing of the program, yet joined it';
+      if (!/tools\/standalone\.ts\t[^\n]*NO_PROGRAM_CLAIMS_FILE/.test(skipped)) return 'tools/standalone.ts is no longer reported as NO_PROGRAM_CLAIMS_FILE';
+      return null;
+    },
+  },
+  {
     name: 'per-language-keeps-the-javascript-of-a-dist-shipping-package',
     proves: 'extractProject in per-language layout writes javascript/ for a package whose only '
       + 'JavaScript is the dist/ its package.json ships from, which discovery does not call a project',

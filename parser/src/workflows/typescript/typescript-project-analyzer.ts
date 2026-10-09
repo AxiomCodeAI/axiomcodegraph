@@ -757,34 +757,65 @@ function filesOfRootProgram(
   const texts = new Map<string, string>();
   const included = new Set(claimed.map((f) => path.normalize(f)));
   const available = new Map(unclaimed.map((f) => [path.normalize(f), f]));
-  const queue = [...claimed];
-  while (queue.length > 0) {
-    const current = queue.pop()!;
+  // What each file imports, resolved and normalised; read once, for both walks below.
+  const importsOf = new Map<string, string[]>();
+  const resolvedImports = (file: string): string[] => {
+    const known = importsOf.get(file);
+    if (known !== undefined) {
+      return known;
+    }
+    const keys: string[] = [];
+    importsOf.set(file, keys);
     let text: string;
     try {
-      text = fs.readFileSync(current, 'utf-8');
+      text = fs.readFileSync(file, 'utf-8');
     } catch {
-      continue;
+      return keys;
     }
-    texts.set(current, text);
+    texts.set(file, text);
     // No parent pointers and no type nodes needed: this pass only reads
     // specifiers, so the cheapest possible parse is the right one.
-    const script = scriptTextOf(current, text);
-    const sf = ts.createSourceFile(current, script.text, ts.ScriptTarget.Latest, false,
-      script.scriptKind ?? (current.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS));
+    const script = scriptTextOf(file, text);
+    const sf = ts.createSourceFile(file, script.text, ts.ScriptTarget.Latest, false,
+      script.scriptKind ?? (file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS));
     for (const specifier of importSpecifiersOf(sf)) {
-      const resolved = ts.resolveModuleName(specifier, current, rootOptions, ts.sys, resolutionCache)
-        .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, current);
-      if (resolved === undefined) {
-        continue;
+      const resolved = ts.resolveModuleName(specifier, file, rootOptions, ts.sys, resolutionCache)
+        .resolvedModule?.resolvedFileName ?? resolveVueSpecifier(specifier, file);
+      if (resolved !== undefined) {
+        keys.push(path.normalize(resolved));
       }
-      const key = path.normalize(resolved);
-      if (included.has(key) || !available.has(key)) {
-        continue;
-      }
-      included.add(key);
-      queue.push(available.get(key)!);
     }
+    return keys;
+  };
+  const queue = [...claimed];
+  const closeOverImports = (): void => {
+    while (queue.length > 0) {
+      for (const key of resolvedImports(queue.pop()!)) {
+        if (included.has(key) || !available.has(key)) {
+          continue;
+        }
+        included.add(key);
+        queue.push(available.get(key)!);
+      }
+    }
+  };
+  closeOverImports();
+  // ...and the files that import the program. A build config routinely excludes its
+  // tests (`exclude: ["test/**", "**/*.spec.ts"]`) and leaves them to the test runner,
+  // so no config claims them and nothing claimed imports them: they arrived nowhere,
+  // and every test the change reaches was invisible to test selection. A file no other
+  // config owns that imports a file of this program is part of what the program runs
+  // under; it joins, together with the unclaimed files it pulls in.
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [key, file] of available) {
+      if (!included.has(key) && resolvedImports(file).some((k) => included.has(k))) {
+        included.add(key);
+        queue.push(file);
+        grew = true;
+      }
+    }
+    closeOverImports();
   }
 
   const files = [...included].map((f) => available.get(f) ?? f);
