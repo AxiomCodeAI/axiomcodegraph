@@ -199,6 +199,25 @@ type_ref_element(p, parentRef, t) :-
     annotation_owner_module(p, owner, ok, mod),
     type_name_in_module(p, mod, tn, t).
 
+// ── union_operand(Prov, UnionRefHash, OperandRefHash) — every operand of a union ──
+// `|` is LEFT-associative, so `A | B | None` is `(A | B) | None`: A and B are not
+// children of the annotation but grandchildren, under a nested UNION_PEP604, and the
+// depth-1 clauses above saw only that nested union (which names no type) and None. Every
+// rule reading "Optional[X] IS X" therefore lost the members of any union with three or
+// more operands, on a parameter, a return, a field or a local alike.
+union_operand(p, r, c) :-
+    type_ref(p, k, _, _, _, r), annotation_optional_kind(k), type_ref_nesting(p, r, _, _, c).
+union_operand(p, r, c) :-
+    union_operand(p, r, u), type_ref(p, "UNION_PEP604", _, _, _, u), type_ref_nesting(p, u, _, _, c).
+// the operands BELOW depth 1 (depth 1 is the clauses above), resolved, and by name
+type_ref_element(p, r, t) :-
+    union_operand(p, r, c), type_ref_nesting(p, _, _, d, c), d != "1", type_ref_resolved(p, t, c).
+type_ref_element(p, r, t) :-
+    union_operand(p, r, c), type_ref_nesting(p, _, _, d, c), d != "1",
+    type_ref(p, _, "GENERIC_ARGUMENT", tn, _, c), tn != "",
+    type_ref_owner(p, owner, ok, r), annotation_owner_module(p, owner, ok, mod),
+    type_name_in_module(p, mod, tn, t).
+
 // ── annotation_owner_module(Prov, OwnerHash, OwnerKind, ModuleHash) ──────────
 // The module an annotation was written in, whatever kind of declaration owns it.
 annotation_owner_module(p, ph, "METHOD_PARAM", mod) :-
