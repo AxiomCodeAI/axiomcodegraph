@@ -1,0 +1,121 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a test client's get() runs the open() the client subclass overrides: the library calls it back, no call site names it",
+   "run": [
+    "impact",
+    "AppClient.open",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_web.py",
+    "library callback"
+   ]
+  },
+  {
+   "why": "the test client then calls the application it was built around (stored by the library's constructor, called as app(environ, start))",
+   "run": [
+    "impact",
+    "App.dispatch",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_web.py"
+   ]
+  },
+  {
+   "why": "CONTROL: an open() on a class no library calls back is reached only by its own test",
+   "run": [
+    "impact",
+    "Unrelated.open",
+    "--tests"
+   ],
+   "want": [
+    "test_unrelated"
+   ],
+   "avoid": [
+    "test_index"
+   ]
+  },
+  {
+   "why": "a CLI runner's invoke(cli) calls main() on the command, whose make_context() the client overrides",
+   "run": [
+    "impact",
+    "AppGroup.make_context",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_cli.py",
+    "test_group"
+   ]
+  },
+  {
+   "why": "a library function calls a member on the object handed to it",
+   "run": [
+    "impact",
+    "Listener.on_event",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_events.py"
+   ]
+  },
+  {
+   "why": "CONTROL: an object handed to a library function that never calls that member gains nothing",
+   "run": [
+    "impact",
+    "Kept.on_event",
+    "--tests"
+   ],
+   "avoid": [
+    "tests/test_events.py"
+   ]
+  },
+  {
+   "why": "CONTROL: an object with the same member name that is never handed to the library gains nothing",
+   "run": [
+    "impact",
+    "Other.on_event",
+    "--tests"
+   ],
+   "avoid": [
+    "tests/test_events.py"
+   ]
+  },
+  {
+   "why": "a function a library decorator wraps into a command object is called back when a runner invokes that object",
+   "run": [
+    "impact",
+    "greet",
+    "--tests"
+   ],
+   "want": [
+    "test_greet"
+   ]
+  },
+  {
+   "why": "a field the library declares as its base type, filled where the client cannot be followed (**options): the client subclass of that type that defines the member is the one called back",
+   "run": [
+    "impact",
+    "AppLoader.get_source",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_render.py"
+   ]
+  },
+  {
+   "why": "CONTROL: a class with the same member that is not a subclass of the declared library type gains nothing",
+   "run": [
+    "impact",
+    "OtherLoader.get_source",
+    "--tests"
+   ],
+   "avoid": [
+    "tests/test_render.py"
+   ]
+  }
+ ]
+}

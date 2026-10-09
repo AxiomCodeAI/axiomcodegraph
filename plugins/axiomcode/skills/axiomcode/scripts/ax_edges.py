@@ -507,9 +507,14 @@ LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package returned 
 
 
 def library_receiver_sites(q):
-    """the ids of the unresolved call sites whose receiver is a package's value. q(sql, params) -> rows."""
-    if not list(q("SELECT 1 FROM sqlite_master WHERE name = 'ext_library_receiver'", ())): return set()
-    return {r[0] for r in q("SELECT DISTINCT c0 FROM ext_library_receiver", ())}
+    """the ids of the unresolved call sites whose receiver is a package's value, or that the engine knows enter a
+    library callable (Python ext_lib_callback_site: a member a client type inherits from its library base, whose
+    source declares it). q(sql, params) -> rows."""
+    out = set()
+    for t in ('ext_library_receiver', 'ext_lib_callback_site'):
+        if list(q("SELECT 1 FROM sqlite_master WHERE name = ?", (t,))):
+            out |= {r[0] for r in q(f"SELECT DISTINCT c0 FROM {t}", ())}
+    return out
 
 
 # ── a MOCKED TYPE: a test class that holds a mock of T never runs T's methods ────────────────────────────────────

@@ -1082,6 +1082,13 @@ fw_edge(a, b, "remote") :- remote(a, b, _, _, _), a != b.
 // the test methods that send a request get the hop; its own rung, `registered`, never a call chain.
 .decl filter_run(a:symbol, b:symbol, how:symbol)                  .input filter_run
 fw_edge(a, b, "filter") :- filter_run(a, b, _), a != b.
+// A LIBRARY CALLING BACK INTO THE CLIENT. The engine's lib_callback_edge (Python framework-behavior/library-callbacks.dl):
+// a call into an installed library that the library's own source is summarised to hand back to a client member -- a
+// test client's get() running the open() a client subclass overrides, a runner running the command it was handed.
+// No call site names the client member, so without this hop a test that drives the library never reached it. Its own
+// rung, `library callback`: a library's behaviour joined by a member name, never a resolved call.
+.decl libcb(a:symbol, b:symbol, callee:symbol, member:symbol)     .input libcb
+fw_edge(a, b, "library callback") :- libcb(a, b, _, _), a != b.
 // and the filter's own answer names who runs it, worded as a framework hop (the `framework` rule above)
 direct(q, c, "uses", cat("framework-mediated, not a call: servlet_filter via ", cat(how, " [registered]")), "framework", "", 0)
     :- target(q, "method", m, _), filter_run(c, m, how), c != m.
