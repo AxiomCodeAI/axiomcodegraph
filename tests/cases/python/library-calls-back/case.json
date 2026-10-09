@@ -116,6 +116,17 @@
    "avoid": [
     "tests/test_render.py"
    ]
+  },
+  {
+   "why": "path walks the library's hand-back too: from the test to the application the test client calls",
+   "run": [
+    "path",
+    "test_index",
+    "App.dispatch"
+   ],
+   "want": [
+    "library_callback via webkit.testing.Client.get -> __call__"
+   ]
   }
  ]
 }

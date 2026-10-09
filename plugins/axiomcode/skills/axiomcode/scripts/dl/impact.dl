@@ -1089,6 +1089,9 @@ fw_edge(a, b, "filter") :- filter_run(a, b, _), a != b.
 // rung, `library callback`: a library's behaviour joined by a member name, never a resolved call.
 .decl libcb(a:symbol, b:symbol, callee:symbol, member:symbol)     .input libcb
 fw_edge(a, b, "library callback") :- libcb(a, b, _, _), a != b.
+// and the member's own answer names who reaches it that way, worded as a framework hop
+direct(q, c, "uses", cat("framework-mediated, not a call: a library it calls hands this back (", cat(callee, cat(" calls ", cat(member, ")")))), "framework", "", 0)
+    :- target(q, "method", m, _), libcb(c, m, callee, member), c != m.
 // and the filter's own answer names who runs it, worded as a framework hop (the `framework` rule above)
 direct(q, c, "uses", cat("framework-mediated, not a call: servlet_filter via ", cat(how, " [registered]")), "framework", "", 0)
     :- target(q, "method", m, _), filter_run(c, m, how), c != m.
