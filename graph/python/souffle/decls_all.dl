@@ -597,6 +597,8 @@
 .decl decorator_hits_lib(c0:symbol,c1:symbol)
 .decl decorator_hits_builtin(c0:symbol,c1:symbol)
 .decl property_read_edge(c0:symbol,c1:symbol,c2:symbol)
+.decl property_write_edge(c0:symbol,c1:symbol,c2:symbol)
+.decl type_property_accessor(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl with_protocol_edge(c0:symbol,c1:symbol,c2:symbol)
 .decl iteration_protocol_sync(c0:symbol)
 .decl iteration_protocol_of(c0:symbol,c1:symbol)

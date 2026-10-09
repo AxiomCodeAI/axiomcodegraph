@@ -12,7 +12,7 @@ per language, `call_edges` carries 11 distinct tiers and 30 distinct kinds:
                 + COMPUTED_CALL IIFE_CALL DYNAMIC_IMPORT_CALL DYNAMIC_CODE_CALL TAGGED_TEMPLATE_CALL
                   FUNCTION_CALL_APPLY FUNCTION_CALL_CALL FUNCTION_CALL_BIND
     python      SIMPLE_CALL METHOD_CALL SELF_CALL SUPER_CALL CHAINED_CALL SUBSCRIPT_CALL CONTEXT_MANAGER
-                PROPERTY_READ METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
+                PROPERTY_READ PROPERTY_WRITE METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
     csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped event_dispatch
                   runtime_observed (only with a runtime trace) · new property_read property_write
 
@@ -109,7 +109,7 @@ KIND = {
     'DECORATOR_APPLICATION': 'decorator', 'DECORATOR_ATTRIBUTE': 'decorator',
     'DECORATOR_BARE': 'decorator', 'DECORATOR_CALL': 'decorator',
     # an accessor: written as a field, run as a method
-    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property',
+    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property', 'PROPERTY_WRITE': 'property',
     # the language runs it at a block boundary
     'CONTEXT_MANAGER': 'with',
     # run-time code loading

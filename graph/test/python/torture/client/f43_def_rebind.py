@@ -89,10 +89,10 @@ def call_branched() -> str:
 def read_property() -> int:
     """The getter survives — the control that keeps this rule off property pairs.
 
-    EXPECT: miss — `h.value = 5` invokes the SETTER, and the engine emits a
-    PROPERTY_READ edge for a property read and nothing at all for a property WRITE.
-    That is a pre-existing gap this fixture happens to expose, not something #383
-    changed; the getter edge on the next line is what this family is asserting.
+    `h.value = 5` invokes the SETTER, and the engine now emits a PROPERTY_WRITE
+    edge for it beside the PROPERTY_READ for the read; both halves of the pair
+    are live, which is exactly what this control exists to keep true. The getter
+    edge on the next line is what this family is asserting.
     """
     h = Holder()
     h.value = 5
