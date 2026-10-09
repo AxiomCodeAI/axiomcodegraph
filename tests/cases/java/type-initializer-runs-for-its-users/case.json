@@ -1,0 +1,18 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a method called only from a static field initializer runs when the type is first used, so a test that calls a static method of that type is selected",
+   "run": ["impact", "Defaults.build", "--tests"],
+   "want": ["RegistryTest::findsKey"],
+   "avoid": ["OtherTest", "ClientTest", "0 of"]},
+  {"why": "a method called from an instance field initializer runs in every construction, so a test that builds the type is selected",
+   "run": ["impact", "Cache.create", "--tests"],
+   "want": ["ClientTest::readsThroughTheCache"],
+   "avoid": ["RegistryTest", "EngineTest"]},
+  {"why": "a method called from a static block runs when the type is first used",
+   "run": ["impact", "Boot.init", "--tests"],
+   "want": ["EngineTest::runsAfterBoot"],
+   "avoid": ["RegistryTest", "ClientTest"]},
+  {"why": "control: the initializer of a type no test uses selects no test",
+   "run": ["impact", "Unused.compute", "--tests"],
+   "want": ["0 of"],
+   "avoid": ["RegistryTest", "ClientTest", "EngineTest", "OtherTest"]}]}

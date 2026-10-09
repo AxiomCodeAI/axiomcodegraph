@@ -2884,7 +2884,7 @@ def main(argv):
     # absorbed: a front end that gains a tier should show up here the first time anyone queries, not go
     # quietly into the bottom rung forever.
     UNKNOWN_TIERS = set()
-    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'spawns': 'spawns', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import', 'protocol': 'protocol',
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines', 'by key': 'by key', 'spawns': 'spawns', 'decorator': 'sound', 'decorator by name': 'decorator by name', 'at import': 'at import', 'at load': 'at load', 'protocol': 'protocol',
                # handed over as a value and invoked by whoever holds it (`callback_registered`), or emitted
                # here and handled there (`event_dispatch`). Real engine edges, so `by name` understates them;
                # registrations rather than resolutions, so `one of a set` — which claims a resolved target
@@ -2941,7 +2941,7 @@ def main(argv):
     # is not the `fixture` rung it used to be labelled as — a fixture route is weak for exactly the reason this one
     # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
     # the word that means one.
-    CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'one of a set': 3, 'dispatch': 4, 'registered': 5,
+    CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'at load': 2, 'one of a set': 3, 'dispatch': 4, 'registered': 5,
                  'remote': 6, 'spawns': 7, 'by key': 8, 'decorator by name': 9, 'protocol': 10, 'fixture': 11,
                  'by name': 12}
     # `remote` (#1293) sits just above `by key`: both join two ends on a string, but the engine matched a remote
@@ -3489,7 +3489,7 @@ def main(argv):
     # 180k answer on a hub method -- 435 tests, 433 of them through routes this answer itself calls weak -- which
     # no agent can read inline, so it was saved to a file and re-read piecemeal. Every test is still accounted for:
     # the strong ones by name here, all of them by rung and file under --tests, each route under --why.
-    STRONG = ('sound', 'defines', 'at import', 'one of a set')
+    STRONG = ('sound', 'defines', 'at import', 'at load', 'one of a set')
     tname = lambda m: f"{g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}"
     torder = lambda m: (tests[m][0], g.sym[m]['display'], g.loc(m), m)
     def route(m):

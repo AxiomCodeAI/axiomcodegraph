@@ -3571,6 +3571,21 @@ def _has_framework_hops(q, at=None, site_file=None):
         return True
     return False
 
+def _reaches_init(q, depth):
+    """True when the closure holds a Java initializer the rules hop on from (load_hop): a type reached as a caller, or a
+    <clinit> / <init_block> callable"""
+    if not depth or not _has(q, 'symbols'): return False
+    ids = [m for m, d in depth.items() if d > 0 and m.startswith('TYPE_')]
+    if ids and q("SELECT 1 FROM call_edges WHERE caller_id IN ({}) LIMIT 1".format(','.join('?' * len(ids))), *ids):
+        return True
+    ids = list(depth)
+    for i in range(0, len(ids), 900):
+        part = ids[i:i + 900]
+        if q("SELECT 1 FROM symbols WHERE id IN ({}) AND name IN ('<clinit>', '<init_block>') AND file LIKE '%.java' LIMIT 1"
+             .format(','.join('?' * len(part))), *part):
+            return True
+    return False
+
 def _spawn_edges(q, lines, at):
     """fw_edge(a, b, "spawns") :- spawns_fact(a, b): a test that runs a script by its path (ax_spawn.py)"""
     if lines is None or at is None or not _has(q, 'symbols'): return []
@@ -3868,6 +3883,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         out['direct_edge'] += [[c, m, qq] for c, m in _de]
         out['seed_byname'] += [[c, qq] for c in byname]
         depth = reach_from(rev, seeds, byname, gate=gate)
+        # the `at load` hop (dl/impact.dl load_hop) is not ported: a closure that arrives at a Java type as a caller
+        # (a field initializer) or at a <clinit> / <init_block> goes on to the type's users there, so decline
+        if _reaches_init(q, depth): return None
         out['reach'] += [[m, str(d), qq] for m, d in depth.items()]
         # reach_sure: the same closure from the seeds that are an exact edge only — a seed reached ONLY through a
         # by-name / text / one-of-a-set dependent is weak, and the answer says how much of itself rests on those
