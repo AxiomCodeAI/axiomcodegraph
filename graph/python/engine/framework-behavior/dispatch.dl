@@ -412,6 +412,53 @@ py_fixture_requested(m) :- py_fixture_injection(_, m, _).
 framework_edge(from, to, "fixture_injection", name, "by_name") :-
     py_fixture_injection(from, to, name).
 
+// ── 2a. THE SAME LOOKUP, FROM SYNTAX ALONE ──────────────────────────────────────
+// resolution/value-flow.dl types a parameter by the fixture serving it, so it needs the
+// runner's lookup INSIDE the resolution fixpoint. py_fixture_injection cannot be read
+// there: a fixture a conftest star-imports is found through module_member_method, which
+// is resolution, and the nearest-conftest MAX over it would then be a cyclic aggregate
+// souffle refuses to stratify. This chain keeps the runner's order (class, own module,
+// nearest conftest by its declaring file) and leaves out the two clauses that need
+// resolution — a star-imported fixture and a pytest_plugins one. Those still reach their
+// tests through the injection edge; they only go untyped.
+.decl py_fixs_in_file(fix:symbol, file:symbol)
+py_fixs_in_file(fix, p) :- py_fixture_decl(fix, _), method_file("client", p, fix).
+.decl py_fixs_same_module(req:symbol, name:symbol, fix:symbol)
+py_fixs_same_module(req, name, fix) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req, !py_fixture_class(fix, _),
+    !py_fixture_class_shadowed(req, name),
+    method_file("client", p, req), py_fixs_in_file(fix, p).
+.decl py_fixs_conftest_cand(req:symbol, name:symbol, fix:symbol, depth:number)
+py_fixs_conftest_cand(req, name, fix, dl) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req, !py_fixture_class(fix, _),
+    py_fixs_in_file(fix, cp), py_fixture_scope_file(c),
+    strlen(cp) >= strlen(c), substr(cp, strlen(cp) - strlen(c), strlen(c)) = c,
+    d = substr(cp, 0, strlen(cp) - strlen(c)),
+    method_file("client", p, req),
+    strlen(p) > strlen(d), substr(p, 0, strlen(d)) = d, dl = strlen(d).
+.decl py_fixs_nearest(req:symbol, name:symbol, depth:number)
+py_fixs_nearest(req, name, m) :- py_fixs_conftest_cand(req, name, _, _),
+    m = max dl : { py_fixs_conftest_cand(req, name, _, dl) }.
+.decl py_fixs_injection(from:symbol, to:symbol, name:symbol)
+py_fixs_injection(req, fix, name) :- py_fixture_in_class(req, name, fix).
+py_fixs_injection(req, fix, name) :- py_fixs_same_module(req, name, fix).
+py_fixs_injection(req, fix, name) :- py_fixs_conftest_cand(req, name, fix, dl),
+    !py_fixture_class_shadowed(req, name), !py_fixs_same_module(req, name, _),
+    py_fixs_nearest(req, name, dl).
+
+// ── 2b. FIXTURE VALUE  (what the runner hands the parameter) ────────────────────
+// py_fixture_value_type(Fixture, Type) — the value a fixture hands over: its return or
+// yield value's type, or its declared return. Consumed by resolution/value-flow.dl, where
+// the runner's call `test(fixture_value)` is one more argument reaching a parameter.
+.decl py_fixture_value_type(fix:symbol, t:symbol)
+py_fixture_value_type(fix, t) :- py_fixture_decl(fix, _),
+    method_return_value_expr("client", fix, e), expr_type("client", e, t).
+py_fixture_value_type(fix, t) :- py_fixture_decl(fix, _),
+    method_declared_return_type("client", fix, d), declared_dispatch("client", d, t).
+py_fixture_value_type(fix, t) :- py_fixture_decl(fix, _),
+    expr_node("client", "YIELD", _, _, y), expr_ultimate_method("client", y, fix),
+    expr_parent("client", y, "YIELD_VALUE", _, v), expr_type("client", v, t).
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. URL DISPATCH  (route table -> view)
 // ─────────────────────────────────────────────────────────────────────────────
