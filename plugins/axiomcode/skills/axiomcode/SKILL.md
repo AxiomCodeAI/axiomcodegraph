@@ -80,11 +80,14 @@ once on `index` and kept by every rebuild after it:
     axiomcode index --library auto                                  # the dependencies the project imports
     axiomcode index --library .venv/lib/python3.12/site-packages/requests,/deps/ir/jdk   # or name them
 
-`auto` finds the packages the project's source imports in its virtual environment (`.venv`, `venv`, `$VIRTUAL_ENV`)
-or under `node_modules`. A named entry, comma-separated with no spaces, is a dependency's source directory or a
-library IR (a directory of the parser's CSV tables, as `axiomcode parser <source> <dir> --library` writes it). Every
-source directory is compiled once into `~/.cache/axiomcode/libir/` and reused until its files change. Java and C#
-dependencies are not discovered: name their IR or source directories. Entries are relative to the repository or
+`auto` finds what the project depends on, in every language: a Python package its source imports, in its virtual
+environment (`.venv`, `venv`, `$VIRTUAL_ENV`); a JavaScript / TypeScript package it imports, under `node_modules`; a
+Java dependency `pom.xml` or `build.gradle` declares, through its `-sources.jar` in the Maven repository or Gradle's
+cache; a NuGet package a `.csproj` references, decompiled from its assembly (needs `dotnet tool install -g ilspycmd`).
+Whatever it cannot find (a package never restored, a jar without sources) it names, with the command that fetches it.
+A named entry, comma-separated with no spaces, is a dependency's source directory or a library IR (a directory of the
+parser's CSV tables, as `axiomcode parser <source> <dir> --library` writes it). Every library is compiled once into
+`~/.cache/axiomcode/libir/` and reused until its files change. Entries are relative to the repository or
 absolute; write `~` out, since one after a comma is not expanded. `AXIOMCODE_LIBRARY` takes the same list.
 
 With them, a call into a dependency resolves to its declaration and a chain is typed through its declared return

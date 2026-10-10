@@ -371,6 +371,11 @@ jobs:
         if: matrix.lang == 'csharp'
         run: dotnet build -c Release graph/test/csharp/ground-truth/AxiomCsOracle
 
+      # `--library auto` compiles a NuGet package by decompiling it; the query case for it needs the decompiler
+      - name: install the decompiler `--library auto` uses for NuGet packages
+        if: matrix.lang == 'csharp'
+        run: dotnet tool install -g ilspycmd --version 8.2.0.7535
+
       - name: cache the Soufflé package
         uses: actions/cache@v4
         with:

@@ -4,15 +4,16 @@
 An entry is one of
   auto        the project's dependencies, found where it installed them: a Python package in its virtual environment
               (.venv, venv, env, .env, $VIRTUAL_ENV) or a JavaScript / TypeScript package under node_modules, kept only
-              when the project's own source imports it
+              when the project's own source imports it; a Java dependency pom.xml / build.gradle declares, through its
+              -sources.jar; a NuGet package a .csproj references, decompiled with ilspycmd
   an IR root  a directory already holding the parser's CSV tables (flat, or one level down), passed through
-  a source    a dependency's source directory, compiled once with `bin/axiomcode parser <src> <dir> --library` into
+  a source    a dependency's source directory (a NuGet assembly is decompiled to C# first), compiled once with `bin/axiomcode parser <src> <dir> --library` into
               ~/.cache/axiomcode/libir/ and reused until a file in it changes
 
 Without the cache a source entry was parsed again on every rebuild the graph's refresher started after an edit.
 Notes go to stderr; a failure to compile one entry drops that entry and says so, it never fails the build.
 """
-import glob, hashlib, json, os, re, subprocess, sys, zipfile
+import glob, hashlib, json, os, re, shutil, subprocess, sys, zipfile
 import xml.etree.ElementTree as ET
 
 MARKERS = ('all-types.csv', 'all-typescript-modules.csv', 'all-python-modules.csv', 'all-javascript-modules.csv',
@@ -105,6 +106,7 @@ def discover(repo):
                 found.append(d)
         note(f'auto: {len(found) - before} JavaScript / TypeScript package(s) the project imports, from node_modules')
     found += java_sources(repo)
+    found += csharp_sources(repo)
     if not found:
         note('auto: no dependency found (no virtual environment, node_modules, Maven or Gradle sources jar, or NuGet '
              'package for this repository)')
@@ -175,6 +177,75 @@ def java_sources(repo):
     if missing:
         note(f'auto: no sources jar for {len(missing)} Java dependency(ies) ({", ".join(missing[:5])}'
              f'{" …" if len(missing) > 5 else ""}); `mvn dependency:sources` fetches them')
+    return found
+
+
+def nuget_folder(repo):
+    if os.environ.get('NUGET_PACKAGES'):
+        return os.environ['NUGET_PACKAGES']
+    for cfg in glob.glob(os.path.join(repo, '[Nn]u[Gg]et.[Cc]onfig')):
+        m = re.search(r'key="globalPackagesFolder"\s+value="([^"]+)"', open(cfg, encoding='utf-8', errors='replace').read())
+        if m:
+            return m.group(1) if os.path.isabs(m.group(1)) else os.path.join(repo, m.group(1))
+    return os.path.join(os.path.expanduser('~'), '.nuget', 'packages')
+
+
+def csharp_packages(repo):
+    """(id, version) of every PackageReference a .csproj declares; a version Directory.Packages.props sets centrally."""
+    central, out = {}, []
+    for props in glob.glob(os.path.join(repo, '**', 'Directory.Packages.props'), recursive=True):
+        for i, v in re.findall(r'<PackageVersion\s+Include="([^"]+)"\s+Version="([^"]+)"', open(props, errors='replace').read()):
+            central[i.lower()] = v
+    for proj in glob.glob(os.path.join(repo, '**', '*.csproj'), recursive=True):
+        if any(x in SKIP for x in os.path.relpath(proj, repo).split(os.sep)):
+            continue
+        text = open(proj, encoding='utf-8', errors='replace').read()
+        for i, attrs, body in re.findall(r'<PackageReference\s+Include="([^"]+)"([^>]*?)(?:/>|>(.*?)</PackageReference>)', text, re.S):
+            v = re.search(r'Version="([^"]+)"', attrs) or re.search(r'<Version>([^<]+)</Version>', body or '')
+            out.append((i, v.group(1) if v else central.get(i.lower(), '')))
+    return out
+
+
+def ilspy():
+    for c in (os.environ.get('AXIOMCODE_ILSPY'), shutil.which('ilspycmd'),
+              os.path.join(os.path.expanduser('~'), '.dotnet', 'tools', 'ilspycmd')):
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
+def csharp_sources(repo):
+    """NuGet packages ship assemblies, not source: each one is decompiled once into C# and compiled like a source."""
+    pkgs = sorted(set(csharp_packages(repo)))
+    if not pkgs:
+        return []
+    tool, folder, found, missing = ilspy(), nuget_folder(repo), [], []
+    if not tool:
+        note(f'auto: {len(pkgs)} NuGet package(s) declared, but C# libraries are compiled by decompiling them and '
+             'ilspycmd is not installed: `dotnet tool install -g ilspycmd` (8.x runs on a .NET 8 SDK); not staged')
+        return []
+    for pid, ver in pkgs:
+        base = os.path.join(folder, pid.lower())
+        known = sorted(os.listdir(base)) if os.path.isdir(base) else []
+        v = ver if ver in known else (known[-1] if known and not ver else None)
+        libdir = os.path.join(base, v, 'lib') if v else ''
+        tfms = sorted(os.listdir(libdir)) if libdir and os.path.isdir(libdir) else []
+        dlls = glob.glob(os.path.join(libdir, tfms[-1], '*.dll')) if tfms else []
+        if not dlls:
+            missing.append(f'{pid} {ver}'); continue
+        dest = os.path.join(CACHE, 'src', f'{pid.lower()}-{v}')
+        if not os.path.isfile(os.path.join(dest, '.decompiled')):
+            env = dict(os.environ, DOTNET_ROLL_FORWARD='Major')
+            for dll in dlls:
+                out = os.path.join(dest, os.path.splitext(os.path.basename(dll))[0])
+                subprocess.run([tool, '-p', '-o', out, dll], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if not glob.glob(os.path.join(dest, '**', '*.cs'), recursive=True):
+                missing.append(f'{pid} {ver} (did not decompile)'); continue
+            open(os.path.join(dest, '.decompiled'), 'w').close()
+        found.append(dest)
+    note(f'auto: {len(found)} NuGet package(s), decompiled from {folder}')
+    if missing:
+        note(f'auto: {len(missing)} NuGet package(s) not in that folder ({", ".join(missing[:5])}); `dotnet restore` fetches them')
     return found
 
 
