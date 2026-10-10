@@ -1,0 +1,6 @@
+#tab-1 { a: 1 }
+.t[data-state="on"] { a: 2 }
+[aria-expanded="true"] { a: 3 }
+#row-3 { a: 4 }
+.m.open[data-k] { a: 5 }
+.tab { a: 6 }

@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="tab" :id="'tab-' + n">t</div>
+<button class="t" x-bind:data-state="open ? 'on' : 'off'">b</button>
+<button class="t" data-state="on">static</button>
+<nav [attr.aria-expanded]="isOpen">n</nav>
+<li id="row-{{ n }}">r</li>
+<div class="m" :class="{ open: o }" :data-k="k">m</div>
+</body>
+</html>
