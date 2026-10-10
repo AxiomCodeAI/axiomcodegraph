@@ -363,6 +363,79 @@ value_mismatch(call, callee) :- expr_call_candidate(call, callee),
     !arg_is_target_typed(call, pos).
 
 // ── Combined: a candidate is contradicted by either regime ──────────────────────
+// ── Argument types the regimes above could not see without the platform staged ─────────────
+// (1) STRING CONCATENATION. `"cannot read " + name` is a String (JLS 15.18.1) whether or not the
+// JDK is staged; expr-type.dl types it only through the staged java.lang.String, so with no JDK the
+// argument had no type and every one-argument overload stayed (a message constructor taking a
+// String and one taking a Throwable both kept). A `+` with a String literal operand, or a nested
+// concatenation, is a String in the value regime.
+.decl str_concat_expr(e:symbol)
+str_concat_expr(e) :- java_expression("BINARY_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, "+", _, _, _, _, _, _, _, _, _, _, e),
+    java_expression("LITERAL", _, _, _, _, _, e, _, _, lt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    literal_value_type(lt, "String").
+str_concat_expr(e) :- java_expression("BINARY_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, "+", _, _, _, _, _, _, _, _, _, _, e),
+    java_expression("BINARY_EXPRESSION", _, _, _, _, _, e, _, _, _, _, _, _, "+", _, _, _, _, _, _, _, _, _, _, inner),
+    str_concat_expr(inner).
+str_concat_expr(e) :- java_expression("BINARY_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, "+", _, _, _, _, _, _, _, _, _, _, e),
+    java_expression("PARENTHESIZED", _, _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, par),
+    java_expression(_, "PARENTHESIZED_INNER", _, _, _, _, par, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, inner),
+    str_concat_expr(inner).
+arg_value_type(call, pos, "String") :- java_expression("BINARY_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, "+", _, _, _, _, _, _, _, _, _, _, e),
+    str_concat_expr(e).
+// (1b) A CAST names its value's type: `append((char) c)` is a char, `put((String) v)` a String,
+// whatever c and v are. A primitive cast target carries no type hash, so only the value regime
+// can read it.
+arg_value_type(call, pos, vt) :- java_expression("CAST_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_type_reference(_, "CAST_EXPRESSION", _, _, _, _, _, "0", vt, _, _, _, _, _, _, e, "EXPRESSION", _),
+    value_type_name(vt).
+// (2) A CLASS LITERAL is a java.lang.Class. With the JDK staged expr_type says so; without it the
+// argument is the external Class node the parameters `Class<T> type` name, so `fromJson(json,
+// User.class)` keeps fromJson(String, Class) and drops fromJson(String, Type) and the overloads
+// taking a client type (the exact-external and client clauses above).
+.decl class_ext(x:symbol)
+class_ext(x) :- external_type(x), x = "external:Class".
+class_ext(x) :- external_type(x), x = "external:java.lang.Class".
+arg_type_hash(call, pos, x) :- java_expression("CLASS_LITERAL", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    !lib_type(_, "java.lang.Class", _, _, _, _, _, _, _, _, _, _, _, _),
+    class_ext(x).
+// (3) `new X(..)` of a type no staged IR declares is an X: the external node of the creation's own
+// type reference (resolution/external-types.dl), as for a parameter or a local declared X.
+arg_type_hash(call, pos, x) :- java_expression("OBJECT_CREATION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, e, "EXPRESSION", ref),
+    type_ref_external(ref, x).
+// (4) java.lang.String is final: only a String (or null) is passed to a String parameter. A String
+// argument never fits a client-typed parameter, and an argument whose static type is known to be a
+// reference type other than String never fits a String parameter. Known means read off a
+// declaration or the expression itself (a variable, a creation, a cast, a class literal), never a
+// call's result, whose generic return the engine may only have erased.
+.decl arg_static_ref(call:symbol, pos:symbol)
+arg_static_ref(call, pos) :- java_expression("IDENTIFIER_REFERENCE", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _),
+    static_ref_kind(k).
+arg_static_ref(call, pos) :- java_expression(k, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    static_expr_kind(k).
+.decl static_ref_kind(k:symbol)
+static_ref_kind("LOCAL_VARIABLE"). static_ref_kind("PARAMETER"). static_ref_kind("FIELD").
+.decl static_expr_kind(k:symbol)
+static_expr_kind("OBJECT_CREATION"). static_expr_kind("CAST_EXPRESSION"). static_expr_kind("CLASS_LITERAL").
+.decl string_type_id(t:symbol)
+string_type_id(t) :- str_type_hash(t).
+string_type_id("external:String").
+string_type_id("external:java.lang.String").
+.decl arg_may_be_string(call:symbol, pos:symbol)
+arg_may_be_string(call, pos) :- arg_type_hash(call, pos, t), string_type_id(t).
+arg_may_be_string(call, pos) :- arg_value_type(call, pos, "String").
+arg_may_be_string(call, pos) :- arg_value_type(call, pos, "null").
+value_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    param_value_type(callee, pos, "String"),
+    arg_static_ref(call, pos),
+    arg_type_hash(call, pos, _),
+    !arg_may_be_string(call, pos),
+    !arg_is_target_typed(call, pos).
+value_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_value_type(call, pos, "String"),
+    param_type_hash(callee, pos, pt), type_prov(pt, "client"),
+    !arg_is_target_typed(call, pos).
+
 arg_mismatch(call, callee) :- hash_mismatch(call, callee).
 arg_mismatch(call, callee) :- value_mismatch(call, callee).
 

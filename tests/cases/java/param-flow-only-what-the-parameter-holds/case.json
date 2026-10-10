@@ -1,0 +1,14 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a JsonElement-like parameter passed on keeps its own type: the String and Reader arguments of the sibling overloads' calls never flow into it",
+   "run": ["impact", "src/pkg/Codec.java:12", "--depends"],
+   "want": ["Codec.java:13"],
+   "avoid": ["one of a set"]},
+  {"why": "and the String overload picks its String sibling",
+   "run": ["impact", "src/pkg/Codec.java:9", "--depends"],
+   "want": ["Codec.java:10"],
+   "avoid": ["one of a set"]},
+  {"why": "control: a subtype argument still reaches the overload whose parameter it fits",
+   "run": ["impact", "src/pkg/Codec.java:16", "--depends"],
+   "want": ["Codec.java:13"],
+   "avoid": ["one of a set"]}]}
