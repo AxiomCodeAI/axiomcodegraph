@@ -167,12 +167,16 @@ jobs:
             # OpenMP on BOTH architectures: the arm64 crash mode was two weak-ordering
             # holes in the vendored headers (write-entry RMW + unfenced node publication),
             # both patched above and validated 10/10 under load on linux-arm64 and
-            # darwin-arm64 (seqlock-fix-3). libgomp links STATICALLY so the binary runs on
-            # machines with no gcc runtime. The .parallel marker beside the binary is what
+            # darwin-arm64 (seqlock-fix-3). The .parallel marker beside the binary is what
             # run-souffle.sh reads to pass a real -j at run time.
-            OMP="-fopenmp -Wl,-Bstatic,-lgomp,-Bdynamic"
-            c++ -std=c++17 -O3 -w $OMP -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
-            [ -n "$OMP" ] && touch "engines/$lang/axiomcode-engine-$lang.parallel"
+            # libgomp links STATICALLY so the binary runs on machines with no gcc runtime
+            # (a stock Ubuntu has no libgomp.so.1). -fopenmp on the LINK line makes the driver
+            # append its own dynamic -lgomp, whatever -Wl,-Bstatic says, so -fopenmp compiles
+            # only, and the link names libgomp.a by path; libgomp.a needs -ldl.
+            c++ -std=c++17 -O3 -w -fopenmp -I gen -c "gen/$lang.cpp" -o "gen/$lang.o"
+            c++ "gen/$lang.o" -o "engines/$lang/axiomcode-engine-$lang" -static-libstdc++ -static-libgcc "$(c++ -print-file-name=libgomp.a)" -lpthread -ldl
+            rm -f "gen/$lang.o"
+            touch "engines/$lang/axiomcode-engine-$lang.parallel"
             cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
           done
           mkdir -p engines/queries
@@ -195,9 +199,27 @@ jobs:
             if [ "$(printf '%s\n2.28\n' "$need" | sort -V | tail -1)" != 2.28 ]; then echo "::error::$f needs glibc $need (> 2.28)"; bad=1; fi
           done
           exit $bad
+      # A RUNTIME A CLEAN MACHINE HAS. A binary that loads a library the build host has and a user's machine does not
+      # starts here and fails there: libgomp.so.1 is not on a stock Ubuntu. Every engine may need only the C library
+      # and the loader.
+      - name: Linux binaries load nothing a stock system lacks
+        if: startsWith(matrix.target.platform, 'linux')
+        run: |
+          set -e
+          bad=0
+          for f in engines/*/axiomcode-*; do
+            case "$f" in *.parallel) continue;; esac
+            extra="$(readelf -d "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | grep -vE '^(libc|libm|libpthread|libdl|librt|ld-linux[-a-z0-9_]*)\.so' || true)"
+            if [ -n "$extra" ]; then echo "::error::$f needs $(echo $extra) — not on a stock system"; bad=1; fi
+          done
+          exit $bad
       - uses: ilammy/msvc-dev-cmd@v1
         if: startsWith(matrix.target.platform, 'win32')
         with: { arch: x64 }
+      # NO OPENMP ON WINDOWS. /openmp links vcomp140.dll (and through it vcruntime140.dll), which a Windows machine
+      # without the Visual C++ Redistributable does not have: every language engine then exits 0xC0000135 before it
+      # reads a fact. The engines are built serial, as through 0.1.8, so they need nothing past the static CRT; no
+      # .parallel marker is written, so run-souffle.sh passes no -j.
       - name: Compile every language (Windows, MSVC)
         if: startsWith(matrix.target.platform, 'win32')
         shell: cmd
@@ -206,9 +228,8 @@ jobs:
             fc /b gen\%%L.id engines\%%L\ENGINE_ID >nul 2>&1
             if errorlevel 1 (
               if not exist engines\%%L mkdir engines\%%L
-              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /openmp /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
+              cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
               if errorlevel 1 exit /b 1
-              type nul > engines\%%L\axiomcode-engine-%%L.exe.parallel
               copy /y gen\%%L.id engines\%%L\ENGINE_ID
             ) else (
               echo %%L: cached, rules unchanged
@@ -226,6 +247,17 @@ jobs:
             )
           )
           dir /s engines
+      - name: Windows binaries load nothing a stock system lacks
+        if: startsWith(matrix.target.platform, 'win32')
+        shell: bash
+        run: |
+          set -e
+          bad=0
+          for f in engines/*/axiomcode-*.exe; do
+            extra="$(dumpbin //dependents "$f" | grep -ioE '^ +[a-z0-9_.-]+\.dll' | tr -d ' ' | grep -iE '^(vcomp|vcruntime|msvcp|concrt|libgomp|libstdc|libgcc)' || true)"
+            if [ -n "$extra" ]; then echo "::error::$f needs $(echo $extra) — not on a stock Windows"; bad=1; fi
+          done
+          exit $bad
       - name: Smoke — every binary starts on empty inputs
         shell: bash
         run: |
