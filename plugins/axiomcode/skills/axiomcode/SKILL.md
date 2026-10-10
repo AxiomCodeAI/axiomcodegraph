@@ -82,10 +82,11 @@ per dependency version and reused by every build:
 
 A dependency's source directory (its package under `site-packages` or `node_modules`) is accepted too: `index` parses
 it into the same CSVs under `.axiomcode/out/.intermediate/lib/` on its first build. Entries are relative to the
-repository or absolute (`~` is not expanded); `AXIOMCODE_LIBRARY` takes the same list. Without it every call into a
-dependency is *unknown*; with it the call resolves to the dependency's declaration, and a chain is typed through the
-dependency's declared return types (`client.post(...).json()`). Library bodies are not walked, so a dependency calling
-back into the project is not found this way. The entries are kept with the graph: a later bare `index` reuses them.
+repository or absolute; write `~` out, since one after a comma is not expanded. `AXIOMCODE_LIBRARY` takes the same
+list. Without it a call into a dependency is unresolved or named only as an external boundary; with it the call resolves
+to the dependency's declaration, and a chain is typed through the dependency's declared return types
+(`client.post(...).json()`). Library bodies are not walked, so a dependency calling back into the project is not found
+this way. The entries are kept with the graph: a later bare `index` reuses them.
 
 ## What it cannot see — say so instead of guessing
 
