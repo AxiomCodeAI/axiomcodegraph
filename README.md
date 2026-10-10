@@ -318,6 +318,7 @@ left to your own search: bring the name you found to these commands.
 | `axiomcode impact` | the same for the declarations your uncommitted edits changed; the answer starts with `your edits:` |
 | `axiomcode path <A> <B>` | how A reaches B: every hop of the call chain, with the code at each call |
 | `axiomcode tests` | the tests your uncommitted edits reach, and a last `run:` line with the command that runs them |
+| `axiomcode link <file:line> <target>` | record where a call the graph could not resolve lands (kept in `axiomcode-links.tsv`); impact, path and tests then walk it, labelled `[asserted]`. Alone, lists the links and whether each was applied |
 | `axiomcode index` | build the graph explicitly (the first query builds it too); `--lang`, `--src` and `--library` narrow it |
 
 A name is written the way it appears in the code: `Owner.method`, `method`, `Type`, `Owner.field`, or
