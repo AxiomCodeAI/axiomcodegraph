@@ -1074,6 +1074,12 @@ class G:
             for a, b, how, where, conf in self.q(f"SELECT c0, c1, c2, c3, c4 FROM {table}"):
                 if a == b or a not in self.sym or b not in self.sym: continue
                 self.OUTSIDE.setdefault((a, b, tier), []).append((how, where, conf))
+        # a library summarised (from its source) to call a client member back (Python framework-behavior/
+        # library-callbacks.dl): `impact` walks it as the `library callback` hop, so the chain search does too
+        if self.has('ext_lib_callback_edge'):
+            for a, b, callee, member, via, how in self.q("SELECT c0, c1, c2, c3, c4, c5 FROM ext_lib_callback_edge"):
+                if a == b or a not in self.sym or b not in self.sym: continue
+                self.OUTSIDE.setdefault((a, b, 'framework'), []).append(('library_callback', f'{callee} -> {member}', how))
         # a servlet filter a test's context holds, run on each request the test sends (ax_registration.filter_links)
         try:
             import ax_registration
@@ -1173,6 +1179,8 @@ def outside_hop_holds(g, a, b, t):
     table = 'ext_remote_edge' if t == 'remote' else 'ext_framework_edge'
     if g.has(table) and g.q(f"SELECT 1 FROM {table} WHERE c0 = ? AND c1 = ? LIMIT 1", a, b): return True
     if t != 'framework': return False
+    if g.has('ext_lib_callback_edge') and g.q("SELECT 1 FROM ext_lib_callback_edge WHERE c0 = ? AND c1 = ? LIMIT 1", a, b):
+        return True
     import ax_registration
     links = getattr(g, '_filter_links', None)
     if links is None: links = g._filter_links = {(x, y) for x, y, _h in ax_registration.filter_links(g.q)}

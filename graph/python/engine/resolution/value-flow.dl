@@ -112,6 +112,37 @@ param_arg_type(ph, t) :-
     param_decl("client", pn, _, _, req, ph),
     py_fixture_value_type(fix, t).
 
+// ── a parameter's DEFAULT VALUE reaches it ────────────────────────────────────
+// `def getter(val, field_obj=field_obj): return field_obj.deserialize(val)` -- the closure
+// idiom that pins a loop variable -- is called with one argument, so the only value
+// field_obj ever holds is its default, and no call site passes one. The default is an
+// argument the def statement writes once, evaluated where the def runs: one more value
+// reaching the parameter, alongside whatever the call sites pass.
+param_arg_type(ph, t) :- param_default_expr("client", e, ph), expr_type("client", e, t).
+param_arg_class(ph, t) :- param_default_expr("client", e, ph), expr_type_class_object("client", e, t).
+param_arg_method(ph, m) :- param_default_expr("client", e, ph), expr_denotes_method("client", e, m).
+
+// ── a parameter the runner fills from a PARAMETRIZE row, or from FIXTURE PARAMS ──
+// `@pytest.mark.parametrize("cls", [String, Integer])` calls the test once per value, so
+// each value reaches `cls` as an argument would: an instance types it, a class object
+// makes it that class, a function makes it callable as that function. Inside a fixture
+// declared `params=[...]`, `request.param` is each of those values in turn.
+// framework-behavior/dispatch.dl reads the rows (py_pz_param_value, py_pz_request_param).
+param_arg_type(ph, t) :- py_pz_param_value(ph, v), expr_type("client", v, t).
+param_arg_class(ph, t) :- py_pz_param_value(ph, v), expr_type_class_object("client", v, t).
+param_arg_method(ph, m) :- py_pz_param_value(ph, v), expr_denotes_method("client", v, m).
+expr_type("client", e, t) :- py_pz_request_param(e, v), expr_type("client", v, t).
+expr_type_class_object("client", e, t) :- py_pz_request_param(e, v), expr_type_class_object("client", v, t).
+expr_denotes_method("client", e, m) :- py_pz_request_param(e, v), expr_denotes_method("client", v, m).
+// a fixture that hands back a CLASS (`return request.param` over classes) makes the
+// requesting parameter that class, as a returned instance makes it an instance
+py_fixture_value_class(fix, t) :- py_fixture_decl(fix, _),
+    method_return_value_expr("client", fix, e), expr_type_class_object("client", e, t).
+param_arg_class(ph, t) :-
+    py_fixs_injection(req, fix, pn),
+    param_decl("client", pn, _, _, req, ph),
+    py_fixture_value_class(fix, t).
+
 // ── param_arg_method(ParamHash, MethodHash) — a CALLABLE reaching a parameter ──
 // `Delegator(target)` puts the FUNCTION `target` into the parameter `fn`. Java would
 // need a functional interface for this; in Python it is an ordinary assignment.

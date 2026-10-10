@@ -1,0 +1,368 @@
+// ============================================================================
+// FRAMEWORK-BEHAVIOR · LIBRARY CALLBACKS  (the hop a dependency makes back into the client)
+//
+// ── THE GAP ─────────────────────────────────────────────────────────────────
+// The engine reads a dependency's signatures, never its bodies. So when a library calls
+// BACK into client code, the call graph stops at the library frame: a test client's
+// `client.get("/")` runs the `open()` a client subclass overrides and then the
+// application object it was built around (`app(environ, start_response)`); a CLI test
+// runner's `runner.invoke(cli)` runs `cli.main()`, which runs the command's callback; an
+// `ExitStack.enter_context(cm)` runs `cm.__enter__`. Measured on a 16-repository Python
+// oracle, a library frame is the first broken hop behind most test-impact misses on the
+// web-framework subject: the test calls the library, the library calls the code under
+// change, and the graph has only the first half.
+//
+// ── WHERE THE KNOWLEDGE COMES FROM ──────────────────────────────────────────
+// graph/python/libsum/libsum.py reads the installed library's SOURCE once (cached by the
+// installed distributions and the client's imports, never solved here) and stages these tables
+// beside the client IR, for the library classes and functions the client can name:
+//   py_lib_callback(Callee, Root, Pos, Path, Member, Via, Type)
+//       calling the library callable Callee hands back `Member` on the object that arrived
+//       as its parameter Root (written by the client at position Pos, -1 = the receiver
+//       `self`), after following the attribute Path ("" = the object itself); Via is the
+//       library function where that invocation is written; Type the class the library declares that
+//       object to be, "" when it declares none
+//   py_lib_ancestor(Class, Ancestor)     a library class's library ancestors
+//   py_lib_field_init(Class, Field, Param, Pos)
+//       constructing Class stores the argument Param on the new object as Field
+//   py_lib_alias(Alias, Canonical)
+//       a name a package re-exports
+//   py_lib_decorates(Decorator, Form, Class, Field)
+//       `@Decorator` (DIRECT) or `@Decorator(...)` (FACTORY) turns a def into a Class whose Field
+//       holds it; Class "" when the def itself comes back
+// No row for a library written in C: a declared blind spot, never a guess.
+//
+// ── WHAT IT EMITS, AND WHY NOT AS A CALL ────────────────────────────────────
+//   lib_callback_edge(Caller, Target, Callee, Member, Via, How)
+//     Caller  the client method containing the call into the library
+//     Target  the client method the library is summarised to call back
+//     Callee  the library callable the client called (canonical name)
+//     How     receiver        Target is a member of the object the call was made on
+//                             (a client subclass overriding what the library's own code calls)
+//             receiver_field  ... of an object the library holds in a field of it
+//             argument        ... of an object (or the callable itself) passed as an argument
+//             argument_field  ... of an object held in a field of an argument
+// The contract of this phase holds: it only ADDS a relation. The hop is a library's
+// behaviour summarised from its source, joined to the client by a member NAME on a type
+// the client handed over; a resolved call is stronger knowledge, so call_chain_edge is
+// untouched and a consumer opts in (impact walks it as its own hop, `library callback`).
+// No rule here names a library or a framework: every name comes from the staged tables.
+// ============================================================================
+
+// ── the dotted path a client expression spells through an unlinked import ───
+// `Client` after `from webkit.testing import Client`, `clikit.command` after `import clikit`: the import's path,
+// then each attribute read off it. Only an import that linked to nothing in the client starts one.
+.decl lcb_path_of(e:symbol, p:symbol)
+lcb_path_of(e, p) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2), import_unlinked(b2, p).
+lcb_path_of(e, cat(p, cat(".", n))) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj), lcb_path_of(obj, p), strlen(p) < 200.
+
+// ── its canonical name, following the package's re-exports ──────────────────
+.decl lcb_named(p:symbol)
+lcb_named(p) :- lcb_path_of(_, p).
+.decl lcb_canon(p:symbol, c:symbol)
+lcb_canon(p, c) :- lcb_named(p), py_lib_alias(p, c).
+lcb_canon(p, p) :- lcb_named(p), !py_lib_alias(p, _).
+.decl lcb_expr_names(e:symbol, c:symbol)
+lcb_expr_names(e, c) :- lcb_path_of(e, p), lcb_canon(p, c).
+
+// ── a client class whose base is a library class ─────────────────────────────
+// Written `class AppClient(Client)` with `Client` imported from a dependency that was not
+// staged: the base resolves to nothing and type_base_unresolved records it by text. Here it
+// is named by the import the text binds to, and inherited through client subclasses.
+.decl lcb_direct_ext_base(t:symbol, c:symbol)
+lcb_direct_ext_base(t, c) :-
+    type_base_slot("client", t, _, "NAME", _, _, bh), base_expr("client", bh, e), lcb_expr_names(e, c).
+lcb_direct_ext_base(t, c) :-
+    type_base_slot("client", t, _, "SUBSCRIPT", _, _, bh), base_expr("client", bh, e),
+    expr_parent("client", e, "SUBSCRIPT_OBJECT", _, obj), lcb_expr_names(obj, c).
+.decl lcb_ext_class(t:symbol, c:symbol)
+lcb_ext_class(t, c) :- lcb_direct_ext_base(t, c).
+lcb_ext_class(t, c) :- type_ancestor("client", t, a), lcb_direct_ext_base(a, c).
+
+// a client type and every client subclass of it: the object a library calls back may be a
+// subclass of the type the call site was written against
+.decl lcb_self_type(t:symbol, s:symbol)
+lcb_self_type(t, t) :- lcb_ext_class(t, _).
+lcb_self_type(t, s) :- lcb_ext_class(t, _), type_ancestor("client", s, t).
+
+.decl lcb_has_rows(c:symbol)
+lcb_has_rows(c) :- py_lib_callback(c, _, _, _, _, _, _).
+
+// ── lcb_entry(Site, Callee, SelfType) — a client call into a summarised library callable ──
+// SelfType is the client type the library's `self` is, or "" when the receiver is not a
+// client object.
+.decl lcb_entry(site:symbol, callee:symbol, selfT:symbol)
+// (a) a member the client type inherits from its library base and does not define itself:
+//     `client.get("/")` on an AppClient-like subclass, `self.get(...)` inside one
+lcb_entry(site, q, t) :-
+    call_receiver_object(site, obj), expr_type("client", obj, t),
+    call_name(site, n), n != "",
+    !expr_call_candidate(site, _),
+    lcb_ext_class(t, c), q = cat(c, cat(".", n)), lcb_has_rows(q).
+// (b) super().n(...) whose MRO leaves the client for a library base
+lcb_entry(site, q, a) :-
+    call_recv_kind(site, "SUPER"), call_super_anchor(site, _, a),
+    call_name(site, n), n != "",
+    !expr_call_candidate(site, _),
+    lcb_ext_class(a, c), q = cat(c, cat(".", n)), lcb_has_rows(q).
+// (c) a library function or class called by a name the client imported
+lcb_entry(site, c, "") :-
+    call_callee_is_value(site), call_callee_expr(site, callee),
+    lcb_expr_names(callee, c), lcb_has_rows(c).
+// (d) a member of a library object the client built: `runner = CliRunner(); runner.invoke(cli)`, or one a
+//     fixture or a helper returned. Its `self` is a library object, so it has no client type; what the client
+//     gave its constructor is reached through the allocation (lcb_lobj_entry below).
+lcb_entry(site, q, "") :- lcb_lobj_entry(site, q, _).
+// (e) constructing a client class whose constructor is the library base's: its __init__ may
+//     call members the client overrides
+lcb_entry(site, c, t) :-
+    call_constructs_type(site, t), lcb_ext_class(t, c),
+    !type_constructor("client", t, _), lcb_has_rows(c).
+
+// (f) a hand-back to a member the client object does not define but INHERITS from a library class: the
+//     library calls `cli.main()` on the command it was given, `main` is the library base's own, and that
+//     method's hand-backs apply to the same object (its make_context override). Same site, same caller.
+lcb_entry(site, q2, t) :-
+    lcb_arg(site, q, r, a), py_lib_callback(q, r, _, "", n, _, _),
+    expr_type("client", a, t), !mro_lookup("client", t, n, _),
+    lcb_ext_class(t, c), q2 = cat(c, cat(".", n)), lcb_has_rows(q2).
+lcb_entry(site, q2, t) :-
+    lcb_entry(site, q, t), t != "", py_lib_callback(q, "self", _, "", n, _, _),
+    !mro_lookup("client", t, n, _),
+    lcb_ext_class(t, c), q2 = cat(c, cat(".", n)), lcb_has_rows(q2).
+
+// ── lcb_ext_instance(Expr, Class, Alloc) — an expression holding an object of a library class ──
+// Alloc is the call site that constructed it. Followed through a single-binding local, a client function's
+// return value, and the fixture a test parameter is filled from.
+.decl lcb_ext_instance(e:symbol, c:symbol, alloc:symbol)
+lcb_ext_instance(e, c, site) :-
+    call_of_expr(e, site), call_callee_is_value(site), call_callee_expr(site, callee),
+    lcb_expr_names(callee, c), lcb_is_class(c).
+lcb_ext_instance(e, c, al) :-
+    expr_binding("client", bref, ctx, e), ctx != "STORE",
+    binding_lookup("client", bref, bind),
+    binding_rebinding("client", "1", _, _, bind),
+    expr_binding("client", bind, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    lcb_ext_instance(val, c, al).
+lcb_ext_instance(e, c, al) :-
+    call_of_expr(e, site), expr_call_candidate(site, m),
+    method_return_value_expr("client", m, r), lcb_ext_instance(r, c, al).
+lcb_ext_instance(e, c, al) :-
+    expr_names_param("client", e, ph), param_decl("client", pn, _, _, req, ph),
+    py_fixs_injection(req, fix, pn), method_return_value_expr("client", fix, r), lcb_ext_instance(r, c, al).
+lcb_ext_instance(e, c, al) :-
+    expr_names_param("client", e, ph), param_decl("client", pn, _, _, req, ph),
+    py_fixs_injection(req, fix, pn),
+    expr_node("client", "YIELD", _, _, y), expr_ultimate_method("client", y, fix),
+    expr_parent("client", y, "YIELD_VALUE", _, v), lcb_ext_instance(v, c, al).
+.decl lcb_is_class(c:symbol)
+lcb_is_class(c) :- py_lib_field_init(c, _, _, _).
+lcb_is_class(c) :- py_lib_callback(c, "self", _, _, _, _, _).
+
+// ── LIBRARY OBJECTS THE CLIENT HOLDS ────────────────────────────────────────
+// lcb_lobj(Expr, Class, Obj): Expr holds a library object of Class, identified by Obj -- the call site that
+// constructed it, or the client function a library decorator wrapped into it (`@command() def greet()` makes
+// `greet` a Command whose `callback` is the def). Its fields are what the client gave it.
+.decl lcb_lobj(e:symbol, c:symbol, obj:symbol)
+lcb_lobj(e, c, al) :- lcb_ext_instance(e, c, al).
+lcb_lobj(e, c, m) :- lcb_names_def(e, m), lcb_deco_obj(m, c, _).
+
+// the def a name denotes, decorated or not (the decorated name's VALUE is what the decorator returned)
+.decl lcb_names_def(e:symbol, m:symbol)
+lcb_names_def(e, m) :- expr_binding("client", bref, ctx, e), ctx != "STORE", binding_lookup("client", bref, b),
+    method_declaring_binding("client", b, m).
+lcb_names_def(e, m) :- expr_binding("client", bref, ctx, e), ctx != "STORE", binding_lookup("client", bref, b),
+    import_binds_method("client", b, m).
+lcb_names_def(e, m) :- expr_attr_names_method("client", e, m).
+
+// the library callable a decorator expression applies: `@q` (direct) or `@q(...)` (factory)
+.decl lcb_deco_callable(d:symbol, q:symbol, form:symbol)
+lcb_deco_callable(d, q, "DIRECT") :- decorator_expr("client", e, d), !call_of_expr(e, _), lcb_expr_names(e, q).
+lcb_deco_callable(d, q, "FACTORY") :- decorator_expr("client", e, d), call_of_expr(e, site),
+    call_callee_expr(site, callee), lcb_expr_names(callee, q).
+lcb_deco_callable(d, q, "FACTORY") :- decorator_expr("client", e, d), call_of_expr(e, site),
+    call_receiver_object(site, obj), expr_type("client", obj, t), call_name(site, n), !mro_lookup("client", t, n, _),
+    lcb_ext_class(t, c), q = cat(c, cat(".", n)).
+// a decorator that hands the function straight back (registers it, records an option on it)
+.decl lcb_deco_identity(d:symbol)
+lcb_deco_identity(d) :- lcb_deco_callable(d, q, form), py_lib_decorates(q, form, "", "").
+lcb_deco_identity(d) :- decorator_builtin("client", bk, d), decorator_transparent(bk).
+// the def m enters application stage k unchanged: every decorator applied before it handed it straight back
+.decl lcb_deco_blocked(m:symbol, k:number)
+lcb_deco_blocked(m, k) :- deco_at(m, k, _), deco_at(m, k2, d2), k2 < k, !lcb_deco_identity(d2), !deco_stage(m, k2 + 1, m).
+.decl lcb_deco_obj(m:symbol, c:symbol, f:symbol)
+lcb_deco_obj(m, c, f) :- deco_at(m, k, d), !lcb_deco_blocked(m, k), lcb_deco_callable(d, q, form),
+    py_lib_decorates(q, form, c, f), c != "".
+
+// ── entries on a library object, and what its fields hand back ──────────────
+.decl lcb_lobj_entry(site:symbol, callee:symbol, obj:symbol)
+lcb_lobj_entry(site, q, o) :-
+    call_receiver_object(site, recv), lcb_lobj(recv, c, o),
+    call_name(site, n), n != "",
+    !expr_call_candidate(site, _),
+    q = cat(c, cat(".", n)), lcb_has_rows(q).
+// a library object handed to a library callable that calls one of the object's own (library) members
+lcb_lobj_entry(site, q2, o) :-
+    lcb_arg(site, q, r, a), py_lib_callback(q, r, _, "", n, _, _), lcb_lobj(a, c, o),
+    q2 = cat(c, cat(".", n)), lcb_has_rows(q2).
+
+// what a library object's field holds that offers member n: the argument its construction was given, or the
+// function a decorator wrapped (called as `__call__`)
+.decl lcb_lobj_field_target(o:symbol, f:symbol, n:symbol, m:symbol)
+lcb_lobj_field_target(al, f, n, m) :- lcb_alloc_field(al, f, a), lcb_member_of_expr(a, n, m).
+lcb_lobj_field_target(m, f, "__call__", m) :- lcb_deco_obj(m, _, f), lcb_field_wanted(m, f).
+.decl lcb_field_wanted(o:symbol, f:symbol)
+lcb_field_wanted(o, f) :- lcb_lobj_entry(_, q, o), py_lib_callback(q, "self", _, f, _, _, _), f != "".
+lcb_field_wanted(o, f) :- lcb_arg(site, q, r, a), py_lib_callback(q, r, _, f, _, _, _), f != "", lcb_lobj(a, _, o),
+    lcb_entry(site, q, _).
+
+// what the constructor of a library object stored in a field, as the client wrote it at the allocation
+.decl lcb_alloc_field(al:symbol, f:symbol, a:symbol)
+lcb_alloc_field(al, f, a) :-
+    lcb_field_wanted(al, f), call_callee_expr(al, callee), lcb_expr_names(callee, c),
+    py_lib_field_init(c, f, _, pos), call_arg(al, ps, a), to_number(ps) = to_number(pos).
+lcb_alloc_field(al, f, a) :-
+    lcb_field_wanted(al, f), call_callee_expr(al, callee), lcb_expr_names(callee, c),
+    py_lib_field_init(c, f, pn, _), call_kwarg(al, pn, a).
+
+// ── the argument the client wrote for a summarised parameter ─────────────────
+.decl lcb_arg(site:symbol, callee:symbol, root:symbol, a:symbol)
+lcb_arg(site, q, r, a) :-
+    lcb_entry(site, q, _), py_lib_callback(q, r, pos, _, _, _, _), r != "self",
+    to_number(pos) >= 0, call_arg(site, ps, a), to_number(ps) = to_number(pos).
+lcb_arg(site, q, r, a) :-
+    lcb_entry(site, q, _), py_lib_callback(q, r, _, _, _, _, _), r != "self",
+    call_kwarg(site, r, a).
+
+// ── what a library-held field of a client object holds ───────────────────────
+// lcb_field_holds(T, Field, Expr): an object of client type T was built with Expr as the
+// argument the library constructor stores in Field (the construction of T or of a client
+// subclass, or T's own super().__init__(...) call)
+.decl lcb_ctor_store(t:symbol, f:symbol, param:symbol, pos:symbol)
+lcb_ctor_store(t, f, pn, pos) :- lcb_ext_class(t, c), py_lib_field_init(c, f, pn, pos).
+.decl lcb_field_holds(t:symbol, f:symbol, e:symbol)
+lcb_field_holds(t, f, a) :-
+    lcb_ctor_store(t, f, _, pos), lcb_self_type(t, s), call_constructs_type(site, s),
+    call_arg(site, ps, a), to_number(ps) = to_number(pos).
+lcb_field_holds(t, f, a) :-
+    lcb_ctor_store(t, f, pn, _), lcb_self_type(t, s), call_constructs_type(site, s),
+    call_kwarg(site, pn, a).
+lcb_field_holds(t, f, a) :-
+    lcb_ctor_store(t, f, _, pos), call_recv_kind(site, "SUPER"), call_super_anchor(site, _, t),
+    call_name(site, "__init__"), call_arg(site, ps, a), to_number(ps) = to_number(pos).
+lcb_field_holds(t, f, a) :-
+    lcb_ctor_store(t, f, pn, _), call_recv_kind(site, "SUPER"), call_super_anchor(site, _, t),
+    call_name(site, "__init__"), call_kwarg(site, pn, a).
+
+// ── the client member an object expression offers under a name ───────────────
+// the type the expression has, or a client subclass of it; `__call__` on an expression that
+// IS a function or a bound method is that function
+.decl lcb_member_of_expr(e:symbol, n:symbol, m:symbol)
+lcb_member_of_expr(e, n, m) :-
+    lcb_wanted(e, n), expr_type("client", e, t), lcb_sub(t, s), mro_lookup("client", s, n, m),
+    method_owner("client", _, m).
+lcb_member_of_expr(e, "__call__", m) :- lcb_wanted(e, "__call__"), expr_denotes_method("client", e, m).
+lcb_member_of_expr(e, "__call__", m) :- lcb_wanted(e, "__call__"), expr_names_method("client", e, m).
+.decl lcb_sub(t:symbol, s:symbol)
+lcb_sub(t, t) :- lcb_wanted(e, _), expr_type("client", e, t).
+lcb_sub(t, s) :- lcb_wanted(e, _), expr_type("client", e, t), type_ancestor("client", s, t).
+
+// the member of a client object's own field, as the client wrote it (`self.app = app`)
+.decl lcb_member_of_field(t:symbol, f:symbol, n:symbol, m:symbol)
+lcb_member_of_field(t, f, n, m) :-
+    lcb_wanted_field(t, f, n), field_decl("client", f, owner, _, fh),
+    (owner = t ; type_ancestor("client", t, owner)),
+    field_type("client", fh, x), mro_lookup("client", x, n, m), method_owner("client", _, m).
+
+// demand: only the (expression, member) pairs a summary asks about are looked up
+.decl lcb_wanted(e:symbol, n:symbol)
+lcb_wanted(a, n) :- lcb_arg(site, q, r, a), py_lib_callback(q, r, _, "", n, _, _), lcb_entry(site, q, _).
+lcb_wanted(e, n) :- lcb_entry(_, q, t), t != "", py_lib_callback(q, "self", _, f, n, _, _), f != "",
+    lcb_field_holds(t, f, e).
+lcb_wanted(a, n) :- lcb_alloc_field(al, f, a), lcb_lobj_entry(_, q, al), py_lib_callback(q, "self", _, f, n, _, _).
+lcb_wanted(e, n) :- lcb_alloc_field(al, f, e), lcb_lobj(a, _, al), lcb_arg(_, q, r, a), py_lib_callback(q, r, _, f, n, _, _).
+lcb_wanted(e, n) :- lcb_arg(site, q, r, a), py_lib_callback(q, r, _, f, n, _, _), f != "", lcb_entry(site, q, _),
+    expr_type("client", a, t), lcb_field_holds(t, f, e).
+.decl lcb_wanted_field(t:symbol, f:symbol, n:symbol)
+lcb_wanted_field(s, f, n) :- lcb_entry(_, q, t), t != "", py_lib_callback(q, "self", _, f, n, _, _), f != "",
+    !contains(".", f), lcb_self_type(t, s).
+lcb_wanted_field(t, f, n) :- lcb_arg(site, q, r, a), lcb_entry(site, q, _), py_lib_callback(q, r, _, f, n, _, _), f != "",
+    !contains(".", f), expr_type("client", a, t).
+
+// ── the edges ───────────────────────────────────────────────────────────────
+// lcb_hit(Site, Caller, Target, Callee, Root, Path, Member, Via, How): one summary row joined to the client object
+// the call actually hands over.
+.decl lcb_hit(site:symbol, caller:symbol, m:symbol, q:symbol, r:symbol, f:symbol, n:symbol, via:symbol, how:symbol)
+// the receiver itself: a member the client type (or a subclass) defines over the library's
+lcb_hit(site, caller, m, q, "self", "", n, via, "receiver") :-
+    lcb_entry(site, q, t), t != "", site_caller(site, caller),
+    py_lib_callback(q, "self", _, "", n, via, _),
+    lcb_self_type(t, s), mro_lookup("client", s, n, m), method_owner("client", _, m).
+// a field of the receiver the library constructor filled from a client argument
+lcb_hit(site, caller, m, q, "self", f, n, via, "receiver_field") :-
+    lcb_entry(site, q, t), t != "", site_caller(site, caller),
+    py_lib_callback(q, "self", _, f, n, via, _), f != "",
+    lcb_field_holds(t, f, e), lcb_member_of_expr(e, n, m).
+// a field of a library object the client holds (built by it, or made by a library decorator around its def)
+lcb_hit(site, caller, m, q, "self", f, n, via, "receiver_field") :-
+    lcb_lobj_entry(site, q, o), site_caller(site, caller),
+    py_lib_callback(q, "self", _, f, n, via, _), f != "",
+    lcb_lobj_field_target(o, f, n, m).
+lcb_hit(site, caller, m, q, r, f, n, via, "argument_field") :-
+    lcb_arg(site, q, r, a), site_caller(site, caller), lcb_entry(site, q, _),
+    py_lib_callback(q, r, _, f, n, via, _), f != "",
+    lcb_lobj(a, _, o), lcb_lobj_field_target(o, f, n, m).
+// a field of the receiver the client itself assigned
+lcb_hit(site, caller, m, q, "self", f, n, via, "receiver_field") :-
+    lcb_entry(site, q, t), t != "", site_caller(site, caller),
+    py_lib_callback(q, "self", _, f, n, via, _), f != "",
+    lcb_self_type(t, s), lcb_member_of_field(s, f, n, m).
+// an argument, or the callable passed as one
+lcb_hit(site, caller, m, q, r, "", n, via, "argument") :-
+    lcb_arg(site, q, r, a), site_caller(site, caller),
+    py_lib_callback(q, r, _, "", n, via, _),
+    lcb_member_of_expr(a, n, m).
+// a field of an argument
+lcb_hit(site, caller, m, q, r, f, n, via, "argument_field") :-
+    lcb_arg(site, q, r, a), site_caller(site, caller),
+    py_lib_callback(q, r, _, f, n, via, _), f != "",
+    expr_type("client", a, t), lcb_field_holds(t, f, e), lcb_member_of_expr(e, n, m).
+lcb_hit(site, caller, m, q, r, f, n, via, "argument_field") :-
+    lcb_arg(site, q, r, a), site_caller(site, caller),
+    py_lib_callback(q, r, _, f, n, via, _), f != "",
+    expr_type("client", a, t), lcb_member_of_field(t, f, n, m).
+
+// ── WHEN THE OBJECT CANNOT BE TOLD: THE TYPE THE LIBRARY DECLARES ────────────
+// A row whose object the client side could not name (a loader passed through **options, a command a helper
+// returns typed only as the library's base) is still a hand-back to SOME object of the type the library declares
+// there. The client classes that can be that object are its client subclasses; the one whose member runs is the one
+// that defines it. A class-hierarchy answer, used only for a row no client object answered at that site.
+.decl lcb_row_hit(site:symbol, q:symbol, r:symbol, f:symbol, n:symbol)
+lcb_row_hit(site, q, r, f, n) :- lcb_hit(site, _, _, q, r, f, n, _, _).
+.decl lcb_cha_wanted(ty:symbol, n:symbol)
+lcb_cha_wanted(ty, n) :- lcb_entry(_, q, _), py_lib_callback(q, r, _, f, n, _, ty), ty != "", (r != "self" ; f != "").
+.decl lcb_cha(ty:symbol, n:symbol, m:symbol)
+lcb_cha(ty, n, m) :- lcb_cha_wanted(ty, n), lcb_ext_class(s, ty), mro_lookup("client", s, n, m), method_owner("client", _, m).
+lcb_cha(ty, n, m) :- lcb_cha_wanted(ty, n), lcb_ext_class(s, c), py_lib_ancestor(c, ty),
+    mro_lookup("client", s, n, m), method_owner("client", _, m).
+
+// lib_callback_edge(Caller, Target, Callee, Member, Via, How): the client method Caller calls the library
+// callable Callee, which is summarised (from the library's source) to invoke Member -- written in the library
+// function Via -- on an object that resolves to the client method Target. How: receiver | receiver_field |
+// argument | argument_field | declared_type. A library's behaviour joined by a member name, not a resolved call.
+lib_callback_edge(caller, m, q, n, via, how) :- lcb_hit(_, caller, m, q, _, _, n, via, how).
+lib_callback_edge(caller, m, q, n, via, "declared_type") :-
+    lcb_entry(site, q, _), site_caller(site, caller),
+    py_lib_callback(q, r, _, f, n, via, ty), ty != "", (r != "self" ; f != ""),
+    !lcb_row_hit(site, q, r, f, n), lcb_cha(ty, n, m).
+
+// lib_callback_site(Site, Callee): a client call site the engine left unresolved that enters the library callable
+// Callee, which the library's own source declares (a member the client type inherits from its library base, a
+// super() call past the client classes, a member of a library object the client built). Not a call to any
+// same-named client method, so a consumer must not guess one by name.
+lib_callback_site(site, q) :- lcb_entry(site, q, _), q != "".

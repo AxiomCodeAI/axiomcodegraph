@@ -49,6 +49,13 @@ export interface ProjectModuleFacts extends ResolutionInput {
    * interpreter loads. A stub with no `.py` beside it stays the import's target.
    */
   isStub?: boolean;
+  /**
+   * The directory names above this module's top-level package, outermost first: `["repo", "src"]` for
+   * `repo/src/pkg/mod.py`. An import more qualified than the module (`import myproject.framework` naming a
+   * `framework` that sits in a `myproject/` directory with no `__init__.py`) is matched by dropping its leading
+   * segments, and those segments must then be the directories the module actually sits in.
+   */
+  outerDirs?: string[];
 }
 
 export interface ProjectResolutionStats {
@@ -1847,16 +1854,40 @@ export class PythonResolutionLinker {
     const parts = name.split('.');
     for (let drop = 1; drop < parts.length; drop++) {
       const candidate = parts.slice(drop).join('.');
+      const dropped = parts.slice(0, drop);
+      // THE DROPPED SEGMENTS MUST BE WHERE THE MODULE SITS. Dropping them is for an import more qualified than the
+      // module; dropping any leading segment turned `from clikit.testing import CliRunner` into the project's own
+      // `testing` (or `app.testing`, by suffix) — a dependency whose module shares a last segment with one of the
+      // project's resolved INTO the project, and its import bound nothing.
       const direct = moduleByQualifiedName.get(candidate);
-      if (direct) {
+      if (direct && this.sitsUnder(direct, candidate, dropped)) {
         return direct;
       }
       const suffixed = this.moduleSuffixIndex.get(candidate);
-      if (suffixed) {
+      if (suffixed && this.sitsUnder(suffixed, candidate, dropped)) {
         return suffixed;
       }
     }
     return undefined;
+  }
+
+  /**
+   * Whether `dropped` names what lies directly above `tail` on the module's own path: the part of its qualified
+   * name before the matched tail, then the directories above its top-level package. A module with no recorded
+   * directories keeps the old answer.
+   */
+  private sitsUnder(module: ProjectModuleFacts, tail: string, dropped: string[]): boolean {
+    if (module.outerDirs === undefined) {
+      return true;
+    }
+    const own = module.qualifiedName.split('.');
+    const before = own.slice(0, Math.max(0, own.length - tail.split('.').length));
+    const chain = [...module.outerDirs, ...before];
+    if (chain.length < dropped.length) {
+      return false;
+    }
+    const end = chain.slice(chain.length - dropped.length);
+    return end.every((segment, i) => segment === dropped[i]);
   }
 
   /**
