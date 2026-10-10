@@ -281,7 +281,8 @@ expr_new_type(prov, e, gk) :-
     !expr_new_type_ref(prov, e, _),
     call_callee_name(prov, e, n), expr_ultimate_module(prov, e, mod),
     call_type_argc(prov, e, ar),
-    type_name_resolves(prov, mod, n, ar, gk).
+    type_name_resolves(prov, mod, n, ar, gk),
+    !expr_callee_name_dropped(prov, e, gk).
 
 // AN INVOCATION has its callee's return type.
 expr_type(prov, e, gk) :-
