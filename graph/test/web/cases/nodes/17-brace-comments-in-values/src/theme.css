@@ -1,0 +1,6 @@
+.w {
+	border: 1px solid #dddddd/*{borderColorContent}*/;
+	background: #ffffff/*{bgColorContent}*/;
+	color: #333333/*{fcContent}*/;
+}
+.w a { color: #333333/*{fcContent}*/; }

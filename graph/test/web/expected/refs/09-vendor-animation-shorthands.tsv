@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: refs/09-vendor-animation-shorthands   kinds: keyframes_use,value_ref
+# shape: animation sheets of jQuery-era templates naming keyframes only through vendor-prefixed shorthands (-webkit-, -moz-, -o-animation), with the duration first
+keyframes_use	s.css:3:55	stripes	s.css:1:1	index.html	match	-
+keyframes_use	s.css:3:8	stripes	s.css:1:1	index.html	match	-
+keyframes_use	s.css:4:43	shake	s.css:2:1	index.html	match	-
+keyframes_use	s.css:4:8	shake	s.css:2:1	index.html	match	-
+value_ref	s.css:3:55	KEYFRAMES	stripes	-	-
+value_ref	s.css:3:8	KEYFRAMES	stripes	-	-
+value_ref	s.css:4:43	KEYFRAMES	shake	-	-
+value_ref	s.css:4:8	KEYFRAMES	shake	-	-

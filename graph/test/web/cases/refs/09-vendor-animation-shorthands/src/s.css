@@ -1,0 +1,4 @@
+@keyframes stripes { from { background-position: 40px 0 } to { background-position: 0 0 } }
+@-webkit-keyframes shake { 50% { left: 2px } }
+.bar { -webkit-animation: stripes 2s linear infinite; -o-animation: stripes 2s linear infinite; }
+.bad { -moz-animation:.7s 1 shake linear; -webkit-animation:0.7s 1 shake linear; }
