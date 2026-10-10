@@ -34,7 +34,7 @@ JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). De
               # hop 1; deeper JDK expansion only traces internal plumbing (the explosion source).
 LIB_DEPTH=""  # max external-lib-hop depth. OPTIONAL — empty = UNCAPPED (dive deep into the client's
               # real deps, no sink catalog there). Set with --lib-depth to bound a runaway library.
-DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAULT 20 (measured):
+DISPATCH_CAP="${DISPATCH_CAP:-}"     # fan-width cap on virtual dispatch. DEFAULT 20, off for Python (below) (measured):
               # on cassandra 6.0-alpha2 it lifts change-impact precision d2 0.782->0.920 and
               # d3 0.569->0.753 at ZERO recall cost against the must-have bytecode set (recall
               # 1.000/0.996/0.988 unchanged), and halves fabricated false positives. Cap 10 is
@@ -81,6 +81,9 @@ PKG="$(cd "$SRC/.." && pwd)"   # the package root: package.json, node_modules, p
 . "$SRC/pipeline/compile-lock.sh"
 # Rules are PER-LANGUAGE and live under graph/<lang>/; the executor itself is shared.
 LANG_ARG="${LANG_ARG:-java}"
+# Python's cap is off by default: a Python site over the cap is dropped outright, and for test selection a missed
+# test costs more than an extra one. Every other language keeps 20. An explicit --dispatch-cap still wins.
+if [ -z "$DISPATCH_CAP" ]; then [ "$LANG_ARG" = python ] && DISPATCH_CAP=off || DISPATCH_CAP=20; fi
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
 [ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
 # shellcheck source=souffle-include.sh
