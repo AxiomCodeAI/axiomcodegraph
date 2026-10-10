@@ -107,6 +107,7 @@ const DYNAMIC_CLASS_ATTR = /^(:class|v-bind:class|x-bind:class|\[class(\.[^\]]+)
 const DYNAMIC_ID_ATTR = /^(:id|v-bind:id|x-bind:id|\[id\]|\[attr\.id\]|th:id|bind:id)$/i;
 const TEMPLATE_IN_VALUE = /\{\{|\{%|<%|\$\{|\{\$|@\{|\[\[/;
 const HTML_EXT = /\.(html?|xhtml)$/i;
+const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr', 'keygen', 'command', 'basefont', 'bgsound', 'frame', 'image']);
 /** animation shorthand words that are not a keyframes name (CSS Animations 1 §3.13) */
 const ANIMATION_KEYWORDS = new Set(['none', 'infinite', 'normal', 'reverse', 'alternate', 'alternate-reverse', 'forwards', 'backwards', 'both',
   'running', 'paused', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'linear', 'step-start', 'step-end', 'initial', 'inherit', 'unset', 'revert',
@@ -289,6 +290,36 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     p.elements.forEach((e, i) => { e.idx = i; });
     p.hasHtml = p.elements.some((e) => e.parent === null && e.tagLower === 'html');
   }
+  // `<div/>` IS AN OPEN TAG in HTML: the trailing slash is ignored on a non-void HTML element, so what follows it in
+  // the same parent is its content until the parent closes. The parser closes it at the slash; the tree is mended
+  // here (one page text read per page that has such an element).
+  const depthOf = new Map<string, number>();
+  for (const p of pages.values()) {
+    let lines: string[] | null = null;
+    const textOf = (id: string): string => {
+      if (lines === null) { try { let t = fs.readFileSync(p.abs, 'utf8'); if (t.charCodeAt(0) === 0xfeff) t = t.slice(1); lines = t.split('\n'); } catch { lines = []; } }
+      const r = elRow.get(id)!; const sl = num(g(T.el, r, 'startLine'))!, sc = num(g(T.el, r, 'startColumn'))!, el = num(g(T.el, r, 'endLine'))!, ec = num(g(T.el, r, 'endColumn'))!;
+      if (sl === el) return (lines[sl - 1] ?? '').slice(sc - 1, ec);
+      return [(lines[sl - 1] ?? '').slice(sc - 1), ...lines.slice(sl, el - 1), (lines[el - 1] ?? '').slice(0, ec)].join('\n');
+    };
+    let mended = false;
+    for (const e of p.elements) {
+      if (!(e.ns === 'HTML' || e.ns === '') || VOID_ELEMENTS.has(e.tagLower) || e.children.length > 0 || e.childCount > 0) continue;
+      const src = textOf(e.id);
+      if (!/\/\s*>\s*$/.test(src) || src.includes('</')) continue;
+      const sibs = (e.parent ? e.parent.children : p.elements.filter((x) => x.parent === null)).slice().sort((a, b) => a.position - b.position);
+      const later = sibs.filter((x) => x.position > e.position);
+      if (later.length === 0) continue;
+      if (e.parent) e.parent.children = e.parent.children.filter((x) => !later.includes(x));
+      later.forEach((x, i) => { x.parent = e; x.position = i; });
+      e.children = later; e.childCount = later.length;
+      mended = true;
+    }
+    if (mended) {
+      const walk = (x: El, d: number) => { depthOf.set(x.id, d); for (const c of x.children) walk(c, d + 1); };
+      for (const x of p.elements) if (x.parent === null) walk(x, 0);
+    }
+  }
   for (const e of elById.values()) {
     e.children.sort((a, b) => a.position - b.position);
     // the markup inside an <iframe> is text to a browser (G11): kept as nodes, never styled, never a carrier
@@ -303,7 +334,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
       const nth = /\[(\d+)\]$/.exec(g(T.el, r, 'path'));
       out('web_elements').push({ uid: e.id, page_uid: p.id, parent_uid: e.parent?.id ?? null, file: p.file,
         line: num(g(T.el, r, 'startLine')), col: num(g(T.el, r, 'startColumn')), end_line: num(g(T.el, r, 'endLine')), end_col: num(g(T.el, r, 'endColumn')),
-        tag_name: e.tag, namespace: nz(e.ns), depth: num(g(T.el, r, 'depth')), position: e.position, nth_of_type: nth ? Number(nth[1]) : null,
+        tag_name: e.tag, namespace: nz(e.ns), depth: depthOf.get(e.id) ?? num(g(T.el, r, 'depth')), position: e.position, nth_of_type: nth ? Number(nth[1]) : null,
         html_id: nz(e.idAttr), class_names: nz((tokensOf.get(e.id) ?? []).map((t) => t.name).join(' ')), child_count: e.childCount, text: nz(e.text), inert: nz(e.inert),
         dynamic_class: e.dynamicClass ? 1 : 0, display: `${e.tagLower}${e.idAttr ? '#' + e.idAttr : ''}${[...e.classes].map((c) => '.' + c).join('')}` });
     }
@@ -392,7 +423,6 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     out('web_gaps').push({ uid: g(T.hgap, r, 'htmlParseGapUniqueHash'), lang: 'html', kind: g(T.hgap, r, 'gapKind'), detail: nz(g(T.hgap, r, 'detail')), owner_uid: d,
       related_uid: nz(g(T.hgap, r, 'relatedElementLinkHash')), file: fileOfPage(d), line: num(g(T.hgap, r, 'startLine')), col: num(g(T.hgap, r, 'startColumn')),
       end_line: num(g(T.hgap, r, 'endLine')), end_col: num(g(T.hgap, r, 'endColumn')) });
-    unknownRow('parse_gap', g(T.hgap, r, 'htmlParseGapUniqueHash'), d, 'parse_gap', `${g(T.hgap, r, 'gapKind')}: ${g(T.hgap, r, 'detail')}`, fileOfPage(d), num(g(T.hgap, r, 'startLine')));
   }
 
   // ── stylesheets ──
@@ -476,7 +506,7 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     out('web_declarations').push({ uid: g(T.decl, r, 'cssDeclarationUniqueHash'), rule_uid: nz(g(T.decl, r, 'ruleLinkHash')), attribute_uid: nz(attrId),
       element_uid: attrId ? attrOwner.get(attrId) ?? null : null, stylesheet_uid: nz(sheetId), page_uid: page, file: attrId ? (page ? fileOfPage(page) : null) : sheetFile(sheetId),
       line: num(g(T.decl, r, 'startLine')), col: num(g(T.decl, r, 'startColumn')), end_line: num(g(T.decl, r, 'endLine')), end_col: num(g(T.decl, r, 'endColumn')),
-      property: g(T.decl, r, 'property'), value_text: nz(unesc(g(T.decl, r, 'valueText'))), is_important: bool(g(T.decl, r, 'isImportant')),
+      property: g(T.decl, r, 'property'), value_text: nz(unesc(g(T.decl, r, 'valueText')).replace(/\/\*[\s\S]*?\*\//g, '').trim()), is_important: bool(g(T.decl, r, 'isImportant')),
       is_custom: bool(g(T.decl, r, 'isCustomProperty')), vendor_prefix: nz(g(T.decl, r, 'vendorPrefix')), position: num(g(T.decl, r, 'position')) });
   }
 
@@ -580,7 +610,6 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     }
     for (const row of rows) {
       out('web_loads').push(row);
-      if (row.status === 'unknown') unknownRow('stylesheet_load', null, page.id, String(row.reason), String(row.url_as_written), page.file, null);
     }
     loadsOf.set(page.id, loads);
     for (const l of loads) { const set = loadedBy.get(l.sheet) ?? new Set<string>(); set.add(page.id); loadedBy.set(l.sheet, set); }
@@ -1001,14 +1030,12 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     const m = new Map<string, El[]>();
     for (const e of p.elements) if (e.idAttr && e.inert !== 'iframe_text') push(m, e.idAttr, e);
     idsOnPage.set(p.id, m);
-    for (const [v, els] of m) if (els.length > 1) unknownRow('duplicate_id', els[0]!.id, p.id, 'duplicate_id', `#${v} on ${els.length} elements`, p.file, startOf(els[0]!.id)[0] || null);
   }
   const linked = new Set<string>(); for (const [, , , ref] of R.links) linked.add(ref!);
   const idRef = (from: string, page: string, attr: string, value: string) => {
     const carriers = idsOnPage.get(page)?.get(value) ?? [];
     if (carriers.length === 0) {
       out('web_id_refs').push({ from_element_uid: from, page_uid: page, attribute_name: attr, id_value: value, to_element_uid: null, status: 'unknown', reason: 'no_such_id' });
-      unknownRow('id_ref', from, page, 'no_such_id', `${attr} -> #${value}`, fileOfPage(page), startOf(from)[0] || null);
     } else for (const c of carriers) out('web_id_refs').push({ from_element_uid: from, page_uid: page, attribute_name: attr, id_value: value, to_element_uid: c.id,
       status: carriers.length > 1 ? 'ambiguous' : 'match', reason: carriers.length > 1 ? 'duplicate_id' : null });
   };
