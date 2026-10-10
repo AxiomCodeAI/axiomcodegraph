@@ -80,14 +80,48 @@ direct_export_func(mod, n, m) :- export_decl(_, n, _, _, _, _, _, se, mod, _), s
 // shares its name with hundreds of unrelated sites and must not be capped by them,
 // while a module-level `each` or `merge` called under its own name from everywhere
 // is exactly the generic utility the cap exists for.
+//
+// The PROGRAM's arguments are decided by the program's sites alone. A suite calls the
+// API it tests over and over, and counted with the program those calls made exactly the
+// functions under test "generic utilities": their parameters went untracked, so a
+// callback the program hands a constructor and stores on the instance (`this.decode =
+// options.decode`) was lost, and the program's own call through that field resolved only
+// to the fallback beside it. So there are two verdicts:
+//   method_is_hot             every site counts (as before): decides whether a TEST's
+//                             arguments flow in
+//   method_is_hot_in_program  test files' sites do not count: decides whether the
+//                             PROGRAM's arguments flow in
+// Nothing that flowed before stops flowing (a test handing the program a plugin it calls
+// back still reaches it). A function hot only because of its tests now receives what the
+// program passes it and still nothing from the tests: their callbacks would be the widest
+// values it holds, and with them the call through the stored field would be over the
+// dispatch cap and answer nothing.
 param_flow_capped_at(n) :- dispatch_cap(s), n = to_number(s).
 direct_call_count(m, n) :- direct_call_site(_, m), n = count : { direct_call_site(_, m) }.
 method_is_hot(m, n) :- direct_call_count(m, n), param_flow_capped_at(c), n > c.
 name_call_count(cn, n) :- call_site(_, _, cn, _, _, _, _, _, _), cn != "", n = count : { call_site(_, _, cn, _, _, _, _, _, _) }.
+program_direct_site(ce, m) :- direct_call_site(ce, m), !site_in_test_module(ce).
+program_direct_count(m, n) :- program_direct_site(_, m), n = count : { program_direct_site(_, m) }.
+method_is_hot_in_program(m, n) :- program_direct_count(m, n), param_flow_capped_at(c), n > c.
+// The NAME count is the overcount for module-level functions. A test's member call that
+// only shares the name (`lib.add(1, 2)` on an export that is a different function, a
+// curried closure) stays in it, as before; a test's bare call or `new` of the name
+// (`build(...)`, `new lib.Codec(...)`) denotes the function itself and leaves it.
+test_names_itself(ce) :- site_in_test_module(ce), call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck).
+test_names_itself(ce) :- site_in_test_module(ce), call_site(_, "CONSTRUCTOR_CALL", _, _, _, _, ce, _, _).
+program_name_site(m, ce) :- module_level_function(m, cn), call_site(_, _, cn, _, _, _, ce, _, _), !test_names_itself(ce).
+program_name_count(m, n) :- program_name_site(m, _), n = count : { program_name_site(m, _) }.
+// ── test_module / site_in_test_module ──────────────
+// By path, as runners find their files: a `test`/`tests`/`__tests__`/`spec(s)` directory,
+// or a `.test.` / `.spec.` file.
+test_module(mod) :- module_file("client", fp, mod),
+    match("(.*/)?(tests?|__tests__|specs?)/.*|.*[.](test|spec)[.][cm]?[jt]sx?", fp).
+site_in_test_module(ce) :- expr_owner(_, _, mod, ce), test_module(mod).
 module_level_function(m, n) :- method_decl(_, n, "FUNCTION_DECLARATION", _, _, "", mod, m), method_scopes(_, _, _, init, m), module_init(_, init, mod).
 module_level_function(m, n) :- var_decl(_, n, _, _, _, mod, v), function_binding_value(v, m), method_decl(_, _, _, _, _, "", mod, m),
     method_scopes(_, _, _, init, m), module_init(_, init, mod).
 method_is_hot(m, n) :- module_level_function(m, cn), name_call_count(cn, n), param_flow_capped_at(c), n > c.
+method_is_hot_in_program(m, n) :- program_name_count(m, n), param_flow_capped_at(c), n > c.
 
 // ── param_fan_capped(ParamHash, SiteCount) — countable ──────────────────────
-param_fan_capped(p, n) :- method_is_hot(m, n), param_decl(_, _, _, m, p).
+param_fan_capped(p, n) :- method_is_hot_in_program(m, n), param_decl(_, _, _, m, p).

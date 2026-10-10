@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+  <title>Torture: XHTML</title>
+  <link rel="stylesheet" href="../css/app.css" />
+  <script type="text/javascript">
+  //<![CDATA[
+    function cdata() { return 1 < 2 && "</script>" }
+  //]]>
+  </script>
+  <style type="text/css"><![CDATA[ .cdata-class { color: red } ]]></style>
+</head>
+<body onload="cdata()">
+  <div class="xhtml-class" id="xhtml-id"></div>
+  <br />
+  <div />
+  <span class="after-xml-self-closing">a sibling in XML, a child in HTML</span>
+  <textarea></textarea>
+</body>
+</html>

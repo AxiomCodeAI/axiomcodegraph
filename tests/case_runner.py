@@ -29,6 +29,8 @@ import os, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX = os.path.join(ROOT, 'bin', 'axiomcode')
+# internal verbs (context, changed, test-impact) left the installed command's surface: ask the dispatcher
+DISP = os.path.join(ROOT, 'plugins', 'axiomcode', 'skills', 'axiomcode', 'scripts', 'axiomcode')
 
 RUNNER_PY = '''#!/usr/bin/env python3
 """tests/run.py [<case> ...] [--lang python|java]
@@ -203,7 +205,7 @@ def main():
             for rel, (old, new) in edits.items():
                 p = os.path.join(repo, rel); t = open(p).read()
                 check(old in t, f'{why}: the edit applies to {rel}'); open(p, 'w').write(t.replace(old, new, 1))
-            r = sh(repo, AX, 'test-impact', '.', *extra, env=env)
+            r = sh(repo, DISP, 'test-impact', '.', *extra, env=env)
             out = r.stdout + r.stderr
             check(r.returncode == 0 and 'Traceback' not in out, f'{why}: test-impact answers', out)
             for w in want: check(w in out, f'{why}: names {w.strip()!r}', out)
@@ -213,14 +215,14 @@ def main():
         sh(repo, 'git', 'checkout', '-q', '--', '.')
         p = os.path.join(repo, 'tests', 'fastcases', 'python', 'shop', 'test_new.py')
         open(p, 'w').write('def test_new():\n    assert 1\n')
-        r = sh(repo, AX, 'changed', '.', env=env)
+        r = sh(repo, DISP, 'changed', '.', env=env)
         out = r.stdout + r.stderr
         check('case data read by tests/fast.py' in out and 'a test file: run it' not in out,
               'changed: a new file in a fixture tree is case data for its runner', out)
         os.remove(p)
         p = os.path.join(repo, 'tests', 'test_added.py')
         open(p, 'w').write('def test_added():\n    assert 1\n')
-        r = sh(repo, AX, 'changed', '.', env=env)
+        r = sh(repo, DISP, 'changed', '.', env=env)
         out = r.stdout + r.stderr
         check('a test file: run it' in out and 'case data' not in out, 'control: changed: a new real test file is a test to run', out)
         os.remove(p)

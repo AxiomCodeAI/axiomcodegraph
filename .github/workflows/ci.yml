@@ -52,7 +52,7 @@ permissions:
   contents: read
 
 env:
-  # bin/axiomcode and the parser need Node ≥ 22.5.
+  # bin/axiomcode and the parser need Node ≥ 22.13 (node:sqlite without a flag).
   NODE_VERSION: '22'
   SOUFFLE_VERSION: '2.5'
   SOUFFLE_SHA512: '6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c'
@@ -370,6 +370,16 @@ jobs:
       - name: build the Roslyn oracle
         if: matrix.lang == 'csharp'
         run: dotnet build -c Release graph/test/csharp/ground-truth/AxiomCsOracle
+
+      # `--library auto` decompiles a dependency that ships no sources jar; the Java query case for it needs Vineflower
+      - name: fetch the decompiler `--library auto` uses for Java class jars
+        if: matrix.lang == 'java'
+        run: mvn -q dependency:get -Dartifact=org.vineflower:vineflower:1.10.1
+
+      # `--library auto` compiles a NuGet package by decompiling it; the query case for it needs the decompiler
+      - name: install the decompiler `--library auto` uses for NuGet packages
+        if: matrix.lang == 'csharp'
+        run: dotnet tool install -g ilspycmd --version 8.2.0.7535
 
       - name: cache the Soufflé package
         uses: actions/cache@v4

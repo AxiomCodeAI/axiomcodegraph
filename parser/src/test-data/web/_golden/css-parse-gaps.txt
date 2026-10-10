@@ -1,0 +1,7 @@
+gapKind=PARSE_ERROR	detail=empty value for color	startLine=16	startColumn=11	endLine=16	endColumn=19
+gapKind=PARSE_ERROR	detail=empty value for color	startLine=3	startColumn=6	endLine=3	endColumn=22
+gapKind=PARSE_ERROR	detail=syntax error: $	startLine=1	startColumn=1	endLine=1	endColumn=2
+gapKind=PARSE_ERROR	detail=syntax error: $	startLine=3	startColumn=13	endLine=3	endColumn=14
+gapKind=PARSE_ERROR	detail=syntax error: primary;	startLine=3	startColumn=14	endLine=3	endColumn=22
+gapKind=PREPROCESSOR_SYNTAX	detail=sass variable: $primary:	startLine=1	startColumn=1	endLine=1	endColumn=10
+gapKind=UNPARSED_FRAGMENT	detail=declaration outside a rule: primary: #333;	startLine=1	startColumn=2	endLine=1	endColumn=16

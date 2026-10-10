@@ -1,0 +1,5 @@
+gapKind=HANDLER_SYNTAX	detail=onclick: ')' expected.	startLine=5	startColumn=25	endLine=5	endColumn=25
+gapKind=HANDLER_SYNTAX	detail=onclick: template expression in handler	startLine=35	startColumn=43	endLine=35	endColumn=43
+gapKind=PARSE_ERROR	detail=duplicate-attribute	startLine=15	startColumn=15	endLine=15	endColumn=25
+gapKind=STYLE_ATTRIBUTE_SYNTAX	detail=empty value for color	startLine=4	startColumn=16	endLine=4	endColumn=16
+gapKind=STYLE_ATTRIBUTE_SYNTAX	detail=syntax error: ;	startLine=4	startColumn=23	endLine=4	endColumn=23

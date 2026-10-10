@@ -396,15 +396,11 @@ expr_call_candidate(ce, m) :- callee_branch(ce, x),
     expr_shape(x, s),
     call_signature_in_scope(s, m).
 expr_call_candidate(ce, m) :- callee_branch(ce, x),
-    expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+    property_access_recv(x, n, q),
     expr_type(q, _, qt),
     field_is_callable(qt, n, m).
 expr_call_candidate(ce, m) :- callee_branch(ce, x),
-    expr_kind("client", "PROPERTY_ACCESS", _, x),
-    property_access_name(x, n),
-    expr_child("client", x, "RECEIVER", _, q),
+    property_access_recv(x, n, q),
     expr_shape(q, s),
     field_is_callable(s, n, m).
 

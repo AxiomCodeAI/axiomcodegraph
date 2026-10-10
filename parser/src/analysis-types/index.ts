@@ -19,3 +19,14 @@ export { XmlValueReference } from '@/analysis-types/xml/XmlValueReference';
 // YAML analysis types
 export { YamlProperty } from '@/analysis-types/yaml/YamlProperty';
 export { YamlValueSegment } from '@/analysis-types/yaml/YamlValueSegment';
+
+// HTML analysis types (the web front end)
+export {
+  HtmlAttribute, HtmlClassReference, HtmlDocument, HtmlElement, HtmlHandlerCall, HtmlParseGap, HtmlReference, HtmlScript,
+  HtmlTemplateExpression,
+} from '@/analysis-types/html';
+
+// CSS analysis types (the web front end)
+export {
+  CssComment, CssDeclaration, CssParseGap, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValueReference,
+} from '@/analysis-types/css';

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # axiomcode — ask a repository's call graph. `axiomcode --help` prints the dispatcher's help
-# (plugins/axiomcode/skills/axiomcode/scripts/axiomcode): index, find, impact, path and tests.
+# (plugins/axiomcode/skills/axiomcode/scripts/axiomcode): index, context, impact, path and tests.
 # ─────────────────────────────────────────────────────────────────────────────
 # INTERNAL COMMANDS, not advertised: the build, the engine suites and the MCP server, which
 # the dispatcher, the test suites and the agent manifests call.
@@ -98,16 +98,17 @@ PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 QUERY="$ROOT/plugins/axiomcode/skills/axiomcode/scripts/axiomcode"
 # `tests` is a query verb (the tests an edit reaches); `test` is THIS command's engine suite. The query
 # surface advertises `tests`; `test` is internal.
-# The list is read from the frontend's own dispatch table, the lines `  <verb>[|<alias>]) exec …` that its `--verbs`
-# prints, so the two entry points still cannot drift -- but read here, in this shell, instead of by a second bash, a
-# sed, a tr and two greps on every query.
+# THE LIST IS THE SUPPORTED SURFACE: the `#   axiomcode <verb>` lines of the frontend's own leading help (what its
+# `--verbs` prints), so the two entry points cannot drift -- read here, in this shell, instead of by a second bash.
+# The frontend still dispatches internal verbs (context, changed, test-impact) for the hooks and the suites, which
+# call it directly; this command refuses them, so the installed surface is only what the help teaches.
 QVERBS=()
 load_verbs(){
   [ ${#QVERBS[@]} -gt 0 ] && return 0; [ -f "$QUERY" ] || return 0
-  local l v x re='^  ([a-z|-]*)\) *exec '
+  local l re='^#   axiomcode ([a-z][a-z-]*)'
   while IFS= read -r l || [ -n "$l" ]; do
-    [[ $l =~ $re ]] || continue; v="${BASH_REMATCH[1]}"
-    for x in ${v//|/ }; do QVERBS+=("$x"); done
+    [ "${l:0:1}" = '#' ] || { [ -n "${QVERBS[*]:-}" ] && break; continue; }
+    [[ $l =~ $re ]] && QVERBS+=("${BASH_REMATCH[1]}")
   done < "$QUERY"
 }
 query_verbs(){ load_verbs; [ ${#QVERBS[@]} -gt 0 ] && printf '%s\n' "${QVERBS[@]}"; return 0; }
@@ -294,6 +295,13 @@ case "$cmd" in
     echo "▶ parsing $src → IR"
     "$0" parser "$src" "$ir" ${popts[@]+"${popts[@]}"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
     head -1 "$int/parse.log"
+    # WHAT AN INSTALLED PYTHON LIBRARY HANDS BACK to the objects the client gives it (graph/python/libsum): read from
+    # the project's environment, cached by package and version, staged beside the client IR. Never fatal -- without
+    # it the engine sees no library hand-backs, exactly as before. AXIOMCODE_LIB_CALLBACKS=0 turns it off.
+    if [ -d "$ir/python" ] && [ "${AXIOMCODE_LIB_CALLBACKS:-1}" != 0 ]; then
+      python3 "$ROOT/graph/python/libsum/libsum.py" --src "$src" --out "$ir/python" > "$int/libsum.log" 2>&1 \
+        && tail -1 "$int/libsum.log" || echo "⚠️  library callback summaries failed (see $int/libsum.log); continuing without them" >&2
+    fi
     # which languages the IR holds — one folder each — and which of them have an engine
     found=(); for d in "$ir"/*/; do l="$(basename "$d")"; [ -d "$ROOT/graph/$l/engine" ] && found+=("$l"); done
     [ ${#found[@]} -gt 0 ] || { echo "❌ no language with an engine in the IR (folders: $(ls "$ir" | tr '\n' ' '))" >&2; exit 1; }
@@ -324,16 +332,61 @@ case "$cmd" in
     # a caller that checks it is no worse off. Only the languages that produced a graph are
     # listed at the end, so the output stays a list of files that exist.
     solved=(); failed=()
-    for l in "${langs[@]}"; do
-      echo "▶ solving $l → $out/$l/graph.sqlite"
-      if "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" --library "$libroots" \
-           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}; then
-        solved+=("$l"); [ -z "$progress" ] || echo "$l ok $out/$l/graph.sqlite" >> "$progress"
+    # Each language gets its OWN intermediate: run-souffle writes fixed names there
+    # (souffle-program.cpp, .souffle-gen.log), so two concurrent solves into one
+    # directory would overwrite each other's program mid-compile.
+    solve_one(){ local sl="$1"
+      "$0" engine --language "$sl" --client-ir "$ir/$sl" --out "$out/$sl" --intermediate "$int/$sl" --library "$libroots" \
+           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
+    }
+    record(){ local rl="$1" rrc="$2"
+      if [ "$rrc" -eq 0 ]; then
+        solved+=("$rl"); [ -z "$progress" ] || echo "$rl ok $out/$rl/graph.sqlite" >> "$progress"
       else
-        failed+=("$l"); echo "❌ $l failed; continuing with the remaining languages" >&2
-        [ -z "$progress" ] || echo "$l failed" >> "$progress"
+        failed+=("$rl"); echo "❌ $rl failed; continuing with the remaining languages" >&2
+        [ -z "$progress" ] || echo "$rl failed" >> "$progress"
       fi
-    done
+    }
+    # THE FIRST (LARGEST) LANGUAGE SOLVES ALONE, streaming, exactly as before: its graph is the one a
+    # --progress caller publishes first (#1555), and nothing may compete with it for cores or
+    # interleave its log. Only the languages AFTER it run concurrently — they used to wait in line
+    # behind each other for no reason: their solves share nothing (own IR, own output, own
+    # intermediate). Memory is the tradeoff (each is its own Soufflé process), so the width is
+    # modest by default and AXIOMCODE_SOLVE_JOBS raises or lowers it; 1 restores the strict line.
+    l="${langs[0]}"
+    echo "▶ solving $l → $out/$l/graph.sqlite"
+    rc=0; solve_one "$l" || rc=$?; record "$l" "$rc"
+    if [ ${#langs[@]} -gt 1 ]; then
+      others=("${langs[@]:1}")
+      JOBS="${AXIOMCODE_SOLVE_JOBS:-2}"
+      case "$JOBS" in (*[!0-9]*|'') JOBS=2;; esac; [ "$JOBS" -ge 1 ] || JOBS=1
+      if [ "$JOBS" -eq 1 ]; then
+        for l in "${others[@]}"; do
+          echo "▶ solving $l → $out/$l/graph.sqlite"
+          rc=0; solve_one "$l" || rc=$?; record "$l" "$rc"
+        done
+      else
+        # Waves of $JOBS (bash 3.2 has no `wait -n`): start a wave, wait for all of it, replay each
+        # log whole so the build log never interleaves, then record in the wave's order.
+        i=0
+        while [ $i -lt ${#others[@]} ]; do
+          wave=("${others[@]:$i:$JOBS}"); i=$((i + JOBS))
+          wavepids=()
+          for l in "${wave[@]}"; do
+            echo "▶ solving $l → $out/$l/graph.sqlite (concurrent)"
+            { solve_one "$l" > "$int/solve-$l.log" 2>&1; echo $? > "$int/solve-$l.rc"; } &
+            wavepids+=($!)
+          done
+          for wp in "${wavepids[@]}"; do wait "$wp" || true; done
+          for l in "${wave[@]}"; do
+            cat "$int/solve-$l.log" 2>/dev/null
+            rc="$(cat "$int/solve-$l.rc" 2>/dev/null || echo 1)"
+            rm -f "$int/solve-$l.log" "$int/solve-$l.rc"
+            record "$l" "$rc"
+          done
+        done
+      fi
+    fi
     for l in ${solved[@]+"${solved[@]}"}; do echo "$out/$l/graph.sqlite"; done
     if [ ${#failed[@]} -gt 0 ]; then
       echo "❌ ${#failed[@]} of ${#langs[@]} languages failed: ${failed[*]}" >&2
@@ -347,7 +400,7 @@ case "$cmd" in
     run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
     case "$which" in
       java|typescript|python|javascript|csharp) run_suite "$which" "$@";;
-      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests csharp-tests gradle-tests services-tests discovery-tests; do
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests csharp-tests gradle-tests services-tests web-tests web-torture discovery-tests; do
                 [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
       all) for l in java typescript python javascript csharp; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
       *) die "test: unknown suite $which (java | typescript | python | javascript | csharp | parser | all)";;

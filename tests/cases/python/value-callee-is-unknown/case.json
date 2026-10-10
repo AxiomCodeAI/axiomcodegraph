@@ -67,7 +67,7 @@
    ]
   },
   {
-   "why": "fire calls a local holding getattr(self, f'on_{event}'): the site is named, and the target is not called independent",
+   "why": "fire calls a local holding getattr(self, event): no part of the name is written, so the site is named and the target is not called independent (an f-string or `+` prefix resolves; see getattr-fstring-prefix-dispatch)",
    "run": [
     "path",
     "Machine.fire",

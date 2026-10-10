@@ -33,6 +33,20 @@
 // java_local_variable (19): 0 name  13 method  18 hash
 // ============================================================================
 
+// A USE of a local: the LOCAL_VARIABLE reference joined to its declaration, ONCE, below the
+// typing fixpoint. These same three atoms sat inline in five recursive rules, and semi-naive
+// evaluation re-ran the full java_expression scan every iteration — 163 iterations on a large
+// subject, ~40% of the whole solve between them. Hoisted, each of those rules starts from its
+// recursive delta and probes this table.
+local_use(use, local) :-
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, use),
+    expr_ultimate_method("client", use, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local).
+// ...and the uses whose local is initialized by a call, with that initializer.
+local_use_init(use, initExpr) :-
+    local_use(use, local),
+    java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr).
+
 // The initializer expression of a local (LOCAL_VAR_INITIALIZER root, owned by the local).
 local_init_expr(local, e) :-
     java_expression(_, "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
@@ -53,7 +67,5 @@ local_flow_type(local, t) :- local_assign_value(local, e), expr_type(_, e, t).
 // PROPAGATE: a LOCAL_VARIABLE receiver reference takes the flow-type(s) of its local
 // (POSITIVE — resolves the concrete method directly; the cap handles the residual fan).
 expr_type("client", recv, t) :-
-    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
-    expr_ultimate_method("client", recv, m),
-    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    local_use(recv, local),
     local_flow_type(local, t).

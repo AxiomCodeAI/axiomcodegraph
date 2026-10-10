@@ -649,16 +649,10 @@ recv_decl_ref(recv, retRef, recvType) :- applicable_candidate(recv, innerCallee)
 // declared-type clause above yields a reference carrying no arguments. The initializer's callee
 // return type carries them. The field analogue is unnecessary: Java has no `var` fields, so a
 // field always writes its type.
-recv_decl_ref(recv, retRef, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
-    expr_ultimate_method("client", recv, m),
-    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
-    java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
+recv_decl_ref(recv, retRef, t) :- local_use_init(recv, initExpr),
     applicable_candidate(initExpr, callee),
     method_return_type_resolves(_, callee, retRef, t).
-recv_decl_ref(recv, retRef, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
-    expr_ultimate_method("client", recv, m),
-    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
-    java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
+recv_decl_ref(recv, retRef, t) :- local_use_init(recv, initExpr),
     applicable_candidate(initExpr, callee),
     lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, callee, "METHOD", retRef),
     lib_type_ref_resolves(_, retRef, t).

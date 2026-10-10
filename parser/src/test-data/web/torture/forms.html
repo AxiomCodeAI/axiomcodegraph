@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Torture: id references</title>
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/base.css">
+  <!-- F00 no <base> here: a query string and a fragment on a link, a ../ that escapes the root, cross-page fragments -->
+  <link rel="stylesheet" href="css/base.css?v=abc123#frag">
+  <link rel="stylesheet" href="../../outside.css">
+</head>
+<body>
+  <!-- F01 label/for, input/form, input/list, td/headers, output/for, button/popovertarget, img/usemap -->
+  <form id="the-form" action="/submit" method="post">
+    <label for="q">query</label><input id="q" name="q" type="text">
+    <label for="missing-input">dangling for</label>
+    <label for="  q  ">padded for</label>
+    <label for="Q">case-different for</label>
+    <input list="choices" name="pick"><datalist id="choices"><option value="a"></datalist>
+    <input list="no-such-list">
+    <button formaction="/alt" form="the-form" popovertarget="pop">go</button>
+    <output for="q pick" name="result"></output>
+    <table><tr><th id="h-name">name</th><th id="h-age">age</th></tr><tr><td headers="h-name h-age h-missing">x</td></tr></table>
+  </form>
+  <input form="the-form" name="outside">
+  <input form="not-a-form" name="orphan">
+  <div popover id="pop" class="popover">pop</div>
+  <button popovertarget="no-such-popover">no target</button>
+  <img src="img/logo.png" usemap="#site-map" alt=""><map name="site-map" id="site-map-id"><area href="#the-form" alt=""></map>
+  <img src="img/logo.png" usemap="#no-such-map" alt="">
+  <a name="legacy-anchor">legacy named anchor</a>
+  <a href="#legacy-anchor">to a name, not an id</a>
+  <a href="#the-form">to an id</a>
+  <a href="#The-Form">case-different fragment</a>
+  <a href="#">bare hash</a>
+  <a href="#top">implicit top</a>
+  <a href="index.html#section-one">to the other page</a>
+  <a href="index.html#LOUD">to an uppercase id on the other page</a>
+  <a href="index.html#nope">cross-page fragment, dangling</a>
+  <a href="missing.html#x">cross-page fragment, page missing</a>
+  <iframe name="frame-b" src="index.html"></iframe>
+  <a href="index.html" target="frame-b">targets frame-b</a>
+  <a href="index.html" target="_blank">targets a keyword</a>
+  <div aria-labelledby="h-name h-age"></div>
+  <div aria-owns="pop choices"></div>
+  <div aria-activedescendant="q"></div>
+  <div itemref="h-name h-age" itemscope></div>
+  <menu id="ctx"></menu><div contextmenu="ctx"></div>
+  <button commandfor="pop" command="show-popover"></button>
+  <input id="q">duplicate id with the first input
+</body>
+</html>

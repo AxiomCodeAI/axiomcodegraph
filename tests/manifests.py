@@ -172,7 +172,7 @@ def main():
                 if re.search(r'(?<!")\$\{CLAUDE_PLUGIN_ROOT\}', hook['command']):
                     bad.append(f"hooks.json {event}: {hook['command']!r} leaves ${{CLAUDE_PLUGIN_ROOT}} unquoted")
 
-    # Every host is told about the same four tools, as they are called: find(question), impact(name), …
+    # Every host is told about the same tools, as they are called: impact(name), path(start, end), …
     server = open(os.path.join(PLUGIN, 'mcp', 'server.py')).read()
     tools = set(re.findall(r'^def (\w+)\(', server[server.index('@srv.tool()'):], re.M)) if '@srv.tool()' in server else set()
     if not tools:

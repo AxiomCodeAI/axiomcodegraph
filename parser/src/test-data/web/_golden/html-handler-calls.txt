@@ -1,0 +1,11 @@
+handlerSource=EVENT_ATTRIBUTE	eventName=click	calleeName=confirm	receiverText=	calleeText=confirm	argumentCount=1	isNew=false	position=0	startLine=31	startColumn=46
+handlerSource=EVENT_ATTRIBUTE	eventName=click	calleeName=go	receiverText=	calleeText=go	argumentCount=0	isNew=false	position=1	startLine=20	startColumn=82
+handlerSource=EVENT_ATTRIBUTE	eventName=click	calleeName=remove	receiverText=	calleeText=remove	argumentCount=1	isNew=false	position=1	startLine=31	startColumn=60
+handlerSource=EVENT_ATTRIBUTE	eventName=click	calleeName=save	receiverText=	calleeText=save	argumentCount=0	isNew=false	position=0	startLine=5	startColumn=20
+handlerSource=EVENT_ATTRIBUTE	eventName=click	calleeName=submit	receiverText=app	calleeText=app.submit	argumentCount=1	isNew=false	position=0	startLine=32	startColumn=38
+handlerSource=EVENT_ATTRIBUTE	eventName=click	calleeName=track	receiverText=	calleeText=track	argumentCount=2	isNew=false	position=0	startLine=20	startColumn=55
+handlerSource=EVENT_ATTRIBUTE	eventName=load	calleeName=start	receiverText=	calleeText=start	argumentCount=0	isNew=false	position=0	startLine=9	startColumn=15
+handlerSource=JAVASCRIPT_URL	eventName=	calleeName=toggle	receiverText=	calleeText=toggle	argumentCount=0	isNew=false	position=0	startLine=34	startColumn=25
+handlerSource=TEMPLATE_EVENT	eventName=click	calleeName=toggle	receiverText=	calleeText=toggle	argumentCount=0	isNew=false	position=0	startLine=2	startColumn=53
+handlerSource=TEMPLATE_EVENT	eventName=keyup	calleeName=search	receiverText=	calleeText=search	argumentCount=0	isNew=false	position=0	startLine=10	startColumn=45
+handlerSource=TEMPLATE_EVENT	eventName=select	calleeName=pick	receiverText=	calleeText=pick	argumentCount=1	isNew=false	position=0	startLine=7	startColumn=74

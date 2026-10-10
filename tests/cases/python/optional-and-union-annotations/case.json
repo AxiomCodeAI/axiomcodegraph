@@ -1,0 +1,12 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a local annotated `Optional[Foo]` is a Foo, as the same annotation on a parameter already was",
+   "run": ["impact", "Foo.go"],
+   "want": ["[resolved] l_optional"]},
+  {"why": "a three-operand PEP 604 union nests left-associatively; every operand counts, on a parameter and on a local",
+   "run": ["impact", "Bar.go"],
+   "want": ["p_pipe3", "l_pipe"],
+   "avoid": ["[by name] p_pipe3", "[by name] l_pipe"]},
+  {"why": "CONTROL: a two-operand union and a plain annotation resolve as before",
+   "run": ["impact", "Foo.go"],
+   "want": ["[resolved] p_pipe", "[resolved] p_plain"]}]}

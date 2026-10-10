@@ -442,7 +442,7 @@ One row per place a call is written (or, for a synthesised edge, the construct t
 - **typescript** — end_line / end_column come from the expression row; the call-site row itself records only the start.
 - **javascript** — caller_id is the parser's enclosing method, or the module initializer for top-level code. end_line / end_column come from the expression row. `require()` is a module edge, not a call site.
 - **typescript** — PROPERTY_READ and PROPERTY_WRITE rows are accessor invocations with no written call: the site is the property-access expression that runs the getter or setter, positioned from the expressions table, and callee_name is NULL because nothing was written; the accessor's name is on the callee's methods row. Filter them out with kind NOT IN (…) when counting calls.
-- **python** — PROPERTY_READ, CONTEXT_MANAGER, ITERATION_PROTOCOL, METACLASS_CREATION and DYNAMIC_CALL rows are protocol or indirect edges with no written call: their site is the expression that triggers them, and callee_name is always NULL because nothing was written. SUBSCRIPT_CALL is NULL only when the subscript is not a written name (measured 206 of 337 rows on a Python subject). Filter them out with kind NOT IN (…) when counting calls.
+- **python** — PROPERTY_READ, PROPERTY_WRITE, CONTEXT_MANAGER, ITERATION_PROTOCOL, BUILTIN_PROTOCOL, OPERATOR_PROTOCOL, TRUTH_PROTOCOL, METACLASS_CREATION and DYNAMIC_CALL rows are protocol or indirect edges with no written call: their site is the expression that triggers them, and callee_name is always NULL because nothing was written. SUBSCRIPT_CALL is NULL only when the subscript is not a written name (measured 206 of 337 rows on a Python subject). Filter them out with kind NOT IN (…) when counting calls.
 - **python** — The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class's TYPE hash for METACLASS_CREATION, positioned at the class declaration.
 
 ### `call_edges`
@@ -467,6 +467,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `new` | csharp | An object creation. The target is the constructed type's constructor, and it is never dispatched. |
 | `ctor_delegate` | csharp | `: this(...)` or `: base(...)`. No name is written, so the target is structural. |
 | `primary_ctor_base` | csharp | SYNTHESISED. A primary constructor's base invocation, written in the heritage clause: `class D(int a) : B(a)`. There is no call syntax anywhere in the body. FromExpr is the heritage type reference. |
+| `implicit_base_ctor` | csharp | SYNTHESISED. The base class's parameterless constructor that a constructor with no `: base(...)` / `: this(...)` runs before its body, or that the implicit constructor of a class declaring none runs at its `new`. FromExpr is the heritage type reference, or the `new` site. |
 | `delegate` | csharp | A call through a delegate value: `handler(x)` or `handler.Invoke(x)`. |
 | `operator` | csharp | A user-defined operator invoked by operator syntax. |
 | `conversion` | csharp | A user-defined conversion. An implicit one has no syntax at the call site. |
@@ -531,9 +532,13 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `DECORATOR_*` | python | Applying an unparenthesised decorator; the suffix is the parser's decorator kind: BARE, ATTRIBUTE, SUBSCRIPT, EXPRESSION (and CALL/ATTRIBUTE_CALL when the factory expression is not itself a call site). The site is the decorator hash. |
 | `METACLASS_CREATION` | python | A class statement invokes its metaclass's `__new__` / `__init__` at import time, whether the metaclass is written on the statement (`class X(metaclass=M)`) or inherited from a base, and the nearest base's `__init_subclass__`. No written call; the site is the class's type hash. |
 | `PROPERTY_READ` | python | Reading `obj.attr` where `attr` is a `@property` runs the getter; reading `Cls.attr` where the METACLASS defines `attr` as a property runs that getter. No written call; the site is the attribute-access expression. |
+| `PROPERTY_WRITE` | python | Assigning `obj.attr = v` where `attr` is a `@property` with a setter runs the setter; `del obj.attr` runs its deleter. No written call; the site is the attribute-access expression. |
 | `CONTEXT_MANAGER` | python | `with expr:` runs `__enter__` / `__exit__` (or the async pair). No written call; the site is the context-manager expression. |
 | `ITERATION_PROTOCOL` | python | `for x in expr:` (and comprehensions) runs `__iter__` / `__next__` (or the async pair). No written call; the site is the iterated expression. |
 | `SUBSCRIPT_PROTOCOL` | python | `x[k]` runs `__getitem__` (and `x[k] = v` / `del x[k]` the setter and deleter) of the receiver's class. No written call; the site is the subscript expression. Its own kind so it is never counted as a written call. |
+| `BUILTIN_PROTOCOL` | python | `repr(x)`, `str(x)`, `len(x)`, `hash(x)`, `bool(x)`, `iter(x)`, `next(x)`, `abs(x)`, `format(x)` and `reversed(x)` run the matching dunder of the argument's class (str falls back to `__repr__`, bool to `__len__`). The written call is to the builtin; this edge is the dunder it runs. The site is the argument expression. Its own kind so it is never counted as a written call. |
+| `OPERATOR_PROTOCOL` | python | An operator runs a dunder of its operands: `a + b` the left operand's `__add__` and the right one's `__radd__`, a comparison the left slot and the right one's mirror (`a < b` -> `b.__gt__`, `!=` falls back to `__eq__`), `x in c` the right operand's `__contains__` (or `__iter__`), `-a`/`+a`/`~a` its `__neg__`/`__pos__`/`__invert__`. No written call; the site is the operator expression. |
+| `TRUTH_PROTOCOL` | python | A truth test runs the tested value's `__bool__`, or `__len__` when its class has none: `if x:`, `while x:`, `assert x`, `not x`, a conditional or comprehension condition, and an operand of `and`/`or` (the right one only when the whole expression is tested). No written call; the site is the tested expression. |
 
 **`call_edges.tier` values**
 

@@ -34,7 +34,7 @@ JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). De
               # hop 1; deeper JDK expansion only traces internal plumbing (the explosion source).
 LIB_DEPTH=""  # max external-lib-hop depth. OPTIONAL — empty = UNCAPPED (dive deep into the client's
               # real deps, no sink catalog there). Set with --lib-depth to bound a runaway library.
-DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAULT 20 (measured):
+DISPATCH_CAP="${DISPATCH_CAP:-}"     # fan-width cap on virtual dispatch. DEFAULT 20, off for Python (below) (measured):
               # on cassandra 6.0-alpha2 it lifts change-impact precision d2 0.782->0.920 and
               # d3 0.569->0.753 at ZERO recall cost against the must-have bytecode set (recall
               # 1.000/0.996/0.988 unchanged), and halves fabricated false positives. Cap 10 is
@@ -81,6 +81,9 @@ PKG="$(cd "$SRC/.." && pwd)"   # the package root: package.json, node_modules, p
 . "$SRC/pipeline/compile-lock.sh"
 # Rules are PER-LANGUAGE and live under graph/<lang>/; the executor itself is shared.
 LANG_ARG="${LANG_ARG:-java}"
+# Python's cap is off by default: a Python site over the cap is dropped outright, and for test selection a missed
+# test costs more than an extra one. Every other language keeps 20. An explicit --dispatch-cap still wins.
+if [ -z "$DISPATCH_CAP" ]; then [ "$LANG_ARG" = python ] && DISPATCH_CAP=off || DISPATCH_CAP=20; fi
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
 [ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
 # shellcheck source=souffle-include.sh
@@ -201,6 +204,7 @@ write_program(){
   _SU=()
   t+="#include \"$LANG_ARG/souffle/decls_base.dl\"$nl#include \"$LANG_ARG/souffle/decls_all.dl\"$nl"
   map_rels_su "$TPL/client-ir.map" || return 1
+  if [ -f "$TPL/client-extra.map" ]; then map_rels_su "$TPL/client-extra.map" || return 1; fi
   map_rels_su "$TPL/lib.map" sig || return 1
   for r in $LIB_BODY; do _SU+=("$r"); done
   _SU+=(jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world)
@@ -254,7 +258,8 @@ write_program(){
 # lost on either side shows up as a difference. Every .input and .output line must be exactly
 # the expected one, each exactly once, with nothing extra. Exit status only: no pipe to lose.
 verify_program(){
-  awk -v cmap="$TPL/client-ir.map" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
+  local xmap=""; [ -f "$TPL/client-extra.map" ] && xmap="$TPL/client-extra.map"
+  awk -v cmap="$TPL/client-ir.map" -v xmap="$xmap" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
       -v libsig=" $LIB_SIG " -v extra="$LIB_BODY jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world" '
     function want(line) { if (!(line in need)) { need[line] = 1; n++ } }
     function inp(r) { want(".input " r "(IO=file, filename=\"" r ".facts\", delimiter=\"\\t\", rfc4180=true)") }
@@ -269,7 +274,7 @@ verify_program(){
       close(path)
     }
     BEGIN {
-      maprels(cmap, 0); maprels(lmap, 1)
+      maprels(cmap, 0); maprels(lmap, 1); if (xmap != "") maprels(xmap, 0)
       m = split(extra, e, " "); for (i = 1; i <= m; i++) if (e[i] != "") inp(e[i])
       while ((rc = (getline l < man)) > 0) {
         sub(/^\t+/, "", l); k = index(l, "\t"); p = l; f = ""
@@ -318,14 +323,14 @@ engine_id_of(){
   done < "$prog"
   hin="$(mktemp "${TMPDIR:-/tmp}/axiom-engine-id.XXXXXX")" && [ -f "$hin" ] \
     || { echo "❌ engine id: mktemp failed" >&2; return 1; }
-  if ! printf 'souffle=%s\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
+  if ! printf 'souffle=%s+seqlock-fix-4\n' "$SOUFFLE_VERSION" > "$hin" || ! cat "$prog" ${incs[@]+"${incs[@]}"} >> "$hin"; then
     echo "❌ engine id: writing the hash input failed" >&2; rm -f "$hin"; return 1
   fi
   # The expected size comes from the SOURCE files (wc's last line is their total), not from a
   # second read through cat, so a cat that loses bytes cannot agree with itself.
   want="$(wc -c "$prog" ${incs[@]+"${incs[@]}"})"; have="$(wc -c < "$hin")"
   want="${want##*$'\n'}"; want="${want#"${want%%[![:space:]]*}"}"; want="${want%% *}"
-  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 9 ));; esac   # 9 = "souffle=" + "\n"
+  case "$want" in ""|*[!0-9]*) want=-1;; *) want=$(( want + ${#SOUFFLE_VERSION} + 23 ));; esac   # 23 = "souffle=" + "+seqlock-fix-4" + "\n"
   if [ "${have//[[:space:]]/}" != "$want" ]; then
     echo "❌ engine id: the hash input is ${have//[[:space:]]/} bytes, expected $want (short write)" >&2; rm -f "$hin"; return 1
   fi
@@ -379,8 +384,270 @@ case "${AXIOM_ENGINE_MARCH:-native}" in
   portable) MARCH_FLAG=();;
   *)        MARCH_FLAG=("-march=${AXIOM_ENGINE_MARCH:-native}");;
 esac
+# ── PARALLEL SOLVE ────────────────────────────────────────────────────────────
+# Soufflé emits parallel loops only when the program is GENERATED with -j — without it
+# the C++ holds zero parallel sections, which is why every engine before this was
+# sequential by construction. Compiled WITHOUT OpenMP the same generated code runs
+# serially (pfor degrades to for), so generation always asks for the parallel loops and
+# OpenMP at COMPILE time decides the flavor. Measured on a 6,139-file Java subject:
+# 147s serial -> 59s at -j8; the outputs are equal as sets (row order shifts between
+# flavors; the bundle loads rows into sqlite, which keeps no order).
+# GATED PER PLATFORM. darwin-arm64's nondeterministic parallel segfaults — a different
+# rule each crash, g++/libgomp and apple-clang/libomp alike — were two weak-ordering
+# holes, both closed by the header overlay below: the write-entry RMW (seqlock-fix-1)
+# and the unfenced publication of freshly split btree nodes (seqlock-fix-2), which is
+# why the crashes needed memory pressure (a recycled page holds garbage where a fresh
+# one holds zeros). darwin-arm64 now runs parallel by default, like linux-x64; Linux
+# enables OpenMP when its toolchain takes -fopenmp. AXIOM_SOLVE_PARALLEL=0 forces serial
+# anywhere; =1 forces the attempt anywhere (still needs a toolchain with -fopenmp).
+# The flavor is part of the CACHE NAME, never shared between flavors: the two binaries
+# answer with different row orders, and a cache hit must reproduce the flavor that ran
+# yesterday, not whichever compiled first.
+# THE SEQLOCK FIX (overlay). Soufflé's OptimisticReadWriteLock enters its write phase
+# with fetch_or(..., memory_order_acquire): the version-odd store may become visible
+# AFTER the write section's data stores on a weakly-ordered CPU, so a reader can read a
+# half-mutated node and still pass validate() against the stale even version. On x86's
+# TSO stores never reorder, which is why this only ever fired on arm64 (nondeterministic
+# segfaults in a different rule each run, any toolchain, Soufflé 2.5 and master alike).
+# seq_cst on the entry RMW pins the odd version BEFORE any data store; on x86 a locked
+# RMW is already a full barrier, so the change costs nothing there.
+# THE PUBLICATION FIX (fix-2, BTree.h). The residual arm64 crash under memory pressure:
+# a split publishes a freshly built node with PLAIN pointer stores — insert_inner's
+# `getChildren()[pos + 1] = newNode` and grow_parent's `*root = new_root` — and on a
+# weakly-ordered CPU that pointer can become visible BEFORE the node's own field stores,
+# including its lock's start_write. An optimistic reader then descends into memory whose
+# lock reads as free and whose children are whatever the allocator left there: zeros on a
+# fresh page (survivable), garbage on recycled memory — which is exactly the observed
+# "under memory pressure, a different rule each run" (TSAN: 66 atomic-vs-plain write pairs,
+# all BTree.h insert/split against a node's lock word). A release fence before each
+# publication orders every initialization store first; the reader's dereference is
+# address-dependent, which arm64 orders by itself. The engine id carries
+# "+seqlock-fix-4", so no unpatched cache entry or package is ever taken for a patched one.
+souffle_overlay(){
+  local inner="$1" overlay="$CACHE_ROOT/include-seqlock-fix-4"
+  local hdr="$overlay/souffle/utility/ParallelUtil.h"
+  if [ ! -f "$hdr" ]; then
+    rm -rf "$overlay.tmp.$$"
+    mkdir -p "$overlay.tmp.$$"
+    cp -R "$inner/." "$overlay.tmp.$$/" || return 1
+    local h="$overlay.tmp.$$/souffle/utility/ParallelUtil.h"
+    [ -f "$h" ] || return 1
+    # three write-entry RMWs: start_write (two), try_start_write, try_upgrade_to_write
+    sed -i.bak 's/version\.fetch_or(0x1, std::memory_order_acquire)/version.fetch_or(0x1, std::memory_order_seq_cst)/g' "$h" && rm -f "$h.bak"
+    grep -q 'fetch_or(0x1, std::memory_order_seq_cst)' "$h" || return 1
+    grep -q 'fetch_or(0x1, std::memory_order_acquire)' "$h" && return 1
+    # fix-3: a release fence before EVERY store that makes a new node reachable — the child
+    # links fix-2 fenced, and the parent-pointer publications it missed (split's reparenting,
+    # grow_parent's this->parent/sibling->parent, insert_inner's late newNode->parent, which
+    # is reordered to before the link). The lock-parents walk reads exactly those pointers.
+    # ...and the MINGW-COMPILE guards: souffle maps __builtin_popcountll to MSVC's
+    # __popcnt64 and pulls intrin.h for ALL of _WIN32, which breaks g++ on MinGW — the
+    # one toolchain a Windows developer who clones this repository compiles with. Both
+    # are MSVC-only concerns, so the guards narrow to _MSC_VER; every other platform's
+    # preprocessed output is bit-identical.
+    local b="$overlay.tmp.$$/souffle/datastructure/BTree.h"
+    [ -f "$b" ] || return 1
+    python3 - "$b" <<'PYEOF' || return 1
+import glob, os, sys
+p = sys.argv[1]; s = open(p).read()
+root = os.path.dirname(os.path.dirname(p))
+F = "std::atomic_thread_fence(std::memory_order_release);  // publication fence (seqlock-fix-3)"
+# split(): fill the sibling completely (children, counts), fence, THEN reparent — each
+# children[j]->parent = other makes the new sibling reachable from an existing node.
+a1 = """            // move child pointers
+            if (this->inner) {
+                // move pointers to sibling
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;
+            sibling->numElements = maxKeys - split_point - 1;"""
+r1 = """            // move child pointers: the sibling's own fields first (private until reparented)
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j] = getChildren()[i];
+                }
+            }
+            sibling->numElements = maxKeys - split_point - 1;
+            """ + F + """
+            if (this->inner) {
+                auto* other = static_cast<inner_node*>(sibling);
+                for (unsigned i = split_point + 1, j = 0; i <= maxKeys; ++i, ++j) {
+                    other->children[j]->parent = other;
+                    other->children[j]->position = static_cast<field_index_type>(j);
+                }
+            }
+
+            // update number of elements
+            this->numElements = split_point;"""
+# grow_parent(): new_root is fully filled above; the parent stores are its first publication.
+a2 = """                // link this and the sibling node to new root
+                this->parent = new_root;"""
+r2 = """                // link this and the sibling node to new root
+                """ + F + """
+                this->parent = new_root;"""
+a3 = "                // switch root node\n                *root = new_root;"
+r3 = "                // switch root node\n                " + F + "\n                *root = new_root;"
+# insert_inner(): give newNode its parent and position BEFORE the link that publishes it.
+a4 = """            keys[pos] = key;
+            getChildren()[pos + 1] = newNode;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;"""
+r4 = """            keys[pos] = key;
+            newNode->parent = this;
+            newNode->position = static_cast<field_index_type>(pos) + 1;
+            """ + F + """
+            getChildren()[pos + 1] = newNode;"""
+# spec-descent-guard (seqlock-fix-4): the insert descent dereferences the child it read
+# under a still-unvalidated optimistic lease; a concurrent split exposes a null slot.
+# CAPTURED on darwin-arm64: ldapr of the child's seqlock version at address null+8,
+# inside btree::insert, java -j8 under souffle-g memory load. A null child is a failed
+# validation and restarts the insert -- never a dereference. Applied to BTree.h and
+# its BTreeDelete.h twin.
+d = """                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();"""
+dr = """                // get next pointer
+                auto next = cur->getChild(idx);
+
+                // spec-descent-guard (seqlock-fix-4): a concurrent split can expose a
+                // null child slot under an optimistic lease; treat it as a failed
+                // validation, never dereference it.
+                if (next == nullptr) {
+                    return insert(k, hints);
+                }
+
+                // get lease on next level
+                auto next_lease = next->lock.start_read();"""
+if s.count(d) != 1: sys.exit(1)
+s = s.replace(d, dr)
+bd = os.path.join(os.path.dirname(p), "BTreeDelete.h")
+t = open(bd).read()
+if t.count(d) != 1: sys.exit(1)
+open(bd, "w").write(t.replace(d, dr))
+for a, r in ((a1, r1), (a2, r2), (a3, r3), (a4, r4)):
+    if s.count(a) != 1: sys.exit(1)
+    s = s.replace(a, r)
+open(p, 'w').write(s)
+# mingw-compile guards, in every copy the include layout holds
+m1 = "#if _WIN64\n#define __builtin_popcountll __popcnt64\n#else\n#define __builtin_popcountll __popcnt\n#endif"
+m1r = "#if defined(_MSC_VER)\n" + m1 + "\n#endif  // _MSC_VER (mingw-compile): MinGW has the gcc builtins"
+m2 = "#ifdef _WIN32\n#include <intrin.h>"
+m2r = "#if defined(_MSC_VER)  // (mingw-compile): intrin.h only for MSVC\n#include <intrin.h>"
+hit1 = hit2 = 0
+for q in glob.glob(root + "/**/MiscUtil.h", recursive=True) + glob.glob(root + "/**/PiggyList.h", recursive=True):
+    t = open(q).read(); n = 0
+    if m1 in t: t = t.replace(m1, m1r); hit1 += 1; n = 1
+    if m2 in t: t = t.replace(m2, m2r); hit2 += 1; n = 1
+    if n: open(q, "w").write(t)
+if hit1 < 1 or hit2 < 1: sys.exit(1)
+# spec-fetch-guard (seqlock-fix-4): an optimistic BTree reader may hand the flyweight a
+# SPECULATIVELY-READ index before validating its seqlock. A torn or stale index must come
+# back as a harmless empty value that the validation then discards -- never a dereference
+# of an unassigned (null) or out-of-range slot. Observed as a segfault in a varying rule,
+# javascript -j8 on darwin-arm64 under memory-pressure load (4 hits in two runs).
+fw = glob.glob(root + "/**/ConcurrentFlyweight.h", recursive=True)[0]
+t = open(fw).read()
+fa = """    const Key& fetch(const lane_id H, const index_type Idx) const {
+        const auto Lane = Lanes.guard(H);
+        assert(Idx < SlotCount.load(std::memory_order_relaxed));
+        return Slots[Idx]->first;
+    }"""
+fr = """    const Key& fetch(const lane_id H, const index_type Idx) const {
+        const auto Lane = Lanes.guard(H);
+        // spec-fetch-guard (seqlock-fix-4): tolerate a speculative index, see overlay notes.
+        if (Idx >= SlotCount.load(std::memory_order_relaxed) || Slots[Idx] == nullptr) {
+            static const Key Empty{};
+            return Empty;
+        }
+        return Slots[Idx]->first;
+    }"""
+if t.count(fa) != 1: sys.exit(1)
+open(fw, "w").write(t.replace(fa, fr))
+rt = glob.glob(root + "/**/RecordTableImpl.h", recursive=True)[0]
+t = open(rt).read()
+ua = """    const RamDomain* unpack(RamDomain Index) const override {
+        return fetch(Index).data();
+    }"""
+ur = """    const RamDomain* unpack(RamDomain Index) const override {
+        // spec-fetch-guard (seqlock-fix-4): an empty generic record has a null data();
+        // give a speculative reader zeroed storage to misread instead.
+        const auto& R = fetch(Index);
+        if (R.data() == nullptr) {
+            static const RamDomain Zeros[64] = {};
+            return Zeros;
+        }
+        return R.data();
+    }"""
+if t.count(ua) != 1: sys.exit(1)
+open(rt, "w").write(t.replace(ua, ur))
+PYEOF
+    [ "$(grep -c 'seqlock-fix-3' "$b")" = "4" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$b")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/BTreeDelete.h")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/ConcurrentFlyweight.h")" = "1" ] || return 1
+    [ "$(grep -c 'seqlock-fix-4' "$overlay.tmp.$$/souffle/datastructure/RecordTableImpl.h")" = "1" ] || return 1
+    mv "$overlay.tmp.$$" "$overlay" 2>/dev/null || true   # a concurrent run may have won; theirs is identical
+    rm -rf "$overlay.tmp.$$"
+  fi
+  [ -f "$hdr" ] && printf '%s' "$overlay"
+}
+OMP_FLAG=(); PAR_SUFFIX=""
+probe_openmp(){
+  # the flags this platform needs for a working OpenMP compile, or nothing.
+  # Linux: -fopenmp everywhere. Darwin: Apple clang only lowers the pragmas with the
+  # frontend flag plus Homebrew's libomp (-Xpreprocessor defines _OPENMP without
+  # lowering anything — a silently sequential binary, which is how this stayed hidden).
+  case "$(uname -s)" in
+    Linux|MINGW*|MSYS*|CYGWIN*)
+      # MSYS2/Git-Bash `c++` is g++, which takes -fopenmp exactly as Linux does
+      if printf 'int main(){return 0;}' | c++ -fopenmp -x c++ -o /dev/null - 2>/dev/null; then
+        printf '%s' "-fopenmp"; return 0
+      fi ;;
+    Darwin)
+      local omp
+      for omp in /opt/homebrew/opt/libomp /usr/local/opt/libomp; do
+        [ -f "$omp/lib/libomp.dylib" ] || continue
+        if printf 'int main(){return 0;}' | c++ -Xclang -fopenmp -I "$omp/include" -L "$omp/lib" -lomp -x c++ -o /dev/null - 2>/dev/null; then
+          printf '%s' "-Xclang -fopenmp -I $omp/include -L $omp/lib -lomp"; return 0
+        fi
+      done ;;
+  esac
+  return 1
+}
+# Default: Linux x86_64 only. The seqlock entry fix above repairs the diagnosed
+# ordering hole (quiet-machine runs went clean), but a residual crash mode remains on
+# arm64 under memory pressure, so weakly-ordered CPUs stay serial by default until it
+# is found; AXIOM_SOLVE_PARALLEL=1 opts any machine in for experiments.
+case "${AXIOM_SOLVE_PARALLEL:-}" in
+  0) ;;
+  1) if _OMP="$(probe_openmp)"; then
+       OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
+     fi ;;
+  "") # Parallel by default on every platform with evidence behind it. The two arm64
+      # weak-ordering holes (write-entry RMW; unfenced node publication) are closed by
+      # the seqlock-fix-3 overlay, validated under load: darwin-arm64 10/10, linux-arm64
+      # 10/10 (GCP), linux-x64 5/5 (GCP) — all relation-identical to serial. x64 is TSO,
+      # where neither hole is observable. Windows local compiles probe like the rest
+      # (MSYS g++); packaged win32 engines carry /openmp from build-engines.yml, gated
+      # by its own release validation. AXIOM_SOLVE_PARALLEL=0 is the one-variable
+      # rollback to serial anywhere, no rebuild.
+      if _OMP="$(probe_openmp)"; then
+        # shellcheck disable=SC2206 — the probe emits simple flags, split wanted
+        OMP_FLAG=($_OMP); PAR_SUFFIX="-par"
+      fi ;;
+esac
 EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
-BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
+BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$PAR_SUFFIX$EXE"
 
 # The platform string, in npm's spelling (process.platform-process.arch), because that is
 # how the engine packages are named: darwin-arm64, linux-x64, linux-arm64, win32-x64.
@@ -456,14 +723,16 @@ elif [ -z "$PACKAGED" ] && [ -n "${COMPILE_LOCK:-}" ]; then
   # line blocks from stderr; on a real failure, dump the full log and fail. c++ -w
   # silences the deprecation warnings in souffle's own headers. Compile to a .tmp then
   # atomically rename, so a concurrent/aborted run never leaves a half-written binary.
-  if ! souffle -I "$SRC" -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
+  if ! souffle -I "$SRC" -j 8 -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
     cat "$INT/.souffle-gen.log" >&2; exit 1
   fi
   awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
   [ -s "$INT/souffle-program.cpp" ] || { echo "❌ souffle wrote no C++ for $PROG" >&2; exit 1; }
   CXX_PLATFORM=""
   case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
-  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
+  OVERLAY="$(souffle_overlay "$INNER" || true)"
+  [ -n "$OVERLAY" ] || { echo "❌ could not prepare the patched soufflé headers (seqlock fix)" >&2; exit 1; }
+  if ! c++ -std=c++17 -O3 ${MARCH_FLAG[@]+"${MARCH_FLAG[@]}"} ${OMP_FLAG[@]+"${OMP_FLAG[@]}"} -w $CXX_PLATFORM -I "$OVERLAY" -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"; then
     rm -f "$BIN.tmp.$$"; echo "❌ compiling the engine failed" >&2; exit 1
   fi
   # VERIFY, THEN PUBLISH. The cache entry is trusted by name alone from now on, so nothing may
@@ -549,7 +818,7 @@ while IFS=$'\t' read -r rel csv; do
   if [ -f "$CLIENT/$csv.csv" ]; then awk -F'\t' 'NR==1{n=NF; next} NF==n{print; next} {bad++} END{if(bad>0) printf "  ! dropped %d malformed row(s) from %s\n", bad, FILENAME > "/dev/stderr"}'  "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
   else : > "$FACTS/$rel.facts"; fi
   CLIENT_INPUTS="$CLIENT_INPUTS$rel"$'\n'
-done < <(read_map "$TPL/client-ir.map")
+done < <(read_map "$TPL/client-ir.map"; if [ -f "$TPL/client-extra.map" ]; then read_map "$TPL/client-extra.map"; fi)
 
 # --- LIB: signature relations, concatenated across every module of every root ---
 # CACHED. This concatenation reads the ENTIRE library IR (the JDK alone is 2.0 GB in,
@@ -771,7 +1040,22 @@ while [ "$iter" -lt 50 ]; do
     # the instructions it uses (a shared cache, a CI cache keyed too coarsely), it dies
     # with SIGILL (exit 132) before solving anything. Never leave it there to kill every
     # later run the same way: drop the cache entry, so the next run recompiles, and say so.
-    rc=0; "$BIN" -F "$FACTS" -D "$RAW" || rc=$?
+    # -j is passed ALWAYS (a serial binary ignores it silently — verified); more than one
+    # thread only for a binary of the parallel flavor: one this run compiled with OpenMP,
+    # or a packaged/cached one whose builder left a .parallel marker beside it.
+    SOLVE_J=1
+    if [ -n "$PAR_SUFFIX" ] || [ -f "$BIN.parallel" ]; then
+      cores="$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )"
+      SOLVE_J="${AXIOMCODE_SOLVE_THREADS:-$(( cores < 8 ? cores : 8 ))}"
+    fi
+    # AXIOM_DL_PROFILE=<file>: solve this run in the souffle INTERPRETER with per-rule profiling
+    # written to <file> (souffleprof reads it). Slower than the compiled engine, same answer; for
+    # finding the rules a solve spends its time in, as the java local-use hoist was found.
+    if [ -n "${AXIOM_DL_PROFILE:-}" ] && command -v souffle >/dev/null 2>&1; then
+      rc=0; souffle -I "$SRC" -j "$SOLVE_J" -p "$AXIOM_DL_PROFILE" -F "$FACTS" -D "$RAW" "$PROG" || rc=$?
+    else
+    rc=0; "$BIN" -j "$SOLVE_J" -F "$FACTS" -D "$RAW" || rc=$?
+    fi
     if [ "$rc" -ne 0 ]; then
       if [ "$rc" -eq 132 ] && [ -z "$PACKAGED" ]; then
         rm -f "$BIN"
@@ -810,7 +1094,7 @@ done
 # here (it's in the shared cache), and facts must stay per-run (never shared) so concurrent
 # analyses of different projects don't collide. Runs only on success (set -e bails earlier
 # on failure, leaving the facts for debugging).
-rm -rf "$FACTS" "$INT/souffle-program.cpp"
+[ "${AXIOM_KEEP_FACTS:-0}" = "1" ] || rm -rf "$FACTS" "$INT/souffle-program.cpp"
 SOLVE_EPOCH=$(date +%s)
 echo "Elapsed (solve): $((SOLVE_EPOCH-START_EPOCH))s"
 

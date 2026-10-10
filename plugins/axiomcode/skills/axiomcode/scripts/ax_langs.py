@@ -133,8 +133,34 @@ def main(argv):
             print(json.dumps(base, indent=1) if not isinstance(base, str) else base, end='' if isinstance(base, str) else '\n')
         sys.stderr.write(''.join(n[4] for n in answered) + notes)
         return 0
+    def _is_json(out):
+        try: json.loads(out); return True
+        except ValueError: return False
+    if '--json' in args and any(_is_json(n[3]) for n in named):
+        # no graph answered, but one answered IN JSON (path found no chain: a document with its leads, status 1):
+        # still ONE document. Printed as the text answer's per-graph headers instead, a machine reader got
+        # `══ typescript graph ══` and nothing it could parse; each other graph's refusal is kept as data and the exit
+        # status is the main one's. Refusals that are all text (a name no graph declares) stay text: the pager that
+        # asks impact for --json passes a refusal through as written
+        objs = []
+        for lang, is_main, rc, out, err in named:
+            try: objs.append((lang, json.loads(out)))
+            except ValueError: objs.append((lang, {'refusal': out.strip()}))
+        base_lang, base = objs[0]
+        if not isinstance(base, dict): base = {'answer': base}
+        base = dict(base, language=base_lang)
+        if len(objs) > 1: base['other_languages'] = {l: o for l, o in objs[1:]}
+        if text: base['text'] = text
+        print(json.dumps(base, indent=1))
+        sys.stderr.write(''.join(n[4] for n in named) + notes)
+        return named[0][2]
 
     show = answered or named
+    if not answered and len({(n[3], n[4]) for n in named}) == 1 and '--json' in args and not _is_json(named[0][3]):
+        # the same text refusal from every graph, asked for --json: one document carrying it, not a header and prose
+        print(json.dumps(dict(refusal=named[0][3].strip(), language=named[0][0], languages=[n[0] for n in named],
+                              **({'text': text} if text else {})), indent=1))
+        sys.stderr.write(named[0][4]); return named[0][2]
     if not answered and len({(n[3], n[4]) for n in named}) == 1:            # the same refusal from every graph: once
         print(f"══ {', '.join(n[0] for n in named)} graph{'s' if len(named) > 1 else ''} ══"); sys.stdout.write(named[0][3]); sys.stderr.write(named[0][4])
         if text: sys.stdout.write('\n' + text)

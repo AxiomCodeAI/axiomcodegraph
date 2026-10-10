@@ -1,0 +1,17 @@
+className=card	position=0	startLine=25
+className=card--wide	position=1	startLine=25
+className=dark	position=1	startLine=17
+className=hidden	position=1	startLine=21
+className=home	position=0	startLine=17
+className=item	position=0	startLine=20
+className=item	position=0	startLine=21
+className=item	position=0	startLine=22
+className=label	position=0	startLine=2
+className=link	position=0	startLine=3
+className=nav	position=0	startLine=18
+className=partial	position=0	startLine=1
+className=title	position=0	startLine=10
+className=tpl	position=0	startLine=37
+className=widget	position=0	startLine=1
+className=wrapper	position=0	startLine=3
+className=x	position=0	startLine=15

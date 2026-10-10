@@ -1,4 +1,4 @@
-"""What the enrich and changes hooks print about one declaration, where a bare number would mislead.
+"""What the changes hook prints about one declaration, where a bare number would mislead.
 
   zero_label   a method with no resolved caller. Of 323 caller counts the Read / Grep hooks printed in headless
                sessions, 209 were `← 0`, and most of those were methods a framework calls: a route handler, an

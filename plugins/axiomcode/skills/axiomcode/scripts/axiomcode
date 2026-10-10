@@ -2,8 +2,6 @@
 # axiomcode — ask the repository's call graph. Each answer is a numbered list of places, each with the code of the
 # function it sits in.
 #
-#   axiomcode find "<what you need, in words>"
-#       where the code for a task lives: the functions involved, most relevant first.
 #   axiomcode impact [<name>]
 #       who calls it, what a change to it reaches, and the tests that exercise it.
 #       With no name: the same for the declarations your uncommitted edits changed.
@@ -11,6 +9,9 @@
 #       how A reaches B: every hop of the call chain, with the code at each call.
 #   axiomcode tests
 #       the tests your uncommitted edits reach, and the command that runs exactly those.
+#   axiomcode context "<the task, in your own words>" [--source]
+#       how something works, as a narrative: the files and callables the task touches and, for a
+#       how-does-X-work question, the call flow step by step; --source carries each step's code.
 #   axiomcode index [<repo>] [--lang <lang>[,<lang>…]] [--src <subdir>] [--library <root>[,<root>…]]
 #       build the graph (the first query builds it too). <repo> defaults to the current directory.
 #
@@ -18,27 +19,18 @@
 
 # THE HELP ABOVE IS THE PUBLIC SURFACE: helptext() prints the comment block up to the blank line above. The verbs below
 # are still dispatched and keep every flag -- the hooks, the test suites and scripts call them -- but they are internal
-# and are not advertised on any user- or agent-facing surface. find is context and tests is test-impact underneath;
-# at the front door (bin/axiomcode sets AXIOMCODE_FRONT, the MCP server AXIOMCODE_SURFACE=mcp) a query with no flag
-# answers as places with their code (ax_blocks.py), and any flag, AXIOMCODE_RAW=1 or a direct call gives the verb's
-# own answer.
+# and are not advertised on any user- or agent-facing surface, and the installed command (bin/axiomcode) refuses them.
+# tests is test-impact underneath; at the front door (bin/axiomcode sets AXIOMCODE_FRONT, the MCP server
+# AXIOMCODE_SURFACE=mcp) a query with no flag answers as places with their code (ax_blocks.py), and any flag,
+# AXIOMCODE_RAW=1 or a direct call gives the verb's own answer.
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript|csharp] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
-#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh] [--no-refresh] [--grep]
-#       THE FRONT DOOR: the files and callables a task touches, from the problem statement — when there is no name
-#       to ask about yet. Deterministic: task terms scored against the graph's vocabulary by inverse document
-#       frequency, tests demoted, the closure walked from the best seed per term and ranked by nearest hop.
-#       --in is repeatable and takes a list, and several are COMBINED, not intersected, so a change that
-#       spans two roots is answerable in one call.
-#       Ends by saying what it could not see. Every other verb needs a name you already have; this one does not.
-#   axiomcode graph [<repo>] [--out <folder | page.html>] [--no-refresh]
-#       the graph as one page, every language the repository was indexed in. Drawn from the existing graph when it is up
-#       to date (seconds, no engine run); rebuilt first only when a source file changed, and then with the --lang, --src
-#       and --library it was indexed with, never for a language the index left out; indexed first when there is none.
-#       Prints what it drew and the page's absolute path: <repo>/.axiomcode/graph/graph.html, or --out (a folder gets
-#       <folder>/<repo>.html, a .html path is used as given). The page embeds the sources, so a node opens its code.
-#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json] [--why] [--fresh] [--no-refresh] [--grep]
+#   axiomcode context "<the task, in your own words>" [<repo>] [--in <path>[,<path>…]]… [--budget N] [--source] [--json] [--fresh] [--no-refresh]
+#       internal (the orient hook, the suites): the files and callables a task touches, from the problem statement.
+#       Deterministic: task terms scored against the graph's vocabulary by inverse document frequency, tests demoted,
+#       the closure walked from the best seed per term and ranked by nearest hop.
+#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>] [--json] [--why] [--fresh] [--no-refresh]
 #       the shortest chain of calls from A to B per reached target, and with --every all the routes; through what?
 #       '*' as one endpoint: path '*' X = everything that can reach X, with the entry points among them; path X '*' = everything X reaches. Endpoints exactly as written in the code: Owner.method,
 #       method (free function or any owner), Type (all its methods), file.ts:123, file.py. Datalog over the graph; every
@@ -48,7 +40,7 @@
 #       reference — in one vocabulary across all five languages. A hop that is not a call is marked and not counted.
 #       --why (path and impact) says after the endpoint line how each name was resolved: the lookup step that matched,
 #       up to five candidates with file:line, and why that one won or why the name matched nothing.
-#   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k] [--why] [--fresh] [--no-refresh] [--grep]
+#   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k] [--why] [--fresh] [--no-refresh]
 #       what has to be looked at again when a declaration changes: a method, a field / constant / enum member, a type, a
 #       parameter (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), Type.<init> / Type.<clinit>. Prints what
 #       must change with it (overrides, subtypes), what directly touches it with WHY and how sure ([resolved] / [in scope] /
@@ -60,38 +52,22 @@
 #       name, initializer; type header; body only; removed; added) — the working tree against the commit the graph was built
 #       from, or a branch's commits (--range a..b reads from `git merge-base a b`) — each with the target `impact` takes;
 #       --impact runs impact on all of them as one change set. Without git, name the files.
-#   axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why] [--no-refresh] [--grep]
+#   axiomcode test-impact [<repo>] [<file>…] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why] [--no-refresh]
 #       which tests actually have to run for this edit: the test files that reach any changed declaration, with the
 #       chain, so a selection can be checked rather than trusted. Conservative by design — a test reached only
 #       through an edge the graph does not encode (reflection, a service loader) will NOT appear.
-#   axiomcode diff <graphA> <graphB> [--file <path fragment>] [--lang <lang>] [--limit N] [--json]
-#       what changed between two graphs of the same tree (graph.sqlite paths, or two indexed copies of it): call edges
-#       added, removed, retiered or re-targeted, entry points with their reason, remote and framework edges, config
-#       bindings and symbols, with a summary line of counts per tier. Rows are matched by file, line, qualified name and
-#       callee, never by id (ids hash the index directory), so one tree indexed at two paths diffs to nothing. Reads both
-#       graphs as they are: neither is rebuilt or refreshed.
 #   axiomcode help [<verb>]
 #       every verb with what it does; with a verb, that verb's own usage, printed from the script that implements it.
-#   axiomcode install [<repo>] [--remove] [--print]
-#       write the preference into the repository's CLAUDE.md as one marked block: for a question about how code connects,
-#       prefer this over grep/Glob. States a preference, blocks nothing; re-running replaces, --remove takes it out.
 #
 # A repo in several languages is indexed in all of them, one graph each, and the query verbs ask every graph (the main
 # language's, the one with the most files, first). --lang restricts it to one language or a comma list, the first the main one;
 # --src limits the analysed tree (e.g. src); --library names dependency roots. --fresh (context, path, impact) waits for
 # a refresh in flight and answers from the new graph; without it an answer from a graph older than an edit marks its rows.
-# --no-refresh (every query verb: context, path, impact, changed, test-impact, graph; MCP refresh=false) is a READ-ONLY
+# --no-refresh (every query verb: context, path, impact, changed, test-impact; MCP refresh=false) is a READ-ONLY
 # query: the answer comes from the graph as it is and no rebuild is started, as AXIOMCODE_NO_REFRESH=1 does for a whole
 # shell; it still says which edits the graph predates. Without it a query on a graph that is out of date (files edited
 # since, or built by another axiomcode) starts a background rebuild with the engine this axiomcode uses, and says so on
 # the answer's first line. The hooks never rebuild a graph another axiomcode built; they say so once per session.
-# --grep (context, path, impact, test-impact) prints the answer's sites one per line, as grep does: `path:line: <the code
-# on that line>  [resolved | one of a set | by name | text | hop N | test]`, the first 30 (--grep-limit N) and a count of
-# the rest, then whether it was verified and its bound. The MCP tools answer this way by default; full=True is the prose.
-# --evidence / --no-evidence (or AXIOMCODE_EVIDENCE=on|off; off by default): each of the five strongest rows that is not an
-# exact edge ([by name], [one of a set], [registered], …) carries the line that decides it — where its receiver or key
-# gets its value — and how much of the answer is reached only through it. --drop <file:line> (repeatable) asks again
-# without that row, --exact with exact edges only; --alongside lists the `alongside` rows the evidence view counts.
 # ON WINDOWS $0 CAN MIX SEPARATORS: the MCP server joins its script path onto AXIOMCODE_PLUGIN_ROOT with os.path.join,
 # C:/.../plugins/axiomcode\skills\axiomcode\scripts\axiomcode. Splitting that on '/' alone lands on .../plugins, and
 # every verb then runs a helper that is not there. `dirname` split on either; so does this, as bin/axiomcode does.
@@ -129,16 +105,18 @@ if [ -z "${AXIOMCODE_BASH:-}" ] && command -v cygpath >/dev/null 2>&1; then AXIO
 # a hardcoded verb list is how `bin/axiomcode` would drift from it next.
 verbs(){ sed -n 's/^  \([a-z|-]*\)) *exec .*/\1/p' "$0" | tr '|' '\n'; }
 helptext(){ awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
+# the verbs the help advertises: THE SUPPORTED SURFACE, what bin/axiomcode delegates and an unknown verb is told about
+public_verbs(){ helptext | sed -n 's/^  axiomcode \([a-z][a-z-]*\).*/\1/p'; }
 # one verb's own usage, from the script that implements it: a python docstring, or a bash file's
 # leading comment block. The verb documents itself once, where it is implemented.
 verbhelp(){
   # a verb of the small surface is explained by its own entry in the help above: what it answers, no options
-  case "$1" in find|impact|path|tests)
+  case "$1" in impact|path|tests)
     helptext | awk -v v="$1" '$0 ~ "^  axiomcode "v"( |$)" {on=1; print; next} on && /^  axiomcode / {exit} on && /^$/ {exit} on {print}'
     return 0 ;;
   esac
-  local f="$H/axiomcode-$1"; [ "$1" = index ] && f="$H/axiomcode-build"; [ "$1" = tests ] && f="$H/axiomcode-test-impact"; [ "$1" = find ] && f="$H/axiomcode-context"
-  [ -f "$f" ] || { echo "axiomcode: no such verb '$1' — try: $(verbs | tr '\n' ' ')" >&2; return 2; }
+  local f="$H/axiomcode-$1"; [ "$1" = index ] && f="$H/axiomcode-build"; [ "$1" = tests ] && f="$H/axiomcode-test-impact"
+  [ -f "$f" ] || { echo "axiomcode: no such verb '$1' — try: $(public_verbs | tr '\n' ' ')" >&2; return 2; }
   if head -1 "$f" | grep -q python; then python3 -c 'import ast,sys; print(ast.get_docstring(ast.parse(open(sys.argv[1]).read())) or "")' "$f"
   else awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$f"; fi
 }
@@ -171,21 +149,20 @@ case "${ARGS[0]:-}" in -h|--help) if [ -n "$cmd" ] && [ "${#ARGS[@]}" = 1 ]; the
 # A QUERY NEVER BLOCKS ON A REFRESH BY DEFAULT (#1305, #1595). Before a query verb answers, the graph is checked against
 # the files it was built from. When one differs the background refresher is started and the answer comes from the last
 # good graph at once, every row that lies in a changed file marked "(may be out of date)" and one line on stderr naming
-# the files. It waits (up to AXIOMCODE_FRESH_WAIT, default 30 s) only when the answer touches a changed file and the last
-# build says the refresh will finish within that; never on a compile of the engine's rules. --fresh waits for the
+# the files. It waits only when AXIOMCODE_FRESH_WAIT (seconds, default 0) allows, the answer touches a changed file and
+# the last build says the refresh will finish within that; never on a compile of the engine's rules. --fresh waits for the
 # refresh, saying how it goes, and answers from the new graph. ax_fresh.py query does all of it; a fresh graph costs one
 # check and an exec. The repository is the last argument that is a directory, as the verbs themselves take it, else the
 # working directory. No graph: nothing here, the verb builds its first one.
 # `changed` and `test-impact` ask about an edit, against the graph of the baseline (kept aside by a refresh), so they do
-# not wait for the graph; they wait only when HEAD moved and the baseline has to follow it. `graph` checks the graph
-# itself: it draws from it when it is current, and rebuilds it with its own recorded flags only when it is not.
+# not wait for the graph; they wait only when HEAD moved and the baseline has to follow it.
 # A flag's VALUE is never the repository: `--in plugins/core` names a directory under it, and taking that for the
 # repository found no .axiomcode/lang there, so a repository in several languages was asked in its main graph alone and
 # a scope that only another language's graph holds was refused as absent.
 # A REPOSITORY THAT IS NOT THERE IS AN ERROR, NOT THE WORKING DIRECTORY. A repository argument naming no directory was
 # taken for a target (impact) or passed over, the working directory answered instead, and on one with no graph a full
 # build of it started: a parent of many projects, for minutes. The repository sits at a fixed place for most verbs
-# (index and graph: the first argument; context: after the task; path: after the two endpoints), so anything there that
+# (index: the first argument; context: after the task; path: after the two endpoints), so anything there that
 # is not a directory is refused. impact takes several targets and changed/test-impact take files, so there only an
 # argument WRITTEN as a directory is taken for one: absolute, ./ ../ ~, a trailing slash, or a path whose last part has
 # no extension, and no :line. `src/a.py`, `a.py:12` and `Owner.m` are still targets and files. The hooks call the verb
@@ -202,8 +179,7 @@ done
 LASTPOS=""; [ "${#POS[@]}" -gt 0 ] && LASTPOS="${POS[${#POS[@]}-1]}"
 case "$cmd" in
   index|build) if [ "${#POS[@]}" -gt 0 ] && [ ! -d "${POS[0]}" ]; then gone "${POS[0]}"; fi ;;
-  graph) case "${POS[0]:-}" in ""|build|export|draw) ;; *) [ -d "${POS[0]}" ] || gone "${POS[0]}" ;; esac ;;
-  context|find) if [ "${#POS[@]}" -gt 1 ] && [ ! -d "${POS[1]}" ]; then gone "${POS[1]}"; fi ;;
+  context) if [ "${#POS[@]}" -gt 1 ] && [ ! -d "${POS[1]}" ]; then gone "${POS[1]}"; fi ;;
   path) if [ "${#POS[@]}" -gt 2 ] && [ ! -d "${POS[2]}" ]; then gone "${POS[2]}"; fi ;;
   impact) if [ "${#POS[@]}" -gt 1 ] && [ ! -e "$LASTPOS" ] && dirlike "$LASTPOS"; then gone "$LASTPOS"; fi ;;
   changed|test-impact|tests) if [ "${#POS[@]}" -gt 0 ] && [ ! -e "${POS[0]}" ] && dirlike "${POS[0]}"; then gone "${POS[0]}"; fi ;;
@@ -213,21 +189,20 @@ FR=.; skip=""; for a in ${ARGS[@]+"${ARGS[@]}"}; do
   case "$a" in --in|--from|--budget|--seeds|--depth|--limit|--tests-in|--kind|--range|--old|--new|--file|--page|--page-budget|--out) skip=1; continue ;; esac
   [ -d "$a" ] && FR="$a"
 done
-# --grep (context, path, impact, test-impact): the answer's sites one per line, `path:line: code  [tag]`, the way grep
-# prints them (ax_grep.py). The verb answers with --json and the sites are printed from that document, so the two
-# shapes are one answer. Without it the answer is the verb's own, unchanged.
+# --grep (internal: the suites and their cases): the answer's sites one per line, `path:line: code  [tag]`, the way
+# grep prints them (ax_grep.py, which also orders the front door's places). The verb answers with --json and the
+# sites are printed from that document, so the two shapes are one answer.
 G=()
 case "$cmd" in context|path|impact|test-impact|tests) [ -n "${GREP:-}" ] && G=(python3 "$H/ax_grep.py" "$cmd" "$FR" --limit "${GREP_LIMIT:-30}" --) ;; esac
-# THE SMALL SURFACE: find, impact, path and tests, asked with no flags at the front door (the installed `axiomcode` and
+# THE SMALL SURFACE: impact, path and tests, asked with no flags at the front door (the installed `axiomcode` and
 # the MCP server set AXIOMCODE_FRONT), answer as numbered places, each with the code of the function it sits in
-# (ax_blocks.py), so a place needs no read to be understood. find is context; impact <name> is impact with its tests,
+# (ax_blocks.py), so a place needs no read to be understood. impact <name> is impact with its tests,
 # and impact with no name answers for the declarations the working tree has edited; path is path; tests is
 # test-impact. A flag, AXIOMCODE_RAW, or a caller that runs this script directly (the hooks, the suites) gets the
 # verb's own answer.
 B=""; FRONT="${AXIOMCODE_FRONT:-}"; [ "${AXIOMCODE_SURFACE:-}" = mcp ] && FRONT=1; [ -n "${AXIOMCODE_RAW:-}${GREP:-}" ] && FRONT=""
 if [ -n "$FRONT" ]; then for a in ${ARGS[@]+"${ARGS[@]}"}; do case "$a" in -*) FRONT="" ;; esac; done; fi
 case "$cmd" in
-  find) cmd=context; [ -n "$FRONT" ] && B=find ;;
   path) [ -n "$FRONT" ] && B=path ;;
   tests|test-impact) [ -n "$FRONT" ] && B=tests ;;
   impact) if [ -n "$FRONT" ]; then
@@ -250,16 +225,13 @@ if [ -f "$FR/.axiomcode/out/graph.sqlite" ] || [ -L "$FR/.axiomcode/out/graph.sq
 fi
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
-  context|find) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
+  context) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
   path)   exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
   impact) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   changed) exec python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   test-impact|tests) exec ${G[@]+"${G[@]}"} python3 ${Q:+"$Q" "$FR"} "$H/axiomcode-test-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
-  graph)  exec python3 "$H/axiomcode-graph" ${ARGS[@]+"${ARGS[@]}"} ;;
-  diff)   exec python3 "$H/axiomcode-diff" ${ARGS[@]+"${ARGS[@]}"} ;;
-  install) exec python3 "$H/axiomcode-install" ${ARGS[@]+"${ARGS[@]}"} ;;
-  --verbs) verbs ;;                      # what this dispatcher answers to; bin/axiomcode asks, so the two cannot drift
+  --verbs) verbs ;;                      # the dispatch table, internal verbs included; tests/surfaces.py audits it
   ""|-h|--help|help) if [ ${#ARGS[@]} -gt 0 ]; then verbhelp "${ARGS[0]}"; else helptext; fi ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: $(verbs | tr '\n' ' ')" >&2
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: $(public_verbs | tr '\n' ' ')" >&2
      echo "           \`axiomcode help\` for what each one does, \`axiomcode help <verb>\` for one of them" >&2; exit 2 ;;
 esac

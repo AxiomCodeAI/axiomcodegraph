@@ -1,0 +1,6 @@
+{
+  "name": "lint-tools",
+  "devDependencies": {
+    "debug": "^4.1.0"
+  }
+}

@@ -7,7 +7,7 @@ other query verbs and the MCP tools' repo parameter did the same. `index --src <
 path onto the repository, a tree that is not there.
 
 Checks, each run from a working directory with no graph, so a fall-back to it would build one there:
-  every verb (index, context, path, impact, changed, test-impact, graph) given a missing repository exits non-zero,
+  every verb (index, context, path, impact, changed, test-impact) given a missing repository exits non-zero,
   names the path, and builds nothing: no .axiomcode appears in the working directory
   index --src <missing absolute> and --src <missing relative> are refused the same way
   a verb script run directly (not through the dispatcher) with a missing repository is refused and builds nothing
@@ -47,7 +47,7 @@ try:
     for args in (['impact', 'foo', missing], ['impact', 'foo', 'bar', missing], ['impact', 'foo', './not-there'],
                  ['context', 'how does foo work', missing], ['context', 'how does foo work', 'not-there'],
                  ['path', 'bar', 'foo', missing], ['path', 'bar', 'foo', 'not-there'],
-                 ['changed', missing], ['test-impact', missing], ['graph', missing],
+                 ['changed', missing], ['test-impact', missing],
                  ['index', missing], ['index', 'not-there'],
                  ['index', '--src', missing], ['index', '--src', 'not-there'], ['index', '--lang', 'python', '--src', missing]):
         r = ax(args, cwd)
@@ -72,7 +72,7 @@ try:
     seen = []
     real, server.run = server.run, (lambda args, *a, **k: seen.append(args) or 'ran')
     try:
-        calls = {'find': lambda: server.find('how'), 'path': lambda: server.path('a', 'b'),
+        calls = {'path': lambda: server.path('a', 'b'),
                  'impact': lambda: server.impact('foo'), 'tests': lambda: server.tests()}
         for name, call in calls.items():
             seen.clear(); call()

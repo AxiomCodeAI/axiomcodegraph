@@ -306,7 +306,7 @@ dotnet build -c Release graph/test/csharp/ground-truth/AxiomCsOracle
 dotnet build -c Release graph/test/csharp/runtime-oracle/AxiomCsInstrument
 ```
 
-`node` must be 18 or newer, and the SAME version across a baseline and a fix run: a
+`node` must be 22.13 or newer (what the repository itself requires), and the SAME version across a baseline and a fix run: a
 number measured on one version and compared against another is not a measurement.
 Every script exits 77 when a tool it needs is missing, so a machine without the
 toolchain skips rather than reporting a false failure.

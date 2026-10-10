@@ -81,6 +81,27 @@
    "avoid": [
     "  field      "
    ]
+  },
+  {
+   "why": "an edit inside a static readonly initializer written over several lines (a collection initializer) is that field's, not 'inside Conf'",
+   "run": [
+    "changed",
+    "{repo}",
+    "--old",
+    "{repo}/src/Conf.cs",
+    "--new",
+    "{repo}/new_conf.cs",
+    "--file",
+    "src/Conf.cs"
+   ],
+   "want": [
+    "field      Conf.Settings",
+    "initializer"
+   ],
+   "avoid": [
+    "inside     Conf",
+    "Conf.Limit"
+   ]
   }
  ]
 }

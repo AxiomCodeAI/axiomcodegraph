@@ -178,9 +178,8 @@ expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, nam
 // with `Format source()` unstaged), the local is that external type exactly as `Format f` would
 // be. Without it the receiver has no external type at all and the call is a declared unknown.
 // java_local_variable (19): 11 isVarInferred 13 method 18 hash
-expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
-    expr_ultimate_method("client", e, m),
-    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, "true", _, m, _, _, _, _, local),
+expr_type("external", e, x) :- local_use(e, local),
+    java_local_variable(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, local),
     local_init_expr(local, init),
     expr_type("external", init, x).
 expr_type("external", e, x) :- java_expression("CAST_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),

@@ -1,0 +1,7 @@
+86-module-variable-reads [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 8   resolved 1 (12.5%)
+  tiers ambiguous_unknown=7  known_edge=1
+  contexts AS_TARGET=3  DECORATOR_TYPE=2  METHOD_RETURN=2  OBJECT_CREATION_TYPE=1
+  not scored: 7 rows whose target is not a client declaration

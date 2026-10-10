@@ -12,7 +12,7 @@ per language, `call_edges` carries 11 distinct tiers and 30 distinct kinds:
                 + COMPUTED_CALL IIFE_CALL DYNAMIC_IMPORT_CALL DYNAMIC_CODE_CALL TAGGED_TEMPLATE_CALL
                   FUNCTION_CALL_APPLY FUNCTION_CALL_CALL FUNCTION_CALL_BIND
     python      SIMPLE_CALL METHOD_CALL SELF_CALL SUPER_CALL CHAINED_CALL SUBSCRIPT_CALL CONTEXT_MANAGER
-                PROPERTY_READ METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
+                PROPERTY_READ PROPERTY_WRITE METACLASS_CREATION DYNAMIC_CALL UNKNOWN_CALLEE_CALL DECORATOR_{APPLICATION,ATTRIBUTE,BARE,CALL}
     csharp      + boundary_generated known_implicit_ctor known_builtin_operator ambiguous_dynamic fan_capped event_dispatch
                   runtime_observed (only with a runtime trace) · new property_read property_write
 
@@ -103,13 +103,15 @@ KIND = {
     'new': 'new', 'CONSTRUCTOR_CALL': 'new', 'anon_new': 'new', 'METACLASS_CREATION': 'new',
     # one constructor to another
     'ctor_delegate': 'ctor', 'SUPER_CALL': 'super',
+    # C#: a base constructor no syntax names: the implicit `base()` a constructor without an initializer runs
+    'implicit_base_ctor': 'ctor',
     # the callable is named, not called at that line — it runs when whoever took it runs it
     'ref': 'method-ref',
     # a declaration handed to a decorator, which is what wires most framework handlers up
     'DECORATOR_APPLICATION': 'decorator', 'DECORATOR_ATTRIBUTE': 'decorator',
     'DECORATOR_BARE': 'decorator', 'DECORATOR_CALL': 'decorator',
     # an accessor: written as a field, run as a method
-    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property',
+    'property_read': 'property', 'property_write': 'property', 'PROPERTY_READ': 'property', 'PROPERTY_WRITE': 'property',
     # the language runs it at a block boundary
     'CONTEXT_MANAGER': 'with',
     # run-time code loading
@@ -494,6 +496,38 @@ def stub_sites(q):
                 out |= nearest([(i, sp) for i, sp in spans if _within(w, sp) and sp[:2] == w[:2]])
             if n in lang['recv']:
                 out |= outermost([(i, sp) for i, sp in spans if _within(sp, w) and sp[:2] == w[:2]])
+    return out
+
+
+# ── a LIBRARY RECEIVER: an unresolved call on a package's value is not a name match for a project method ───────────
+# `request(app).get('/x')`, `new Metadata().get(k)`: the engine traced the receiver to what a package no IR declares
+# returned or constructed (ext_library_receiver). The site stays unresolved, since what the package's `get` runs is
+# unknown, but a project `get` is not what it calls. Like a stub it keeps a row, apart from the untyped-receiver name
+# matches, and it seeds no closure: listed among them it filled the first page of `impact Repo.get`.
+LIBRARY_RECEIVER_KIND = 'library'
+LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package or the platform (JSON, Promise, document …) returned or constructed: not this method, unless that code hands it back'
+
+
+def library_receiver_sites(q):
+    """the ids of the unresolved call sites whose receiver is a package's value, or that the engine knows enter a
+    library callable (Python ext_lib_callback_site: a member a client type inherits from its library base, whose
+    source declares it). q(sql, params) -> rows."""
+    out = set()
+    has = lambda t: bool(list(q("SELECT 1 FROM sqlite_master WHERE name = ?", (t,))))
+    if has('ext_library_receiver'):
+        out |= {r[0] for r in q("SELECT DISTINCT c0 FROM ext_library_receiver", ())}
+    if has('ext_lib_callback_site'):
+        # A site entering a summarised library callable is a library receiver only where the summary says what the
+        # library hands back from it (a lib_callback_edge from the same caller through the same callable). Where it
+        # says nothing -- the hand-back runs through a value the summary cannot follow, a method's return, a
+        # registry -- the site stays the untyped name match it was before the library was read: knowing a call
+        # ENTERS a library is no evidence that nothing in the project runs behind it, and dropping the match lost
+        # failing tests a library reaches that way.
+        edges = has('ext_lib_callback_edge') and has('call_sites')
+        sql = ("SELECT DISTINCT s.c0 FROM ext_lib_callback_site s JOIN call_sites cs ON cs.id = s.c0 "
+               "WHERE EXISTS (SELECT 1 FROM ext_lib_callback_edge e WHERE e.c0 = cs.caller_id AND e.c2 = s.c1)"
+               if edges else "SELECT DISTINCT c0 FROM ext_lib_callback_site")
+        out |= {r[0] for r in q(sql, ())}
     return out
 
 

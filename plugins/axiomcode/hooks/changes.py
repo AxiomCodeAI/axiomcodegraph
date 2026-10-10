@@ -3,7 +3,7 @@
 
   PreToolUse   Edit / Write / MultiEdit   the edit is applied to a copy of the file; when it changes a SIGNATURE, a FIELD's
                                           type, a TYPE header, or removes a declaration, the blast radius is given BEFORE the
-                                          file changes (a body-only edit is reported after, by enrich.py — nothing breaks)
+                                          file changes (a body-only edit breaks no caller; it is reported on the next prompt)
   PostToolUse  Bash                       a command that can modify sources (sed -i, patch, git apply / checkout / pull / merge /
                                           stash pop / cherry-pick / revert, a redirect into a source file, a script run): the
                                           whole working tree against the graph's commit, the declarations not reported yet

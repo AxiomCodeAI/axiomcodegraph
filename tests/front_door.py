@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""tests/front_door.py — the four questions answer as numbered places with their code, at the front door only.
+"""tests/front_door.py — the supported questions answer as numbered places with their code, at the front door only.
 
-The product's surface is `find`, `impact`, `path` and `tests` (plus `index`), each answered as a numbered list of places,
+The product's surface is `impact`, `path` and `tests` (plus `index`), each answered as a numbered list of places,
 every place with the code of the function it sits in, in a fenced block. That shape is given at the front doors — the
 installed command (bin/axiomcode sets AXIOMCODE_FRONT) and the MCP server (AXIOMCODE_SURFACE=mcp) — when no flag is
 passed. Everything that calls the dispatcher directly (the hooks, the case suite, loops) or passes a flag gets the verb's
-own answer, unchanged.
+own answer, unchanged; a verb outside the surface (find, context, graph, diff, install) is refused by the installed
+command.
 
-  a. bin/axiomcode on a small repository (copied to a temporary directory, committed, indexed): find, impact <name> and
+  a. bin/axiomcode on a small repository (copied to a temporary directory, committed, indexed): impact <name> and
      path answer with numbered places and a fenced code block; after an edit, impact with no name starts with
-     `your edits:`, and tests lists the test with its code and ends with a `run:` line.
-  b. the MCP server lists exactly find, impact, path and tests, each with at most two parameters, and a call to one
+     `your edits:`, and tests lists the test with its code and ends with a `run:` line. A verb off the surface is
+     refused with the supported list.
+  b. the MCP server lists exactly context, impact, path and tests, each with at most two parameters, and a call to one
      answers in the same shape.
   c. CONTROLS: the dispatcher run directly, bin/axiomcode with --json, and AXIOMCODE_RAW=1 give the old answer — no
      fenced block — for the same question.
@@ -96,10 +98,15 @@ def main():
         if fails: return 1
 
         # ── a. the installed command, no flags ───────────────────────────────────────────────────────────────────
-        rc, out, err = cli(repo, 'find', 'how is the invoice total computed')
-        check('find: numbered places, each with its code in a fenced block', rc == 0 and places(out) and 'def invoice' in out, out[:600] + err[-300:])
+        for verb, args in (('find', ('how is the invoice total computed',)),
+                           ('graph', ()), ('diff', ()), ('install', ())):
+            rc, out, err = cli(repo, verb, *args)
+            check(f'{verb}: off the surface, the installed command refuses it and names the supported verbs',
+                  rc != 0 and 'impact' in err and 'path' in err and 'tests' in err, (out + err)[:400])
+        rc, out, err = cli(repo, 'context', 'how is the invoice total computed')
+        check('context: on the surface, the task in words answers with the flow', rc == 0 and 'pricing.py' in out, (out + err)[:400])
         rc, out, err = cli(repo, 'impact', 'vat_rate')
-        check('impact <name>: its caller as a numbered place with its code', rc == 0 and places(out) and 'shop/pricing.py:6' in out
+        check('impact <name>: its direct caller as a numbered place with its code', rc == 0 and places(out) and 'shop/pricing.py:6' in out
               and 'return net * (1 + vat_rate())' in out, out[:600] + err[-300:])
         check('impact <name>: the test that reaches it is one of the places', 'tests/test_pricing.py' in out, out[:800])
         rc, out, err = cli(repo, 'path', 'invoice', 'vat_rate')
@@ -118,12 +125,12 @@ def main():
         check('tests: the answer ends with the "run:" line', last[0].startswith('run:') and 'test_pricing' in last[0], last)
 
         # ── b. the MCP server ──────────────────────────────────────────────────────────────────────────────────────
-        got = mcp(repo, [('find', {'question': 'how is the invoice total computed'}), ('impact', {'name': 'vat_rate'})])
+        got = mcp(repo, [('path', {'start': 'total', 'end': 'vat_rate'}), ('impact', {'name': 'vat_rate'})])
         tools = {t['name']: list((t.get('inputSchema') or {}).get('properties', {})) for t in got.get(2, {}).get('tools', [])}
-        check('MCP tools/list is exactly find, impact, path and tests', set(tools) == {'find', 'impact', 'path', 'tests'}, tools)
+        check('MCP tools/list is exactly context, impact, path and tests (search is grep\'s)', set(tools) == {'context', 'impact', 'path', 'tests'}, tools)
         check('MCP: every tool takes at most two parameters', bool(tools) and all(len(p) <= 2 for p in tools.values()), tools)
         text = lambda i: ''.join(c.get('text', '') for c in got.get(i, {}).get('content', []))
-        check('MCP find answers as numbered places with their code', places(text(3)), text(3)[:600])
+        check('MCP path answers as numbered places with their code', places(text(3)), text(3)[:600])
         check('MCP impact answers as numbered places with their code', places(text(4)) and 'shop/pricing.py:6' in text(4), text(4)[:600])
 
         # ── c. controls: the same question anywhere else gets the verb's own answer ──────────────────────────────────

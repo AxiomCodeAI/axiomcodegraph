@@ -19,12 +19,6 @@
     ],
     "AfterTool": [
       {
-        "matcher": "read_file|grep_search|glob|run_shell_command|replace|write_file",
-        "hooks": [
-          { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" enrich.py", "timeout": 20000 }
-        ]
-      },
-      {
         "matcher": "run_shell_command",
         "hooks": [
           { "type": "command", "command": "node \"${extensionPath}${/}plugins${/}axiomcode${/}hooks${/}run.js\" changes.py", "timeout": 25000 }

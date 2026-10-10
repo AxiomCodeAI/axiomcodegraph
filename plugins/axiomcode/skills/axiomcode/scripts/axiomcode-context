@@ -411,7 +411,10 @@ def route_seeds(g, text):
         for r in g.q("SELECT owner_id, text, file, line FROM decorations WHERE text LIKE '%/%' OR text LIKE '%\"%'"):
             for v in re.findall(r'"([^"]*)"', r['text'] or ''): lits.append((v, r['file'], r['line'], r['owner_id']))
     if asked and g.has('literals'):
-        for r in g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40"):
+        # strings only: a route is never a number, and the v8 index carries numbers and booleans too
+        try: lit_rows = g.q("SELECT value, file, line FROM literals WHERE (value LIKE '%/%' OR length(value) < 40) AND kind = 'string'")
+        except Exception: lit_rows = g.q("SELECT value, file, line FROM literals WHERE value LIKE '%/%' OR length(value) < 40")
+        for r in lit_rows:
             lits.append(((r['value'] or '').strip('"'), r['file'], r['line'], None))
     by_file = collections.defaultdict(set)
     for v, f, _l, _o in lits: by_file[f].add(tuple(_route_parts(v)))
@@ -482,11 +485,12 @@ def graph_langs(g):
 
 
 def indexed_files(g, langs):
-    """every file some graph of this repository holds"""
+    """every file some graph of this repository holds. The main graph's dir is '' in `langs` (the default the verbs
+    read); asked from another language's graph, it is read from its place, or a directory only it holds reads as text"""
     import sqlite3
     held = {(sy.get('file') or '') for sy in g.all_sym.values()}
     for l, d in langs.items():
-        if not d: continue
+        if not d: d = os.path.join(g.repo, '.axiomcode')
         try:
             con = sqlite3.connect(f"file:{os.path.join(d, 'out', 'graph.sqlite')}?mode=ro", uri=True)
             held |= {r[0] for r in con.execute("SELECT DISTINCT file FROM symbols")}
@@ -578,21 +582,37 @@ def nonsource(g):
 
 
 def text_term_hits(g, dirs, terms, cap=200):
-    """[(file, first line, [terms])] -- files under `dirs` whose text uses the task's words, most words first"""
+    """[(file, first line, [terms])] -- files under `dirs` whose text uses the task's words, most words first. A word
+    in a lockfile or in a manifest's package lists is never one (ax_nonsource.py: it names a package, not the task)."""
+    import ax_nonsource
     pats = {t: re.compile(r'(?i)(?<![a-z0-9])' + re.escape(t)) for t in terms if len(t) >= 3}
     out = []
     for d in dirs:
         for root, _ds, fs in os.walk(os.path.join(g.repo, d)):
             for fn in fs:
                 rel = os.path.relpath(os.path.join(root, fn), g.repo).replace(os.sep, '/')
+                if ax_nonsource.is_lockfile(rel): continue
                 ln = source_lines(g.repo, rel)
+                skip =ax_nonsource.manifest_skip(rel, '\n'.join(ln)) or (lambda _l, _c: False)
                 got, first = [], 0
                 for t, pt in pats.items():
-                    k = next((i for i, x in enumerate(ln, 1) if pt.search(x)), 0)
+                    k = next((i for i, x in enumerate(ln, 1) for m in pt.finditer(x) if not skip(i, m.start())), 0)
                     if k: got.append(t); first = min(first or k, k)
                 if got: out.append((rel, first, got))
                 if len(out) >= cap: break
     return sorted(out, key=lambda r: (-len(r[2]), r[0]))
+
+
+def print_text_hits(g, dirs, terms):
+    """print the text files under `dirs` that use the task's words; -> how many there are"""
+    hits = text_term_hits(g, dirs, terms)
+    if hits:
+        print(f"\ntext files under {', '.join(d + '/' for d in dirs)} that use the task's words (not source; "
+              "matched by word, not by any declaration):")
+        for f, l, ts in hits[:BINDINGS_SHOWN]:
+            print(f"    {f + ':' + str(l):56}  {', '.join(ts)}")
+        RESULT['text_bindings'] = [{'file': f, 'line': l, 'terms': ts} for f, l, ts in hits]
+    return len(hits)
 
 
 ASK_EXT = [(re.compile(r'\b(sql|quer(y|ies)|statements?|mapper|mappings?|migrations?|schema)\b', re.I), ('.xml', '.sql')),
@@ -607,10 +627,12 @@ def asked_exts(text):
     return tuple(e for rx, es in ASK_EXT if rx.search(text or '') for e in es)
 
 
-def text_bindings(g, sids, under=(), want_ext=()):
+def text_bindings(g, sids, under=(), want_ext=(), scope=None):
     """[(file, line, declaration, name written there)] -- a non-source file that writes the name of one of `sids`
     as a whole word. A mapper XML with a namespace binds only the type that namespace names (a statement id repeated
-    in another mapper's XML is not this method's SQL)."""
+    in another mapper's XML is not this method's SQL). `scope` (the caller's --in) keeps only the files under it, as
+    it keeps only the declarations under it, except a mapper whose namespace names the type: that binding is proved
+    by the declaration, not by the word, wherever the file sits."""
     want = collections.defaultdict(set)          # name -> {sid}
     decl_count = collections.Counter(sy.get('name') for sy in g.sym.values() if not (sy.get('file') or '').startswith('<'))
     for sid in sids:
@@ -642,6 +664,7 @@ def text_bindings(g, sids, under=(), want_ext=()):
             if nm in common and not ns: continue
         elif nm in common: continue
         else: cands = sorted(want[nm])
+        if scope and not scope(f) and not (f.endswith('.xml') and ns_of.get(f)): continue
         key = (f, nm)
         if key in seen: continue
         seen.add(key)
@@ -653,7 +676,7 @@ def text_bindings(g, sids, under=(), want_ext=()):
     return [r for _k, r in sorted(out)]
 
 
-def asked_bound(g, scored, text, under=(), cap=300):
+def asked_bound(g, scored, text, under=(), cap=300, scope=None):
     """{symbol id} among the multi-term matches that a text file of the kind the question asks about binds by name.
     Empty unless the question asks about such a file (SQL, configuration, a template): only then is the tree walked,
     and only then does it break a tie between equally scored entry points (pick_seeds)."""
@@ -662,7 +685,7 @@ def asked_bound(g, scored, text, under=(), cap=300):
     cands = sorted((sid for sid, (_sc, m) in scored.items() if len(m) >= 2), key=lambda s: -scored[s][0])[:cap]
     by_disp = collections.defaultdict(set)
     for sid in cands: by_disp[g.disp(sid)].add(sid)
-    return frozenset(sid for f, _l, d, _n in text_bindings(g, cands, under=under, want_ext=kinds)
+    return frozenset(sid for f, _l, d, _n in text_bindings(g, cands, under=under, want_ext=kinds, scope=scope)
                      if f.endswith(kinds) for sid in by_disp.get(d, ()))
 
 
@@ -1178,7 +1201,16 @@ def main(argv):
             print(f"    {n}  — {len(rs)} call site(s)")
             for f, l, c, code in rs: print(f"      {f}:{l}: {code}" + (f"   [in {c}]" if c else ''))
     terms = task_terms(body)
-    if not terms: die("nothing to search for in that task description")
+    if not terms:
+        # the graph's vocabulary is the code's own identifiers, which are English words and names: a task
+        # written in another script matches nothing, and "nothing to search for" read as a parsing fault
+        # rather than a stated limit. A mixed task works — one identifier is enough to land.
+        if any(ord(c) > 127 and c.isalpha() for c in body or ''):
+            die("this task is written in a language the index cannot search: only English task words are supported,"
+                " because the graph's vocabulary is the code's own identifiers."
+                " Rephrase the task in English, or keep your language and include one identifier as written in the"
+                " code (a mixed task works: the identifier lands it).")
+        die("nothing to search for in that task description")
     # what the question names that no graph here holds is said FIRST (#1571), and a scope that exists on disk but holds
     # no indexed file is a text scope, not a typo (#1382). Only a scope the index does not know is checked on disk.
     def holds(x):
@@ -1199,8 +1231,14 @@ def main(argv):
     RESULT['not_indexed'] = list(notice)
     for ln in notice: print(ln)
     if notice: print()
+    text_only_in = False
     if text_dirs:
+        asked_in = bool(scopes)
         scopes = [x for x in scopes if x.strip('/').lstrip('./') not in text_dirs]
+        text_only_in = asked_in and not scopes and not scope_offered
+        # every --in names text no graph holds: one graph lists it (the one that says so, above), and another has
+        # nothing inside the caller's scope to add — its only package is outside it and would become the next step
+        if fan and text_only_in and not notice: return 3
     # AN --in NO GRAPH HOLDS AND NO DIRECTORY IS was refused with a menu, once per language graph, and no answer: the
     # agent then searched by hand. A typo is not a question about nothing; the task is answered at the root (or under
     # the scopes that are real) and the line says what was dropped and what is close. A scope another language's graph
@@ -1244,6 +1282,12 @@ def main(argv):
     # it was swept over 57 real commits and was worth at most 0.012 recall@10 against not doing it, which
     # is noise at that sample size. The menu is worth printing for the reader; it is not worth ranking on.
     rank = rank_dirs(g, scope_terms(g, task)) if not scopes else None; flat = False
+    if rank and best_scope(rank) is None and terms:
+        # The headline chooses the place because its words are the subject -- when they land somewhere. A report
+        # titled in prose ("Release 8.4.2", "Disable when developing?", "Make unimported utilities private")
+        # lands nowhere, and the refusal below then answered NOTHING while the body named the code outright
+        # (`@retry(wait=wait_fixed(1))`, `LazyFile`, `make_short_help`). The whole report's words choose it then.
+        rank = rank_dirs(g, terms)
     if not scopes:
         # One candidate is not a choice: take it and SAY SO, rather than refusing and being handed back
         # the only path there was. This is NOT the offered-scope case above, so it is not marked
@@ -1288,12 +1332,21 @@ def main(argv):
     # is naming a change that spans them, and intersecting those two paths answers nothing (#1029)
     specs = [scope_spec(sc, g.repo) for sc in scopes]
     in_scope = lambda f: any(under_scope(f, sp) for sp in specs)
+    # the text files are narrowed by the CALLER's --in only: the sole package this graph indexes is not a statement
+    # about where its SQL or configuration lives, and a guessed scope narrows nothing
+    fixed_specs = [scope_spec(sc, g.repo) for sc in fixed]
+    text_scope = (lambda f: any(under_scope(f, sp) for sp in fixed_specs)) if fixed_specs else None
     if scopes and not scope_offered:
         scored = {sid: v for sid, v in scored.items() if in_scope(g.sym.get(sid, {}).get('file'))}
     # what the question NAMES comes before what its words match: a declaration spelled out, a route quoted
     named = named_declarations(g, body) + route_seeds(g, body)
     if scopes and not scope_offered:
         named = [(sid, why) for sid, why in named if in_scope(g.sym.get(sid, {}).get('file'))]
+    if not scored and not named and not have_from and text_only_in:
+        # the caller's --in holds only text: its files that use the task's words are the answer, and the package this
+        # graph put in its place holding none of them is no reason to refuse it
+        if not print_text_hits(g, text_dirs, terms): print(f"no file under {', '.join(d + '/' for d in text_dirs)} uses the task's words")
+        return 0
     if not scored and not named and not have_from:
         # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it,
         # ranked the same way the scope-less menu is: by where the words land, never by how big a directory is
@@ -1307,7 +1360,7 @@ def main(argv):
     # themselves, and on Python every class has one, so they can be a third of this list while
     # naming nowhere to go.
     scored = {sid: v for sid, v in scored.items() if not is_synthetic(g.sym.get(sid, {}).get('name'))}
-    seeds = pick_seeds(g, scored, terms, seeds_wanted, named, prefer=asked_bound(g, scored, body, text_dirs))
+    seeds = pick_seeds(g, scored, terms, seeds_wanted, named, prefer=asked_bound(g, scored, body, text_dirs, scope=text_scope))
 
     RESULT['terms'] = list(terms)
     RESULT['scope'], RESULT['scope_offered'] = (scopes[0] if scopes else None), bool(scope_offered)
@@ -1525,7 +1578,7 @@ def main(argv):
                 depth[x] = d + 1
         near = list(seed_ids) + sorted(ring, key=lambda x: (not bodiless(g, x), depth[x], g.disp(x) or '', x))[:300]
         kinds = asked_exts(body)
-        binds = text_bindings(g, near, under=text_dirs, want_ext=kinds)
+        binds = text_bindings(g, near, under=text_dirs, want_ext=kinds, scope=text_scope)
         # the question named a kind of file (SQL: mapper XML or .sql): when some binding is of that kind, the others
         # (a Postman collection, a README table that spells the method) are not what was asked
         if kinds and any(f.endswith(kinds) for f, _l, _d, _n in binds):
@@ -1538,13 +1591,7 @@ def main(argv):
             if len(binds) > BINDINGS_SHOWN: print(f"    … +{len(binds) - BINDINGS_SHOWN} more")
             RESULT['text_bindings'] = [{'file': f, 'line': l, 'declaration': d, 'name': nm} for f, l, d, nm in binds]
         elif text_dirs:
-            hits = text_term_hits(g, text_dirs, terms)
-            if hits:
-                print(f"\ntext files under {', '.join(d + '/' for d in text_dirs)} that use the task's words (not source; "
-                      "matched by word, not by any declaration):")
-                for f, l, ts in hits[:BINDINGS_SHOWN]:
-                    print(f"    {f + ':' + str(l):56}  {', '.join(ts)}")
-                RESULT['text_bindings'] = [{'file': f, 'line': l, 'terms': ts} for f, l, ts in hits]
+            print_text_hits(g, text_dirs, terms)
 
     print("\n" + BOUND)
     print("  narrow with `impact <name> --in <path>` or `path '*' <name> --in <path>`.")

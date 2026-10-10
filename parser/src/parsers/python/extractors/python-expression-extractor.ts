@@ -240,6 +240,12 @@ export class PythonExpressionExtractor {
     this.callSites = [];
     this.worklist = [];
     this.expressionByByteRange = new Map();
+    // Both are PER-FILE: byte ranges repeat across files, so a pairing left
+    // from an earlier file satisfied a later file's receiver lookup with the
+    // wrong value expression — which file won depended on extraction order,
+    // and a worker that had seen different files answered differently.
+    this.assignedValueByTargetRange = new Map();
+    this.returnIndexByMethod = new Map();
     this.pendingReceiverLinks = [];
 
     const moduleScopeHash = input.scopeHashByNodeId.get(input.rootNode.id) ?? '';
@@ -1574,7 +1580,11 @@ export class PythonExpressionExtractor {
         return;
       }
 
-      case PythonExpressionKind.FSTRING:
+      case PythonExpressionKind.FSTRING: {
+        builder.withLiteral(PythonLiteralType.FSTRING, this.fstringPrefixOf(node));
+        return;
+      }
+
       case PythonExpressionKind.FSTRING_INTERPOLATION: {
         builder.withLiteral(PythonLiteralType.FSTRING, '');
         return;
@@ -3057,6 +3067,41 @@ export class PythonExpressionExtractor {
         const part = current.namedChild(index);
         if (!part) {
           continue;
+        }
+        if (part.type === 'string_content') {
+          parts.push(part.text);
+          continue;
+        }
+        if (part.type === 'string' || part.type === 'concatenated_string') {
+          collect(part);
+        }
+      }
+    };
+    collect(node);
+    return EntityUtils.normalizeWhitespace(parts.join(''));
+  }
+
+  /**
+   * An f-string's CONSTANT LEAD: the text written before its first `{...}`.
+   * `f"visit_{type(node).__name__}"` evaluates to some string starting with
+   * `visit_`, whatever the interpolation yields, so the lead is a fact about
+   * every value it can produce. That is what `getattr(self, f"visit_{...}")`
+   * dispatch needs: the candidates are exactly the members named with that
+   * prefix. Text after the first interpolation is not a prefix of anything and
+   * is left out. Empty when the f-string opens with an interpolation.
+   */
+  private fstringPrefixOf(node: Parser.SyntaxNode): string {
+    const parts: string[] = [];
+    let done = false;
+    const collect = (current: Parser.SyntaxNode): void => {
+      for (let index = 0; index < current.namedChildCount && !done; index += 1) {
+        const part = current.namedChild(index);
+        if (!part) {
+          continue;
+        }
+        if (part.type === 'interpolation') {
+          done = true;
+          return;
         }
         if (part.type === 'string_content') {
           parts.push(part.text);

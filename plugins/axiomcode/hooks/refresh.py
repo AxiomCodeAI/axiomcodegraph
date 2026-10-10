@@ -40,7 +40,8 @@ try:
     import ax_fresh
     for d in repos:
         n = ax_fresh.hook_kick(d, f"the {ev.get('hook_event_name') or 'hook'} hook" + (f" after {ev['tool_name']}" if ev.get('tool_name') else ''),
-                               session=str(ev.get('session_id') or ''))
+                               session=str(ev.get('session_id') or ''), event=ev.get('hook_event_name') or '',
+                               tool=ev.get('tool_name') or '')
         if n: said.append(n if len(repos) == 1 else f"{d}: {n}")
 except Exception:
     pass                                                  # a hook never fails the tool call it rides on

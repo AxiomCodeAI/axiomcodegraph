@@ -286,6 +286,52 @@ call_chain_edge(tr, caller, "-", ctor, "lib", "boundary_lib", "primary_ctor_base
     method_decl("lib", _, _, _, ctor),
     type_ctor("client", gk, caller).
 
+// ── SYNTHESISED EDGES: THE IMPLICIT `base()` ────────────────────────────────
+// A constructor that writes neither `: base(..)` nor `: this(..)` runs its base
+// class's parameterless constructor before its own body, and a class that declares
+// no constructor at all gets one that does the same. Neither is written anywhere, so
+// without these edges a base constructor that every derived class runs has no caller.
+//
+// implicit_base_ctor(TypeGroup, Ctor): the constructor `base()` runs for a type --
+// its base class's constructor that takes no argument, or, where the base declares
+// no constructor either, the one the base's own implicit constructor runs.
+implicit_base_ctor(gk, ctor) :-
+    type_extends("client", gk, bgk),
+    type_ctor("client", bgk, ctor), ctor_accepts_argc("client", ctor, "0").
+implicit_base_ctor(gk, ctor) :-
+    type_extends("client", gk, bgk),
+    !type_ctor("client", bgk, _), type_group("client", _, bgk),
+    implicit_base_ctor(bgk, ctor).
+
+// A constructor that hands off with `: this(..)` or `: base(..)`, or a primary
+// constructor whose heritage passes arguments: the base constructor it runs is the
+// one written there, already an edge.
+ctor_has_initializer(m) :- call_is_base_ctor("client", e), expr_ultimate_method("client", e, m).
+ctor_has_initializer(m) :- call_is_this_ctor("client", e), expr_ultimate_method("client", e, m).
+ctor_has_initializer(m) :-
+    heritage_has_ctor_args("client", t, _), type_group("client", t, gk), type_ctor("client", gk, m).
+
+// The FromExpr is the base class's entry in the heritage clause, as for a primary
+// constructor's base invocation: the closest thing to where the call is written.
+implicit_base_site(gk, tr) :-
+    type_extends("client", gk, bgk),
+    heritage_resolves("client", gk, pos, bgk),
+    heritage_of_entity("client", gk, pos, _, _, tr), tr != "".
+
+// (1) A declared constructor with no initializer.
+call_chain_edge(tr, m, "-", ctor, "client", "known_edge", "implicit_base_ctor") :-
+    type_ctor("client", gk, m), method_decl("client", _, _, _, m),
+    !ctor_has_initializer(m),
+    implicit_base_ctor(gk, ctor),
+    implicit_base_site(gk, tr).
+
+// (2) `new T()` where T declares no constructor: the implicit one runs T's base's.
+// The edge sits on the `new` site itself, beside its known_implicit_ctor row.
+call_chain_edge(e, caller, "-", ctor, "client", "known_edge", "implicit_base_ctor") :-
+    call_ctor_implicit("client", e, gk),
+    implicit_base_ctor(gk, ctor),
+    call_from_expr("client", e, caller).
+
 // ── ACCESSOR EDGES: A PROPERTY READ IS A CALL ───────────────────────────────
 // `x.Name` invokes get_Name, `a[i]` an indexer accessor, `e += h` an add accessor.
 // These have no cs_call_site row -- the parser cannot know whether `x.Name` is a
@@ -485,6 +531,10 @@ call_site_dropped(e) :- csite("client", e), !site_in_output(e).
 
 // call_chain_summary(Tier, Count) -- the per-tier tally, which is the one number a
 // run is judged on.
+// One count per DISTINCT tier: driven by call_class rows, the aggregate re-counted the
+// tier once per SITE in it (sites x tiers — 9.8s of a 36s solve for 7 rows, the single
+// hottest rule of the C# profile). Same fix as the python engine's site_class_kind.
+call_class_kind(cls) :- call_class("client", _, cls).
 call_chain_summary(cls, n) :-
-    call_class("client", _, cls),
+    call_class_kind(cls),
     n = count : { call_class("client", _, cls) }.

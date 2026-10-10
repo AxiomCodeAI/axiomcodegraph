@@ -365,6 +365,27 @@ class Changed:
                 elif tag == 'replace': near[j1 + k_ + 1] = i1 + min(k_ + 1, i2 - i1)          # a rewritten line: the line in its position
                 else: near[j1 + k_ + 1] = max(1, i1)                                             # a line this text lacks: the one before it
         taken = {exact[a] for a, b, i, k, d, n in spans if a in exact}
+        # A DECLARATION CAN BE LONGER IN THIS TEXT THAN IN THE GRAPH'S. Its end is carried to the line the graph's end
+        # line became, so the lines this text has after it and the graph's text does not (statements a later text
+        # deleted) fell outside it: removed from a method, they were charged to the declaration below or to nothing.
+        # The span runs on over lines only this text has while they are still inside it: its braces not yet closed, or
+        # (Python) indented deeper than its header
+        mine = set(exact.values())
+        def grow(a2, b2, k):
+            if k not in ('method', 'function', 'constructor', 'class', 'interface', 'enum', 'type') or b2 >= len(OL): return b2
+            if is_py:
+                ind = len(OL[a2 - 1]) - len(OL[a2 - 1].lstrip()); x = b2
+                while x < len(OL) and x + 1 not in mine and (not OL[x].strip() or len(OL[x]) - len(OL[x].lstrip()) > ind):
+                    x += 1
+                    if OL[x - 1].strip(): b2 = x
+                return b2
+            depth = sum(OS[x - 1].count('{') - OS[x - 1].count('}') for x in range(a2, b2 + 1))
+            if depth <= 0 or '{' not in ''.join(OS[a2 - 1:b2]): return b2
+            x = b2
+            while x < len(OL) and x + 1 not in mine:
+                x += 1; depth += OS[x - 1].count('{') - OS[x - 1].count('}')
+                if depth <= 0: return x
+            return b2
         def renamed_line(a, d, n, k):
             """A HEADER THE GRAPH HOLDS UNDER A NEW NAME is the same declaration when this text's line in its place declares
             another name with the same parameters (a rename the refresh already indexed). Dropped as "not declared here",
@@ -388,7 +409,7 @@ class Changed:
                 b2 = a2 + (b - a) if exact.get(b) is None else exact[b]
             else:
                 b2 = exact.get(b) or near.get(b) or a2 + (b - a)
-            out.append((a2, max(a2, b2), i, k, d, n))
+            out.append((a2, grow(a2, max(a2, b2), k), i, k, d, n))
         out.sort(); return out
     def rel(self, f):
         f = os.path.realpath(f) if os.path.exists(f) else f
@@ -769,12 +790,35 @@ class Changed:
             if not lam or (m and m[3] != 'module' and m[0] <= lam[0] and lam[1] <= m[1]): return None
             if any(k in ('field', 'const', 'enum_member', 'variable') and a <= lam[0] <= max(b, a) for a, b, i, k, d, n in decls): return None
             return lam
+        FIELD_KINDS = ('field', 'const', 'enum_member', 'variable')
+        def field_spanning(ln, first=False):
+            """A FIELD'S INITIALIZER IS THE FIELD'S, however many lines it spans. Only a field's first line was charged to
+            it, so an edit to the second line of `export const A = {\n  x: 1,\n};` (a schema object, a token table, a
+            multi-line static initializer) was "body <module>" or "inside <type>", and test-impact seeded from every
+            declaration of the module instead of the const. The narrowest field whose span holds ln after its first line
+            (from it too with first=True, for an insertion after that line); None when a callable written inside the
+            initializer (an object literal's method, a table's lambda) holds ln itself: that callable's body is its own.
+            A Python module-level name is recorded from its first binding to its last (`x = 0` at the top, `x = 5` at the
+            bottom spans the file), not by its statement: there the span is the statement's own lines, while a bracket
+            it opens is still open or a line ends in a backslash"""
+            def end(x):
+                if not is_py: return x[1]
+                depth, j = 0, x[0]
+                while j <= len(OS):
+                    t = OS[j - 1]; depth += sum(t.count(c) for c in '([{') - sum(t.count(c) for c in ')]}')
+                    if depth <= 0 and not t.rstrip().endswith('\\'): return j
+                    j += 1
+                return x[0]
+            inside = lambda x: x[0] <= ln < end(x) if first else x[0] < ln <= end(x)
+            fx = min((x for x in decls if x[3] in FIELD_KINDS and inside(x)), key=lambda x: end(x) - x[0], default=None)
+            inner = (narrowest(ln, {'method', 'function', 'constructor'}) or narrowest(ln, None, lambdas=True)) if fx else None
+            return None if inner and fx[0] <= inner[0] and inner[1] <= end(fx) else fx
         def decl_after(ln, L):
             """the declaration whose header starts within 3 lines after ln (an annotation / decorator line belongs to it)"""
             for a, b, i, k, d, n in decls:
                 if ln < a <= ln + 3 and all(not L[x - 1].strip() or L[x - 1].strip().startswith('@') for x in range(ln + 1, a)): return (a, b, i, k, d, n)
             return None
-        decorated = {}; stmt_pair = {}
+        decorated = {}; stmt_pair = {}; gone_fields = []
         OK = strip_code(old, strings=False, hash_comments=is_py).split('\n'); NK = strip_code(new, strings=False, hash_comments=is_py).split('\n')
         # A LINE INSERTED INTO A HEADER CHANGES THE SIGNATURE. A parameter list written one parameter a line gains a
         # parameter as an inserted line, which no old line was changed for; charged to the callable as an insertion it
@@ -785,6 +829,10 @@ class Changed:
             m = narrowest(after, {'method', 'function', 'constructor'}) if after else None
             if m and m[0] <= after < self.header_end(OL, m[0]):
                 hits.setdefault(('signature', m), set()).add(after); header_ins.add((after, j1, j2))
+        # and a line inserted into a field's initializer (a member added to a multi-line object) is that field's
+        for ins in list(added):
+            fx = field_spanning(ins[0], first=True) if ins[0] and ins not in header_ins else None
+            if fx: hits.setdefault(('field', fx), set()).add(ins[0]); added.remove(ins)
         def counterpart(ln):
             """the new line an old changed line became: the most similar line of its replaced block; None when deleted"""
             if ln in removed_lines: return None
@@ -816,7 +864,7 @@ class Changed:
                 f = None
             # a lambda's lines inside a field's initializer are the field's
             elif not f: f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if k in ('field', 'const', 'enum_member', 'variable') and a < ln
-                                and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None)
+                                and any(is_lam(x) and x[0] <= ln <= x[1] and a <= x[0] <= max(b, a) for x in decls)), None) or field_spanning(ln)
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
             # A FUNCTION WRITTEN IN ANOTHER'S PARAMETER LIST IS PART OF THAT HEADER. A default value
             # (`clock = { millis: () => Date.now() }`) holds a callable the graph records on its own; an edit inside the
@@ -839,12 +887,20 @@ class Changed:
             elif m and m[3] != 'module' and m[0] <= ln <= self.header_end(OL, m[0]): key = ('signature', m)
             elif m: key = ('body', m)
             elif t and t[0] <= ln <= self.header_end(OL, t[0]): key = ('type', t)
+            # A FIELD THE GRAPH NEVER HELD is still named by its line. Read against a graph from a later text (a range, a
+            # refresh), a field that text no longer declares has no span, and its deleted line came back as an anonymous
+            # "inside <type>": the mirror of a new field, named from its inserted line (added)
+            elif t and not is_py and (fp := self.field_parts(OS[ln - 1]))[0] and OS[ln - 1].rstrip().endswith(';') \
+                    and '(' not in OS[ln - 1].split('=')[0] and self.declares(OS[ln - 1], fp[1], 'field', False) \
+                    and not still_declared(fp[1], 'field', new_of.get(ln) or ln):
+                gone_fields.append((ln, t, fp[1]))
             elif t: key = ('inside', t)                                                                 # between members: a field the graph did not record, a comment
             if key: hits.setdefault(key, set()).add(ln)
         nd = [0] * (len(NL) + 2)
         for ii, text in enumerate(strip_code(new).split('\n'), 1): nd[ii] = nd[ii - 1] + text.count('{') - text.count('}')
         ndepth_ok = lambda j: nd[j - 1] <= 2
-        out = []
+        out = [dict(kind='field', symbol=f"{t[4]}.{nm}", id=None, file=rel, line=ln, end=ln, old_lines=[ln], target_kind='field',
+                    detail='removed or renamed', target=None) for ln, t, nm in gone_fields]
         KIND_OF = lambda k: 'field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'signature'
         KIND = lambda k: 'field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'method'
         for (a, b, i, k, d, n), decs in decorated.items():
@@ -1042,6 +1098,12 @@ class Changed:
                     detail = (f'may have changed: still assigned at line {again}' if again else
                               f'may have changed: no assignment of it near its line, but the new text still names it' if any(re.search(rf'\b{re.escape(n)}\b', x) for x in NS) else
                               'removed or renamed')
+                # A DATA KEY OF A CONST OBJECT (`Settings.retries` in `const Settings = { retries: 3 }`) is written `key: value`:
+                # read as a typed field, `retries: 3` → `retries: 4` was "type 3, → 4,", and on a one-line const the key
+                # line's declared name (`LIMIT`) made `LIMIT.max` "renamed → LIMIT". Its value is its initializer
+                elif '.' in d and any(kk in FIELD_KINDS and dd == d.split('.')[0] for aa, bb, ii, kk, dd, nn in decls):
+                    detail = ('initializer changed' if re.search(rf'(?:^|[{{,\s])["\']?{re.escape(n)}["\']?\s*:', nline) else
+                              'removed or renamed')
                 elif ot and nt and ot != nt: detail = f'type {ot} → {nt}'
                 elif nn_ and nn_ != n: detail = f'renamed → {nn_}'
                 else: detail = 'initializer / modifiers changed'
@@ -1061,7 +1123,7 @@ class Changed:
         # holds it. Never a signature, never nothing; a comment in a module's top level belongs to no declaration
         for ln in sorted(comment_only):
             x = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')), None) or \
-                next((m for m in [narrowest(ln, {'method', 'function', 'constructor'})] if m), None) or \
+                field_spanning(ln) or next((m for m in [narrowest(ln, {'method', 'function', 'constructor'})] if m), None) or \
                 narrowest(ln, {'class', 'interface', 'enum', 'type'})
             if not x or any(e.get('id') == x[2] for e in out): continue
             a, b, i, k, d, n = x
@@ -1535,6 +1597,9 @@ def main(argv):
                 for e in r:
                     if e.get('new_file'): e['kind'] = 'removed'; e['detail'] = 'the file is gone at the newer side'; continue
                     if e['kind'] == 'removed': e['kind'] = 'added (declaration)'; e['target'] = None
+                    # and one the newer text lacks, read as new in the swapped pair, is one the range removed
+                    elif e['kind'] == 'added':
+                        e.update(kind='removed', detail=re.sub(r'^new ', '', e.get('detail') or '') + ' gone at the newer side', target=None); continue
                     if e.get('detail'):
                         e['detail'] = ' → '.join(reversed(e['detail'].split(' → '))) if ' → ' in e['detail'] and ':' not in e['detail'] else re.sub(r'(\w+): (.+?) → (.+?)(,|$)', r'\1: \3 → \2\4', e['detail'])
                         e['detail'] = re.sub(r'(^|, )([+-])(\w+)', lambda m: m.group(1) + ('-' if m.group(2) == '+' else '+') + m.group(3), e['detail'])
@@ -1593,7 +1658,7 @@ def main(argv):
               + ', '.join(e['symbol'] for e in es[:10]) + (f" … +{len(es) - 10}" if len(es) > 10 else ''))
     # a note with a file is an addition in that file; one without is a caveat about the whole answer, and printing it
     # under `added` made "the graph is built at the newer commit …" read as a new declaration
-    for f, n, _ in notes: print(f"  {'added':<10} {n}" if f else f"note: {n}")
+    for f, n, _ in notes: print(f"  {'removed' if ' line(s) gone at ' in n else 'added':<10} {n}" if f else f"note: {n}")
     # CASE DATA IS NOT A TEST: a changed file in a case directory or a fixture tree is an input its runner reads
     cd = case_data(C.repo, {e['file'] for e in results if e.get('file') and not e.get('new_file')} | set(outside))
     if cd:

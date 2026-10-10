@@ -35,13 +35,14 @@ the previous graph. Three pieces:
 
 Environment: AXIOMCODE_NO_REFRESH=1 turns every trigger off (a query verb's --no-refresh, and the MCP tools' refresh=false,
 set it for that one query: a read-only answer from the graph as it is, still saying which edits it predates); AXIOMCODE_REFRESH_DEBOUNCE (seconds, default 2)
-is the quiet window; AXIOMCODE_REFRESH_MAX (default 2, 0 = no cap) is how many background rebuilds run at once on
-the machine, the rest queued; AXIOMCODE_FRESH_WAIT (seconds, default 30) is the most a query whose answer touches an edited file
+is the quiet window; AXIOMCODE_REFRESH_BATCH (default 5; 1 = off) is how many edits a rebuild waits for once the last build
+took AXIOMCODE_REFRESH_BATCH_ABOVE seconds (default 20); AXIOMCODE_REFRESH_MAX (default 2, 0 = no cap) is how many background rebuilds run at once on
+the machine, the rest queued; AXIOMCODE_FRESH_WAIT (seconds, default 0) is the most a query whose answer touches an edited file
 waits for a refresh expected to finish within it, AXIOMCODE_FRESH=1 (--fresh) makes it wait for the refresh whatever it
 takes, up to AXIOMCODE_FRESH_MAX (default 600); AXIOMCODE_BUILD_WAIT
 (seconds, default 900) is how long a query that finds no graph waits for a build that is running rather than starting
 its own; AXIOMCODE_NO_GITIGNORE=1 watches (and indexes) directories git ignores."""
-import re, errno, hashlib, json, os, subprocess, sys, time
+import glob, re, errno, hashlib, json, os, subprocess, sys, time
 
 H = os.path.dirname(os.path.abspath(__file__))
 
@@ -229,6 +230,57 @@ def snapshot(repo, lang, src):
         except OSError: pass
     return files
 
+# A GRAPH BUILT WITH --library DEPENDS ON THE DEPENDENCIES TOO. Only source files were compared, so a dependency added,
+# removed or upgraded (a manifest edit, `pip install -U`, `npm install`, `dotnet restore`) left the graph answering from
+# the libraries it was built with until the next source edit. The table of such a graph also records the manifests and
+# lockfiles, and what is installed, cheaply: the dist-info names of a virtual environment, npm's own install record, and
+# the restore output .NET writes.
+DEP_FILES = {'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt', 'pyproject.toml', 'setup.cfg', 'setup.py',
+             'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'package.json', 'package-lock.json', 'yarn.lock',
+             'pnpm-lock.yaml', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradle.lockfile', 'Directory.Packages.props',
+             'packages.lock.json', 'project.assets.json', '.package-lock.json'}
+DEP_PRUNE = {'.git', '.axiomcode', '__pycache__', '.venv', 'venv', 'env', '.env', 'dist', 'build', 'target', 'bin', '.gradle'}
+
+def dep_snapshot(repo):
+    out = {}
+    for root, dirs, files in os.walk(repo):
+        rel_root = os.path.relpath(root, repo)
+        if os.path.basename(root) == 'node_modules':      # npm's install record only, never the packages
+            dirs[:] = []; files = [f for f in files if f == '.package-lock.json']
+        else:
+            dirs[:] = [d for d in dirs if d not in DEP_PRUNE and (d == 'node_modules' or d == 'obj' or not d.startswith('.'))]
+            if rel_root.split(os.sep)[-1:] == ['obj']: dirs[:] = []
+        for f in files:
+            if f in DEP_FILES or f.endswith('.csproj') or f.startswith('requirements') and f.endswith('.txt'):
+                pth = os.path.join(root, f)
+                try: st = os.stat(pth); out[os.path.relpath(pth, repo)] = f'{st.st_size}:{st.st_mtime_ns}'
+                except OSError: pass
+    # a Java dependency is fetched into a repository outside the project (~/.m2, Gradle's cache), which no file here
+    # records: which declared dependencies are present there is part of the fingerprint, so one fetched after the
+    # graph was built (`mvn dependency:resolve`) makes it stale
+    if any(k.endswith(('pom.xml', 'build.gradle', 'build.gradle.kts')) for k in out):
+        try:
+            import ax_libs
+            m2 = ax_libs.maven_repo(repo)
+            gradle = os.path.join(os.path.expanduser('~'), '.gradle', 'caches', 'modules-2', 'files-2.1')
+            have = sorted(f'{g}:{a}:{v}' for g, a, v in set(ax_libs.java_coordinates(repo))
+                          if os.path.isdir(os.path.join(m2, *g.split('.'), a, v) if v and '$' not in v else os.path.join(m2, *g.split('.'), a))
+                          or os.path.isdir(os.path.join(gradle, g, a)))
+            out['java dependencies present'] = hashlib.sha1('|'.join(have).encode()).hexdigest()
+        except Exception:
+            pass
+    for env in ('.venv', 'venv', 'env', '.env'):
+        for sp in glob.glob(os.path.join(repo, env, 'lib*', '*', 'site-packages')) + glob.glob(os.path.join(repo, env, 'Lib', 'site-packages')):
+            try: out[os.path.relpath(sp, repo)] = hashlib.sha1('|'.join(sorted(d for d in os.listdir(sp) if d.endswith('.dist-info'))).encode()).hexdigest()
+            except OSError: pass
+    return out
+
+def dep_changes(t, repo):
+    """the dependency files and environments that differ from the table, for a graph built with --library"""
+    if not t.get('library') or 'deps' not in t: return []
+    old, now = t['deps'], dep_snapshot(repo)
+    return sorted(f'dependency: {k}' for k in set(old) | set(now) if old.get(k) != now.get(k))
+
 def load_table(repo):
     try: return json.load(open(table_path(repo)))
     except (OSError, ValueError): return None
@@ -262,6 +314,7 @@ def changes(repo, table=None):
             for p in watched(src, l):
                 rel = os.path.relpath(p, repo)
                 if p.endswith(SOURCE[l]) and rel not in old: added.append(rel); break
+    changed += dep_changes(t, repo)
     return sorted(changed), sorted(added), sorted(set(old) - seen)
 
 # ── WHAT BUILT THE GRAPH ───────────────────────────────────────────────────────────────────────────────────────────
@@ -935,14 +988,51 @@ def refresher_running(repo):
 
 def running_line(repo, s): return started_line(repo, s, running=True)
 
-def hook_kick(repo, trigger, session=''):
+# EDITS ARE BATCHED WHERE A REBUILD IS SLOW. Every edit started the refresher, which rebuilt after a 2 s quiet window: on
+# a repository whose build takes 5 s that keeps the graph current for free, but where it takes a minute (1,300 Java
+# files: 48-73 s cold, and 50-88 s again after a one- or two-file edit, since the solve is whole-program) an agent
+# editing every few seconds kept a rebuild running back to back. So once the last build took AXIOMCODE_REFRESH_BATCH_ABOVE
+# seconds (default 20), an edit tool only counts, and the AXIOMCODE_REFRESH_BATCH-th edit (default 5; 1 = off) starts the
+# rebuild; a shell command waits for the next edit or checkpoint. The end of a turn, a prompt, a session start, the
+# timer and every query still refresh at once, so the graph is current whenever the agent stops or asks.
+EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
+
+def batch_size():
+    try: return max(1, int(os.environ.get('AXIOMCODE_REFRESH_BATCH') or 5))
+    except ValueError: return 3
+
+def batching(repo):
+    """the edits a rebuild waits for here: batch_size() when the last build was slow, else 1 (every edit rebuilds)"""
+    try: above = float(os.environ.get('AXIOMCODE_REFRESH_BATCH_ABOVE') or 20)
+    except ValueError: above = 20.0
+    secs, _ = build_seconds(repo)
+    return batch_size() if secs is not None and secs >= above else 1
+
+def batch_due(repo):
+    n = batching(repo)
+    return n <= 1 or read_state(repo).get('edits', 0) >= n
+
+def batch_held(repo, event, tool):
+    """True when this hook event only counts toward the next rebuild; any other trigger makes the next one due"""
+    n = batching(repo)
+    if n <= 1: return False
+    if event != 'PostToolUse':
+        write_state(repo, edits=n); return False
+    if tool not in EDIT_TOOLS: return True
+    k = read_state(repo).get('edits', 0) + 1
+    write_state(repo, edits=k)
+    return k < n
+
+def hook_kick(repo, trigger, session='', event='', tool=''):
     """what a hook (and the MCP server's timer) runs in place of kick: '' after starting the refresher as kick does, or,
     for a graph another axiomcode built (engine_change), nothing started and one line to say so, once per session and
-    difference ('' when it was said already). A graph a newer axiomcode built is never rebuilt anyway (newer_build)"""
+    difference ('' when it was said already). A graph a newer axiomcode built is never rebuilt anyway (newer_build).
+    `event` and `tool` name the hook event and the tool it followed, for batching edits (batch_held)"""
     if not enabled(repo): return ''
     held = engine_change(repo)
     if not held:
-        kick(repo, trigger); return ''
+        if not batch_held(repo, event, tool): kick(repo, trigger)
+        return ''
     key = f"{session}|{held}"
     if read_state(repo).get('hook_held') == key: return ''
     write_state(repo, hook_held=key)
@@ -1060,8 +1150,9 @@ def worker(repo):
     if not _flock(fd, False): return 0                        # single flight
     debounce = float(os.environ.get('AXIOMCODE_REFRESH_DEBOUNCE') or 2); legacy_done = False; engine_done = ''; eng = ''
     try:
-        for _ in range(8):                                    # bounded: a tree rewritten faster than it builds must not spin forever
+        for i in range(8):                                    # bounded: a tree rewritten faster than it builds must not spin forever
             time.sleep(debounce)
+            if i and not batch_due(repo): return 0            # edits made during the build wait for their batch (batching)
             t = load_table(repo)
             if not has_graph(repo): return 0
             nb = newer_build(repo, t) if t else ''
@@ -1087,7 +1178,7 @@ def worker(repo):
                 if eng and eng == engine_done: eng = ''
                 if (c is None or not any(c)) and not eng and not base_moved(repo):
                     if export_behind(t): rewarm(repo, t)
-                    write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', '')); return 0
+                    write_state(repo, state='fresh', checked=time.time(), checked_by=os.environ.get('AXIOMCODE_REFRESH_TRIGGER', ''), edits=0); return 0
                 c = c or [[], [], []]
             st = read_state(repo)
             # a build that FAILED on exactly this tree is not retried on every trigger: the next edit retries it
@@ -1099,7 +1190,7 @@ def worker(repo):
             engine_done = eng
             env = rebuild_env(t, AXIOMCODE_BACKGROUND='1', AXIOMCODE_REFRESH_REASON=why)
             slot = take_slot(repo)                            # queued behind the machine's other background builds
-            t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c))
+            t0 = time.time(); write_state(repo, state='building', started=t0, files=sum(len(x) for x in c), edits=0)
             if any(c): print(f"{time.strftime('%H:%M:%S')} refresh: {sum(len(x) for x in c)} file(s) changed ({', '.join((c[0] + c[1] + c[2])[:5])}) — rebuilding", flush=True)
             if eng: print(f"{time.strftime('%H:%M:%S')} refresh: {eng}; rebuilding", flush=True)
             elif not any(c): print(f"{time.strftime('%H:%M:%S')} refresh: HEAD moved — moving the baseline to it", flush=True)
@@ -1123,7 +1214,7 @@ def worker(repo):
     # an edit that landed after the last check but while the lock was still held found the worker busy and
     # returned; it is picked up here, after the lock is released, by starting over
     c = changes(repo)
-    if (c and any(c) and read_state(repo).get('failed_table') != change_key(c)) or base_moved(repo): kick(repo)
+    if ((c and any(c) and read_state(repo).get('failed_table') != change_key(c)) or base_moved(repo)) and batch_due(repo): kick(repo)
     return 0
 
 def failure_reason(out):
@@ -1246,11 +1337,11 @@ def note(s, marked=None, named=None, off=False):
 # ── STALE-WHILE-REVALIDATE (#1595) ──────────────────────────────────────────────────────────────────────────────────
 # A query never blocks on a refresh by default: it answers from the last good graph and says precisely what is stale.
 # Every row whose declaration or call site lies in a file edited, added or removed since the graph was built is marked;
-# rows from untouched files are exactly as current as the graph and carry nothing. It WAITS only when that matters and
-# will pay off: the answer (a row, or the name asked about) touches an edited file, the rebuild is not compiling the
-# engine's rules, and the last build of this repository says it will be done within AXIOMCODE_FRESH_WAIT seconds
-# (default 30). A fixed wait (10 s) was shorter than every rebuild measured, so it was spent and the answer came from
-# the old graph anyway. --fresh (MCP fresh=true) waits for the rebuild whatever it costs, saying so as it goes.
+# rows from untouched files are exactly as current as the graph and carry nothing. AXIOMCODE_FRESH_WAIT seconds (default
+# 0) lets it wait when the answer (a row, or the name asked about) touches an edited file, the rebuild is not compiling
+# the engine's rules, and the last build says it will be done within that. The default was 30: mid-edit, an agent's query
+# about the code it was editing waited 20-33 s per ask on a 1,300-file repository, for an answer the marked rows already
+# qualified (1.8 s without the wait). --fresh (MCP fresh=true) waits for the rebuild whatever it costs, saying so as it goes.
 MARK = '  (may be out of date)'
 _CODE_LINE = re.compile(r'^\s*(\d+ )?\| ')             # a line of quoted source (context --source): never marked
 _TOKEN = re.compile(r'[\w.$+@/-]+')
@@ -1322,7 +1413,7 @@ _FLAG_VALUE = {'--depth', '--in', '--limit', '--kind', '--page', '--budget', '--
 def query_names(verb, args, repo):
     """the names a query asks about (impact's targets, path's endpoints, context's --from), as written"""
     names, i, pos = [], 0, []
-    if '--' in args: args = args[args.index('--') + 1:]  # --grep runs the verb under ax_grep.py <verb> <repo> … --: not names
+    if '--' in args: args = args[args.index('--') + 1:]  # the front door runs the verb under ax_blocks.py <verb> <repo> --: not names
     while i < len(args):
         a = args[i]
         if a in _FLAG_VALUE:
@@ -1458,7 +1549,7 @@ def query(repo, verb, argv, fresh=False):
     named = names_in_edits(repo, query_names(verb, argv, repo), stale)
     touched = touched or bool(named)
     if touched and not fresh and not s.get('failed') and not hold:
-        budget = float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 30)
+        budget = float(os.environ.get('AXIOMCODE_FRESH_WAIT') or 0)
         left = expected_left(repo)
         if budget > 0 and not compiling(repo) and (left is None or left <= budget):
             print(f"waiting for the graph to refresh: this answer touches {', '.join(stale.files[:3])}" + (' …' if len(stale.files) > 3 else '') +
@@ -1510,7 +1601,7 @@ def main(argv):
         # for a graph an earlier build made (AXIOMCODE_BUILT_BY_UNKNOWN), which must not be credited to this one
         by = {} if os.environ.get('AXIOMCODE_BUILT_BY_UNKNOWN') else dict(built_by=built_by(os.environ.get('AXIOMCODE_ENGINE') or current_engine(repo), lang))
         json.dump(dict(lang=lang, lang_auto=bool(os.environ.get('AXIOMCODE_LANG_AUTO')), src=src_arg.strip('/'), src_arg=src_arg, library=lib, built=time.time(),
-                       files=snapshot(repo, lang, os.path.join(repo, src_arg)), **by), sys.stdout); return 0
+                       files=snapshot(repo, lang, os.path.join(repo, src_arg)), **(dict(deps=dep_snapshot(repo)) if lib else {}), **by), sys.stdout); return 0
     if cmd == 'count':
         # the SOURCE files of each language under repo, walked as the refresher walks (the parser's skip list and git's
         # ignore rules): java typescript python javascript csharp. axiomcode-build picks the main language from these, and

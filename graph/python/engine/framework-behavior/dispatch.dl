@@ -292,9 +292,15 @@ py_fixture_request(req, name) :- py_fixture_param(req, name),
 // below. Only in a requester's own body: a helper function calling it is not collected,
 // and which test calls the helper is a call edge's question, not this rule's.
 .decl py_fixture_value_call(req:symbol, e:symbol)
-py_fixture_value_call(req, e) :- py_fixture_requester(req),
-    call_decl("client", "METHOD_CALL", fn, _, e, site), py_fixture_value_method(fn),
-    call_context("client", _, req, _, _, site).
+// SELECTIVE ATOM FIRST: there is one fixture-value method name and, on most projects,
+// few or no calls to it — while there are tens of thousands of requesters. Written
+// requester-first, the planner walked every requester's whole call context before the
+// one-tuple filter said no: 295s to derive ZERO rows on a 526k-LOC subject. This order
+// costs what the answer costs.
+py_fixture_value_call(req, e) :- py_fixture_value_method(fn),
+    call_decl("client", "METHOD_CALL", fn, _, e, site),
+    call_context("client", _, req, _, _, site),
+    py_fixture_requester(req).
 // (a) the name written as a string literal;
 py_fixture_request(req, name) :- py_fixture_value_call(req, e),
     call_arg(e, "0", a), expr_node("client", "LITERAL", _, name, a), name != "".
@@ -320,7 +326,7 @@ py_argnames_sep_at(h, s, i) :- py_parametrize_argnames(h, s), py_argnames_sep(se
 // A whole token: led by the string's start, a separator or a space, and followed by its
 // end, a separator or a space, so `server` is not found inside `server_url`.
 .decl py_argnames_found(h:symbol, name:symbol, i:number)
-py_argnames_found(h, p, i) :- py_fixture_value_param(h, p), py_parametrize_argnames(h, s),
+py_argnames_found(h, p, i) :- py_argnames_demand(h, p), py_parametrize_argnames(h, s),
     strlen(s) > strlen(p), i = range(0, strlen(s) - strlen(p) + 1), substr(s, i, strlen(p)) = p.
 .decl py_argnames_led(h:symbol, name:symbol, i:number)
 py_argnames_led(h, p, 0) :- py_argnames_found(h, p, 0).
@@ -340,10 +346,15 @@ py_value_row_kind("LIST").
 py_argnames_pos(h, p, k) :- py_argnames_name_at(h, p, i), py_parametrize_argnames(h, s),
     k = count : { py_argnames_sep_at(h, s, j), j < i }.
 // ... or, for argnames written as a list or tuple of strings, its element position there.
-py_argnames_pos(h, p, k) :- py_fixture_value_param(h, p),
+py_argnames_pos(h, p, k) :- py_argnames_demand(h, p),
     decorator_expr("client", de, h), call_arg(de, "0", a),
     expr_parent("client", a, "ELEMENT", ks, el), expr_node("client", "LITERAL", _, p, el),
     k = to_number(ks).
+// the argument names whose position is asked for: one a getfixturevalue call reads, and
+// every argument the decorator supplies directly (its values type the parameter, below)
+.decl py_argnames_demand(h:symbol, p:symbol)
+py_argnames_demand(h, p) :- py_fixture_value_param(h, p).
+py_argnames_demand(h, p) :- py_parametrize_direct(req, p), py_parametrize_on(req, h).
 .decl py_fixture_value_param(h:symbol, p:symbol)
 py_fixture_value_param(h, p) :- py_fixture_value_call(req, e),
     call_arg(e, "0", a), expr_node("client", "NAME_REFERENCE", _, p, a),
@@ -355,6 +366,70 @@ py_fixture_request(req, name) :- py_fixture_value_call(req, e),
     expr_parent("client", vs, "ELEMENT", _, tup), py_value_row_kind(rk), expr_node("client", rk, _, _, tup),
     expr_parent("client", tup, "ELEMENT", to_string(k), el),
     expr_node("client", "LITERAL", _, name, el), name != "".
+
+// ── PARAMETRIZE AND FIXTURE PARAMS: the VALUES the runner hands an argument ──
+//     @pytest.mark.parametrize("field_cls", [String, Integer])   -> field_cls is one of the classes
+//     @pytest.mark.parametrize("obj, n", [(Box(), 1), pytest.param(Bag(), 2)])
+//     @pytest.fixture(params=(Converter, BaseConverter))
+//     def converter_cls(request): return request.param             -> one of the classes
+// The runner calls the test once per row with the row's values in place of the argument,
+// so each value is an argument reaching the parameter exactly as one written at a call
+// site is (resolution/value-flow.dl types it). Only values WRITTEN in the decorator, or in
+// a display a single-write name in this module (or one it imports the name from) holds;
+// a value list built by a call is not read.
+.decl py_pz_rows(h:symbol, rows:symbol)
+py_pz_rows(h, a) :- py_parametrize_on(_, h), decorator_expr("client", de, h), call_arg(de, "1", a).
+py_pz_rows(h, a) :- py_parametrize_on(_, h), decorator_expr("client", de, h), call_kwarg(de, k, a), py_parametrize_argvalues_kw(k).
+py_pz_rows(h, a) :- py_fixture_deco_on(_, h), decorator_expr("client", de, h), call_kwarg(de, k, a), py_fixture_params_kw(k).
+// the display a rows expression is: written in place, or held by a single-write name
+.decl py_pz_display(rows:symbol, d:symbol)
+py_pz_display(a, a) :- py_pz_rows(_, a), py_value_row_kind(k), expr_node("client", k, _, _, a).
+py_pz_display(a, d) :- py_pz_rows(_, a),
+    expr_binding("client", b, ctx, a), ctx != "STORE", binding_lookup("client", b, b2),
+    py_pz_name_display(b2, d).
+.decl py_pz_name_display(b:symbol, d:symbol)
+py_pz_name_display(b, d) :- binding_rebinding("client", "1", _, _, b),
+    expr_binding("client", b, "STORE", tgt), assign_pair("client", tgt, d),
+    py_value_row_kind(k), expr_node("client", k, _, _, d).
+// `from tests.base import ALL_FIELDS`: the module-level binding of that name in the module
+py_pz_name_display(b, d) :- import_binding("client", b, i),
+    import_alias("client", orig, _, i), orig != "", import_relative("client", _, pkg, i), pkg != "",
+    module_decl("client", _, pkg, _, mod),
+    binding_decl("client", orig, _, "MODULE_LEVEL", _, mb), binding_owner("client", mod, _, mb),
+    binding_rebinding("client", "1", _, _, mb),
+    expr_binding("client", mb, "STORE", tgt), assign_pair("client", tgt, d),
+    py_value_row_kind(k), expr_node("client", k, _, _, d).
+// a row, with `pytest.param(v, ..., id=...)` read as its positional values
+.decl py_pz_row(h:symbol, row:symbol)
+py_pz_row(h, r) :- py_pz_rows(h, a), py_pz_display(a, d), expr_parent("client", d, "ELEMENT", _, r).
+.decl py_pz_param_call(row:symbol)
+py_pz_param_call(r) :- py_pz_row(_, r), call_of_expr(r, site), call_name(site, w), py_param_row_wrapper(w).
+// the value at one argument's position in a row: the whole row (one argument name), else
+// the row's k-th element
+.decl py_pz_single(h:symbol)
+py_pz_single(h) :- py_parametrize_argnames(h, s), !py_argnames_sep_at(h, s, _).
+py_pz_single(h) :- py_fixture_deco_on(_, h).
+.decl py_pz_value(h:symbol, k:number, v:symbol)
+py_pz_value(h, 0, r) :- py_pz_single(h), py_pz_row(h, r), !py_pz_param_call(r).
+py_pz_value(h, 0, v) :- py_pz_single(h), py_pz_row(h, r), py_pz_param_call(r), call_arg(r, "0", v).
+py_pz_value(h, k, v) :- !py_pz_single(h), py_pz_row(h, r), !py_pz_param_call(r),
+    py_value_row_kind(rk), expr_node("client", rk, _, _, r),
+    expr_parent("client", r, "ELEMENT", ks, v), k = to_number(ks).
+py_pz_value(h, k, v) :- !py_pz_single(h), py_pz_row(h, r), py_pz_param_call(r),
+    call_arg(r, ks, v), k = to_number(ks).
+// the parameter each value reaches: a test's directly parametrized argument ...
+.decl py_pz_param_value(ph:symbol, v:symbol)
+py_pz_param_value(ph, v) :- py_parametrize_direct(req, name), py_parametrize_on(req, h),
+    !py_pz_single(h), py_argnames_pos(h, name, k), py_pz_value(h, k, v),
+    param_decl("client", name, _, _, req, ph).
+py_pz_param_value(ph, v) :- py_parametrize_direct(req, name), py_parametrize_on(req, h),
+    py_parametrize_argname(req, h, name), py_pz_single(h), py_pz_value(h, 0, v),
+    param_decl("client", name, _, _, req, ph).
+// ... and, in a fixture declared with params=, what `request.param` evaluates to
+.decl py_pz_request_param(e:symbol, v:symbol)
+py_pz_request_param(e, v) :- py_fixture_deco_on(f, h), py_pz_value(h, 0, v),
+    py_fixture_request_param(rq), param_decl("client", rq, _, _, f, ph),
+    py_request_param_attr(pa), attr_access("client", e, pa, obj), expr_names_param("client", obj, ph).
 
 // (0) a fixture a CLASS declares serves the tests of that class and of its subclasses,
 //     and nothing else; for them it wins over the module's fixture of the name. Read as a
@@ -405,6 +480,53 @@ py_fixture_requested(m) :- py_fixture_injection(_, m, _).
 
 framework_edge(from, to, "fixture_injection", name, "by_name") :-
     py_fixture_injection(from, to, name).
+
+// ── 2a. THE SAME LOOKUP, FROM SYNTAX ALONE ──────────────────────────────────────
+// resolution/value-flow.dl types a parameter by the fixture serving it, so it needs the
+// runner's lookup INSIDE the resolution fixpoint. py_fixture_injection cannot be read
+// there: a fixture a conftest star-imports is found through module_member_method, which
+// is resolution, and the nearest-conftest MAX over it would then be a cyclic aggregate
+// souffle refuses to stratify. This chain keeps the runner's order (class, own module,
+// nearest conftest by its declaring file) and leaves out the two clauses that need
+// resolution — a star-imported fixture and a pytest_plugins one. Those still reach their
+// tests through the injection edge; they only go untyped.
+.decl py_fixs_in_file(fix:symbol, file:symbol)
+py_fixs_in_file(fix, p) :- py_fixture_decl(fix, _), method_file("client", p, fix).
+.decl py_fixs_same_module(req:symbol, name:symbol, fix:symbol)
+py_fixs_same_module(req, name, fix) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req, !py_fixture_class(fix, _),
+    !py_fixture_class_shadowed(req, name),
+    method_file("client", p, req), py_fixs_in_file(fix, p).
+.decl py_fixs_conftest_cand(req:symbol, name:symbol, fix:symbol, depth:number)
+py_fixs_conftest_cand(req, name, fix, dl) :- py_fixture_request(req, name),
+    py_fixture_decl(fix, name), fix != req, !py_fixture_class(fix, _),
+    py_fixs_in_file(fix, cp), py_fixture_scope_file(c),
+    strlen(cp) >= strlen(c), substr(cp, strlen(cp) - strlen(c), strlen(c)) = c,
+    d = substr(cp, 0, strlen(cp) - strlen(c)),
+    method_file("client", p, req),
+    strlen(p) > strlen(d), substr(p, 0, strlen(d)) = d, dl = strlen(d).
+.decl py_fixs_nearest(req:symbol, name:symbol, depth:number)
+py_fixs_nearest(req, name, m) :- py_fixs_conftest_cand(req, name, _, _),
+    m = max dl : { py_fixs_conftest_cand(req, name, _, dl) }.
+.decl py_fixs_injection(from:symbol, to:symbol, name:symbol)
+py_fixs_injection(req, fix, name) :- py_fixture_in_class(req, name, fix).
+py_fixs_injection(req, fix, name) :- py_fixs_same_module(req, name, fix).
+py_fixs_injection(req, fix, name) :- py_fixs_conftest_cand(req, name, fix, dl),
+    !py_fixture_class_shadowed(req, name), !py_fixs_same_module(req, name, _),
+    py_fixs_nearest(req, name, dl).
+
+// ── 2b. FIXTURE VALUE  (what the runner hands the parameter) ────────────────────
+// py_fixture_value_type(Fixture, Type) — the value a fixture hands over: its return or
+// yield value's type, or its declared return. Consumed by resolution/value-flow.dl, where
+// the runner's call `test(fixture_value)` is one more argument reaching a parameter.
+.decl py_fixture_value_type(fix:symbol, t:symbol)
+py_fixture_value_type(fix, t) :- py_fixture_decl(fix, _),
+    method_return_value_expr("client", fix, e), expr_type("client", e, t).
+py_fixture_value_type(fix, t) :- py_fixture_decl(fix, _),
+    method_declared_return_type("client", fix, d), declared_dispatch("client", d, t).
+py_fixture_value_type(fix, t) :- py_fixture_decl(fix, _),
+    expr_node("client", "YIELD", _, _, y), expr_ultimate_method("client", y, fix),
+    expr_parent("client", y, "YIELD_VALUE", _, v), expr_type("client", v, t).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. URL DISPATCH  (route table -> view)

@@ -14,6 +14,7 @@ ambiguous_unknown	FUNCTION_CALL	parts#render() @L35 -> -
 ambiguous_unknown	FUNCTION_CALL	reg#<module-init>() @L18 -> -
 ambiguous_unknown	JSX_COMPONENT_CALL	app#<arrow@13>() @L20 -> -
 callback_registered	FUNCTION_CALL	parts#<module-init>() @L40 -> parts#<arrow@40>(?)
+callback_registered	JSX_COMPONENT_CALL	app#<arrow@13>() @L? -> app#onPing()
 known_edge	FUNCTION_CALL	app#onPing() @L12 -> app#helper()
 known_edge	FUNCTION_CALL	button#<arrow@10>() @L10 -> button#leafButton()
 known_edge	FUNCTION_CALL	card#render() @L12 -> card#leafCard()

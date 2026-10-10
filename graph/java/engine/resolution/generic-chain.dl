@@ -100,10 +100,7 @@ expr_arg_binding(call, nested, nestedParam, arg) :- call_site(call, _, recv),
 // the method it actually appears in — same guard the recv_decl_ref clauses in expr-type.dl use.
 // java_expression (25): 11 name 15 referenceKind 25 hash.  java_local_variable (19): 1 name 14 method 19 hash.
 expr_arg_binding(recv, bt, param, arg) :-
-    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
-    expr_ultimate_method("client", recv, m),
-    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
-    java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
+    local_use_init(recv, initExpr),
     expr_arg_binding(initExpr, bt, param, arg).
 
 // ── INHERITED generics with a CONCRETE super-arg (c9): `class DogBox extends Box<Dog>`.
