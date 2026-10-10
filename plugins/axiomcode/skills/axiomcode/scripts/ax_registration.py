@@ -671,12 +671,17 @@ _KEY_KEYWORD = re.compile(r'^(value|values|path|paths|name|names|topics?|topic_?
 #   3. a string that names a MEMBER OF A TYPE THE SAME DECORATION NAMES: `@SelectProvider(type = StockSql.class,
 #      method = "byShelf")` points at StockSql.byShelf; it is a reference to that method, not a key for this one.
 #      Only decided with the graph (`names_member(type, name)`); without it the string is kept.
-_STRING = re.compile(r'"([^"]{1,120})"|\'([^\']{1,120})\'')
+#   4. a string that names a PARAMETER OF THE DECLARATION IT DECORATES: `@option("--params", "-p", "params")` on
+#      `def main(url, params)` binds the value a caller passes after `--params` to `params`. The flags are what a caller
+#      writes to reach the declaration; the parameter name is written by every function that builds a dict with a
+#      `params` key, and joined as a key it made each of them a caller of the command.
+#   5. a string inside ANOTHER call in the decoration: `type=File("wb")` configures a value, it names nothing registered.
+_STRING =re.compile(r'"([^"]{1,120})"|\'([^\']{1,120})\'')
 _KEYWORD_BEFORE = re.compile(r'(\w+)\s*[=:]\s*[\[{(]?\s*(?:(?:"[^"]*"|\'[^\']*\')\s*,\s*)*$')
 _TYPE_ARG = re.compile(r'(?<![\w."\'$])([A-Z][\w$]*)(?:\s*\.\s*class)?(?=\s*[,)\]}])')
 
 
-def decoration_key_strings(text, name=None, names_member=None):
+def decoration_key_strings(text, name=None, names_member=None, params=None):
     """the strings a decoration's text registers its declaration under, sorted: every quoted string in it but prose,
     and but the three shapes above (a non-registering decoration `name`, a configuring keyword, a member reference).
     A STRING WITH A SPACE IN IT IS PROSE, NOT A KEY: `@widgets.doc("Endpoint to list the widgets")`, `@Operation(summary = "List
@@ -693,8 +698,24 @@ def decoration_key_strings(text, name=None, names_member=None):
         kw = _KEYWORD_BEFORE.search(t[:m.start()].replace('"""', '"'))
         if kw and not _KEY_KEYWORD.match(kw.group(1)): continue
         if any(names_member(ty, key) for ty in types): continue
+        if _call_depth(t, m.start()) > 1: continue
+        if params and key in params: continue
         out.add(key)
     return sorted(out)
+
+
+def _call_depth(t, i):
+    """how many parentheses are open at offset i of a decoration's text, strings blanked: 1 is the decoration's own
+    argument list"""
+    return _STRING.sub(lambda m: '"' + ' ' * (len(m.group(0)) - 2) + '"', t[:i]).count('(') - \
+        _STRING.sub(lambda m: '"' + ' ' * (len(m.group(0)) - 2) + '"', t[:i]).count(')')
+
+
+def _params_of(signature):
+    """the parameter names a `name(a, b=1, *c)` signature declares"""
+    m = re.search(r'\((.*)\)', signature or '')
+    if not m: return set()
+    return {re.sub(r'[:=].*$', '', p).strip().lstrip('*') for p in m.group(1).split(',')} - {''}
 
 
 def member_names(q):
@@ -720,13 +741,14 @@ def decoration_keys(q, site_file=None):
     # production code; nothing is lost by declining to read a test's own decoration as a registration.
     tests = {r[0] for r in q("SELECT id FROM symbols WHERE is_test = 1")} if _has(q, 'symbols') else set()
     members = member_names(q)
+    sigs = dict(q("SELECT id, signature FROM symbols WHERE signature IS NOT NULL")) if _has(q, 'symbols') else {}
     out = []
     for owner, name, text, f, l in q("""SELECT owner_id, name, text, file, line FROM decorations
                                         WHERE text IS NOT NULL AND text <> '' AND owner_id IS NOT NULL"""):
         if owner in tests:
             continue
         short = (name or '').split('.')[-1]
-        for key in decoration_key_strings(text, name, members):
+        for key in decoration_key_strings(text, name, members, _params_of(sigs.get(owner))):
             kind = 'route' if key.startswith('/') else 'key'
             why = (f'registered as a route "{key}" by @{short} — the router calls it, no call site does' if kind == 'route'
                    else f'registered under "{key}" by @{short} — whoever writes that string reaches it, and no call site does')

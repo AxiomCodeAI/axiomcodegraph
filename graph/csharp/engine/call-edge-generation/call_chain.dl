@@ -115,6 +115,7 @@ site_leaves_client(prov, e) :- external_target(prov, e, _).
 // Invoke, which the runtime supplies (resolution/delegates.dl). The site gets an edge
 // to that member's Invoke node and the stored functions are in the envelope.
 site_leaves_client(prov, e) :- delegate_member_call(prov, e, _).
+site_leaves_client("client", e) :- delegate_param_call(e, _).
 
 call_class(prov, e, "fan_capped") :- call_fan_refused(prov, e).
 call_class(prov, e, "known_edge") :-
@@ -246,6 +247,15 @@ call_chain_edge(e, caller, "-", node, "client", "boundary_lib", kind) :-
     call_from("client", e, caller),
     invocation_site("client", e, kind).
 
+// client -> A DELEGATE PARAMETER'S INVOKE: `act(1)` through a parameter the engine
+// saw handed a function (resolution/delegate-params.dl). One node per parameter, the
+// member's shape, and what it may run is in method_dispatch_candidate.
+call_chain_edge(e, caller, "-", node, "client", "boundary_lib", kind) :-
+    delegate_param_call(e, p),
+    delegate_param_node(p, node),
+    call_from("client", e, caller),
+    invocation_site("client", e, kind).
+
 // ── HAND-OFF EDGES: A METHOD GROUP PASSED ON (#1550) ────────────────────────
 // `new Timer(Sweep, ...)`, `Run(Report)`, `ProcessExit += OnExit`: the enclosing
 // method hands the method to code that may invoke it (resolution/delegates.dl,
@@ -356,6 +366,14 @@ call_chain_edge(e, caller, "-", acc, "lib", "boundary_lib", kind) :-
     method_decl("lib", _, _, _, acc),
     call_from_expr("client", e, caller).
 
+// client -> the bodiless accessor the site is written against (properties.dl), with
+// the site's own tier, as call_names_bodiless does for a method.
+call_chain_edge(e, caller, "-", decl, "client", tier, kind) :-
+    accessor_names_bodiless("client", e, decl, kind),
+    method_decl("client", _, _, _, decl),
+    call_from_expr("client", e, caller),
+    accessor_tier("client", e, tier).
+
 // The tier of an accessor site, by the same rule as a call site: one target is
 // known_edge, several is a sound set. A property accessor can be virtual, so the fan
 // is real rather than theoretical.
@@ -381,6 +399,7 @@ call_has_edge(prov, e) :- client_calls_client(prov, e, _, _).
 call_has_edge(prov, e) :- client_calls_lib(prov, e, _, _).
 call_has_edge("client", e) :- client_calls_external(e, _).
 call_has_edge("client", e) :- delegate_member_call("client", e, _).
+call_has_edge("client", e) :- delegate_param_call(e, _).
 
 call_chain_edge(e, caller, "-", "-", "-", cls, kind) :-
     invocation_site("client", e, kind),

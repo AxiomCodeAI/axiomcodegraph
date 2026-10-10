@@ -6,6 +6,7 @@ ambiguous_unknown	method	probe.VarLocals#lambdaUnknownInterface() -> -
 ambiguous_unknown	method	probe.VarLocals#literalInline() -> -
 boundary_lib	method	probe.VarLocals#declaredExternal(Object) -> external:java.text.Format.format
 boundary_lib	method	probe.VarLocals#fromLiteralDeclared() -> external:String.length
+boundary_lib	method	probe.VarLocals#fromUnknown() -> external:java.util.Collections.emptyList
 boundary_lib	method	probe.VarLocals#lambdaLocal(Widget) -> external:java.util.function.Consumer.accept
 boundary_lib	method	probe.VarLocals#varExternal(Object) -> external:java.text.Format.format
 known_edge	lambda_body	probe.VarLocals#lambdaLocal(Widget) -> probe.Widget#paint()

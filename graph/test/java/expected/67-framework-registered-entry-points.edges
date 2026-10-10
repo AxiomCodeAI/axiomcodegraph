@@ -1,9 +1,9 @@
 ambiguous_unknown	method	app.init.AppInit#onStartup(Set,ServletContext) -> -
-ambiguous_unknown	method	app.rs.Size#valueOf(String) -> -
 ambiguous_unknown	new	app.init.BootConfig#bootServlet() -> -
 boundary_lib	method	app.init.AppInit#onStartup(Set,ServletContext) -> external:jakarta.servlet.ServletContext.addFilter
 boundary_lib	method	app.init.AppInit#onStartup(Set,ServletContext) -> external:jakarta.servlet.ServletContext.addListener
 boundary_lib	method	app.init.AppInit#onStartup(Set,ServletContext) -> external:jakarta.servlet.ServletContext.addServlet
+boundary_lib	method	app.rs.Size#valueOf(String) -> external:java.lang.Integer.parseInt
 callback_registered	callback	app.init.AppInit#onStartup(Set,ServletContext) -> app.init.InitFilter#doFilter(ServletRequest,ServletResponse,FilterChain)
 known_edge	method	app.init.AppInit#wire(EventBus) -> app.init.EventBus#addListener(Class)
 known_edge	new	app.beans.AppConfig#plain() -> app.beans.Plain#<init>()

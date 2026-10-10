@@ -1,0 +1,48 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a setupFiles entry runs before every test file of its project and nothing imports it: what its module calls is reached by each of those tests, even one that never names it",
+   "run": [
+    "impact",
+    "setNotifyFunction",
+    "--tests-only"
+   ],
+   "want": [
+    "src/app/test/math.test.ts (",
+    "src/app/test/schedule.test.ts ("
+   ],
+   "avoid": [
+    "src/other/plain.test.ts"
+   ]
+  },
+  {
+   "why": "a globalSetup file's exported setup is called by the runner once before the run: the generator it holds reaches every test of the run",
+   "run": [
+    "impact",
+    "renderSchema",
+    "--tests-only"
+   ],
+   "want": [
+    "src/app/test/math.test.ts ("
+   ],
+   "avoid": [
+    "src/other/plain.test.ts"
+   ]
+  },
+  {
+   "why": "control: a helper file that no configuration names is no set-up file, so what it calls reaches no test",
+   "run": [
+    "impact",
+    "unusedHelper",
+    "--tests-only"
+   ],
+   "want": [],
+   "avoid": [
+    "src/app/test/math.test.ts (",
+    "src/app/test/schedule.test.ts ("
+   ]
+  }
+ ]
+}

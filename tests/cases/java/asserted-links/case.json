@@ -1,0 +1,161 @@
+{
+ "lang": "java",
+ "src": "src",
+ "checks": [
+  {
+   "why": "BASE: a reflective Method.invoke ends in the library, so no chain reaches the handler it runs",
+   "run": [
+    "path",
+    "DispatchTest.save",
+    "Handlers.audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects DispatchTest.save and Handlers.audit"
+   ]
+  },
+  {
+   "why": "the reflective call is listed as a work item: resolved into the library, what it runs unknown",
+   "run": [
+    "impact",
+    "Dispatch.dispatch",
+    "--unknown"
+   ],
+   "want": [
+    "src/pkg/Dispatch.java:10:18  return m.invoke(null, doc);  [runs a value through java.lang.reflect.Method.invoke]"
+   ]
+  },
+  {
+   "why": "link records the target of the reflective call",
+   "run": [
+    "link",
+    "src/pkg/Dispatch.java:10",
+    "Handlers.onSave"
+   ],
+   "want": [
+    "linked src/pkg/Dispatch.java:10:18 `invoke` → Handlers.onSave [asserted]"
+   ]
+  },
+  {
+   "why": "path walks the asserted edge, labelled [asserted]",
+   "run": [
+    "path",
+    "DispatchTest.save",
+    "Handlers.audit"
+   ],
+   "want": [
+    "[asserted · call @ src/pkg/Dispatch.java:10] Handlers.onSave",
+    "reached through resolved calls and 1 asserted link(s)",
+    "[asserted] ASSERTED by a link"
+   ],
+   "avoid": [
+    "target(s) reached through resolved calls;"
+   ]
+  },
+  {
+   "why": "impact lists the caller as asserted and selects the test through it",
+   "run": [
+    "impact",
+    "Handlers.onSave",
+    "--tests"
+   ],
+   "want": [
+    "[asserted] Dispatch.dispatch",
+    "DispatchTest::save",
+    "reaches those through resolved calls and 1 asserted link(s)"
+   ],
+   "avoid": [
+    "DispatchTest::table"
+   ]
+  },
+  {
+   "why": "CONTROL: a link to a declaration that does not exist is rejected",
+   "run": [
+    "link",
+    "src/pkg/Dispatch.java:10",
+    "Handlers.onArchive"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the target is not a declaration in this graph"
+   ]
+  },
+  {
+   "why": "CONTROL: a link at a line with no call is rejected",
+   "run": [
+    "link",
+    "src/pkg/Dispatch.java:3",
+    "Handlers.onLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — no call is written at src/pkg/Dispatch.java:3"
+   ]
+  },
+  {
+   "why": "CONTROL: a call that names another declaration cannot be linked to an unrelated target",
+   "run": [
+    "link",
+    "src/pkg/Dispatch.java:23",
+    "Handlers.onLoad"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call as written names `audit`"
+   ]
+  },
+  {
+   "why": "CONTROL: an unlinked sibling reflective site stays unknown",
+   "run": [
+    "impact",
+    "Dispatch.purge",
+    "--unknown"
+   ],
+   "want": [
+    "src/pkg/Dispatch.java:19:18  return m.invoke(null, doc);"
+   ],
+   "avoid": [
+    "src/pkg/Dispatch.java:19:18  return m.invoke(null, doc);  [runs a value through java.lang.reflect.Method.invoke]  → linked"
+   ]
+  },
+  {
+   "why": "lines inserted above the site: after the rebuild the link follows the line by its text",
+   "edit": [
+    "src/pkg/Dispatch.java",
+    "import java.util.Map;\n",
+    "import java.util.Map;\n// dispatch by event name\n\n"
+   ],
+   "run": [
+    "path",
+    "DispatchTest.save",
+    "Handlers.audit",
+    "--fresh"
+   ],
+   "want": [
+    "[asserted · call @ src/pkg/Dispatch.java:12] Handlers.onSave"
+   ]
+  },
+  {
+   "why": "the linked line itself edited: after the rebuild the link is dropped and the answer says so",
+   "edit": [
+    "src/pkg/Dispatch.java",
+    "        return m.invoke(null, doc);\n    }\n\n    public static Object runTable",
+    "        return m.invoke(null, new java.util.HashMap<>(doc));\n    }\n\n    public static Object runTable"
+   ],
+   "run": [
+    "path",
+    "DispatchTest.save",
+    "Handlers.audit",
+    "--fresh"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects",
+    "links: 1 of 1 asserted link(s) not applied (1 stale)"
+   ],
+   "avoid": [
+    "[asserted"
+   ]
+  }
+ ]
+}

@@ -45,8 +45,10 @@ TIER_RANK = {
     'runtime_observed': 1,      # seen in a runtime trace; real, but no call site stands behind it
     'multi_inferred': 1,        # several declarations fit; each one is a real candidate
     'dispatch': 2,              # a base method to an override that is actually instantiated
+    'overload': 0,              # the overload signature a call selected runs its set's implementation: one body, certain
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
     'event_dispatch': 3,        # emitted here, handled there
+    'asserted': 3,              # a link someone recorded (axiomcode link) where the engine resolved nothing: read, not derived
     'remote': 5,                # a request crosses a process to its handler (remote_edge): no call site names it.
     'framework': 5,             # a framework runs the other end for this one (framework_edge). Both 5, the default
                                 # impact's route reader already gave them (P.TIER_RANK.get(t, 5)), so its routes do not move
@@ -67,8 +69,10 @@ TIER_NOTE = {
     'known_edge':           'resolved to one declaration',
     'multi_inferred':       'several declarations fit; each is a real candidate',
     'dispatch':             'a base method to an override the project instantiates',
+    'overload':             'the call selected an overload signature; this is the implementation that runs',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
     'event_dispatch':       'emitted here, handled there',
+    'asserted':             'ASSERTED by a link (axiomcode-links.tsv): someone read the call and recorded its target; the engine did not resolve it',
     'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
     'framework':            'NOT a call site: a framework runs the other end for this one (mechanism and registration on the hop)',
     'defines':              'NOT a call — written inside that body, so it runs only after it',
@@ -105,6 +109,8 @@ KIND = {
     'ctor_delegate': 'ctor', 'SUPER_CALL': 'super',
     # C#: a base constructor no syntax names: the implicit `base()` a constructor without an initializer runs
     'implicit_base_ctor': 'ctor',
+    # C#: a call the language writes for a statement: `using` -> Dispose, `foreach` -> GetEnumerator, `{ a, b }` -> Add
+    'using_dispose': 'call', 'foreach_enumerator': 'call', 'collection_add': 'call',
     # the callable is named, not called at that line — it runs when whoever took it runs it
     'ref': 'method-ref',
     # a declaration handed to a decorator, which is what wires most framework handlers up
@@ -169,13 +175,14 @@ def legend(tiers):
 # as a value, and a capped fan-out exists precisely BECAUSE the candidate set was too large to
 # enumerate, so what is in the graph is a sample of it.
 DIRECT_CERT = {
-    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved',
+    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved', 'overload': 'resolved',
     'implicit_constructor': 'resolved', 'written': 'resolved',
     'known_implicit_ctor': 'resolved', 'known_builtin_operator': 'resolved', 'runtime_observed': 'resolved',
     'multi_inferred': 'one of a set',
     'callback_registered': 'registered', 'event_dispatch': 'registered',
     'ambient_terminal': 'registered', 'dynamic_terminal': 'registered', 'intrinsic_terminal': 'registered',
     'fan_capped': 'capped set',
+    'asserted': 'asserted',         # a link someone recorded (ax_links.py): an edge, never `resolved`
     'stub': 'stubs it',             # a call inside a mock's stub or verification (stub_sites below): named, never run
     'remote': 'remote', 'framework': 'framework',   # impact's own rung names for the same two hops (#1469)
 }
@@ -185,6 +192,7 @@ DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and
 DIRECT_WHY = {
     'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
     'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
+    'asserted': 'calls it — asserted by a link (axiomcode-links.tsv), not resolved by the engine',
     'stubs it': 'stubs it on a mock: the real method does not run there, and the test breaks only if the name or parameters change',
 }
 # …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
@@ -263,12 +271,12 @@ def entry_outside(reason):
 # instead: the membership is exactly what it was before this table existed, so no row leaves any
 # set — only the label it is printed under changes. It matters most for the --delete verdict, where
 # dropping a hand-off would turn "something still holds this" into "safe to delete".
-EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'capped set', 'stubs it'})
+EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'asserted', 'capped set', 'stubs it'})
 
 # most certain first. A caller with several call sites to the same callee can hold sites of different
 # tiers; a summary that names the caller once takes the best of them, which is the honest reading of
 # "at least one resolved call exists here".
-DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set', 'stubs it')
+DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'asserted', 'capped set', 'stubs it')
 
 
 # ── `defines`: a callable written inside another one's body ────────────────────────────────────────────────

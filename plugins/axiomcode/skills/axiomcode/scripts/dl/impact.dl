@@ -46,6 +46,8 @@
 .decl calls(c:symbol, m:symbol, tier:symbol, f:symbol, l:number)  .input calls
 .decl handoff_at(c:symbol, m:symbol, f:symbol, l:number)          .input handoff_at
 .decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
+// rejected(c, m, f, l)   a lead at c's site f:l to m someone rejected (axiomcode link --not; ax_links.suppressed): not walked
+.decl rejected(c:symbol, m:symbol, f:symbol, l:number) .input rejected
 .decl named_site(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input named_site
 // a `new T()` of a type with no written constructor (C#): no constructor to call, so no `calls` row, but the engine knows the type (#1473)
 .decl implicit_new(c:symbol, t:symbol, f:symbol, l:number) .input implicit_new
@@ -420,7 +422,7 @@ direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m,
 // change its own [by name] dependent, so `weak_seed` held for it and the whole answer said "12 of those 12 are
 // reached ONLY through a dependent that is not an exact edge": everything downstream looked untrustworthy because of
 // one self-match. A recursive call needs no row either — the body is what is changing.
-direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", k != "library", !is_target_decl(q, c).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k), k != "stub", k != "library", !is_target_decl(q, c), !rejected(c, m, f, l).
 direct(q, c, "uses", "stubs a method of this name on a mock (receiver not typed): the real method does not run there", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, "stub", f, l), !is_target_decl(q, c).
 // A site whose receiver the engine traced to a package's value (`request(app).get('/x')`, ax_edges.library_receiver_sites):
 // the kind "library". A row of its own, listed after the untyped-receiver matches, and no seed of the closure.
@@ -865,7 +867,7 @@ seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert
 // a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
 // not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
 .decl seed_byname(q:symbol, c:symbol)
-seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, _, _), k != "stub", k != "library", !seed(q, c).
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), k != "stub", k != "library", !seed(q, c), !rejected(c, m, f, l).
 // and a declaration handed over as a VALUE — `Depends(get_settings)`, `add_task(send_receipt, id)`, an element of
 // a pipeline list. `valueref` already produces the DIRECT row for these ("names it as a value — passed, stored or
 // registered"), and the closure stopped there: the answer named the callable that hands it over and then said the
@@ -886,7 +888,19 @@ seed_byname(q, c) :- valueref(q, c, _, _), !seed(q, c).
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
 up(q, c, 1) :- seed_byname(q, c).
-up(q, a, d+1) :- up(q, b, d), edge(a, b, _), !state_gate(a, b, _), d < 40.
+up(q, a, d+1) :- up(q, b, d), walk_edge(a, b, _), !state_gate(a, b, _), d < 40.
+// A CALLABLE WRITTEN INSIDE A JAVA INITIALIZER IS NOT RUN BY IT. `static { ACCESS = new Access() { void m() {..} }; }` and
+// `static final Comparator<T> BY_NAME = (a, b) -> ..` build an object; its method runs when someone calls it on that
+// object, which the call edges into it already say. The `defines` hop from the initializer (a <clinit>, an <init_block>,
+// or the TYPE the engine names as the caller of a field initializer) handed the method to the initializer, and the
+// `at load` hop then to every user of the type. A `defines` hop from a method body is kept: a lambda written in a method usually runs while it does.
+.decl init_defines(a:symbol, b:symbol)
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), member(_, a, "<clinit>", _).
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), member(_, a, "<init_block>", _).
+init_defines(a, b) :- edge(a, b, "defines"), java_decl(a), typ(a, _, _).
+.decl walk_edge(a:symbol, b:symbol, t:symbol)
+walk_edge(a, b, t) :- edge(a, b, t), t != "defines".
+walk_edge(a, b, "defines") :- edge(a, b, "defines"), !init_defines(a, b).
 up(q, a, d+1) :- up(q, b, d), fw_edge(a, b, _), d < 40.
 // ── WHAT ONE INSTANCE WAS GIVEN: the edge holds for some receivers only ──────────────────────────────────────────
 // `new Bus({ validate: check })` and `b.on(handleA)` give ONE bus a callback, and `Bus.emit` calls it through what
@@ -926,7 +940,7 @@ up_all(q, m, d) :- upg(q, m, _, _, d).
 reach(q, m, d) :- up_all(q, m, d), d = min x : up_all(q, m, x).
 // the chain read-back: a is one hop further from the change than b, through edge a → b
 .decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
-parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
+parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, walk_edge(a, b, t).
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, fw_edge(a, b, t).
 // The import hop is taken from a MODULE BODY, and only when that module body is reached by edges which actually
 // RUN. `up` walks `defines` as well, which is right for it — a change to an inner function does concern the
@@ -957,6 +971,19 @@ up(q, a, d+1) :- up_running(q, b, d), import_hop(q, a, b), d < 40.
 parent_up(q, a, b, "at import") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, import_hop(q, a, b).
 .output reach
 .output parent_up
+// WHAT RUNS WHILE A TEST FILE LOADS: a declaration in test code that reaches the change through calls alone (a resolved
+// call or one of a resolved set; never `defines`, never a hand-over, which runs later or not at all), so a module body
+// or a describe() block that is one of these runs the change before any test does. A mocha run requires every spec and
+// runs every describe() in one process, and a throw there fails the whole run (axiomcode-test-impact reads this as
+// `at_load` on the test it credits). Walked only as far as test code: the first test-file declaration ends the walk.
+.decl load_up(q:symbol, m:symbol)
+load_up(q, m) :- seed(q, m).
+load_up(q, a) :- load_up(q, b), !load_stop(b), edge(a, b, t), (t = "known_edge" ; t = "multi_inferred"), !state_gate(a, b, _).
+.decl load_stop(m:symbol)
+load_stop(m) :- decl_file(m, f), is_test_file(f), !kind(m, "module").
+.decl load_run(q:symbol, m:symbol)
+load_run(q, m) :- load_up(q, m), decl_file(m, f), is_test_file(f).
+.output load_run
 
 // the same closure from the seeds that are an exact edge only: what is reached ONLY through a [by name] / [text] /
 // [one of a set] dependent is everything outside it, and the answer says how much of itself rests on those
@@ -971,7 +998,7 @@ strong_direct(q, c) :- direct(q, c, _, _, "resolved", _, _).
 strong_direct(q, c) :- direct(q, c, _, _, "in scope", _, _).
 .decl up_sure(q:symbol, m:symbol, d:number)
 up_sure(q, m, 0) :- seed_sure(q, m).
-up_sure(q, a, d+1) :- up_sure(q, b, d), edge(a, b, _), d < 40.
+up_sure(q, a, d+1) :- up_sure(q, b, d), walk_edge(a, b, _), d < 40.
 .decl reach_sure(q:symbol, m:symbol)
 reach_sure(q, m) :- up_sure(q, m, _).
 .output reach_sure
@@ -1069,7 +1096,35 @@ fw_edge(a, b, "spawns") :- spawns_fact(a, b), a != b.
 .decl dec_decl(d:symbol, w:symbol)
 dec_decl(d, w) :- decorated(_, d), named(d, w), 1 = count : { named(d, _) }.
 dec_decl(d, w) :- decorated(s, d), named(d, w), decl_file(s, f), decl_file(w, f).
-fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
+// WHO RUNS WHAT THE DECORATOR RETURNED, NOT WHO WAS DECORATED. That hop, taken from the decorated declaration to
+// the decorator's body, made the decorated function a caller of the decorator: `@bp.route("/") def index` put `index`,
+// and through it every test that requests "/", above everything `route` calls. Nothing runs `route` when `index` is
+// called: the decoration ran it once, where the `def` is. What a caller of the decorated NAME runs is whatever the
+// decorator RETURNED for it: a wrapper (`def wrapper(*a): … return f(*a)`, which may reach the change), or the
+// function itself (`return f`, a registration), which adds nothing. Where the decoration is written as a call
+// (`@route("/")`), the decorator applied is what `route` returned, and it is THAT one's return the name denotes.
+//   fn_returns(m, w)        m returns the function w (Python ext_method_returns_method)
+//   fn_returns_param(m)     m returns an argument it was handed
+//   decorated_call(s, d)    s carries the decoration d written as a call
+// Where what the decorator returns is unknown, the hop stays as it was: the walk keeps a route it cannot judge.
+.decl fn_returns(m:symbol, w:symbol)                              .input fn_returns
+.decl fn_returns_param(m:symbol)                                  .input fn_returns_param
+.decl decorated_call(s:symbol, d:symbol)                          .input decorated_call
+.decl deco_applied(s:symbol, x:symbol)
+deco_applied(s, b) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d).
+deco_applied(s, x) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x).
+.decl deco_wrapper(s:symbol, w:symbol)
+deco_wrapper(s, w) :- deco_applied(s, x), fn_returns(x, w), w != s.
+.decl deco_known(s:symbol, d:symbol)
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d), fn_returns(b, _).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d), fn_returns_param(b).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x), fn_returns(x, _).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x), fn_returns_param(x).
+// The decorated declaration stands for its wrapper: whatever reaches the name (a call, a route, a registry key) runs it.
+// The engine leaves a call to a name whose decorator it could not resolve unresolved, so the hop is taken from the
+// declaration itself rather than from its callers.
+fw_edge(s, w, "decorator by name") :- deco_wrapper(s, w).
+fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b, !deco_known(a, d).
 // A CLIENT ACROSS A PROCESS: the sender depends on the handler it reaches (#1293). `remote` above makes the client a
 // DIRECT row; walked only there, a test that drives the client never reached a change to the handler, so
 // test-impact stopped at the route while impact named the client one line up. Walked here as its own tier, the
@@ -1148,17 +1203,35 @@ parent_up(q, a, b, "protocol") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d
 // The type's own members count too: once its initialization has failed, every one of them fails with it.
 // Taken only where the walk ARRIVES at the type as a caller (d > 0): a type that is the change itself, or the owner
 // of a changed field, is a seed for other reasons, and its users are already the direct rows of those rules.
-.decl init_runner(r:symbol, t:symbol)
-init_runner(t, t) :- typ(t, _, _), java_decl(t), edge(t, _, _).
-init_runner(c, t) :- member(t, c, "<clinit>", _), java_decl(c).
-init_runner(c, t) :- member(t, c, "<init_block>", _), java_decl(c).
-.decl init_use(a:symbol, t:symbol)
-init_use(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t).
-init_use(a, t) :- calls(a, m, tier, _, _), tier != "stub", kind(m, "constructor"), owner(m, s), extends(s, t).
-init_use(a, t) :- faccess(a, fl, _, _, _, _), field(fl, t, _, _, _).
+//
+// WHICH INITIALIZER, AND WHAT RUNS IT. A static initializer (a static field's or enum constant's initializer, a
+// `static { }` block) runs once, when the type is initialized, and what initializes a type is fixed by JLS 12.4.1:
+// a `new` of it or of a subtype, a call of one of its STATIC methods, a use of one of its static fields. Calling an
+// instance method or reading an instance field is not one: the instance exists, so its type was initialized before.
+// Taking the hop from every user of the type named everything that touched one instance. An INSTANCE initializer (an instance field's initializer, an `{ }` block) runs inside every constructor of the
+// type and of its subtypes (through their super() call): its hop goes to those constructors, and the walk takes
+// their callers from there.
+//   jstatic(m)            m belongs to the class: a static method or field, an enum constant, an interface field
+//   init_call(t, b, k)    the type t calls b from a field initializer of kind k (static | instance)
+.decl jstatic(m:symbol)                                           .input jstatic
+.decl init_call(t:symbol, b:symbol, k:symbol)                     .input init_call
+.decl init_trigger(a:symbol, t:symbol)
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t), jstatic(m).
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", owner(m, t), kind(m, "constructor").
+init_trigger(a, t) :- calls(a, m, tier, _, _), tier != "stub", kind(m, "constructor"), owner(m, s), extends(s, t).
+init_trigger(a, t) :- faccess(a, fl, _, _, _, _), field(fl, t, _, _, _), jstatic(fl).
+.decl init_ctor(i:symbol, t:symbol)
+init_ctor(i, t) :- java_decl(t), kind(i, "constructor"), owner(i, t).
+init_ctor(i, t) :- java_decl(t), extends(s, t), kind(i, "constructor"), owner(i, s).
+// the type reached as a caller, through an initializer of kind k (the callee it calls there is in the walk)
+.decl type_init(q:symbol, t:symbol, k:symbol)
+type_init(q, t, k) :- up(q, t, d), d > 0, typ(t, _, _), java_decl(t), walk_edge(t, b, _), up(q, b, _), init_call(t, b, k).
+type_init(q, t, "static") :- up(q, t, d), d > 0, typ(t, _, _), java_decl(t), walk_edge(t, b, _), up(q, b, _), !init_call(t, b, _).
 .decl load_hop(q:symbol, a:symbol, r:symbol)
-load_hop(q, a, r) :- up(q, r, d), d > 0, init_runner(r, t), r = t, init_use(a, t), a != r.
-load_hop(q, a, r) :- up(q, r, _), init_runner(r, t), r != t, init_use(a, t), a != r.
+load_hop(q, a, t) :- type_init(q, t, "static"), init_trigger(a, t), a != t.
+load_hop(q, i, t) :- type_init(q, t, "instance"), init_ctor(i, t), i != t.
+load_hop(q, a, r) :- up(q, r, _), member(t, r, "<clinit>", _), java_decl(r), init_trigger(a, t), a != r.
+load_hop(q, i, r) :- up(q, r, _), member(t, r, "<init_block>", _), java_decl(r), init_ctor(i, t), i != r.
 up(q, a, d+1) :- up(q, r, d), load_hop(q, a, r), d < 40.
 parent_up(q, a, b, "at load") :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, load_hop(q, a, b).
 // WHAT RUNS AT IMPORT. `settings = Settings()` at the top level of a module is executed by the import statement,

@@ -1,9 +1,9 @@
-ambiguous_unknown	method	app.rs.RsClients#<type-initializer>() -> -
 ambiguous_unknown	method	app.rs.RsClients#order(String) -> -
 ambiguous_unknown	method	app.rs.RsClients#orders() -> -
 ambiguous_unknown	new	app.rs.RsClients#<type-initializer>() -> -
 ambiguous_unknown	new	app.spring.OrderClient#<type-initializer>() -> -
 ambiguous_unknown	new	app.web.WebCaller#<type-initializer>() -> -
+boundary_lib	method	app.rs.RsClients#<type-initializer>() -> external:jakarta.ws.rs.client.ClientBuilder.newClient
 boundary_lib	method	app.rs.RsClients#gadget(String) -> external:org.springframework.web.client.RestTemplate.getForObject
 boundary_lib	method	app.rs.RsClients#item(String) -> external:org.springframework.web.client.RestTemplate.getForObject
 boundary_lib	method	app.rs.RsClients#widget(String) -> external:org.springframework.web.client.RestTemplate.getForObject

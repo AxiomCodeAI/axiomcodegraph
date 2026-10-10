@@ -1,0 +1,16 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a class-object parameter spelled with its default (`cls: type[CmdType] | None = None`, `Optional[Type[Command]]`) holds a class just as `type[Command]` does: `cls(name)` constructs it, so the constructor's callers include the code that calls through the parameter, in a closure or not",
+   "run": ["impact", "Command.__init__"],
+   "want": ["decorator", "option"]
+  },
+  {
+   "why": "the control: the bare `type[Command]` spelling was already read",
+   "run": ["impact", "Command.__init__"],
+   "want": ["fixed"]
+  }
+ ]
+}
