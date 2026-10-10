@@ -544,11 +544,35 @@ def _tests(cur, depth, q):
 # client call (its tier), a call into a library (terminal — nothing is inferred past it), `defines` (a callable
 # declared inside another, by line span), and `dispatch` (a candidate the engine narrowed a virtual call to).
 
+def overload_impl_edges(q):
+    """[(call_site_id, caller_id, implementation_id, tier)]: a call that selected an OVERLOAD SIGNATURE runs the
+    implementation of that overload set. The compiler binds `pick(1)` to `function pick(x: number): number`, a declaration
+    with no body, and call_edges records exactly that — so the implementation, the one body that runs, had no caller at
+    all: an edit to it reached no test, `impact` called it local and `path` called the test and it independent. The
+    engine's own answer is ext_call_runs_edge (caller -> the implementation a call runs); this pairs it with the call
+    site that selected a same-named signature declared above the implementation (same file, same owner). A placeholder
+    name (`<arrow>`) names no overload set: two arrows of one file share it, and the engine's identity rows would pair
+    them."""
+    if not q("SELECT 1 FROM sqlite_master WHERE name='ext_call_runs_edge'"): return []
+    return [tuple(r) for r in q("""SELECT DISTINCT e.call_site_id, e.caller_id, r.c1, e.tier
+                                   FROM ext_call_runs_edge r
+                                   JOIN call_edges e ON e.caller_id = r.c0
+                                   JOIN methods s ON s.id = e.callee_method_id
+                                   JOIN methods i ON i.id = r.c1
+                                   WHERE r.c1 <> e.callee_method_id AND s.name = i.name AND s.file_path = i.file_path
+                                     AND COALESCE(s.owner_type_id, '') = COALESCE(i.owner_type_id, '')
+                                     AND s.name NOT LIKE '<%' AND s.end_line < i.start_line
+                                     AND s.provenance = 'client' AND i.provenance = 'client'
+                                     AND NOT EXISTS (SELECT 1 FROM call_edges x WHERE x.call_site_id = e.call_site_id
+                                                     AND x.callee_method_id = r.c1)""")]
+
+
 def _edges(q):
     # a call inside a mock's stub or verification is not an edge: the same set the path export drops (ax_edges.stub_sites)
     stubs = ax_edges.stub_sites(lambda s, p: q(s, *p))
     e = [(r[1], r[2], r[3]) for r in q("""SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges
                                           WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""") if r[0] not in stubs]
+    e += [(c, i, t) for s, c, i, t in overload_impl_edges(q) if s not in stubs]
     e += [(r[0], r[1], 'library') for r in q("""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                                                 WHERE tier='boundary_lib' AND callee_method_id IS NOT NULL""")]
     # defines: the innermost enclosing callable, from the line spans of the callables in each file
@@ -794,6 +818,32 @@ def test_decoration(name, derived=()):
 
 TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<`]')
 EACH_TABLE = re.compile(r'\b(it|test|bench|describe)\s*\.\s*each\b')
+# a line that STARTS with a function value: the callable is an argument continued from a call opened above it
+ARG_LINE_CALLABLE = re.compile(r'^\s*(?:async\s+)?(?:function\b|\(|[A-Za-z_$][\w$]*\s*=>)')
+
+
+def registrar_spans(rows, lines):
+    """{file: [(start, end)]} of the multi-line calls whose first line names a test registrar — `it(` / `test.each(rows)(`
+    with the name and the body on lines of their own, the shape a formatter gives a long test name. `rows` are
+    (file, start_line, end_line) of call sites, the file already relative."""
+    out = {}
+    for f, a, b in rows:
+        if not f or not a or not b or b <= a: continue
+        L = lines(f)
+        if a - 1 < len(L) and TEST_REGISTRAR.search(L[a - 1]): out.setdefault(f, []).append((a, b))
+    return out
+
+
+def continued_registrar_arg(f, ln, lines, spans, calls):
+    """whether the anonymous callable declared at `f`:`ln` is an argument of a test registrar call opened on an EARLIER
+    line: its own line starts with the function value, and the innermost call spanning that line, among those opened
+    above it, is a registrar call. Innermost, so a callback handed to `waitFor(` inside a test body stays a callback.
+    `calls` is {file: [(start, end)]} of every multi-line call site, `spans` the registrar subset."""
+    if f not in spans: return False
+    L = lines(f)
+    if not (ln - 1 < len(L) and ARG_LINE_CALLABLE.match(L[ln - 1])): return False
+    inner = min(((a, b) for a, b in calls.get(f, ()) if a < ln <= b), key=lambda s: s[1] - s[0], default=None)
+    return inner is not None and inner in spans[f]
 
 
 # A SCRIPT TEST: a file under the test tree that calls no test framework and is run as a program — `test/run.js`
@@ -885,12 +935,21 @@ def _test_sets(q, lines=None, rel=None):
                          if _has(q, 'call_sites') else []):
             f = rel(fp) if rel else fp; L = lines(f)
             if a - 1 < len(L) and EACH_TABLE.search(L[a - 1]): tables.append((f, a, b or a))
-        for sid, name, f, ln in q("""SELECT id, name, file, line FROM symbols
-                                     WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0"""):
-            if not (name or '').startswith('<'): continue
+        anon = [r for r in q("""SELECT id, name, file, line FROM symbols
+                                WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0""")
+                if (r[1] or '').startswith('<')]
+        calls = {}
+        tfiles = {r[2] for r in anon}
+        for fp, a, b in (q("""SELECT file_path, start_line, end_line FROM call_sites
+                              WHERE start_line > 0 AND end_line > start_line""") if _has(q, 'call_sites') else []):
+            f = rel(fp) if rel else fp
+            if f in tfiles: calls.setdefault(f, []).append((a, b))
+        spans = registrar_spans([(f, a, b) for f, s in calls.items() for a, b in s], lines)
+        for sid, name, f, ln in anon:
             L = lines(f)
             if ln - 1 < len(L) and TEST_REGISTRAR.search(L[ln - 1]): tm.add(sid)
             elif any(tf == f and a <= ln <= b for tf, a, b in tables): tm.add(sid)
+            elif continued_registrar_arg(f, ln, lines, spans, calls): tm.add(sid)
         rows = q("""SELECT id, kind, file FROM symbols WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL""")
         st = script_tests([tuple(r) for r in rows], lambda f: '\n'.join(lines(f)), tm)
         tm |= st; fx -= st
