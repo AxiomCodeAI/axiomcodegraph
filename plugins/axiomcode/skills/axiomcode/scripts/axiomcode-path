@@ -989,11 +989,12 @@ class G:
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
-    # is up to date and nothing rebuilds). 4: both 3s below, which landed on two branches under one number;
+    # is up to date and nothing rebuilds). 5: a call that selected an overload signature has an `overload` edge to the set's
+    # implementation (graph_sql.overload_impl_edges); 4: both 3s below, which landed on two branches under one number;
     # 3 (0.1.5): on one line a JavaScript anonymous callable nests only where its name does (#1598);
     # 3 (0.1.6): a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites);
     # 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
-    EXPORT_VERSION = '4'
+    EXPORT_VERSION = '5'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         def fresh():
@@ -1018,6 +1019,8 @@ class G:
         # calls into libraries: an edge to a terminal node (a library method has no out-edges here — nothing is inferred about its
         # body), so `path '*' java.nio.file.Files.readAllBytes` can ask who reaches that library call
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
+        # a call that selected an overload signature runs the set's implementation (graph_sql.overload_impl_edges)
+        edges += [(c, i, 'overload') for sid, c, i, _t in graph_sql.overload_impl_edges(lambda s_, *p_: [tuple(r) for r in self.q(s_, *p_)]) if sid not in stubs]
         # a callable defined inside another one's body: nobody calls it by name, but it runs only after its definer did.
         # One builder for this and the fast path (graph_sql._edges), so the two cannot disagree on what contains what.
         edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'], r.get('qualified_name'))
@@ -1191,6 +1194,7 @@ def verify(g, chain, srcs, dst, adj):
     for a, b, t in hops:                                                     # a resolved hop must exist as an engine edge, not only as a fact we wrote
         if t in ('known_edge', 'multi_inferred') and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = ? LIMIT 1", a, b, t): bad.append((a, b, t))
         if t == 'library' and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = 'boundary_lib' LIMIT 1", a, b): bad.append((a, b, t))
+        if t == 'overload' and not any(c == a and i == b for _s, c, i, _t in graph_sql.overload_impl_edges(lambda s_, *p_: [tuple(r) for r in g.q(s_, *p_)])): bad.append((a, b, t))
         if t == 'written' and not any(r['caller_id'] == a for r in getattr(g, 'SITES', {}).get(b, [])): bad.append((a, b, t))
         if t in ax_edges.OUTSIDE_CALL and not outside_hop_holds(g, a, b, t): bad.append((a, b, t))
     # plain BFS over the same facts: the second implementation must agree on the shortest length

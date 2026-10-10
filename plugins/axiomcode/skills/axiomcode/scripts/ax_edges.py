@@ -45,6 +45,7 @@ TIER_RANK = {
     'runtime_observed': 1,      # seen in a runtime trace; real, but no call site stands behind it
     'multi_inferred': 1,        # several declarations fit; each one is a real candidate
     'dispatch': 2,              # a base method to an override that is actually instantiated
+    'overload': 0,              # the overload signature a call selected runs its set's implementation: one body, certain
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
     'event_dispatch': 3,        # emitted here, handled there
     'remote': 5,                # a request crosses a process to its handler (remote_edge): no call site names it.
@@ -67,6 +68,7 @@ TIER_NOTE = {
     'known_edge':           'resolved to one declaration',
     'multi_inferred':       'several declarations fit; each is a real candidate',
     'dispatch':             'a base method to an override the project instantiates',
+    'overload':             'the call selected an overload signature; this is the implementation that runs',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
     'event_dispatch':       'emitted here, handled there',
     'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
@@ -169,7 +171,7 @@ def legend(tiers):
 # as a value, and a capped fan-out exists precisely BECAUSE the candidate set was too large to
 # enumerate, so what is in the graph is a sample of it.
 DIRECT_CERT = {
-    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved',
+    'known_edge': 'resolved', 'boundary_lib': 'resolved', 'boundary_generated': 'resolved', 'overload': 'resolved',
     'implicit_constructor': 'resolved', 'written': 'resolved',
     'known_implicit_ctor': 'resolved', 'known_builtin_operator': 'resolved', 'runtime_observed': 'resolved',
     'multi_inferred': 'one of a set',

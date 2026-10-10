@@ -544,11 +544,35 @@ def _tests(cur, depth, q):
 # client call (its tier), a call into a library (terminal — nothing is inferred past it), `defines` (a callable
 # declared inside another, by line span), and `dispatch` (a candidate the engine narrowed a virtual call to).
 
+def overload_impl_edges(q):
+    """[(call_site_id, caller_id, implementation_id, tier)]: a call that selected an OVERLOAD SIGNATURE runs the
+    implementation of that overload set. The compiler binds `pick(1)` to `function pick(x: number): number`, a declaration
+    with no body, and call_edges records exactly that — so the implementation, the one body that runs, had no caller at
+    all: an edit to it reached no test, `impact` called it local and `path` called the test and it independent. The
+    engine's own answer is ext_call_runs_edge (caller -> the implementation a call runs); this pairs it with the call
+    site that selected a same-named signature declared above the implementation (same file, same owner). A placeholder
+    name (`<arrow>`) names no overload set: two arrows of one file share it, and the engine's identity rows would pair
+    them."""
+    if not q("SELECT 1 FROM sqlite_master WHERE name='ext_call_runs_edge'"): return []
+    return [tuple(r) for r in q("""SELECT DISTINCT e.call_site_id, e.caller_id, r.c1, e.tier
+                                   FROM ext_call_runs_edge r
+                                   JOIN call_edges e ON e.caller_id = r.c0
+                                   JOIN methods s ON s.id = e.callee_method_id
+                                   JOIN methods i ON i.id = r.c1
+                                   WHERE r.c1 <> e.callee_method_id AND s.name = i.name AND s.file_path = i.file_path
+                                     AND COALESCE(s.owner_type_id, '') = COALESCE(i.owner_type_id, '')
+                                     AND s.name NOT LIKE '<%' AND s.end_line < i.start_line
+                                     AND s.provenance = 'client' AND i.provenance = 'client'
+                                     AND NOT EXISTS (SELECT 1 FROM call_edges x WHERE x.call_site_id = e.call_site_id
+                                                     AND x.callee_method_id = r.c1)""")]
+
+
 def _edges(q):
     # a call inside a mock's stub or verification is not an edge: the same set the path export drops (ax_edges.stub_sites)
     stubs = ax_edges.stub_sites(lambda s, p: q(s, *p))
     e = [(r[1], r[2], r[3]) for r in q("""SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges
                                           WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""") if r[0] not in stubs]
+    e += [(c, i, t) for s, c, i, t in overload_impl_edges(q) if s not in stubs]
     e += [(r[0], r[1], 'library') for r in q("""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
                                                 WHERE tier='boundary_lib' AND callee_method_id IS NOT NULL""")]
     # defines: the innermost enclosing callable, from the line spans of the callables in each file
