@@ -2,16 +2,22 @@
 // and every non-minified JS file; reports functions and DOM touch points with their literals.
 import * as acorn from 'acorn';
 import * as walk from 'acorn-walk';
+import * as acornLoose from 'acorn-loose';
 import selectorParser from 'postcss-selector-parser';
 
 const OPTS = { ecmaVersion: 'latest', locations: true, allowHashBang: true, allowReturnOutsideFunction: true, allowAwaitOutsideFunction: true };
 
 /** Parse JS; returns {ast, error}. Tries the declared goal first, then the other one. */
-export function parseJs(text, isModule) {
+export function parseJs(text, isModule, loose = false) {
   const goals = isModule ? ['module', 'script'] : ['script', 'module'];
   let first = null;
   for (const sourceType of goals) {
     try { return { ast: acorn.parse(text, { ...OPTS, sourceType }) }; } catch (e) { first = first ?? e; }
+  }
+  // a script acorn rejects is still code a browser partly ran and an agent will port: acorn-loose recovers what
+  // declarations it can, independently of the engine's own recovery (js/02, js/07)
+  if (loose) {
+    try { return { ast: acornLoose.parse(text, { ...OPTS, sourceType: goals[0] }), error: `${first.message}`, recovered: true }; } catch { /* nothing */ }
   }
   return { ast: null, error: `${first.message}` };
 }

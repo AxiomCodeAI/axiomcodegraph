@@ -163,9 +163,9 @@ for (const page of pages) {
         if (type === 'CLASSIC' || type === 'MODULE') {
           scriptN += 1; mod = `${page.rel}#script-${scriptN}`;
           const b = bodyOf(page, el);
-          const { ast, error } = parseJs(b.text, type === 'MODULE');
+          const { ast, error } = parseJs(b.text, type === 'MODULE', true);
+          if (error) emit('js_parse_error', mod, error);
           if (ast) inlineModules.push({ module: mod, page, ast, base: { line: b.line, col: b.col } });
-          else emit('js_parse_error', mod, error);
         }
         emit('script', el.key, 'INLINE', type, mod);
       }
@@ -611,20 +611,25 @@ if (DO_STYLES) for (const page of pages) {
 }
 
 // ── JavaScript: inline modules and JS files (SPEC 4) ─────────────────────────────────────────
-const jsUnits = [...inlineModules.map((m) => ({ module: m.module, file: m.page.rel, ast: m.ast, base: m.base }))];
+const jsUnits = [...inlineModules.map((m) => ({ module: m.module, file: m.page.rel, ast: m.ast, base: m.base, provenance: 'PROJECT' }))];
 if (DO_JS_FILES) for (const f of files) {
   if (!JS_EXT.has(f.ext) || !f.parserWalk) continue;
   const text = fs.readFileSync(f.abs, 'utf8');
-  if (isMinifiedText(text, f.rel) || tooBig(f, text)) continue;
-  const { ast, error } = parseJs(text, f.ext === '.mjs');
-  if (!ast) { emit('js_parse_error', f.rel, error); continue; }
-  jsUnits.push({ module: f.rel, file: f.rel, ast, base: { line: 1, col: 1 } });
+  if (tooBig(f, text)) { emit('skipped_file', f.rel, 'too_large'); continue; }
+  // a minified file's functions are still the site's code ("miss nothing"): kept, labelled BUNDLED so a vendor
+  // bundle stays identifiable; its DOM touches are not counted (SPEC 4.2 recall is over non-minified code)
+  const provenance = isMinifiedText(text, f.rel) ? 'BUNDLED' : 'PROJECT';
+  const { ast, error } = parseJs(text, f.ext === '.mjs', true);
+  if (error) emit('js_parse_error', f.rel, error);
+  if (!ast) continue;
+  jsUnits.push({ module: f.rel, file: f.rel, ast, base: { line: 1, col: 1 }, provenance });
 }
 for (const u of jsUnits) {
   for (const fn of functionsOf(u.ast)) {
     const p = shiftLoc(fn.node.loc.start, u.base);
-    emit('js_function', u.module, p.line, fn.name);
+    emit('js_function', u.module, p.line, fn.name, u.provenance);
   }
+  if (u.provenance === 'BUNDLED') continue;
   for (const t of domTouches(u.ast)) {
     const p = shiftLoc(t.node.loc.start, u.base);
     emit('dom_touch', u.file, p.line, t.api, t.argIndex, t.literal ?? '-', t.status === 'literal' ? tokensOf(t.kind, t.literal) : '-');

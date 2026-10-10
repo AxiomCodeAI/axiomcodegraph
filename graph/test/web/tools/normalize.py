@@ -47,7 +47,9 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_unknown(kind, node_uid, page_uid, reason, detail)                  orphan_sheet, fragment_no_host,
              no_static_carrier, shadow_dom, selector_unparsed, implied_element, column_combinator, lang_unknown
   JavaScript graph (per-language, never joined to the web graph):
-  methods(name, qualified_name, file_path, start_line, kind)   MODULE_INITIALIZER rows skipped; an inline module's functions carry
+  methods(id, name, qualified_name, file_path, start_line, kind) + ext_method_name(method_id, name)
+             + ext_module_provenance(module, provenance)   [iter1b js rulings: binding names, BUNDLED provenance]
+             MODULE_INITIALIZER rows skipped; an inline module's functions carry
              qualified_name starting with '<page>#script-<n>' / '<page>#on-<n>'
   ext_dom_touch(file, line, api, arg_index, literal, tokens, status)
 
@@ -260,7 +262,17 @@ def main():
     if kinds is None or kinds & JS_KINDS:
         js = Graph(os.path.join(out_dir, 'javascript', 'graph.sqlite'))
         if want('js_function'):
-            for name, qn, fp, ln, mk in js.rows('methods', ['name', 'qualified_name', 'file_path', 'start_line', 'kind']):
+            # [iter1b js rulings] methods.name stays <arrow>/<function-expression> for an anonymous function; its
+            # binding name (const g = () =>, {n: function}, x.onload = function, Foo.prototype.bar = function) is
+            # ext_method_name(method_id, name). Provenance per module: ext_module_provenance(module, provenance),
+            # module = the file path or the inline module's virtual path; a module with no row is PROJECT.
+            js.rows('ext_method_name', ['method_id', 'name'])
+            js.rows('ext_module_provenance', ['module', 'provenance'])
+            js.rows('methods', ['id', 'name', 'qualified_name', 'file_path', 'start_line', 'kind'])
+            prov = dict(js.db.execute('select module, provenance from ext_module_provenance').fetchall())
+            q = '''select coalesce(n.name, m.name), m.qualified_name, m.file_path, m.start_line, m.kind
+                   from methods m left join ext_method_name n on n.method_id = m.id'''
+            for name, qn, fp, ln, mk in js.db.execute(q).fetchall():
                 if mk == 'MODULE_INITIALIZER':
                     continue  # the module's top level is not a function
                 mod = fp
@@ -270,7 +282,7 @@ def main():
                         num = ''.join(ch for ch in tail if ch.isdigit()) or tail.split('.')[0]
                         mod = f'{fp}{marker}{num}'
                 nm = '' if (not name or name.startswith('<') or 'anonymous' in name.lower()) else name
-                emit('js_function', mod, ln, nm)
+                emit('js_function', mod, ln, nm, prov.get(mod, prov.get(fp, 'PROJECT')))
         if want('dom_touch'):
             for f, ln, api, ai, lit, toks, st in js.rows('ext_dom_touch', ['file', 'line', 'api', 'arg_index', 'literal', 'tokens', 'status']):
                 emit('dom_touch', f, ln, api, ai, lit if st == 'literal' else None, toks if st == 'literal' else None)

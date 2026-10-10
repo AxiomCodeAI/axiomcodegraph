@@ -6,6 +6,7 @@
   "dependencies": {
     "@bramus/specificity": "2.4.3",
     "acorn": "8.19.0",
+    "acorn-loose": "8.5.2",
     "acorn-walk": "8.3.5",
     "css-select": "7.0.0",
     "domhandler": "6.0.1",

@@ -1,0 +1,7 @@
+# reviewed: yes 2026-10-10 iter 1b js rulings — provenance column read (PROJECT; site .min.js BUNDLED), acorn-loose recovery of broken scripts checked against the source
+# case: js/07-unrecoverable-inline-script   kinds: js_function,script
+# shape: pages carrying an inline script that is not JavaScript at all (a pasted shell snippet, a stray HTML fragment) beside a working one: recovery must find no function in it, and the working one must still be found
+js_function	index.html#script-1	4	ok	PROJECT
+script	index.html:4:1	INLINE	CLASSIC	index.html#script-1
+script	index.html:5:1	INLINE	CLASSIC	index.html#script-2
+script	index.html:6:1	INLINE	CLASSIC	index.html#script-3
