@@ -29,6 +29,17 @@ import { isGeneratedOutputDirectory } from '@/utils/generated-output';
 import { isGitIgnoredDir } from '@/utils/git-ignored';
 import { LineIndex } from '@/utils/web/line-index';
 
+/**
+ * THE WEB WALK'S OWN SKIP LIST (#1909). `EXCLUDED_DIRS` is the source walks' list, and for a script front end
+ * `dist/`, `build/` and `out/` are a build's copy of the source beside it. For a site they are often the site:
+ * a template ships its compiled stylesheet in `dist/css/` and every page links it, so skipping the directory by
+ * name left the project's own main stylesheet unread while the page's <link> resolved to it — every selector
+ * match through it missing. Pages and stylesheets under those names are read; a generated documentation tree
+ * (javadoc, Dokka) and a git-ignored directory are still skipped below, and `target/` (a JVM build's copy of
+ * resources) and virtual environments stay skipped by name.
+ */
+const WEB_EXCLUDED_DIRS: ReadonlySet<string> = new Set([...EXCLUDED_DIRS].filter((d) => d !== 'dist' && d !== 'build' && d !== 'out'));
+
 interface SkippedFile {
   filePath: string;
   baseMservPath: string;
@@ -267,6 +278,11 @@ export class WebProjectAnalyzer {
 
   // ── the walk ──────────────────────────────────────────────────────────────
 
+  /** The walk alone, for a reader that needs the file list and not the rows. */
+  async listFiles(root: string): Promise<string[]> {
+    return this.findWebFiles(root);
+  }
+
   private async findWebFiles(root: string): Promise<string[]> {
     const files: string[] = [];
     await this.scan(root, files);
@@ -283,7 +299,7 @@ export class WebProjectAnalyzer {
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.')) {
+        if (WEB_EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.')) {
           continue;
         }
         if (isGitIgnoredDir(path.join(dirPath, entry.name)) || isGeneratedOutputDirectory(dirPath, entry.name)) {
@@ -365,6 +381,16 @@ function append<T>(target: T[], rows: readonly T[]): void {
   for (const row of rows) {
     target.push(row);
   }
+}
+
+/**
+ * Every HTML page the web walk would read under `root`, by the same skip rules. The JavaScript front end
+ * reads their inline scripts and `on*` attributes as JavaScript modules (#1908), so the two front ends
+ * must agree on which pages exist.
+ */
+export async function listWebPages(root: string): Promise<string[]> {
+  const files = await new WebProjectAnalyzer(ANALYSIS_OUTPUT_DIR).listFiles(root);
+  return files.filter((f) => isHtmlFile(f)).sort();
 }
 
 export function isHtmlFile(fileName: string): boolean {

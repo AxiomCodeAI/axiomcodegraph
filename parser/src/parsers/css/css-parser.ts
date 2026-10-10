@@ -118,7 +118,12 @@ const CSS_ESCAPE = /\\(?:[0-9a-fA-F]{1,6} ?|[^\n0-9a-fA-F])/g;
  * and starts a rule, so the dots of a layer name become underscores for the grammar only.
  */
 function sanitiseForGrammar(text: string): string {
-  let out = text.replace(CSS_ESCAPE, (m) => '_'.repeat(m.length));
+  // A COMMENT THAT HOLDS A BRACE (#1909): theme builders write `border:1px solid #ddd/*{borderColor}*/;` inside a
+  // declaration value, and the grammar, which takes a comment there for the start of a nested rule, turned every
+  // declaration after it into a bogus nested "rule" (`font-family: Arial` read as a selector) and dropped them.
+  // The braces inside a comment are blanked for the grammar only; a comment row reads its text from the source.
+  let out = text.replace(/\/\*[\s\S]*?\*\//g, (m) => (/[{}]/.test(m) ? m.replace(/[{}]/g, ' ') : m));
+  out = out.replace(CSS_ESCAPE, (m) => '_'.repeat(m.length));
   // A non-ASCII character in an identifier (`.日本語`, `.emoji-🚀`) is legal CSS the grammar
   // rejects; every code unit above ASCII becomes an underscore of the same length.
   out = out.replace(/[^\x00-\x7f]/g, '_');
@@ -947,7 +952,8 @@ export class CssParser {
   private comment(node: SyntaxNode, sheet: Sheet, out: CssExtraction): void {
     const start = this.at(sheet, node.startIndex);
     const end = this.at(sheet, node.endIndex);
-    const text = node.text.replace(/^\/\*/, '').replace(/\*\/$/, '');
+    // from the SOURCE, not the node: the grammar read a sanitised copy (braces in a comment blanked, #1909)
+    const text = sourceOf(sheet, node).replace(/^\/\*/, '').replace(/\*\/$/, '');
     out.comments.push(new CssComment({
       text: text.length > WEB_COMMENT_TEXT_LIMIT ? text.slice(0, WEB_COMMENT_TEXT_LIMIT) : text,
       startLine: start.line, startColumn: start.column, endLine: end.line, endColumn: end.column,
