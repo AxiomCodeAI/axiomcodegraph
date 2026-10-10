@@ -1082,7 +1082,35 @@ fw_edge(a, b, "spawns") :- spawns_fact(a, b), a != b.
 .decl dec_decl(d:symbol, w:symbol)
 dec_decl(d, w) :- decorated(_, d), named(d, w), 1 = count : { named(d, _) }.
 dec_decl(d, w) :- decorated(s, d), named(d, w), decl_file(s, f), decl_file(w, f).
-fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b.
+// WHO RUNS WHAT THE DECORATOR RETURNED, NOT WHO WAS DECORATED. That hop, taken from the decorated declaration to
+// the decorator's body, made the decorated function a caller of the decorator: `@bp.route("/") def index` put `index`,
+// and through it every test that requests "/", above everything `route` calls. Nothing runs `route` when `index` is
+// called: the decoration ran it once, where the `def` is. What a caller of the decorated NAME runs is whatever the
+// decorator RETURNED for it: a wrapper (`def wrapper(*a): … return f(*a)`, which may reach the change), or the
+// function itself (`return f`, a registration), which adds nothing. Where the decoration is written as a call
+// (`@route("/")`), the decorator applied is what `route` returned, and it is THAT one's return the name denotes.
+//   fn_returns(m, w)        m returns the function w (Python ext_method_returns_method)
+//   fn_returns_param(m)     m returns an argument it was handed
+//   decorated_call(s, d)    s carries the decoration d written as a call
+// Where what the decorator returns is unknown, the hop stays as it was: the walk keeps a route it cannot judge.
+.decl fn_returns(m:symbol, w:symbol)                              .input fn_returns
+.decl fn_returns_param(m:symbol)                                  .input fn_returns_param
+.decl decorated_call(s:symbol, d:symbol)                          .input decorated_call
+.decl deco_applied(s:symbol, x:symbol)
+deco_applied(s, b) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d).
+deco_applied(s, x) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x).
+.decl deco_wrapper(s:symbol, w:symbol)
+deco_wrapper(s, w) :- deco_applied(s, x), fn_returns(x, w), w != s.
+.decl deco_known(s:symbol, d:symbol)
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d), fn_returns(b, _).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), !decorated_call(s, d), fn_returns_param(b).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x), fn_returns(x, _).
+deco_known(s, d) :- decorated(s, d), dec_decl(d, b), decorated_call(s, d), fn_returns(b, x), fn_returns_param(x).
+// The decorated declaration stands for its wrapper: whatever reaches the name (a call, a route, a registry key) runs it.
+// The engine leaves a call to a name whose decorator it could not resolve unresolved, so the hop is taken from the
+// declaration itself rather than from its callers.
+fw_edge(s, w, "decorator by name") :- deco_wrapper(s, w).
+fw_edge(a, b, "decorator by name") :- decorated(a, d), dec_decl(d, b), a != b, !deco_known(a, d).
 // A CLIENT ACROSS A PROCESS: the sender depends on the handler it reaches (#1293). `remote` above makes the client a
 // DIRECT row; walked only there, a test that drives the client never reached a change to the handler, so
 // test-impact stopped at the route while impact named the client one line up. Walked here as its own tier, the

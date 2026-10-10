@@ -1,0 +1,16 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a decoration string that names a parameter of the declaration it decorates binds that parameter; it is not a key anything dispatches on. Every dict with a `level` key wrote it, and was joined to the command as a caller",
+   "run": ["impact", "describe", "--tests"],
+   "avoid": ["defaults", "test_config.py"]
+  },
+  {
+   "why": "the control: the flag is what a caller writes to reach the command, and a test that writes it still reaches the change",
+   "run": ["impact", "describe", "--tests"],
+   "want": ["test_cli.py"]
+  }
+ ]
+}
