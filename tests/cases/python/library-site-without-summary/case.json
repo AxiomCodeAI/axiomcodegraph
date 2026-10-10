@@ -1,0 +1,44 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a call into a library callable whose summary names no hand-back from what this call passes (super().__init__ runs whatever a library registry holds) keeps the name match it had before the library was read",
+   "run": [
+    "impact",
+    "Pool.__init__",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_session.py",
+    "by name"
+   ]
+  },
+  {
+   "why": "CONTROL: a call the summary explains (fetch hands back __getitem__) is a library receiver: it reaches the client's __getitem__, and no project method merely named fetch",
+   "run": [
+    "impact",
+    "Pool.fetch",
+    "--tests"
+   ],
+   "want": [
+    "tests: 0 of"
+   ],
+   "avoid": [
+    "tests/test_session.py"
+   ]
+  },
+  {
+   "why": "the summarised hand-back itself",
+   "run": [
+    "impact",
+    "record_lookup",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_session.py",
+    "library callback"
+   ]
+  }
+ ]
+}

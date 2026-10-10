@@ -1,0 +1,9 @@
+{"lang": "javascript", "src": ".",
+ "checks": [
+  {"why": "`--library auto` stages the packages the project imports from node_modules, and only those",
+   "run": ["index", "{repo}", "--library", "auto"],
+   "want": ["auto: 1 JavaScript / TypeScript package(s) the project imports"]},
+  {"why": "a call on what the package's hello() returns resolves to the package's Greeting.shout",
+   "run": ["path", "welcome", "Greeting.shout"],
+   "want": ["[library · call @ src/main.js:4]", "Greeting.shout   library"],
+   "avoid": ["as written, unresolved"]}]}

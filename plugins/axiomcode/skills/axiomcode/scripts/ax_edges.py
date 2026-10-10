@@ -513,9 +513,21 @@ def library_receiver_sites(q):
     library callable (Python ext_lib_callback_site: a member a client type inherits from its library base, whose
     source declares it). q(sql, params) -> rows."""
     out = set()
-    for t in ('ext_library_receiver', 'ext_lib_callback_site'):
-        if list(q("SELECT 1 FROM sqlite_master WHERE name = ?", (t,))):
-            out |= {r[0] for r in q(f"SELECT DISTINCT c0 FROM {t}", ())}
+    has = lambda t: bool(list(q("SELECT 1 FROM sqlite_master WHERE name = ?", (t,))))
+    if has('ext_library_receiver'):
+        out |= {r[0] for r in q("SELECT DISTINCT c0 FROM ext_library_receiver", ())}
+    if has('ext_lib_callback_site'):
+        # A site entering a summarised library callable is a library receiver only where the summary says what the
+        # library hands back from it (a lib_callback_edge from the same caller through the same callable). Where it
+        # says nothing -- the hand-back runs through a value the summary cannot follow, a method's return, a
+        # registry -- the site stays the untyped name match it was before the library was read: knowing a call
+        # ENTERS a library is no evidence that nothing in the project runs behind it, and dropping the match lost
+        # failing tests a library reaches that way.
+        edges = has('ext_lib_callback_edge') and has('call_sites')
+        sql = ("SELECT DISTINCT s.c0 FROM ext_lib_callback_site s JOIN call_sites cs ON cs.id = s.c0 "
+               "WHERE EXISTS (SELECT 1 FROM ext_lib_callback_edge e WHERE e.c0 = cs.caller_id AND e.c2 = s.c1)"
+               if edges else "SELECT DISTINCT c0 FROM ext_lib_callback_site")
+        out |= {r[0] for r in q(sql, ())}
     return out
 
 
