@@ -221,3 +221,50 @@ export async function writeDomTouch(dbPath: string, irDir: string, log: (s: stri
     db.close();
   }
 }
+
+/**
+ * THE NAME AN ANONYMOUS FUNCTION IS KNOWN BY: `const g = () => 1` is g, `o = { n: function () {} }` is n,
+ * `Foo.prototype.bar = function () {}` is bar, `window.onload = function () {}` is onload (the binding a reader and
+ * an agent call it by). The methods table keeps the parser's `<arrow>` / `<function-expression>`, which the engine's
+ * suites read; this table is the name beside it. A named function expression keeps its own name.
+ */
+export async function methodBindingNames(irDir: string): Promise<Map<string, string>> {
+  const f = (n: string) => path.join(irDir, `all-javascript-${n}.csv`);
+  const anonymous = new Set<string>();
+  for await (const { h, r } of rows(f('methods'))) if ((r[h.get('name')!] ?? '').startsWith('<')) anonymous.add(r[h.get('jsMethodUniqueHash')!]!);
+  const varByInit = new Map<string, string>();
+  for await (const { h, r } of rows(f('variables'))) { const init = r[h.get('initializerExpressionLinkHash')!]; if (init) varByInit.set(init, r[h.get('name')!]!); }
+  interface Fn { id: string; method: string; role: string; parent: string; index: string }
+  const fns: Fn[] = [];
+  const keyOf = new Map<string, string>();      // `${objectLiteral}|${index}` -> property key
+  const targetOf = new Map<string, string>();   // assignment -> target name
+  for await (const { h, r } of rows(f('expressions'))) {
+    const kind = r[h.get('expressionKind')!]!, role = r[h.get('edgeRole')!]!, parent = r[h.get('parentExpressionLinkHash')!]!, id = r[h.get('jsExpressionUniqueHash')!]!;
+    if (kind === 'FUNCTION_EXPRESSION') { const m = r[h.get('introducesDeclarationLinkHash')!] ?? ''; if (anonymous.has(m)) fns.push({ id, method: m, role, parent, index: r[h.get('childIndex')!]! }); }
+    if (role === 'PROPERTY_KEY') keyOf.set(`${parent}|${r[h.get('childIndex')!]}`, r[h.get('name')!] || r[h.get('text')!]!);
+    if (role === 'ASSIGNMENT_TARGET') targetOf.set(parent, kind === 'PROPERTY_ACCESS' ? r[h.get('name')!]! : kind === 'IDENTIFIER' ? r[h.get('text')!]! : '');
+  }
+  const out = new Map<string, string>();
+  for (const fn of fns) {
+    const name = varByInit.get(fn.id) ?? (fn.role === 'PROPERTY_VALUE' ? keyOf.get(`${fn.parent}|${fn.index}`) : fn.role === 'ASSIGNMENT_VALUE' ? targetOf.get(fn.parent) : undefined);
+    if (name) out.set(fn.method, name);
+  }
+  return out;
+}
+
+export async function writeMethodNames(dbPath: string, irDir: string, log: (s: string) => void): Promise<void> {
+  const names = await methodBindingNames(irDir);
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec('BEGIN; DROP TABLE IF EXISTS ext_method_name; CREATE TABLE ext_method_name (method_id TEXT PRIMARY KEY, name TEXT);');
+    const ins = db.prepare('INSERT INTO ext_method_name VALUES (?, ?)');
+    for (const [m, n] of names) ins.run(m, n);
+    db.prepare('INSERT INTO schema_tables VALUES (?, ?, ?, ?)').run('ext_method_name', 'ext', null,
+      'The name an anonymous function is bound to (`const g = () => 1` -> g, `{ n: function () {} }` -> n, `x.onload = function () {}` -> onload): methods.name keeps the parser\'s <arrow> / <function-expression>.');
+    db.exec('COMMIT;');
+    log(`  sqlite ext_method_name: ${names.size} rows`);
+  } finally {
+    db.close();
+  }
+}

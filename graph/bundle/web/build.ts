@@ -401,6 +401,8 @@ export async function buildWeb(inp: WebBuildInputs): Promise<{ skipped: Row[] }>
     }
   }
   for (const r of T.handler.rows) {
+    // a call with no name (an IIFE in an on* body) is no join key; the calls inside it are rows of their own
+    if (!g(T.handler, r, 'calleeName')) continue;
     const d = g(T.handler, r, 'documentLinkHash');
     const attrId = g(T.handler, r, 'attributeLinkHash');
     const src = g(T.handler, r, 'handlerSource');
