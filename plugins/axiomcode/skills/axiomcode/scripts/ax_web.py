@@ -788,7 +788,7 @@ def index(db, repo, version):
         S.append((r[0], r[1], f"@layer {r[1]}", 'layer', r[1], None, r[2], r[3], r[4], None, 0, None, None))
     for r in c.execute("SELECT DISTINCT c.name, r.uid, r.file, r.line, r.end_line FROM web_container_use c JOIN web_rules r ON r.uid = c.use_uid"):
         S.append((r[1], r[0], f"@container {r[0]}", 'container', r[0], None, r[2], r[3], r[4], None, 0, None, None))
-    for r in c.execute("SELECT uid, selector_text, file, line, end_line, rule_uid FROM web_selectors WHERE decidability != 'none'"):
+    for r in c.execute("SELECT uid, selector_text, file, line, line, rule_uid FROM web_selectors WHERE decidability != 'none'"):
         S.append((r[0], r[1], r[1], 'selector', r[1], None, r[2], r[3], r[4], r[5], 0, None, None))
     for r in c.execute("SELECT uid, js_module_path, file, line FROM web_scripts WHERE js_module_path LIKE '%#script-%'"):
         S.append((r[0], r[1], r[1], 'script', r[1], None, r[2], r[3], r[3], None, 0, None, None))
