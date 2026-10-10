@@ -1,0 +1,8 @@
+{"lang": "java", "src": ".",
+ "checks": [
+  {"why": "`--library auto` reads the dependencies pom.xml declares (a ${property} version resolved), finds each one's sources jar in the Maven repository .mvn/maven.config names, and compiles it",
+   "run": ["index", "{repo}", "--library", "auto"],
+   "want": ["auto: 1 Java dependency source jar(s)", "no sources jar for 1 Java dependency(ies) (com.example:nosources:2.0)"]},
+  {"why": "a chain is typed through the dependency's declared return type: hello() returns Greeting, so shout() resolves into the library",
+   "run": ["path", "welcome", "Greeting.shout"],
+   "want": ["[library · call @ src/main/java/app/Main.java:7] com.example.greeter.Greeting.shout"]}]}

@@ -12,7 +12,8 @@ An entry is one of
 Without the cache a source entry was parsed again on every rebuild the graph's refresher started after an edit.
 Notes go to stderr; a failure to compile one entry drops that entry and says so, it never fails the build.
 """
-import hashlib, json, os, re, subprocess, sys
+import glob, hashlib, json, os, re, subprocess, sys, zipfile
+import xml.etree.ElementTree as ET
 
 MARKERS = ('all-types.csv', 'all-typescript-modules.csv', 'all-python-modules.csv', 'all-javascript-modules.csv',
            'all-csharp-modules.csv')
@@ -20,6 +21,9 @@ SKIP = {'.git', 'node_modules', '.venv', 'venv', 'env', '.env', '__pycache__', '
         '.mypy_cache', '.pytest_cache', 'site-packages'}
 PY_IMPORT = re.compile(r'^\s*(?:from\s+([A-Za-z_][\w]*)[\w.]*\s+import|import\s+([A-Za-z_][\w]*))', re.M)
 JS_IMPORT = re.compile(r'''(?:from\s+|require\(\s*|import\(\s*|import\s+)['"]((?:@[\w.-]+/)?[\w.-]+)''')
+
+
+CACHE = os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'axiomcode', 'libir')
 
 
 def note(msg):
@@ -100,9 +104,77 @@ def discover(repo):
             if os.path.isdir(d) and not os.path.islink(d):
                 found.append(d)
         note(f'auto: {len(found) - before} JavaScript / TypeScript package(s) the project imports, from node_modules')
+    found += java_sources(repo)
     if not found:
-        note('auto: no dependency found (no virtual environment or node_modules in the repository); Java and C# '
-             'dependencies are not discovered — name their library IR or source directories instead')
+        note('auto: no dependency found (no virtual environment, node_modules, Maven or Gradle sources jar, or NuGet '
+             'package for this repository)')
+    return found
+
+
+def maven_repo(repo):
+    cfg = os.path.join(repo, '.mvn', 'maven.config')
+    if os.path.isfile(cfg):
+        m = re.search(r'-Dmaven\.repo\.local=(\S+)', open(cfg, encoding='utf-8').read())
+        if m:
+            return m.group(1) if os.path.isabs(m.group(1)) else os.path.join(repo, m.group(1))
+    return os.path.join(os.path.expanduser('~'), '.m2', 'repository')
+
+
+GRADLE_DEP = re.compile(r"""["']([\w.-]+):([\w.-]+):([\w.+-]+)["']""")
+
+
+def java_coordinates(repo):
+    """(group, artifact, version) of every dependency a pom.xml or build.gradle(.kts) in the repository declares."""
+    out = []
+    for pom in glob.glob(os.path.join(repo, '**', 'pom.xml'), recursive=True):
+        if any(x in SKIP for x in os.path.relpath(pom, repo).split(os.sep)):
+            continue
+        try:
+            root = ET.parse(pom).getroot()
+        except (ET.ParseError, OSError):
+            continue
+        ns = root.tag[:root.tag.index('}') + 1] if root.tag.startswith('{') else ''
+        props = {}
+        for pr in root.findall(f'{ns}properties'):
+            props.update({c.tag.replace(ns, ''): (c.text or '').strip() for c in pr})
+        sub = lambda v: re.sub(r'\$\{([^}]+)\}', lambda m: props.get(m.group(1), m.group(0)), v or '')
+        for d in root.iter(f'{ns}dependency'):
+            g, a, v = (sub(d.findtext(f'{ns}{k}')) for k in ('groupId', 'artifactId', 'version'))
+            if g and a:
+                out.append((g, a, v))
+    for gf in glob.glob(os.path.join(repo, '**', 'build.gradle*'), recursive=True):
+        if any(x in SKIP for x in os.path.relpath(gf, repo).split(os.sep)):
+            continue
+        out += GRADLE_DEP.findall(open(gf, encoding='utf-8', errors='replace').read())
+    return out
+
+
+def java_sources(repo):
+    """The dependencies' -sources.jar, unpacked once under the cache: Java libraries are compiled from source."""
+    found, missing = [], []
+    m2 = maven_repo(repo)
+    gradle = os.path.join(os.path.expanduser('~'), '.gradle', 'caches', 'modules-2', 'files-2.1')
+    for g, a, v in sorted(set(java_coordinates(repo))):
+        base = os.path.join(m2, *g.split('.'), a)
+        known = sorted(os.listdir(base)) if os.path.isdir(base) else []
+        ver = v if v in known else (known[-1] if known and (not v or '$' in v) else v)
+        cands = glob.glob(os.path.join(base, ver or '-', f'{a}-{ver}-sources.jar'))
+        cands += glob.glob(os.path.join(gradle, g, a, v or '*', '*', f'{a}-*-sources.jar'))
+        if not cands:
+            missing.append(f'{g}:{a}:{v}'); continue
+        jar = sorted(cands)[-1]
+        dest = os.path.join(CACHE, 'src', os.path.basename(jar)[:-len('.jar')])
+        if not os.path.isfile(os.path.join(dest, '.unpacked')):
+            os.makedirs(dest, exist_ok=True)
+            with zipfile.ZipFile(jar) as z:
+                z.extractall(dest, [n for n in z.namelist() if n.endswith('.java')])
+            open(os.path.join(dest, '.unpacked'), 'w').close()
+        found.append(dest)
+    if found or missing:
+        note(f'auto: {len(found)} Java dependency source jar(s), from {m2}')
+    if missing:
+        note(f'auto: no sources jar for {len(missing)} Java dependency(ies) ({", ".join(missing[:5])}'
+             f'{" …" if len(missing) > 5 else ""}); `mvn dependency:sources` fetches them')
     return found
 
 
@@ -137,7 +209,7 @@ def compiled(src, engine, cache):
 
 def main():
     repo, engine, spec = sys.argv[1], sys.argv[2], sys.argv[3]
-    cache = os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'axiomcode', 'libir')
+    cache = CACHE
     out, seen = [], set()
     for e in [x for x in spec.split(',') if x]:
         entries = discover(repo) if e == 'auto' else [e if os.path.isabs(e) else os.path.join(repo, e)]
