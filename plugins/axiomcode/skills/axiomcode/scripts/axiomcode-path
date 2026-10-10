@@ -2359,8 +2359,12 @@ if __name__ == '__main__':
         sys.exit(code)
     # the prose goes to a buffer, not to the caller: one code path produces both, and `prose` is
     # carried in the document so a machine answer is never LESS than the human one.
+    # a refusal (an endpoint nothing declares, a bad argument) leaves answer() through SystemExit: catch it inside
+    # the redirect, or the JSON and the prose it carries are both lost and the caller sees nothing at all
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf): code = answer()
+    with contextlib.redirect_stdout(buf):
+        try: code = answer()
+        except SystemExit as e: code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
     RESULT['prose'] = buf.getvalue().rstrip('\n').split('\n')
     ax_evidence.annotate('path', RESULT, (RESULT.get('query') or {}).get('repo') or '.')
     print(json.dumps(RESULT, indent=2))
