@@ -1,0 +1,89 @@
+{
+ "lang": "javascript",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a change a describe() block runs while mocha loads the specs fails the whole mocha run, so every spec file it collects is selected, not only the one that calls it",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "lib/build.js"
+   ],
+   "want": [
+    "test/a.spec.js",
+    "test/b.spec.js",
+    "test/c.spec.js",
+    "test/d.spec.js",
+    "fails the whole run"
+   ]
+  },
+  {
+   "why": "CONTROL: a change only a test body runs (inside it()) fails that spec alone",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "lib/parse.js"
+   ],
+   "want": [
+    "test/c.spec.js"
+   ],
+   "avoid": [
+    "test/a.spec.js",
+    "test/b.spec.js",
+    "fails the whole run"
+   ]
+  },
+  {
+   "why": "CONTROL: jest loads each file in its own module registry, so the same describe()-time call fails that file alone",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "jestpkg/lib/build.js"
+   ],
+   "want": [
+    "jestpkg/test/a.test.js"
+   ],
+   "avoid": [
+    "jestpkg/test/b.test.js",
+    "fails the whole run"
+   ]
+  },
+  {
+   "why": "a file under the tests that no runner collects is not a test run: one a collected spec requires is replaced by that spec, and a script nothing requires is not selected",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "lib/fmt.js"
+   ],
+   "want": [
+    "test/b.spec.js",
+    "run only through the test files that require them",
+    "not selected: 1 file(s)",
+    "test/bench.js"
+   ],
+   "avoid": [
+    "test/parts/extra.js   (",
+    "test/bench.js   ("
+   ]
+  },
+  {
+   "why": "a function that is also a constructor (`function Thing(n)`) whose header line changes is a changed TYPE to `changed`; test-impact asks for it as the function it is and finds the spec that constructs it",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "--old",
+    "{repo}/edits/ctor-old.txt",
+    "--new",
+    "{repo}/edits/ctor-new.txt",
+    "--file",
+    "lib/ctor.js"
+   ],
+   "want": [
+    "test/d.spec.js"
+   ],
+   "avoid": [
+    "could not be resolved to a graph symbol"
+   ]
+  }
+ ]
+}

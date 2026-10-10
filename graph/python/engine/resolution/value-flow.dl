@@ -450,12 +450,34 @@ expr_type_class_object(p, e, t) :-
 annotation_names_a_class("type").
 annotation_names_a_class("Type").
 
+// ── param_class_object_ref(Prov, ParamHash, SubscriptRef) ─────────────────────
+// The `type[...]` subscript a parameter's annotation IS, or one operand of its union is.
+// `cls: type[Command] | None = None` (and `Optional[type[Command]]`) is the default-None
+// spelling of the same class-object parameter: the body replaces None with a default class
+// and calls `cls(...)`. Read only at the top level, that call stayed unresolved, and so did
+// every constructor reached through it.
+param_class_object_ref("client", ph, r) :-
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    type_ref("client", _, "METHOD_PARAM", tn, _, r),
+    annotation_names_a_class(tn).
+param_class_object_ref("client", ph, s) :-
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    union_operand("client", r, s),
+    type_ref("client", _, _, tn, _, s),
+    annotation_names_a_class(tn).
+
 expr_type_class_object("client", e, t) :-
     expr_names_param("client", e, ph),
     type_ref_owner("client", ph, "METHOD_PARAM", r),
     type_ref("client", _, "METHOD_PARAM", tn, _, r),
     annotation_names_a_class(tn),
     type_ref_nesting("client", r, _, "1", child),
+    type_ref_resolved("client", t, child).
+expr_type_class_object("client", e, t) :-
+    expr_names_param("client", e, ph),
+    param_class_object_ref("client", ph, s),
+    type_ref_owner("client", ph, "METHOD_PARAM", r), s != r,
+    type_ref_nesting("client", s, _, _, child),
     type_ref_resolved("client", t, child).
 
 // A name written MORE THAN ONCE takes the union, for the same reason the instance side

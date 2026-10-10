@@ -57,6 +57,19 @@ UNRESOLVED = []                                     # endpoints G.resolve found 
 # Filled as the human output is produced, from the SAME chain objects, so the two cannot disagree:
 # a second traversal for the machine shape is a second implementation to keep in step.
 RESULT = {'query': None, 'answers': [], 'reached': [], 'bound': None, 'verified': None}
+WANT_UNKNOWN = False
+
+
+def unknown_block(g, callers):
+    """THE GAPS AS A WORK LIST (ax_links.py): the unresolved sites in these callables, each with the call as written and
+    the engine's reason, in --json always and in the prose with --unknown; and the note when a link was not applied"""
+    import ax_links
+    sites, n = ax_links.unknown_sites(g.q, list(callers), g.site_file, limit=30 if not WANT_UNKNOWN else 200, repo=g.repo)
+    RESULT['unknown_sites'] = sites; RESULT['unknown_total'] = n
+    if WANT_UNKNOWN and sites:
+        for l in ax_links.unknown_lines(g.repo, sites, n): print('  ' + l)
+    n_ = ax_links.note(g.q)
+    if n_: RESULT['links_note'] = n_; print('  ' + n_)
 
 
 def chain_json(g, chain):
@@ -990,12 +1003,14 @@ class G:
     # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
     # EXPORT_VERSION is in the stamp beside the graph's mtime: bump it whenever the edges this writes change, or an
     # upgraded plugin keeps answering from the edges the old code exported (the graph is unchanged, so `index` says it
-    # is up to date and nothing rebuilds). 5: a library-callback site stays a by-name caller unless a hand-back from it
+    # is up to date and nothing rebuilds). 7: a call that selected an overload signature has an `overload` edge to the set's
+    # implementation (graph_sql.overload_impl_edges; 5 on its branch); 6: rejected_edge, the leads an asserted-links
+    # rejection takes out; 5: a library-callback site stays a by-name caller unless a hand-back from it
     # is summarised (ax_edges.library_receiver_sites); 4: both 3s below, which landed on two branches under one number;
     # 3 (0.1.5): on one line a JavaScript anonymous callable nests only where its name does (#1598);
     # 3 (0.1.6): a call written inside a mock's stub or verification is not an edge (ax_edges.stub_sites);
     # 2: defines needs a written, strictly wider span (#1402, #1399); 1 was the bare mtime.
-    EXPORT_VERSION = '5'
+    EXPORT_VERSION = '7'
     def export(self):
         stamp = os.path.join(self.facts, 'stamp'); want = f"{self.db_mtime}:{self.EXPORT_VERSION}"
         def fresh():
@@ -1015,11 +1030,16 @@ class G:
         # `mock.Setup(r => r.Find(1))`): the receiver is a mock, so the real body never runs there, and walked as a call
         # it made every test that stubs a method a `sound` route to it. impact lists those sites as "stubs it".
         stubs = ax_edges.stub_sites(lambda s, p: self.q(s, *p)) if self.has('call_sites') else set()
+        # leads an asserted-links rejection takes out (ax_links.suppressed): a set member every site of which was rejected
+        import ax_links
+        _rej, rej_edges = ax_links.suppressed(self.q, self.site_file)
         edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT call_site_id, caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance IN ('client', 'generated')")
-                 if r['call_site_id'] not in stubs]
+                 if r['call_site_id'] not in stubs and not (r['tier'] in ax_links.LEAD_TIERS and (r['caller_id'], r['callee_method_id']) in rej_edges)]
         # calls into libraries: an edge to a terminal node (a library method has no out-edges here — nothing is inferred about its
         # body), so `path '*' java.nio.file.Files.readAllBytes` can ask who reaches that library call
         edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
+        # a call that selected an overload signature runs the set's implementation (graph_sql.overload_impl_edges)
+        edges += [(c, i, 'overload') for sid, c, i, _t in graph_sql.overload_impl_edges(lambda s_, *p_: [tuple(r) for r in self.q(s_, *p_)]) if sid not in stubs]
         # a callable defined inside another one's body: nobody calls it by name, but it runs only after its definer did.
         # One builder for this and the fast path (graph_sql._edges), so the two cannot disagree on what contains what.
         edges += ax_edges.defines_edges(((r['file'], r['line'], r['end_line'], r['id'], r.get('display'), r['method_id'], r.get('qualified_name'))
@@ -1048,6 +1068,7 @@ class G:
         libsites = ax_edges.library_receiver_sites(lambda s, p: self.q(s, *p))
         self.write('byname', sorted({(r[1], r[2]) for r in self.q("SELECT s.id, s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''") if r[0] not in stubs and r[0] not in libsites}))
         self.write('named', [(r['name'], r['id']) for r in self.sym.values() if r['method_id'] and r['kind'] != 'module' and r['name']])
+        self.write('rejected_edge', sorted(rej_edges))
         t = f'{stamp}.{os.getpid()}.tmp'; open(t, 'w').write(want); replace_file(t, stamp)
     def write(self, name, rows, d=None):
         # written aside and renamed into place: a query reading the facts while another process (the build's warm-up,
@@ -1103,7 +1124,7 @@ def _facts_rows(g, programs):
     """the input relations the rules read, as lists. `edge` carries g.EXTRA exactly as run_dl appends it."""
     rows = {'edge': g.edges()}
     if 'path-opt.dl' in programs:
-        for n in ('byname', 'named'):
+        for n in ('byname', 'named', 'rejected_edge'):
             f = os.path.join(g.facts, n + '.facts')
             rows[n] = [tuple(l.rstrip('\n').split('\t')) for l in open(f)] if os.path.exists(f) else []
     return rows
@@ -1201,6 +1222,7 @@ def verify(g, chain, srcs, dst, adj):
     for a, b, t in hops:                                                     # a resolved hop must exist as an engine edge, not only as a fact we wrote
         if t in ('known_edge', 'multi_inferred') and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = ? LIMIT 1", a, b, t): bad.append((a, b, t))
         if t == 'library' and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = 'boundary_lib' LIMIT 1", a, b): bad.append((a, b, t))
+        if t == 'overload' and not any(c == a and i == b for _s, c, i, _t in graph_sql.overload_impl_edges(lambda s_, *p_: [tuple(r) for r in g.q(s_, *p_)])): bad.append((a, b, t))
         if t == 'written' and not any(r['caller_id'] == a for r in getattr(g, 'SITES', {}).get(b, [])): bad.append((a, b, t))
         if t in ax_edges.OUTSIDE_CALL and not outside_hop_holds(g, a, b, t): bad.append((a, b, t))
     # plain BFS over the same facts: the second implementation must agree on the shortest length
@@ -1887,10 +1909,49 @@ def grep_for(g, name):
     """the exact search that finds what the graph could not: the name as a whole word in the source roots"""
     return f'grep -rnw "{name}" {grep_roots(g)}'
 
+# ── a JavaScript test file that never loads the target ────────────────────────────────────────────────────────────
+JS_EXT = ('.js', '.mjs', '.cjs', '.jsx')
+def never_loads(g, A, B):
+    """(test file, target files) when every start is in ONE JavaScript test file whose imports, followed through the
+    project, never reach a file the target is declared in; else None. Such a file cannot run the target, whatever route
+    the call graph has: the route goes through a callable another test file declares (a callback handed to a shared
+    function) or an override a plugin installs only where it is loaded. Read from impact's import facts
+    (imports_fact), only when they were written for this graph; where either end has no import at all the scan cannot
+    say (a path alias, a file loaded by a computed name), and nothing is gated. impact drops the same tests the same way."""
+    fa = {g.sym[m].get('file') for m in A if m in g.sym}
+    fb = {g.sym[m].get('file') for m in B if m in g.sym} - {None, '<library>', '<written>'}
+    if len(fa) != 1 or not fb: return None
+    fa = next(iter(fa))
+    if not fa or not fa.endswith(JS_EXT) or fa in fb or not all(g.sym[m].get('is_test') for m in A if m in g.sym): return None
+    D = os.path.join(g.facts, 'impact')
+    try:
+        if not open(os.path.join(D, 'stamp')).read().startswith(f"{g.db_mtime}:"): return None
+        fwd, rev = collections.defaultdict(set), collections.defaultdict(set)
+        for ln in open(os.path.join(D, 'imports_fact.facts'), encoding='utf-8', errors='replace'):
+            x, _, y = ln.rstrip('\n').partition('\t')
+            if x and y: fwd[x].add(y); rev[y].add(x)
+        dyn = {ln.rstrip('\n') for ln in open(os.path.join(D, 'imports_dynamic.facts'), encoding='utf-8', errors='replace')}
+    except OSError:
+        return None
+    if not fwd.get(fa) or not all(rev.get(f) for f in fb): return None
+    seen, todo = {fa}, [fa]
+    while todo:
+        for y in fwd.get(todo.pop(), ()):
+            if y not in seen: seen.add(y); todo.append(y)
+    # a file on the way that loads a module by a computed name (`require(path.join(dir, f))`) may load the target
+    return (fa, sorted(fb)) if not (seen & fb) and not (seen & dyn) else None
+
 # ── the query────────────────────────────────────────────────────────────────────────────────────────────────────
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
+    nl = never_loads(g, A, B)
+    if nl:
+        RESULT['never_loads'] = {'test_file': nl[0], 'target_files': nl[1]}
+        print(f"no route: {nl[0]} never loads {', '.join(nl[1])} — none of the files it imports, followed through the project,"
+              f" imports it, so no run of that test executes {lb}. The call graph's routes between them go through code that"
+              f" file never loads (a callback another test file hands to a shared function, an override a plugin installs).")
+        return 1
     g.add_outside_call_edges()
     res = run(g, {'fwd': (A, B), 'rev': (B, A)}, ('path.dl', 'path-every.dl') if every else ('path.dl',))
     if not res['hit']['fwd'] and not res['hit']['rev']:                      # nothing resolved connects them: now, and only now, the by-name closure
@@ -1903,7 +1964,10 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         if not hits: continue
         near = read_back(res['parent'], q, hits[0][0], srcs) or []
         outside = sorted({t for _, t in near[1:] if t in ax_edges.OUTSIDE_CALL})
+        # a hop someone ASSERTED (axiomcode link) is not a resolved call: the header says the chain rests on it
+        nas = sum(1 for _, t in near[1:] if t == 'asserted')
         print(f"{word}: {len(hits)} of {len(dsts)} target(s) reached through resolved calls"
+              + (f" and {nas} asserted link(s) (an edge someone recorded, not one the engine resolved)" if nas else '')
               + (f" and a hop no call site expresses ([{'] and ['.join(outside)}], below)" if outside else '')
               + f"; nearest at {hits[0][1]} hop(s)")
         if len(hits) > limit and not show_all:
@@ -1955,9 +2019,15 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         if u:
             RESULT['bound'] = f"the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see"
             print(f"  bound: {RESULT['bound']}")
+        unknown_block(g, blind)
         return 0
     # nothing resolved either way: say so, then whether unresolved sites would connect them
     print(f"no chain of resolved calls connects {la} and {lb} in either direction (searched {len(g.edges())} edges, depth ≤ 40)")
+    # where a missing hop can be: an unresolved call somewhere A reaches (the start's own closure, nearest first)
+    _fa = [i for i in A_ if i in g.sym]; _seen = set(_fa); _fr = list(_fa)
+    while _fr:
+        _fr = [y for y in dict.fromkeys(y for x in _fr for y in adj.get(x, ())) if y not in _seen and y in g.sym]
+        _seen.update(_fr); _fa += _fr
     # A CROSS-PROCESS HOP IS A CONNECTION, AND THIS SAID THERE WAS NONE (#1108). A gRPC client and the
     # handler it calls, or a producer and its consumer, are joined by an edge no call site expresses, so
     # the BFS above cannot reach it and the honest-sounding "the two are independent in this graph" was
@@ -2006,6 +2076,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
         for c, m2 in bridges:
             sites = g.q("SELECT s.file_path f, s.start_line ln FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ? AND s.callee_name = ?", c, g.sym[m2]['name'])
             print(f"    `{g.sym[m2]['name']}` called in {g.disp(c)} at " + ', '.join(f"{g.site_file(s['f'])}:{s['ln']}" for s in sites[:4]) + f" — receiver not typed; if it is {g.disp(m2)}, the chain is real")
+        unknown_block(g, _fa)
         return 1
     # A LIBRARY CALL IS WHERE THE GRAPH STOPS, NOT WHERE THE CODE DOES (#1385). A start that publishes an event
     # through a framework's publisher reaches the listener at run time, and the call that does it is a resolved
@@ -2168,6 +2239,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
                   + (f" — named like the target: if it holds {other}, the chain is real" if r['n'] in names[lx] else ''))
         if len(rows) > 4: print(f"    … +{len(rows) - 4} more")
     for line in fw: print(line)
+    unknown_block(g, _fa)
     return 1
 
 # ── self-test: the engine's expected edges, through the whole tool ───────────────────────────────────────────────
@@ -2244,6 +2316,7 @@ if __name__ == '__main__':
     if not args or args[0] in ('-h', '--help'): print(__doc__); sys.exit(0)
     if args[0] == '--selftest': sys.exit(selftest(args[1] if len(args) > 1 else 'typescript'))
     as_json = '--json' in args; args = [a for a in args if a != '--json']
+    WANT_UNKNOWN = '--unknown' in args; args = [a for a in args if a != '--unknown']
     want_why = '--why' in args; args = [a for a in args if a != '--why']
     show_all = '--all' in args; args = [a for a in args if a != '--all']
     depth = 40
