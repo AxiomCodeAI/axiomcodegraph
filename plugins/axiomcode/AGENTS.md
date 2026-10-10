@@ -8,6 +8,8 @@ that never spell the name:
                         impact() with no name: the same for your uncommitted edits
     path(start, end)    how A reaches B, every hop of the call chain
     tests()             the tests your uncommitted edits reach, and the command that runs them
+    link(site, target)  record where an unresolved call lands, when the code makes it certain;
+                        impact, path and tests then walk it, labelled [asserted]
     context(task)       how something works, as a narrative: the call flow step by step;
                         context(task, source=True) carries each step's code
 

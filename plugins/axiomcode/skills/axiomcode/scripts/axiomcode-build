@@ -261,7 +261,7 @@ build_head_graph(){
     [ -d "$REPO/node_modules" ] && ln -s "$REPO/node_modules" "$T/node_modules"
     # library roots are given relative to the repository or absolute; from the scratch directory only absolute reach
     local LIBS="" r; if [ -n "${AXIOMCODE_LIBRARY:-}" ]; then
-      local IFS=','; for r in $AXIOMCODE_LIBRARY; do case "$r" in /*|[A-Za-z]:*) ;; *) r="$REPO/$r" ;; esac; LIBS="${LIBS:+$LIBS,}$r"; done; unset IFS
+      local IFS=','; for r in $AXIOMCODE_LIBRARY; do case "$r" in /*|[A-Za-z]:*|auto) ;; *) r="$REPO/$r" ;; esac; LIBS="${LIBS:+$LIBS,}$r"; done; unset IFS
     fi
     if env -u AXIOMCODE_BACKGROUND -u AXIOMCODE_KEEP_BASE AXIOMCODE_NO_REFRESH=1 AXIOMCODE_LIBRARY="$LIBS" bash "$H/axiomcode-build" "$T" > "$REPO/.axiomcode/base-build.log" 2>&1; then
       # graph.sqlite is a symlink, or (Windows without the symlink privilege) the copy Git Bash made instead of one
@@ -376,7 +376,12 @@ done
 # left graph.sqlite dangling — every later query rebuilt from scratch, and the refresher, finding "no graph", stopped
 restore(){ rm -rf "$OUT/$LANG_ARG"; if [ -d "$PREV" ]; then mv "$PREV" "$OUT/$LANG_ARG"; [ -f "$OUT/$LANG_ARG/graph.sqlite" ] && point "$OUT/$LANG_ARG/graph.sqlite"; fi
   [ -f "$OUT/.live.sqlite" ] && [ "$(real "$OUT/graph.sqlite")" != "$(real "$OUT/.live.sqlite")" ] && rm -f "$OUT/.live.sqlite"; return 0; }
-LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
+# --library entries reach the engine compiled: `auto` becomes the dependencies the project imports, and a source
+# directory is parsed once into ~/.cache/axiomcode/libir and reused (ax_libs.py) instead of on every rebuild
+LIB=(); if [ -n "${AXIOMCODE_LIBRARY:-}" ]; then
+  LIBS_C="$(python3 "$H/ax_libs.py" "$REPO" "$ENGINE" "$AXIOMCODE_LIBRARY")" || LIBS_C="$AXIOMCODE_LIBRARY"
+  [ -n "$LIBS_C" ] && LIB=(--library "$LIBS_C")
+fi
 ENGINE_RC=0
 REASON="$(printf %s "${AXIOMCODE_REFRESH_REASON:-axiomcode index}" | tr -d "'")"
 # WHEN AND WHY THIS GRAPH WAS BUILT, in the graph itself (index_meta): refreshed_at (UTC), refresh_reason (`axiomcode

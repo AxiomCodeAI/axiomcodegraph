@@ -1,0 +1,360 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "BASE: a call through a value getattr returned is unresolved, so no chain reaches the handler it runs",
+   "run": [
+    "path",
+    "test_save",
+    "audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects test_save and audit"
+   ]
+  },
+  {
+   "why": "the unresolved site is listed as a work item, with the call as written and the engine's reason",
+   "run": [
+    "path",
+    "test_save",
+    "audit",
+    "--json"
+   ],
+   "expect_error": true,
+   "want": [
+    "\"unknown_sites\"",
+    "app/dispatch.py:6",
+    "\"reason\": \"no_rule\""
+   ]
+  },
+  {
+   "why": "link records the target of the call at that line",
+   "run": [
+    "link",
+    "app/dispatch.py:6",
+    "on_save"
+   ],
+   "want": [
+    "linked app/dispatch.py:6:12 `fn` → on_save [asserted]"
+   ]
+  },
+  {
+   "why": "path walks the asserted edge, labelled [asserted], never [known_edge]",
+   "run": [
+    "path",
+    "test_save",
+    "audit"
+   ],
+   "want": [
+    "[asserted · call @ app/dispatch.py:6] on_save",
+    "ASSERTED by a link",
+    "reached through resolved calls and 1 asserted link(s)",
+    "[asserted] ASSERTED by a link"
+   ],
+   "avoid": [
+    "target(s) reached through resolved calls;"
+   ]
+  },
+  {
+   "why": "impact lists the caller as asserted, and selects the test through it",
+   "run": [
+    "impact",
+    "on_save",
+    "--tests"
+   ],
+   "want": [
+    "[asserted] dispatch   app/dispatch.py:6",
+    "test_dispatch.py::test_save",
+    "reaches those through resolved calls and 1 asserted link(s)"
+   ],
+   "avoid": [
+    "[resolved] dispatch",
+    "axiomcode-links.tsv:"
+   ]
+  },
+  {
+   "why": "a second target at the same site is a fan, each its own edge",
+   "run": [
+    "link",
+    "app/dispatch.py:6",
+    "on_load"
+   ],
+   "want": [
+    "linked app/dispatch.py:6:12 `fn` → on_load [asserted]"
+   ]
+  },
+  {
+   "why": "CONTROL: a link to a declaration that does not exist is rejected",
+   "run": [
+    "link",
+    "app/dispatch.py:6",
+    "no_such_handler"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the target is not a declaration in this graph"
+   ]
+  },
+  {
+   "why": "CONTROL: a link at a line with no call is rejected",
+   "run": [
+    "link",
+    "app/dispatch.py:3",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — no call is written at app/dispatch.py:3"
+   ]
+  },
+  {
+   "why": "CONTROL: a call that names another declaration cannot be linked to an unrelated target",
+   "run": [
+    "link",
+    "app/dispatch.py:19",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call as written names `audit`"
+   ]
+  },
+  {
+   "why": "CONTROL: a member call on an untyped receiver names a library method, not an unrelated function",
+   "run": [
+    "link",
+    "app/dispatch.py:23",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "rejected — the call is to the member `copy` of a receiver the graph could not type"
+   ]
+  },
+  {
+   "why": "CONTROL: an unlinked sibling site stays unknown",
+   "run": [
+    "impact",
+    "purge",
+    "--unknown"
+   ],
+   "want": [
+    "app/dispatch.py:15:12  return fn(doc)  [computed_attribute_name:on_*]"
+   ],
+   "avoid": [
+    "app/dispatch.py:15:12  return fn(doc)  [computed_attribute_name:on_*]  → linked"
+   ]
+  },
+  {
+   "why": "CONTROL: the table call nobody linked still reaches nothing",
+   "run": [
+    "path",
+    "test_table",
+    "on_load"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects test_table and on_load"
+   ]
+  },
+  {
+   "why": "FRONT DOOR: a by-name lead alone is listed, and its site is to resolve, with the declaration of its name as a candidate",
+   "env": {
+    "AXIOMCODE_FRONT": "1"
+   },
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "want": [
+    "by name · refresh",
+    "to resolve:",
+    "app/dispatch.py:27:18  return store.on_load(doc)",
+    "candidates: on_load app/handlers.py:5"
+   ]
+  },
+  {
+   "why": "a computed name's constant prefix gives candidates",
+   "run": [
+    "impact",
+    "purge",
+    "--unknown"
+   ],
+   "want": [
+    "candidates: on_save app/handlers.py:1 (named on_…, the constant part of the computed name)"
+   ]
+  },
+  {
+   "why": "a lead can be rejected: it is no longer walked",
+   "run": [
+    "link",
+    "app/dispatch.py:27",
+    "--not",
+    "on_load"
+   ],
+   "want": [
+    "rejected the lead app/dispatch.py:27:18 → on_load"
+   ]
+  },
+  {
+   "why": "…impact no longer lists the rejected lead",
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "avoid": [
+    "refresh   app/dispatch.py:27"
+   ]
+  },
+  {
+   "why": "…and the list shows it as a rejection",
+   "run": [
+    "link"
+   ],
+   "want": [
+    "→ NOT on_load (a lead rejected: not walked)"
+   ]
+  },
+  {
+   "why": "CONTROL: an edge the engine resolved cannot be rejected",
+   "run": [
+    "link",
+    "app/dispatch.py:19",
+    "--not",
+    "audit"
+   ],
+   "expect_error": true,
+   "want": [
+    "the engine resolved this call; if it is wrong that is an engine defect — not hidden"
+   ]
+  },
+  {
+   "why": "removing the rejection restores the lead",
+   "run": [
+    "link",
+    "app/dispatch.py:27:18",
+    "-"
+   ],
+   "want": [
+    "removed 1 link(s)"
+   ]
+  },
+  {
+   "why": "…it is walked again",
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "want": [
+    "[by name] refresh   app/dispatch.py:27"
+   ]
+  },
+  {
+   "why": "a lead and an asserted link at the same site: the site is listed ONCE, as confirmed",
+   "run": [
+    "link",
+    "app/dispatch.py:27",
+    "on_load"
+   ],
+   "want": [
+    "linked app/dispatch.py:27:18 `on_load` → on_load [asserted]"
+   ]
+  },
+  {
+   "why": "FRONT DOOR: confirmed, not a lead; the settled site is not to resolve",
+   "env": {
+    "AXIOMCODE_FRONT": "1"
+   },
+   "run": [
+    "impact",
+    "on_load"
+   ],
+   "want": [
+    "asserted · refresh"
+   ],
+   "avoid": [
+    "by name · refresh",
+    "app/dispatch.py:27:18  return store.on_load(doc)  [untyped"
+   ]
+  },
+  {
+   "why": "clean up the site link before the edit steps",
+   "run": [
+    "link",
+    "app/dispatch.py:27:18",
+    "-"
+   ],
+   "want": [
+    "removed"
+   ]
+  },
+  {
+   "why": "lines inserted above the site: after the rebuild the link follows the line by its text",
+   "edit": [
+    "app/dispatch.py",
+    "from app import handlers\n",
+    "from app import handlers\n# dispatch by event name\n\n"
+   ],
+   "run": [
+    "path",
+    "test_save",
+    "audit",
+    "--fresh"
+   ],
+   "want": [
+    "[asserted · call @ app/dispatch.py:8] on_save"
+   ]
+  },
+  {
+   "why": "the list says where the link now is",
+   "run": [
+    "link"
+   ],
+   "want": [
+    "[moved] app/dispatch.py:6:12 (now line 8)  → on_save"
+   ]
+  },
+  {
+   "why": "the linked line itself edited: the list says so at once, before any rebuild (another function's identical line is not it)",
+   "edit": [
+    "app/dispatch.py",
+    "    return fn(doc)\n\n\ndef run_table",
+    "    return fn(dict(doc))\n\n\ndef run_table"
+   ],
+   "run": [
+    "link"
+   ],
+   "want": [
+    "[changed] app/dispatch.py:6:12 (now line 8)  → on_save"
+   ]
+  },
+  {
+   "why": "…and after the rebuild it is dropped: the site is unknown again, and the answer says a link was not applied",
+   "run": [
+    "path",
+    "test_save",
+    "audit",
+    "--fresh"
+   ],
+   "expect_error": true,
+   "want": [
+    "no chain of resolved calls connects test_save and audit",
+    "links: 2 of 2 asserted link(s) not applied (2 stale)"
+   ],
+   "avoid": [
+    "[asserted"
+   ]
+  },
+  {
+   "why": "…and the list gives the reason",
+   "run": [
+    "link"
+   ],
+   "want": [
+    "[stale] app/dispatch.py:6:12  → on_save  — stale: the line was edited (no line with its text and that call is left in dispatch)"
+   ]
+  }
+ ]
+}

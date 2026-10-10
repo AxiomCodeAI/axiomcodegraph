@@ -1,9 +1,11 @@
 ambiguous_unknown	DECORATOR_APPLICATION	shop.decorators.audited -> -
 ambiguous_unknown	DECORATOR_BARE	shop.views.<module> -> -
 ambiguous_unknown	METHOD_CALL	shop.urls.<module> -> -
-ambiguous_unknown	SIMPLE_CALL	catalog.urls.<module> -> -
-ambiguous_unknown	SIMPLE_CALL	shop.urls.<module> -> -
 boundary_lib	DECORATOR_CALL	shop.decorators.audited -> external:functools.wraps
+boundary_lib	SIMPLE_CALL	catalog.urls.<module> -> external:path
+boundary_lib	SIMPLE_CALL	shop.urls.<module> -> external:include
+boundary_lib	SIMPLE_CALL	shop.urls.<module> -> external:path
+boundary_lib	SIMPLE_CALL	shop.urls.<module> -> external:re_path
 known_edge	DECORATOR_BARE	shop.views.<module> -> shop.decorators.audited
 known_edge	SIMPLE_CALL	shop.decorators.audited.<locals>.wrapper -> shop.views.order_history
 known_edge	SIMPLE_CALL	shop.views.BaseWidgetView.get -> shop.views._render

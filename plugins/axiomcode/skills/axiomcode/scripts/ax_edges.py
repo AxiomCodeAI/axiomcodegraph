@@ -48,6 +48,7 @@ TIER_RANK = {
     'overload': 0,              # the overload signature a call selected runs its set's implementation: one body, certain
     'callback_registered': 3,   # handed over as a value and invoked by whoever holds it
     'event_dispatch': 3,        # emitted here, handled there
+    'asserted': 3,              # a link someone recorded (axiomcode link) where the engine resolved nothing: read, not derived
     'remote': 5,                # a request crosses a process to its handler (remote_edge): no call site names it.
     'framework': 5,             # a framework runs the other end for this one (framework_edge). Both 5, the default
                                 # impact's route reader already gave them (P.TIER_RANK.get(t, 5)), so its routes do not move
@@ -71,6 +72,7 @@ TIER_NOTE = {
     'overload':             'the call selected an overload signature; this is the implementation that runs',
     'callback_registered':  'handed over as a value and invoked by whoever holds it',
     'event_dispatch':       'emitted here, handled there',
+    'asserted':             'ASSERTED by a link (axiomcode-links.tsv): someone read the call and recorded its target; the engine did not resolve it',
     'remote':               'NOT a call site: a request crosses a process to the handler that serves it (transport and destination on the hop)',
     'framework':            'NOT a call site: a framework runs the other end for this one (mechanism and registration on the hop)',
     'defines':              'NOT a call — written inside that body, so it runs only after it',
@@ -178,6 +180,7 @@ DIRECT_CERT = {
     'callback_registered': 'registered', 'event_dispatch': 'registered',
     'ambient_terminal': 'registered', 'dynamic_terminal': 'registered', 'intrinsic_terminal': 'registered',
     'fan_capped': 'capped set',
+    'asserted': 'asserted',         # a link someone recorded (ax_links.py): an edge, never `resolved`
     'stub': 'stubs it',             # a call inside a mock's stub or verification (stub_sites below): named, never run
     'remote': 'remote', 'framework': 'framework',   # impact's own rung names for the same two hops (#1469)
 }
@@ -187,6 +190,7 @@ DIRECT_CERT_DEFAULT = 'registered'   # unlisted: an edge the engine asserted and
 DIRECT_WHY = {
     'registered': 'handed over as a value — the engine recorded the hand-off, not a call site',
     'capped set': 'calls it, as one of a candidate set too large to enumerate — this is a sample of that set',
+    'asserted': 'calls it — asserted by a link (axiomcode-links.tsv), not resolved by the engine',
     'stubs it': 'stubs it on a mock: the real method does not run there, and the test breaks only if the name or parameters change',
 }
 # …and where the TIER says something more specific than its certainty. A request or event is not handed over as a
@@ -265,12 +269,12 @@ def entry_outside(reason):
 # instead: the membership is exactly what it was before this table existed, so no row leaves any
 # set — only the label it is printed under changes. It matters most for the --delete verdict, where
 # dropping a hand-off would turn "something still holds this" into "safe to delete".
-EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'capped set', 'stubs it'})
+EDGE_BACKED = frozenset({'resolved', 'one of a set', 'registered', 'asserted', 'capped set', 'stubs it'})
 
 # most certain first. A caller with several call sites to the same callee can hold sites of different
 # tiers; a summary that names the caller once takes the best of them, which is the honest reading of
 # "at least one resolved call exists here".
-DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'capped set', 'stubs it')
+DIRECT_ORDER = ('resolved', 'one of a set', 'registered', 'asserted', 'capped set', 'stubs it')
 
 
 # ── `defines`: a callable written inside another one's body ────────────────────────────────────────────────
@@ -511,9 +515,26 @@ LIBRARY_BYNAME_WHY = 'calls a method of this name on a value a package or the pl
 
 
 def library_receiver_sites(q):
-    """the ids of the unresolved call sites whose receiver is a package's value. q(sql, params) -> rows."""
-    if not list(q("SELECT 1 FROM sqlite_master WHERE name = 'ext_library_receiver'", ())): return set()
-    return {r[0] for r in q("SELECT DISTINCT c0 FROM ext_library_receiver", ())}
+    """the ids of the unresolved call sites whose receiver is a package's value, or that the engine knows enter a
+    library callable (Python ext_lib_callback_site: a member a client type inherits from its library base, whose
+    source declares it). q(sql, params) -> rows."""
+    out = set()
+    has = lambda t: bool(list(q("SELECT 1 FROM sqlite_master WHERE name = ?", (t,))))
+    if has('ext_library_receiver'):
+        out |= {r[0] for r in q("SELECT DISTINCT c0 FROM ext_library_receiver", ())}
+    if has('ext_lib_callback_site'):
+        # A site entering a summarised library callable is a library receiver only where the summary says what the
+        # library hands back from it (a lib_callback_edge from the same caller through the same callable). Where it
+        # says nothing -- the hand-back runs through a value the summary cannot follow, a method's return, a
+        # registry -- the site stays the untyped name match it was before the library was read: knowing a call
+        # ENTERS a library is no evidence that nothing in the project runs behind it, and dropping the match lost
+        # failing tests a library reaches that way.
+        edges = has('ext_lib_callback_edge') and has('call_sites')
+        sql = ("SELECT DISTINCT s.c0 FROM ext_lib_callback_site s JOIN call_sites cs ON cs.id = s.c0 "
+               "WHERE EXISTS (SELECT 1 FROM ext_lib_callback_edge e WHERE e.c0 = cs.caller_id AND e.c2 = s.c1)"
+               if edges else "SELECT DISTINCT c0 FROM ext_lib_callback_site")
+        out |= {r[0] for r in q(sql, ())}
+    return out
 
 
 # ── a MOCKED TYPE: a test class that holds a mock of T never runs T's methods ────────────────────────────────────

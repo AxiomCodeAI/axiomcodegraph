@@ -1,0 +1,60 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a visitor base's get_visitor returns getattr(self, f\"visit_{...}\"): visit() reaches every visit_* member of a constructed subclass -- 26 of them, past the dispatch cap of 20, because a prefix family is the program's own dispatch table -- so a test driving visit() covers what visit_Name calls",
+   "run": [
+    "impact",
+    "emit_name",
+    "--tests"
+   ],
+   "want": [
+    "test_generate.py"
+   ],
+   "avoid": [
+    "test_parse.py"
+   ]
+  },
+  {
+   "why": "a visit_* member a decorator replaced is reached through the wrapper the decorator returned",
+   "run": [
+    "impact",
+    "emit_const",
+    "--tests"
+   ],
+   "want": [
+    "test_generate.py"
+   ]
+  },
+  {
+   "why": "the f-string prefix held in a local and called (`f = getattr(self, f\"parse_{kw}\"); f()`)",
+   "run": [
+    "impact",
+    "parse_if_body",
+    "--tests"
+   ],
+   "want": [
+    "test_parse.py"
+   ],
+   "avoid": [
+    "test_generate.py"
+   ]
+  },
+  {
+   "why": "CONTROL: a member whose name does not start with the prefix (leave_Name) is not a visit_ candidate: only the test calling it directly",
+   "run": [
+    "impact",
+    "helper_not_visited",
+    "--tests"
+   ],
+   "want": [
+    "test_leave.py"
+   ],
+   "avoid": [
+    "test_generate.py",
+    "test_parse.py"
+   ]
+  }
+ ]
+}

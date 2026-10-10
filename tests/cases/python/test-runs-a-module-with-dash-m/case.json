@@ -1,0 +1,68 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "`python -m pkg` runs pkg/__main__.py: a test that spawns it covers what the package's main reaches, though nothing imports pkg.cli",
+   "run": [
+    "impact",
+    "render",
+    "--tests"
+   ],
+   "want": [
+    "test_package_main.py",
+    "spawns"
+   ],
+   "avoid": [
+    "test_docs.py",
+    "test_tally.py"
+   ]
+  },
+  {
+   "why": "`-m coverage run -m pkg.tool` names two modules: coverage is not in this graph, pkg.tool is pkg/tool.py, run as __main__ so its main guard is taken",
+   "run": [
+    "impact",
+    "go",
+    "--tests"
+   ],
+   "want": [
+    "test_entry_points.py",
+    "spawns"
+   ],
+   "avoid": [
+    "test_docs.py",
+    "test_package_main.py"
+   ]
+  },
+  {
+   "why": "CONTROL: a string that only mentions `-m pkg` starts no process and links nothing; a function the module does not reach keeps exactly the test that calls it",
+   "run": [
+    "impact",
+    "tally",
+    "--tests"
+   ],
+   "want": [
+    "test_tally.py"
+   ],
+   "avoid": [
+    "test_package_main.py",
+    "test_docs.py",
+    "spawns"
+   ]
+  },
+  {
+   "why": "test-impact for an edit to a module the package main reaches selects the spawning test and not the one that only names the module",
+   "run": [
+    "test-impact",
+    "{repo}",
+    "pkg/cli.py"
+   ],
+   "want": [
+    "tests/test_package_main.py"
+   ],
+   "avoid": [
+    "tests/test_docs.py"
+   ]
+  }
+ ]
+}
