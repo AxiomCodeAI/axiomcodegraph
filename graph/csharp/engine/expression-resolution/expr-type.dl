@@ -96,6 +96,19 @@ expr_element_type(prov, e, gk) :-
     type_ref_module(prov, tr, mod),
     name_to_type(prov, mod, n, gk).
 
+// (c') THE PROTOCOL THROUGH A FRAMEWORK ENUMERATOR. A collection in source whose
+// GetEnumerator returns `IEnumerator<MemberMap>` (an iterator, usually) yields
+// MemberMap: the framework's Current is not staged, but the enumerator's one type
+// argument is written on the method.
+expr_element_type(prov, e, gk) :-
+    expr_type(prov, e, recvGk),
+    member_method(prov, recvGk, "GetEnumerator", getEnum),
+    method_return_type_ref(prov, getEnum, tr),
+    type_ref_name(prov, tr, en), (en = "IEnumerator" ; en = "IAsyncEnumerator"),
+    type_ref_argc(prov, tr, "1"),
+    type_ref_arg(prov, tr, "0", argRef),
+    type_ref_resolves(prov, argRef, gk).
+
 // (d) THE RETURN OF A STAGED METHOD. `h.Items()[0]` where Items returns `Item[]`
 // from a library: the rank and the element name are on the library's own type
 // reference, so the clauses above -- which read the reference under the caller's

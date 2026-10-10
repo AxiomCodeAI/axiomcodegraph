@@ -75,6 +75,17 @@ lambda_target_ref(prov, a, tr) :-
     call_receiver_expr(prov, e, r), expr_type(prov, r, _),
     lambda_callee_param_ref(prov, m, k + 1, tr).
 
+// A lambda ELEMENT of a collection initializer is the argument of the Add the element
+// runs (call-edge-generation/implicit-calls.dl): `new Rules { v => v.RuleFor(x => x.Name) }`
+// passes the lambda to `Add(Func<Rules, ...> creator)`, so `v` is that parameter's first
+// type argument. The same single-candidate guard as an argument.
+lambda_target_ref(prov, el, tr) :-
+    expr_kind(prov, oc, "OBJECT_CREATION"), expr_type(prov, oc, gk),
+    expr_child(prov, oc, "INITIALIZER_VALUE", _, i), expr_kind(prov, i, "INITIALIZER"),
+    expr_parent(prov, el, i, _, _), expr_anon_decl(prov, el, _),
+    member_method(prov, gk, "Add", m), lambda_callee_single(prov, m), method_paramc(prov, m, "1"),
+    lambda_callee_param_ref(prov, m, 0, tr).
+
 // A lambda among a call's ARGUMENT children, by ordinal, at a site with no named argument.
 lambda_arg_at(prov, e, k, a) :-
     expr_argument(prov, e, pos, a), expr_anon_decl(prov, a, _),
