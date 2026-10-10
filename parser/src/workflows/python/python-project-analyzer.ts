@@ -321,6 +321,7 @@ export class PythonProjectAnalyzer {
         moduleHash: facts.module.getHash(),
         isPackage: isPythonPackageInitFileName(path.basename(filePath)),
         isStub: filePath.endsWith('.pyi'),
+        outerDirs: this.outerDirsOf(filePath, facts.module.getQualifiedName()),
         scopes: facts.scopes,
         bindings: facts.bindings,
         types: facts.types,
@@ -576,6 +577,15 @@ export class PythonProjectAnalyzer {
       return fromMserv;
     }
     return path.relative(rootDir, filePath) || path.basename(filePath);
+  }
+
+  /** The directory names above a module's top-level package, outermost first (see ProjectModuleFacts.outerDirs). */
+  private outerDirsOf(filePath: string, qualifiedName: string): string[] {
+    const dirs = path.dirname(path.resolve(filePath)).split(path.sep).filter(part => part !== '');
+    const inPackage = isPythonPackageInitFileName(path.basename(filePath))
+      ? qualifiedName.split('.').length
+      : qualifiedName.split('.').length - 1;
+    return dirs.slice(0, Math.max(0, dirs.length - inPackage));
   }
 
   private moduleQualifiedNameFor(rootDir: string, filePath: string): string {

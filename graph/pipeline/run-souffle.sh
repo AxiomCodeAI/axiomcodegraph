@@ -201,6 +201,7 @@ write_program(){
   _SU=()
   t+="#include \"$LANG_ARG/souffle/decls_base.dl\"$nl#include \"$LANG_ARG/souffle/decls_all.dl\"$nl"
   map_rels_su "$TPL/client-ir.map" || return 1
+  if [ -f "$TPL/client-extra.map" ]; then map_rels_su "$TPL/client-extra.map" || return 1; fi
   map_rels_su "$TPL/lib.map" sig || return 1
   for r in $LIB_BODY; do _SU+=("$r"); done
   _SU+=(jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world)
@@ -254,7 +255,8 @@ write_program(){
 # lost on either side shows up as a difference. Every .input and .output line must be exactly
 # the expected one, each exactly once, with nothing extra. Exit status only: no pipe to lose.
 verify_program(){
-  awk -v cmap="$TPL/client-ir.map" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
+  local xmap=""; [ -f "$TPL/client-extra.map" ] && xmap="$TPL/client-extra.map"
+  awk -v cmap="$TPL/client-ir.map" -v xmap="$xmap" -v lmap="$TPL/lib.map" -v man="$DL/export_manifest.tsv" \
       -v libsig=" $LIB_SIG " -v extra="$LIB_BODY jdk_max_depth lib_max_depth taint_gating dispatch_cap dispatch_closed_world" '
     function want(line) { if (!(line in need)) { need[line] = 1; n++ } }
     function inp(r) { want(".input " r "(IO=file, filename=\"" r ".facts\", delimiter=\"\\t\", rfc4180=true)") }
@@ -269,7 +271,7 @@ verify_program(){
       close(path)
     }
     BEGIN {
-      maprels(cmap, 0); maprels(lmap, 1)
+      maprels(cmap, 0); maprels(lmap, 1); if (xmap != "") maprels(xmap, 0)
       m = split(extra, e, " "); for (i = 1; i <= m; i++) if (e[i] != "") inp(e[i])
       while ((rc = (getline l < man)) > 0) {
         sub(/^\t+/, "", l); k = index(l, "\t"); p = l; f = ""
@@ -813,7 +815,7 @@ while IFS=$'\t' read -r rel csv; do
   if [ -f "$CLIENT/$csv.csv" ]; then awk -F'\t' 'NR==1{n=NF; next} NF==n{print; next} {bad++} END{if(bad>0) printf "  ! dropped %d malformed row(s) from %s\n", bad, FILENAME > "/dev/stderr"}'  "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
   else : > "$FACTS/$rel.facts"; fi
   CLIENT_INPUTS="$CLIENT_INPUTS$rel"$'\n'
-done < <(read_map "$TPL/client-ir.map")
+done < <(read_map "$TPL/client-ir.map"; if [ -f "$TPL/client-extra.map" ]; then read_map "$TPL/client-extra.map"; fi)
 
 # --- LIB: signature relations, concatenated across every module of every root ---
 # CACHED. This concatenation reads the ENTIRE library IR (the JDK alone is 2.0 GB in,

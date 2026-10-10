@@ -295,6 +295,13 @@ case "$cmd" in
     echo "▶ parsing $src → IR"
     "$0" parser "$src" "$ir" ${popts[@]+"${popts[@]}"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
     head -1 "$int/parse.log"
+    # WHAT AN INSTALLED PYTHON LIBRARY HANDS BACK to the objects the client gives it (graph/python/libsum): read from
+    # the project's environment, cached by package and version, staged beside the client IR. Never fatal -- without
+    # it the engine sees no library hand-backs, exactly as before. AXIOMCODE_LIB_CALLBACKS=0 turns it off.
+    if [ -d "$ir/python" ] && [ "${AXIOMCODE_LIB_CALLBACKS:-1}" != 0 ]; then
+      python3 "$ROOT/graph/python/libsum/libsum.py" --src "$src" --out "$ir/python" > "$int/libsum.log" 2>&1 \
+        && tail -1 "$int/libsum.log" || echo "⚠️  library callback summaries failed (see $int/libsum.log); continuing without them" >&2
+    fi
     # which languages the IR holds — one folder each — and which of them have an engine
     found=(); for d in "$ir"/*/; do l="$(basename "$d")"; [ -d "$ROOT/graph/$l/engine" ] && found+=("$l"); done
     [ ${#found[@]} -gt 0 ] || { echo "❌ no language with an engine in the IR (folders: $(ls "$ir" | tr '\n' ' '))" >&2; exit 1; }

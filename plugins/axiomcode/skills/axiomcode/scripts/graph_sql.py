@@ -3561,6 +3561,9 @@ def _has_framework_hops(q, at=None, site_file=None):
     try:
         if _has(q, 'ext_decorated_name_target') and q("SELECT 1 FROM ext_decorated_name_target WHERE c0 <> c1 LIMIT 1"):
             return True
+        # fw_edge "library callback": a library summarised to call a client member back (library-callbacks.dl)
+        if _has(q, 'ext_lib_callback_edge') and q("SELECT 1 FROM ext_lib_callback_edge WHERE c0 <> c1 LIMIT 1"):
+            return True
         if _has(q, 'symbols') and q("SELECT 1 FROM symbols WHERE file LIKE '%conftest.py' AND method_id IS NOT NULL LIMIT 1"):
             return True
         # a fixture injected by name anywhere, conftest or not: the rules credit it only to the tests that request
