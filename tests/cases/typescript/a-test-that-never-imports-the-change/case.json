@@ -1,0 +1,94 @@
+{
+ "lang": "typescript",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a call through a function type fans out to every function of that type, but a test whose file never imports the changed file cannot run it: beta's test is left out of a change to alpha's helper",
+   "run": [
+    "impact",
+    "helperA",
+    "--tests-only"
+   ],
+   "want": [
+    "test/alpha.test.ts ("
+   ],
+   "avoid": [
+    "test/beta.test.ts"
+   ]
+  },
+  {
+   "why": "control: an import whose name list spans several lines is an import, so alpha's own test still loads the change and stays",
+   "run": [
+    "impact",
+    "helperA",
+    "--tests-only"
+   ],
+   "want": [
+    "test/alpha.test.ts ("
+   ]
+  },
+  {
+   "why": "control: a test that imports the change through a tsconfig paths alias loads it",
+   "run": [
+    "impact",
+    "helperA",
+    "--tests-only"
+   ],
+   "want": [
+    "test/alias.test.ts ("
+   ]
+  },
+  {
+   "why": "a test that imports another middleware through the tsconfig alias is read through the alias too: it never loads alpha's helper and is left out",
+   "run": [
+    "impact",
+    "helperA",
+    "--tests-only"
+   ],
+   "want": [
+    "test/alpha.test.ts ("
+   ],
+   "avoid": [
+    "test/beta-alias.test.ts"
+   ]
+  },
+  {
+   "why": "control: a .vue component's script imports what its test then runs, so the test that imports the component loads the change",
+   "run": [
+    "impact",
+    "helperA",
+    "--tests-only"
+   ],
+   "want": [
+    "test/widget.test.ts ("
+   ]
+  },
+  {
+   "why": "control: an import of this repository's code that resolves to nothing (an alias no config here declares) may load anything, so the test is not left out",
+   "run": [
+    "impact",
+    "helperA",
+    "--tests-only"
+   ],
+   "want": [
+    "test/unread.test.ts ("
+   ]
+  },
+  {
+   "why": "control: the change to the runner every test calls keeps every test",
+   "run": [
+    "impact",
+    "run",
+    "--tests-only"
+   ],
+   "want": [
+    "test/alpha.test.ts (",
+    "test/beta.test.ts (",
+    "test/alias.test.ts (",
+    "test/widget.test.ts (",
+    "test/unread.test.ts (",
+    "test/beta-alias.test.ts ("
+   ]
+  }
+ ]
+}

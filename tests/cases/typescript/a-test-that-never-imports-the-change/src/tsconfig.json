@@ -1,0 +1,10 @@
+{
+  // the alias a test may import the code by
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "esnext",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": { "@app/*": ["src/*"] }
+  }
+}
