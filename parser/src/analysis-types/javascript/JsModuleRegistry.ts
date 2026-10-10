@@ -116,6 +116,12 @@ export class JsModuleRegistry implements EntityIdentifiable {
     endLine: number;
     sourceProvenance: JsSourceProvenance;
     serviceVersionLinkHash: string;
+    /**
+     * A module that is PART of a file (#1908): an inline `<script>` body or an `on*` attribute of a page,
+     * `script-2` / `on-5`. The file's path stays the page's, so every position points into it; the key keeps
+     * two modules of one page apart. Absent for every ordinary file, whose key is unchanged.
+     */
+    virtualKey?: string;
   }) {
     this.name = props.name;
     this.qualifiedName = props.qualifiedName;
@@ -140,8 +146,11 @@ export class JsModuleRegistry implements EntityIdentifiable {
     this.endLine = props.endLine;
     this.sourceProvenance = props.sourceProvenance;
     this.serviceVersionLinkHash = props.serviceVersionLinkHash;
+    this.virtualKey = props.virtualKey ?? '';
     this.generateHash();
   }
+
+  private readonly virtualKey: string;
 
   /**
    * **PK** `JS_MODULE_md5(filePath ‖ baseMservPath ‖ moduleSystem ‖ emissionRegime ‖ serviceVersionLinkHash)`
@@ -154,7 +163,7 @@ export class JsModuleRegistry implements EntityIdentifiable {
     this.jsModuleUniqueHash = EntityUtils.generateEntityHash(
       ENTITY_IDENTIFIERS.JS_MODULE,
       keyOf(
-        this.filePath,
+        this.virtualKey === '' ? this.filePath : `${this.filePath}#${this.virtualKey}`,
         stableRootId(this.baseMservPath),
         this.moduleSystem,
         this.emissionRegime,

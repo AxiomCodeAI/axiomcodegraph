@@ -465,8 +465,12 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   // The web tables reach every reader that has a folder: java (server templates), javascript and
   // typescript (pages that load modules). A reader with no folder gets none, and a repository with
   // none of the three keeps no web folder either — the tables would announce a language absent here.
+  // AND INTO web/ OF THEIR OWN, whenever a page or a stylesheet was read (#1908): HTML and CSS are a language with
+  // their own engine (graph/web), and a repository of pages and stylesheets alone has no java/, javascript/ or
+  // typescript/ folder at all, so without this it got no IR and `parser` reported that it found nothing.
   if (webScratch !== undefined && webSummary.filesAnalysed > 0) {
-    const readers = [javaOut, javascriptOut ?? (fs.existsSync(path.join(baseOut, 'javascript')) ? path.join(baseOut, 'javascript') : undefined), typescriptOut]
+    const readers = [javaOut, javascriptOut ?? (fs.existsSync(path.join(baseOut, 'javascript')) ? path.join(baseOut, 'javascript') : undefined), typescriptOut,
+      path.join(baseOut, 'web')]
       .filter((d): d is string => d !== undefined);
     await copyRelationFiles(webScratch, readers);
   }

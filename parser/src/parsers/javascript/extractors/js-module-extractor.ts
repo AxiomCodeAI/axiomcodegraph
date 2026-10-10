@@ -111,6 +111,8 @@ export interface ModuleExtractionOptions {
   readonly governingPackageJsonPath: string;
   readonly packageName: string;
   readonly serviceVersionLinkHash: string;
+  /** the part of a page this module is (`script-2`, `on-5`); see JsModuleRegistry.virtualKey */
+  readonly virtualKey?: string;
 }
 
 export interface ModuleExtractionResult {
@@ -173,6 +175,7 @@ export function extractModule(options: ModuleExtractionOptions): ModuleExtractio
     endLine: lastLineOf(options.sourceFile),
     sourceProvenance,
     serviceVersionLinkHash: options.serviceVersionLinkHash,
+    virtualKey: options.virtualKey,
   });
 
   return { module, shape };
