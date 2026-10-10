@@ -59,16 +59,23 @@ Example: `tests()`. It is a lower bound: a test reached only through reflection 
 
 ## link
 
-An answer that stops at a call the graph could not resolve lists it under `unknown:` — the site as `file:line`, the
-call as written and why the engine could not follow it (a value from `getattr`, a handler table, reflection, a
-callback). When the task depends on one of those sites, read the code; if it makes the target CERTAIN, record it:
-`link(site="app/dispatch.py:6", target="on_save")`, or `axiomcode link app/dispatch.py:6 on_save` from the shell.
-From then on impact, path and tests walk that edge, labelled `[asserted]`, never `resolved`. The links are kept in
-`axiomcode-links.tsv` at the repository root, which is worth committing. `link()` with no arguments lists them and
-whether the graph took each one; `axiomcode link <file:line> -` removes one. A link is refused when the call written
-there names a different declaration, or the target is not one; when the line it was made on is edited, it is
-dropped and listed as stale, and the site is unknown again. Never link a guess: an asserted edge is trusted by every
-answer after it.
+Answers are in three parts. CONFIRMED places are backed by an edge: `resolved` by the engine, or `asserted` by a link —
+act on them. LEADS are reached only through a guess (`by name`, `by key`, `one of a set`, `text`) — check each before
+relying on it. TO RESOLVE lists the calls the answer stopped at: the site as `file:line:col`, the call as written, why
+the engine could not follow it (a value from `getattr`, a handler table, reflection, a callback) and the graph's
+candidate targets with their `file:line`.
+
+When the task depends on one of those sites, read the call. Only if the code makes the target CERTAIN, record it:
+`link(site="app/dispatch.py:6:12", target="on_save")`, or `axiomcode link app/dispatch.py:6:12 on_save` from the shell.
+A candidate is a lead: confirm it by reading the call, never link one because it is ranked first. From then on impact,
+path and tests walk that edge, labelled `[asserted]`, never `resolved`; when the target declares a return type, the
+calls made on its result (chained, or on a variable assigned from it) resolve too. When a lead at a site is wrong,
+reject it: `link(site, "not:<target>")` — it is no longer walked; only a guess can be rejected, never an edge the
+engine resolved. The links are kept in `axiomcode-links.tsv` at the repository root, which is worth committing.
+`link()` with no arguments lists them and whether the graph took each one; `axiomcode link <file:line:col> -` removes
+one. A link is refused when the call written there names a different declaration, or the target is not one; when
+the line it was made on is edited, it is dropped and listed as stale, and the site is to resolve again. Never link a
+guess: an asserted edge is trusted by every answer after it.
 
 ## context
 

@@ -248,8 +248,9 @@ def link(site: str = '', target: str = '') -> str:
     """Record where an unresolved call lands, when you have read the code and the target is CERTAIN: site is the call's
     file:line as an answer's `unknown:` block lists it, target the declaration it reaches (Owner.method, function, or
     its file:line). impact, path and tests then walk the edge, labelled [asserted]. With no arguments: every link and
-    whether the graph took it (a link whose line changed is dropped, never trusted). target "-" removes the site's links.
-    Never link a guess."""
+    whether the graph took it (a link whose line changed is dropped, never trusted). target "-" removes the site's links;
+    target "not:<declaration>" rejects a lead (a by-name or one-of-a-set guess) at that site, which is then not walked.
+    Never link a guess, and never link a candidate for its rank alone."""
     return plain(run(['link'] + ([site] if site.strip() else []) + ([target] if site.strip() and target.strip() else []) + [os.getcwd()]))
 
 @srv.tool()

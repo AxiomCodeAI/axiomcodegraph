@@ -53,6 +53,7 @@ REFLECTIVE_LIB = {'invoke', 'Invoke', 'DynamicInvoke', 'InvokeMember', 'newInsta
 # a call written on a receiver (`x.m()`): its callee as written is a member name, not a value
 MEMBER_KINDS = {'METHOD_CALL', 'SELF_CALL', 'SUPER_CALL', 'CHAINED_CALL', 'OPTIONAL_CALL', 'PROPERTY_READ', 'PROPERTY_WRITE',
                 'CONTEXT_MANAGER', 'ITERATION_PROTOCOL', 'BUILTIN_PROTOCOL', 'DECORATOR_ATTRIBUTE'}
+CTOR_KINDS = {'new', 'CONSTRUCTOR_CALL', 'anon_new', 'METACLASS_CREATION', 'object_creation', 'OBJECT_CREATION'}
 CTOR_NAMES = {'__init__', '<init>', 'constructor', '.ctor', '__new__'}
 
 
@@ -306,6 +307,9 @@ def consistent(g, site, tname, tkind, towner):
     owner_simple = (towner or '').split('.')[-1]
     if callee and callee == tname: return ''
     if callee and (tname in CTOR_NAMES or tkind in ('constructor', 'class')) and callee in (owner_simple, tname): return ''
+    # a CONSTRUCTION names its type: `new Error(…)` builds an Error whatever the graph declares, never some other function
+    if site['kind'] in CTOR_KINDS:
+        return f"the call constructs `{site['callee']}`; a construction is linked only to that type's constructor"
     if site['kind'] in VALUE_KINDS: return ''
     if callee in REFLECTIVE: return ''
     rsn = g.reason(site['id'])
@@ -396,6 +400,10 @@ def resolve(g, reader, link):
         un = [s for s in good if g.unresolved(s['id']) or is_value_lib(g, s['id'])]
         named = [s for s in good if (s['callee'] or '').split('.')[-1] == tname]
         good = named if len(named) == 1 else un if un else good
+    if len(good) > 1 and len({(x['callee'], x['col']) for x in good}) == 1:
+        # one call written once and recorded twice (a decorator factory's call and the decoration applying its result):
+        # the call itself
+        good = sorted(good, key=lambda x: (x['kind'] or '').endswith('APPLICATION'))[:1]
     if len(good) > 1:
         # NEVER CHOOSE between two calls the link could mean (`a.run() + b.run()`, `f(a)(b)`): the column says which
         which = ', '.join(f"`{x['callee'] or '?'}` at column {x['col']}" for x in sorted(good, key=lambda x: x['col']))
@@ -929,6 +937,10 @@ def candidates(q, sid, caller, callee, kind, file_, line, reason, reader, cap=5)
     nm = (callee or '').split('.')[-1]
     L = reader.lines(file_) if reader and file_ else None
     cs = q("SELECT name, file, line, end_line, signature FROM symbols WHERE id = ? LIMIT 1", caller)
+    # declarations of the callee's own name (a member call on an untyped receiver)
+    if nm:
+        for (m,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' LIMIT 10", nm):
+            add(m, "a declaration of the name called")
     # a parameter called: what the callers pass in that position
     if nm and cs and L is not None:
         cname, cf, cl, ce, sig = cs[0]
@@ -967,10 +979,6 @@ def candidates(q, sid, caller, callee, kind, file_, line, reason, reader, cap=5)
         for v in sorted(vals):
             for (m,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind NOT IN ('module', 'class') LIMIT 3", v):
                 add(m, "handed over as a value in this file")
-    # declarations of the callee's own name (a member call on an untyped receiver)
-    if nm:
-        for (m,) in q("SELECT method_id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' LIMIT 10", nm):
-            add(m, "a declaration of the name called")
     return out
 
 
@@ -1173,6 +1181,7 @@ def main(argv):
     if len(args) < 2:
         print(USAGE, file=sys.stderr); return 2
     target = args[1]; callee = args[2] if len(args) > 2 else ''
+    if target.startswith('not:'): reject, target = True, target[4:]
     reader = Reader(repo); L = reader.lines(f)
     if L is None or not (0 < line <= len(L)):
         print(f"axiomcode link: rejected — {f}:{line} is not a line of a file in this repository", file=sys.stderr); return 1
