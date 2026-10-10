@@ -1458,7 +1458,9 @@ function liftedChildrenKeepingHeaders(node: SyntaxNode, sheet: Sheet): SyntaxNod
         // A run of declarations the grammar rejected whole is kept too, with whatever
         // declarations it managed to read inside it: the walk re-reads the run from its text.
         if (((isRejectedHeader(text) || LEADING_SELECTOR_FRAGMENT.test(text)) && child.namedChildren.every((c) => c.type !== 'rule_set' && c.type !== 'declaration'))
-          || (node.type === 'block' && isDeclarationRun(text) && child.namedChildren.every((c) => c.type !== 'rule_set'))) {
+          || (node.type === 'block' && isDeclarationRun(text) && child.namedChildren.every((c) => c.type !== 'rule_set'))
+          // `0%,20%,53%,` before `to{…}` in a keyframe block list: the next block's selector list, read from the text
+          || (node.type === 'keyframe_block_list' && /^[\s\d.%,]*(?:from|to)?[\s\d.%,]*$/.test(text))) {
           out.push(child);
         } else {
           visit(child);

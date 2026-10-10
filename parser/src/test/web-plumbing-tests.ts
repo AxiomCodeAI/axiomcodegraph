@@ -113,6 +113,15 @@ async function braceComment(): Promise<void> {
   else ok(`brace-comment: ${decls.length} declarations kept, selectors exactly .w and .next, comment text as written`);
 }
 
+async function keyframeLists(): Promise<void> {
+  const root = tree({ 'anim.css': '@keyframes b{0%,20%,53%,to{opacity:1}40%,43%{opacity:0}}\n' });
+  const ir = await parse(root);
+  const preludes = readCsv(path.join(ir, 'web', 'all-css-rules.csv')).filter((r) => r.ruleKind === 'STYLE_RULE').map((r) => r.preludeText ?? '').sort();
+  ran++;
+  if (JSON.stringify(preludes) !== JSON.stringify(['0%,20%,53%,to', '40%,43%'])) fail(`keyframe-lists: keyframe block preludes ${JSON.stringify(preludes)}`);
+  else ok('keyframe-lists: a minified keyframe selector list is one block with its whole list');
+}
+
 async function inlineJs(): Promise<void> {
   const page = [
     '<!doctype html>',
@@ -154,7 +163,7 @@ async function inlineJs(): Promise<void> {
 }
 
 async function main(): Promise<number> {
-  for (const t of [webFolder, distWalk, braceComment, inlineJs]) {
+  for (const t of [webFolder, distWalk, braceComment, keyframeLists, inlineJs]) {
     try { await t(); } catch (e) { ran++; fail(`${t.name} threw ${e instanceof Error ? e.stack : String(e)}`); }
   }
   if (ran < 1) { console.log('FAIL  no check ran'); return 1; }
