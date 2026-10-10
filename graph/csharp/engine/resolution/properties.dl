@@ -232,6 +232,34 @@ accessor_edge(prov, e, acc, "indexer") :- indexer_write_target(prov, e, acc).
 accessor_edge(prov, e, acc, "event_subscribe") :- event_add_target(prov, e, acc).
 accessor_edge(prov, e, acc, "event_subscribe") :- event_remove_target(prov, e, acc).
 
+// THE DECLARATION A SITE IS WRITTEN AGAINST, when it has no body: an interface or an
+// abstract property's accessor. The fan above names the bodies that can run; the
+// declaration is in none of them, and without its own edge an interface property has
+// no reader at all. The same edge a bodiless method gets in call_chain.dl.
+accessor_site_decl(prov, e, decl, "property_read") :-
+    property_access(prov, e, p, _), !expr_is_write_target(prov, e), property_getter(prov, p, decl).
+accessor_site_decl(prov, e, decl, "property_read") :-
+    property_access_unqualified(prov, e, p), !expr_is_write_target(prov, e), property_getter(prov, p, decl).
+accessor_site_decl(prov, e, decl, "property_write") :-
+    property_access(prov, e, p, _), expr_is_write_target(prov, e), property_setter(prov, p, decl).
+accessor_site_decl(prov, e, decl, "property_write") :-
+    property_access_unqualified(prov, e, p), expr_is_write_target(prov, e), property_setter(prov, p, decl).
+accessor_site_decl(prov, e, decl, "property_write") :-
+    property_access(prov, e, p, _), expr_is_readwrite_target(prov, e), property_setter(prov, p, decl).
+accessor_site_decl(prov, e, decl, "indexer") :-
+    indexer_access(prov, e, p), !expr_is_write_target(prov, e), indexer_getter(prov, p, decl).
+accessor_site_decl(prov, e, decl, "indexer") :-
+    indexer_access(prov, e, p), expr_is_write_target(prov, e), indexer_setter(prov, p, decl).
+accessor_site_decl(prov, e, decl, "event_subscribe") :- event_access(prov, e, ev), event_adder(prov, ev, decl).
+accessor_site_decl(prov, e, decl, "event_subscribe") :- event_unaccess(prov, e, ev), event_remover(prov, ev, decl).
+accessor_is_bodiless(prov, acc) :-
+    method_is_accessor(prov, acc), method_owner(prov, t, acc), type_is_interface(prov, t),
+    !interface_has_default_impl(prov, acc).
+accessor_is_bodiless(prov, acc) :- method_accessor_of(prov, acc, p, _), property_modifier(prov, p, "abstract").
+accessor_names_bodiless(prov, e, decl, kind) :-
+    accessor_site_decl(prov, e, decl, kind), accessor_is_bodiless(prov, decl),
+    !accessor_edge(prov, e, decl, kind), accessor_edge(prov, e, _, kind).
+
 // How many accessors a site can reach. One is the ordinary case; more means the
 // property is virtual and the receiver's type is open, which is the same fan as a
 // method call and is labelled the same way.
