@@ -91,6 +91,19 @@
    "avoid": [
     "[by name]"
    ]
+  },
+  {
+   "why": "a lambda in a `params` array takes the element type, the parameterless overload being no candidate for one argument, so `v.RuleFor` resolves",
+   "run": [
+    "impact",
+    "Inline.RuleFor"
+   ],
+   "want": [
+    "[resolved] Use.<lambda>"
+   ],
+   "avoid": [
+    "[by name]"
+   ]
   }
  ]
 }
