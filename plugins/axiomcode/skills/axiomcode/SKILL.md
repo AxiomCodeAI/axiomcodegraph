@@ -83,7 +83,8 @@ once on `index` and kept by every rebuild after it:
 `auto` finds what the project depends on, in every language: a Python package its source imports, in its virtual
 environment (`.venv`, `venv`, `$VIRTUAL_ENV`); a JavaScript / TypeScript package it imports, under `node_modules`; a
 Java dependency `pom.xml` or `build.gradle` declares, through its `-sources.jar` in the Maven repository or Gradle's
-cache; a NuGet package a `.csproj` references, decompiled from its assembly (needs `dotnet tool install -g ilspycmd`).
+cache, or its class jar decompiled when it ships no sources (needs Vineflower: `mvn dependency:get
+-Dartifact=org.vineflower:vineflower:1.10.1`); a NuGet package a `.csproj` references, decompiled from its assembly (needs `dotnet tool install -g ilspycmd`).
 Whatever it cannot find (a package never restored, a jar without sources) it names, with the command that fetches it.
 A named entry, comma-separated with no spaces, is a dependency's source directory or a library IR (a directory of the
 parser's CSV tables, as `axiomcode parser <source> <dir> --library` writes it). Every library is compiled once into

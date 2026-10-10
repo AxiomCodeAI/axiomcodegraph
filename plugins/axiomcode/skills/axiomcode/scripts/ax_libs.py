@@ -5,7 +5,7 @@ An entry is one of
   auto        the project's dependencies, found where it installed them: a Python package in its virtual environment
               (.venv, venv, env, .env, $VIRTUAL_ENV) or a JavaScript / TypeScript package under node_modules, kept only
               when the project's own source imports it; a Java dependency pom.xml / build.gradle declares, through its
-              -sources.jar; a NuGet package a .csproj references, decompiled with ilspycmd
+              -sources.jar or its class jar decompiled; a NuGet package a .csproj references, decompiled with ilspycmd
   an IR root  a directory already holding the parser's CSV tables (flat, or one level down), passed through
   a source    a dependency's source directory (a NuGet assembly is decompiled to C# first), compiled once with `bin/axiomcode parser <src> <dir> --library` into
               ~/.cache/axiomcode/libir/ and reused until a file in it changes
@@ -151,10 +151,21 @@ def java_coordinates(repo):
     return out
 
 
+def java_decompiler(m2):
+    if os.environ.get('AXIOMCODE_JAVA_DECOMPILER'):
+        return os.environ['AXIOMCODE_JAVA_DECOMPILER']
+    for root in (m2, os.path.join(os.path.expanduser('~'), '.m2', 'repository')):
+        jars = sorted(glob.glob(os.path.join(root, 'org', 'vineflower', 'vineflower', '*', 'vineflower-*.jar')))
+        if jars and shutil.which('java'):
+            return jars[-1]
+    return None
+
+
 def java_sources(repo):
-    """The dependencies' -sources.jar, unpacked once under the cache: Java libraries are compiled from source."""
-    found, missing = [], []
+    """The dependencies' -sources.jar, unpacked once under the cache, or their class jar decompiled with Vineflower."""
+    found, decompiled, missing, undecompiled = [], [], [], []
     m2 = maven_repo(repo)
+    decompiler = java_decompiler(m2)
     gradle = os.path.join(os.path.expanduser('~'), '.gradle', 'caches', 'modules-2', 'files-2.1')
     for g, a, v in sorted(set(java_coordinates(repo))):
         base = os.path.join(m2, *g.split('.'), a)
@@ -162,22 +173,41 @@ def java_sources(repo):
         ver = v if v in known else (known[-1] if known and (not v or '$' in v) else v)
         cands = glob.glob(os.path.join(base, ver or '-', f'{a}-{ver}-sources.jar'))
         cands += glob.glob(os.path.join(gradle, g, a, v or '*', '*', f'{a}-*-sources.jar'))
-        if not cands:
+        if cands:
+            jar = sorted(cands)[-1]
+            dest = os.path.join(CACHE, 'src', os.path.basename(jar)[:-len('.jar')])
+            if not os.path.isfile(os.path.join(dest, '.unpacked')):
+                os.makedirs(dest, exist_ok=True)
+                with zipfile.ZipFile(jar) as z:
+                    z.extractall(dest, [n for n in z.namelist() if n.endswith('.java')])
+                open(os.path.join(dest, '.unpacked'), 'w').close()
+            found.append(dest); continue
+        # no sources jar: the class jar is decompiled to Java instead
+        bins = glob.glob(os.path.join(base, ver or '-', f'{a}-{ver}.jar'))
+        bins += [j for j in glob.glob(os.path.join(gradle, g, a, v or '*', '*', f'{a}-*.jar')) if not j.endswith('-sources.jar')]
+        if not bins:
             missing.append(f'{g}:{a}:{v}'); continue
-        jar = sorted(cands)[-1]
-        dest = os.path.join(CACHE, 'src', os.path.basename(jar)[:-len('.jar')])
-        if not os.path.isfile(os.path.join(dest, '.unpacked')):
+        if not decompiler:
+            undecompiled.append(f'{g}:{a}:{v}'); continue
+        jar = sorted(bins)[-1]
+        dest = os.path.join(CACHE, 'src', os.path.basename(jar)[:-len('.jar')] + '-decompiled')
+        if not os.path.isfile(os.path.join(dest, '.decompiled')):
             os.makedirs(dest, exist_ok=True)
-            with zipfile.ZipFile(jar) as z:
-                z.extractall(dest, [n for n in z.namelist() if n.endswith('.java')])
-            open(os.path.join(dest, '.unpacked'), 'w').close()
-        found.append(dest)
-    if found or missing:
-        note(f'auto: {len(found)} Java dependency source jar(s), from {m2}')
+            subprocess.run(['java', '-jar', decompiler, jar, dest], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if not glob.glob(os.path.join(dest, '**', '*.java'), recursive=True):
+                missing.append(f'{g}:{a}:{v} (did not decompile)'); continue
+            open(os.path.join(dest, '.decompiled'), 'w').close()
+        decompiled.append(dest)
+    if found or decompiled:
+        note(f'auto: {len(found)} Java dependency source jar(s) and {len(decompiled)} decompiled class jar(s), from {m2}')
+    if undecompiled:
+        note(f'auto: {len(undecompiled)} Java dependency(ies) with no sources jar ({", ".join(undecompiled[:5])}) and no '
+             'decompiler: `mvn dependency:sources` fetches sources, or `mvn dependency:get '
+             '-Dartifact=org.vineflower:vineflower:1.10.1` the decompiler')
     if missing:
-        note(f'auto: no sources jar for {len(missing)} Java dependency(ies) ({", ".join(missing[:5])}'
-             f'{" …" if len(missing) > 5 else ""}); `mvn dependency:sources` fetches them')
-    return found
+        note(f'auto: {len(missing)} Java dependency(ies) not in the repository ({", ".join(missing[:5])}'
+             f'{" …" if len(missing) > 5 else ""}); `mvn dependency:resolve` fetches them')
+    return found + decompiled
 
 
 def nuget_folder(repo):
