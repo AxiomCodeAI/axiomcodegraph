@@ -76,6 +76,9 @@ lcb_expr_names(e, c) :- lcb_path_of(e, p), lcb_canon(p, c).
 .decl lcb_direct_ext_base(t:symbol, c:symbol)
 lcb_direct_ext_base(t, c) :-
     type_base_slot("client", t, _, "NAME", _, _, bh), base_expr("client", bh, e), lcb_expr_names(e, c).
+// a dotted base, `class Store(abc.Mapping)` after `from collections import abc`: the attribute chain names it
+lcb_direct_ext_base(t, c) :-
+    type_base_slot("client", t, _, "DOTTED_NAME", _, _, bh), base_expr("client", bh, e), lcb_expr_names(e, c).
 lcb_direct_ext_base(t, c) :-
     type_base_slot("client", t, _, "SUBSCRIPT", _, _, bh), base_expr("client", bh, e),
     expr_parent("client", e, "SUBSCRIPT_OBJECT", _, obj), lcb_expr_names(obj, c).

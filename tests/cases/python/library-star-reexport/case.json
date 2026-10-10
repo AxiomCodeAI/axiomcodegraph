@@ -1,0 +1,71 @@
+{
+ "lang": "python",
+ "src": ".",
+ "checks": [
+  {
+   "why": "a name a library re-exports with `from M import *` is M's class: Table.get, inherited through the star module, calls back the client's __getitem__",
+   "run": [
+    "impact",
+    "lookup_key",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_get.py",
+    "library callback"
+   ],
+   "avoid": [
+    "tests/test_flat.py"
+   ]
+  },
+  {
+   "why": "Table.update calls back the client's __setitem__",
+   "run": [
+    "impact",
+    "store_key",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_update.py"
+   ]
+  },
+  {
+   "why": "a dotted base (`class DottedStore(mb.Table)`) names the library class through its attribute chain",
+   "run": [
+    "impact",
+    "dotted_lookup",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_dotted.py"
+   ],
+   "avoid": [
+    "tests/test_get.py"
+   ]
+  },
+  {
+   "why": "a generic alias a library builds around a class (`Table = _Alias(mixkit.abc.Table, 2)`) is that class",
+   "run": [
+    "impact",
+    "typed_lookup",
+    "--tests"
+   ],
+   "want": [
+    "tests/test_typed.py"
+   ]
+  },
+  {
+   "why": "CONTROL: a library base whose get() hands nothing back never reaches the client's __getitem__",
+   "run": [
+    "impact",
+    "plain_lookup",
+    "--tests"
+   ],
+   "want": [
+    "tests: 0 of"
+   ],
+   "avoid": [
+    "tests/test_flat.py"
+   ]
+  }
+ ]
+}
