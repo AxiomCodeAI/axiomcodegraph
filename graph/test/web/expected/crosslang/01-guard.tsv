@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: crosslang/01-guard   kinds: handler_call,script,dom_touch
+# shape: a typical admin page: an onclick handler naming a function defined in an inline script, an external script that touches .btn by querySelector, and a .btn rule — the graph must carry both sides' join keys and no edge between them
+dom_touch	app.js	1	getElementById	0	x	#x
+dom_touch	app.js	2	querySelector	0	.btn	.btn
+dom_touch	index.html	6	classList.add	0	on	.on
+dom_touch	index.html	6	querySelector	0	.btn	.btn
+handler_call	index.html:9:1	onclick	EVENT_ATTRIBUTE	go	index.html#on-1
+script	index.html:5:1	EXTERNAL	CLASSIC	app.js
+script	index.html:6:1	INLINE	CLASSIC	index.html#script-1

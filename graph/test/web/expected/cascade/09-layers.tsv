@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/09-layers   kinds: cascade,layer
+# shape: a design-system sheet declaring @layer order up front, layered blocks, nested layers, @import layer() and unlayered overrides
+cascade	index.html	s.css:3:21/0	index.html:5:1	2	4	3	0,1,0	0	-
+cascade	index.html	s.css:4:16/0	index.html:5:1	2	6	1	0,0,1	0	-
+cascade	index.html	s.css:5:29/0	index.html:5:1	2	8	2	0,1,0	0	-
+cascade	index.html	s.css:6:10/0	index.html:5:1	2	10	5	0,1,0	0	-
+cascade	index.html	s.css:7:1/0	index.html:5:1	2	11	6	0,1,0	0	-
+cascade	index.html	vendor.css:1:1/0	index.html:5:1	1	1	4	0,1,0	0	-
+layer	components
+layer	components.buttons
+layer	reset
+layer	vendor

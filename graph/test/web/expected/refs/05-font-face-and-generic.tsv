@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: refs/05-font-face-and-generic   kinds: font_face,font_use,value_ref
+# shape: icon-font and brand-font sheets: @font-face families used by font-family and the font shorthand, generic families, and a web font loaded from a CDN
+font_face	s.css:1:1	Brand Sans
+font_face	s.css:2:1	Icons
+font_use	s.css:3:6	Helvetica	-	index.html	unknown	system_or_external_font
+font_use	s.css:3:6	brand sans	s.css:1:1	index.html	match	-
+font_use	s.css:4:6	Icons	s.css:2:1	index.html	match	-
+value_ref	s.css:1:41	URL	fonts/brand.woff2	local	fonts/brand.woff2
+value_ref	s.css:2:34	URL	fonts/icons.woff	local	-
+value_ref	s.css:3:6	FONT_FAMILY	Helvetica	-	-
+value_ref	s.css:3:6	FONT_FAMILY	brand sans	-	-
+value_ref	s.css:4:6	FONT_FAMILY	Icons	-	-

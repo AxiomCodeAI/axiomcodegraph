@@ -1,0 +1,6 @@
+my-el::part(label) { a: 1 }
+:host(.w) { a: 2 }
+::slotted(p) { a: 3 }
+col.selected || td { a: 4 }
+.w:unknown-thing { a: 5 }
+p.w { a: 6 }

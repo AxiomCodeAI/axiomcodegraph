@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/15-template-dialects   kinds: template_expr,handler_call
+# shape: Tailwind + Alpine dashboards: x-data, @click, :class, x-show; a Vue-style v-if; mustache text interpolation
+handler_call	index.html:4:3	@click	TEMPLATE_EVENT	track	-
+handler_call	index.html:5:3	x-on:keydown.escape	TEMPLATE_EVENT	close	-
+handler_call	index.html:7:3	onclick	EVENT_ATTRIBUTE	toggle	index.html#on-1
+template_expr	index.html:3:1	x-data	{ open: false }
+template_expr	index.html:4:3	:class	open ? 'on' : ''
+template_expr	index.html:4:3	@click	open = !open; track('menu')
+template_expr	index.html:5:3	x-on:keydown.escape	close
+template_expr	index.html:5:3	x-show	open
+template_expr	index.html:6:3	#text	user.name
+template_expr	index.html:6:3	v-if	ready

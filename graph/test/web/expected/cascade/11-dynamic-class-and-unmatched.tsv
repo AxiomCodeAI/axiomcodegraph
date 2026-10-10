@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/11-dynamic-class-and-unmatched   kinds: styles,unknown
+# shape: Alpine/Vue dashboards toggling classes through :class / x-bind:class, and utility classes that only JavaScript adds
+styles	s.css:1:1/0	index.html:5:1	unknown	dynamic_class	-
+styles	s.css:2:1/0	index.html:5:45	unknown	dynamic_class	-
+styles	s.css:3:1/0	index.html:6:1	unknown	dynamic_class	-
+styles	s.css:6:1/0	index.html:5:1	match	-	-
+unknown	no_static_carrier	s.css:4:1/0	index.html
+unknown	no_static_carrier	s.css:5:1/0	index.html

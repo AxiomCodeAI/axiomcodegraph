@@ -1,0 +1,12 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/04-iframe-srcdoc   kinds: element,attribute,reference
+# shape: embedding tutorials: <iframe srcdoc="<p>..."> and fallback markup written between <iframe> and </iframe>
+attribute	index.html:4:3	srcdoc	<p class='inner'>hello</p>
+attribute	index.html:4:3	title	a
+attribute	index.html:5:3	src	other.html
+element	index.html:2:1	html	-	-
+element	index.html:3:1	body	-	-
+element	index.html:4:3	iframe	-	-
+element	index.html:5:3	iframe	-	-
+element	other.html:1:16	title	-	-
+reference	index.html:5:3	src	other.html	local	other.html

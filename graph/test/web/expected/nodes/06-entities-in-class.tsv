@@ -1,0 +1,14 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/06-entities-in-class   kinds: element,class_token,id
+# shape: template output with character references inside class and id values
+class_token	index.html:4:3	0	a&b
+class_token	index.html:4:3	1	x-y
+class_token	index.html:4:3	2	"q"
+class_token	index.html:5:3	0	multi
+class_token	index.html:5:3	1	line
+class_token	index.html:5:3	2	tabbed
+element	index.html:2:1	html	-	-
+element	index.html:3:1	body	-	-
+element	index.html:4:3	div	n1	a&b x-y "q"
+element	index.html:5:3	span	-	multi line tabbed
+id	index.html	n1	1

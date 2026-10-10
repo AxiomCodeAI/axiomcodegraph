@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/09-bom-crlf   kinds: page,element,declaration
+# shape: pages saved with a UTF-8 byte-order mark and CRLF line endings
+declaration	css/bom.css:2:3	css/bom.css:1:1	color	blue	0
+declaration	index.html:5:8	index.html:5:3	color	red	0
+element	index.html:2:1	html	-	-
+element	index.html:3:1	head	-	-
+element	index.html:4:1	style	-	-
+element	index.html:8:1	body	-	-
+element	index.html:9:3	p	-	a
+page	index.html	DOCUMENT

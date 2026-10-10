@@ -1,0 +1,7 @@
+@layer reset, components;
+@import url("vendor.css") layer(vendor);
+@layer components { .p { a: 1 } }
+@layer reset { p { a: 2 } }
+@layer components.buttons { .p { a: 3 } }
+@layer { .p { a: 4 } }
+.p { a: 5 }

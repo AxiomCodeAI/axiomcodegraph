@@ -1,0 +1,6 @@
+@namespace svg url(http://www.w3.org/2000/svg);
+linearGradient { a: 1 }
+lineargradient { a: 2 }
+foreignObject .fo { a: 3 }
+svg|rect { a: 4 }
+DIV.d { a: 5 }

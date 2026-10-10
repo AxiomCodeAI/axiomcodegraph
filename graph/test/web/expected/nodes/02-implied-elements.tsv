@@ -1,0 +1,25 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/02-implied-elements   kinds: page,element,contains
+# shape: teaching pages with <tr> written directly under <table> and pages with no <html>/<head>/<body> tags at all
+contains	index.html	index.html:2:1
+contains	index.html	index.html:3:1
+contains	index.html	index.html:7:1
+contains	index.html:3:1	index.html:4:3
+contains	index.html:3:1	index.html:5:3
+contains	index.html:4:3	index.html:4:17
+contains	index.html:4:3	index.html:4:7
+contains	index.html:5:3	index.html:5:7
+contains	partial.html	partial.html:1:1
+contains	partial.html:1:1	partial.html:2:3
+element	index.html:2:1	title	-	-
+element	index.html:3:1	table	-	-
+element	index.html:4:17	td	-	-
+element	index.html:4:3	tr	-	-
+element	index.html:4:7	td	-	-
+element	index.html:5:3	tr	-	-
+element	index.html:5:7	td	-	-
+element	index.html:7:1	p	-	-
+element	partial.html:1:1	div	-	card
+element	partial.html:2:3	h3	-	-
+page	index.html	DOCUMENT
+page	partial.html	FRAGMENT

@@ -1,0 +1,5 @@
+.card { --pad: 4px; }
+.card .body { padding: var(--pad); }
+.other { padding: var(--pad); }
+.card:hover { --hov: 1; }
+.body { opacity: var(--hov); }

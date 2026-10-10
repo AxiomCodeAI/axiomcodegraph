@@ -1,0 +1,2 @@
+:root { --blue: #00f; --primary: var(--blue); --btn-bg: var(--primary, red); }
+.btn { background: var(--btn-bg); color: var(--fg, var(--blue)); border-color: var(--nowhere); }

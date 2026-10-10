@@ -1,0 +1,12 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/15-root-and-lang   kinds: styles,unknown
+# shape: theme sheets defining custom properties on :root and localisation rules using :lang(), on a page with and without a written <html>
+styles	s.css:1:1/0	full.html:2:1	match	-	-
+styles	s.css:2:1/0	bare.html:3:1	unknown	lang_unknown	-
+styles	s.css:2:1/0	full.html:5:10	match	-	-
+styles	s.css:3:1/0	bare.html:3:1	unknown	lang_unknown	-
+styles	s.css:3:1/0	full.html:5:1	match	-	-
+styles	s.css:4:1/0	full.html:5:1	match	-	-
+styles	s.css:4:1/0	full.html:5:10	match	-	-
+unknown	implied_element	s.css:1:1/0	bare.html
+unknown	implied_element	s.css:4:1/0	bare.html

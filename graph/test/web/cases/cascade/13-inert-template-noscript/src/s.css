@@ -1,0 +1,4 @@
+.row { a: 1 }
+.row .cell { a: 2 }
+.warn { a: 3 }
+template > .row { a: 4 }

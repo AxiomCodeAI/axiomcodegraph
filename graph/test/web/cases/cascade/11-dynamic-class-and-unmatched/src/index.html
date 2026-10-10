@@ -1,0 +1,9 @@
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="s.css"></head>
+<body>
+<div class="menu" :class="{ open: isOpen }"><a class="item">a</a></div>
+<div class="panel" x-bind:class="active ? 'shown' : ''">p</div>
+<div class="static">s</div>
+</body>
+</html>

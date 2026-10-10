@@ -1,0 +1,6 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: refs/02-var-inheritance-scope   kinds: var
+# shape: component sheets defining a custom property on one component and using it in a sibling component (no inheritance path) and in a descendant
+var	s.css:2:15	--pad	s.css:1:9	index.html	match	-
+var	s.css:3:10	--pad	s.css:1:9	index.html	unknown	not_inherited
+var	s.css:5:9	--hov	s.css:4:15	index.html	conditional	-

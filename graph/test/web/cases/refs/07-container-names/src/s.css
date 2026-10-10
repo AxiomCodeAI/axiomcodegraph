@@ -1,0 +1,5 @@
+.w { container-name: card sidebar; container-type: inline-size; }
+.z { container: main / size; }
+@container card (min-width: 400px) { .t { a: 1 } }
+@container nowhere (min-width: 1px) { .t { a: 2 } }
+@container (min-width: 1px) { .t { a: 3 } }

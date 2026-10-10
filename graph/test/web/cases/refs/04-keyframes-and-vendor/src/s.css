@@ -1,0 +1,6 @@
+@keyframes fadeIn { from { opacity: 0 } }
+@-webkit-keyframes fadeIn { from { opacity: 0 } }
+@keyframes "quoted" { to { opacity: 1 } }
+.a { animation: 1s ease-in 2 fadeIn; }
+.b { animation-name: fadeIn, missingOne; -webkit-animation: fadeIn 2s infinite; }
+.c { animation: none; }

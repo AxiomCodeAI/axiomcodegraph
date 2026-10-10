@@ -1,0 +1,2 @@
+nav#main > ul.menu li[data-x="1"]:hover::after, *, .a.b { color: red }
+.p { & .q { color: blue } }

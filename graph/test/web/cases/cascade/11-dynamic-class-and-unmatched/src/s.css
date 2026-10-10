@@ -1,0 +1,6 @@
+.menu.open { a: 1 }
+.menu.open .item { a: 2 }
+.panel.shown { a: 3 }
+.static.added-by-js { a: 4 }
+.never-anywhere { a: 5 }
+.menu { a: 6 }

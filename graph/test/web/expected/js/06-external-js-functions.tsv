@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: js/06-external-js-functions   kinds: js_function
+# shape: site scripts in separate .js files: function declarations, object-literal methods, prototype assignments; a .min.js the oracle and the parser skip
+js_function	js/site.js	1	a
+js_function	js/site.js	3	m
+js_function	js/site.js	4	n
+js_function	js/site.js	5	p
+js_function	js/site.js	7	bar
+js_function	js/site.js	8	-
+js_function	js/site.js	8	inner

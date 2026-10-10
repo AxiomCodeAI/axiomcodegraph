@@ -1,0 +1,2 @@
+@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.g { transform: rotate(var(--angle)); }

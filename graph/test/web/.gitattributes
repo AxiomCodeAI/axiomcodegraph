@@ -1,0 +1,2 @@
+# Fixtures whose line endings ARE the test: never normalise them
+cases/nodes/09-bom-crlf/src/** -text

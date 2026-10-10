@@ -1,0 +1,11 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/07-duplicate-ids   kinds: id,id_ref
+# shape: copy-pasted demo widgets: the same id twice on one page, with a label and aria-labelledby pointing at it
+id	index.html	dup	2
+id	index.html	t	1
+id_ref	index.html:5:3	for	dup	index.html:4:19	ambiguous	duplicate_id
+id_ref	index.html:5:3	for	dup	index.html:4:3	ambiguous	duplicate_id
+id_ref	index.html:7:3	aria-labelledby	missing	-	unknown	no_such_id
+id_ref	index.html:7:3	aria-labelledby	t	index.html:6:3	match	-
+id_ref	index.html:8:25	href	nowhere	-	unknown	no_such_id
+id_ref	index.html:8:3	href	t	index.html:6:3	match	-

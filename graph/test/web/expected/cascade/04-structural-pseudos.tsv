@@ -1,0 +1,19 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/04-structural-pseudos   kinds: styles
+# shape: table striping and list styling with nth-child formulas, nth-child(of S), and the -of-type family
+styles	s.css:10:1/0	index.html:6:14	match	-	-
+styles	s.css:11:1/0	index.html:5:25	match	-	-
+styles	s.css:11:1/0	index.html:5:5	match	-	-
+styles	s.css:1:1/0	index.html:5:35	match	-	-
+styles	s.css:1:1/0	index.html:5:5	match	-	-
+styles	s.css:1:1/0	index.html:5:65	match	-	-
+styles	s.css:2:1/0	index.html:5:25	match	-	-
+styles	s.css:2:1/0	index.html:5:55	match	-	-
+styles	s.css:3:1/0	index.html:5:55	match	-	-
+styles	s.css:4:1/0	index.html:5:35	match	-	-
+styles	s.css:5:1/0	index.html:5:5	match	-	-
+styles	s.css:5:1/1	index.html:5:65	match	-	-
+styles	s.css:6:1/0	index.html:6:6	match	-	-
+styles	s.css:7:1/0	index.html:6:28	match	-	-
+styles	s.css:8:1/0	index.html:6:28	match	-	-
+styles	s.css:9:1/0	index.html:7:10	match	-	-

@@ -1,0 +1,16 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/11-style-attr-and-style-element   kinds: declaration,value_ref,stylesheet,rule
+# shape: pages mixing inline style="" attributes (with var() and url()) and <style> blocks in head and body
+declaration	index.html:11:14	index.html:11:10	margin	0	0
+declaration	index.html:5:13	index.html:5:5	background	url("img/hero.png") no-repeat	0
+declaration	index.html:5:56	index.html:5:5	color	var(--fg, #000)	1
+declaration	index.html:9:28	attr@index.html:9:3	margin	0 auto	0
+declaration	index.html:9:44	attr@index.html:9:3	--fg	red	0
+declaration	index.html:9:54	attr@index.html:9:3	background-image	url(img/x.png)	0
+rule	index.html:11:10	style	p	-
+rule	index.html:5:5	style	.hero	-
+stylesheet	style@index.html:11:3	STYLE
+stylesheet	style@index.html:4:3	STYLE
+value_ref	index.html:5:13	URL	img/hero.png	local	img/hero.png
+value_ref	index.html:5:56	VARIABLE	--fg	#000	-
+value_ref	index.html:9:54	URL	img/x.png	local	-

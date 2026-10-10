@@ -1,0 +1,10 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: js/02-non-js-script-bodies   kinds: js_function,script
+# shape: jQuery-template and Underscore pages hiding markup in <script type="text/template">, plus a JSON-LD block and an inline script that fails to parse
+js_function	index.html#script-1	6	real
+js_function	index.html#script-3	8	afterBroken
+script	index.html:4:1	INLINE	TEMPLATE	-
+script	index.html:5:1	INLINE	TEMPLATE	-
+script	index.html:6:1	INLINE	CLASSIC	index.html#script-1
+script	index.html:7:1	INLINE	CLASSIC	index.html#script-2
+script	index.html:8:1	INLINE	CLASSIC	index.html#script-3

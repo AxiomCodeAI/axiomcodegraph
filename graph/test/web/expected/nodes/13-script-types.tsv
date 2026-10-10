@@ -1,0 +1,12 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/13-script-types   kinds: script
+# shape: demo pages with classic, module, JSON-LD, importmap, client-side template and transpiled script blocks
+script	index.html:10:3	INLINE	TRANSPILED	-
+script	index.html:11:3	INLINE	CLASSIC	index.html#script-3
+script	index.html:12:3	EXTERNAL	CLASSIC	-
+script	index.html:4:3	EXTERNAL	CLASSIC	lib.js
+script	index.html:5:3	INLINE	CLASSIC	index.html#script-1
+script	index.html:6:3	INLINE	MODULE	index.html#script-2
+script	index.html:7:3	INLINE	JSON	-
+script	index.html:8:3	INLINE	IMPORTMAP	-
+script	index.html:9:3	INLINE	TEMPLATE	-

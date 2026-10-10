@@ -1,0 +1,17 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/14-references   kinds: reference
+# shape: pages with srcset candidates, video posters, form actions, <base href>, meta refresh, data: URIs, mailto:, protocol-relative CDN links and template URLs
+reference	site/index.html:10:3	poster	img/p.jpg	local	site/img/p.jpg
+reference	site/index.html:10:3	src	v.mp4	local	-
+reference	site/index.html:11:3	action	search.html?q=1	local	-
+reference	site/index.html:11:34	formaction	other.html	local	-
+reference	site/index.html:12:3	href	mailto:x@example.org	scheme	-
+reference	site/index.html:13:3	src	data:image/png;base64,AAAA	data	-
+reference	site/index.html:14:3	href	{{ url_for('home') }}	template	-
+reference	site/index.html:15:3	href	../up.html#sec	local	up.html
+reference	site/index.html:4:3	content	next.html	local	site/next.html
+reference	site/index.html:5:3	href	/favicon.ico	local	favicon.ico
+reference	site/index.html:6:3	href	//cdn.example.org/x.css	external	-
+reference	site/index.html:9:3	src	img/a.png	local	site/img/a.png
+reference	site/index.html:9:3	srcset	img/a.png	local	site/img/a.png
+reference	site/index.html:9:3	srcset	img/a@2x.png	local	-

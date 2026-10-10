@@ -1,0 +1,11 @@
+li:nth-child(2n+1) { a: 1 }
+li:nth-child(even) { a: 2 }
+li:nth-last-child(2) { a: 3 }
+li:nth-child(2 of .x) { a: 4 }
+li:first-child, li:last-child { a: 5 }
+p:first-of-type { a: 6 }
+p:last-of-type { a: 7 }
+p:nth-of-type(2) { a: 8 }
+em:only-child { a: 9 }
+span:only-of-type { a: 10 }
+li:nth-child(-n+2) { a: 11 }

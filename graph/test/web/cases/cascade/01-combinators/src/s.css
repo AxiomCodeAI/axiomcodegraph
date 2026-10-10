@@ -1,0 +1,6 @@
+.side .i { color: red }
+.side > .menu > .i { color: blue }
+.i + .i { margin: 0 }
+h3 ~ p { color: green }
+h3 + p { color: gray }
+.menu > li > .i { x: 1 }

@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: pages/01-shared-stylesheet   kinds: loads_sheet,styles
+# shape: multi-page admin template: every page links the same theme sheet; pages differ in markup
+loads_sheet	about.html	css/theme.css	link	1	0	match	-
+loads_sheet	index.html	css/theme.css	link	1	0	match	-
+styles	css/theme.css:1:1/0	about.html:7:1	match	-	-
+styles	css/theme.css:1:1/0	index.html:7:1	match	-	-
+styles	css/theme.css:2:1/0	about.html:7:1	match	-	-
+styles	css/theme.css:3:1/0	about.html:7:34	match	-	-

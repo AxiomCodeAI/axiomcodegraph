@@ -1,0 +1,18 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: pages/03-import-chain   kinds: loads_sheet,imports,cascade
+# shape: widget-library theme bundles: an all.css @importing base.css which @imports core.css, plus an @import cycle
+cascade	index.html	themes/all.css:3:1/0	index.html:7:1	5	3	1	0,1,0	0	-
+cascade	index.html	themes/base.css:2:1/0	index.html:7:1	2	2	1	0,1,0	0	-
+cascade	index.html	themes/core.css:1:1/0	index.html:7:1	1	1	1	0,1,0	0	-
+cascade	index.html	themes/cycle.css:2:1/0	index.html:7:1	3	2	1	0,1,0	0	-
+cascade	index.html	themes/theme.css:2:1/0	index.html:7:1	4	2	1	0,1,0	0	-
+imports	themes/all.css	themes/base.css	match	-
+imports	themes/all.css	themes/theme.css	match	-
+imports	themes/base.css	themes/core.css	match	-
+imports	themes/cycle.css	themes/theme.css	match	-
+imports	themes/theme.css	themes/cycle.css	match	-
+loads_sheet	index.html	themes/all.css	link	5	0	match	-
+loads_sheet	index.html	themes/base.css	import	2	1	match	-
+loads_sheet	index.html	themes/core.css	import	1	2	match	-
+loads_sheet	index.html	themes/cycle.css	import	3	2	match	-
+loads_sheet	index.html	themes/theme.css	import	4	1	match	-

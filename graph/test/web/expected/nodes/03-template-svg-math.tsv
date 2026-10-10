@@ -1,0 +1,37 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: nodes/03-template-svg-math   kinds: element,attribute,contains
+# shape: component demo pages with <template> blocks, inline SVG icons (camelCase linearGradient, viewBox) and a MathML formula
+attribute	index.html:4:22	class	r
+attribute	index.html:4:3	id	row
+attribute	index.html:5:3	viewBox	0 0 10 10
+attribute	index.html:5:34	id	g
+attribute	index.html:5:57	offset	0
+attribute	index.html:5:99	href	#g
+contains	index.html	index.html:2:1
+contains	index.html:2:1	index.html:3:1
+contains	index.html:3:1	index.html:4:3
+contains	index.html:3:1	index.html:5:3
+contains	index.html:3:1	index.html:6:3
+contains	index.html:4:22	index.html:4:36
+contains	index.html:4:3	index.html:4:22
+contains	index.html:5:28	index.html:5:34
+contains	index.html:5:3	index.html:5:28
+contains	index.html:5:3	index.html:5:99
+contains	index.html:5:34	index.html:5:57
+contains	index.html:6:3	index.html:6:19
+contains	index.html:6:3	index.html:6:29
+contains	index.html:6:3	index.html:6:9
+element	index.html:2:1	html	-	-
+element	index.html:3:1	body	-	-
+element	index.html:4:22	tr	-	r
+element	index.html:4:3	template	row	-
+element	index.html:4:36	td	-	-
+element	index.html:5:28	defs	-	-
+element	index.html:5:3	svg	-	-
+element	index.html:5:34	linearGradient	g	-
+element	index.html:5:57	stop	-	-
+element	index.html:5:99	use	-	-
+element	index.html:6:19	mo	-	-
+element	index.html:6:29	mn	-	-
+element	index.html:6:3	math	-	-
+element	index.html:6:9	mi	-	-

@@ -1,0 +1,4 @@
+:root { a: 1 }
+p:lang(fr) { a: 2 }
+p:lang(de) { a: 3 }
+html:root p { a: 4 }

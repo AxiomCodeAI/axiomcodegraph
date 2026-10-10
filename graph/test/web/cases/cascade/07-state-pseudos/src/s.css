@@ -1,0 +1,13 @@
+.b:hover { a: 1 }
+.b:focus-visible::before { a: 2 }
+.b:disabled { a: 3 }
+.b:enabled:active { a: 4 }
+.c:checked { a: 5 }
+.c:not(:checked) { a: 6 }
+.t:placeholder-shown { a: 7 }
+.t::-webkit-input-placeholder { a: 8 }
+.l:link { a: 9 }
+.l:visited { a: 10 }
+.l:after { a: 11 }
+.b:-moz-focusring { a: 12 }
+.b:not(:hover) { a: 13 }

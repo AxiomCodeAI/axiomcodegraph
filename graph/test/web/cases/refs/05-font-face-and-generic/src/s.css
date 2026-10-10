@@ -1,0 +1,5 @@
+@font-face { font-family: "Brand Sans"; src: url("fonts/brand.woff2"); }
+@font-face { font-family: Icons; src: url(fonts/icons.woff); }
+.a { font-family: "brand sans", Helvetica, sans-serif; }
+.b { font: italic bold 12px/30px Icons, serif; }
+.c { font-family: system-ui; }

@@ -1,0 +1,9 @@
+<!doctype html>
+<html>
+<body x-data="{ open: false }">
+  <button @click="open = !open; track('menu')" :class="open ? 'on' : ''">menu</button>
+  <nav x-show="open" x-on:keydown.escape="close">n</nav>
+  <div v-if="ready">{{ user.name }}</div>
+  <a href="#" onclick="toggle(); return false">t</a>
+</body>
+</html>

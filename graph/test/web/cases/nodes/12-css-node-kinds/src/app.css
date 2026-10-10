@@ -1,0 +1,11 @@
+/* header comment */
+@layer reset, base;
+@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@font-face { font-family: "Brand Sans"; src: url(fonts/brand.woff2) format("woff2"); }
+@keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }
+@-webkit-keyframes spin { 0% { opacity: 0 } 100% { opacity: 1 } }
+@layer base { @layer inner { .x { color: red } } }
+@container card (min-width: 300px) { .t { --gap: 1rem; } }
+@supports (display: grid) { .g { display: grid } }
+@media (max-width: 600px) { /* inside */ .m { display: none } }
+.c { container: card / inline-size; }

@@ -1,0 +1,9 @@
+.btn {
+  &.primary { a: 1 }
+  & .icon { a: 2 }
+  b { a: 3 }
+  > b { a: 4 }
+  .card & { a: 5 }
+  @media (min-width: 1px) { & { a: 6 } }
+}
+.card, .btn.primary { .icon, & > .btn { a: 7 } }

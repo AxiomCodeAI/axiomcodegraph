@@ -1,0 +1,18 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: refs/01-var-chains-and-fallbacks   kinds: var,value_ref,custom_property
+# shape: Bootstrap-5-style token sheets: custom properties on :root defined from other custom properties, used with and without fallbacks, one never defined
+custom_property	--blue
+custom_property	--btn-bg
+custom_property	--primary
+value_ref	s.css:1:23	VARIABLE	--blue	-	-
+value_ref	s.css:1:47	VARIABLE	--primary	red	-
+value_ref	s.css:2:35	VARIABLE	--blue	-	-
+value_ref	s.css:2:35	VARIABLE	--fg	var(--blue)	-
+value_ref	s.css:2:66	VARIABLE	--nowhere	-	-
+value_ref	s.css:2:8	VARIABLE	--btn-bg	-	-
+var	s.css:1:23	--blue	s.css:1:9	index.html	match	-
+var	s.css:1:47	--primary	s.css:1:23	index.html	match	-
+var	s.css:2:35	--blue	s.css:1:9	index.html	match	-
+var	s.css:2:35	--fg	-	index.html	unknown	fallback_only
+var	s.css:2:66	--nowhere	-	index.html	unknown	no_definition_in_scope
+var	s.css:2:8	--btn-bg	s.css:1:47	index.html	match	-

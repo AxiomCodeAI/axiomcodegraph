@@ -1,0 +1,9 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: pages/04-include-partials   kinds: page,reference,unknown
+# shape: Tailwind dashboard pages assembling the layout from <include src="./partials/..."> partials at build time
+page	src/index.html	DOCUMENT
+page	src/partials/sidebar.html	FRAGMENT
+reference	src/index.html:4:1	href	css/style.css	local	src/css/style.css
+reference	src/index.html:7:1	src	./partials/sidebar.html	local	src/partials/sidebar.html
+unknown	fragment_no_host	src/partials/sidebar.html	src/partials/sidebar.html
+unknown	no_static_carrier	src/css/style.css:1:1/0	src/index.html

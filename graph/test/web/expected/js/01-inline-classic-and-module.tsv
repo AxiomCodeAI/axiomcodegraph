@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: js/01-inline-classic-and-module   kinds: js_function,script
+# shape: vanilla-JS teaching pages: functions declared in several inline <script> blocks (classic and module), function expressions, arrows, class methods
+js_function	index.html#script-1	5	init
+js_function	index.html#script-1	6	named
+js_function	index.html#script-1	7	g
+js_function	index.html#script-2	13	render
+js_function	index.html#script-2	15	h
+js_function	index.html#script-3	19	onload
+script	index.html:10:1	INLINE	JSON	-
+script	index.html:11:1	INLINE	MODULE	index.html#script-2
+script	index.html:19:1	INLINE	CLASSIC	index.html#script-3
+script	index.html:4:1	INLINE	CLASSIC	index.html#script-1

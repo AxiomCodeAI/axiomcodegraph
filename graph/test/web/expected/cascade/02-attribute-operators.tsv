@@ -1,0 +1,14 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/02-attribute-operators   kinds: styles,unknown
+# shape: form and icon styling with every attribute operator, including the i and s flags
+styles	s.css:11:1/0	index.html:5:1	match	-	-
+styles	s.css:12:1/0	index.html:5:1	match	-	-
+styles	s.css:1:1/0	index.html:5:1	match	-	-
+styles	s.css:1:1/0	index.html:7:1	match	-	-
+styles	s.css:2:1/0	index.html:7:1	match	-	-
+styles	s.css:3:1/0	index.html:5:1	match	-	-
+styles	s.css:5:1/0	index.html:5:1	match	-	-
+styles	s.css:6:1/0	index.html:6:1	match	-	-
+styles	s.css:7:1/0	index.html:5:1	match	-	-
+styles	s.css:8:1/0	index.html:6:1	match	-	-
+styles	s.css:9:1/0	index.html:6:1	match	-	-

@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: pages/02-anchors-forms-iframes   kinds: links_to,id_ref
+# shape: documentation sites linking pages to each other with fragments, forms posting to pages, iframes embedding demos, and links to missing pages and ids
+id_ref	index.html:14:1	href	top	index.html:14:24	match	-
+links_to	docs/guide.html:7:30	href	index.html	-	match	-
+links_to	index.html:10:1	href	missing.html	-	unknown	unresolved_url
+links_to	index.html:11:1	href	https://example.org/	-	unknown	external_url
+links_to	index.html:12:1	action	docs/guide.html	-	match	-
+links_to	index.html:13:1	src	demo/frame.html	-	match	-
+links_to	index.html:16:1	href	docs/guide.html	-	match	-
+links_to	index.html:7:1	href	docs/guide.html	docs/guide.html:7:1	match	-
+links_to	index.html:8:1	href	docs/guide.html	-	unknown	no_such_id
+links_to	index.html:9:1	href	docs/index.html	-	match	-

@@ -1,0 +1,6 @@
+:is(.card, .none) h2 { a: 1 }
+:where(.card) h2 { a: 2 }
+.card:not(.plain) { a: 3 }
+.card:has(> img) { a: 4 }
+.card:has(img):not(:has(video)) h2 { a: 5 }
+form :not(.req, .x) { a: 6 }

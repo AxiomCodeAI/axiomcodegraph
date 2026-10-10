@@ -1,0 +1,5 @@
+# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
+# case: cascade/16-fragment-page   kinds: styles,unknown,page
+# shape: build-time partials (no doctype, no <html>) that carry a <link> to the site sheet
+page	partials/nav.html	FRAGMENT
+unknown	fragment_no_host	partials/nav.html	partials/nav.html
