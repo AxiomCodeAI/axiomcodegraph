@@ -29,7 +29,7 @@ SKILL = os.path.join(PLUG, 'skills', 'axiomcode', 'SKILL.md')
 MCP = os.path.join(PLUG, 'mcp', 'server.py')
 CLI = os.path.join(ROOT, 'bin', 'axiomcode')     # the command an install puts on $PATH
 
-PUBLIC = ['index', 'impact', 'path', 'tests', 'context']
+PUBLIC = ['index', 'impact', 'path', 'tests', 'context', 'link']
 NO_MCP = {'index': 'setup, not a question: the first query through the MCP server builds the graph itself'}
 # dispatched, not advertised: verb -> why
 INTERNAL = {

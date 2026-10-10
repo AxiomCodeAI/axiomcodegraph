@@ -159,7 +159,9 @@ def ckey(k):
 # and runs nothing, so it sits below every hop that does: a rename breaks it, a body change never does.
 # `by key` (a handler table's entry under the type a publisher writes, dl/impact.dl) is joined on a string both ends
 # spell and nothing the engine resolved: the weakest hop after a name match, as it is in the closure.
-CERT = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'capped set': 3, 'remote': 4, 'framework': 5,
+# `asserted` (a link someone recorded where the engine resolved nothing, ax_links.py) is an edge, so it outranks every
+# name match, and nobody resolved it, so it sits below `registered`, which the engine recorded itself.
+CERT = {'resolved': 0, 'one of a set': 1, 'registered': 2, 'asserted': 2.5, 'capped set': 3, 'remote': 4, 'framework': 5,
         'stubs it': 6, 'in scope': 7, 'by name': 8, 'by key': 8.5, 'text': 9, 'alongside': 10}
 def also_text(whys, shown=2):
     """the other reasons a row's callable has, said on the same line: `; also: <reason>` (one row per dependent)"""
@@ -962,6 +964,7 @@ class Impact:
         if not hasattr(self, '_ns'):
             import ax_nonsource
             indexed = {sy['file'] for sy in self.g.sym.values() if sy.get('file')}         # a shebang script is source too (#1376)
+            indexed.add('axiomcode-links.tsv')   # the asserted links (ax_links.py) name targets; they bind nothing at run time
             self._ns = ax_nonsource.NonSource(self.g.repo, self.g.facts, indexed, self.SKIP_DIR, self.SOURCE_EXT | self.PROSE_EXT)
         return self._ns
     def nonsource_files(self):
@@ -1389,7 +1392,7 @@ class Impact:
         W('cs_fixture_type', sorted(x for x in fixt if not x[0].startswith('collection:')))
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '71'        # 71: (70 on its branch) imports_fact resolves a JavaScript directory import (`require('..')`, a folder with a package.json); imports_dynamic, the files that load a module by a computed name, and load_run (dl), test code that reaches the change through calls alone; 70: fn_returns / fn_returns_param / decorated_call (a by-name decorator hop lands on the wrapper the decorator returns), a decoration string naming a parameter of the declaration is no registration key; 69: a library-callback site is a library receiver only where a hand-back from it is summarised (ax_edges.library_receiver_sites); 68: both 67s below, from two branches; 67: spawns_fact also links the module a `python -m pkg.mod` spawn runs; 67: libcb, a library summarised to call a client member back (Python library-callbacks.dl), walked as fw_edge "library callback"; 66: imports_fact names a module from its package root (a src layout) and has each test file import the conftest.py files above it; 65: guard_only also reads a conjunctive guard (`cond and __name__ == "__main__"`); 64: guard_only, a module body's call made only under `if __name__ == "__main__":`, which the import walk does not take; 63: imports_fact resolves an import written with its extension and a workspace package's specifier, and test_method takes no JavaScript / TypeScript helper by its name; 62: state_gate, state_gate_alloc, state_call_alloc, state_call_open, state_world, the callbacks one instance was given and the allocation each caller's receiver may be (JavaScript instance-state.dl); 61: filter_run, a servlet filter a test's context holds (added to HttpSecurity in a configuration the test loads, or a component) and the test methods that send a request through it; 57: a TypeScript object literal key is a ref of entity kind OBJECT_PROPERTY_KEY, kept past a bound access on its line; 56: reg_key_fact carries a handler table's entries (kind table), literal a table key written as a dotted string or through a constant, and test_code; 55: cs_data_source, cs_data_type, cs_fixture_type, the C# test links a runner makes from a data attribute or a class/collection fixture (#1498, #1499); 53: implicit_new, the type a C# `new T()` constructs where T writes no constructor (#1473); 52: test_method holds a method under a composed or derived test marker declared in the repository (a Java annotation meta-annotated @Test, a C# attribute derived from FactAttribute: #1418, #1497; 51 was the C# test-links branch's number, landed as 55); 48: sigtype, a parameter / return position type_use resolves to a type, read before the textuse grep (#1422), and persist_field, the properties a persistence query reads (#1461); 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
+    IMPACT_VERSION = '72'        # 72: (70 on its branch) rejected, the leads an asserted-links rejection (or a link that settles the site) takes out of the walks (ax_links.suppressed); 71: (70 on its branch) imports_fact resolves a JavaScript directory import (`require('..')`, a folder with a package.json); imports_dynamic, the files that load a module by a computed name, and load_run (dl), test code that reaches the change through calls alone; 70: fn_returns / fn_returns_param / decorated_call (a by-name decorator hop lands on the wrapper the decorator returns), a decoration string naming a parameter of the declaration is no registration key; 69: a library-callback site is a library receiver only where a hand-back from it is summarised (ax_edges.library_receiver_sites); 68: both 67s below, from two branches; 67: spawns_fact also links the module a `python -m pkg.mod` spawn runs; 67: libcb, a library summarised to call a client member back (Python library-callbacks.dl), walked as fw_edge "library callback"; 66: imports_fact names a module from its package root (a src layout) and has each test file import the conftest.py files above it; 65: guard_only also reads a conjunctive guard (`cond and __name__ == "__main__"`); 64: guard_only, a module body's call made only under `if __name__ == "__main__":`, which the import walk does not take; 63: imports_fact resolves an import written with its extension and a workspace package's specifier, and test_method takes no JavaScript / TypeScript helper by its name; 62: state_gate, state_gate_alloc, state_call_alloc, state_call_open, state_world, the callbacks one instance was given and the allocation each caller's receiver may be (JavaScript instance-state.dl); 61: filter_run, a servlet filter a test's context holds (added to HttpSecurity in a configuration the test loads, or a component) and the test methods that send a request through it; 57: a TypeScript object literal key is a ref of entity kind OBJECT_PROPERTY_KEY, kept past a bound access on its line; 56: reg_key_fact carries a handler table's entries (kind table), literal a table key written as a dotted string or through a constant, and test_code; 55: cs_data_source, cs_data_type, cs_fixture_type, the C# test links a runner makes from a data attribute or a class/collection fixture (#1498, #1499); 53: implicit_new, the type a C# `new T()` constructs where T writes no constructor (#1473); 52: test_method holds a method under a composed or derived test marker declared in the repository (a Java annotation meta-annotated @Test, a C# attribute derived from FactAttribute: #1418, #1497; 51 was the C# test-links branch's number, landed as 55); 48: sigtype, a parameter / return position type_use resolves to a type, read before the textuse grep (#1422), and persist_field, the properties a persistence query reads (#1461); 47: test_method / fixture from graph_sql's one classification (a tear-down such as @AfterEach or [TestCleanup] is a fixture, [TestInitialize] is no test, an @Override is no named test: #1417 #1419 #1502), and reg_key_fact drops a string a decoration does not register under (#1413); 46: accessor carries the wither and an isX boolean's setX / withX, and a generated builder or fluent setter the engine resolved is a writer (#1404, #1409); 45: runs_before, a C# set-up an NUnit [SetUpFixture] or an MSTest assembly initializer runs for tests outside its type (#1501), stub rows for a member a Moq Protected() setup names by string (#1540), cs_config_literal for a Section:Key configuration key (#1443), and lex_parent puts a lambda under the declaration on its own line (#1556); 44: a C# MEMBER_ACCESS ref is qualified, so its qualifier decides (#1445); 41: spawns_fact, a test that runs a script by its path (ax_spawn.py); 40: test_method holds a script test's module (a test-tree file run as a program, no framework: graph_sql.script_tests); 39: a chained route link's `calls` row and `registration` label sit on the link's own line, with its own verb and path; 38: reg_key_fact drops a decoration string with a space in it (a description, not a key); 37: via_base / via_site, a caller that reaches a declaration through a base it is override-equivalent to (#1542), and injected_bean, the bean an injection point was wired to (#1384); 36: handoff_at, route_arg, callable_const, init_wrapper, init_alias, returns_fn — a const holding a wrapped handler registered at a route; 35: 0.1.5's 33 (#1598, the defines edges the path export links) joined 0.1.6's 33, two different fact sets under one number; 33 (0.1.6): calls carries the tier "stub" for a call inside a mock's stub or verification, reg_verb / lit_verb join a route by its HTTP method, and a handler's route joins its type's prefix; 32: cert_tier's why is worded per tier (an event_dispatch row says it sends the request or event), and the route facts #1633 changed (#1510), which merged without a bump; 31: event_dispatch edges (a published event reaches its listeners, #1391) and the pytest fixture_injection reading (#1631) change impact's facts; 30: registers, a bean another class's annotation registers (#1396, #1414); 29: the edges it links from the path export changed (#1402), and a cache written before it must not survive; 28: reexport_from, the file an `export *` line re-exports; 27: framework, the engine's framework_edge (#1509); 24: the test* naming convention requires a test class as owner (#1181); 23: owner/member disambiguated by file, two classes of one name no longer merging (#1188); 22: lex_parent, the innermost declaration enclosing each one by span (#1183); 21: cert_tier, the tier -> certainty table the call rules join on (#1131); 20: faccess, the engine's resolved field accesses (#1071); 3: decl_file facts (the import-time test-file rule); 14: the registration-key
     #    layer; 15: the registration facts (two 14s landed independently, which is exactly the collision this
     #    guards); 16: regsite folded into ax_registration's reg_key_fact; 20: implements_pair (#1011); 17/18: the tagged-template test registrar
     #    (it.each`…`) and its table span
@@ -1595,8 +1598,14 @@ class Impact:
         stubs = ax_edges.stub_sites(lambda s, p: g.q(s, *p)) if g.has('call_sites') else set()
         # a chained route link's edge sits on the line of its own verb and path, where `registration` labels it
         link_line = ax_registration.route_site_lines(g.q, g.site_file)
+        # LEADS A LINK REJECTED (ax_links.py): a site's by-name match or set member someone read and found wrong is not walked;
+        # the engine's row stays in graph.sqlite. `rejected` feeds the by-name rules, the set members leave `calls` here.
+        import ax_links
+        _rej, _rej_edges = ax_links.suppressed(g.q, g.site_file)
+        W('rejected', sorted(_rej))
         W('calls', [(r['caller_id'], r['callee_method_id'], ax_edges.STUB_TIER if r['call_site_id'] in stubs else r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', link_line.get(r['call_site_id'], r['start_line'] or 0))
-                    for r in g.q("SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")]
+                    for r in g.q("SELECT e.call_site_id, e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")
+                    if not (r['tier'] in ax_links.LEAD_TIERS and (r['caller_id'], r['callee_method_id'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0) in _rej)]
                   + self.protected_name_stubs())
         # A CALL UNDER `if __name__ == "__main__":` DOES NOT RUN ON IMPORT. The guard is true only when the file is run
         # as a script, so a module body's calls inside it are real edges (the script makes them) but no hop for the
@@ -2602,6 +2611,7 @@ def main(argv):
     # cut short and so lose every route that passes through code outside the path) to test files containing it
     tests_only = '--tests-only' in args; want_tests = '--tests' in args or tests_only; want_why = '--why' in args
     want_delete = '--delete' in args; want_warm = '--warm' in args; want_depends = '--depends' in args
+    want_unknown = '--unknown' in args; args = [a for a in args if a != '--unknown']
     # the default view collapses a flood of [by name] rows; an explicit --limit or --page all asks for every row
     # A LATER PAGE CONTINUES THE ROWS (ax_pages.paginate). Page 1 is the default view; page 2 on holds the rows that
     # view left out. So whenever the pager captures the answer every row is printed, the ones the default view hides
@@ -2910,6 +2920,13 @@ def main(argv):
     ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if m in ent_why]
     inside = list({*reached, *seeds, *direct_ids})               # the direct rows are not in seed for a method target
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
+    # THE GAPS AS A WORK LIST (ax_links.py): the unresolved sites behind that count, nearest the change first, each with the
+    # call as written and the engine's own reason, so an agent can read them and link the one its task depends on
+    import ax_links
+    unk, _unk_n = ax_links.unknown_sites(g.q, inside, g.site_file, limit=30 if as_json else 200,
+                                         order=[*seeds, *sorted(direct_ids, key=g.disp), *sorted(reached, key=lambda m: (reached[m], g.disp(m)))], repo=g.repo)
+    links_note = ax_links.note(g.q)
+    rejected_note = ax_links.rejected_note(g.q)
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
     chains = {m: I.chain(m, parent) for m in tests}
     # the ROUTE a record carries: a test reached through a fixture (a setUp, a @MethodSource factory) has no edge of
@@ -3048,7 +3065,9 @@ def main(argv):
                'filter': 'registered',
                # a library summarised (from its source) to call a client member back: a member name on a type the client
                # handed over, not a resolved call (framework-behavior/library-callbacks.dl)
-               'library callback': 'library callback'}
+               'library callback': 'library callback',
+               # a link someone recorded (ax_links.py): an edge nobody resolved — its own rung, beside `registered`
+               'asserted': 'asserted'}
     # The numbers that used to stand here (sound 0.645, one of a set 0.414, by key 0.396, fixture 0.233, by name
     # 0.133) were measured against a truth set that was SHORT: a pytest file which fails to COLLECT is emitted in
     # junit XML with classname="" and the module in `name`, the oracle read classname alone, and so every
@@ -3086,7 +3105,7 @@ def main(argv):
     # is strong. It sits below `one of a set` all the same, because it is not a resolved call and should not borrow
     # the word that means one.
     CERT_RANK = {'sound': 0, 'defines': 1, 'at import': 2, 'at load': 2, 'one of a set': 3, 'dispatch': 4, 'registered': 5,
-                 'library callback': 5, 'remote': 6, 'spawns': 7, 'by key': 8, 'decorator by name': 9, 'protocol': 10, 'fixture': 11,
+                 'library callback': 5, 'asserted': 5, 'remote': 6, 'spawns': 7, 'by key': 8, 'decorator by name': 9, 'protocol': 10, 'fixture': 11,
                  'by name': 12}
     # `remote` (#1293) sits just above `by key`: both join two ends on a string, but the engine matched a remote
     # hop's whole route and verb on both ends, where a key join is this file's own rules matching one literal. Not
@@ -3198,7 +3217,7 @@ def main(argv):
         # resolved row does and are verified the same way — the why-wording test cannot speak for them, because
         # a hand-off's sentence deliberately does not say "calls".
         if (cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why)) \
-           or cert in ('registered', 'capped set'):
+           or cert in ('registered', 'asserted', 'capped set'):
             hops += 1
             if not any((c, t) in real for t in asserted.get(c, ())): bad += 1
     prose_hits = getattr(getattr(I, '_ns', None), 'prose', set())
@@ -3242,6 +3261,7 @@ def main(argv):
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=by_place)],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how, **({'prose': True} if (n, f, l) in prose_hits else {})} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
                           'test_universe': universe, **({'tests_outside_src': dict(zip(('src', 'files'), out_src))} if out_src[1] else {}), 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u,
+                          'unknown_sites': unk, 'unknown_total': _unk_n, **({'links_note': links_note} if links_note else {}), **({'links_rejected': rejected_note} if rejected_note else {}),
                           **({'why': [g.why_json(n) for n in target_why]} if want_why else {})})
         if ax_evidence.on() or _dropped:
             if _dropped: doc['asked_again'] = {'note': ax_evidence.ask_again_note(), 'dropped': [g.loc(x[0]) if not x[4] else x[4] for x in _dropped]}
@@ -3531,7 +3551,9 @@ def main(argv):
     # the search that lists them, printed each under --page all / --limit N, and kept in --json with "prose": true.
     ext_prose = [x for x in ext if (x[2], x[0], x[1]) in prose_hits]
     ext = [x for x in ext if (x[2], x[0], x[1]) not in prose_hits]
-    print(f"reaches those through resolved calls: {len(reached)} more callable(s) in {nfiles} file(s)" + (f" within {depth} hop(s)" if depth < 40 else '') + (f" under *{IN}*" if IN else ''))
+    # an ASSERTED hop (axiomcode link) is not a resolved call: when the closure crosses one, the line says so
+    _nas = len({(a_, b_) for a_, bs in parent.items() for b_, t_ in bs if t_ == 'asserted'})
+    print(f"reaches those through resolved calls" + (f" and {_nas} asserted link(s)" if _nas else '') + f": {len(reached)} more callable(s) in {nfiles} file(s)" + (f" within {depth} hop(s)" if depth < 40 else '') + (f" under *{IN}*" if IN else ''))
     weak = [m for m in reached if m not in sure_set]
     if weak: print(f"    {len(weak)} of those {len(reached)} are reached ONLY through a dependent that is not an exact edge ([by name], [text], [one of a set]): they stand or fall with it")
     if reached:
@@ -3812,7 +3834,7 @@ def main(argv):
     # called local, because `next:` read only the direct rows.
     # `remote` (#1468): the client that calls it across a process is a dependent the engine joined at both ends, so it
     # is a place to read, not a by-name lead, and it makes the declaration as non-local as a resolved caller does
-    STRONG_DIRECT = ('resolved', 'one of a set', 'registered', 'capped set', 'remote', 'framework')
+    STRONG_DIRECT = ('resolved', 'one of a set', 'registered', 'asserted', 'capped set', 'remote', 'framework')
     prod_users = {c for c, role, why, cert, loc, n in D if cert in STRONG_DIRECT and not _is_t(c)}
     prod_reach = sorted((m for m in reached if m in sure_set and not _is_t(m)), key=lambda m: (reached[m], g.loc(m)))
     lone = not prod_users and not prod_reach
@@ -3856,7 +3878,7 @@ def main(argv):
         # reference. Letting the new label fall out of this list would turn "something still uses this" into
         # "safe to delete", which is the one verdict here that costs anything to get wrong.
         calls = [x for x in D if (x[3] == 'resolved' and ('calls' in x[2] or 'instantiates' in x[2] or 'through' in x[2] or 'inject' in x[2]))
-                 or x[3] in ('registered', 'capped set', 'framework')]    # a task's producer, a signal's sender (#1509)
+                 or x[3] in ('registered', 'asserted', 'capped set', 'framework')]    # a task's producer, a signal's sender (#1509)
         weak = [x for x in D if x[3] in ('one of a set', 'by name', 'text', 'in scope')]
         lits = [r for n_ in names for r in g.q("SELECT file, line FROM literals WHERE value = ?", n_)] if g.has('literals') else []
         decs = [f"{n_} ({f_}:{l_})" if f_ and l_ else n_ for n_, f_, l_ in own_decs]
@@ -3986,6 +4008,8 @@ def main(argv):
             print("bound: the closure could not start — no dependent above is an edge it can walk back from, so what "
                   "reaches THEM is not in this answer")
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
+    if want_unknown and unk: print('\n'.join(ax_links.unknown_lines(g.repo, unk, u)))
+    if links_note: print(links_note)
     # A STRUCTURAL TYPE IS SATISFIED WITHOUT BEING NAMED (#784). `return { kind: 'LiteralNode', fragments }` checks
     # against the interface and never writes it, so an added required property or a narrowed one breaks sites no row
     # above can name. Assignability is the compiler's job; the answer says so rather than looking complete.

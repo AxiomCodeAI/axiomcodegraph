@@ -4089,6 +4089,10 @@ def solve_path(rows, queries, every=False, opt=False, cap=MAX_HOP):
         cur.execute("CREATE TABLE edge_opt(a TEXT, b TEXT, t TEXT)")
         cur.execute("INSERT INTO edge_opt SELECT a, b, t FROM edge")
         cur.execute("INSERT INTO edge_opt SELECT DISTINCT b.c, n.m, 'by-name' FROM byname b JOIN named n ON n.n = b.n")
+        rej = list(rows.get('rejected_edge', ()))                 # leads an asserted-links rejection takes out (ax_links.py)
+        if rej:
+            cur.execute("CREATE TEMP TABLE rejected_edge(c TEXT, m TEXT)"); cur.executemany("INSERT INTO rejected_edge VALUES(?,?)", rej)
+            cur.execute("DELETE FROM edge_opt WHERE t = 'by-name' AND EXISTS (SELECT 1 FROM rejected_edge r WHERE r.c = edge_opt.a AND r.m = edge_opt.b)")
         cur.execute("CREATE INDEX eo_a ON edge_opt(a)"); cur.execute("CREATE INDEX eo_b ON edge_opt(b)")
     out = {n: collections.defaultdict(list) for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist')}
     for q, (s, d) in queries.items():

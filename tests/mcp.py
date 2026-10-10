@@ -32,7 +32,7 @@ SERVER = os.path.join(ROOT, 'plugins', 'axiomcode', 'mcp', 'server.py')
 # THE SMALL SURFACE: four questions, each with at most two parameters and no options. The front-door answer is capped
 # at ten places with the rest counted, so no tool is paged. context is the one narrative verb: a task in words,
 # answered as the verb's own flow rather than as places.
-TOOLS = {'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': []}
+TOOLS = {'context': ['task', 'source'], 'impact': ['name'], 'path': ['start', 'end'], 'tests': [], 'link': ['site', 'target']}
 
 
 def exchange(cmd, cwd, env=None, workdir=None):
