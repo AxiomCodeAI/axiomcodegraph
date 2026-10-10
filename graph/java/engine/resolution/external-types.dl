@@ -151,7 +151,24 @@ local_creation_init(local) :- java_expression("ANONYMOUS_CLASS_CREATION", "ROOT"
 local_reassigned(local) :- java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
     java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
     expr_ultimate_method("client", e, m).
-local_creation_pinned(local) :- local_creation_init(local), !local_reassigned(local).
+local_creation_pinned(local) :- local_creation_init(local), !local_reassigned(local), !local_creation_external(local).
+// ...but a creation of a type no staged IR declares pins nothing: `final StringBuilder sb = new StringBuilder()`
+// with no JDK staged has no flow type at all, so `sb.toString()` was an unresolved site -- and every unresolved
+// `toString` / `append` was a by-name caller of each client method of that name. The declared type is then the
+// answer, exactly as for an initializer that is not a creation: an external receiver, a library boundary.
+.decl creation_ref_external(ref:symbol)
+creation_ref_external(ref) :- java_type_reference(kind, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", tn, _, _, _, _, _, _, _, _, ref),
+    ext_ref_kind(kind),
+    tn != "",
+    ref_file(ref, tn, fp),
+    !name_resolves_in_file(tn, fp),
+    !simple_name_declared(tn),
+    !ref_names_tvar(ref).
+.decl local_creation_external(local:symbol)
+local_creation_external(local) :-
+    java_expression("OBJECT_CREATION", "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, obj),
+    java_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, obj, "EXPRESSION", ref),
+    creation_ref_external(ref).
 
 expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
     expr_ultimate_type("client", e, encl),
@@ -230,6 +247,20 @@ expr_call_candidate(call, m) :- call_site(call, name, recv),
 external_target(call, label) :- call_site(call, name, recv),
     expr_type("external", recv, x),
     label = cat(x, cat(".", name)).
+//   (a') the receiver is a TYPE NAME no staged IR declares: a static call on the platform or a dependency,
+//       `Character.charCount(cp)`, `Objects.equals(a, b)`, `Collections.unmodifiableMap(m)`. A static call never
+//       dispatches, so no client method runs behind it. The parser writes the receiver as an identifier it read as a
+//       type (not ambiguous with a variable) with the qualified name its imports give; left unresolved, each one was a
+//       by-name caller of every client method called `equals`, `valueOf`, `max`, `get`.
+.decl external_static_receiver(recv:symbol, q:symbol)
+external_static_receiver(recv, q) :-
+    java_expression("IDENTIFIER_REFERENCE", "RECEIVER", _, _, _, _, _, _, _, _, n, _, _, _, "TYPE", "", _, q, "false", _, _, _, _, _, recv),
+    q != "", n != "",
+    !qualified_name_declared(q),
+    !simple_name_declared(n).
+external_target(call, label) :- call_site(call, name, recv),
+    external_static_receiver(recv, q),
+    label = cat("external:", cat(q, cat(".", name))).
 // The parser writes parameterCount as text, so the written arity is compared as text.
 call_arity(call, pc) :- call_argc(call, n), pc = to_string(n).
 call_arity(call, "0") :- call_site(call, _, _), !call_has_args(call).

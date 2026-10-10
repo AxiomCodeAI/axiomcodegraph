@@ -1,6 +1,6 @@
-ambiguous_unknown	method	probe.Shadow#catchParameter() -> -
 ambiguous_unknown	new	probe.Shadow#catchParameter() -> -
 boundary_lib	method	probe.Shadow#catchParameter() -> external:RuntimeException.getMessage
+boundary_lib	method	probe.Shadow#catchParameter() -> external:java.lang.String.valueOf
 boundary_lib	method	probe.Shadow#forHeader() -> external:String.isEmpty
 known_edge	method	probe.Shadow#after() -> probe.LocalSide#fromLocal()
 known_edge	method	probe.Shadow#catchParameter() -> probe.FieldSide#fromField()

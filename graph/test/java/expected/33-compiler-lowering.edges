@@ -1,12 +1,13 @@
-ambiguous_unknown	method	lowering.Lowering#explicitRequireNonNull(Sink) -> -
-ambiguous_unknown	method	lowering.Lowering#tryWithResources(String) -> -
 ambiguous_unknown	new	lowering.Lowering#tryWithResources(String) -> -
 ambiguous_unknown	new	lowering.Lowering.Bag#<type-initializer>() -> -
 boundary_lib	method	lowering.Lowering#boundRef(List,Sink) -> external:java.util.List.forEach
 boundary_lib	method	lowering.Lowering#explicitIterator(Bag) -> external:java.util.Iterator.hasNext
 boundary_lib	method	lowering.Lowering#explicitIterator(Bag) -> external:java.util.Iterator.next
+boundary_lib	method	lowering.Lowering#explicitRequireNonNull(Sink) -> external:java.util.Objects.requireNonNull
 boundary_lib	method	lowering.Lowering#explicitUnbox(Integer) -> external:Integer.intValue
 boundary_lib	method	lowering.Lowering#plainLibraryCall(List) -> external:java.util.List.size
+boundary_lib	method	lowering.Lowering#tryWithResources(String) -> external:java.io.StringReader.read
+boundary_lib	method	lowering.Lowering#tryWithResources(String) -> external:java.lang.String.valueOf
 boundary_lib	method	lowering.Lowering#use(String) -> external:String.trim
 boundary_lib	method	lowering.Lowering.Bag#iterator() -> external:java.util.List.iterator
 boundary_lib	method	lowering.Lowering.Bag#size() -> external:java.util.List.size

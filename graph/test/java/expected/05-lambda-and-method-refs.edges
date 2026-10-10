@@ -3,6 +3,7 @@ ambiguous_unknown	method	Lam#viaForEach(String) -> -
 ambiguous_unknown	method	Lam#viaParamList(List) -> -
 ambiguous_unknown	new	Lam#<type-initializer>() -> -
 ambiguous_unknown	new	Lam#main(String[]) -> -
+boundary_lib	method	Lam#main(String[]) -> external:java.util.List.add
 boundary_lib	method	Lam#main(String[]) -> external:java.util.Map.put
 boundary_lib	method	Lam#viaForEach(String) -> external:java.util.Map.values
 boundary_lib	method	Lam#viaMethodRef(List) -> external:java.util.List.forEach
