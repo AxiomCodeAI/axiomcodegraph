@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "an object handed to a library is called back only through what it overrides from a library type: copy() overrides a client declaration",
+   "run": ["impact", "Arr.copy"], "avoid": ["Writer.begin"]},
+  {"why": "control: iterator() overrides the library's Iterable, so the hand-over still reaches it",
+   "run": ["impact", "Arr.iterator"], "want": ["Writer.begin"]}]}

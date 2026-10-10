@@ -57,10 +57,37 @@ expr_call_candidate(call, callee) :- call_unqualified(call, name),
 // 26d7b166ba (5 of 5) was this shape. type_in_type (containment/type-nesting.dl) is already
 // transitive over enclosing types — its own header says it exists for exactly this purpose;
 // nothing consumed it.
+//
+// ...but only from the INNERMOST type that has a member of that name (JLS 15.12.1): the search stops
+// at the first enclosing class declaring or inheriting the name, whatever its arity, so in
+// `class Document { void charset(Charset c) {..} static class OutputSettings { OutputSettings
+// charset(Charset c) {..} OutputSettings() { charset(UTF_8); } } }` the call is OutputSettings'
+// own charset, never the outer Document.charset it shadows.
 expr_call_candidate(call, callee) :- call_unqualified(call, name),
     expr_ultimate_type("client", call, encl),
     type_in_type("client", encl, outer),
-    method_name_in_type(name, outer, callee).
+    method_name_in_type(name, outer, callee),
+    !unq_name_shadowed(call, outer).
+// Read off the declarations and the hierarchy alone (a member declared in t or an ancestor), not
+// method_name_in_type, which sits in the expr_type cycle this negation must stay out of.
+.decl unq_member(name:symbol, t:symbol)
+unq_member(name, t) :- java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+unq_member(name, t) :- type_ancestor(t, a), java_method(name, _, _, _, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+unq_member(name, t) :- type_ancestor(t, a), lib_method(name, _, _, _, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+.decl unq_name_found(call:symbol, t:symbol)
+unq_name_found(call, encl) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, encl),
+    unq_member(name, encl).
+unq_name_found(call, t) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, encl),
+    type_in_type("client", encl, t),
+    unq_member(name, t).
+.decl unq_name_shadowed(call:symbol, outer:symbol)
+unq_name_shadowed(call, outer) :- unq_name_found(call, encl), expr_ultimate_type("client", call, encl),
+    unq_name_found(call, outer), outer != encl.
+unq_name_shadowed(call, outer) :- unq_name_found(call, t), unq_name_found(call, outer),
+    expr_ultimate_type("client", call, encl), t != encl,
+    type_in_type("client", t, outer).
 
 // ── Static-imported unqualified call (import static C.m; ... m(...)): a receiver-less
 // call whose name is NOT the enclosing instance's method but a static member imported
@@ -148,17 +175,17 @@ expr_call_candidate(call, override) :- expr_call_candidate(call, base),
     virtual_override(base, override),
     !call_exact_receiver(call),
     !call_super_receiver(call),
-    !cha_wide_base(base),
     call_site(call, _, recv), expr_type(_, recv, rt),
+    !cha_wide_for(base, rt),
     override_in_closure(override, rt).
 // receiverless call: the receiver is `this`, so gate on the ENCLOSING type's closure.
 expr_call_candidate(call, override) :- expr_call_candidate(call, base),
     virtual_override(base, override),
     !call_exact_receiver(call),
     !call_super_receiver(call),
-    !cha_wide_base(base),
     call_unqualified(call, _),
     expr_ultimate_type("client", call, et),
+    !cha_wide_for(base, et),
     override_in_closure(override, et).
 
 // ── ctor_of(Prov, OwnerType, Ctor) — a constructor a `new` can target ────────────────────
