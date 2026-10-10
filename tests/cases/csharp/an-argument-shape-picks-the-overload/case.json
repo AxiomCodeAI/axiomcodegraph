@@ -1,0 +1,108 @@
+{
+ "lang": "csharp",
+ "src": "src",
+ "checks": [
+  {
+   "why": "a one-parameter lambda converts only to the one-parameter delegate overload",
+   "run": [
+    "impact",
+    "src/Rules.cs:13"
+   ],
+   "want": [
+    "[resolved] Use.OneArg"
+   ],
+   "avoid": [
+    "Use.TwoArgs"
+   ]
+  },
+  {
+   "why": "a two-parameter lambda converts only to the two-parameter delegate overload",
+   "run": [
+    "impact",
+    "src/Rules.cs:14"
+   ],
+   "want": [
+    "[resolved] Use.TwoArgs"
+   ],
+   "avoid": [
+    "Use.OneArg"
+   ]
+  },
+  {
+   "why": "a string literal converts to neither a delegate nor a class in source with no conversion: the string overload",
+   "run": [
+    "impact",
+    "src/Rules.cs:15"
+   ],
+   "want": [
+    "[resolved] Use.Literal"
+   ],
+   "avoid": [
+    "Use.Lambda"
+   ]
+  },
+  {
+   "why": "a lambda converts to no predefined type",
+   "run": [
+    "impact",
+    "src/Rules.cs:16"
+   ],
+   "want": [
+    "Use.Lambda"
+   ],
+   "avoid": [
+    "Use.Literal"
+   ]
+  },
+  {
+   "why": "a source-typed argument converts only to what its type implements",
+   "run": [
+    "impact",
+    "src/Rules.cs:19"
+   ],
+   "want": [
+    "[resolved] Use.Source"
+   ]
+  },
+  {
+   "why": "the interface it does not implement is not a candidate",
+   "run": [
+    "impact",
+    "src/Rules.cs:18"
+   ],
+   "avoid": [
+    "Use.Source"
+   ]
+  },
+  {
+   "why": "a string argument does not convert to an exception: the template overload",
+   "run": [
+    "impact",
+    "src/Rules.cs:21"
+   ],
+   "want": [
+    "[resolved] Use.Template"
+   ]
+  },
+  {
+   "why": "the exception overload is not called with a string in that position",
+   "run": [
+    "impact",
+    "src/Rules.cs:22"
+   ],
+   "avoid": [
+    "Use.Template"
+   ]
+  },
+  {
+   "why": "control: two delegates of the same parameter count are not told apart by a lambda's shape: the call stays one of the set",
+   "run": [
+    "impact",
+    "src/Rules.cs:23"
+   ],
+   "want": [
+    "[one of a set] Use.Same"
+   ]
+  }
+ ]
+}
