@@ -1,0 +1,13 @@
+# reviewed: yes 2026-10-10 iter 1b — every row read against the case source (G11 iframe fallback unstyled, G12 keyframe selectors absent, G14 repo-relative keys)
+# case: pages/05-subproject-paths   kinds: page,stylesheet,loads_sheet,styles,links_to
+# shape: (G14) a repository holding a site inside a sub-project (its own package.json): every key and file column is repo-relative, never relative to the sub-project
+links_to	docs/index.html:7:1	href	index.html	-	match	-
+links_to	index.html:7:1	href	docs/index.html	-	match	-
+loads_sheet	docs/index.html	docs/css/site.css	link	1	0	match	-
+loads_sheet	index.html	css/site.css	link	1	0	match	-
+page	docs/index.html	DOCUMENT
+page	index.html	DOCUMENT
+styles	css/site.css:1:1/0	index.html:7:35	match	-	-
+styles	docs/css/site.css:1:1/0	docs/index.html:7:33	match	-	-
+stylesheet	css/site.css	FILE
+stylesheet	docs/css/site.css	FILE

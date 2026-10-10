@@ -1,6 +1,6 @@
-# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
-# case: nodes/18-keyframe-selector-lists   kinds: rule,keyframes,declaration
-# shape: minified animation libraries with percentage lists in keyframes (`0%,20%,53%{…}`) and an IE filter declaration
+# reviewed: yes 2026-10-10 iter 1b — every row read against the case source (G11 iframe fallback unstyled, G12 keyframe selectors absent, G14 repo-relative keys)
+# case: nodes/18-keyframe-selector-lists   kinds: rule,selector,keyframes,declaration
+# shape: (G12: keyframe selectors are not selectors) minified animation libraries with percentage lists in keyframes (`0%,20%,53%{…}`) and an IE filter declaration
 declaration	anim.css:1:103	anim.css:1:99	filter	progid:DXImageTransform.Microsoft.gradient(startColorstr='#80000000', endColorstr='#80000000')	0
 declaration	anim.css:1:205	anim.css:1:99	zoom	1	0
 declaration	anim.css:1:33	anim.css:1:19	transform	translateZ(0)	0
@@ -10,3 +10,4 @@ rule	anim.css:1:1	@keyframes	bounce	-
 rule	anim.css:1:19	keyframe	0%,20%,53%,to	anim.css:1:1
 rule	anim.css:1:57	keyframe	40%,43%	anim.css:1:1
 rule	anim.css:1:99	style	.ie	-
+selector	anim.css:1:99/0	.ie	0,1,0

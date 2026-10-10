@@ -1,12 +1,20 @@
-# reviewed: yes 2026-10-10 iter 1 — every row read against the case source (HTML/CSS/selector semantics, positions, statuses)
-# case: nodes/04-iframe-srcdoc   kinds: element,attribute,reference
+# reviewed: yes 2026-10-10 iter 1b — every row read against the case source (G11 iframe fallback unstyled, G12 keyframe selectors absent, G14 repo-relative keys)
+# case: nodes/04-iframe-srcdoc   kinds: element,attribute,reference,styles,unknown
 # shape: embedding tutorials: <iframe srcdoc="<p>..."> and fallback markup written between <iframe> and </iframe>
-attribute	index.html:4:3	srcdoc	<p class='inner'>hello</p>
-attribute	index.html:4:3	title	a
-attribute	index.html:5:3	src	other.html
+attribute	index.html:3:7	href	s.css
+attribute	index.html:3:7	rel	stylesheet
+attribute	index.html:5:3	srcdoc	<p class='inner'>hello</p>
+attribute	index.html:5:3	title	a
+attribute	index.html:6:3	src	other.html
 element	index.html:2:1	html	-	-
-element	index.html:3:1	body	-	-
-element	index.html:4:3	iframe	-	-
+element	index.html:3:1	head	-	-
+element	index.html:3:7	link	-	-
+element	index.html:4:1	body	-	-
 element	index.html:5:3	iframe	-	-
+element	index.html:6:3	iframe	-	-
 element	other.html:1:16	title	-	-
-reference	index.html:5:3	src	other.html	local	other.html
+reference	index.html:3:7	href	s.css	local	s.css
+reference	index.html:6:3	src	other.html	local	other.html
+styles	s.css:2:1/0	index.html:5:3	match	-	-
+styles	s.css:2:1/0	index.html:6:3	match	-	-
+unknown	no_static_carrier	s.css:1:1/0	index.html

@@ -12,7 +12,10 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
 (1-based start of the node in the file on disk). NULL is written as '-'.
 
   web_pages(uid, file, document_kind)
-  web_elements(uid, page_uid, parent_uid, file, line, col, tag_name, html_id, class_names)    class_names space-separated as written
+  web_elements(uid, page_uid, parent_uid, file, line, col, tag_name, html_id, class_names, inert)
+             class_names space-separated as written; inert = template | noscript | iframe_text | NULL.
+             [iter1b G11] iframe_text elements (markup between <iframe> and </iframe>, text to a browser) are
+             dropped here with everything hanging off them: the oracle has them as text
   web_attributes(uid, element_uid, name, value)
   web_class_tokens(uid, element_uid, position, class_name)
   web_references(uid, element_uid, attribute_name, url_as_written, url_kind, resolved_file)    url_kind = parser WebUrlKind
@@ -31,7 +34,8 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_links(from_element_uid, attribute_name, to_page_uid, to_element_uid, url_as_written, status, reason)
   web_id_refs(from_element_uid, attribute_name, id_value, to_element_uid, status, reason)
   web_styles(selector_uid, element_uid, page_uid, status, reason, pseudo_element, conditions,
-             spec_a, spec_b, spec_c, layer_rank, sheet_order, rule_order, important_count)
+             spec_a, spec_b, spec_c, layer_rank, sheet_order, rule_order, important_count,
+             scope_root, scope_proximity)
              reason: every reason, sorted, ';'-joined ('state:hover;at_rule:media' -> 'at_rule:media;state:hover')
              + scope_root (element uid, NULL outside @scope), scope_proximity (generations root -> subject)  [iter1b]
   web_var(use, def, page, status, reason)   [iter1b] the SQL VIEW over web_var_def / web_var_visible /
@@ -110,7 +114,9 @@ def main():
         for uid, f, dk in pages:
             key[uid] = f
             emit('page', f, dk)
-        els = g.rows('web_elements', ['uid', 'page_uid', 'parent_uid', 'file', 'line', 'col', 'tag_name', 'html_id', 'class_names'])
+        els_all = g.rows('web_elements', ['uid', 'page_uid', 'parent_uid', 'file', 'line', 'col', 'tag_name', 'html_id', 'class_names', 'inert'])
+        iframe_text = {r[0] for r in els_all if r[9] == 'iframe_text'}
+        els = [r[:9] for r in els_all if r[0] not in iframe_text]
         for uid, _p, _par, f, ln, col, *_ in els:
             key[uid] = f'{f}:{ln}:{col}'
         for uid, p, par, f, ln, col, tag, hid, cls in els:
@@ -118,12 +124,17 @@ def main():
             emit('contains', key.get(par) if par else key.get(p), key[uid])
         attrs = g.rows('web_attributes', ['uid', 'element_uid', 'name', 'value'])
         attr_name = {}
+        attrs = [a for a in attrs if a[1] not in iframe_text]
         for uid, e, n, v in attrs:
             attr_name[uid] = n
             emit('attribute', key.get(e), n, v)
         for _u, e, pos, c in g.rows('web_class_tokens', ['uid', 'element_uid', 'position', 'class_name']):
+            if e in iframe_text:
+                continue
             emit('class_token', key.get(e), pos, c)
         for _u, e, a, url, uk, res in g.rows('web_references', ['uid', 'element_uid', 'attribute_name', 'url_as_written', 'url_kind', 'resolved_file']):
+            if e in iframe_text:
+                continue
             emit('reference', key.get(e), a, url, URL_KIND.get(uk, uk), res)
         for _u, e, sk, st, res, mod in g.rows('web_scripts', ['uid', 'element_uid', 'script_kind', 'script_type', 'resolved_file', 'js_module_path']):
             emit('script', key.get(e), sk, st, mod if sk == 'INLINE' else res)
@@ -225,7 +236,9 @@ def main():
                     'selector_uid', 'element_uid', 'page_uid', 'status', 'reason', 'pseudo_element', 'conditions',
                     'spec_a', 'spec_b', 'spec_c', 'layer_rank', 'sheet_order', 'rule_order', 'important_count',
                     'scope_root', 'scope_proximity']):
-                emit('styles', key.get(s), key.get(e), st, ';'.join(sorted((rs or '').split(';'))) if rs and rs != '-' else None, pe)
+                if e in iframe_text:
+                    print(f'normalize: web_styles row on an iframe_text element {e} (SPEC 3.6 G11: never styled)', file=sys.stderr)
+                emit('styles', key.get(s) if e not in iframe_text else key.get(s), key.get(e) if e not in iframe_text else f'iframe_text:{e}', st, ';'.join(sorted((rs or '').split(';'))) if rs and rs != '-' else None, pe)
                 if sr:
                     emit('scope', key.get(s), key.get(e), key.get(sr), sp)
                 if st != 'unknown':
