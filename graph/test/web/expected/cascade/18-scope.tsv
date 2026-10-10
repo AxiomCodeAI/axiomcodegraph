@@ -1,0 +1,28 @@
+# reviewed: yes 2026-10-10 iter 1b — every row read against the case source (@scope containment, limits, nearest root, proximity, :scope/&, prelude-less root = <style> parent)
+# case: cascade/18-scope   kinds: styles,scope,unknown
+# shape: component-scoped design-system sheets: @scope (.card) to (.content) donut scopes, :scope and & for the root, a prelude-less @scope in a component <style>, nested cards (nearest root wins)
+scope	index.html:9:41/0	index.html:9:88	index.html:9:1	1
+scope	index.html:9:58/0	index.html:9:1	index.html:9:1	0
+scope	s.css:2:3/0	index.html:5:19	index.html:5:1	1
+scope	s.css:2:3/0	index.html:6:27	index.html:6:3	1
+scope	s.css:3:3/0	index.html:5:1	index.html:5:1	0
+scope	s.css:3:3/0	index.html:6:3	index.html:6:3	0
+scope	s.css:4:3/0	index.html:5:19	index.html:5:1	1
+scope	s.css:4:3/0	index.html:6:27	index.html:6:3	1
+scope	s.css:5:3/0	index.html:6:27	index.html:5:1	2
+scope	s.css:7:24/0	index.html:5:19	index.html:5:1	1
+scope	s.css:7:24/0	index.html:5:55	index.html:5:1	2
+scope	s.css:7:24/0	index.html:6:27	index.html:6:3	1
+styles	index.html:9:41/0	index.html:9:88	match	-	-
+styles	index.html:9:58/0	index.html:9:1	match	-	-
+styles	s.css:2:3/0	index.html:5:19	match	-	-
+styles	s.css:2:3/0	index.html:6:27	match	-	-
+styles	s.css:3:3/0	index.html:5:1	match	-	-
+styles	s.css:3:3/0	index.html:6:3	match	-	-
+styles	s.css:4:3/0	index.html:5:19	match	-	-
+styles	s.css:4:3/0	index.html:6:27	match	-	-
+styles	s.css:5:3/0	index.html:6:27	match	-	-
+styles	s.css:7:24/0	index.html:5:19	conditional	scope_bound:state:hover	-
+styles	s.css:7:24/0	index.html:5:55	conditional	scope_bound:state:hover	-
+styles	s.css:7:24/0	index.html:6:27	conditional	scope_bound:state:hover	-
+unknown	scope_bound:shadow_dom	s.css:8:18/0	index.html

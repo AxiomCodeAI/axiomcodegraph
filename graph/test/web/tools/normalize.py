@@ -33,6 +33,7 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
   web_styles(selector_uid, element_uid, page_uid, status, reason, pseudo_element, conditions,
              spec_a, spec_b, spec_c, layer_rank, sheet_order, rule_order, important_count)
              reason: every reason, sorted, ';'-joined ('state:hover;at_rule:media' -> 'at_rule:media;state:hover')
+             + scope_root (element uid, NULL outside @scope), scope_proximity (generations root -> subject)  [iter1b]
   web_var(use_uid, name, def_uid, page_uid, status, reason)              use_uid = the using declaration
   web_keyframes_use(use_uid, name, target_uid, page_uid, status, reason)  use_uid = declaration
   web_font_use(use_uid, name, target_uid, page_uid, status, reason)
@@ -217,11 +218,14 @@ def main():
             emit('links_to', key.get(e), an, key.get(tp) if tp else url, key.get(te) if te else None, st, rs)
         for e, an, idv, te, st, rs in g.rows('web_id_refs', ['from_element_uid', 'attribute_name', 'id_value', 'to_element_uid', 'status', 'reason']):
             emit('id_ref', key.get(e), an, idv, key.get(te) if te else None, st, rs)
-        if want('styles') or want('cascade'):
-            for s, e, p, st, rs, pe, cond, a, b, c, lr, so, ro, ic in g.rows('web_styles', [
+        if want('styles') or want('cascade') or want('scope'):
+            for s, e, p, st, rs, pe, cond, a, b, c, lr, so, ro, ic, sr, sp in g.rows('web_styles', [
                     'selector_uid', 'element_uid', 'page_uid', 'status', 'reason', 'pseudo_element', 'conditions',
-                    'spec_a', 'spec_b', 'spec_c', 'layer_rank', 'sheet_order', 'rule_order', 'important_count']):
+                    'spec_a', 'spec_b', 'spec_c', 'layer_rank', 'sheet_order', 'rule_order', 'important_count',
+                    'scope_root', 'scope_proximity']):
                 emit('styles', key.get(s), key.get(e), st, ';'.join(sorted((rs or '').split(';'))) if rs and rs != '-' else None, pe)
+                if sr:
+                    emit('scope', key.get(s), key.get(e), key.get(sr), sp)
                 if st != 'unknown':
                     emit('cascade', key.get(p), key.get(s), key.get(e), so, ro, lr, f'{a},{b},{c}', ic, cond)
         for tbl, kind in (('web_var', 'var'), ('web_keyframes_use', 'keyframes_use'), ('web_font_use', 'font_use'), ('web_container_use', 'container_use')):

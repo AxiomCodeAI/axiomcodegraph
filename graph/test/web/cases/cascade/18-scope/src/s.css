@@ -1,0 +1,8 @@
+@scope (.card) to (.content) {
+  img { a: 1 }
+  :scope { a: 2 }
+  & > img { a: 3 }
+  .card img { a: 4 }
+}
+@scope (.card:hover) { img { a: 5 } }
+@scope (:host) { img { a: 6 } }
