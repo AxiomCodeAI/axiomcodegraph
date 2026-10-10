@@ -45,13 +45,18 @@ param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_resolves
 param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_external(param, x), t = x.
 param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_external(param, x), type_ancestor(t, x).
 param_flow_type(param, t) :- param_flow_in(param, t), param_decl_untyped(param).
-// A type whose hierarchy leaves the project (an exception class over an unstaged IOException) may
-// reach an unstaged or library declared type through supertypes no IR shows, so it is kept against
-// one; never against String, which is final.
+// A class EXTENDING an unstaged class (an exception over an unstaged IOException, a stream over an
+// unstaged FilterInputStream) may reach an unstaged or library declared type through superclasses no
+// IR shows, so it is kept against one; never against String, which is final. Implementing an
+// unstaged interface is not enough: a builder that is a CharSequence is no StringBuffer.
+.decl param_flow_ext_super(t:symbol)
+param_flow_ext_super(t) :- java_type_reference(_, "SUPER_TYPE", t, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, ref),
+    type_ref_external(ref, _).
+param_flow_ext_super(t) :- type_ancestor(t, a), param_flow_ext_super(a).
 param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_external(param, x),
-    type_has_external_ancestor(t), !string_type_id(x).
+    param_flow_ext_super(t), !string_type_id(x).
 param_flow_type(param, t) :- param_flow_in(param, t), method_param_type_resolves(_, param, _, d),
-    type_prov(d, "lib"), type_has_external_ancestor(t), !string_type_id(d).
+    type_prov(d, "lib"), param_flow_ext_super(t), !string_type_id(d).
 .decl param_flow_in(param:symbol, t:symbol)
 param_flow_in(param, t) :-
     applicable_candidate(call, callee),
