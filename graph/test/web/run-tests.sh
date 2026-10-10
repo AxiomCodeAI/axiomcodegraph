@@ -12,6 +12,7 @@
 #                            missing / extra rows fail; a listed known gap that starts passing fails;
 #                            fewer than 1 compared row fails
 #   4. per case checks:      check=crosslang -> tools/crosslang_guard.py (0 web<->JS edges, join keys present)
+#                            check=var_budget -> tools/var_budget.py (SPEC 3.4a caps on the stored var tables)
 #                            mode=scale      -> tools/gen_scale.py generates src/, budgets on time and RSS
 #
 # The expectations are the ORACLE's rows (oracle/oracle.mjs: parse5, postcss, css-select, acorn;
@@ -126,7 +127,7 @@ for rel in "${CASES[@]}"; do
   fi
   langs=web
   case ",$kinds," in *,js_function,*|*,dom_touch,*) langs=web,javascript;; esac
-  [ "$check" = "crosslang" ] && langs=web,javascript
+  [[ ",$check," == *",crosslang,"* ]] && langs=web,javascript
   t0=$(date +%s)
   if ! /usr/bin/time -l bash "$ROOT/bin/axiomcode" "$src" "$w/out" --language "$langs" --debug >"$w/build.log" 2>"$w/build.err"; then
     echo "FAIL (build — see $w/build.err)"; tail -3 "$w/build.err" | sed 's/^/    /'; fail=$((fail+1)); failed+=("$rel"); continue
@@ -157,9 +158,13 @@ for rel in "${CASES[@]}"; do
       args=("$exp" "$w/actual.tsv"); [ -f "$known" ] && args+=("$known")
       python3 "$HERE/tools/gate.py" "${args[@]}" > "$w/gate.txt" || { echo "FAIL"; sed 's/^/  /' "$w/gate.txt" | head -40; ok=0; }
     fi
-    if [ $ok = 1 ] && [ "$check" = "crosslang" ]; then
-      python3 "$HERE/tools/crosslang_guard.py" "$w/out" > "$w/crosslang.txt" || { echo "FAIL (per-language guard)"; sed 's/^/  /' "$w/crosslang.txt"; ok=0; }
-    fi
+  fi
+  # per-case checks (check=a,b): crosslang -> 0 web<->JS ids + join keys; var_budget -> SPEC 3.4a caps
+  if [ $ok = 1 ] && [[ ",$check," == *",crosslang,"* ]]; then
+    python3 "$HERE/tools/crosslang_guard.py" "$w/out" > "$w/crosslang.txt" || { echo "FAIL (per-language guard)"; sed 's/^/  /' "$w/crosslang.txt"; ok=0; }
+  fi
+  if [ $ok = 1 ] && [[ ",$check," == *",var_budget,"* ]]; then
+    python3 "$HERE/tools/var_budget.py" "$w/out" > "$w/var_budget.txt" || { echo "FAIL (var row caps)"; sed 's/^/  /' "$w/var_budget.txt"; ok=0; }
   fi
   if [ $ok = 1 ]; then echo "ok ($(tail -1 "$w/gate.txt" | sed 's/^ *//'); ${secs}s)"; pass=$((pass+1)); else fail=$((fail+1)); failed+=("$rel"); fi
   [ "$KEEP" = "1" ] || rm -rf "$w"

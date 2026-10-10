@@ -34,7 +34,9 @@ Every web node table has `uid` (the parser's unique hash), `file` (repo-relative
              spec_a, spec_b, spec_c, layer_rank, sheet_order, rule_order, important_count)
              reason: every reason, sorted, ';'-joined ('state:hover;at_rule:media' -> 'at_rule:media;state:hover')
              + scope_root (element uid, NULL outside @scope), scope_proximity (generations root -> subject)  [iter1b]
-  web_var(use_uid, name, def_uid, page_uid, status, reason)              use_uid = the using declaration
+  web_var(use, def, page, status, reason)   [iter1b] the SQL VIEW over web_var_def / web_var_visible /
+             web_var_scope (SPEC 3.4a); use = the VARIABLE value_ref uid (its declaration and name are read
+             from web_value_refs), def = the defining declaration uid or the @property rule uid, NULL when none
   web_keyframes_use(use_uid, name, target_uid, page_uid, status, reason)  use_uid = declaration
   web_font_use(use_uid, name, target_uid, page_uid, status, reason)
   web_container_use(use_uid, name, target_uid, page_uid, status, reason)  use_uid = the @container rule
@@ -228,9 +230,16 @@ def main():
                     emit('scope', key.get(s), key.get(e), key.get(sr), sp)
                 if st != 'unknown':
                     emit('cascade', key.get(p), key.get(s), key.get(e), so, ro, lr, f'{a},{b},{c}', ic, cond)
-        for tbl, kind in (('web_var', 'var'), ('web_keyframes_use', 'keyframes_use'), ('web_font_use', 'font_use'), ('web_container_use', 'container_use')):
+        if want('var'):
+            vref = {uid: (key.get(d) if d else key.get(r), n) for uid, d, r, rk, n, *_x in refs if rk == 'VARIABLE'}
+            for u, d, p, st, rs in g.rows('web_var', ['use', 'def', 'page', 'status', 'reason']):
+                if u not in vref:
+                    die(f'web_var.use {u} is not a VARIABLE value_ref uid (contract: graph/test/web/tools/normalize.py)')
+                owner, name = vref[u]
+                emit('var', owner, name, key.get(d) if d else None, key.get(p), st, rs)
+        for tbl, kind in (('web_keyframes_use', 'keyframes_use'), ('web_font_use', 'font_use'), ('web_container_use', 'container_use')):
             if want(kind):
-                for u, n, t, p, st, rs in g.rows(tbl, ['use_uid', 'name', 'def_uid' if kind == 'var' else 'target_uid', 'page_uid', 'status', 'reason']):
+                for u, n, t, p, st, rs in g.rows(tbl, ['use_uid', 'name', 'target_uid', 'page_uid', 'status', 'reason']):
                     emit(kind, key.get(u), n, key.get(t) if t else None, key.get(p), st, rs)
         for kind, n, p, rs, _d in g.rows('web_unknown', ['kind', 'node_uid', 'page_uid', 'reason', 'detail']):
             emit('unknown', rs, key.get(n, n), key.get(p) if p else None)
