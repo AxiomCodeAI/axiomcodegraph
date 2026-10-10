@@ -25,11 +25,14 @@
 #                                    "# reviewed: no" — read them, then flip the header by hand
 #   ./run-tests.sh --keep            keep the per-case work dirs (graph/test/web/.work)
 #
-# Environment: AXIOM_SUITE_JOBS is not used (cases run one at a time: one engine solve each).
+# Environment: AXIOM_ROOT=<checkout> tests that checkout's engine with these suites (default: this tree).
+#              Cases run one at a time (one engine solve each).
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
+# AXIOM_ROOT: the checkout whose bin/axiomcode, parser and graph/web engine are under test
+# (default: this one). Lets the suites on web/torture run against the feat/web-layer worktree.
+ROOT="${AXIOM_ROOT:-$(cd "$HERE/../../.." && pwd)}"
 WORK="$HERE/.work"
 ORACLE_DIR="$HERE/oracle"
 KEEP=0; ORACLE=0; BLESS=0; FILTERS=()
