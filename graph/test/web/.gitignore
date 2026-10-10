@@ -1,0 +1,5 @@
+# The repository root ignores every `oracle/` directory (the C# oracle output); this one is SOURCE.
+!oracle/
+oracle/node_modules/
+# the oracle pins its tools exactly; its lockfile is part of the ground truth (root ignores package-lock.json)
+!oracle/package-lock.json

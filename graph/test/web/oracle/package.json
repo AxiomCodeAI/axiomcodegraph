@@ -1,0 +1,19 @@
+{
+  "name": "axiom-web-oracle",
+  "private": true,
+  "type": "module",
+  "description": "Independent ground truth for the web graph: parse5 + postcss + css-select + acorn. Never imports the axiom parser.",
+  "dependencies": {
+    "@bramus/specificity": "2.4.3",
+    "acorn": "8.19.0",
+    "acorn-walk": "8.3.5",
+    "css-select": "7.0.0",
+    "domhandler": "6.0.1",
+    "domutils": "4.0.2",
+    "parse5": "8.0.1",
+    "parse5-htmlparser2-tree-adapter": "8.0.1",
+    "postcss": "8.5.29",
+    "postcss-safe-parser": "7.1.0",
+    "postcss-selector-parser": "7.1.6"
+  }
+}
