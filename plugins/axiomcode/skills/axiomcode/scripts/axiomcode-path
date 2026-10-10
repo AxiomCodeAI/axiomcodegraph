@@ -141,6 +141,29 @@ def replace_file(tmp, dst):
     shutil.copyfile(tmp, dst); os.remove(tmp)
 
 
+def pid_alive(pid):
+    """True / False whether process pid is running, None when it cannot be told. Never os.kill(pid, 0) on
+    Windows: there signal 0 is CTRL_C_EVENT, so the "probe" interrupts the lock's holder (and its console group),
+    and a query waiting on an export killed the export it was waiting for."""
+    if pid <= 0: return False
+    if os.name == 'nt':
+        try:
+            import ctypes
+            k = ctypes.WinDLL('kernel32', use_last_error=True)
+            h = k.OpenProcess(0x1000, False, pid)            # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h: return True if ctypes.get_last_error() == 5 else False   # access denied: alive, someone else's
+            try:
+                code = ctypes.c_ulong()
+                if not k.GetExitCodeProcess(h, ctypes.byref(code)): return None
+                return code.value == 259                     # STILL_ACTIVE
+            finally: k.CloseHandle(h)
+        except Exception: return None
+    try: os.kill(pid, 0); return True
+    except ProcessLookupError: return False
+    except PermissionError: return True                      # alive, another user's process
+    except OSError: return None
+
+
 def export_lock(d, fresh):
     """ONE exporter per facts directory. A query that found the stamp stale while another process (the build's
     background warm-up, a concurrent query, several hooks at once) was already writing these facts ran the whole
@@ -155,16 +178,14 @@ def export_lock(d, fresh):
             os.write(fd, str(os.getpid()).encode()); os.close(fd); return True
         except FileExistsError:
             pass
-        gone = False
-        try:
-            os.kill(int(open(lock).read().strip() or '0'), 0)
-        except (ProcessLookupError, ValueError):
-            gone = True
-        except PermissionError:
-            pass                                 # alive, another user's process: wait for it
-        except OSError:                          # Windows cannot probe another session's pid: fall back to the lock's age
+        try: holder = int(open(lock).read().strip() or '0')
+        except OSError: continue                 # the lock vanished under us: contend for it again
+        except ValueError: holder = 0
+        alive = pid_alive(holder)
+        if alive is None:                        # cannot tell: the lock's age decides
             try: gone = time.time() - os.path.getmtime(lock) > 900
-            except OSError: continue             # the lock vanished under us: contend for it again
+            except OSError: continue
+        else: gone = not alive
         if gone:
             try: os.remove(lock)
             except OSError: pass
